@@ -46,23 +46,43 @@ describe("card strip in a dense host (3-way, Tag, 4-way)", () => {
     expect(frame).toMatch(/flex:\s*1 1 auto/);
   });
 
-  it("keeps the two-line name under every tile", () => {
-    expect(strip).toMatch(/-webkit-line-clamp:\s*2/);
-    expect(strip).not.toMatch(/\.name\s*\{[^}]*white-space:\s*nowrap/);
+  it("keeps the two-line name under every tile: the dense block does not touch the name", () => {
+    expect(strip).toMatch(/\.name \{[^}]*-webkit-line-clamp:\s*2/);
+    const block = strip.slice(strip.indexOf("@media (min-width: 901px)"));
+    expect(block).not.toMatch(/\.name\b/);
+    expect(block).not.toMatch(/white-space:\s*nowrap/);
+    expect(block).not.toMatch(/line-clamp:\s*1\b/);
   });
 
-  it("keeps the chain response strip and its panel as they were", () => {
-    expect(strip).not.toMatch(/\.wrap\[data-tone="chain"\][^{]*\{[^}]*flex-wrap/);
-    expect(tableStage).toMatch(/\[data-strip="true"\]:not\(\[data-precheck\], \[data-tone="chain"\]\)/);
-    expect(gridStage).toMatch(/\[data-strip="true"\]:not\(\[data-precheck\], \[data-tone="chain"\]\)/);
+  it("keeps the chain response strip as it was: every rule of the dense block leaves it out", () => {
+    const block = strip.slice(strip.indexOf("@media (min-width: 901px)"));
+    const selectors = [...block.matchAll(/^\s*(:global\(\[data-prompt-dense\]\)[^{]*)\{/gm)].flatMap((match) => match[1].split(","));
+    expect(selectors.length).toBeGreaterThan(5);
+    for (const selector of selectors) expect(selector, selector).toContain(':not([data-tone="chain"])');
   });
 
-  it("keeps the panel inside the pair box (at least 300px tall on a small window), so it does not reach the hand", () => {
+  it("caps the panel on a dense host only, never a chain response or a precheck", () => {
     for (const css of [tableStage, gridStage]) {
-      const at = css.indexOf(':not([data-precheck], [data-tone="chain"])) {');
+      expect(css).toMatch(/\[data-prompt-dense\] :global\(\[data-prompt-panel\]\[data-strip="true"\]:not\(\[data-precheck\], \[data-tone="chain"\]\)\) \{/);
+    }
+  });
+
+  it("keeps the panel in the pair box, and no taller than the box plus 16px on a short window, so it keeps off the hand", () => {
+    for (const css of [tableStage, gridStage]) {
+      const at = css.indexOf("--pr-strip-h:");
       expect(at).toBeGreaterThan(-1);
       const decl = css.slice(at, css.indexOf("}", at));
-      expect(decl).toMatch(/max-height:\s*min\(max\(calc\(var\(--pr-h[^)]*\) - 40px\), 300px\), calc\(100% - 24px\)\)/);
+      expect(decl).toMatch(/--pr-strip-h:\s*max\(calc\(var\(--pr-h[^)]*\) - 40px\), min\(300px, calc\(var\(--pr-h[^)]*\) \+ 16px\)\)\);/);
+      expect(decl).toMatch(/max-height:\s*min\(var\(--pr-strip-h\), calc\(100% - 24px\)\);/);
     }
+  });
+
+  it("sizes the tile from that cap and from the text scale", () => {
+    expect(rule(strip, dense)).toMatch(/var\(--pr-strip-h, 300px\) - 158px \* var\(--tt, 1\)/);
+  });
+
+  it("puts the up and down buttons at the middle of the top and bottom edge", () => {
+    expect(strip).toMatch(/\.arrow\[data-side="up"\],\s*\n\.arrow\[data-side="down"\] \{ left: 50%;/);
+    expect(strip).toMatch(/\.arrow\[data-side="down"\] \{ top: auto; bottom:/);
   });
 });

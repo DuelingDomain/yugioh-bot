@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
 
-import { CardStrip, type StripCard } from "@/components/duel/card-strip";
+import { CardStrip, stripCardsPerRow, type StripCard } from "@/components/duel/card-strip";
 
 const card = (code: number): DuelCardInfo => ({
   code, name: `Card ${code}`, description: "", type: 1, attack: 0, defense: 0, level: 1, attribute: 1, race: "Warrior",
@@ -156,6 +156,115 @@ describe("CardStrip", () => {
         render(<CardStrip items={items()} highlight={0} busy={false} multi label="Pick" onPick={onPick} />);
         fireEvent.click(screen.getByRole("button", { name: "2. Card 2" }));
         expect(onPick).toHaveBeenCalledWith(1);
+      } finally {
+        layout.restore();
+      }
+    });
+  });
+
+  describe("wrapping list (a dense host: rows that scroll up and down)", () => {
+    const many = (count: number): StripCard[] =>
+      Array.from({ length: count }, (_, i) => ({ id: `c${i}`, card: card(i + 1), label: `Card ${i + 1}`, selected: false, order: null }));
+
+    /** jsdom has no layout: 3 cards per row, each row 200px apart, a 300px view over 800px of rows. */
+    function mockRows(box: { clientHeight: number; scrollHeight: number }) {
+      const scrollTo = vi.fn();
+      const keys = ["clientHeight", "scrollHeight", "offsetTop", "offsetHeight", "scrollTo"] as const;
+      const saved = keys.map((key) => [key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)] as const);
+      const define = (key: string, descriptor: PropertyDescriptor) => Object.defineProperty(HTMLElement.prototype, key, { configurable: true, ...descriptor });
+      define("clientHeight", { get: () => box.clientHeight });
+      define("scrollHeight", { get: () => box.scrollHeight });
+      define("offsetHeight", { get: () => 180 });
+      define("offsetTop", { get(this: HTMLElement) { return Math.floor(Array.from(this.parentElement?.children ?? []).indexOf(this) / 3) * 200; } });
+      define("scrollTo", { value: scrollTo });
+      const style = document.createElement("style");
+      style.textContent = "ul[data-card-strip] { flex-wrap: wrap; scroll-padding-top: 14px; }";
+      document.head.appendChild(style);
+      return {
+        scrollTo,
+        restore() {
+          style.remove();
+          for (const [key, descriptor] of saved) {
+            if (descriptor) Object.defineProperty(HTMLElement.prototype, key, descriptor);
+            else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
+          }
+        },
+      };
+    }
+
+    it("shows a down button and the down fade when more rows wait below, and none of the sideways arrows", () => {
+      const layout = mockRows({ clientHeight: 300, scrollHeight: 800 });
+      try {
+        render(<CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        const list = screen.getByRole("list");
+        const frame = list.parentElement as HTMLElement;
+        expect(frame.getAttribute("data-down")).toBe("true");
+        expect(frame.getAttribute("data-up")).toBe("false");
+        expect(frame.getAttribute("data-next")).toBe("false");
+        expect(frame.getAttribute("data-prev")).toBe("false");
+        expect(screen.queryByRole("button", { name: "Show earlier cards" })).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Show more cards" }));
+        expect(layout.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 240 }));
+      } finally {
+        layout.restore();
+      }
+    });
+
+    it("shows an up button after a scroll, and no down button at the last row", () => {
+      const layout = mockRows({ clientHeight: 300, scrollHeight: 800 });
+      try {
+        render(<CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        const list = screen.getByRole("list");
+        Object.defineProperty(list, "scrollTop", { configurable: true, value: 500 });
+        fireEvent.scroll(list);
+        const frame = list.parentElement as HTMLElement;
+        expect(frame.getAttribute("data-up")).toBe("true");
+        expect(frame.getAttribute("data-down")).toBe("false");
+        expect(screen.queryByRole("button", { name: "Show more cards" })).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Show earlier cards" }));
+        expect(layout.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 260 }));
+      } finally {
+        layout.restore();
+      }
+    });
+
+    it("keeps the highlighted card in view by its top, not its left", () => {
+      const layout = mockRows({ clientHeight: 300, scrollHeight: 800 });
+      try {
+        const { rerender } = render(<CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        layout.scrollTo.mockClear();
+        // Card 10 is in row 4 (top 600, 180 tall): scroll so that its bottom edge plus 14px is the view bottom.
+        rerender(<CardStrip items={many(12)} highlight={9} busy={false} multi label="Pick" onPick={() => {}} />);
+        expect(layout.scrollTo).toHaveBeenCalledTimes(1);
+        const call = layout.scrollTo.mock.calls[0][0];
+        expect(call.top).toBe(600 + 180 + 14 - 300);
+        expect(call).not.toHaveProperty("left");
+      } finally {
+        layout.restore();
+      }
+    });
+
+    it("counts the cards in a row for the Up and Down keys, and one card in a single sideways row", () => {
+      const layout = mockRows({ clientHeight: 300, scrollHeight: 800 });
+      try {
+        render(<CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        expect(stripCardsPerRow()).toBe(3);
+      } finally {
+        layout.restore();
+      }
+      cleanup();
+      render(<CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+      expect(stripCardsPerRow()).toBe(1);
+    });
+
+    it("leaves the wheel to the list, which scrolls up and down by itself", () => {
+      const layout = mockRows({ clientHeight: 300, scrollHeight: 800 });
+      try {
+        render(<CardStrip items={many(12)} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        const list = screen.getByRole("list");
+        const event = new WheelEvent("wheel", { deltaY: 120, cancelable: true });
+        list.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(false);
       } finally {
         layout.restore();
       }

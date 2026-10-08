@@ -86,6 +86,11 @@
 }
 .arrow[data-side="prev"] { left: calc(4 * var(--cs-u)); }
 .arrow[data-side="next"] { right: calc(4 * var(--cs-u)); }
+/* The up and down buttons of a wrapping list: round chevrons at the middle of the top and bottom edge. */
+.arrow[data-side="up"],
+.arrow[data-side="down"] { left: 50%; translate: -50% 0; }
+.arrow[data-side="up"] { top: calc(4 * var(--cs-u)); }
+.arrow[data-side="down"] { top: auto; bottom: calc(4 * var(--cs-u)); }
 .arrow:hover { border-color: var(--duel-pen, #9b7eff); background: rgb(19 32 55 / 0.96); }
 .arrow:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: 2px; }
 
@@ -248,11 +253,13 @@
  * A dense host on a window wider than a phone (the 3-way and Tag tables, the 4-way grid): the cards wrap into rows that
  * scroll up and down inside the panel, with big tiles and the full name (two lines) under each. One row of 90-odd
  * tiles at 0.72 of a unit was about 65px wide, too small to read the art or the name. The tile is sized from the unit
- * with a floor in px, and from the pair height (--pr-h), so one full row fits between the title and the Confirm button, and a long list shows part of the next row (it scrolls). The panel's max-height is the pair box (the stage css). A chain response keeps its strip.
+ * with a floor in px, and from the panel's height cap (--pr-strip-h, set in the stage css), so one full row fits between the
+ * title and the Confirm button. More cards scroll: the fade, the down button and the card count in the subtitle tell
+ * that there are more. A chain response keeps its strip.
  */
 @media (min-width: 901px) {
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) {
-    --cs-w: clamp(96px, calc((max(var(--pr-h, 600px) - 40px, 300px) - 158px) / 1.46), max(112px, calc(128 * var(--cs-u))));
+    --cs-w: clamp(96px, calc((var(--pr-strip-h, 300px) - 158px * var(--tt, 1)) / 1.46), max(112px, calc(128 * var(--cs-u))));
     --cs-gap: calc(10 * var(--cs-u));
     --cs-pad-x: 14px;
     --cs-pad-top: 12px;
