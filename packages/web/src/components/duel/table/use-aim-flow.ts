@@ -38,6 +38,8 @@ export interface AimBar {
   title: string;
   entries: AimBarEntry[];
   targetLabel?: string;
+  /** The bar shows Cancel even with no locked aim: the aim before the attack is sent has no other way out on touch. */
+  cancelable?: boolean;
 }
 
 interface Lock {
@@ -197,8 +199,6 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     setLock(null);
     submitPick(live.optionId);
   }, [live, submitPick]);
-  const cancel = useCallback(() => setLock(null), []);
-
   const lockTo = useCallback(
     (optionId: string, to: NonNullable<BattleAim["to"]>, label: string) => {
       if (!promptId) return;
@@ -372,6 +372,11 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   pickRef.current = seatPick;
   orderRef.current = rivalOrder;
   liveRef.current = live;
+  // Cancel lets go of a locked aim first; with none locked it ends the aim that came before the attack (the Cancel button, for touch).
+  const cancel = useCallback(() => {
+    if (liveRef.current) setLock(null);
+    else preRef.current?.cancel();
+  }, []);
   suspendedRef.current = options.suspended === true;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -441,6 +446,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       return {
         kind: "direct",
         title: pre ? aimHint : (prompt?.title ?? "Select a duelist to attack"),
+        ...(pre ? { cancelable: true } : {}),
         entries: rivalOrder.map((seat, index) => ({
           seat,
           name: nameOf(seat),
@@ -451,7 +457,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       };
     }
     if (attackTarget && live) return { kind: "confirm", title: "Attack target", entries: [], targetLabel: `Attack ${live.label}?` };
-    if (pre) return { kind: "direct", title: aimHint, entries: [] };
+    if (pre) return { kind: "direct", title: aimHint, entries: [], cancelable: true };
     return null;
   }, [aimHint, attackTarget, direct, layout.slots, live, nameOf, pre, prompt?.title, rivalOrder]);
 
