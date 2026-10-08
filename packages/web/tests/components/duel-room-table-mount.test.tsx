@@ -312,7 +312,14 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     expect(state.send).not.toHaveBeenCalled();
   });
 
-  it.each(["error", "syncing", "recovering"] as const)("blocks actions during %s", async (gate) => {
+  it("keeps the table live during a routine re-read (syncing), so the first click acts", () => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.syncing = true;
+    const { container } = mount();
+    expect(container.querySelector("[data-table-shell]")).toHaveAttribute("data-can-act", "true");
+  });
+
+  it.each(["error", "recovering"] as const)("blocks actions during %s", async (gate) => {
     room(FFA3_FIXTURES.states.main.room);
     if (gate === "error") state.error = new Error("offline"); else state[gate] = true;
     const { container } = mount();

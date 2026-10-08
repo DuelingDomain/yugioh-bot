@@ -97,6 +97,30 @@ describe("useDuelWebsocket change notices", () => {
   });
 });
 
+describe("useDuelWebsocket window focus", () => {
+  it("re-reads the room on focus without raising a flag while the socket is live", async () => {
+    const read = gate();
+    const onChange = vi.fn(async () => {});
+    const { result } = await connected(onChange);
+    const before = onChange.mock.calls.length;
+    onChange.mockImplementation(() => read.promise);
+    act(() => { window.dispatchEvent(new Event("focus")); });
+    expect(onChange.mock.calls.length).toBe(before + 1);
+    expect(result.current.syncing).toBe(false);
+    expect(result.current.recovering).toBe(false);
+    await act(async () => { read.open(); await read.promise; });
+    expect(result.current.recovering).toBe(false);
+  });
+
+  it("a focus read that fails still raises the recovering flag", async () => {
+    const onChange = vi.fn(async () => {});
+    const { result } = await connected(onChange);
+    onChange.mockImplementation(async () => { throw new Error("down"); });
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    await waitFor(() => expect(result.current.recovering).toBe(true));
+  });
+});
+
 it("requests fresh credentials and rejoins after the dice opening moves the player's seat", async () => {
   const fetch = vi.fn()
     .mockResolvedValueOnce(Response.json({ guildId: "g1", token: "lobby-seat-2", expiresAt: Date.now() + 300_000 }))

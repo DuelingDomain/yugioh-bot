@@ -284,7 +284,9 @@ export function useDuelWebsocket(
       }
     };
 
-    const onFocus = () => { void refresh({ recovery: true }).catch(() => {}); };
+    // A window focus is a catch-up read, not a lost connection: while the socket is live it stays quiet, so a click into
+    // the window is not lost to a disabled button. A failed read still raises `recovering` (see pump).
+    const onFocus = () => { void refresh(live ? { quiet: true } : { recovery: true }).catch(() => {}); };
     const onVisibility = () => {
       if (socket.connected && subscribed) socket.emit("duel:visibility", { visible: document.visibilityState === "visible" });
       if (document.visibilityState === "visible") recoverBoard(true);
