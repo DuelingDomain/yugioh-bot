@@ -5,7 +5,7 @@ import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
 import { scriptErrorModeFromEnv } from "./script-errors.js";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
@@ -326,7 +326,8 @@ export function createDuelHost(options: {
   const games = new Map<string, LiveGame>();
   const replayCache = new Map<string, DuelReplay>();
   const queues = new Map<string, Promise<unknown>>();
-  const remaps = loadCardPasscodeRemaps(options.dataDirectory);
+  const remaps = existsSync(join(options.dataDirectory, "card-remaps.json"))
+    ? loadCardPasscodeRemaps(options.dataDirectory) : new Map<number, number>();
   const hashes = new Map<string, string | null>();
   let revisionOverlay: ReturnType<typeof loadMultiScriptsFor> | undefined;
   const autoBlocks = createAutoBlockPolicy(options.db, { bundleVersion: manifest.bundleVersion,
