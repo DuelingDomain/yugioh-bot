@@ -1,6 +1,7 @@
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { rmSync } from "node:fs";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
@@ -15,7 +16,18 @@ import { cardScriptHash } from "../src/card-script-hash.js";
 import { loadCardDatabase } from "../src/cards.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
-import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
+
+let DATA: string;
+beforeAll(() => {
+  DATA = createHostDataFixture([
+    ...Array.from({ length: 40 }, (_, i) => ({ code: 1000 + i, name: `Fixture Normal Monster ${i}` })),
+    { code: 18144506, name: "Harpie's Feather Duster", type: 2 },
+    { code: 46986414, name: "Dark Magician" },
+    { code: 46986421, name: "Dark Magician", alias: 46986414 },
+  ]);
+});
+afterAll(() => { rmSync(DATA, { recursive: true, force: true }); });
 
 // Passes through to the real import; the spy shows which options the host asks for.
 vi.mock("../src/deck-import.js", async (importOriginal) => {
