@@ -730,6 +730,22 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { tower.remove(); }
     });
 
+    it("keeps the hover band on a click, even when the taller pin no longer fits it", () => {
+      // Two tall bands on the left (50-318 and 392-712): the hover stands in the first. The text of the pin does not fit that one.
+      layout({ left: 900, right: 980, top: 300, bottom: 420 }, (panel) => !(panel.getAttribute("data-pinned") === "true" && css("--pv-max-h") === "268px"));
+      const bar = part({ "data-testid": "chain-tower" }, { left: 14, right: 162, top: 330, bottom: 380 });
+      try {
+        mountWithText();
+        hover();
+        expect(css("--pv-max-h")).toBe("268px");
+        fireEvent.click(screen.getByTestId("field-pick"));
+        expect(peek().getAttribute("data-pinned")).toBe("true");
+        expect(peek().getAttribute("data-side")).toBe("left");
+        expect(css("--pv-max-h")).toBe("268px");
+        expect(css("--pv-bottom")).toBe("402px");
+      } finally { bar.remove(); }
+    });
+
     it("takes the right edge when the left one covers the board or a kept part, even for a short text", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
       const master = part({ "data-testid": "hud-master" }, { left: 14, right: 400, top: 20, bottom: 712 });
