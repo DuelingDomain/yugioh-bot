@@ -1,7 +1,7 @@
 import type { DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
 
 /** Location bits of the core, by the names scripted players and scenarios use. */
-export const LOCATION_BITS = { hand: 0x02, mzone: 0x04, szone: 0x08, grave: 0x10, banished: 0x20, deck: 0x01, extra: 0x40, dmz: 0x4000 } as const;
+export const LOCATION_BITS = { hand: 0x02, mzone: 0x04, szone: 0x08, grave: 0x10, banished: 0x20, deck: 0x01, extra: 0x40, overlay: 0x80, dmz: 0x4000 } as const;
 export type LocationName = keyof typeof LOCATION_BITS;
 
 /** Picks one card option of a prompt. The card is a passcode and the owner a seat number. */
