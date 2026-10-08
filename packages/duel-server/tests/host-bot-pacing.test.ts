@@ -6,6 +6,7 @@ import { migrate } from "@yugidraft/shared/db";
 import type { DuelAnswer, DuelCardInfo, DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, practiceBotDelay, type DuelHost } from "../src/host.js";
+import { EngineLoopError } from "../src/engine-loop-error.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -113,6 +114,21 @@ async function setup(options: { botStepDelayMs?: number | ((prompt: DuelPrompt) 
 }
 
 describe("practice bot pacing", () => {
+  it.each([0, 500])("interrupts a bot core loop with a clear reason at %sms pacing", async botStepDelayMs => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const t = await setup({ botStepDelayMs });
+    t.worker.onBotAnswer = () => { throw new EngineLoopError(); };
+    const result = await t.respond();
+    expect(result.status).toBe(200);
+    if (botStepDelayMs) await vi.advanceTimersByTimeAsync(botStepDelayMs);
+    expect(t.duels.get(t.slug, "g1")).toMatchObject({ status: "interrupted", resultReason: expect.stringMatching(/engine loop/i) });
+    expect(t.worker.closed).toBe(1);
+    expect(t.duels.privateState(t.slug, "g1").commands).toHaveLength(1);
+    expect((await post(t.host, { op: "view", ...t.base })).status).toBe(200);
+    expect(t.worker.answers).toEqual([0, 1]);
+    t.db.close();
+  });
   it("keeps the synchronous behaviour when no delay is configured", async () => {
     const { worker, respond, changes } = await setup({ botStepDelayMs: 0 });
     const before = changes.length;

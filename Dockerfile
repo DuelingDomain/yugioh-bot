@@ -80,6 +80,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/duel-server/package*.json packages/duel-server/
+COPY --from=build /app/packages/duel-server/card-block-list.json packages/duel-server/card-block-list.json
 COPY --from=build /app/packages/duel-server/dist packages/duel-server/dist
 COPY --from=build /app/packages/duel-server/scripts/install-engine-bundle.sh packages/duel-server/scripts/install-engine-bundle.sh
 COPY --from=build /app/packages/duel-server/scripts/verify-deploy-multi-cores.mjs packages/duel-server/scripts/verify-deploy-multi-cores.mjs

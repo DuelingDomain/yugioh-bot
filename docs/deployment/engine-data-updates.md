@@ -303,3 +303,118 @@ include both smoke helpers. The format is `official-releases-prerelease-v4`.
 This is an initialization check. A callback that fails later during an effect still
 needs gameplay investigation. Runtime EDOPro-style logging and the manually reviewed
 card block list are maintained on the separate `fix/script-error-tolerant` branch.
+
+## Runtime card script errors
+
+Owner decision, 2026-10-07: use EDOPro behavior on runtime card script errors—report
+and continue the duel. This applies to legacy Standard/Domain 1v1, pinned 1v1,
+Tag, FFA3 and FFA4. `DUEL_SCRIPT_ERRORS=tolerant` is the default; use
+`DUEL_SCRIPT_ERRORS=strict` to restore throwing on these errors for new duels.
+Strict mode also ignores card-script errors in view queries so live play, recovery
+and replays remain deterministic.
+Unknown values fail configuration. Production Compose passes `DUEL_SCRIPT_ERRORS`;
+staging passes `STAGING_DUEL_SCRIPT_ERRORS` to the same container setting. Recreate
+the duel container after changing it. The resolved policy is saved in the duel's
+private setup/journal; recovery and replay keep that policy even after the server
+setting changes. Older journals without this field recover in tolerant mode.
+
+The exact pinned core (`efc21aa433b88cd35b7c37db4072a35c58d9d435`) recovers:
+[interpreter.cpp](https://github.com/edo9300/ygopro-core/blob/efc21aa433b88cd35b7c37db4072a35c58d9d435/interpreter.cpp#L389)
+consumes a failed protected call and returns false; `check_condition` returns false.
+Its coroutine path logs errors, releases the thread, restores call state and returns
+`COROUTINE_ERROR` ([lines 571–635](https://github.com/edo9300/ygopro-core/blob/efc21aa433b88cd35b7c37db4072a35c58d9d435/interpreter.cpp#L571)).
+[ExecuteCost/Operation/Target](https://github.com/edo9300/ygopro-core/blob/efc21aa433b88cd35b7c37db4072a35c58d9d435/processor.cpp#L19)
+finish and clean up for every non-YIELD return, including that error. The failed
+function may have already changed game state; tolerance does not roll those changes
+back. EDOPro's [MessageHandler](https://github.com/edo9300/edopro/blob/c250b6ab9bebb6eca9fdd07ee0c5bd2278426e81/gframe/game.cpp#L3932)
+adds the diagnostic to its debug log and continues.
+
+The server tolerates only `OCG_LOG_TYPE_ERROR` (0) during `duelProcess`, outside
+script loading, with a Lua file/line diagnostic identifying a `c<passcode>.lua`
+card script. A shared helper's error needs a card frame in the immediately
+preceding core traceback for attribution. Script loading is tracked around the
+existing `_ocgapiLoadScript` export, including loads triggered by cards during
+processing, so both syntax errors and top-level runtime errors in a loaded chunk
+remain fatal. Initial deck/setup failures, missing scripts, `UNDEFINED` (3),
+unattributed errors, stack/memory/panic diagnostics and protocol failures remain
+fatal. View queries and the runtime FFA attack-target/elimination scripts use a
+separate scope: card callbacks there are tolerated even in strict mode, with one
+private telemetry sample per card and no event or duel-log line. Nested automatic
+card loads remain fatal. Query frequency differs between live play, recovery and
+replay, so query errors never change event IDs or processing error ordinals. Fatal
+Lua diagnostics also use generic player-facing text. The WASM binaries are unchanged. A callback can fail without a traceback,
+so traceback presence alone is not used to distinguish loading from runtime.
+
+Each answer (including its automatic core responses) produces at most one
+deterministic `script-error` event and matching quiet duel-log line: “Card script error: an effect may not have resolved correctly.
+The duel will continue.” Card identities and raw Lua diagnostics are omitted from
+all player and spectator messages, including with public-hand settings. This
+conservative text never names a hidden card. `DuelEngineView.events/log` flow through
+the existing worker views and room snapshots; `duel:changed` makes the client fetch
+its view, and `MatchSheetLog` displays the text in live duels and replays. Script errors have no
+centre banner. Event/log IDs depend only on the core sequence; timestamps and
+counters never enter views or the command journal. Strict-mode client errors also
+use generic text; their raw diagnostic remains in private telemetry. Errors never
+end a duel merely because their count is high. A batch exceeding 100,000 core
+process calls without a player prompt raises an engine loop invariant failure.
+The host interrupts the duel with an “Engine loop” reason and discards the worker,
+including during bot turns, eliminations and recovery. The failed command is not
+journaled; the response returns the interrupted duel rather than rejecting the
+player's answer. Later room requests do not replay the loop, including polls from
+previously eliminated seats.
+
+Private worker replies send card code, reported script file/line, raw message,
+mode, table format, engine, policy, journal position and per-request error ordinal
+to the host. Query ordinals are separate from process ordinals.
+Process telemetry is sampled at most 20 times per card per engine instance; the
+host also caps persistent samples at 20 per duel/card across recoveries. Query
+samples use a separate stable per-card key. Samples beyond these limits do not
+write SQLite rows or JSON error logs and do not affect gameplay events.
+The host emits a JSON `card_script_error` log with the numeric `duelId` and saves
+`card_script_errors` counters in the shared SQLite database. The idempotent schema
+migration also creates `card_script_error_occurrences` with the key
+`(duel_id, command_hash, error_index)`, card code and creation time. The command hash
+covers the saved seed, accepted journal position and attempted command (with
+default elimination flags normalized), so
+recovery/retries count an occurrence once while different rejected branches remain
+distinct. Query telemetry uses a fixed per-card key independent of journal/view
+frequency. Occurrence rows for completed, interrupted, cancelled or deleted duels
+expire after 30 days; active/lobby duel keys remain to prevent recovery recounts.
+Cleanup runs on recorder startup and daily during telemetry. Cumulative
+`card_script_errors` counters are retained. Fatal answer and elimination failures discard the advanced worker before
+recovery. Replay workers and standalone journal replay have no recorder. A database write failure emits
+`card_script_error_persistence_failed` with the same diagnostic and does not reject
+the duel answer; that occurrence cannot be counted until a later recovery succeeds.
+
+List the top cards from the repository root with Node 22 (no engine resources
+or environment-file loading required):
+
+```sh
+prlimit --core=0 npx tsx packages/duel-server/scripts/top-script-errors.ts /path/to/bot.sqlite 20
+```
+
+The read-only command outputs JSON ordered by count, then passcode, with the last
+message, file, line, mode, duel ID and time. Use its `code` field to add an admission
+block below while a script is investigated. Error counters and the admission file
+are operational data; neither changes engine bundle integrity or `bundleVersion`.
+
+### Temporarily block a card from new duels
+
+`packages/duel-server/card-block-list.json` ships as `[]`. To block a card while its script is investigated, add an entry with its engine passcode and a short reason players can understand:
+
+```json
+[
+  { "code": 12345678, "reason": "Its effect script is being investigated" }
+]
+```
+
+The illustrative passcode does not add a block to the repository. Sabersaurus
+(3743515) is fixed by the shared card-script patch above and should not be blocked
+for its former bug. Runtime-error tests register a synthetic card callback from
+`tests/fixtures/card-scripts/runtime-error.lua`, independent of the installed script. Commit the intended policy, deploy the duel server, and restart it after each edit. The file is read once per process. It is required beside the package's `dist` directory; the Docker `duel` stage copies it there, and `duel-bundled` inherits it. A deployment that copies compiled JavaScript separately must also copy this file. Missing or malformed policies fail the admission/search check instead of allowing cards silently. Entries require a unique positive passcode of at most `4294967295` and a nonblank reason.
+
+A listed card is unavailable in Normal and Domain decks at 1v1, Tag, FFA3 and FFA4 tables, including casual tables with `validateDeck=false`, no banlist, and draft pools. Main, Extra, Side and Deck Master cards are checked. Alias links are followed in both directions through the engine catalog, so blocking any artwork also blocks its original, other artworks and named alias variants. Codes in the list are first resolved through the bundle’s validated `loadCardPasscodeRemaps`, so a blocked prerelease code follows graduation to its official passcode in admission, search, card details and preset boards. Usually list the original passcode once. If multiple entries refer to the same alias family, the first entry supplies its reason.
+
+Deck-builder search retains blocked matches with an Unavailable label and the configured reason. Adding and selecting them as Deck Master is disabled. Importing or keeping an existing deck does not grant permission to start a duel: deck validation and duel admission reject it with `<card name> is unavailable: <reason>`, and validation reports reference every blocked copy.
+
+This is an admission policy, separate from the engine bundle. Editing it does not change `bundleVersion`, Lua scripts or WASM, and it does not change how an already running duel or its replay executes. Remove an entry and redeploy/restart to make the card available again; no engine rebuild is needed.

@@ -1,3 +1,4 @@
+import type { DuelScriptErrorMode } from "../duels/index.js";
 import type Database from "better-sqlite3";
 import { generateWebSlug } from "../util/web-slug.js";
 import type {
@@ -94,6 +95,8 @@ export class DuelServiceError extends Error {
 
 /** Scenario setup kept with the private state so a recover can rebuild the board. */
 export interface DuelSetup {
+  /** Resolved policy at start; older journals use tolerant recovery. */
+  scriptErrorMode?: DuelScriptErrorMode;
   /** The resolved FIRST_TURN_DRAW flag at start. Recovery and replay must keep this rule. */
   firstTurnDraw?: boolean;
   startupScripts?: string[];
@@ -398,6 +401,7 @@ function parseSetup(raw: string | null | undefined): DuelSetup | undefined {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
     const input = parsed as Record<string, unknown>;
     const setup: DuelSetup = {};
+    if (input.scriptErrorMode === "tolerant" || input.scriptErrorMode === "strict") setup.scriptErrorMode = input.scriptErrorMode;
     if (typeof input.firstTurnDraw === "boolean") setup.firstTurnDraw = input.firstTurnDraw;
     if (Array.isArray(input.startupScripts) && input.startupScripts.every((entry) => typeof entry === "string")) {
       setup.startupScripts = input.startupScripts as string[];
@@ -420,9 +424,13 @@ function validateSetup(setup: unknown): DuelSetup {
     throw new DuelServiceError("Duel setup must be an object", 400);
   }
   const input = setup as Record<string, unknown>;
-  const extra = Object.keys(input).find((key) => key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "presetId" && key !== "botPolicies" && key !== "engine");
+  const extra = Object.keys(input).find((key) => key !== "scriptErrorMode" && key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "presetId" && key !== "botPolicies" && key !== "engine");
   if (extra) throw new DuelServiceError(`Unknown duel setup field: ${extra}`, 400);
   const out: DuelSetup = {};
+  if (input.scriptErrorMode !== undefined) {
+    if (input.scriptErrorMode !== "tolerant" && input.scriptErrorMode !== "strict") throw new DuelServiceError("scriptErrorMode must be tolerant or strict", 400);
+    out.scriptErrorMode = input.scriptErrorMode;
+  }
   if (input.firstTurnDraw !== undefined) {
     if (typeof input.firstTurnDraw !== "boolean") throw new DuelServiceError("firstTurnDraw must be a boolean", 400);
     out.firstTurnDraw = input.firstTurnDraw;

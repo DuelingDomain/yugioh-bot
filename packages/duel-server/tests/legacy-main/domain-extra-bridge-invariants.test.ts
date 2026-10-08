@@ -2,13 +2,14 @@
 // with only the import paths changed: engine, views and prompts come from ../../src/legacy, the other sources from ../../src, and
 // LEGACY-1V1 change in this file: the temporary data dir also links ocgcore.domain.legacy.wasm.
 // the data dir helper from ../engine-data-dir.js. Do not edit it to make the legacy engine pass: the legacy engine must match the approved legacy pin. See legacy-1v1/README.md.
+// LEGACY-1V1: the owner-approved script-error policy uses a strict override and private diagnostics in the error probe.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DuelAnswer, DuelDeck } from "@yugidraft/shared/duels";
 import { createEngineGame, type EngineGame } from "../../src/legacy/engine.js";
 import { validateDeck } from "../../src/deck-legality.js";
@@ -220,7 +221,7 @@ describe("domain extra-bridge trial isolation (canonical data lua/wasm; fixture 
     }
   });
 
-  it("EXTRA filter errors surface instead of treating the DM as silently ineligible", async () => {
+  it("strict EXTRA filter errors surface and retain private diagnostics", async () => {
     const dataDirectory = makeOverlay();
     const db = new Database(join(dataDirectory, "cards.cdb"), { readonly: true });
     const master = cardId(db, "Flame Swordsman");
@@ -228,8 +229,10 @@ describe("domain extra-bridge trial isolation (canonical data lua/wasm; fixture 
     const deck = await arrangeWanted(dataDirectory, domainDeck(dataDirectory, master, [ERROR_ID]), [ERROR_ID]);
     let thrown: unknown;
     let game: EngineGame | undefined;
+    const reported = vi.fn();
     try {
-      game = await createEngineGame({ mode: "domain", decks: [deck, deck], seed, dataDirectory });
+      game = await createEngineGame({ mode: "domain", decks: [deck, deck], seed, dataDirectory,
+        scriptErrorMode: "strict", onScriptError: reported });
       game.view(0);
     } catch (error) {
       thrown = error;
@@ -237,7 +240,11 @@ describe("domain extra-bridge trial isolation (canonical data lua/wasm; fixture 
       game?.close();
     }
     expect(thrown).toBeInstanceOf(Error);
-    expect(String(thrown)).toMatch(/domain-bridge-probe/);
+    expect(String(thrown)).toMatch(/Card script error \(strict mode\)/);
+    expect(String(thrown)).not.toMatch(/domain-bridge-probe|888111002/);
+    expect(reported).toHaveBeenCalledWith(expect.objectContaining({
+      code: ERROR_ID, scriptErrorMode: "strict", message: expect.stringContaining("domain-bridge-probe"),
+    }));
   });
 
   it("nested matching callback cannot prove the outer DM via closed-over IsCanBeSpecialSummoned", async () => {

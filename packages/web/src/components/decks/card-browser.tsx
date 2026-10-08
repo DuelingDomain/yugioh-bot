@@ -192,6 +192,7 @@ export function CardBrowser({
   const stale = loading || (results != null && results.key !== key);
 
   function onTileKey(event: KeyboardEvent, card: DeckCardInfo) {
+    if (card.unavailableReason) return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === "+" || event.key === "=" || (event.key === "Enter" && event.shiftKey)) {
       event.preventDefault();
@@ -362,27 +363,30 @@ export function CardBrowser({
                 const full = pool ? left <= 0 : count >= limit;
                 const status = pool ? null : limitName(limit);
                 const arts = card.altArtCount ? `, ${artCountLabel(card.altArtCount)}` : "";
-                const label = pool
+                const availability = card.unavailableReason ? `, Unavailable: ${card.unavailableReason}` : "";
+                const label = (pool
                   ? `${card.name}, ${left} ${left === 1 ? "copy" : "copies"} left in your pool${arts}`
-                  : `${card.name}${count ? `, ${count} in deck` : ""}${status ? `, ${status}` : ""}${arts}`;
+                  : `${card.name}${count ? `, ${count} in deck` : ""}${status ? `, ${status}` : ""}${arts}`) + availability;
                 const handlers = {
-                  draggable: true,
+                  draggable: !card.unavailableReason,
+                  title: card.unavailableReason ? `${card.name}: Unavailable: ${card.unavailableReason}` : card.name,
                   "aria-pressed": inspectCode === card.code,
                   onClick: (event: MouseEvent<HTMLButtonElement>) => { event.currentTarget.focus(); onInspect(card); },
                   onPointerEnter: (event: PointerEvent) => { if (event.pointerType !== "touch") pointAt(card); },
                   onPointerLeave: () => pointAt(null),
-                  onDoubleClick: () => onAdd(card),
-                  onContextMenu: (event: MouseEvent) => { event.preventDefault(); onAdd(card); },
+                  onDoubleClick: () => { if (!card.unavailableReason) onAdd(card); },
+                  onContextMenu: (event: MouseEvent) => { event.preventDefault(); if (!card.unavailableReason) onAdd(card); },
                   onKeyDown: (event: KeyboardEvent) => onTileKey(event, card),
-                  onDragStart: (event: DragEvent) => { onInspect(card, false); writeCardDrag(event, { code: card.code, from: "list" }); },
+                  onDragStart: (event: DragEvent) => { if (card.unavailableReason) { event.preventDefault(); return; } onInspect(card, false); writeCardDrag(event, { code: card.code, from: "list" }); },
                 };
                 if (view === "grid") {
                   return (
                     <li key={card.code}>
-                      <button type="button" className={styles["de-t"]} aria-label={label} data-full={pool && full ? "true" : undefined} title={card.name} {...handlers}>
+                      <button type="button" className={styles["de-t"]} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} {...handlers}>
                         <CardArt code={card.code} name={card.name} />
                         <LimitBadge limit={limit} />
                         <ArtChip otherArts={card.altArtCount ?? 0} corner />
+                        {card.unavailableReason ? <span className={styles.unavailable}>Unavailable</span> : null}
                         {pool ? (
                           <span className={cn("num", styles["de-left"])} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left} left</span>
                         ) : count > 0 ? <span className={cn("num", styles["de-have"])}>×{count}</span> : null}
@@ -393,13 +397,14 @@ export function CardBrowser({
                 const stats = cardStatsText(card);
                 return (
                   <li key={card.code} className={styles.row}>
-                    <button type="button" className={styles.rowMain} aria-label={label} data-full={pool && full ? "true" : undefined} {...handlers}>
+                    <button type="button" className={styles.rowMain} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} {...handlers}>
                       <span className={styles.rowArt}>
                         <CardArt code={card.code} name={card.name} />
                         <LimitBadge limit={limit} />
                       </span>
                       <span className={styles.rowText}>
                         <strong>{card.name}</strong>{" "}
+                        {card.unavailableReason ? <span>Unavailable: {card.unavailableReason}</span> : null}
                         <span>{cardDetailsText(card)}</span>{" "}
                         <ArtChip otherArts={card.altArtCount ?? 0} />{" "}
                         {stats ? <span className={cn("num", styles.rowStats)}>{(card.type & TYPE_LINK) ? `ATK ${stats}` : stats}</span> : null}
@@ -408,7 +413,7 @@ export function CardBrowser({
                         <span className={cn("num", styles.rowHave)} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left} left</span>
                       ) : count > 0 ? <span className={cn("num", styles.rowHave)}>×{count}</span> : null}
                     </button>
-                    <button type="button" className={styles.rowAdd} aria-label={`Add ${card.name} to the deck`} title="Add to deck" disabled={pool != null && full} onClick={() => onAdd(card)}>
+                    <button type="button" className={styles.rowAdd} aria-label={`Add ${card.name} to the deck`} title={card.unavailableReason ? `Unavailable: ${card.unavailableReason}` : "Add to deck"} disabled={!!card.unavailableReason || (pool != null && full)} onClick={() => onAdd(card)}>
                       <Plus size={16} strokeWidth={1.8} aria-hidden />
                     </button>
                   </li>

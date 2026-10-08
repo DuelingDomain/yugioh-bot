@@ -1,10 +1,13 @@
+import { scriptErrorCoreFactory } from "../script-load-scope.js"; // LEGACY-1V1: distinguish load failures from runtime errors
+import { EngineLoopError } from "../engine-loop-error.js"; // LEGACY-1V1: shared core loop invariant
+import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError, type DuelScriptFatalError } from "../script-errors.js"; // LEGACY-1V1: owner runtime script-error policy
 // LEGACY 1V1 ENGINE. A copy of packages/duel-server/src/engine.ts from main (commit 2a5a959), the engine that ran one-against-one
 // duels in production before the n-seat work. It runs when DUEL_1V1_ENGINE=legacy (the default) for tables with two seats.
 // Do not "fix" or tidy this file, ./views.ts or ./prompts.ts: they must stay equal to main. Every line that differs from main is
 // marked "LEGACY-1V1:". See packages/duel-server/legacy-1v1/README.md.
 import { ChainOptions } from "../chain-options.js"; // LEGACY-1V1: public chosen chain options
 import { DIAGNOSTICS_LIMIT, type EngineDiagnostic } from "../engine.js"; // LEGACY-1V1: private display error diagnostics
-import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
 import { defaultChainMode } from "@yugidraft/shared/duels"; // LEGACY-1V1: chain response mode (Auto, Always, Off)
 import { firstTurnDrawFor } from "../first-turn-draw.js"; // LEGACY-1V1: owner draw rule and saved replay overrides
 import { legacyNormalScript } from "./script-compat.js"; // LEGACY-1V1: current Lua bundle on the unchanged npm core
@@ -12,7 +15,6 @@ import createCore, {
   OcgDuelMode,
   OcgHintType,
   OcgLocation,
-  OcgLogType,
   OcgMessageType,
   OcgPosition,
   OcgProcessResult,
@@ -78,6 +80,11 @@ function legacyDomainWasm(dataDirectory: string): Uint8Array {
 }
 
 export interface EngineGameOptions {
+  scriptErrorMode?: DuelScriptErrorMode;
+  /** Private telemetry callback; omitted by standalone replay tools. */
+  onScriptError?: (error: DuelScriptError) => void; // LEGACY-1V1: shared owner policy
+  onFatalScriptError?: (error: DuelScriptFatalError) => void; // LEGACY-1V1: host-only fatal diagnostics
+  startupScripts?: Array<{ name: string; content: string }>; // LEGACY-1V1: board fixtures for recovery tests
   mode: DuelMode;
   decks: DuelDeck[];
   seed: string[];
@@ -217,7 +224,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     | (firstTurnDraw ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
   const seed = parseSeed(options.seed);
   const cards = loadCardDatabase(options.dataDirectory);
-  const errors: string[] = [];
+  const scriptErrors = createScriptErrorPolicy({ ...options, engine: "legacy" }); // LEGACY-1V1: owner policy
+  const errors = scriptErrors.errors;
+  let scriptErrorEventSent = false; // LEGACY-1V1: coalesce runtime errors per answer
+  const scopedCreateCore = scriptErrorCoreFactory(legacyCreateCore, scriptErrors);
   const eventContext = createEventContext();
   const cardReader = (code: number) => {
     if (!code) return null;
@@ -230,7 +240,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   };
   const errorHandler = (type: number, text: string) => {
     if (noteDestroyLog(eventContext, text) || noteChainTargetLog(eventContext, text)) return;
-    if (type === OcgLogType.ERROR || type === OcgLogType.UNDEFINED) errors.push(text);
+    scriptErrors.note(type, text); // LEGACY-1V1: runtime card failures may continue
   };
   const team = {
     startingLP: start.startingLP,
@@ -245,7 +255,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   if (options.mode === "domain") {
     if (!domainCoreFactory) throw new Error("Domain core is not registered");
     const created = await domainCoreFactory({
-      createStockCore: legacyCreateCore, // LEGACY-1V1
+      createStockCore: scopedCreateCore, // LEGACY-1V1
       dataDirectory: options.dataDirectory,
       seed,
       decks: options.decks,
@@ -262,7 +272,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     if (!created.getDomainState) throw new Error("Domain core did not provide getDomainState");
     getDomainState = created.getDomainState;
   } else {
-    lib = await legacyCreateCore({ sync: true }); // LEGACY-1V1: the npm package core, no wasmBinary
+    lib = await scopedCreateCore({ sync: true }); // LEGACY-1V1: the npm package core, no wasmBinary
     const created = lib.createDuel({
       flags,
       seed,
@@ -306,6 +316,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     // Opening shuffle is only this EVENT_STARTUP ShuffleDeck. DUEL_PSEUDO_SHUFFLE is not used:
     // field.cpp applies it to every later deck/extra shuffle. EnableGlobalFlag is a noop here;
     // Debug.ReloadFieldBegin writes flags but also clears the duel.
+    // LEGACY-1V1: the owner regression uses a board fixture without patching any card script.
+    for (const script of options.startupScripts ?? []) {
+      if (!lib.loadScript(handle, script.name, script.content)) throw new Error(`Failed to run startup script ${script.name}`);
+    }
     if (start.shuffle) {
       if (!lib.loadScript(handle, "duel-startup.lua", `
       local e=Effect.GlobalEffect()
@@ -319,6 +333,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       Duel.RegisterEffect(e,0)
     `)) throw new Error("Failed to register opening deck shuffle");
     }
+    if (errors.length) throw new Error(errors.join("; ")); // LEGACY-1V1: setup remains fatal
     lib.startDuel(handle);
   } catch (error) {
     lib.destroyDuel(handle);
@@ -577,14 +592,26 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     const continuingSummon = pending?.message.type === OcgMessageType.SELECT_POSITION || pending?.message.type === OcgMessageType.SELECT_PLACE;
     resetEventBatch(eventContext, continuingSummon);
     leftFieldLines.length = 0;
+    let processCalls = 0;
     while (!result) {
-      const status = lib.duelProcess(handle);
+      if (processCalls++ >= CORE_PROCESS_CALL_LIMIT) throw new EngineLoopError();
+      scriptErrors.enterProcess();
+      let status: ReturnType<typeof lib.duelProcess>;
+      try { status = lib.duelProcess(handle); }
+      finally { scriptErrors.leaveProcess(); } // LEGACY-1V1: only runtime process errors are tolerable
       const messages = lib.duelGetMessage(handle);
       for (const message of messages) {
         applyMessage(message);
         recordEvent(message);
       }
       flushDeferredDestroys();
+      const toleratedError = scriptErrors.drain().some(error => error.scriptErrorMode !== "strict");
+      if (toleratedError && !scriptErrorEventSent) {
+        scriptErrorEventSent = true;
+        const event: StoredDuelEvent = { id: nextEventId, kind: "script-error", text: CARD_SCRIPT_ERROR_TEXT, publicText: CARD_SCRIPT_ERROR_TEXT, revealCardTo: "all" };
+        pushEvent(event);
+        appendLog(CARD_SCRIPT_ERROR_TEXT).eventId = event.id;
+      }
       if (errors.length > 0) {
         const detail = errors.join("; ");
         errors.length = 0;
@@ -654,7 +681,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     view(seat) {
       if (closed) throw new Error("Engine is closed");
       if (seat != null && seat !== 0 && seat !== 1) throw new Error("Invalid seat");
-      const projected = projectView({
+      const projected = scriptErrors.query(() => projectView({
         lib,
         handle,
         cards,
@@ -675,12 +702,13 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         handIdentities: eventContext.handIdentities,
         mode: options.mode,
         domainState: readDomainState(),
-      });
+      }));
       if (seat != null) projected.chainMode = chainModes[seat]; // LEGACY-1V1: private to the seat
       return projected;
     },
     // LEGACY-1V1: chain response mode. See ../engine.ts EngineGame.setChainMode.
     setChainMode(seat, mode) {
+      scriptErrorEventSent = false;
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (seat !== 0 && seat !== 1) throw new Error("Invalid seat");
@@ -702,6 +730,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       return true;
     },
     answer(seat, promptId, answer) {
+      scriptErrorEventSent = false;
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (!pending) throw new EngineAnswerError("No prompt is waiting");

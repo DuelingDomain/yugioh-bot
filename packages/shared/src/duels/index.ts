@@ -381,10 +381,13 @@ export type DuelToss =
   | { type: "coin"; results: Array<"heads" | "tails"> }
   | { type: "dice"; results: number[] };
 
+/** Saved with a duel so recovery is independent of server environment changes. */
+export type DuelScriptErrorMode = "tolerant" | "strict";
+
 export interface DuelEvent {
   id: number;
   kind:
-    | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
+    | "script-error" | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
     | "attack" | "attack-negated" | "battle" | "battle-end" | "phase" | "damage" | "recover" | "destroy" | "move" | "position" | "equip" | "confirm" | "toss";
   seat?: number;
   card?: DuelCardInfo;
