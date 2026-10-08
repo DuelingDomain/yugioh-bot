@@ -119,14 +119,14 @@ describe("repository card blocks in deck-builder search", () => {
   });
 });
 
-it("exact automatic entries leave near and far aliases selectable in deck checks and search", () => {
-  const automatic = [{ code: 10, reason: "Auto reason", exactCodes: [10, 400000010] }];
+it("automatic script entries block near aliases and leave far aliases selectable in deck checks and search", () => {
+  const automatic = [{ code: 10, reason: "Auto reason", exactCodes: [10, 11, 400000010] }];
   const settings = normalizeDuelSettings("normal", { validateDeck: false, startingHand: 1 });
   const deck = { main: [10, 11, 20], extra: [], side: [] };
   const report = inspectDeck("normal", deck, dir, settings, { cardBlocks: automatic });
-  expect(report.issues.filter(issue => issue.message.includes("is unavailable")).flatMap(issue => issue.cards.map(card => card.code))).toEqual([10]);
+  expect(report.issues.filter(issue => issue.message.includes("is unavailable")).flatMap(issue => issue.cards.map(card => card.code))).toEqual([10, 11]);
   const result = queryCards(loadCardDatabase(dir), { ...emptyCardQuery(), text: "Dragon" }, automatic);
   expect(result.cards.find(card => card.code === 10)?.unavailableReason).toBe("Auto reason");
-  expect(queryCards(loadCardDatabase(dir), { ...emptyCardQuery(), text: "11" }, automatic).cards[0]).not.toHaveProperty("unavailableReason");
+  expect(queryCards(loadCardDatabase(dir), { ...emptyCardQuery(), text: "11" }, automatic).cards[0]?.unavailableReason).toBe("Auto reason");
   expect(result.cards.find(card => card.code === 20)).not.toHaveProperty("unavailableReason");
 });

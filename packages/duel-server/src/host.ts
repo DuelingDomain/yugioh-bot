@@ -331,6 +331,14 @@ export function createDuelHost(options: {
   let revisionOverlay: ReturnType<typeof loadMultiScriptsFor> | undefined;
   const autoBlocks = createAutoBlockPolicy(options.db, { bundleVersion: manifest.bundleVersion,
     remaps,
+    exactCodes: code => {
+      const codes = new Set([code]);
+      for (const card of loadCardDatabase(options.dataDirectory).all()) {
+        if (card.alias && Math.abs(card.alias - card.code) < 10 && (remaps.get(card.alias) ?? card.alias) === code) codes.add(card.code);
+      }
+      for (const [old, target] of remaps) if (codes.has(target)) codes.add(old);
+      return [...codes];
+    },
     scriptHash: (code, kind) => {
       const key = `${code}:${kind}`;
       if (!hashes.has(key)) {
