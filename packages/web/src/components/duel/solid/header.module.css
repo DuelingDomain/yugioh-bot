@@ -52,10 +52,6 @@
   font-size: 15px;
 }
 
-/* The clock block beside the format (the board keeps its own clocks too). It gives way on a narrow screen. */
-.clocks { display: inline-flex; flex: 0 1 auto; min-width: 0; align-self: center; margin-left: 10px; }
-@media (max-width: 1150px) { .clocks { display: none; } }
-
 /* ---------- centre: turn + whose-turn pill ---------- */
 .turnbox {
   display: flex;
