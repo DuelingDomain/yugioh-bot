@@ -299,6 +299,14 @@ class BackupTests(unittest.TestCase):
         for name in files:
             self.assertEqual((self.destination / name).read_bytes(), b"never remove")
 
+    def test_release_keep_one_day_never_removes_a_fresh_release(self):
+        fresh = self.seed_release(datetime.now(UTC).strftime("pr2-%Y%m%d-%H%M%SZ"))
+        namespace = self.namespace()
+        with mock.patch.dict(os.environ, {"DUELING_RELEASE_KEEP_DAYS": "1"}):
+            namespace["prune_releases"]()
+        self.assertTrue((fresh / "online").exists())
+        self.assertTrue((fresh / "drained").exists())
+
     def test_release_age_cap_uses_exact_utc_boundary(self):
         newest = self.seed_release("pr2-20261008-120000Z")
         boundary = self.seed_release("pr2-20260925-120000Z")

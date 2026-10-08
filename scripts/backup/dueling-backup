@@ -89,7 +89,8 @@ def prune_releases():
 
     releases.sort(key=lambda entry: entry[0], reverse=True)
     now = datetime.now(UTC)
-    database_cutoff = now - timedelta(days=keep_days) + RUN_INTERVAL
+    # Never shorter than one day, so a run during a deploy cannot delete the copy being written.
+    database_cutoff = now - max(timedelta(days=keep_days) - RUN_INTERVAL, RUN_INTERVAL)
     directory_cutoff = now - timedelta(days=MAX_BACKUP_DAYS) + RUN_INTERVAL
     for index, (stamp, path) in enumerate(releases):
         if stamp >= database_cutoff:
