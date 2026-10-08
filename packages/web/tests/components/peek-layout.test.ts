@@ -58,8 +58,8 @@ describe("the card peek column", () => {
 
   it("uses the tallest short bands, tallest first, when no band is tall", () => {
     const places = peekPlaces(layer(1366, 600), { board: [], keep: [box(14, 130, 162, 200), box(14, 300, 162, 320), box(14, 560, 162, 570)] });
-    expect(places.map((place) => place.maxH)).toEqual([...places.map((place) => place.maxH)].sort((a, b) => b - a));
-    expect(places.length).toBeGreaterThan(0);
+    // The bands (12 px gap round each part): 332-548 (216), 212-288 (76), 50-118 (68). The one of 10 px under the last part is too short.
+    expect(places.map((place) => [place.top, place.maxH])).toEqual([[332, 216], [212, 76], [50, 68]]);
     for (const place of places) expect(place.side).toBe("left");
   });
 

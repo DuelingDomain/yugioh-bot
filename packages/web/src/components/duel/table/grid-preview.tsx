@@ -202,19 +202,21 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     for (const candidate of kept ? [] : candidates) {
       place(aside, candidate, measured);
       const rect = rectNow();
-      // Ranked in this order: 1. the clicked card, 2. the parts kept clear, 3. the effect text that is cut off, 4. the board (a rival field
-      // that reaches into the column loses its outer edge under the panel: that is less bad than a panel that jumps down the column and
-      // cuts the text). The panel never goes to the other side.
+      // Ranked in this order: 1. the panel itself cut off (the name, type, stats, owner line and 3 lines of text must fit: a short band that
+      // clips them is used only when no band fits, and then the pin covers the clicked card), 2. the clicked card, 3. the parts kept clear,
+      // 4. the effect text that is cut off, 5. the board (a rival field that reaches into the column loses its outer edge under the panel:
+      // that is less bad than a panel that jumps down the column and cuts the text). The panel never goes to the other side.
+      const clipped = Math.max(0, aside.scrollHeight - aside.clientHeight - 1);
       const clicked = clickedCover(rect);
       const keep = coveredArea(rect, obstacles.keep);
       const board = coveredArea(rect, obstacles.board);
       const hidden = text ? Math.max(0, text.scrollHeight - text.clientHeight - 1) : 0;
-      const rank = [clicked, keep, hidden, board];
+      const rank = [clipped, clicked, keep, hidden, board];
       if (best == null || before(rank, best)) {
         best = rank;
         chosen = candidate;
       }
-      if (clicked === 0 && keep === 0 && board === 0 && hidden === 0) break;
+      if (clipped === 0 && clicked === 0 && keep === 0 && board === 0 && hidden === 0) break;
     }
     place(aside, chosen, measured);
     if (!frozen) hoverSpot.current = { key, place: chosen };
