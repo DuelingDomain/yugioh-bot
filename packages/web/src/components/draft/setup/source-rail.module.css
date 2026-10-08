@@ -12,7 +12,9 @@
 .title { margin: 0; padding-left: 4px; font: 600 12px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
 /* The two tabs share one width (grid, equal columns) so the selected pill is one box that slides between them. */
 .switch { position: relative; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 2px; border: 1px solid var(--rule-lo); border-radius: 8px; background: var(--floor); }
-.switch::before { content: ""; position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / var(--seg-n, 2)); border-radius: 6px; background: var(--panel-3, var(--panel-2)); box-shadow: inset 0 0 0 1px rgb(155 126 255 / 0.45); transform: translateX(calc(var(--seg-i, 0) * 100%)); transition: transform var(--d-tab) var(--ease-in-out); pointer-events: none; }
+.switch::before { content: ""; position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / var(--seg-n, 2)); border-radius: 6px; background: var(--panel-3, var(--panel-2)); box-shadow: inset 0 0 0 1px rgb(155 126 255 / 0.45); transform: translateX(calc(var(--seg-i, 0) * 100%)); pointer-events: none; }
+/* It slides only for a switch made by hand; a hovered or pinned card flips the view instantly. */
+.switch[data-hand]::before { transition: transform var(--d-tab) var(--ease-in-out); }
 .switch button { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 14px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font-size: 14px; font-weight: 500; cursor: pointer; transition: color var(--d-hover) ease; }
 .switch button:hover { color: var(--ink); }
 .switch button[aria-selected="true"] { color: var(--ink); }
@@ -56,5 +58,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .drawer, .switch::before, .tabs::after { transition: none; }
+  .drawer, .switch[data-hand]::before, .tabs::after { transition: none; }
 }

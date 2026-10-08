@@ -175,8 +175,19 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
   };
 
   // Which way each switch travelled, for the panels' arrival (globals.css, data-pane).
-  const viewDir = useTabDirection(view, RAIL_VIEWS);
+  // The view also flips by itself (a hovered or pinned card shows at once), and that stays instant: only the switch
+  // buttons set `byHand`, for the render their click causes.
+  const byHand = React.useRef(false);
+  const viewDir = useTabDirection(view, RAIL_VIEWS, byHand.current);
   const tabDir = useTabDirection(tab, SOURCE_TAB_ORDER);
+
+  const pick = (next: RailView) => {
+    byHand.current = true;
+    setTimeout(() => {
+      byHand.current = false;
+    }, 50);
+    choose(next);
+  };
 
   const sourcesId = `${ids}-sources`;
   const cardId = `${ids}-card`;
@@ -200,8 +211,8 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
         {!split ? (
           <h2 className={styles.title}>Sources</h2>
         ) : (
-          <div className={styles.switch} role="tablist" aria-label="Left panel" {...segmentSlide(RAIL_VIEWS.length, RAIL_VIEWS.indexOf(view))}>
-            <button type="button" role="tab" id={`${ids}-t-sources`} aria-selected={view === "sources"} aria-controls={sourcesId} onClick={() => choose("sources")}>
+          <div className={styles.switch} role="tablist" aria-label="Left panel" data-hand={viewDir ? "" : undefined} {...segmentSlide(RAIL_VIEWS.length, RAIL_VIEWS.indexOf(view))}>
+            <button type="button" role="tab" id={`${ids}-t-sources`} aria-selected={view === "sources"} aria-controls={sourcesId} onClick={() => pick("sources")}>
               Sources
             </button>
             <button
@@ -211,7 +222,7 @@ export function SourceRail({ ctl, inspector, tab: tabProp, defaultTab = "cards",
               aria-selected={view === "card"}
               aria-controls={cardId}
               aria-describedby={pinnedAway ? dotId : undefined}
-              onClick={() => choose("card")}
+              onClick={() => pick("card")}
             >
               Card
               {pinnedAway && <i className={styles.pdot} aria-hidden="true" data-testid="pinned-dot" />}

@@ -27,11 +27,12 @@ export function paneDirection<T>(order: readonly T[], from: T, to: T): PaneDirec
  * keyboard (arrowing through tabs repeats all day) or under reduced motion. It is decided in the
  * same render the new panel mounts, so the panel's first frame already has it. It clears once the
  * arrival has played, so a part of the panel that mounts later (results, a list) does not slide.
+ * `enabled` is false for a change nobody chose by hand (a hover or a pin flipping a view).
  */
-export function useTabDirection<T>(value: T, order: readonly T[]): PaneDirection | undefined {
+export function useTabDirection<T>(value: T, order: readonly T[], enabled = true): PaneDirection | undefined {
   const [seen, setSeen] = useState<{ value: T; dir: PaneDirection | undefined }>({ value, dir: undefined });
   if (seen.value !== value) {
-    const dir = inputWasKeyboard() || prefersReducedMotion() ? undefined : paneDirection(order, seen.value, value);
+    const dir = !enabled || inputWasKeyboard() || prefersReducedMotion() ? undefined : paneDirection(order, seen.value, value);
     setSeen({ value, dir });
   }
   // Listen for keys from the first paint, so the very first switch already knows how it was made.
