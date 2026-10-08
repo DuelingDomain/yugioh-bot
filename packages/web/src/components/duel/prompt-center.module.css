@@ -408,6 +408,9 @@
 }
 /* A text cut to a few lines (small window or dense host) is already short: it never gives up more. */
 .cardText[data-open="false"] { flex-shrink: 0; }
+/* The options after the lead text keep their height: a flex shrink takes a few pixels off even a light item, which cut
+   the last option border. The text box (above) takes all of the squeeze. */
+.cardText[data-lead="true"] ~ .rows { flex-shrink: 0; }
 .cardTextLabel {
   color: var(--duel-ink-3, #958f81);
   font-size: var(--duel-t-xs, 11px);
