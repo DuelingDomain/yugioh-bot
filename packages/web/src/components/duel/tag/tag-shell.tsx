@@ -370,6 +370,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                   <PhaseHub
                     variant="table"
                     phase={engine.phase}
+                    revision={engine.revision}
                     battleStep={battleStep}
                     turn={engine.turn}
                     turnSeat={engine.turnSeat}

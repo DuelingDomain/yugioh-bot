@@ -1295,6 +1295,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     <PhaseHub
       variant="band"
       phase={shownPhase}
+      revision={engine.revision}
       battleStep={battleStep}
       turn={engine.turn}
       turnSeat={engine.turnSeat}
