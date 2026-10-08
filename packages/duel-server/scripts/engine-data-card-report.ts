@@ -136,6 +136,9 @@ export function withPreviewExclusions(changes: CardUpdate, excluded: number[]): 
 const safe = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/@|#(?=\d)/g, match => match === "@" ? "&#64;" : "&#35;").replace(/[\\`*_{}\[\]|]/g, "\\$&").replace(/[\r\n]+/g, " ");
 const attribute = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// GitHub renders summary contents as HTML text; Markdown backslashes are literal.
+const summaryText = (value: string) => attribute(value).replace(/[@#\\`*_{}\[\]|]/g,
+  character => `&#${character.charCodeAt(0)};`).replace(/[\r\n]+/g, " ");
 function cardLine(card: ReportCard, old?: { oldCode: number; oldName: string }): string {
   const dates = [card.tcgDate ? `TCG first release: ${card.tcgDate}` : "", card.ocgDate ? `OCG first release: ${card.ocgDate}` : ""].filter(Boolean);
   return `- <img src="${attribute(card.image)}" width=80 alt="Card ${card.code}"> ${safe(card.name)} — \`${old ? `${old.oldCode} → ${card.code}` : card.code}\`${card.prerelease ? " — **pre-release**" : ""}${old && old.oldName !== card.name ? ` (previously ${safe(old.oldName)})` : ""}${dates.length ? ` — ${dates.join("; ")}` : ""}`;
@@ -150,7 +153,7 @@ export function renderCardUpdate(changes: CardUpdate): string {
   for (const group of changes.added) {
     const label = group.code && group.name !== `Set ${group.code}` ? `${group.name} (${group.code})` : group.name;
     const dates = [group.tcgDate ? `TCG release: ${group.tcgDate}` : "", group.ocgDate ? `OCG release: ${group.ocgDate}` : ""].filter(Boolean);
-    lines.push("<details>", `<summary>${safe(label)} — ${group.cards.length} cards</summary>`, "",
+    lines.push("<details>", `<summary>${summaryText(label)} — ${group.cards.length} cards</summary>`, "",
       dates.length ? dates.join("; ") + "." : "Product release date unknown.", "", ...group.cards.map(card => cardLine(card)), "", "</details>", "");
   }
   lines.push(`### Removed cards (${changes.removed.length})`, "", ...(changes.removed.length ? changes.removed.map(card => cardLine(card)) : ["None."]), "",

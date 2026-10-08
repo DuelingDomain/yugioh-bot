@@ -189,6 +189,14 @@ unset NDUEL_DIR
 
 Review the row changes and all four fingerprint headers, verify 80 rows were recorded/checked with no skips or mismatches, and commit `packages/duel-server/scripts/native/golden.tsv` in the data-update PR. Merge only after its CI passes. Never refresh the headers alone to bypass a failed check.
 
+Report summaries use HTML entity escaping, so product names do not show literal
+Markdown backslashes. Ignis images remain inline: on 2026-10-07, the read-only
+GitHub Markdown API rendered the `:2096` image URL for passcode `101402001` through
+Camo, and fetching that generated proxy URL returned HTTP 200 `image/jpeg`.
+This checks an actual GitHub proxy response, rather than assuming support for the
+port; individual missing images can still fail. See GitHub's
+[Camo troubleshooting guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-anonymized-urls).
+
 ### Renamed and type-corrected graduations (v3)
 
 The v3 recipe also records individual BabelCDB commit transitions from the immutable

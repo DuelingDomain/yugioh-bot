@@ -20,6 +20,15 @@ const request = () => vi.fn(async (url: string | URL | Request) => String(url).i
   : Response.json({ data: metadata }));
 
 describe("weekly card additions", () => {
+  it("uses HTML entities without Markdown backslashes inside summary labels", async () => {
+    const metadata = vi.fn(async (url: string | URL | Request) => String(url).includes("cardsets.php")
+      ? Response.json([{set_code:"BETB",set_name:'Set *bold* [name] \\ <tag> & @everyone #123'}]) : Response.json({data:[]}));
+    const report = renderCardUpdate(await cardUpdate(empty,{...empty,released:[card(12,"Card","release-betb.cdb")]},metadata));
+    const summary=report.match(/<summary>(.*?)<\/summary>/)![1]!;
+    expect(summary).not.toContain("\\");
+    expect(summary).toContain("&#42;bold&#42;");expect(summary).toContain("&#91;name&#93;");
+    expect(summary).toContain("&#92;");expect(summary).toContain("&lt;tag&gt; &amp; &#64;everyone &#35;123");
+  });
   it("groups by source product, joins English preview variants, and uses card_sets for base rows", async () => {
     const next = { ...empty, released: [card(12, "CDB name", "release-betb.cdb"), card(13, "Base addition")],
       prerelease: [card(100000014, "Preview", "prerelease-betb-en.cdb"), card(100000015, "Other preview", "prerelease-dbgv.cdb")] };
