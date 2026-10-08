@@ -10,7 +10,9 @@ import styles from "./deck-editor.module.css";
 import { applyDomainMaster, parseDeckText, selectDomainMaster, serializeYdk, type DeckMasterSelection } from "./ydk";
 import { DeckValidationSkippedError, validateDuelDeck } from "./api";
 import { DeckMasterPicker } from "./deck-master-picker";
-import { SavedDeckPicker } from "./saved-deck-picker";
+import { SavedDeckPicker, useSavedDecks } from "./saved-deck-picker";
+import { createSavedDeck, listSavedDecks } from "../decks/api";
+import { deckNameFromFile, findSavedDuplicate, pastedDeckName, uniqueDeckName } from "./import-save";
 import { CardAddField } from "./card-add-field";
 
 type CardProblem = { name?: string; messages: string[] };
@@ -120,6 +122,8 @@ export function DeckEditor({
   const [retry, setRetry] = useState(0);
   const [fileName, setFileName] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const savedList = useSavedDecks();
+  const [saveNote, setSaveNote] = useState<{ text: string; error?: boolean } | null>(null);
   const [validation, setValidation] = useState<{
     slug: string;
     deck: DuelDeck;
@@ -189,7 +193,29 @@ export function DeckEditor({
     setParseError(null);
   }
 
-  function applyImported(raw: DuelDeck) {
+  /** Saves an import to the player's decks, as given. A failed save never blocks the import itself. */
+  async function saveImported(raw: DuelDeck, baseName: string) {
+    const cards = mode === "domain" ? raw : { main: raw.main, extra: raw.extra, side: raw.side };
+    if (cards.main.length + cards.extra.length + cards.side.length === 0 && cards.deckMaster === undefined) return;
+    try {
+      const existing = savedList.latest.current ?? await listSavedDecks();
+      const duplicate = findSavedDuplicate(existing, mode, cards);
+      if (duplicate) {
+        setSaveNote({ text: `Already in your decks: ${duplicate.name}` });
+        return;
+      }
+      const name = uniqueDeckName(baseName, existing.map((entry) => entry.name));
+      const created = await createSavedDeck({ name, mode, deck: cards });
+      savedList.add(created);
+      setSaveNote({ text: `Saved to your decks as ${created.name}` });
+    } catch (error) {
+      setSaveNote({ text: `Could not save to your decks: ${error instanceof Error ? error.message : "try again later."}`, error: true });
+    }
+  }
+
+  function applyImported(raw: DuelDeck, baseName: string) {
+    setSaveNote(null);
+    void saveImported(raw, baseName);
     const imported = mode === "domain"
       ? settings.validateDeck && raw.side.length <= 1 ? applyDomainMaster(raw) : raw
       : { main: raw.main, extra: raw.extra, side: raw.side };
@@ -216,7 +242,7 @@ export function DeckEditor({
     setFileName(file.name);
     file
       .text()
-      .then((text) => applyImported(parseDeckText(text)))
+      .then((text) => applyImported(parseDeckText(text), deckNameFromFile(file.name)))
       .catch((error: unknown) => setParseError(error instanceof Error ? error.message : "Could not read that file."));
   }
 
@@ -227,7 +253,7 @@ export function DeckEditor({
         setParseError("No cards found. Paste a YDK deck or a ydke:// link.");
         return;
       }
-      applyImported(deck);
+      applyImported(deck, pastedDeckName(new Date()));
     } catch (error) {
       setParseError(error instanceof Error ? error.message : "Could not parse that deck.");
     }
@@ -271,7 +297,7 @@ export function DeckEditor({
         <p className={styles.rules}><Info size={15} strokeWidth={1.6} aria-hidden /><span>{rulesNote}</span></p>
       </header>
 
-      <SavedDeckPicker mode={mode} disabled={busy} onLoad={(saved) => {
+      <SavedDeckPicker mode={mode} disabled={busy} list={savedList} onLoad={(saved) => {
         const hasCards = main.length > 0 || extra.length > 0 || side.length > 0 || masterCode !== undefined;
         if (hasCards && deck !== pristineDeck
           && !window.confirm("Replace the deck you changed at this table? Your saved deck is unchanged.")) return false;
@@ -371,6 +397,11 @@ export function DeckEditor({
           <SheetButton size="sm" onClick={onPasteApply}>Load paste</SheetButton>
         </div>
       </div>
+      {saveNote ? (
+        saveNote.error
+          ? <p role="alert" className={ui.alert}>{saveNote.text}</p>
+          : <p role="status" className={styles.muted}>{saveNote.text}</p>
+      ) : null}
 
       {mode === "domain" ? (
         <DeckMasterPicker code={masterCode} onChange={chooseMaster}

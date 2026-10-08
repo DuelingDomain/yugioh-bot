@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
 import { listSavedDecks } from "../decks/api";
 import { SheetButton, SheetSelect, sheetButtonClass } from "./sheet-ui";
@@ -11,21 +11,13 @@ import styles from "./deck-editor.module.css";
 /** The names Manage decks and the room settings use for each format. */
 const MODE_NAME: Record<DuelMode, string> = { domain: "Domain", normal: "Standard" };
 
-/**
- * Lists the saved decks that were saved in the table's format, and only those. A custom table turns the
- * format and copy-limit checks off, but a Domain deck list stays a Domain list and a Standard deck list
- * stays a Standard list, so the two formats never mix here.
- */
-export function SavedDeckPicker({ mode, disabled, onLoad }: {
-  mode: DuelMode;
-  disabled: boolean;
-  /** Loads the chosen deck. Returns false when the player keeps the current deck. */
-  onLoad: (deck: DuelDeck) => boolean;
-}) {
+/** The player's saved decks. `add` puts a new deck in the list at once, with no reload. */
+export function useSavedDecks() {
   const [decks, setDecks] = useState<SavedDeck[] | null>(null);
-  const [selected, setSelected] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const latest = useRef<SavedDeck[] | null>(null);
+  latest.current = decks;
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +31,34 @@ export function SavedDeckPicker({ mode, disabled, onLoad }: {
     );
     return () => { cancelled = true; };
   }, [retry]);
+
+  const reload = useCallback(() => setRetry((value) => value + 1), []);
+  const add = useCallback((saved: SavedDeck) => {
+    // A list that did not load yet is not replaced by a one-deck list; the reload finds the new deck.
+    if (latest.current) {
+      latest.current = [saved, ...latest.current];
+      setDecks(latest.current);
+    }
+  }, []);
+  return { decks, error, reload, add, latest };
+}
+
+export type SavedDeckList = ReturnType<typeof useSavedDecks>;
+
+/**
+ * Lists the saved decks that were saved in the table's format, and only those. A custom table turns the
+ * format and copy-limit checks off, but a Domain deck list stays a Domain list and a Standard deck list
+ * stays a Standard list, so the two formats never mix here.
+ */
+export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
+  mode: DuelMode;
+  disabled: boolean;
+  list: SavedDeckList;
+  /** Loads the chosen deck. Returns false when the player keeps the current deck. */
+  onLoad: (deck: DuelDeck) => boolean;
+}) {
+  const { decks, error, reload } = list;
+  const [selected, setSelected] = useState("");
 
   const matching = decks?.filter((saved) => saved.mode === mode) ?? [];
   const current = matching.find((saved) => String(saved.id) === selected);
@@ -62,7 +82,7 @@ export function SavedDeckPicker({ mode, disabled, onLoad }: {
             { value: "", label: placeholder },
             ...matching.map((saved) => ({ value: String(saved.id), label: `${saved.name} · ${saved.deck.main.length} Main / ${saved.deck.extra.length} Extra / ${saved.deck.side.length} Side` })),
           ]} />
-        <SheetButton disabled={disabled} size="sm" onClick={() => setRetry((value) => value + 1)}>Refresh</SheetButton>
+        <SheetButton disabled={disabled} size="sm" onClick={reload}>Refresh</SheetButton>
         <Link href="/decks" className={sheetButtonClass("quiet", "sm")}>Manage decks</Link>
       </div>
       {error ? <p role="alert" className={ui.alert}>{error}</p> : null}
