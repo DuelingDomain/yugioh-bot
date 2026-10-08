@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useEffect, useRef, type CSSProperties, type RefObject } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { CardBack } from "./card-face";
 import { hasCardName, useDuelCardInfo } from "./card-info";
@@ -21,10 +21,61 @@ export type InspectTarget =
   | { type: "info"; card: DuelCardInfo }
   | { type: "pile"; title: string; cards: DuelCard[] };
 
+const CUE_PX = 28;
+const CUE_MASK = `linear-gradient(to bottom, #000 calc(100% - ${CUE_PX}px), transparent)`;
+
+/** The nearest ancestor that scrolls (the Card flyout body, the left column, the phone sheet). */
+function scrollParent(node: HTMLElement): HTMLElement | null {
+  for (let el = node.parentElement; el; el = el.parentElement) {
+    const overflow = getComputedStyle(el).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return el;
+  }
+  return null;
+}
+
+/**
+ * The full effect text always reads: when the pane scrolls, a long text is cut at the bottom edge. The scroller then fades out its last
+ * rows (a mask, so the fade follows any background) until it is scrolled to the end, and shows a thin scrollbar. Every table and the phone
+ * sheet put the card pane in a scroller of their own, so the cue sits on that scroller instead of a copy in each layout.
+ */
+function useScrollCue(root: RefObject<HTMLElement | null>, key: string | undefined) {
+  useEffect(() => {
+    const node = root.current;
+    const scroller = node ? scrollParent(node) : null;
+    if (!node || !scroller) return;
+    const before = { mask: scroller.style.maskImage, webkit: scroller.style.webkitMaskImage, width: scroller.style.scrollbarWidth };
+    const update = () => {
+      const more = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 2;
+      scroller.style.maskImage = more ? CUE_MASK : before.mask;
+      scroller.style.webkitMaskImage = more ? CUE_MASK : before.webkit;
+      scroller.dataset.cardMore = more ? "true" : "false";
+    };
+    scroller.style.scrollbarWidth = "thin";
+    update();
+    scroller.addEventListener("scroll", update, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(scroller);
+    observer?.observe(node);
+    // The text can grow inside a box of fixed size (a late card lookup), which no resize reports.
+    const mutations = typeof MutationObserver === "undefined" ? null : new MutationObserver(update);
+    mutations?.observe(node, { childList: true, subtree: true, characterData: true });
+    return () => {
+      scroller.removeEventListener("scroll", update);
+      observer?.disconnect();
+      mutations?.disconnect();
+      scroller.style.maskImage = before.mask;
+      scroller.style.webkitMaskImage = before.webkit;
+      scroller.style.scrollbarWidth = before.width;
+      delete scroller.dataset.cardMore;
+    };
+  }, [root, key]);
+}
+
 function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
   const styles = useSkinStyles(baseStyles, "inspector");
   const textSize = useCardTextSize();
   const textStyle = cardTextStyle(textSize);
+  const rootRef = useRef<HTMLDivElement>(null);
   const code = liveCard.code;
   const hidden = isHiddenCard(liveCard) || code == null;
   const resolved = useDuelCardInfo(!hidden && (!hasCardName(liveCard) || !liveCard.description?.trim()) ? code : null);
@@ -41,6 +92,7 @@ function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
     name: hasCardName(liveCard) ? liveCard.name : resolved.name,
     description: liveCard.description?.trim() ? liveCard.description : resolved.description,
   } : liveCard;
+  useScrollCue(rootRef, `${code}-${hidden}-${card.description?.length ?? 0}-${textSize}`);
   if (hidden) {
     return (
       <div className={styles.root} data-card-text={textSize} style={textStyle}>
@@ -58,7 +110,7 @@ function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
   const description = card.description?.trim() ?? "";
 
   return (
-    <div className={styles.root} data-card-text={textSize} style={textStyle}>
+    <div ref={rootRef} className={styles.root} data-header="side" data-card-text={textSize} style={textStyle}>
       <div className={`${styles.art} card-frame`}>
         <img src={cardArtUrl(code, "full")} alt="" />
       </div>

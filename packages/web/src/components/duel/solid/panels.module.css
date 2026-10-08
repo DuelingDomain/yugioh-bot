@@ -97,6 +97,10 @@
   font-family: var(--font);
   font-size: var(--ct, 14px);
 }
+/* The side header (art beside the name and stats) keeps its own gaps under the skin's gap: 0. */
+[data-look="solid"] .root[data-header="side"] {
+  gap: 8px 14px;
+}
 [data-look="solid"] .art {
   width: 100%;
   max-width: 236px;
