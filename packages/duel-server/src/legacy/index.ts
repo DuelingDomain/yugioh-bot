@@ -7,7 +7,8 @@ import { LEGACY_DOMAIN_WASM_FILE, createEngineGame as createMainEngineGame } fro
 
 /**
  * The legacy one-against-one engine (main's engine, views and prompts, see ./engine.ts) behind the merged `EngineGame`
- * interface. It plays two-seat Standard and Domain duels only; it has no elimination, no startup scripts and no diagnostics.
+ * interface. It plays two-seat Standard and Domain duels only; it has no elimination or startup scripts.
+ * Its diagnostics contain display data errors.
  */
 
 const NPM_CORE_NAME = "ocgcore-wasm npm package core (built in)";
@@ -56,7 +57,7 @@ export async function createLegacyEngineGame(options: EngineGameOptions): Promis
     eliminate() {
       throw new Error("The legacy engine plays 1v1 tables only; nobody is eliminated");
     },
-    diagnostics: () => [],
+    diagnostics: () => inner.diagnostics(),
     coreInfo: () => ({ ...identity, callsSinceLastPrompt: 0, messagesSinceLastPrompt: 0 }),
     close: () => inner.close(),
   };

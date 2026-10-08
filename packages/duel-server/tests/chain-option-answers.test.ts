@@ -2,15 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OcgHintType, OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
 import { createEngineGame } from "../src/engine.js";
 import { createEngineGame as createLegacyEngineGame } from "../src/legacy/engine.js";
+import { createLegacyEngineGame as createLegacyAdapterGame } from "../src/legacy/index.js";
+import { ChainOptions } from "../src/chain-options.js";
 import { choosePracticeBotAnswer } from "../src/practice-bot.js";
 
-const fake = vi.hoisted(() => ({ batches: [] as OcgMessage[][], messages: [] as OcgMessage[], chain: [] as object[] }));
+const fake = vi.hoisted(() => ({ batches: [] as OcgMessage[][], messages: [] as OcgMessage[], chain: [] as object[], respond: vi.fn() }));
 // Only replace the core and missing card bundle. Use the real answer mapping, processing loops and views.
 vi.mock("ocgcore-wasm", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ocgcore-wasm")>();
   return { ...actual, default: async () => ({
     createDuel: () => ({}), destroyDuel: () => undefined, startDuel: () => undefined,
-    duelNewCard: () => undefined, loadScript: () => true, duelSetResponse: () => undefined,
+    duelNewCard: () => undefined, loadScript: () => true, duelSetResponse: fake.respond,
     duelProcess: () => {
       const messages = fake.batches.shift();
       if (!messages) throw new Error("Unexpected core processing step");
@@ -58,7 +60,44 @@ const idle = () => ({
   monster_sets: [], spell_sets: [], activates: [], to_bp: false, to_ep: true, shuffle: false,
 } as OcgMessage);
 
-beforeEach(() => { fake.batches = []; fake.messages = []; fake.chain = []; });
+describe.each([["merged", createEngineGame], ["legacy adapter", createLegacyAdapterGame]] as const)("%s chain option errors", (_name, create) => {
+  it.each(["observe", "recordPrompt", "recordResponse"] as const)("keeps the duel running when %s throws", async (method) => {
+    vi.spyOn(ChainOptions.prototype, method).mockImplementationOnce(() => { throw new Error("Choice display failed"); });
+    fake.batches = [[chain(), chained(), solving(), option()], [followUp()]];
+    const game = await create({
+      mode: "normal", decks: [0, 1].map(() => ({ main: [], extra: [], side: [] })),
+      dataDirectory: "/tmp/chain-options-no-bundle", seed: ["1", "2", "3", "4"], standardWasmBinary: new ArrayBuffer(0),
+    });
+    try {
+      const prompt = game.view(1).prompt!;
+      expect(() => game.answer(1, prompt.id, { choice: "opt:1" })).not.toThrow();
+      expect(fake.respond).toHaveBeenCalledTimes(1);
+      expect(game.view(1).prompt!.kind).toBe("cards");
+      expect(game.diagnostics()).toContainEqual(expect.objectContaining({
+        kind: "chain-options", detail: `${method}: Error: Choice display failed`,
+      }));
+      expect(JSON.stringify(game.view(null))).not.toContain("Choice display failed");
+    } finally { game.close(); }
+  });
+
+  it("keeps an automatic answer running when choice recording throws", async () => {
+    vi.spyOn(ChainOptions.prototype, "recordResponse").mockImplementationOnce(() => { throw new Error("Automatic display failed"); });
+    fake.batches = [[chain(), chained(), solving(), option([description(2)])], [followUp()]];
+    const game = await create({
+      mode: "normal", decks: [0, 1].map(() => ({ main: [], extra: [], side: [] })),
+      dataDirectory: "/tmp/chain-options-no-bundle", seed: ["1", "2", "3", "4"], standardWasmBinary: new ArrayBuffer(0),
+    });
+    try {
+      expect(fake.respond).toHaveBeenCalledTimes(1);
+      expect(game.view(1).prompt!.kind).toBe("cards");
+      expect(game.diagnostics()).toContainEqual(expect.objectContaining({
+        kind: "chain-options", detail: "recordResponse: Error: Automatic display failed",
+      }));
+    } finally { game.close(); }
+  });
+});
+
+beforeEach(() => { vi.restoreAllMocks(); fake.batches = []; fake.messages = []; fake.chain = []; fake.respond.mockClear(); });
 
 describe.each([["merged", createEngineGame], ["legacy", createLegacyEngineGame]] as const)("%s chain option answers", (_name, create) => {
   const open = () => create({

@@ -3,6 +3,7 @@
 // Do not "fix" or tidy this file, ./views.ts or ./prompts.ts: they must stay equal to main. Every line that differs from main is
 // marked "LEGACY-1V1:". See packages/duel-server/legacy-1v1/README.md.
 import { ChainOptions } from "../chain-options.js"; // LEGACY-1V1: public chosen chain options
+import { DIAGNOSTICS_LIMIT, type EngineDiagnostic } from "../engine.js"; // LEGACY-1V1: private display error diagnostics
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 import { defaultChainMode } from "@yugidraft/shared/duels"; // LEGACY-1V1: chain response mode (Auto, Always, Off)
 import { firstTurnDrawFor } from "../first-turn-draw.js"; // LEGACY-1V1: owner draw rule and saved replay overrides
@@ -87,6 +88,7 @@ export interface EngineGameOptions {
 }
 
 export interface EngineGame {
+  diagnostics(): EngineDiagnostic[]; // LEGACY-1V1: private display error diagnostics
   view(seat: number | null): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
   searchCards(query: string): DuelCardInfo[];
@@ -330,6 +332,11 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let turn = 0;
   let turnSeat = 0;
   let phase = "draw";
+  const diagnostics: EngineDiagnostic[] = []; // LEGACY-1V1: private display error diagnostics
+  const diagnose = (kind: string, seat: number | null, detail: string) => { // LEGACY-1V1: private display error diagnostics
+    diagnostics.push({ turn, phase, kind, seat, detail }); // LEGACY-1V1: private display error diagnostics
+    if (diagnostics.length > DIAGNOSTICS_LIMIT) diagnostics.splice(0, diagnostics.length - DIAGNOSTICS_LIMIT); // LEGACY-1V1: private display error diagnostics
+  }; // LEGACY-1V1: private display error diagnostics
   let battleStep: DuelBattleStep | null = null;
   const lp: [number, number] = [start.startingLP, start.startingLP];
   let pending: PendingPrompt | null = null;
@@ -340,7 +347,11 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const chainMemory: StoredChainLink[] = [];
   const chainOptions = new ChainOptions(cards); // LEGACY-1V1: public chosen chain options
   const respond = (prompt: PendingPrompt, response: OcgResponse) => { // LEGACY-1V1: public chosen chain options
-    chainOptions.recordResponse(prompt, response); // LEGACY-1V1: public chosen chain options
+    try { // LEGACY-1V1: display data must not stop a duel
+      chainOptions.recordResponse(prompt, response); // LEGACY-1V1: public chosen chain options
+    } catch (error) { // LEGACY-1V1: display data must not stop a duel
+      diagnose("chain-options", prompt.seat, `recordResponse: ${String(error)}`); // LEGACY-1V1: private display error diagnostics
+    } // LEGACY-1V1: display data must not stop a duel
     lib.duelSetResponse(handle, response); // LEGACY-1V1: public chosen chain options
   }; // LEGACY-1V1: public chosen chain options
   const reveals = createRevealMap();
@@ -388,7 +399,11 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
     const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
-    chainOptions.observe(message, chainMemory, stored); // LEGACY-1V1: public chosen chain options
+    try { // LEGACY-1V1: display data must not stop a duel
+      chainOptions.observe(message, chainMemory, stored); // LEGACY-1V1: public chosen chain options
+    } catch (error) { // LEGACY-1V1: display data must not stop a duel
+      diagnose("chain-options", null, `observe: ${String(error)}`); // LEGACY-1V1: private display error diagnostics
+    } // LEGACY-1V1: display data must not stop a duel
     // The summon line is written here, right after applyMessage, because the summon method is only known now.
     if (
       stored?.kind === "summon" &&
@@ -610,7 +625,11 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         },
       );
       lastSelectHint = undefined;
-      chainOptions.recordPrompt(next); // LEGACY-1V1: public chosen chain options
+      try { // LEGACY-1V1: display data must not stop a duel
+        chainOptions.recordPrompt(next); // LEGACY-1V1: public chosen chain options
+      } catch (error) { // LEGACY-1V1: display data must not stop a duel
+        diagnose("chain-options", next.seat, `recordPrompt: ${String(error)}`); // LEGACY-1V1: private display error diagnostics
+      } // LEGACY-1V1: display data must not stop a duel
       const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase }); // LEGACY-1V1: per-seat chain mode
       if (automated) {
         respond(next, automated); // LEGACY-1V1: public chosen chain options
@@ -715,6 +734,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       }
       revision += 1;
     },
+    diagnostics() { // LEGACY-1V1: private display error diagnostics
+      return diagnostics.map((entry) => ({ ...entry })); // LEGACY-1V1: private display error diagnostics
+    }, // LEGACY-1V1: private display error diagnostics
     searchCards(query) {
       if (closed) throw new Error("Engine is closed");
       if (pending?.message.type === OcgMessageType.ANNOUNCE_CARD) {
