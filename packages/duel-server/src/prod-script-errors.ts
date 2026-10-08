@@ -3,12 +3,13 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { loadCardDatabase, type CardDatabase } from "./cards.js";
-import { cardScriptHash } from "./card-script-hash.js";
+import { cardScriptHash, type ScriptEngineKind } from "./card-script-hash.js";
+import { loadMultiScriptsFor } from "./multi-scripts.js";
 import { scriptErrorModeFromEnv } from "./script-errors.js";
 import type { AutoBlockRow } from "./script-error-autoblock.js";
 
 export interface ProdScriptErrorCard {
-  code: number; name: string; distinctDuels: number; errorCount: number; autoBlocked: boolean; scriptHash: string | null;
+  code: number; name: string; distinctDuels: number; errorCount: number; autoBlocked: boolean; scriptHash: string | null; engineKind?: ScriptEngineKind;
 }
 export type ProdScriptErrorSnapshot = { available: true; cards: ProdScriptErrorCard[]; truncated?: boolean } | { available: false };
 
@@ -25,21 +26,26 @@ export function prodScriptErrors(db: Database.Database, cards: CardDatabase, rem
       const total = totals.get(code) ?? { duels: new Set<number>(), errors: 0 };
       total.duels.add(row.duel_id); total.errors += row.errors; totals.set(code, total);
     }
-    const active = new Set<number>();
+    const active = new Map<number, AutoBlockRow[]>();
+    let overlay: ReturnType<typeof loadMultiScriptsFor> | undefined;
+    const hash = (code: number, kind: ScriptEngineKind = "all") => {
+      if (kind.startsWith("multi-") && cards.dataDirectory) overlay ??= loadMultiScriptsFor(cards.dataDirectory);
+      return cardScriptHash(cards, code, kind, overlay);
+    };
     if (scriptErrorModeFromEnv() !== "strict") {
-      for (const row of db.prepare("SELECT code, script_hash FROM card_script_auto_blocks WHERE cleared_at IS NULL").all() as AutoBlockRow[]) {
+      for (const row of db.prepare("SELECT * FROM card_script_auto_blocks WHERE cleared_at IS NULL").all() as AutoBlockRow[]) {
         const code = remaps.get(row.code) ?? row.code;
-        if (cardScriptHash(cards, code) === row.script_hash) active.add(code);
+        if (hash(code, row.engine_kind) === row.script_hash) active.set(code, [...active.get(code) ?? [], row]);
       }
     }
     const top = [...totals.keys()].sort((a, b) => totals.get(b)!.errors - totals.get(a)!.errors || a - b).slice(0, 20);
     // Include blocks with no recent samples. Blocks receive priority when the hard size cap is reached.
-    const codes = [...new Set([...active].sort((a, b) => a - b).concat(top))];
-    const result = codes.slice(0, 100).map(code => ({ code, name: (cards.deckCard(code)?.name ?? "Name unavailable").slice(0, 200),
+    const codes = [...new Set([...active.keys()].sort((a, b) => a - b).concat(top))];
+    const result = codes.flatMap(code => (active.get(code) ?? [null]).map(row => ({ code, name: (cards.deckCard(code)?.name ?? "Name unavailable").slice(0, 200),
       distinctDuels: totals.get(code)?.duels.size ?? 0, errorCount: totals.get(code)?.errors ?? 0,
-      autoBlocked: active.has(code), scriptHash: cardScriptHash(cards, code) }));
+      autoBlocked: row !== null, scriptHash: hash(code, row?.engine_kind), ...(row ? { engineKind: row.engine_kind } : {}) }))).slice(0, 100);
     result.sort((a, b) => b.errorCount - a.errorCount || a.code - b.code);
-    return { available: true as const, cards: result, truncated: codes.length > 100 };
+    return { available: true as const, cards: result, truncated: codes.reduce((n, code) => n + (active.get(code)?.length ?? 1), 0) > 100 };
   })();
 }
 

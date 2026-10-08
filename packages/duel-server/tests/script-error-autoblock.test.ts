@@ -76,6 +76,16 @@ describe("script error automatic admission blocks", () => {
     expect(cardBlockIndex(catalog, entries).get(10)?.reason).toBe("Manual reason");
     expect(t.policy.entries()[0]?.code).toBe(10);
   });
+  it("scopes multiplayer failures independently from 1v1 engines", () => {
+    const t = setup();
+    [1, 2, 3].forEach(id => t.record(id, { ...error, format: "tag" }));
+    expect(t.policy.entries("multi-normal")).toHaveLength(1);
+    expect(t.policy.entries("pinned-normal")).toEqual([]);
+    expect(t.policy.entries("legacy-normal")).toEqual([]);
+    [4, 5, 6].forEach(id => t.record(id, error));
+    expect(t.policy.entries("pinned-normal")).toHaveLength(1);
+    expect(t.policy.entries("multi-normal")).toHaveLength(1);
+  });
   it("validates environment thresholds and windows within retained telemetry", () => {
     expect(autoBlockConfigFromEnv()).toEqual({ threshold: 3, windowDays: 7 });
     vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "4"); vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS", "14");

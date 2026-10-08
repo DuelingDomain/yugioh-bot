@@ -323,12 +323,15 @@ passcode remaps and the configured rolling window. The existing 20-sample cap st
 applies. A block persists beyond that window until the script changes or an operator
 clears it; window expiry alone does not grant repeated chances to a broken script.
 
-On startup and admission, a different resolved card-script hash clears an auto block.
+On startup and admission, a different resolved script identity clears an auto block.
 The comparison follows core near-code aliases, official/prerelease basename priority,
 artwork fallback and installed shared card-script patches. An unrelated data update
 with identical script bytes keeps the block. A changed script starts a fresh counting
-revision. Multiplayer suffix overlays and shared helper changes alone do not change
-this per-card base-script hash. The manual list is applied first and its reason wins
+revision. The identity also covers installed shared Lua helpers, multiplayer suffixes and
+mp-utility.lua, and the legacy Normal transform. Blocks are scoped independently
+to legacy/pinned 1v1 and multiplayer, and to Normal/Domain; a multiplayer error
+never blocks a 1v1 deck. The small operational block table migrates to a composite
+(passcode, engine kind) key; existing rows are retained for startup revision checks. The manual list is applied first and its reason wins
 across the whole alias family. Players see only the usual `<card name> is unavailable`
 message with `Its effect script is being investigated`, never Lua diagnostics.
 
@@ -397,6 +400,7 @@ one day; the aggregate snapshot also accompanies the existing 14-day report arti
 After candidate preparation, final validation compares installed-prod hashes with
 the **exact prepared candidate bundle**, including shared card-script patches and
 passcode graduation. A changed or removed card script says **auto block will lift**;
-unchanged script bytes keep the block. Manual blocks still win. The snapshot is
+unchanged dependency bytes keep the block. Helper-only, overlay-only and legacy
+transform fixes also say **auto block will lift** for their engine scope. Manual blocks still win. The snapshot is
 advisory and can become stale before deployment. Existing live-duel drain and replay
 loss warnings for bundle updates still apply; admission auto blocks do not alter them.

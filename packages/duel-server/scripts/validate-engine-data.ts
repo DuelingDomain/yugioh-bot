@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { boundedReport, withValidation, readProdScriptErrors, prodScriptErrorReport } from "./engine-data-report.js";
 import { probeEngineData } from "./probe-engine-data.js";
 import { loadCardDatabase } from "../src/cards.js";
+import { loadMultiScriptsFor } from "../src/multi-scripts.js";
 import { cardScriptHash } from "../src/card-script-hash.js";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 
@@ -22,7 +23,7 @@ if (metadata.changed) {
     if (manifest.sources[key] !== metadata.next[key]) throw new Error(`Prepared ${key} pin differs from candidate`);
   }
   const cards = loadCardDatabase(dataDirectory), remaps = loadCardPasscodeRemaps(dataDirectory);
-  prodSection = prodScriptErrorReport(prod, code => cardScriptHash(cards, remaps.get(code) ?? code));
+  prodSection = prodScriptErrorReport(prod, (code, kind) => cardScriptHash(cards, remaps.get(code) ?? code, kind, kind?.startsWith("multi-") ? loadMultiScriptsFor(dataDirectory, join(dataDirectory, "multi-scripts")) : undefined));
   const probe = await probeEngineData(dataDirectory, metadata.changedPaths);
   const overlayExit = Number(await readFile(join(artifact, "overlay-exit.txt"), "utf8"));
   if (!Number.isInteger(overlayExit) || overlayExit < 0) throw new Error("Invalid overlay check exit status");

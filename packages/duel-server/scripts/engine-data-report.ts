@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { SCRIPT_ENGINE_KINDS, type ScriptEngineKind } from "../src/card-script-hash.js";
 import type { ProdScriptErrorSnapshot } from "../src/prod-script-errors.js";
 
 /** Bound GitHub-rendered copies; the artifact always retains the complete report. */
@@ -31,14 +32,14 @@ export async function readProdScriptErrors(path: string): Promise<ProdScriptErro
     const integer = (n: unknown) => Number.isSafeInteger(n) && (n as number) >= 0;
     if (value.cards.some((card: any) => !integer(card.code) || card.code === 0 || card.code > 0xffffffff ||
       typeof card.name !== "string" || card.name.length > 200 || !integer(card.distinctDuels) || !integer(card.errorCount) ||
-      card.distinctDuels > card.errorCount || typeof card.autoBlocked !== "boolean" ||
+      card.distinctDuels > card.errorCount || typeof card.autoBlocked !== "boolean" || (card.engineKind !== undefined && !SCRIPT_ENGINE_KINDS.includes(card.engineKind)) ||
       (card.scriptHash !== null && (typeof card.scriptHash !== "string" || !/^[a-f0-9]{64}$/.test(card.scriptHash))))) return null;
     return { available: true, cards: value.cards.map((card: any) => ({ code: card.code, name: card.name,
-      distinctDuels: card.distinctDuels, errorCount: card.errorCount, autoBlocked: card.autoBlocked, scriptHash: card.scriptHash })), truncated: value.truncated === true };
+      distinctDuels: card.distinctDuels, errorCount: card.errorCount, autoBlocked: card.autoBlocked, scriptHash: card.scriptHash, ...(card.engineKind ? { engineKind: card.engineKind } : {}) })), truncated: value.truncated === true };
   } catch { return null; }
 }
 
-export function prodScriptErrorReport(snapshot: ProdScriptErrorSnapshot | null, candidateHash?: (code: number) => string | null): string {
+export function prodScriptErrorReport(snapshot: ProdScriptErrorSnapshot | null, candidateHash?: (code: number, kind?: ScriptEngineKind) => string | null): string {
   const heading = "## Script errors in prod (last 7 days)";
   if (!snapshot?.available) return `${heading}\n\nprod error data unavailable\n`;
   const lines = [heading, "", "Top 20 cards by sampled error count, plus active auto blocks (including cards with no recent errors). Counts retain the 20-sample per-duel/card telemetry cap. Manual blocks remain in force after an auto block lifts.", "",
@@ -47,10 +48,10 @@ export function prodScriptErrorReport(snapshot: ProdScriptErrorSnapshot | null, 
   let omitted = snapshot.truncated ?? false;
   // Prioritize auto blocks when a very large snapshot would exceed the rendered section cap.
   for (const card of [...snapshot.cards].sort((a, b) => Number(b.autoBlocked) - Number(a.autoBlocked) || b.errorCount - a.errorCount || a.code - b.code)) {
-    const changed = candidateHash ? candidateHash(card.code) !== card.scriptHash : null;
+    const changed = candidateHash ? candidateHash(card.code, card.engineKind) !== card.scriptHash : null;
     const status = changed === null ? "Comparison unavailable" : changed ? `Yes${card.autoBlocked ? " — auto block will lift" : ""}` : "No";
     const name = safe(card.name).replace(/[\\*_{}\[\]|]/g, "\\$&");
-    const line = `| ${card.code} | ${name} | ${card.distinctDuels} | ${card.errorCount} | ${card.autoBlocked ? "Yes" : "No"} | ${status} |`;
+    const line = `| ${card.code} | ${name}${card.engineKind && card.engineKind !== "all" ? ` (${card.engineKind})` : ""} | ${card.distinctDuels} | ${card.errorCount} | ${card.autoBlocked ? "Yes" : "No"} | ${status} |`;
     if (Buffer.byteLength([...lines, line].join("\n")) > 11800) { omitted = true; break; }
     lines.push(line);
   }

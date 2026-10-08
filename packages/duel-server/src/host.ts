@@ -1,6 +1,6 @@
 import { cardBlockIndex, loadCardBlockList } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
-import { cardScriptHash } from "./card-script-hash.js";
+import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
 import { scriptErrorModeFromEnv } from "./script-errors.js";
@@ -44,7 +44,7 @@ import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards, deckCardUnavailableReason } from "./card-search.js";
-import { activeMultiScriptsHash, pinnedEngineVersion } from "./multi-scripts.js";
+import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from "./multi-scripts.js";
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
 import {
@@ -327,15 +327,21 @@ export function createDuelHost(options: {
   const replayCache = new Map<string, DuelReplay>();
   const queues = new Map<string, Promise<unknown>>();
   const remaps = loadCardPasscodeRemaps(options.dataDirectory);
-  const hashes = new Map<number, string | null>();
+  const hashes = new Map<string, string | null>();
+  let revisionOverlay: ReturnType<typeof loadMultiScriptsFor> | undefined;
   const autoBlocks = createAutoBlockPolicy(options.db, { bundleVersion: manifest.bundleVersion,
     remaps,
-    scriptHash: code => {
-      if (!hashes.has(code)) hashes.set(code, cardScriptHash(loadCardDatabase(options.dataDirectory), code));
-      return hashes.get(code)!;
+    scriptHash: (code, kind) => {
+      const key = `${code}:${kind}`;
+      if (!hashes.has(key)) {
+        if (kind.startsWith("multi-")) revisionOverlay ??= loadMultiScriptsFor(options.dataDirectory);
+        hashes.set(key, cardScriptHash(loadCardDatabase(options.dataDirectory), code, kind, revisionOverlay));
+      }
+      return hashes.get(key)!;
     }, now: options.now });
   autoBlocks.entries(); // Lift stale revision blocks at startup, before the first admission request.
-  const admissionEntries = () => [...loadCardBlockList(undefined, options.dataDirectory), ...autoBlocks.entries()];
+  const admissionEntries = (mode: DuelMode = "normal", format: DuelFormat = "1v1") =>
+    [...loadCardBlockList(undefined, options.dataDirectory), ...autoBlocks.entries(scriptEngineKind(mode, format, duel1v1Engine()))];
   const recordScriptError = createScriptErrorRecorder(options.db, console.error, autoBlocks);
   const spawn = (duelId?: number): DuelGameWorker => options.createWorker?.() ?? new GameWorker(
     duelId === undefined ? undefined : (error) => recordScriptError(duelId, error),
@@ -377,7 +383,7 @@ export function createDuelHost(options: {
   async function sessionDeckOptions(session: DuelSession, playerId: number): Promise<InspectDeckOptions> {
     const table = session.format;
     const startedMatch = session.seriesId != null && ((session.gameNumber ?? 1) > 1 || session.status !== "lobby");
-    const cardBlocks = startedMatch ? loadCardBlockList(undefined, options.dataDirectory) : admissionEntries();
+    const cardBlocks = startedMatch ? loadCardBlockList(undefined, options.dataDirectory) : admissionEntries(session.mode, table);
     const tournamentId = session.seriesId ? series.get(session.seriesId, session.guildId).tournamentId : null;
     const draftId = tournamentId === null ? null : createTournamentDuelService(options.db).rules(tournamentId).draftId;
     if (draftId === null) return { table, cardBlocks };
@@ -386,7 +392,7 @@ export function createDuelHost(options: {
   }
 
   async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
-    const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format, cardBlocks: admissionEntries() };
+    const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format, cardBlocks: admissionEntries(mode, format) };
     validateDeck(mode, deck, options.dataDirectory, settings, checks);
   }
 
@@ -2292,7 +2298,7 @@ export function createDuelHost(options: {
         throw new RequestError("Provide at most 1000 positive card passcodes", 400);
       }
       const catalog = loadCardDatabase(options.dataDirectory);
-      const entries = admissionEntries();
+      const entries = admissionEntries(body.mode === "domain" ? "domain" : "normal", body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1");
       const cards = [];
       const missing: number[] = [];
       for (const code of new Set<number>(body.codes)) {
@@ -2326,11 +2332,11 @@ export function createDuelHost(options: {
         if (!Number.isSafeInteger(body.draftId) || (body.draftId as number) < 1 || mode !== "normal") throw new RequestError("Invalid draft deck context", 400);
         draftPool = await loadDraftDeckPool({ draftId: body.draftId as number, playerId: actor, guildId, dataDirectory: options.dataDirectory, db: options.db });
       }
-      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, { draftPool, cardBlocks: admissionEntries() }) };
+      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, { draftPool, cardBlocks: admissionEntries(mode, body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1") }) };
     }
     if (op === "card-query") {
       try {
-        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery), admissionEntries());
+        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery), admissionEntries(body.mode === "domain" ? "domain" : "normal", body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1"));
       } catch (error) {
         if (error instanceof CardQueryError) throw new RequestError(error.message, 400);
         throw error;

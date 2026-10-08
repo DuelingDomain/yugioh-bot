@@ -654,3 +654,18 @@ it("creates the engine remap completion table before bundle migration and preser
   expect(db.prepare("SELECT bundle_version,applied_at FROM engine_card_remap_runs").get()).toEqual({bundle_version:"bundle-v1",applied_at:expect.any(String)});
  } finally {db.close();}
 });
+
+it("preserves old auto blocks while allowing independent engine scopes on repeated migrations", () => {
+  const db = new Database(":memory:");
+  db.exec(`create table card_script_auto_blocks (
+    code integer primary key, reason text not null, blocked_at text not null,
+    distinct_duels integer not null, error_count integer not null, threshold integer not null,
+    window_days integer not null, bundle_version text not null, script_hash text not null, cleared_at text
+  ); insert into card_script_auto_blocks values (10, 'reason', '2026-10-07', 3, 3, 3, 7, 'b', 'hash', null);`);
+  migrate(db); migrate(db);
+  expect(db.prepare("select code, engine_kind, script_hash from card_script_auto_blocks").all()).toEqual([{ code: 10, engine_kind: "all", script_hash: "hash" }]);
+  db.exec(`insert into card_script_auto_blocks select code, reason, blocked_at, distinct_duels, error_count,
+    threshold, window_days, bundle_version, script_hash, cleared_at, 'multi-normal' from card_script_auto_blocks;`);
+  expect(db.prepare("select count(*) as n from card_script_auto_blocks").get()).toEqual({ n: 2 });
+  db.close();
+});
