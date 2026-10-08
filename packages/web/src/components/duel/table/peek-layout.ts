@@ -7,12 +7,19 @@
 export interface Box { left: number; top: number; right: number; bottom: number }
 
 /** What the peek stays clear of. `keep` is never covered when a place exists; `board` is the lesser rule (the least bad place may touch it). */
-export interface Obstacles { board: Box[]; keep: Box[] }
+export interface Obstacles {
+  board: Box[];
+  keep: Box[];
+  /** The chain panel when it stands in the left column (it is also in `keep`): the peek takes its left edge and width, so the two line up. */
+  chain?: Box | null;
+}
 
 /** One place to try: a free band on one side. The panel stands on the bottom of the band; `maxH` is the room up to its top. */
 export interface Place {
   side: "left" | "right";
   width: number;
+  /** Left side only: the offset of the panel from the layer's left edge when it is not `EDGE_LEFT_PX` (it lines up with the chain panel). */
+  left?: number;
   /** The viewport y of the top of the band. */
   top: number;
   maxH: number;
@@ -28,6 +35,10 @@ const BOTTOM_PX = 8;
 /** The width of the panel: this, or the free room beside the board when that is less (never under the minimum, the art and text give way). */
 export const MIN_WIDTH_PX = 220;
 export const WIDTH_PX = 320;
+/** The chain panel is at most this wide in the left column (a wider one is a strip across the table, and the peek does not line up with it). */
+const CHAIN_COLUMN_MAX_PX = 340;
+/** The peek keeps the chain panel's width when the board leaves this much less room than that (the panel stands as near to the board). */
+const ALIGN_SLACK_PX = 12;
 /** A free band shorter than this is no place for the window (the art and some lines do not fit): used only when no side has a taller one. */
 const MIN_BAND_PX = 260;
 /** The height of a typical panel: the free width is measured beside the board over this span up from the bottom of a band. */
@@ -77,11 +88,26 @@ export function measureObstacles(peek?: Element | null): Obstacles {
     }
     return found;
   };
-  return { board: boxes(BOARD_SELECTOR, false), keep: [...boxes(KEEP_SELECTOR, true), ...cornerBoxes()] };
+  return { board: boxes(BOARD_SELECTOR, false), keep: [...boxes(KEEP_SELECTOR, true), ...cornerBoxes()], chain: chainColumnBox(peek) };
+}
+
+/** The chain panel box when it stands in the left column of the layer (a narrow panel on the left half), else null. */
+function chainColumnBox(peek?: Element | null): Box | null {
+  const layer = peek instanceof HTMLElement ? peek.offsetParent : null;
+  const bounds = layer?.getBoundingClientRect();
+  for (const node of Array.from(document.querySelectorAll("[data-chain-panel]"))) {
+    if (peek?.contains(node)) continue;
+    const rect = node.getBoundingClientRect();
+    if (rect.width <= 1 || rect.height <= 1 || !isShown(node, rect)) continue;
+    const mid = bounds ? (bounds.left + bounds.right) / 2 : window.innerWidth / 2;
+    if (rect.width <= CHAIN_COLUMN_MAX_PX && (rect.left + rect.right) / 2 < mid) return boxOf(rect);
+  }
+  return null;
 }
 
 /** A short text that changes when what the peek stays clear of moves (a camera move, a chain that opens): the peek is placed again then. */
 export function obstaclesKey(obstacles: Obstacles): string {
+  const chain = obstacles.chain ? [obstacles.chain.left, obstacles.chain.right].map(Math.round).join(",") : "";
   const keep = obstacles.keep.map((box) => [box.left, box.top, box.right, box.bottom].map(Math.round).join(",")).join(";");
   // The board moves in small steps while the camera glides: its union to 8 px is enough.
   let union: Box | null = null;
@@ -90,7 +116,7 @@ export function obstaclesKey(obstacles: Obstacles): string {
       ? { left: Math.min(union.left, box.left), top: Math.min(union.top, box.top), right: Math.max(union.right, box.right), bottom: Math.max(union.bottom, box.bottom) }
       : box;
   }
-  return `${keep}|${union ? [union.left, union.top, union.right, union.bottom].map((value) => Math.round(value / 8)).join(",") : ""}`;
+  return `${keep}|${chain}|${union ? [union.left, union.top, union.right, union.bottom].map((value) => Math.round(value / 8)).join(",") : ""}`;
 }
 
 /** The area of `box` that lies on `others`. Overlaps thinner than a few px do not count. */
@@ -123,11 +149,11 @@ export function bandsOf(x0: number, x1: number, top: number, bottom: number, kee
 }
 
 /** The room from the panel edge to the nearest board part inside the band, on one side. `Infinity` with no board there. */
-export function freeWidth(side: "left" | "right", layer: Box, band: Band, board: readonly Box[]): number {
+export function freeWidth(side: "left" | "right", layer: Box, band: Band, board: readonly Box[], leftEdge: number = layer.left + EDGE_LEFT_PX): number {
   // Only the board next to where the panel stands counts: a panel is about this tall, and it stands on the bottom of the band.
   const inBand = board.filter((box) => box.bottom > Math.max(band.top, band.bottom - SPAN_PX) && box.top < band.bottom);
   if (side === "left") {
-    const edge = layer.left + EDGE_LEFT_PX;
+    const edge = leftEdge;
     const limits = inBand.filter((box) => box.right > edge).map((box) => box.left);
     return limits.length === 0 ? Infinity : Math.floor(Math.min(...limits) - GAP_PX - edge);
   }
@@ -136,12 +162,21 @@ export function freeWidth(side: "left" | "right", layer: Box, band: Band, board:
   return limits.length === 0 ? Infinity : Math.floor(edge - (Math.max(...limits) + GAP_PX));
 }
 
-const columnOf = (side: "left" | "right", width: number, layer: Box): [number, number] =>
-  side === "left" ? [layer.left + EDGE_LEFT_PX, layer.left + EDGE_LEFT_PX + width] : [layer.right - EDGE_RIGHT_PX - width, layer.right - EDGE_RIGHT_PX];
+/** Where the left panel stands: lined up with the chain panel (its left edge and width) when that is in the left column, else at the layer edge. */
+function leftColumn(layer: Box, obstacles: Obstacles): { left: number; width: number | null } {
+  const chain = obstacles.chain;
+  return chain ? { left: Math.round(chain.left), width: Math.round(chain.right - chain.left) } : { left: layer.left + EDGE_LEFT_PX, width: null };
+}
+
+const columnOf = (side: "left" | "right", width: number, layer: Box, obstacles: Obstacles): [number, number] => {
+  if (side === "right") return [layer.right - EDGE_RIGHT_PX - width, layer.right - EDGE_RIGHT_PX];
+  const column = leftColumn(layer, obstacles);
+  return [column.left, column.left + (column.width ?? width)];
+};
 
 const SIDES = ["left", "right"] as const;
 const bandsAt = (side: "left" | "right", width: number, layer: Box, obstacles: Obstacles, any = false) => {
-  const [x0, x1] = columnOf(side, width, layer);
+  const [x0, x1] = columnOf(side, width, layer, obstacles);
   return bandsOf(x0, x1, layer.top + TOP_PX, layer.bottom - BOTTOM_PX, obstacles.keep, any);
 };
 
@@ -157,6 +192,16 @@ export function peekPlaces(layer: Box, obstacles: Obstacles): Place[] {
     const places: Place[] = [];
     for (const side of SIDES) {
       for (const band of bandsAt(side, WIDTH_PX, layer, obstacles, any)) {
+        if (side === "left" && obstacles.chain) {
+          // Lined up with the chain panel: its left edge and its width. The chain panel stands as near to the board as it likes, so a few px
+          // of difference to the board gap do not narrow the peek: only a clearly nearer board does.
+          const column = leftColumn(layer, obstacles);
+          const chainWidth = column.width ?? WIDTH_PX;
+          const free = freeWidth(side, layer, band, obstacles.board, column.left);
+          const width = free >= chainWidth - ALIGN_SLACK_PX ? chainWidth : Math.max(MIN_WIDTH_PX, free);
+          places.push({ side, width, left: column.left - layer.left, top: band.top, maxH: band.bottom - band.top });
+          continue;
+        }
         const width = Math.max(MIN_WIDTH_PX, Math.min(WIDTH_PX, freeWidth(side, layer, band, obstacles.board)));
         places.push({ side, width, top: band.top, maxH: band.bottom - band.top });
       }
