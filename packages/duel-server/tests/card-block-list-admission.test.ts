@@ -118,3 +118,15 @@ describe("repository card blocks in deck-builder search", () => {
     expect(result.cards[0]).toMatchObject({ code, unavailableReason: reason });
   });
 });
+
+it("exact automatic entries leave near and far aliases selectable in deck checks and search", () => {
+  const automatic = [{ code: 10, reason: "Auto reason", exactCodes: [10, 400000010] }];
+  const settings = normalizeDuelSettings("normal", { validateDeck: false, startingHand: 1 });
+  const deck = { main: [10, 11, 20], extra: [], side: [] };
+  const report = inspectDeck("normal", deck, dir, settings, { cardBlocks: automatic });
+  expect(report.issues.filter(issue => issue.message.includes("is unavailable")).flatMap(issue => issue.cards.map(card => card.code))).toEqual([10]);
+  const result = queryCards(loadCardDatabase(dir), { ...emptyCardQuery(), text: "Dragon" }, automatic);
+  expect(result.cards.find(card => card.code === 10)?.unavailableReason).toBe("Auto reason");
+  expect(queryCards(loadCardDatabase(dir), { ...emptyCardQuery(), text: "11" }, automatic).cards[0]).not.toHaveProperty("unavailableReason");
+  expect(result.cards.find(card => card.code === 20)).not.toHaveProperty("unavailableReason");
+});

@@ -63,3 +63,16 @@ it("memoizes merged manual/automatic entries until one source changes", () => {
   expect(mergeCardBlockEntries(manual, [...automatic])).not.toBe(merged);
   expect(mergeCardBlockEntries(manual, [])).toBe(manual);
 });
+
+it("automatic blocks affect only the exact passcode and its validated remaps", () => {
+  const catalog = new Map([[10, { alias: 0 }], [11, { alias: 10 }], [100, { alias: 10 }], [200, { alias: 100 }]]);
+  const automatic = [{ code: 10, reason: "auto", exactCodes: [10, 400000010] }];
+  const blocked = cardBlockIndex(catalog, automatic);
+  expect([...blocked.keys()].sort((a, b) => a - b)).toEqual([10, 400000010]);
+  expect(blocked.has(11)).toBe(false);
+  expect(blocked.has(100)).toBe(false);
+  const manual = cardBlockIndex(catalog, [{ code: 200, reason: "manual" }, ...automatic]);
+  expect(manual.get(10)?.reason).toBe("manual");
+  expect(manual.get(100)?.reason).toBe("manual");
+  expect(manual.get(400000010)?.reason).toBe("auto");
+});

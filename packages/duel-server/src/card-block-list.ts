@@ -5,6 +5,8 @@ import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 export interface CardBlockEntry {
   code: number;
   reason: string;
+  /** Automatic script policy: these exact passcodes only, without alias traversal. */
+  exactCodes?: readonly number[];
 }
 
 let repositoryEntries: readonly CardBlockEntry[] | undefined;
@@ -84,12 +86,16 @@ export function cardBlockIndex(
     linked.push(to);
     links.set(from, linked);
   };
-  for (const [code, card] of catalog) {
+  for (const [code, card] of entries.some(entry => !entry.exactCodes) ? catalog : []) {
     if (!card.alias) continue;
     add(code, card.alias);
     add(card.alias, code);
   }
   for (const entry of entries) {
+    if (entry.exactCodes) {
+      for (const code of entry.exactCodes) if (!index.has(code)) index.set(code, entry);
+      continue;
+    }
     const pending = [entry.code];
     while (pending.length) {
       const code = pending.pop()!;
