@@ -213,13 +213,12 @@ describe("3-way camera places", () => {
     expect(slots({ mode: "focus", focusSeat: null })).toEqual(["home", "vL", "vR"]);
   });
 
-  it("focus on you enlarges your field and docks both rivals above it", () => {
-    expect(slots({ mode: "focus", focusSeat: 0 })).toEqual(["home", "dockL", "dockR"]);
-    const poses = seatPoses(layout, camera({ mode: "focus", focusSeat: 0 }));
+  it("focus on you keeps the home poses: the zoom is a camera move, so no seat shrinks or glides", () => {
+    expect(slots({ mode: "focus", focusSeat: 0 })).toEqual(["home", "vL", "vR"]);
+    const focus = seatPoses(layout, camera({ mode: "focus", focusSeat: 0 }));
     const home = seatPoses(layout, camera());
-    expect(poses.get(0)!.scale).toBeGreaterThan(home.get(0)!.scale);
-    expect(poses.get(1)).toMatchObject({ docked: true });
-    expect(poses.get(2)).toMatchObject({ docked: true });
+    expect([...focus.entries()]).toEqual([...home.entries()]);
+    for (const pose of focus.values()) expect(pose.docked).toBeFalsy();
   });
 
   it("look turns the table so the rival you look from takes the home place", () => {

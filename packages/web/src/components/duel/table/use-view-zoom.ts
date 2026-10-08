@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { easeCam, ROOF_ZOOM_MS } from "../tag/roof-camera";
 import {
   clampView,
+  counterTransform,
   edgeInsets,
+  fitView,
   FLAT_FRAME,
   isIdentity,
   isZoomed,
@@ -18,6 +21,7 @@ import {
   viewsClose,
   wheelFactor,
   zoomAt,
+  type FitItem,
   type LayerFrame,
   type Point,
   type Insets,
@@ -90,6 +94,12 @@ export interface UseViewZoomOptions {
   frame?: LayerFrame;
   /** The fixed HUD (a CSS selector, see `VIEW_OCCLUDERS`). */
   occluders?: string;
+  /**
+   * Nodes inside the layer that stay at their 1x place and size under any view (a CSS selector): your hand is HUD, only
+   * the field zooms. The view hook writes a counter transform on them (see `counterTransform`). They must sit in a seat
+   * that is upright and at scale 1.
+   */
+  fixed?: string;
 }
 
 export interface UseViewZoom {
@@ -100,12 +110,21 @@ export interface UseViewZoom {
   reset: () => void;
   /** The HUD over the board changed (a prompt opened, closed or moved): the view eases into the new clamps. */
   refit: () => void;
+  /** A camera move to `view` (clamped) in `ms` (the Rooftop camera's time and ease); at once with reduced motion or `ms` 0. */
+  zoomTo: (view: View, ms?: number) => void;
+  /**
+   * A camera zoom that shows `items` (board-box px at the camera pose) as large as the free box allows and centres them
+   * in it. The free box is the board box minus the HUD over it and the `avoid` rects (board-box px, at the pose).
+   */
+  zoomFit: (items: readonly FitItem[], avoid?: readonly Rect[], ms?: number) => void;
 }
 
 const pointIn = (node: HTMLElement, event: { clientX: number; clientY: number }): Point => {
   const rect = node.getBoundingClientRect();
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 };
+
+const lerpView = (a: View, b: View, t: number): View => ({ s: a.s + (b.s - a.s) * t, x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
 
 const sizeOf = (node: HTMLElement) => ({ width: node.clientWidth, height: node.clientHeight });
 
@@ -115,15 +134,30 @@ const sizeOf = (node: HTMLElement) => ({ width: node.clientWidth, height: node.c
  * only after it moves past the threshold, and the click that ends a pan is dropped, so one press never is both.
  * The layer transform is written to the DOM on every frame; React sees the view only when it comes to rest.
  */
-export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKey, frame = FLAT_FRAME, occluders = VIEW_OCCLUDERS }: UseViewZoomOptions): UseViewZoom {
+export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKey, frame = FLAT_FRAME, occluders = VIEW_OCCLUDERS, fixed }: UseViewZoomOptions): UseViewZoom {
   const [rest, setRest] = useState<View>(VIEW_IDENTITY);
   // `held`: the box and the HUD insets a gesture (a drag, a pinch, a wheel run) reads at its start and keeps.
-  const live = useRef({ current: VIEW_IDENTITY as View, target: VIEW_IDENTITY as View, frame, reducedMotion, enabled, raf: 0, last: 0, held: null as Held | null });
+  const live = useRef({
+    current: VIEW_IDENTITY as View,
+    target: VIEW_IDENTITY as View,
+    frame,
+    reducedMotion,
+    enabled,
+    raf: 0,
+    last: 0,
+    held: null as Held | null,
+    /** A timed camera move (zoomTo): it replaces the exponential ease until it ends or a gesture takes over. */
+    anim: null as { from: View; to: View; start: number; ms: number } | null,
+    /** The fixed nodes and where each stands at the identity view (canvas px, see counterTransform). */
+    origins: new Map<Element, Point>(),
+  });
   live.current.frame = frame;
   live.current.reducedMotion = reducedMotion;
   live.current.enabled = enabled;
   const occluderSelector = useRef(occluders);
   occluderSelector.current = occluders;
+  const fixedSelector = useRef(fixed);
+  fixedSelector.current = fixed;
   /** The HUD insets of the box now (the HUD moves: a prompt opens, a drawer slides), read at each gesture. */
   const insetsOf = useCallback((root: HTMLElement): Insets => edgeInsets(occluderRects(root, occluderSelector.current), sizeOf(root)), []);
 
@@ -136,6 +170,28 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       layer.style.transform = layerTransform(state.current, state.frame);
       layer.style.transformOrigin = isIdentity(state.current) ? "" : "0 0";
       layer.style.willChange = state.raf !== 0 ? "transform" : "";
+    }
+    if (layer && fixedSelector.current) {
+      for (const node of Array.from(layer.querySelectorAll<HTMLElement>(fixedSelector.current))) {
+        let origin = state.origins.get(node);
+        if (!origin && root) {
+          // One forced layout per node and gesture: its 1x place, read with its own counter transform off.
+          node.style.transform = "";
+          const rect = node.getBoundingClientRect();
+          const box = root.getBoundingClientRect();
+          const f = state.frame;
+          const u = layerOffset(state.current, f);
+          const s = state.current.s;
+          origin = { x: ((rect.left - box.left - f.x) / f.k - u.x) / s, y: ((rect.top - box.top - f.y) / f.k - u.y) / s };
+          state.origins.set(node, origin);
+        }
+        if (!origin) continue;
+        node.style.transformOrigin = "0 0";
+        node.style.transform = counterTransform(state.current, origin, state.frame);
+      }
+    } else if (layer && state.origins.size > 0) {
+      for (const node of state.origins.keys()) (node as HTMLElement).style.transform = "";
+      state.origins.clear();
     }
     if (root) {
       if (isZoomed(state.current)) root.dataset.viewZoomed = "true";
@@ -160,7 +216,10 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const state = live.current;
     if (state.raf) cancelAnimationFrame(state.raf);
     state.raf = 0;
+    state.anim = null;
     write(true);
+    // At the identity view the nodes stand at their 1x places: the next move measures them again (a resize or a new hand moved them).
+    if (isIdentity(state.current)) state.origins.clear();
     const at = state.current;
     setRest((prev) => (viewsClose(prev, at) ? prev : at));
   }, [write]);
@@ -169,7 +228,13 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const state = live.current;
     const dt = state.last ? Math.min(64, time - state.last) : 16;
     state.last = time;
-    state.current = stepView(state.current, state.target, dt, EASE_MS);
+    const anim = state.anim;
+    if (anim) {
+      const t = Math.min(1, (time - anim.start) / anim.ms);
+      state.current = t >= 1 ? anim.to : lerpView(anim.from, anim.to, easeCam(t));
+    } else {
+      state.current = stepView(state.current, state.target, dt, EASE_MS);
+    }
     if (state.current === state.target) {
       settle();
       return;
@@ -181,6 +246,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
   /** Moves the view to `next`: eased, or at once (a drag, a pinch, reduced motion). */
   const go = useCallback((next: View, instant: boolean) => {
     const state = live.current;
+    // A gesture or a reset takes over from a timed camera move.
+    state.anim = null;
     state.target = next;
     if (instant || state.reducedMotion) {
       state.current = next;
@@ -201,6 +268,40 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
   }, [settle, tick, write]);
 
   const reset = useCallback(() => go(VIEW_IDENTITY, false), [go]);
+
+  const zoomTo = useCallback((view: View, ms: number = ROOF_ZOOM_MS) => {
+    const root = rootRef.current;
+    const state = live.current;
+    if (!root) return;
+    const next = clampView(view, sizeOf(root), insetsOf(root));
+    if (ms <= 0 || state.reducedMotion) {
+      go(next, true);
+      settle();
+      return;
+    }
+    if (viewsClose(state.current, next) && viewsClose(state.target, next)) return;
+    if (state.raf) cancelAnimationFrame(state.raf);
+    state.raf = 0;
+    state.held = null;
+    state.target = next;
+    state.anim = { from: state.current, to: next, start: 0, ms };
+    state.last = 0;
+    state.raf = requestAnimationFrame((time) => {
+      if (state.anim) state.anim.start = time;
+      tick(time);
+    });
+    write();
+  }, [go, insetsOf, rootRef, settle, tick, write]);
+
+  const zoomFit = useCallback((items: readonly FitItem[], avoid: readonly Rect[] = [], ms?: number) => {
+    const root = rootRef.current;
+    if (!root) return;
+    const box = sizeOf(root);
+    const insets = edgeInsets([...occluderRects(root, occluderSelector.current), ...avoid], box);
+    const gap = 8;
+    const free = { x: insets.left + gap, y: insets.top + gap, width: box.width - insets.left - insets.right - 2 * gap, height: box.height - insets.top - insets.bottom - 2 * gap };
+    zoomTo(fitView(items, free), ms);
+  }, [rootRef, zoomTo]);
 
   const refit = useCallback(() => {
     const root = rootRef.current;
@@ -460,5 +561,5 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     state.raf = 0;
   }, []);
 
-  return { view: rest, zoomed: isZoomed(rest), reset, refit };
+  return { view: rest, zoomed: isZoomed(rest), reset, refit, zoomTo, zoomFit };
 }
