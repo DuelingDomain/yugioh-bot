@@ -178,9 +178,9 @@ const edgeColumn = (side: "left" | "right", layer: Box): [number, number] =>
 
 /**
  * The places of the left side lined up with the chain panel: one per free band beside it where the board leaves room. First the column
- * from its left edge (its width held to 220-320 px). A panel narrower than 220 px with the board near it gets a second try: the 220 px
- * column that ends at the right edge of the chain panel, which is a few px from its left edge and clear of the board. Empty when no
- * band has that room: the layer edge takes the panel then.
+ * from its left edge (its width held to 220-320 px). With the board too near for that, a second try: the 220 px column that ends at the
+ * right edge of the chain panel (a few px from its left edge for a panel near 220 px) and clear of the board. Empty when no band has
+ * that room: the layer edge takes the panel then.
  */
 function alignedPlaces(layer: Box, obstacles: Obstacles, any: boolean): Place[] {
   const column = alignedColumn(obstacles);
@@ -194,7 +194,7 @@ function alignedPlaces(layer: Box, obstacles: Obstacles, any: boolean): Place[] 
     const width = free >= column.width - ALIGN_SLACK_PX ? column.width : free;
     fromLeft.push({ side: "left", width, left: column.left - layer.left, top: band.top, maxH: band.bottom - band.top });
   }
-  if (fromLeft.length > 0 || chain.right - chain.left >= MIN_WIDTH_PX) return fromLeft;
+  if (fromLeft.length > 0) return fromLeft;
   const left = Math.round(chain.right) - MIN_WIDTH_PX;
   const fromRight: Place[] = [];
   for (const band of bandsIn(left, left + MIN_WIDTH_PX, layer, obstacles, any)) {

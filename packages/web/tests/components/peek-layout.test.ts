@@ -70,6 +70,15 @@ describe("the card peek lines up with the chain panel", () => {
     expect(layer.left + first.left! + first.width).toBeLessThanOrEqual(near[0].left - GAP_PX + 8);
   });
 
+  it("tries the right-edge column for a chain panel of 220 px or more too, when the board is too near for the left edge column", () => {
+    const panel = box(130, 131, 356, 298);
+    const [first] = peekPlaces(layer, { board: [box(130 + MIN_WIDTH_PX + GAP_PX - 1, 28, 1575, 1042)], keep: [panel], chain: panel });
+    expect(first.side).toBe("left");
+    expect(first.width).toBe(MIN_WIDTH_PX);
+    expect(first.left).toBe(panel.right - MIN_WIDTH_PX - layer.left);
+    expect(first.top).toBe(panel.bottom + GAP_PX);
+  });
+
   it("keeps the layer edge column when even the right-aligned 220 px column does not fit beside the board", () => {
     const narrow = box(130, 131, 344, 298);
     const [first] = peekPlaces(layer, { board: [box(330, 28, 1575, 1042)], keep: [narrow], chain: narrow });
