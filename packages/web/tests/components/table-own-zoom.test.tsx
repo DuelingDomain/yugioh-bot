@@ -56,7 +56,7 @@ beforeEach(() => {
   placed.calls = 0;
   placed.noPanel = false;
   window.localStorage.clear();
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date", "performance"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date", "performance"] });
   setAnimationSpeed(1);
   duelFxClock.setReducedMotion(false);
   duelFxClock.resetReviewTimeline();
@@ -68,6 +68,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** More than the longest hold of the crumble gate (9.5 s), so the regroup has ended in every table the tests run on. */
+const GATE_WAIT_MS = 12_000;
 const REN = 0;
 const RYO = 1;
 const BASE = FFA3_FIXTURES.states.main;
@@ -290,7 +292,8 @@ describe("FFA3 own field camera zoom", () => {
     const before = scale(container);
     expect(before).toBeGreaterThan(1.02);
     rerender(<Table state={withMikaOut()} camera={focus} />);
-    for (let t = 0; t < 4600; t += 100) {
+    // A regroup can be held for the LP roll (a poll with setInterval, up to 9.5 s on a table with the crumble gate): the steps run through it.
+    for (let t = 0; t < 4600 + GATE_WAIT_MS; t += 100) {
       advance(100);
       expect(scale(container)).toBeGreaterThan(1.02);
       expect(chip(container)).toBe("Focus · Ren Arata");
@@ -310,7 +313,7 @@ describe("FFA3 own field camera zoom", () => {
     // The fit waits for the seats to stand still: the view does not move while they glide.
     advance(2500);
     expect(layer(container).style.transform).toBe(during);
-    advance(2400);
+    advance(2400 + GATE_WAIT_MS);
     expect(board(container).getAttribute("data-regroup")).toBeNull();
     expect(scale(container)).toBeGreaterThan(1.02);
   });
@@ -324,7 +327,7 @@ describe("FFA3 own field camera zoom", () => {
     advance(600);
     const byHand = scale(container);
     rerender(<Table state={withMikaOut()} camera={focus} />);
-    advance(5000);
+    advance(5000 + GATE_WAIT_MS);
     expect(scale(container)).toBeCloseTo(byHand, 3);
     expect(chip(container)).toBe("Focus · Ren Arata");
   });
@@ -335,7 +338,7 @@ describe("FFA3 own field camera zoom", () => {
     advance(600);
     expect(chip(container)).toBe("Home");
     rerender(<Table state={withMikaOut()} />);
-    advance(5000);
+    advance(5000 + GATE_WAIT_MS);
     expect(chip(container)).toBe("Home");
     expect(layer(container).style.transform).toBe("");
   });
@@ -346,7 +349,7 @@ describe("FFA3 own field camera zoom", () => {
     const { container, rerender } = render(<Table state={idle()} camera={focus} />);
     advance(600);
     rerender(<Table state={withMikaOut()} camera={focus} />);
-    advance(5000);
+    advance(5000 + GATE_WAIT_MS);
     const zone = seatBox(container, RYO).querySelector<HTMLElement>("[data-zones][data-occupied='true']:not([data-pile]):not([data-legal='true']) button")!;
     expect(zone).not.toBeNull();
     fireEvent.click(zone);
@@ -362,7 +365,7 @@ describe("FFA3 own field camera zoom", () => {
     const { container, rerender } = render(<Table state={idle()} camera={focus} />);
     advance(600);
     rerender(<Table state={withMikaOut()} camera={focus} />);
-    advance(5000);
+    advance(5000 + GATE_WAIT_MS);
     fireEvent.click(container.querySelector("[data-camera-back]")!);
     advance(800);
     expect(chip(container)).toBe("Home");
@@ -386,7 +389,7 @@ describe("FFA3 own field camera zoom", () => {
     const { container, rerender } = render(<Table state={idle()} />);
     expect(container.querySelector("[data-camera-zoom]")).not.toBeNull();
     rerender(<Table state={{ ...BASE, room: { ...BASE.room, engine } } as TableFixtureState} />);
-    advance(5000);
+    advance(5000 + GATE_WAIT_MS);
     expect(container.querySelector("[data-camera-zoom]")).toBeNull();
   });
 
@@ -396,7 +399,7 @@ describe("FFA3 own field camera zoom", () => {
     const { container, rerender } = render(<Table state={idle()} camera={focus} />);
     advance(600);
     rerender(<Table state={withMikaOut()} camera={focus} />);
-    advance(5000);
+    advance(5000 + GATE_WAIT_MS);
     fireEvent.keyDown(window, { key: "Escape" });
     advance(800);
     expect(chip(container)).toBe("Home");
