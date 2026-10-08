@@ -18,8 +18,8 @@ export default defineConfig({
   ],
   use: {
     headless: false,
-    trace: "on",
-    video: "on",
+    trace: "retain-on-failure",
+    video: "retain-on-failure",
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
   },

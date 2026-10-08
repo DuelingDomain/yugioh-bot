@@ -73,11 +73,10 @@ test("Continue with Discord signs in to the real site", async ({}, testInfo) => 
     page.setDefaultNavigationTimeout(30_000);
 
     stage = "clearing app and Clerk sign-in state";
-    const cookieDomains = new Set(["app.duelingdomain.com", "clerk.app.duelingdomain.com", baseUrl.hostname]);
-    for (const domain of cookieDomains) {
-      const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      await context.clearCookies({ domain: new RegExp(`^\\.?${escaped}$`, "i") });
-    }
+    // App, Clerk and the shared dd_signed_in hint live under duelingdomain.com; Discord's own cookies stay.
+    await context.clearCookies({ domain: /(^|\.)duelingdomain\.com$/i });
+    const escapedHost = baseUrl.hostname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    await context.clearCookies({ domain: new RegExp(`^\\.?${escapedHost}$`, "i") });
     // Serve a blank document at the app origin, so storage is cleared before any app code runs.
     const resetUrl = new URL("/__live_login_reset__", baseUrl.origin).href;
     await page.route(resetUrl, route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Preparing live login</title>" }));
