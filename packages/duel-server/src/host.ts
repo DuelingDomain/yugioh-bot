@@ -1491,7 +1491,7 @@ export function createDuelHost(options: {
       throw new RequestError(error instanceof Error ? error.message : "Preset board is invalid", 500);
     }
     const catalog = loadCardDatabase(options.dataDirectory);
-    const blocked = cardBlockIndex(new Map([...catalog.all()].map((card) => [card.code, card])));
+    const blocked = cardBlockIndex(new Map([...catalog.all()].map((card) => [card.code, card])), undefined, options.dataDirectory);
     for (const code of compiled.codes) {
       const entry = blocked.get(code);
       if (entry) throw new RequestError(`${catalog.get(code)?.name ?? code} is unavailable: ${entry.reason}`, 400);

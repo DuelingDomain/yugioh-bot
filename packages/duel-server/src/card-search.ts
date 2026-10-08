@@ -73,7 +73,7 @@ function trapType(type: number): TrapTypeKey {
 function buildIndex(cards: CardDatabase): Index {
   const entries: Entry[] = [];
   const byCode = new Map<number, Entry>();
-  const blocked = cardBlockIndex(new Map([...cards.all()].map(card => [card.code, card])));
+  const blocked = cardBlockIndex(new Map([...cards.all()].map(card => [card.code, card])), undefined, cards.dataDirectory);
   for (const card of cards.all()) {
     const kind = kindOf(card.type);
     // An alternate artwork repeats its original's name and card type. An alias with another name or

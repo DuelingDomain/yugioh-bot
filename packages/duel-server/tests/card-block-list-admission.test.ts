@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +16,7 @@ vi.mock("node:fs", async (importOriginal) => {
     ...fs,
     readFileSync: (path: Parameters<typeof fs.readFileSync>[0], ...args: unknown[]) => {
       if (String(path).endsWith("/card-block-list.json")) return JSON.stringify([
-        { code: 12, reason: "Repeated script failure under investigation" },
+        { code: 400000012, reason: "Repeated script failure under investigation" },
         { code: 90, reason: "Broken summon script" },
       ]);
       return (fs.readFileSync as (...args: unknown[]) => unknown)(path, ...args);
@@ -39,6 +40,10 @@ beforeAll(() => {
     INSERT INTO texts VALUES (10,'Blocked Dragon',''),(11,'Blocked Dragon',''),
       (12,'Blocked Dragon',''),(20,'Alias Dragon',''),(30,'Allowed Dragon',''),(90,'Blocked Fusion','');`);
   db.close();
+  // The policy keeps its prerelease code after the card graduates to passcode 12.
+  const remaps = JSON.stringify({ version: 1, remaps: { 400000012: 12 } });
+  writeFileSync(join(dir, "card-remaps.json"), remaps);
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ integrity: { cardRemaps: createHash("sha256").update(remaps).digest("hex") } }));
 });
 afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 

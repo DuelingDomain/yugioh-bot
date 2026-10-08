@@ -233,8 +233,8 @@ The duel will continue.” Card identities and raw Lua diagnostics are omitted f
 all player and spectator messages, including with public-hand settings. This
 conservative text never names a hidden card. `DuelEngineView.events/log` flow through
 the existing worker views and room snapshots; `duel:changed` makes the client fetch
-its view, and `MatchSheetLog` displays the text in live duels and replays. No duel-log
-centre banner is shown for script-error events. Event/log IDs depend only on the core sequence; timestamps and
+its view, and `MatchSheetLog` displays the text in live duels and replays. Script errors have no
+centre banner. Event/log IDs depend only on the core sequence; timestamps and
 counters never enter views or the command journal. Strict-mode client errors also
 use generic text; their raw diagnostic remains in private telemetry. Errors never
 end a duel merely because their count is high. A batch exceeding 100,000 core
@@ -277,13 +277,16 @@ are operational data; neither changes engine bundle integrity or `bundleVersion`
 
 ```json
 [
-  { "code": 3743515, "reason": "Its effect script is being investigated" }
+  { "code": 12345678, "reason": "Its effect script is being investigated" }
 ]
 ```
 
-The example does not add a block to the repository. Commit the intended policy, deploy the duel server, and restart it after each edit. The file is read once per process. It is required beside the package's `dist` directory; the Docker `duel` stage copies it there, and `duel-bundled` inherits it. A deployment that copies compiled JavaScript separately must also copy this file. Missing or malformed policies fail the admission/search check instead of allowing cards silently. Entries require a unique positive passcode of at most `4294967295` and a nonblank reason.
+The illustrative passcode does not add a block to the repository. Sabersaurus
+(3743515) is fixed by the shared card-script patch above and should not be blocked
+for its former bug. Runtime-error tests register a synthetic card callback from
+`tests/fixtures/card-scripts/runtime-error.lua`, independent of the installed script. Commit the intended policy, deploy the duel server, and restart it after each edit. The file is read once per process. It is required beside the package's `dist` directory; the Docker `duel` stage copies it there, and `duel-bundled` inherits it. A deployment that copies compiled JavaScript separately must also copy this file. Missing or malformed policies fail the admission/search check instead of allowing cards silently. Entries require a unique positive passcode of at most `4294967295` and a nonblank reason.
 
-A listed card is unavailable in Normal and Domain decks at 1v1, Tag, FFA3 and FFA4 tables, including casual tables with `validateDeck=false`, no banlist, and draft pools. Main, Extra, Side and Deck Master cards are checked. Alias links are followed in both directions through the engine catalog, so blocking any artwork also blocks its original, other artworks and named alias variants. Usually list the original passcode once. If multiple entries refer to the same alias family, the first entry supplies its reason.
+A listed card is unavailable in Normal and Domain decks at 1v1, Tag, FFA3 and FFA4 tables, including casual tables with `validateDeck=false`, no banlist, and draft pools. Main, Extra, Side and Deck Master cards are checked. Alias links are followed in both directions through the engine catalog, so blocking any artwork also blocks its original, other artworks and named alias variants. Codes in the list are first resolved through the bundle’s validated `loadCardPasscodeRemaps`, so a blocked prerelease code follows graduation to its official passcode in admission, search, card details and preset boards. Usually list the original passcode once. If multiple entries refer to the same alias family, the first entry supplies its reason.
 
 Deck-builder search retains blocked matches with an Unavailable label and the configured reason. Adding and selecting them as Deck Master is disabled. Importing or keeping an existing deck does not grant permission to start a duel: deck validation and duel admission reject it with `<card name> is unavailable: <reason>`, and validation reports reference every blocked copy.
 
