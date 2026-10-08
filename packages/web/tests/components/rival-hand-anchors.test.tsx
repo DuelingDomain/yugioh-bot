@@ -28,4 +28,19 @@ describe("the hand of a rival on a grid seat", () => {
     expect(target).not.toBeNull();
     expect(target?.side).toBe("opp");
   });
+
+  it("lands a card of a hand of more than 12 on the end of the drawn backs, not one past it (the count chip is not a card)", () => {
+    const cards = Array.from({ length: 14 }, (_, index) => ({ handId: `h-${index}`, sequence: index }));
+    const { container } = render(<RivalHand seat={2} count={14} name="Rival" cards={cards} />);
+    const hand = container.querySelector<HTMLElement>("[data-hand-seat='2']")!;
+    expect(hand.querySelectorAll("[data-hand-id]")).toHaveLength(12);
+    expect(hand.children).toHaveLength(13);
+    // Each drawn back is 10 px to the left of the one before (the far hand runs left).
+    hand.querySelectorAll<HTMLElement>("[data-zones]").forEach((node, index) => {
+      node.getBoundingClientRect = () => ({ left: 200 - index * 10, top: 5, width: 8, height: 12, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    });
+    const target = handArrivalTarget({ type: "move", zone: { controller: 2, location: LOCATION_HAND, sequence: 13 } } as never);
+    // The last drawn back is the 12th (index 11); sequence 13 is two steps past it.
+    expect(target?.rect.left).toBe(200 - 11 * 10 - 2 * 10);
+  });
 });
