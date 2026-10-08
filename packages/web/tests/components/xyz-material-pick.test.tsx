@@ -55,7 +55,20 @@ describe("Xyz materials in a pick", () => {
   it("tell two Xyz of one name apart by order, with no zone numbers", () => {
     const twin = [material(0, 0, "Celtic Guardian", 0), material(1, 0, "Axe Raider", 2), material(2, 1, "Mystical Elf", 2)];
     expect(materialHostNotes(twin).map((note) => note?.detail)).toEqual([
-      "Under Ryzeal Duo Drive (1 of 2)", "Under Ryzeal Duo Drive (2 of 2)", "Under Ryzeal Duo Drive (2 of 2)",
+      "1 of 2 · Under Ryzeal Duo Drive", "2 of 2 · Under Ryzeal Duo Drive", "2 of 2 · Under Ryzeal Duo Drive",
+    ]);
+  });
+
+  it("call an Xyz the viewer cannot see a face-down Xyz", () => {
+    const hidden = (index: number, seat: number, name?: string): DuelPromptOption => {
+      const option = material(index, 0, "Celtic Guardian", index, name ?? "x", seat);
+      return { ...option, host: { ...option.host!, name: undefined } };
+    };
+    expect(materialHostNotes([hidden(0, 0), hidden(1, 0), material(2, 0, "Mystical Elf", 4, "Number 39: Utopia", 0)], { mySeat: 0 }).map((note) => note?.detail)).toEqual([
+      "1 of 2 · Under a face-down Xyz", "2 of 2 · Under a face-down Xyz", "Under Number 39: Utopia",
+    ]);
+    expect(materialHostNotes([hidden(0, 1), material(1, 0, "Axe Raider", 2, "Number 39: Utopia", 0)], { mySeat: 0 }).map((note) => note?.detail)).toEqual([
+      "Under opponent's face-down Xyz", "Under your Number 39: Utopia",
     ]);
   });
 
