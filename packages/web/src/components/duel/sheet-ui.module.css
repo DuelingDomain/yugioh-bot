@@ -121,6 +121,7 @@
 .selectWrap:hover > svg,
 .selectWrap:focus-within > svg { color: var(--duel-pen-ink); }
 .select option { background: #0e1729; color: #efe7d5; font-weight: 400; }
+.select option:disabled { color: var(--duel-ink-3); }
 .selectSm .select { height: 36px; font-size: calc(14px * var(--tt, 1)); }
 
 /* ---------- segmented controls ---------- */
