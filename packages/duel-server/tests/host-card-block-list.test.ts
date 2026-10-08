@@ -1,12 +1,14 @@
 import { createHmac } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import Database from "better-sqlite3";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import { defaultDuelSettings, seatCountFor } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 
 vi.mock("node:fs", async (original) => {
   const fs = await original<typeof import("node:fs")>();
@@ -17,6 +19,30 @@ vi.mock("node:fs", async (original) => {
 });
 
 const SECRET = "blocked-start";
+let DATA: string;
+beforeAll(() => {
+  DATA = mkdtempSync(join(tmpdir(), "host-card-block-list-"));
+  writeFileSync(join(DATA, "manifest.json"), JSON.stringify({ bundleVersion: "fixture" }));
+  writeFileSync(join(DATA, "strings.conf"), "");
+  mkdirSync(join(DATA, "card-scripts"));
+  // Pass the host's installed-file guards; blocked cards must prevent any core load.
+  for (const file of ["ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"]) writeFileSync(join(DATA, file), "fixture");
+  const cards = new Database(join(DATA, "cards.cdb"));
+  try {
+    cards.exec(`CREATE TABLE datas (id INTEGER PRIMARY KEY, ot INTEGER, alias INTEGER, setcode INTEGER,
+      type INTEGER, atk INTEGER, def INTEGER, level INTEGER, race INTEGER, attribute INTEGER);
+      CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT, desc TEXT);
+      INSERT INTO datas VALUES
+        (89631139,3,0,0,17,3000,2500,8,8192,16),
+        (77585513,3,0,0,33,2400,1500,6,32,32),
+        (44095762,3,0,0,4,0,0,0,0,0),
+        (15025844,3,0,0,17,800,2000,4,2,16);
+      INSERT INTO texts VALUES
+        (89631139,'Blue-Eyes White Dragon',''),(77585513,'Jinzo',''),
+        (44095762,'Mirror Force',''),(15025844,'Mystical Elf','');`);
+  } finally { cards.close(); }
+});
+afterAll(() => { rmSync(DATA, { recursive: true, force: true }); });
 const hosts: DuelHost[] = [];
 afterEach(async () => { for (const host of hosts.splice(0)) await host.close(); vi.unstubAllEnvs(); });
 
