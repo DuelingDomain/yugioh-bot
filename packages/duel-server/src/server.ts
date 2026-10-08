@@ -50,7 +50,7 @@ const host = createDuelHost({
 });
 let closing = false;
 function restarting(response: ServerResponse) {
-  response.writeHead(503, { "content-type": "application/json", "connection": "close" });
+  response.writeHead(503, { "content-type": "application/json", "connection": "close", "Retry-After": "2" });
   response.end(JSON.stringify({ error: "restarting" }));
 }
 const server = createServer(async (request, response) => {
@@ -108,6 +108,7 @@ async function shutdown() {
   closing = true;
   const exitTimer = setTimeout(() => process.exit(0), 5000);
   exitTimer.unref();
+  let exitCode = 0;
   try {
     const stopped = new Promise<void>((resolve, reject) => {
       server.close(error => error ? reject(error) : resolve());
@@ -126,11 +127,12 @@ async function shutdown() {
     await host.close();
     cards.close();
     db.close();
-  } catch {
-    console.error("[duel] Shutdown failed");
+  } catch (error) {
+    console.error("[duel] Shutdown failed", error instanceof Error ? error.name : "Unknown");
+    exitCode = 1;
   } finally {
     clearTimeout(exitTimer);
-    process.exit(0);
+    process.exit(exitCode);
   }
 }
 function onShutdownSignal(signal: "SIGTERM" | "SIGINT") {
