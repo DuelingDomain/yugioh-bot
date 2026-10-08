@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { afterPaint, initialAuthState, reduceAuth, signInStatusEvent, successHoldMs, type AuthFlowState } from "../lib/auth-flow";
 import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
 import { hardNavigate } from "../components/auth/navigate";
+import { useRecoveryReload } from "./use-recovery-reload";
 
 export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | null }): {
   state: AuthFlowState;
@@ -28,15 +29,26 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
   const mounted = useRef(true);
   const destination = useRef(state.returnTo);
   const pending = state.pending || signal.fetchStatus === "fetching" || !signal.signIn;
+  useRecoveryReload(state.step);
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
-    const error = new URLSearchParams(window.location.search).get("error");
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("error")) return;
+    const error = url.searchParams.get("error");
     if (error === "discord_recovery_support") {
       dispatch({ type: "error", view: { kind: "banner", banner: { tone: "bad", body: "Your account needs help linking. Contact support@duelingdomain.com." } } });
     } else if (error === "discord_recovery_cancelled") {
       dispatch({ type: "error", view: { kind: "banner", banner: { tone: "info", body: "Discord sign-in was cancelled. You can try again when you're ready." } } });
+    } else if (error === "discord_recovery_busy") {
+      dispatch({ type: "error", view: { kind: "banner", banner: { tone: "bad", body: "Too many attempts. Try again in a few minutes." } } });
+    } else if (error === "discord_recovery_unavailable") {
+      dispatch({ type: "error", view: { kind: "banner", banner: { tone: "bad", body: "Sign-in is having trouble. Try again in a moment." } } });
+    } else if (error === "discord_recovery_expired") {
+      dispatch({ type: "error", view: { kind: "banner", banner: { tone: "bad", body: "Discord sign-in expired. Try again when you're ready." } } });
     }
+    url.searchParams.delete("error");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
   }, []);
   useEffect(() => {
     if (!pending) return;

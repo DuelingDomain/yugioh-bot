@@ -7,6 +7,7 @@ import { afterPaint, initialAuthState, reduceAuth, signUpRequirementsEvent, succ
 import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
 import { hardNavigate } from "../components/auth/navigate";
 import { DEFAULT_RETURN, safeReturnPath } from "../lib/auth-return";
+import { useRecoveryReload } from "./use-recovery-reload";
 
 type AccountInput = { username: string; password: string; legalAccepted: boolean };
 type Actions = {
@@ -46,6 +47,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   const loading = !signUpSignal.signUp || (opts.callback && (!signInSignal?.signIn ||
     (!signInSignal.signIn.id && !signUpSignal.signUp.id && !signUpSignal.signUp.emailAddress && signInSignal.signIn.status !== "complete" && signUpSignal.signUp.status !== "complete")));
   const pending = state.pending || fetching || loading;
+  useRecoveryReload(state.step);
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
@@ -142,9 +144,10 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
         const signIn = latest.current.signInSignal!.signIn!;
         const resume = readResume();
         if (signIn.status === "complete") { await finalize("sign-in"); return; }
+        if (signIn.isTransferable || signIn.firstFactorVerification?.status === "transferable" || isWaitlistRefusal(signIn.firstFactorVerification?.error)) { recover(); return; }
         // A sign-in OAuth transfer is not an invitation. Never start a new signup.
-        if (resume.kind === "sign-in" || signIn.isTransferable || (resume.attemptId && resume.attemptId !== signUp.id)) {
-          recover(); return;
+        if (resume.kind === "sign-in" || (resume.attemptId && resume.attemptId !== signUp.id)) {
+          dispatch({ type: "error", view: { kind: "step", step: "err-signup" } }); return;
         }
         setResumeKind("sign-up");
         await advanceSignup();

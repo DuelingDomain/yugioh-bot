@@ -381,3 +381,12 @@ html[data-duel-no-callout] {
 html[data-duel-no-callout] :is(input, textarea, [contenteditable='true']) {
   -webkit-touch-callout: default;
 }
+
+/* The Card tab's scroller (marked by cardScrollerProps in inspector.tsx): a fade on the last rows while the text has more to read. A
+   global rule, since the scroller belongs to each table and not to the inspector. The mask would hide an outline drawn outside the box,
+   so the focus ring sits inside. Each table's scroller class sets its own thin scrollbar. */
+[data-card-scroller]:focus-visible { outline-offset: -2px; }
+[data-card-scroller][data-card-more="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}

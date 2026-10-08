@@ -16,7 +16,7 @@ import { DeckSurrenderContext } from "../../deck-surrender";
 import { duelFontClasses } from "../../fonts";
 import { DeckMasterRail } from "../../field";
 import { DuelHistoryRail } from "../../history-rail";
-import { CardInspector } from "../../inspector";
+import { CardInspector, cardScrollerProps } from "../../inspector";
 import { seatNamer } from "../../multi-seat";
 import { PromptCenter } from "../../prompt-center";
 import { optionsForCard, promptLegalKeys, type PromptDraft } from "../../prompts";
@@ -205,7 +205,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
         }
         seriesBanner={null}
         noticesNode={null}
-        inspectorNode={<>{tabs()}<div className={roomStyles.sideContent}>{sidePanes(true)}</div></>}
+        inspectorNode={<>{tabs()}<div className={roomStyles.sideContent} {...cardScrollerProps(desktopPane(pane) === "card")}>{sidePanes(true)}</div></>}
         promptDockNode={null}
         masterRail={masterRail}
         legalActionsFor={legalActionsFor}

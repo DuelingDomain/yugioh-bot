@@ -29,6 +29,34 @@
 }
 .caption[data-busy="true"] { color: var(--duel-chain-ink, #f4d690); }
 
+/* The caption line; a wrapping list that has more rows beyond an edge adds the count and the up and down buttons at its right end. */
+.bar { display: contents; }
+.bar[data-pager] { display: flex; align-items: center; gap: 8px; }
+.bar[data-pager] .caption { flex: 1 1 auto; min-width: 0; }
+.pager { display: flex; flex: none; align-items: center; gap: 6px; }
+.count {
+  color: var(--duel-ink-3, #958f81);
+  font-size: var(--duel-t-xs, 11px);
+  line-height: 1;
+  white-space: nowrap;
+}
+.pageBtn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--duel-rule-hi, rgb(181 153 99 / 0.6));
+  border-radius: 50%;
+  background: rgb(11 17 32 / 0.92);
+  color: var(--duel-ink, #efe7d5);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.pageBtn:hover:not(:disabled) { border-color: var(--duel-pen, #9b7eff); background: rgb(19 32 55 / 0.96); }
+.pageBtn:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: 2px; }
+.pageBtn:disabled { opacity: 0.35; cursor: default; }
+
 /* The frame holds the arrows over the scroller; the arrows sit at the middle of the art. */
 .frame {
   position: relative;
@@ -243,3 +271,68 @@
   --cs-pad-bottom: calc(8 * var(--cs-u));
 }
 :global([data-prompt-dense]) .caption { min-height: 0; }
+
+/*
+ * A dense host on a window wider than a phone (the 3-way and Tag tables, the 4-way grid): the cards wrap into rows that
+ * scroll up and down inside the panel, with big tiles and the full name (two lines) under each. One row of 90-odd
+ * tiles at 0.72 of a unit was about 65px wide, too small to read the art or the name. The tile is sized from the unit
+ * with a floor in px, and from the panel's height cap (--pr-strip-h, set in the stage css), so one full row fits between the
+ * title and the Confirm button. More cards scroll: the fade, the down button and the card count in the subtitle tell
+ * that there are more. A chain response keeps its strip.
+ */
+@media (min-width: 901px) {
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) {
+    --cs-w: clamp(70px, calc((var(--pr-strip-h, 300px) - 170px * var(--tt, 1)) / 1.46), max(112px, calc(128 * var(--cs-u))));
+    --cs-gap: calc(10 * var(--cs-u));
+    --cs-pad-x: 14px;
+    --cs-pad-top: 10px;
+    --cs-pad-bottom: 4px;
+    --cs-fade: 28px;
+    flex: 1 1 auto;
+  }
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .frame {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .strip {
+    flex: 1 1 auto;
+    min-height: 0;
+    /* A grid of equal columns, centred as a block: the columns line up (Up and Down keep the column) and no space piles up on one side. flex-wrap stays, as the wrap check reads it. */
+    display: grid;
+    grid-template-columns: repeat(auto-fill, var(--cs-w));
+    /* The width the cards ask for (a grid of auto-fill columns has no width of its own): the panel is as wide as its cards, up to its max-width. */
+    width: calc(var(--cs-n, 1) * var(--cs-w) + (var(--cs-n, 1) - 1) * var(--cs-gap) + 2 * var(--cs-pad-x));
+    max-width: 100%;
+    /* A short list sits in the middle of the panel, not at the left. */
+    margin-inline: auto;
+    column-gap: var(--cs-gap);
+    flex-wrap: wrap;
+    align-content: start;
+    justify-content: center;
+    /* A row gap above the lift (4px) and the pick mark (8px) that hangs off the corner. */
+    row-gap: 18px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    /* No scroll bar: it would take width and push the last card of a row to the next row. The fade, the count and the buttons show that there is more. */
+    scrollbar-width: none;
+    overscroll-behavior: contain;
+    scroll-snap-type: none;
+    scroll-padding-block: 14px;
+    -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 var(--cs-fade-t), #000 calc(100% - var(--cs-fade-b)), transparent 100%);
+    mask-image: linear-gradient(180deg, transparent 0, #000 var(--cs-fade-t), #000 calc(100% - var(--cs-fade-b)), transparent 100%);
+  }
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .strip::-webkit-scrollbar { display: none; }
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .strip { --cs-fade-t: 0px; --cs-fade-b: 0px; }
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .frame[data-up="true"] .strip { --cs-fade-t: var(--cs-fade); }
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .frame[data-down="true"] .strip { --cs-fade-b: var(--cs-fade); }
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .cell:first-child,
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .cell:last-child { margin-inline: 0; }
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .num {
+    min-width: max(20px, calc(22 * var(--cs-u)));
+    height: max(20px, calc(22 * var(--cs-u)));
+  }
+  /* The panel's height is short: the "hover to read" line gives its row to the cards (the peek still opens on hover and focus). */
+  :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .hint { display: none; }
+}

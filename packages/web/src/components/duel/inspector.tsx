@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type RefObject } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { CardBack } from "./card-face";
 import { hasCardName, useDuelCardInfo } from "./card-info";
@@ -21,10 +21,69 @@ export type InspectTarget =
   | { type: "info"; card: DuelCardInfo }
   | { type: "pile"; title: string; cards: DuelCard[] };
 
+/**
+ * Mark the scroller that holds the Card tab when it shows the card pane. Its bottom rows then fade while the text has more to read
+ * (see globals.css). A scroller without the mark (the phone Sheet, which paints its own background and edge) gets no fade. Pass
+ * `active` as "the card pane is the one shown". The card text itself makes the scroller focusable (see useScrollCue), so an empty
+ * Card tab is not a tab stop.
+ */
+export function cardScrollerProps(active: boolean): { "data-card-scroller"?: "" } {
+  return active ? { "data-card-scroller": "" } : {};
+}
+
+/**
+ * Keep `data-card-more` on the marked scroller up to date: "true" while the text runs past its bottom edge, "false" at the end or when
+ * it all fits. The fade itself is CSS. The layout effect runs before the first paint, so there is no frame without the fade. While a
+ * card shows, the scroller is a tab stop, so Safari can scroll it with the arrow keys.
+ */
+function useScrollCue(root: RefObject<HTMLElement | null>, shown: boolean, key: string | undefined) {
+  // The tab stop depends only on "a face-up card shows", so a card change does not drop it (and the focus with it).
+  useLayoutEffect(() => {
+    const scroller = root.current?.closest<HTMLElement>("[data-card-scroller]") ?? null;
+    if (!scroller || scroller.hasAttribute("tabindex")) return;
+    scroller.tabIndex = 0;
+    return () => scroller.removeAttribute("tabindex");
+  }, [root, shown]);
+  useLayoutEffect(() => {
+    const node = root.current;
+    const scroller = node?.closest<HTMLElement>("[data-card-scroller]") ?? null;
+    if (!node || !scroller) return;
+    let more: boolean | null = null;
+    const update = () => {
+      const next = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 2;
+      if (next === more) return;
+      more = next;
+      scroller.dataset.cardMore = next ? "true" : "false";
+    };
+    update();
+    scroller.addEventListener("scroll", update, { passive: true });
+    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    resize?.observe(scroller);
+    resize?.observe(node);
+    // A line that arrives late (the owner, the meta list, a card lookup) grows the text inside a box of fixed size, which no resize reports.
+    // Log rows in the same scroller mutate it often, so many mutations share one check per frame.
+    let frame = 0;
+    const later = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; update(); });
+    };
+    const mutations = typeof MutationObserver === "undefined" ? null : new MutationObserver(later);
+    mutations?.observe(scroller, { childList: true, subtree: true, characterData: true });
+    return () => {
+      scroller.removeEventListener("scroll", update);
+      resize?.disconnect();
+      mutations?.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+      delete scroller.dataset.cardMore;
+    };
+  }, [root, key]);
+}
+
 function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
   const styles = useSkinStyles(baseStyles, "inspector");
   const textSize = useCardTextSize();
   const textStyle = cardTextStyle(textSize);
+  const rootRef = useRef<HTMLDivElement>(null);
   const code = liveCard.code;
   const hidden = isHiddenCard(liveCard) || code == null;
   const resolved = useDuelCardInfo(!hidden && (!hasCardName(liveCard) || !liveCard.description?.trim()) ? code : null);
@@ -41,6 +100,7 @@ function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
     name: hasCardName(liveCard) ? liveCard.name : resolved.name,
     description: liveCard.description?.trim() ? liveCard.description : resolved.description,
   } : liveCard;
+  useScrollCue(rootRef, !hidden, `${code}-${hidden}-${card.description?.length ?? 0}-${textSize}`);
   if (hidden) {
     return (
       <div className={styles.root} data-card-text={textSize} style={textStyle}>
@@ -58,7 +118,7 @@ function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
   const description = card.description?.trim() ?? "";
 
   return (
-    <div className={styles.root} data-card-text={textSize} style={textStyle}>
+    <div ref={rootRef} className={styles.root} data-header="side" data-card-text={textSize} style={textStyle}>
       <div className={`${styles.art} card-frame`}>
         <img src={cardArtUrl(code, "full")} alt="" />
       </div>

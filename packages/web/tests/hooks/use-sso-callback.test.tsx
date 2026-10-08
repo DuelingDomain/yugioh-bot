@@ -21,7 +21,7 @@ beforeEach(() => {
     verifications: { sendEmailCode: vi.fn(ok), verifyEmailCode: vi.fn(ok) },
   } };
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 const mount = async () => { const view = renderHook(() => useSsoCallback()); await act(async () => {}); return view; };
 
 describe("SSO callback", () => {
@@ -106,6 +106,53 @@ describe("SSO callback", () => {
     expect(mock.hardNavigate).toHaveBeenCalledTimes(1);
     expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
     expect(mock.signUpSignal.signUp.finalize).not.toHaveBeenCalled();
+  });
+  it.each(["needs_identifier", "needs_first_factor", "needs_second_factor"])("rejects a resumed sign-in at %s without a refusal or transfer", async status => {
+    sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-in" }));
+    mock.signInSignal.signIn.status = status;
+    mock.signInSignal.signIn.firstFactorVerification = { status: "failed", error: { code: "oauth_access_denied" } };
+    const { result } = await mount();
+    expect(result.current.state.step).toBe("err-signup");
+    act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
+    expect(mock.hardNavigate).not.toHaveBeenCalled();
+    expect(mock.signUpSignal.signUp.finalize).not.toHaveBeenCalled();
+  });
+  it("rejects a mismatched invitation attempt without starting recovery", async () => {
+    sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", attemptId: "sua_other" }));
+    const { result } = await mount();
+    expect(result.current.state.step).toBe("err-signup");
+    act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
+    expect(mock.hardNavigate).not.toHaveBeenCalled();
+  });
+  it("recovers a transferable first-factor verification without the convenience flag", async () => {
+    mock.signInSignal.signIn.firstFactorVerification = { status: "transferable" };
+    const { result } = await mount();
+    expect(result.current.state.step).toBe("recovering");
+    act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
+  });
+  it("recovers a waitlist refusal on the first-factor verification without signal errors", async () => {
+    sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-in" }));
+    mock.signInSignal.signIn.firstFactorVerification = { status: "failed", error: { code: "sign_up_restricted_waitlist" } };
+    const { result } = await mount();
+    expect(result.current.state.step).toBe("recovering");
+    act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
+  });
+  it("reloads a recovering callback restored from bfcache and removes the pageshow listener on unmount", async () => {
+    const reload = vi.fn();
+    vi.stubGlobal("window", new Proxy(window, { get: (target, key) => key === "location" ? { ...target.location, reload } : Reflect.get(target, key) }));
+    const show = (persisted: boolean) => window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted }));
+    const view = await mount();
+    act(() => show(true)); expect(reload).not.toHaveBeenCalled();
+    mock.signUpSignal.errors.global = [{ code: "sign_up_restricted_waitlist" }];
+    view.rerender(); await act(async () => {});
+    act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
+    expect(view.result.current.state.step).toBe("recovering");
+    act(() => show(false)); expect(reload).not.toHaveBeenCalled();
+    act(() => show(true)); expect(reload).toHaveBeenCalledTimes(1);
+    view.unmount(); reload.mockClear();
+    act(() => show(true)); expect(reload).not.toHaveBeenCalled();
   });
   it.each(["sign_up_restricted_waitlist", "not_allowed_access", "sign_up_mode_restricted"])("recovers callback restriction %s even without a loaded attempt", async code => {
     mock.signUpSignal.signUp.id = undefined;
