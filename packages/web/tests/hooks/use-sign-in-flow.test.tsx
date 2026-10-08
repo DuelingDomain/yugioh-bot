@@ -153,10 +153,49 @@ describe("sign-in flow", () => {
     expect(result.current.state).toMatchObject({ step: "err-invite", identifier: "a@test.dev" });
   });
   it("preserves the return path for Discord and uses the custom callback", async () => {
+    mock.signal.signIn.id = "";
     const { result } = setup();
     await act(() => result.current.actions.continueWithDiscord());
+    expect(mock.signal.signIn.reset).not.toHaveBeenCalled();
     expect(mock.signal.signIn.sso).toHaveBeenCalledWith({ strategy: "oauth_discord", redirectUrl: "/drafts?join=1#seat", redirectCallbackUrl: "/sso-callback" });
     expect(mock.push).not.toHaveBeenCalled();
+  });
+  it("resets a stale Discord attempt and waits for a fresh signal object before SSO", async () => {
+    const stale = mock.signal.signIn;
+    stale.id = "sia_stale";
+    stale.firstFactorVerification = { status: "verified", error: { code: "sign_up_restricted_waitlist" } };
+    const fresh = { ...stale, id: "", firstFactorVerification: { status: "unverified", error: null }, sso: vi.fn(ok), reset: vi.fn(ok) };
+    const { result, rerender } = setup();
+    let request!: Promise<void>;
+    act(() => { request = result.current.actions.continueWithDiscord(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(stale.reset).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(stale.sso).not.toHaveBeenCalled();
+    expect(fresh.sso).not.toHaveBeenCalled();
+    expect(result.current.state.pending).toBe(true);
+    mock.signal = { ...mock.signal, signIn: fresh };
+    rerender();
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); await request; });
+    expect(stale.id).toBe("sia_stale");
+    expect(stale.sso).not.toHaveBeenCalled();
+    expect(fresh.reset).not.toHaveBeenCalled();
+    expect(fresh.sso).toHaveBeenCalledExactlyOnceWith({ strategy: "oauth_discord", redirectUrl: "/drafts?join=1#seat", redirectCallbackUrl: "/sso-callback" });
+    expect(JSON.parse(sessionStorage.getItem("dd_auth_resume")!)).toEqual({ kind: "sign-in", returnTo: "/drafts?join=1#seat" });
+    expect(result.current.state.pending).toBe(false);
+    expect(mock.hardNavigate).not.toHaveBeenCalled();
+  });
+  it("shows service trouble when reset never publishes a fresh sign-in object", async () => {
+    mock.signal.signIn.id = "sia_stale";
+    const stale = mock.signal.signIn;
+    const { result } = setup();
+    let request!: Promise<void>;
+    act(() => { request = result.current.actions.continueWithDiscord(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); await request; });
+    expect(stale.reset).toHaveBeenCalledTimes(1);
+    expect(stale.sso).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: "signin", pending: false, banner: { tone: "bad", code: "network_error" } });
+    expect(mock.hardNavigate).not.toHaveBeenCalled();
   });
   it("keeps wrong password errors on the password field", async () => {
     const { result } = setup();
