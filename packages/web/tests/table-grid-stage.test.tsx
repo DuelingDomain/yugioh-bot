@@ -118,6 +118,11 @@ describe("GridStage", () => {
       fireEvent.click(cellOf(container, 3).querySelector("[data-seat-field]")!);
     });
     expect(stage.getAttribute("data-grid-focus")).toBe("3");
+    // a second click on the focused field never zooms out: only the all-fields button, O and Esc do
+    act(() => {
+      fireEvent.click(cellOf(container, 3).querySelector("[data-seat-field]")!);
+    });
+    expect(stage.getAttribute("data-grid-focus")).toBe("3");
     act(() => {
       fireEvent.click(container.querySelector('[data-testid="grid-all"]')!);
     });
