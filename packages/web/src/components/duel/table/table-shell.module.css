@@ -102,6 +102,12 @@
   --hud-left: 14px;
   /* The wide Deck Master plate (grid-master.tsx, data-form="wide") at the bottom left: 14px from the edge, this wide. */
   --hud-master-w: clamp(208px, 16vw, 340px);
+  /* Its card and its ability box, at most this high. The dock flyouts (a sibling of the plate) read them to stop above it. */
+  --hud-master-art-h: clamp(120px, 18dvh, 250px);
+  --hud-master-ability-h: clamp(64px, 9dvh, 132px);
+}
+@media (max-height: 599px) {
+  .shell.shell[data-hud="true"][data-plaza-hud="true"] { --hud-master-art-h: 100px; }
 }
 
 .shell.shell[data-plaza-hud="true"] :global([data-camera-chip]),
