@@ -384,7 +384,15 @@ end
 -- Never pass folded tp or 1-tp. In a card effect use no argument for the actor.
 -- The marker can name a chooser, a ConfirmCards viewer, or a summon player/destination.
 
--- Shared FFA4 geometry compares real seats. Other formats keep the stock tests.
+-- MPSeat remains the team key for Tag flags/counters. Geometry needs a real seat.
+function aux.MPGeometrySeat(tp)
+ if Duel.MPMode()==2 and Duel.MPGeometrySeat then
+  if tp==nil then return Duel.MPGeometrySeat() end
+  return Duel.MPGeometrySeat(tp)
+ end
+ return Duel.MPSeat(tp or 0)
+end
+-- Shared FFA4 and Tag geometry compares real seats. Other formats keep stock tests.
 function aux.MPGeometryShared()
  return Duel.MPSharedZones and Duel.MPSharedZones()
 end
@@ -397,7 +405,7 @@ function aux.MPGeometryPreviousFilter(fn)
 				local ec=tp
 				if c:IsLocation(LOCATION_MZONE) then return fn(c,ec,...) end
 				local saved=Duel.MPSeatBinding()
-				local own=Duel.MPSeat(0)
+				local own=aux.MPGeometrySeat()
 				local seat=Duel.MPSeatOf(ec)
 				if seat~=own then Duel.MPBindSeat(seat) end
 				local cp=ec:GetControler()
@@ -413,7 +421,14 @@ function aux.MPGeometryPreviousFilter(fn)
 				if saved==255 then Duel.MPBindSeat() else Duel.MPBindSeat(saved) end
 				return result
 			end
-			if not c:IsPreviousControler(tp) and not c:IsPreviousAcross(tp) then return false end
+			if Duel.MPPreviousSeatOf then
+				local own=aux.MPGeometrySeat(tp)
+				local previous=Duel.MPPreviousSeatOf(c)
+				if previous~=own and previous~=Duel.MPAcrossSeat(own) then return false end
+			elseif not c:IsPreviousControler(tp) and not c:IsPreviousAcross(tp) then
+				-- Older FFA4 shared-zone cores predate the exact previous-seat read.
+				return false
+			end
 		end
 		return fn(c,tp,...)
 	end
@@ -422,7 +437,7 @@ function aux.MPGeometryChainFilter(fn)
  return function(e,tp,eg,ep,ev,re,r,rp,...)
   if aux.MPGeometryShared() and re then
    local seat=Duel.MPChainSeat(ev)
-   local own=Duel.MPSeat(tp)
+   local own=aux.MPGeometrySeat(tp)
    if seat~=own and seat~=Duel.MPAcrossSeat(own) then return false end
   end
   return fn(e,tp,eg,ep,ev,re,r,rp,...)
@@ -430,7 +445,7 @@ function aux.MPGeometryChainFilter(fn)
 end
 local mp_get_to_be_linked_zone=Card.GetToBeLinkedZone
 function Card.GetToBeLinkedZone(tc,c,tp,clink,emz)
- if aux.MPGeometryShared() and not tc:IsControler(tp) and not tc:IsAcross(tp) then return 0 end
+ if aux.MPGeometryShared() and Duel.MPSeatOf(tc)~=aux.MPGeometrySeat(tp) and not tc:IsAcross(tp) then return 0 end
  return mp_get_to_be_linked_zone(tc,c,tp,clink,emz)
 end
 
@@ -442,7 +457,7 @@ function aux.MPGeometryLinkedZone(c,cp)
   return c:GetLinkedZone(cp)
  end
  local previous=Duel.MPSeatBinding()
- local across=Duel.MPAcrossSeat(Duel.MPSeat(0))
+ local across=Duel.MPAcrossSeat(aux.MPGeometrySeat())
  Duel.MPBindSeat(across)
  local zone=cp==nil and c:GetLinkedZone() or c:GetLinkedZone(cp)
  if previous==255 then Duel.MPBindSeat() else Duel.MPBindSeat(previous) end
@@ -464,7 +479,7 @@ function aux.MPColumnChainFilter(fn)
 	return function(e,tp,eg,ep,ev,re,r,rp,...)
 		if aux.MPColumnGeometry() and re then
 			local seat=Duel.MPChainSeat(ev)
-			local own=Duel.MPSeat(tp)
+			local own=aux.MPGeometrySeat(tp)
 			if seat~=own and seat~=aux.MPColumnPeerSeat(own) then return end
 		end
 		return fn(e,tp,eg,ep,ev,re,r,rp,...)
@@ -512,10 +527,11 @@ function Card.IsColumn(c,seq,tp,loc,source)
 		else origin=Duel.MPSeatOf(source:GetOwner()) end
 	elseif type(source)=="Card" then origin=Duel.MPSeatOf(source)
 	elseif tp~=nil then
-		if tp~=0 and not Duel.MPBound() and Duel.MPSeatBinding()==255 then
+		local ownPlayer=Duel.MPMode()==2 and mp_team_of[aux.MPGeometrySeat()] or 0
+		if tp~=ownPlayer and not Duel.MPBound() and Duel.MPSeatBinding()==255 then
 			if aux.MPGeometryShared() then return false end
-			origin=aux.MPColumnPeerSeat(Duel.MPSeat(0))
-		else origin=Duel.MPSeat(tp) end
+			origin=aux.MPColumnPeerSeat(aux.MPGeometrySeat())
+		else origin=aux.MPGeometrySeat(tp) end
 	end
 	if seat==origin then return mp_is_column(c,seq,c:GetControler(),loc) end
 	if seat~=aux.MPColumnPeerSeat(origin) then return false end
