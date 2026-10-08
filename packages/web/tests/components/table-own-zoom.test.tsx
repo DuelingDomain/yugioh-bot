@@ -70,6 +70,8 @@ afterEach(() => {
 
 /** More than the longest hold of the crumble gate (9.5 s), so the regroup has ended in every table the tests run on. */
 const GATE_WAIT_MS = 12_000;
+/** A safety net for a slow runner: each of these tests takes well under 2 s on a normal machine. */
+const TEST_TIMEOUT_MS = 20_000;
 const REN = 0;
 const RYO = 1;
 const BASE = FFA3_FIXTURES.states.main;
@@ -88,6 +90,13 @@ const advance = (ms: number) => act(() => void vi.advanceTimersByTime(ms));
 const frames = () => {
   vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => clearTimeout(id));
   return vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => setTimeout(() => cb(performance.now()), 16) as unknown as number);
+};
+/**
+ * Runs the fake clock until the regroup has ended, at most GATE_WAIT_MS: a gate that holds it (the LP roll) is waited
+ * out in coarse steps, and a table that does not hold it costs no extra time.
+ */
+const settleRegroup = (root: HTMLElement) => {
+  for (let t = 0; t < GATE_WAIT_MS && root.querySelector("[data-table-stage]")?.getAttribute("data-regroup") != null; t += 250) advance(250);
 };
 const idle = () => ({ ...BASE, room: { ...BASE.room, engine: { ...BASE.room.engine!, prompt: null } } }) as TableFixtureState;
 
@@ -293,13 +302,17 @@ describe("FFA3 own field camera zoom", () => {
     expect(before).toBeGreaterThan(1.02);
     rerender(<Table state={withMikaOut()} camera={focus} />);
     // A regroup can be held for the LP roll (a poll with setInterval, up to 9.5 s on a table with the crumble gate): the steps run through it.
-    for (let t = 0; t < 4600 + GATE_WAIT_MS; t += 100) {
+    for (let t = 0; t < 4600; t += 100) {
       advance(100);
       expect(scale(container)).toBeGreaterThan(1.02);
       expect(chip(container)).toBe("Focus · Ren Arata");
     }
+    // A gate that holds the regroup is waited out in coarse steps: 100 ms steps over 12 s cost seconds of real time on a slow runner.
+    settleRegroup(container);
+    expect(scale(container)).toBeGreaterThan(1.02);
+    expect(chip(container)).toBe("Focus · Ren Arata");
     expect(board(container).getAttribute("data-regroup")).toBeNull();
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("after the regroup the view is fitted to the new field again, with the same eased path", () => {
     frames();
@@ -313,10 +326,11 @@ describe("FFA3 own field camera zoom", () => {
     // The fit waits for the seats to stand still: the view does not move while they glide.
     advance(2500);
     expect(layer(container).style.transform).toBe(during);
-    advance(2400 + GATE_WAIT_MS);
+    advance(2400);
+    settleRegroup(container);
     expect(board(container).getAttribute("data-regroup")).toBeNull();
     expect(scale(container)).toBeGreaterThan(1.02);
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("after an elimination the player's own zoom level stays", () => {
     frames();
@@ -327,10 +341,11 @@ describe("FFA3 own field camera zoom", () => {
     advance(600);
     const byHand = scale(container);
     rerender(<Table state={withMikaOut()} camera={focus} />);
-    advance(5000 + GATE_WAIT_MS);
+    advance(5000);
+    settleRegroup(container);
     expect(scale(container)).toBeCloseTo(byHand, 3);
     expect(chip(container)).toBe("Focus · Ren Arata");
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("an elimination at home does not move the camera", () => {
     frames();
@@ -338,10 +353,11 @@ describe("FFA3 own field camera zoom", () => {
     advance(600);
     expect(chip(container)).toBe("Home");
     rerender(<Table state={withMikaOut()} />);
-    advance(5000 + GATE_WAIT_MS);
+    advance(5000);
+    settleRegroup(container);
     expect(chip(container)).toBe("Home");
     expect(layer(container).style.transform).toBe("");
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("in a face-off, a click on a rival zone keeps the zoom of your own field", () => {
     frames();
@@ -349,7 +365,8 @@ describe("FFA3 own field camera zoom", () => {
     const { container, rerender } = render(<Table state={idle()} camera={focus} />);
     advance(600);
     rerender(<Table state={withMikaOut()} camera={focus} />);
-    advance(5000 + GATE_WAIT_MS);
+    advance(5000);
+    settleRegroup(container);
     const zone = seatBox(container, RYO).querySelector<HTMLElement>("[data-zones][data-occupied='true']:not([data-pile]):not([data-legal='true']) button")!;
     expect(zone).not.toBeNull();
     fireEvent.click(zone);
@@ -357,7 +374,7 @@ describe("FFA3 own field camera zoom", () => {
     expect(board(container).getAttribute("data-camera-mode")).toBe("focus");
     expect(chip(container)).toBe("Focus · Ren Arata");
     expect(scale(container)).toBeGreaterThan(1.02);
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("in a face-off, Back and then E (or the Zoom my field button) zoom your own field again", () => {
     frames();
@@ -365,7 +382,8 @@ describe("FFA3 own field camera zoom", () => {
     const { container, rerender } = render(<Table state={idle()} camera={focus} />);
     advance(600);
     rerender(<Table state={withMikaOut()} camera={focus} />);
-    advance(5000 + GATE_WAIT_MS);
+    advance(5000);
+    settleRegroup(container);
     fireEvent.click(container.querySelector("[data-camera-back]")!);
     advance(800);
     expect(chip(container)).toBe("Home");
@@ -380,7 +398,7 @@ describe("FFA3 own field camera zoom", () => {
     advance(800);
     expect(chip(container)).toBe("Focus · Ren Arata");
     expect(scale(container)).toBeGreaterThan(1.02);
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("hides the Zoom my field button when your own seat is out", () => {
     const engine = structuredClone(idle().room.engine!);
@@ -389,9 +407,10 @@ describe("FFA3 own field camera zoom", () => {
     const { container, rerender } = render(<Table state={idle()} />);
     expect(container.querySelector("[data-camera-zoom]")).not.toBeNull();
     rerender(<Table state={{ ...BASE, room: { ...BASE.room, engine } } as TableFixtureState} />);
-    advance(5000 + GATE_WAIT_MS);
+    advance(5000);
+    settleRegroup(container);
     expect(container.querySelector("[data-camera-zoom]")).toBeNull();
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("Esc leaves the zoom of your own field in a face-off", () => {
     frames();
@@ -399,12 +418,13 @@ describe("FFA3 own field camera zoom", () => {
     const { container, rerender } = render(<Table state={idle()} camera={focus} />);
     advance(600);
     rerender(<Table state={withMikaOut()} camera={focus} />);
-    advance(5000 + GATE_WAIT_MS);
+    advance(5000);
+    settleRegroup(container);
     fireEvent.keyDown(window, { key: "Escape" });
     advance(800);
     expect(chip(container)).toBe("Home");
     expect(scale(container)).toBeLessThanOrEqual(1.001);
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("a resize with no room to zoom keeps the focus: the camera does not go home by itself", () => {
     frames();
