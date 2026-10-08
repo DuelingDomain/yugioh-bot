@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { defaultDuelSettings, seatCountFor, type DuelFormat, type DuelMasterRule, type DuelMode } from "@yugidraft/shared/duels";
 import { OcgLocation } from "ocgcore-wasm";
 import { createEngineGame } from "../src/engine.js";
@@ -60,15 +60,27 @@ describeWithCores("owner first-turn draw rule on installed cores", [needs.standa
   });
 
   it("Standard MR3 FFA3: P68 rejects old-rule flags before any first turn", async () => {
+    const fatal = vi.fn();
     await expect(createEngineGame({ mode: "normal", masterRule: 3, format: "ffa3", dataDirectory,
+      onFatalScriptError: fatal,
       seed: ["1", "2", "3", "4"], decks: Array.from({ length: 3 }, () => ({ main: Array(40).fill(15025844), extra: [], side: [] })),
-    })).rejects.toThrow("DUEL_CANNOT_SUMMON_OATH_OLD is not supported with more than 2 duelists");
+    })).rejects.toMatchObject({ name: "Error", message: "Failed to set up 3 duelists (does the core have Debug.SetupDuelists?): Engine script error: the duel could not continue." });
+    expect(fatal).toHaveBeenCalledWith(expect.objectContaining({
+      mode: "normal", format: "ffa3", engine: "pinned",
+      message: expect.stringContaining("DUEL_CANNOT_SUMMON_OATH_OLD is not supported with more than 2 duelists"),
+    }));
   });
 
   it("Domain MR3 FFA3: P68 also rejects old-rule flags with the Domain draw flag", async () => {
+    const fatal = vi.fn();
     await expect(createEngineGame({ mode: "domain", masterRule: 3, format: "ffa3", dataDirectory,
+      onFatalScriptError: fatal,
       seed: ["1", "2", "3", "4"], decks: Array.from({ length: 3 }, () => ({ main: Array(40).fill(15025844), extra: [], side: [], deckMaster: 48305365 })),
-    })).rejects.toThrow("DUEL_CANNOT_SUMMON_OATH_OLD is not supported with more than 2 duelists");
+    })).rejects.toMatchObject({ name: "Error", message: "Failed to set up 3 duelists (does the core have Debug.SetupDuelists?): Engine script error: the duel could not continue." });
+    expect(fatal).toHaveBeenCalledWith(expect.objectContaining({
+      mode: "domain", format: "ffa3", engine: "pinned",
+      message: expect.stringContaining("DUEL_CANNOT_SUMMON_OATH_OLD is not supported with more than 2 duelists"),
+    }));
   });
 
   it("a captured Domain board keeps its hand when the fixture skips the opening draw", async () => {
