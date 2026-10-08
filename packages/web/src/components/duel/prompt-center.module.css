@@ -93,8 +93,12 @@
 .panel[data-tone="chain"] { border: var(--pc-border-chain); }
 
 .panel[data-wide="true"] { width: min(640px, calc(100% - 24px)); }
-/* Card text grows with the type, so the panel grows with it: the lines stay about as many as on a small screen. */
-@media (min-width: 901px) {
+/*
+ * Card text grows with the type, so the panel grows with it: the lines stay about as many as on a small screen.
+ * Only on a tall window: a short one (a laptop with browser bars) has no height to give, and these rules would
+ * squeeze the cut text and the options.
+ */
+@media (min-width: 901px) and (min-height: 641px) {
   .panel:has(.cardText):not([data-wide="true"]) { width: min(max(640px, calc(560 * var(--duel-unit, 1px))), calc(100% - 24px)); }
   /*
    * The panel is centred on the board, so it reaches the hand once it is taller than the board less two hands
@@ -401,6 +405,8 @@
   border-radius: 6px;
   background: rgb(7 11 21 / 0.5);
 }
+/* A text cut to a few lines (small window or dense host) is already short: it never gives up more. */
+.cardText[data-open="false"] { flex-shrink: 0; }
 .cardTextLabel {
   color: var(--duel-ink-3, #958f81);
   font-size: var(--duel-t-xs, 11px);
