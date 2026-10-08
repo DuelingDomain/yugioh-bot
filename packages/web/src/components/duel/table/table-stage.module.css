@@ -417,6 +417,7 @@
   align-items: center;
   gap: 6px;
   height: 28px;
+  max-width: 152px;
   padding: 0 10px 0 8px;
   border: 1px solid rgb(232 190 96 / 0.7);
   border-radius: 6px;
@@ -430,6 +431,13 @@
   pointer-events: auto;
   transform: translate(-50%, -50%);
   animation: rivalHint 1.4s ease-in-out infinite;
+}
+
+.rivalName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rivalHint:hover,

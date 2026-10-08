@@ -73,6 +73,26 @@ function edgeHint(centre: { x: number; y: number }, box: { width: number; height
 }
 /** The card pinned in the peek (the fit keeps clear of it). */
 const PINNED_PEEK = '[data-testid="hover-preview"][data-pinned="true"]';
+/** The most a chip takes (the CSS max-width, 152 px, keeps it inside the box at the nearest it sits to a side edge). */
+const HINT_SIZE = { width: 152, height: 28 } as const;
+/**
+ * Slides a chip along its edge to the first place that is clear of `blocks` (the Reset control, the legal targets): at a top or bottom
+ * edge it slides sideways, at a side it slides up and down. With no clear place it stays at `base`.
+ */
+function clearHint(base: { x: number; y: number; angle: number }, box: { width: number; height: number }, blocks: readonly Rect[]): { x: number; y: number } {
+  const hits = (x: number, y: number) => blocks.some((b) => x - HINT_SIZE.width / 2 < b.x + b.width + 6 && x + HINT_SIZE.width / 2 > b.x - 6 && y - HINT_SIZE.height / 2 < b.y + b.height + 6 && y + HINT_SIZE.height / 2 > b.y - 6);
+  if (!hits(base.x, base.y)) return base;
+  const sideways = Math.abs(Math.cos(((base.angle - 90) * Math.PI) / 180)) < Math.abs(Math.sin(((base.angle - 90) * Math.PI) / 180));
+  for (let step = 1; step <= 40; step++) {
+    for (const sign of [-1, 1]) {
+      const d = sign * step * 16;
+      const x = sideways ? Math.min(box.width - HINT_EDGE, Math.max(HINT_EDGE, base.x + d)) : base.x;
+      const y = sideways ? base.y : Math.min(box.height - HINT_BAND, Math.max(HINT_TOP, base.y + d));
+      if (!hits(x, y)) return { x, y };
+    }
+  }
+  return base;
+}
 /** A fit at or under this scale shows no zoom: the camera does not enter focus for it. */
 const NO_ZOOM = 1.02;
 /** The size of a rival's LP plate on the stage, for the fit of a zoom (see holo-lp.module.css). */
@@ -408,7 +428,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   }, [floating, zoom.zoomed, ownZoom, handRect, nearBox, targets, zones, cards, hudRects, rooms?.bar, box]);
 
   // A prompt that opens, closes or moves changes the HUD insets: the view eases into the new clamps (no gap stays).
-  const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${controller.seatPick ? 1 : 0}|${barRoom ?? ""}|${rooms?.panel ? `${rooms.panel.x},${rooms.panel.y}` : ""}`;
+  const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${controller.seatPick ? 1 : 0}|${barRoom ?? ""}|${rooms?.panel ? `${rooms.panel.x},${rooms.panel.y}` : ""}|${rivalHints.map((h) => h.seat).join(",")}`;
   const { refit } = zoom;
   useEffect(() => {
     const frame = window.requestAnimationFrame(refit);
@@ -603,6 +623,11 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     const frame = requestAnimationFrame(() => {
       const bounds = root.getBoundingClientRect();
       const found: RivalHint[] = [];
+      // What the chip keeps clear of: the Reset control and the legal targets (board-box px).
+      const blocks = [...Array.from(root.querySelectorAll<HTMLElement>("[data-view-reset], [data-legal='true']"))]
+        .map((node) => node.getBoundingClientRect())
+        .filter((r) => r.width > 2 && r.height > 2)
+        .map((r) => ({ x: r.left - bounds.left, y: r.top - bounds.top, width: r.width, height: r.height }));
       for (const seat of rivalSeatKey.split(",").map(Number)) {
         const slot = root.querySelector<HTMLElement>(`[data-seat-slot="${seat}"]`);
         if (!slot) continue;
@@ -611,7 +636,9 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
         const seen = Math.max(0, Math.min(r.right, bounds.right) - Math.max(r.left, bounds.left)) * Math.max(0, Math.min(r.bottom, bounds.bottom) - Math.max(r.top, bounds.top));
         // Most of the field is on screen: nothing to point at.
         if (seen / area > 0.5) continue;
-        found.push({ seat, ...edgeHint({ x: r.left + r.width / 2 - bounds.left, y: r.top + r.height / 2 - bounds.top }, { width: bounds.width, height: bounds.height }) });
+        const size = { width: bounds.width, height: bounds.height };
+        const base = edgeHint({ x: r.left + r.width / 2 - bounds.left, y: r.top + r.height / 2 - bounds.top }, size);
+        found.push({ seat, ...base, ...clearHint(base, size, blocks) });
       }
       setRivalHints((current) => (JSON.stringify(current) === JSON.stringify(found) ? current : found));
     });
@@ -803,12 +830,13 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
           className={styles.rivalHint}
           data-rival-hint={hint.seat}
           data-reduced={reducedMotion ? "true" : undefined}
+          data-zoom-occluder
           style={{ left: hint.x, top: hint.y }}
           title={`Targets are on ${nameOf(hint.seat)}'s field. Zoom out to see them.`}
           onClick={() => dispatchCamera({ type: "home" })}
         >
           <ArrowUp size={13} strokeWidth={2.4} aria-hidden style={{ transform: `rotate(${hint.angle}deg)` }} />
-          {nameOf(hint.seat)}
+          <span className={styles.rivalName}>{nameOf(hint.seat)}</span>
         </button>
       ))}
       <ViewReset zoomed={zoom.zoomed} scale={zoom.view.s} onReset={zoom.reset} board={rootRef} style={{ right: 10, top: stageTop + 10 }} />
