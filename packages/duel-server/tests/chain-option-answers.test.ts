@@ -30,12 +30,12 @@ vi.mock("../src/cards.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/cards.js")>(),
   loadCardDatabase: () => ({
     readScript: () => "-- test resource", cardData: () => null,
-    get: (code: number) => ({ code, canonicalPasscode: code === 10000002 ? 10000001 : code, name: "Effect card", description: "Printed text", type: 2 }),
+    get: (code: number) => code === 4014 || code === 5000 ? undefined : ({ code, canonicalPasscode: code === 10000002 ? 10000001 : code, name: "Effect card", description: "Printed text", type: 2 }),
     system: () => undefined,
     resolveLabel: (description: bigint) => ({
       1: 'Add 1 "Mitsurugi" monster from your Deck to your hand', 2: "Take 800 damage",
-      3: 'Apply the effect of "%ls"',
-    })[Number(description & 0xfffffn) as 1 | 2 | 3] ?? "",
+      3: 'Apply the effect of "%ls"', 4014: "Take 800 damage",
+    })[Number(description & 0xfffffn) as 1 | 2 | 3 | 4014] ?? "",
   }),
 }));
 
@@ -103,6 +103,43 @@ describe.each([["merged", createEngineGame], ["legacy", createLegacyEngineGame]]
         expect(game.view(viewer).chain[0].chosenOptions).toEqual([{ index: 1, text: prompt.options[1].label }]);
         expect(game.view(viewer).chain[1].chosenOptions).toBeUndefined();
       }
+    } finally { game.close(); }
+  });
+
+  it.each(["answer", "hint"])("drops a resolving %s from a different real card", async (source) => {
+    const foreign = (BigInt(CODE + 2) << 20n) | 2n;
+    fake.batches = source === "answer"
+      ? [[chain(), chained(), solving(), option([foreign, description(1)])], [followUp()]]
+      : [[chain(), chained(), solving(), { ...hint(2), hint: foreign } as OcgMessage, followUp()]];
+    const game = await open();
+    try {
+      if (source === "answer") game.answer(1, game.view(1).prompt!.id, { choice: "opt:0" });
+      expect(game.view(null).chain[0].chosenOptions).toBeUndefined();
+    } finally { game.close(); }
+  });
+
+  it.each([
+    ["answer", 4014n], ["hint", 4014n],
+    ["answer", (5000n << 20n) | 2n], ["hint", (5000n << 20n) | 2n],
+  ])("keeps a resolving %s from helper string %s", async (source, helper) => {
+    fake.batches = source === "answer"
+      ? [[chain(), chained(), solving(), option([helper, description(1)])], [followUp()]]
+      : [[chain(), chained(), solving(), { ...hint(2), hint: helper } as OcgMessage, followUp()]];
+    const game = await open();
+    try {
+      if (source === "answer") game.answer(1, game.view(1).prompt!.id, { choice: "opt:0" });
+      expect(game.view(null).chain[0].chosenOptions).toEqual([
+        { ...(source === "answer" ? { index: 0 } : {}), text: "Take 800 damage" },
+      ]);
+    } finally { game.close(); }
+  });
+
+  it("keeps a resolving choice from alternate artwork of the same card", async () => {
+    fake.batches = [[chain(1, CODE + 1), chained(), solving(), option()], [followUp()]];
+    const game = await open();
+    try {
+      game.answer(1, game.view(1).prompt!.id, { choice: "opt:1" });
+      expect(game.view(null).chain[0].chosenOptions).toEqual([{ index: 1, text: "Take 800 damage" }]);
     } finally { game.close(); }
   });
 

@@ -54,8 +54,10 @@ export class ChainOptions {
     return { key: `answer:${++this.responseSeq}`, description, index, text: option.label, code: stringCode(description) ?? pending.prompt.source?.code, seat: pending.seat };
   }
 
-  private target(choice: Choice): Link | undefined {
+  private target(choice: Choice): Link | null | undefined {
     // The chooser can be the opponent of the effect controller. The resolving link wins over seat/code guesses.
+    // null drops another real card's operation; helper string IDs can still belong to this link.
+    if (this.resolving && choice.code && this.cards.get(choice.code) && !this.sameCard(choice.code, this.resolving.code)) return null;
     return this.resolving ?? (this.activating && (!choice.code || this.sameCard(choice.code, this.activating.code)) ? this.activating : undefined);
   }
 
@@ -76,6 +78,7 @@ export class ChainOptions {
 
   private record(choice: Choice): void {
     const target = this.target(choice);
+    if (target === null) return;
     if (target) this.add(target, choice);
     else {
       const previous = this.deferred.findIndex((entry) => entry.key === choice.key);
@@ -93,6 +96,7 @@ export class ChainOptions {
     const choice = this.fromPrompt(pending, response.index);
     if (!choice) return;
     const target = this.target(choice);
+    if (target === null) return;
     const options = target?.chosenOptions;
     const slots = target ? new Map(this.slots.get(target)) : undefined;
     const deferred = [...this.deferred];
