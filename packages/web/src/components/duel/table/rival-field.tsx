@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import { slotZIndex } from "./geometry";
 import { GATE_TIMING } from "../duel-timing";
 import { duelFxClock } from "../fx-clock";
@@ -76,6 +76,21 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement,
             tabIndex: 0,
             "aria-pressed": enlarged,
             "aria-label": `${reach.label}. ${enlarged ? "Press Enter to go back." : "Press Enter to enlarge."}`,
+            // A mouse press on the box (or on felt inside it) must not leave the keyboard focus on it: Enter would then enlarge the
+            // field instead of answering a prompt or confirming an aimed attack. The press still blurs what held the focus before.
+            onMouseDown: (event: MouseEvent<HTMLDivElement>) => {
+              const target = event.target as Element;
+              if (target.closest("button, a, input, select, textarea, summary, [contenteditable], [tabindex]") !== event.currentTarget) return;
+              event.preventDefault();
+              const held = document.activeElement;
+              if (held instanceof HTMLElement && held !== document.body) held.blur();
+            },
+            // A screen reader in browse mode activates the box with a click that has no pointer (detail 0): that is the Enter of a
+            // button. A mouse click (detail 1 or more) never moves the camera.
+            onClick: (event: MouseEvent<HTMLDivElement>) => {
+              if (event.detail !== 0 || event.target !== event.currentTarget) return;
+              reach.onToggle();
+            },
             onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
               // Keys of the controls inside the field stay theirs.
               if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
