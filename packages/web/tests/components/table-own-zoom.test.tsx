@@ -57,6 +57,8 @@ const seatBox = (root: HTMLElement, seat: number) => root.querySelector(`[data-s
 const layer = (root: HTMLElement) => root.querySelector<HTMLElement>("[data-view-layer]")!;
 const poseOf = (root: HTMLElement, seat: number) => seatBox(root, seat).parentElement?.getAttribute("style") ?? seatBox(root, seat).getAttribute("style");
 const advance = (ms: number) => act(() => void vi.advanceTimersByTime(ms));
+/** The chip reads the DOM on an animation frame: run the frames on the fake clock. */
+const frames = () => vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => setTimeout(() => cb(performance.now()), 16) as unknown as number);
 const idle = () => ({ ...BASE, room: { ...BASE.room, engine: { ...BASE.room.engine!, prompt: null } } }) as TableFixtureState;
 
 describe("FFA3 own field camera zoom", () => {
@@ -96,5 +98,35 @@ describe("FFA3 own field camera zoom", () => {
     advance(500);
     expect(chip(container)).toBe("Focus · Ren Arata");
     expect(layer(container)).not.toBeNull();
+  });
+
+  it("a prompt that targets a rival field does not move the camera, and a chip points to that field", () => {
+    frames();
+    const state = FFA3_FIXTURES.states["target-pick"];
+    const { container } = render(<Table state={state} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(500);
+    // Still your zoomed field: the camera did not move by itself.
+    expect(chip(container)).toBe("Focus · Ren Arata");
+    const hints = [...container.querySelectorAll<HTMLElement>("[data-rival-hint]")];
+    expect(hints.length).toBeGreaterThan(0);
+    expect(hints.every((hint) => Number(hint.dataset.rivalHint) !== REN)).toBe(true);
+    expect(hints[0].textContent).toMatch(/\S/);
+  });
+
+  it("the first click on the chip zooms out", () => {
+    frames();
+    const state = FFA3_FIXTURES.states["target-pick"];
+    const { container } = render(<Table state={state} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(500);
+    fireEvent.click(container.querySelector("[data-rival-hint]")!);
+    advance(500);
+    expect(chip(container)).toBe("Home");
+    expect(container.querySelector("[data-rival-hint]")).toBeNull();
+  });
+
+  it("shows no chip when nothing targets a rival", () => {
+    const { container } = render(<Table state={idle()} camera={{ mode: "focus", focusSeat: REN }} />);
+    advance(500);
+    expect(container.querySelector("[data-rival-hint]")).toBeNull();
   });
 });
