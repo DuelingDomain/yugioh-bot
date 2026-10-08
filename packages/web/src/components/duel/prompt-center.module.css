@@ -948,6 +948,9 @@
   text-overflow: ellipsis;
 }
 :global([data-prompt-dense]) .titles p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The chain-response room (use-strip-room.ts) has its own measured height: the title and the text wrap there, so no word is cut with an ellipsis. */
+:global([data-strip-room]) .panel[data-strip="true"] .titles h2,
+:global([data-strip-room]) .panel[data-strip="true"] .titles p { white-space: normal; overflow: visible; text-overflow: clip; }
 :global([data-prompt-dense]) .rows { gap: calc(4 * var(--duel-unit, 1px)); }
 :global([data-prompt-dense]) .rowMain {
   min-height: max(34px, calc(40 * var(--duel-unit, 1px)));
