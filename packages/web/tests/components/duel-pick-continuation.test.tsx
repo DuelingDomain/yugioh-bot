@@ -477,8 +477,14 @@ describe("usePickContinuation: only a zone that follows a placing action skips t
 function deckMasterAsk(overrides: Partial<DuelPrompt> = {}): DuelPrompt {
   return {
     id: "dm1", seat: 0, kind: "choice", title: "Return this Deck Master to the Deck Master Zone?",
-    options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] as DuelPrompt["options"], ...overrides,
-  };
+    options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] as DuelPrompt["options"],
+    context: { type: "deck-master-recall", card: { code: 1, name: "Master" }, returns: 0, nextCost: 500 },
+    ...overrides,
+  } as DuelPrompt;
+}
+/** An own trigger or a trap in response: a same-seat question with an effect on screen. */
+function chainAsk(overrides: Partial<DuelPrompt> = {}): DuelPrompt {
+  return deckMasterAsk({ id: "c1", title: "Activate?", context: { type: "chain", forced: false }, ...overrides });
 }
 
 describe("movesPhase", () => {
@@ -496,6 +502,11 @@ describe("movesPhase", () => {
 describe("continuesPhaseMove", () => {
   it("shows a response of the same seat at once after the player's own phase move", () => {
     expect(continuesPhaseMove(menu(), deckMasterAsk())).toBe(true);
+  });
+
+  it("keeps the beat for a chain window and an effect question of the same seat", () => {
+    expect(continuesPhaseMove(menu(), chainAsk())).toBe(false);
+    expect(continuesPhaseMove(menu(), deckMasterAsk({ context: undefined }))).toBe(false);
   });
 
   it("keeps the beat for another seat, a zone prompt and the same prompt id", () => {
@@ -523,6 +534,31 @@ describe("usePickContinuation after a phase move", () => {
     act(() => result.current.noteAnswer(first, { choice: "to_bp" }));
     rerender({ prompt: deckMasterAsk(), rev: 2 });
     expect(result.current.continuing).toBe(true);
+  });
+
+  it("a chain-window prompt after the Battle Phase click keeps its beat", () => {
+    const first = menuWith({ id: "to_bp" });
+    const { result, rerender } = setup(first);
+    act(() => result.current.noteAnswer(first, { choice: "to_bp" }));
+    rerender({ prompt: chainAsk(), rev: 2 });
+    expect(result.current.continuing).toBe(false);
+  });
+
+  it("a refused phase move is forgotten: a Deck Master question that follows keeps its beat", () => {
+    const first = menuWith({ id: "to_bp" });
+    const { result, rerender } = setup(first);
+    act(() => result.current.noteAnswer(first, { choice: "to_bp" }));
+    act(() => result.current.clearAnswer());
+    rerender({ prompt: deckMasterAsk(), rev: 2 });
+    expect(result.current.continuing).toBe(false);
+  });
+
+  it("clearAnswer also drops the held bar of a refused material pick", () => {
+    const first = toggle({ id: "p1" });
+    const { result } = setup(first);
+    act(() => result.current.noteAnswer(first, { selected: ["select:0"] }));
+    act(() => result.current.clearAnswer());
+    expect(result.current.waiting).toBeNull();
   });
 
   it("a follow-up that nobody caused (no phase click) keeps its beat", () => {
