@@ -38,6 +38,8 @@
   line-height: 1.35;
   -webkit-font-smoothing: antialiased;
   pointer-events: none;
+  /* The sizes inside (art, text box, grid floor) come from the board box this sits in, not from the window: `cqh`. */
+  container-type: size;
 }
 
 /* The scrim dims the board under the panel; the panel is modal until it closes. */
@@ -177,7 +179,7 @@
    (never cut). The block never shrinks (`flex: none`), the text box has its own height limit, and the grid takes the
    rest of the panel and scrolls, so a big pile cannot squeeze the text to nothing. */
 .preview {
-  --pv-art-h: clamp(84px, 14vh, 140px);
+  --pv-art-h: clamp(56px, 14cqh, 140px);
   display: grid;
   flex: none;
   grid-template-columns: calc(var(--pv-art-h) * 59 / 86) minmax(0, 1fr);
@@ -251,7 +253,7 @@
   grid-column: 1 / -1;
   /* A fixed height, not a max: the detail must not change height with each card's text, or the grid would move under a
      still pointer and the hover would flap between cards. A long text scrolls in the box. */
-  height: clamp(4.5em, 24dvh, 16em);
+  height: clamp(5em, 24cqh, 16em);
   padding-top: calc(6 * var(--pv-u));
   padding-right: calc(4 * var(--pv-u));
   overflow-y: auto;
@@ -300,7 +302,8 @@
   grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   gap: calc(10 * var(--pv-u)) calc(8 * var(--pv-u));
   align-content: start;
-  min-height: 0;
+  /* A floor of about one card row: the detail may not squeeze the cards out of a short board box. */
+  min-height: min(190px, 40cqh);
   margin: 0;
   padding: calc(18 * var(--pv-u)) calc(18 * var(--pv-u)) calc(18 * var(--pv-u)) calc(18 * var(--pv-u));
   overflow-x: hidden;
@@ -478,19 +481,45 @@
   }
 
   .preview {
-    --pv-art-h: clamp(72px, 11dvh, 100px);
+    --pv-art-h: clamp(56px, 11cqh, 100px);
     gap: 8px 10px;
     padding: 10px 14px;
   }
 
   .previewText {
-    height: clamp(4.5em, 20dvh, 12em);
+    height: clamp(5em, 20cqh, 12em);
   }
 
   .grid {
     grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
     gap: 8px 6px;
     padding: 16px 16px 16px;
+  }
+}
+
+/* ---------- a short board box (a laptop window, the Tag table): tighter cards, so at least one full row of cards shows ---------- */
+
+@container (max-height: 540px) {
+  .preview {
+    padding-block: 8px 6px;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 8px 6px;
+    padding: 10px 14px;
+  }
+}
+
+/* Shorter still (the Tag table in a small window): the place in the pile ("4th from top") goes, and the text box
+   keeps its 3 lines, so the cards still show a full row. */
+@container (max-height: 450px) {
+  .previewPos {
+    display: none;
+  }
+
+  .previewText {
+    height: clamp(5em, 16cqh, 16em);
   }
 }
 
