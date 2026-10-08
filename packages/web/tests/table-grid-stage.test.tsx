@@ -332,7 +332,8 @@ describe("GridStage", () => {
     expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("out");
     expect(stage.dataset.viewZoomed).toBe("true");
     expect(layer()!.style.transform).toBe(transform);
-    act(() => void vi.advanceTimersByTime(OUT_HOLD_MS + 200));
+    // Long enough for the out hold also when the crumble first waits for the attack and damage FX (up to about 10 s).
+    act(() => void vi.advanceTimersByTime(OUT_HOLD_MS + 12_000));
     expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("empty");
     expect(stage.dataset.viewZoomed).toBe("true");
     expect(layer()!.style.transform).toBe(transform);
