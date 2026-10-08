@@ -5,6 +5,7 @@ import type { PromptDraft } from "../prompts";
 import type { InspectTarget } from "../inspector";
 import type { DuelActivateHandler, DuelHoverHandler } from "../field";
 import type { SeatPick, SeatRelation } from "../multi-seat";
+import type { AttackAim } from "./attack-aim";
 export type { BattleAim, PromptDraft, InspectTarget, DuelActivateHandler, DuelHoverHandler, SeatPick, SeatRelation };
 
 /**
@@ -164,6 +165,8 @@ export interface TableController {
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
   onAim?: (to: BattleAim["to"] | null) => void; // hover/lock an attack target
+  /** An attacker was clicked and its target is not chosen yet: the aim step that comes before the attack is sent. */
+  attackAim?: AttackAim | null;
 }
 export interface TableStageProps {
   controller: TableController;
