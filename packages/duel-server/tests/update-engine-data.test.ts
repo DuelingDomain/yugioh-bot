@@ -12,6 +12,7 @@ import {
 
 import { MULTIPLAYER_FORBIDDEN } from "../src/banlists/multiplayer.js";
 import { reconcile, scanText } from "../scripts/scan-multiplayer-scripts.js";
+import { withCardUpdate } from "../scripts/engine-data-card-report.js";
 
 const oldPins: Pins = { scripts: "a".repeat(40), database: "b".repeat(40), strings: "c".repeat(40) };
 const nextPins: Pins = { scripts: "d".repeat(40), database: "e".repeat(40), strings: "f".repeat(40) };
@@ -226,6 +227,20 @@ describe("engine data update", () => {
     expect(result.changed).toBe(true);
     expect(await readPins(root)).toEqual(dryRun ? oldPins : overrides);
     const report = await readFile(result.reportPath, "utf8");
+    expect(report).toContain("## New cards in this update");
+    expect(report.indexOf("## New cards in this update")).toBeLessThan(report.indexOf("## Released databases"));
+    expect(result.cardChanges).toBeDefined();
+    const finalized = withCardUpdate(report, result.cardChanges!);
+    expect(finalized).toContain(`/compare/${oldPins.database}...${overrides.database}`);
+    expect(finalized).toContain("| Repository | Old → new | Commits ahead |");
+    if (!ambiguous) {
+      expect(report).toContain("Set NEW");
+      expect(report).toContain("Set TEST");
+      expect(report).toContain('src="https://pics.projectignis.org:2096/pics/100000002.jpg" width=80');
+      expect(report).toContain("100000001 → 2");
+      expect(report).toContain("metadata unavailable");
+      expect(report).toContain("Withdrawn preview");
+    }
     expect(report).toContain("## Prerelease cards");
     expect(report).toContain("## Card script patches");
     expect(report).toContain("All shared card-script patch stock hashes match the candidate.");

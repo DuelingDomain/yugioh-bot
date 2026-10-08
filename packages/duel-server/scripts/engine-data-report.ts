@@ -1,3 +1,5 @@
+import { boundCardUpdate } from "./engine-data-card-report.js";
+
 /** Bound GitHub-rendered copies; the artifact always retains the complete report. */
 export function boundedReport(report: string, runUrl: string, maxBytes: number): string {
   if (Buffer.byteLength(report) <= maxBytes) return report;
@@ -21,7 +23,14 @@ export function boundedReport(report: string, runUrl: string, maxBytes: number):
     return prefix(section, Math.max(0, sectionLimit - Buffer.byteLength(suffix))) + prefix(suffix, sectionLimit);
   });
   const footer = prefix(notice + limited.join(""), maxBytes);
-  return prefix(report, maxBytes - Buffer.byteLength(footer)) + footer;
+  const prefixBudget = maxBytes - Buffer.byteLength(footer);
+  const cards = /\n## New cards in this update\n[\s\S]*?(?=\n## |$)/.exec(report);
+  if (cards) {
+    // Reserve room for later findings; never byte-cut a set's details/image HTML.
+    const available = Math.max(0, prefixBudget - Buffer.byteLength(report.slice(0, cards.index)));
+    report = report.replace(cards[0], () => "\n" + boundCardUpdate(cards[0].slice(1), runUrl, Math.floor(available / 2)));
+  }
+  return prefix(report, prefixBudget) + footer;
 }
 
 type Probe = { artworkScriptScanError?: string; artworkScriptFallbacks?: Array<{ passcode: number; main: number; requested?: number }>; errors: string[]; scriptsChecked: number; apiSymbolsChecked: number; globalsChecked: number; cardsChecked: number };
