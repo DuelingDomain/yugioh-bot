@@ -116,7 +116,7 @@ export interface UseViewZoom {
    * A camera zoom that shows `items` (board-box px at the camera pose) as large as the free box allows and centres them
    * in it. The free box is the board box minus the HUD over it and the `avoid` rects (board-box px, at the pose).
    */
-  zoomFit: (items: readonly FitItem[], avoid?: readonly Rect[], ms?: number) => void;
+  zoomFit: (items: readonly FitItem[], avoid?: readonly Rect[], ms?: number) => View;
 }
 
 const pointIn = (node: HTMLElement, event: { clientX: number; clientY: number }): Point => {
@@ -161,6 +161,40 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
   /** The HUD insets of the box now (the HUD moves: a prompt opens, a drawer slides), read at each gesture. */
   const insetsOf = useCallback((root: HTMLElement): Insets => edgeInsets(occluderRects(root, occluderSelector.current), sizeOf(root)), []);
 
+  /**
+   * The counter transform of the fixed nodes (your hand). A node that mounted after the last write (a pick, a draw: the
+   * hand renders again) has no origin yet and takes one here; a node that left the layer drops its origin.
+   */
+  const placeFixed = useCallback(() => {
+    const layer = layerRef.current;
+    const root = rootRef.current;
+    const state = live.current;
+    if (!layer) return;
+    for (const node of Array.from(state.origins.keys())) if (!node.isConnected) state.origins.delete(node);
+    if (!fixedSelector.current) {
+      for (const node of state.origins.keys()) (node as HTMLElement).style.transform = "";
+      state.origins.clear();
+      return;
+    }
+    for (const node of Array.from(layer.querySelectorAll<HTMLElement>(fixedSelector.current))) {
+      let origin = state.origins.get(node);
+      if (!origin && root) {
+        // One forced layout per node and gesture: its 1x place, read with its own counter transform off.
+        node.style.transform = "";
+        const rect = node.getBoundingClientRect();
+        const box = root.getBoundingClientRect();
+        const f = state.frame;
+        const u = layerOffset(state.current, f);
+        const s = state.current.s;
+        origin = { x: ((rect.left - box.left - f.x) / f.k - u.x) / s, y: ((rect.top - box.top - f.y) / f.k - u.y) / s };
+        state.origins.set(node, origin);
+      }
+      if (!origin) continue;
+      node.style.transformOrigin = "0 0";
+      node.style.transform = counterTransform(state.current, origin, state.frame);
+    }
+  }, [layerRef, rootRef]);
+
   /** Writes the view to the DOM; `atRest` writes the follow vars on the root too (see followShift). */
   const write = useCallback((atRest = false) => {
     const layer = layerRef.current;
@@ -171,28 +205,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       layer.style.transformOrigin = isIdentity(state.current) ? "" : "0 0";
       layer.style.willChange = state.raf !== 0 ? "transform" : "";
     }
-    if (layer && fixedSelector.current) {
-      for (const node of Array.from(layer.querySelectorAll<HTMLElement>(fixedSelector.current))) {
-        let origin = state.origins.get(node);
-        if (!origin && root) {
-          // One forced layout per node and gesture: its 1x place, read with its own counter transform off.
-          node.style.transform = "";
-          const rect = node.getBoundingClientRect();
-          const box = root.getBoundingClientRect();
-          const f = state.frame;
-          const u = layerOffset(state.current, f);
-          const s = state.current.s;
-          origin = { x: ((rect.left - box.left - f.x) / f.k - u.x) / s, y: ((rect.top - box.top - f.y) / f.k - u.y) / s };
-          state.origins.set(node, origin);
-        }
-        if (!origin) continue;
-        node.style.transformOrigin = "0 0";
-        node.style.transform = counterTransform(state.current, origin, state.frame);
-      }
-    } else if (layer && state.origins.size > 0) {
-      for (const node of state.origins.keys()) (node as HTMLElement).style.transform = "";
-      state.origins.clear();
-    }
+    placeFixed();
     if (root) {
       if (isZoomed(state.current)) root.dataset.viewZoomed = "true";
       else delete root.dataset.viewZoomed;
@@ -210,7 +223,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
         node.style.setProperty("--vz-s", s);
       }
     }
-  }, [layerRef, rootRef]);
+  }, [layerRef, rootRef, placeFixed]);
 
   const settle = useCallback(() => {
     const state = live.current;
@@ -295,12 +308,14 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
 
   const zoomFit = useCallback((items: readonly FitItem[], avoid: readonly Rect[] = [], ms?: number) => {
     const root = rootRef.current;
-    if (!root) return;
+    if (!root) return VIEW_IDENTITY;
     const box = sizeOf(root);
     const insets = edgeInsets([...occluderRects(root, occluderSelector.current), ...avoid], box);
     const gap = 8;
     const free = { x: insets.left + gap, y: insets.top + gap, width: box.width - insets.left - insets.right - 2 * gap, height: box.height - insets.top - insets.bottom - 2 * gap };
-    zoomTo(fitView(items, free), ms);
+    const fitted = fitView(items, free);
+    zoomTo(fitted, ms);
+    return fitted;
   }, [rootRef, zoomTo]);
 
   const refit = useCallback(() => {
@@ -339,8 +354,23 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const insets = insetsOf(root);
     state.target = clampView(state.target, box, insets);
     state.current = state.raf ? clampView(state.current, box, insets) : state.target;
+    // A resize moves the 1x places of the fixed nodes: they are measured again (a node keeps no old origin).
+    for (const node of state.origins.keys()) (node as HTMLElement).style.transform = "";
+    state.origins.clear();
     write(state.raf === 0);
   }, [frame.x, frame.y, frame.k, rootRef, write, insetsOf]);
+
+  // A fixed node that mounts while the view is off the identity (your hand renders again after a pick or a draw) takes its
+  // counter transform before the next paint: nothing on the board stays under the view's scale by mistake.
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer || !fixed || typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(() => {
+      if (!isIdentity(live.current.current)) placeFixed();
+    });
+    observer.observe(layer, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [fixed, layerRef, placeFixed]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -503,6 +533,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const dblclick = (event: MouseEvent) => {
       const target = event.target as Element | null;
       if (!target?.closest || inHud(target) || target.closest(NOT_EMPTY)) return;
+      // Your own field zoomed (a camera zoom): the felt of a field is the field, not empty board; Esc, Back and the reset chip leave.
+      if (fixedSelector.current && target.closest("[data-seat-slot]")) return;
       if (performance.now() - dragEnd < AFTER_DRAG_MS) return;
       reset();
     };
