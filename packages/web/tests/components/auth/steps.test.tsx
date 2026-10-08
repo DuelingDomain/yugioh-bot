@@ -287,14 +287,18 @@ describe("CreateAccountStep", () => {
 });
 
 describe("error cards", () => {
-  it("NotInvitedStep shows the email, the waitlist link and a retry", async () => {
+  it("NotInvitedStep shows the email, a join button and a retry; a username keeps the waitlist link", async () => {
     const onRetry = vi.fn();
-    render(<NotInvitedStep identifier="sam@example.com" waitlistUrl="https://duelingdomain.com/?home=1#join" onRetry={onRetry} />);
+    const { unmount } = render(<NotInvitedStep identifier="sam@example.com" waitlistUrl="https://duelingdomain.com/?home=1#join" onRetry={onRetry} />);
     expect(title("This email isn’t in the alpha yet").querySelector("em")).toHaveTextContent("alpha");
     screen.getByText("sam@example.com");
-    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/?home=1#join");
+    expect(screen.getByRole("button", { name: "Join the waitlist" })).toBeEnabled();
+    expect(screen.queryByRole("link", { name: "Join the waitlist" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Try a different email" }));
     expect(onRetry).toHaveBeenCalledOnce();
+    unmount();
+    render(<NotInvitedStep identifier="cardshark" waitlistUrl="https://duelingdomain.com/?home=1#join" onRetry={onRetry} />);
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/?home=1#join");
   });
 
   it("SignupClosedStep links to the waitlist and goes back to sign in", async () => {

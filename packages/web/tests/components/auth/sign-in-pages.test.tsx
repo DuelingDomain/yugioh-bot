@@ -144,11 +144,24 @@ describe("sign-in page", () => {
     expect(actions.submitIdentifier).toHaveBeenCalledWith("sam@example.com");
   });
 
-  it("sends the not-invited card to the waitlist and back through the hook", async () => {
+  it("offers the waitlist join on the not-invited card and goes back through the hook", async () => {
     const user = userEvent.setup();
     const { actions } = await renderSignIn(state("err-invite"));
-    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", `${MARKETING}/?home=1#join`);
+    expect(screen.getByRole("button", { name: "Join the waitlist" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Try a different email" }));
+    expect(actions.back).toHaveBeenCalledOnce();
+  });
+
+  it("drops the error tone once the not-invited email is on the waitlist, and goes back on retry", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ status: "joined" }), { status: 201 })));
+    const { container, actions } = await renderSignIn(state("err-invite"));
+    expect(root(container)).toHaveAttribute("data-tone", "bad");
+    await user.click(screen.getByRole("button", { name: "Join the waitlist" }));
+    const heading = await screen.findByRole("heading", { level: 1, name: "You’re on the list" });
+    expect(heading).toHaveFocus();
+    expect(root(container)).toHaveAttribute("data-tone", "neutral");
+    await user.click(screen.getByRole("button", { name: "Use a different email" }));
     expect(actions.back).toHaveBeenCalledOnce();
   });
 

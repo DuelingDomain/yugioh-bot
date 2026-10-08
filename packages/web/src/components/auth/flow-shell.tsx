@@ -11,6 +11,8 @@ interface AuthFlowShellProps {
    * check needs `#clerk-captcha` in the DOM then. The page owns that node here, in every step, so no step renders one.
    */
   captcha?: boolean;
+  /** Holds the tone neutral on an error step that has since been settled (the waitlist join on the not-invited card). */
+  settled?: boolean;
   children: ReactNode;
 }
 
@@ -20,12 +22,12 @@ function failing({ step, banner, fieldErrors }: Pick<AuthFlowState, "step" | "ba
 }
 
 /** The sign-in shell with its two state-driven attributes: the pack opens on success, error cards turn the tone bad. */
-export function AuthFlowShell({ state, marketingUrl, captcha = false, children }: AuthFlowShellProps) {
+export function AuthFlowShell({ state, marketingUrl, captcha = false, settled = false, children }: AuthFlowShellProps) {
   return (
     <SignInShell
       marketingUrl={marketingUrl ?? undefined}
       packState={state.step === "success" ? "open" : "sealed"}
-      tone={failing(state) ? "bad" : "neutral"}
+      tone={failing(state) && !settled ? "bad" : "neutral"}
     >
       {children}
       {captcha && <CaptchaMount />}

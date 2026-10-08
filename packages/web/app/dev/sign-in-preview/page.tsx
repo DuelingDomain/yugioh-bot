@@ -22,7 +22,7 @@ const one = (value: string | string[] | undefined) => (Array.isArray(value) ? va
  * `?view=sign-in|sign-up|sso-callback|access` renders the wired page views of Task 3b the same way.
  *
  * Review page for the sign-in step cards: `?step=signin|password|code|newpw|invite|invite-sso|err-username|err-invite|
- * err-signup|err-password|err-banned|err-service|signing|recovering|success`. Static props, no Clerk. Off unless DUEL_FX_LAB=1
+ * err-invite-pending|err-invite-joined|err-invite-exists|err-invite-limited|err-invite-failed|err-invite-username|err-signup|err-password|err-banned|err-service|signing|recovering|success`. Static props, no Clerk. Off unless DUEL_FX_LAB=1
  * (or `next dev`); see src/lib/fx-lab.ts.
  */
 export default async function SignInPreviewPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -59,7 +59,7 @@ export default async function SignInPreviewPage({ searchParams }: { searchParams
     <SignInShell
       marketingUrl="https://duelingdomain.com"
       packState={step === "success" ? "open" : "sealed"}
-      tone={step.startsWith("err-") ? "bad" : "neutral"}
+      tone={step.startsWith("err-") && step !== "err-invite-joined" && step !== "err-invite-exists" ? "bad" : "neutral"}
     >
       <PreviewScreen step={step} resendAvailableAt={Date.now() + 27_000} />
     </SignInShell>
