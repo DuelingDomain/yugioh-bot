@@ -396,6 +396,17 @@
   animation: strike 0.22s ease-out 0.08s both;
 }
 
+/* The board of the seat is held until the battle is over (crumble-gate.ts): the panel stays whole so the LP roll shows, and
+   the place chip comes with the crumble. */
+:global([data-table-stage]):has([data-exit-held]) .holo[data-exiting="true"] {
+  animation: none;
+}
+
+:global([data-table-stage]):has([data-exit-held]) .exitChip {
+  animation: none;
+  opacity: 0;
+}
+
 .exitChip {
   position: absolute;
   left: 10px;

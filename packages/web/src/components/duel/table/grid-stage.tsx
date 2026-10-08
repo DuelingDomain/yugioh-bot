@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent } from "react";
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
+import { crumbleWaiting, onCrumbleStart } from "./crumble-gate";
 import { boxOf, cancelTracks, FLIP_EASING, FLIP_MS, playFlip, type FlipTrack } from "./grid-flip";
 import { FINALE_GLIDE_EASING, FINALE_GLIDE_MS } from "./grid-finale";
 import { useGridFocus } from "./grid-focus";
@@ -50,22 +51,41 @@ export function useCellStates(seats: readonly { seat: number; eliminated?: boole
   const opened = useRef(false);
   const [tick, setTick] = useState(0);
   const now = Date.now();
+  // The out clock of a seat whose crumble waits for the battle starts with the crumble (crumble-gate.ts).
+  const late = useRef(new Set<number>());
   for (const view of seats) {
-    if (view.eliminated !== true) since.current.delete(view.seat);
-    else if (!since.current.has(view.seat)) since.current.set(view.seat, opened.current ? now : null);
+    if (view.eliminated !== true) {
+      since.current.delete(view.seat);
+      late.current.delete(view.seat);
+    } else if (!since.current.has(view.seat)) {
+      since.current.set(view.seat, opened.current ? now : null);
+      if (opened.current) late.current.add(view.seat);
+    }
   }
-  const states = new Map<number, CellState>(seats.map((view) => [view.seat, cellState(view, since.current.get(view.seat) ?? null, now)]));
+  const waiting = crumbleWaiting();
+  const sinceOf = (seat: number) => (waiting && late.current.has(seat) ? now : since.current.get(seat) ?? null);
+  const states = new Map<number, CellState>(seats.map((view) => [view.seat, cellState(view, sinceOf(view.seat), now)]));
   // The next moment an `out` cell turns `empty`. Only seats still `out` count: a seat that is already empty has a
   // deadline in the past and would make the timer fire at once, without ever reaching the seat that is still out.
   let deadline: number | null = null;
   for (const view of seats) {
-    const at = since.current.get(view.seat);
+    const at = sinceOf(view.seat);
     if (states.get(view.seat) !== "out" || at == null) continue;
     deadline = deadline == null ? at + OUT_HOLD_MS : Math.min(deadline, at + OUT_HOLD_MS);
   }
   useEffect(() => {
     opened.current = true;
   }, []);
+  useEffect(
+    () =>
+      onCrumbleStart(() => {
+        const at = Date.now();
+        for (const seat of late.current) since.current.set(seat, at);
+        late.current.clear();
+        setTick((value) => value + 1);
+      }),
+    [],
+  );
   useEffect(() => {
     if (deadline == null) return;
     const timer = window.setTimeout(() => setTick((value) => value + 1), Math.max(50, deadline - Date.now()));
