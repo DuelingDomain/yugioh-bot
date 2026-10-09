@@ -118,17 +118,33 @@ describe("camera keys on the 3-way shell", () => {
 
   it("keeps the tilt on while the world eases back, and drops it when the tween ends (motion on)", () => {
     let now = 1000;
-    let queue: FrameRequestCallback[] = [];
+    // A manual frame clock. cancelAnimationFrame must really cancel: a no-op cancel keeps every cancelled measure frame (watchMeasure,
+    // the refit) in the queue, and the first frames then run dozens of stale board measures in jsdom (over 1 s here, over 5 s on CI).
+    // It also kept the fly-in pump (place() in use-fly-world.ts) asking for frames after `h`, so the queue never emptied and the loop
+    // below always ran all 80 frames.
+    let queue = new Map<number, FrameRequestCallback>();
+    // The callbacks of the frame that runs now: a callback that cancels another one of the same frame stops it, as in a browser.
+    let running = new Map<number, FrameRequestCallback>();
+    let nextId = 1;
     const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
     const realRaf = window.requestAnimationFrame;
     const realCancel = window.cancelAnimationFrame;
-    window.requestAnimationFrame = (cb: FrameRequestCallback) => queue.push(cb);
-    window.cancelAnimationFrame = () => {};
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      const id = nextId++;
+      queue.set(id, cb);
+      return id;
+    };
+    window.cancelAnimationFrame = (id: number) => {
+      queue.delete(id);
+      running.delete(id);
+    };
     const frame = (advanceMs: number) => {
       now += advanceMs;
-      const run = queue;
-      queue = [];
-      act(() => run.forEach((cb) => cb(now)));
+      // New requests go to the next frame; an id that was cancelled during this frame is no longer in `running`.
+      running = queue;
+      queue = new Map();
+      const ids = [...running.keys()];
+      act(() => ids.forEach((id) => running.get(id)?.(now)));
     };
     function Moving() {
       const controller = useFixtureController(FFA3_FIXTURES.states.main, { reducedMotion: false });
@@ -146,7 +162,7 @@ describe("camera keys on the 3-way shell", () => {
       // The board is flat at once, but the world is still tilted: the 3D camera must stay until it is back at identity.
       expect(stageOf(container).getAttribute("data-fly")).toBe("false");
       expect(canvas().hasAttribute("data-tilted")).toBe(true);
-      for (let i = 0; i < 80 && queue.length; i++) frame(16);
+      for (let i = 0; i < 80 && queue.size; i++) frame(16);
       expect(canvas().hasAttribute("data-tilted")).toBe(false);
     } finally {
       nowSpy.mockRestore();
