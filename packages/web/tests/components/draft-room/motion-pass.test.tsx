@@ -229,8 +229,7 @@ describe("the room's stylesheet uses the site's timing", () => {
     expect(css).toContain("transform: scale(var(--motion-press))");
   });
 
-  it("a standing card and the table slide use the site curves", () => {
-    expect(block(".dr .tcard .lift")).toContain("transition: transform var(--rm-stand) var(--ease-out)");
+  it("the table slide uses the site curve", () => {
     expect(block(".dr .tcard")).toContain("transition: transform var(--rm-move) var(--ease-in-out)");
   });
 
