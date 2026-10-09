@@ -21,6 +21,8 @@ describe("CreateThemeDraftForm", () => {
     expect(screen.getByLabelText(/draft name/i)).toHaveAttribute("placeholder", "Theme night");
     expect(screen.getByLabelText(/draft name/i).closest("section")?.className).toMatch(/sec/);
     expect(screen.getByLabelText(/main deck size/i)).toHaveValue(40);
+    expect(screen.getByLabelText(/main deck size/i)).toHaveAttribute("min", "40");
+    expect(screen.getByLabelText(/main deck size/i)).toHaveAttribute("max", "120");
     expect(screen.getByLabelText(/extra deck size/i)).toHaveValue(15);
     expect(screen.getByRole("checkbox", { name: /draft an extra deck/i })).toBeChecked();
     expect(screen.getByLabelText(/choices per pick/i)).toHaveValue(3);

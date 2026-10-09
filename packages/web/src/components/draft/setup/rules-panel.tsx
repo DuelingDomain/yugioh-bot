@@ -227,8 +227,6 @@ export function RulesPanel({ value, onChange, pool, metaSlot, visibilitySlot, ac
   };
 
   const seats = value.lobbySeatsText ?? String(rules.seats);
-  const rounds = value.roundsText ?? String(rules.rounds);
-  const picksBelowDeal = analysis.unpickedEach > 0;
 
   return (
     <section className={`${styles.panel}${className ? ` ${className}` : ""}`} aria-label="Draft rules">
@@ -254,11 +252,13 @@ export function RulesPanel({ value, onChange, pool, metaSlot, visibilitySlot, ac
 
         <Section title="Rounds & piles" summary={rulesSummary(value)} open={open.rules} onToggle={(v) => setOpen((o) => ({ ...o, rules: v }))}>
           <Stepper id="rules-seats" label="Players" text={seats} limitKey="seats" onType={type("seats")} onStep={step("seats")} onSettle={settle("seats")} hint={discordEnabled ? "Seats fill from the Discord lobby. The host can start early with 2 or more." : "Seats fill from the invite link. The host can start early with 2 or more."} />
-          <Stepper id="rules-rounds" label="Rounds" text={rounds} limitKey="rounds" onType={type("rounds")} onStep={step("rounds")} onSettle={settle("rounds")} />
+          <div className={styles.fld}>
+            <label htmlFor="rules-rounds">Rounds</label>
+            <div className={styles.ns}><input id="rules-rounds" value={String(rules.rounds)} readOnly aria-describedby="rules-rounds-h" /></div>
+            <p id="rules-rounds-h" className={styles.hh}>Calculated from Picks each and Cards per pile.</p>
+          </div>
           <Stepper id="rules-pile" label="Cards per pile" text={value.packSizeText} limitKey="pile" onType={type("pile")} onStep={step("pile")} onSettle={settle("pile")} hint="Each player holds one pile per turn and passes it on." />
-          {picksBelowDeal && (
-            <Stepper id="rules-picks" label="Picks each" text={value.cardsPerPlayerText} limitKey="picks" onType={type("picks")} onStep={step("picks")} onSettle={settle("picks")} hint={`${plural(rules.picks, "pick", "picks")}; ${plural(analysis.dealtEach, "card", "cards")} dealt to each seat.`} />
-          )}
+          <Stepper id="rules-picks" label="Picks each" text={value.cardsPerPlayerText} limitKey="picks" onType={type("picks")} onStep={step("picks")} onSettle={settle("picks")} hint={`${plural(rules.picks, "pick", "picks")}; ${plural(analysis.dealtEach, "card", "cards")} dealt to each seat.`} />
           <div className={styles.fld}>
             <span className={styles.lb} id="rules-pps">Picks per turn</span>
             <Segmented

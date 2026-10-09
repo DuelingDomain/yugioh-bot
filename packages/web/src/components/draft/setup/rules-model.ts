@@ -18,7 +18,7 @@ import {
 
 /**
  * Workbench rules, without any UI. The fields are the same strings the older forms edit
- * (`DraftConfigFieldsValue`), plus explicit rounds and a seat target, so the result still goes
+ * (`DraftConfigFieldsValue`), plus a derived round count and a seat target, so the result still goes
  * through `configFromFields` and `validateFields`.
  *
  * Words: a "pile" is one pack (`packSize`), a "round" is one pack per player (`packsPerPlayer`), and
@@ -75,37 +75,15 @@ const raw = (text: string | undefined) => parseInt(text ?? "");
 
 export type RuleTextKey = "seats" | "rounds" | "pile" | "picks" | "pickSeconds" | "extraSize";
 
-/**
- * Edit one typed number. Changing rounds or pile moves picks with them while the player is
- * "taking every card dealt" (picks = rounds x pile, at most 120), as the preset pairs do. A picks
- * count set below that, such as 40 of the 45 cards in 3 x 15, stays put and only shrinks if the
- * deal gets smaller than it.
- */
+/** The host chooses the cap independently of pile size; round text is retained only for old callers. */
 export function editRule(fields: RulesFields, key: RuleTextKey, text: string): RulesFields {
   switch (key) {
-    case "seats":
-      return { ...fields, lobbySeatsText: text };
-    case "pickSeconds":
-      return { ...fields, pickSecondsText: text };
-    case "extraSize":
-      return { ...fields, extraDeckSizeText: text };
-    case "picks":
-      return { ...fields, cardsPerPlayerText: text };
-    case "rounds":
-    case "pile": {
-      const oldRounds = raw(fields.roundsText ?? String(readRules(fields).rounds));
-      const oldPile = raw(fields.packSizeText);
-      const picks = raw(fields.cardsPerPlayerText);
-      const wasFull = picks === Math.min(CARDS_PER_PLAYER_MAX, oldRounds * oldPile);
-      const next: RulesFields = key === "rounds"
-        ? { ...fields, roundsText: text }
-        : { ...fields, packSizeText: text, roundsText: fields.roundsText ?? String(readRules(fields).rounds) };
-      const total = (key === "rounds" ? raw(text) : oldRounds) * (key === "pile" ? raw(text) : oldPile);
-      if (!Number.isFinite(total)) return next;
-      if (wasFull) return { ...next, cardsPerPlayerText: String(Math.min(CARDS_PER_PLAYER_MAX, total)) };
-      if (Number.isFinite(picks) && picks > total) return { ...next, cardsPerPlayerText: String(total) };
-      return next;
-    }
+    case "seats": return { ...fields, lobbySeatsText: text };
+    case "pickSeconds": return { ...fields, pickSecondsText: text };
+    case "extraSize": return { ...fields, extraDeckSizeText: text };
+    case "picks": return { ...fields, cardsPerPlayerText: text };
+    case "rounds": return { ...fields, roundsText: text };
+    case "pile": return { ...fields, packSizeText: text };
   }
 }
 
@@ -332,7 +310,8 @@ export function fitRulesToPool(fields: RulesFields, pool: PoolCounts): FitResult
       if (better) best = { rounds, pile };
     }
     if (best) {
-      next = editRule(editRule(next, "rounds", String(best.rounds)), "pile", String(best.pile));
+      next = { ...next, roundsText: String(best.rounds), packSizeText: String(best.pile),
+        cardsPerPlayerText: String(Math.min(rules.picks, best.rounds * best.pile)) };
       changes.push(`${best.rounds} rounds of ${best.pile} per pile use ${rules.seats * best.rounds * best.pile} of ${pool.main} Main cards`);
     } else {
       mainDeficit = Math.max(1, rules.seats * CARDS_PER_PLAYER_MIN - pool.main);

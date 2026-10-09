@@ -88,22 +88,16 @@ describe("rules math", () => {
 });
 
 describe("editing rules", () => {
-  it("moves picks with rounds and pile while every dealt card is picked", () => {
-    let f = community();
-    f = editRule(f, "rounds", "4");
-    expect(f.cardsPerPlayerText).toBe("96");
-    f = editRule(f, "pile", "30");
-    expect(f.cardsPerPlayerText).toBe("120");
-    expect(readRules(f).picks).toBe(120);
+  it("keeps the chosen cap when pile size changes", () => {
+    const fields = editRule(community(), "pile", "30");
+    expect(fields.cardsPerPlayerText).toBe("120");
+    expect(readRules(fields).rounds).toBe(4);
   });
 
-  it("keeps a lower picks count, such as 40 of 45, and only shrinks it with the deal", () => {
-    let f: RulesFields = { ...base(), roundsText: "3", lobbySeatsText: "4" };
-    f = editRule(f, "pile", "16");
-    expect(f.cardsPerPlayerText).toBe("40");
-    f = editRule(f, "rounds", "2");
-    expect(f.cardsPerPlayerText).toBe("32");
-    expect(validateFields(f)).toMatch(/between 40 and 120/);
+  it("derives the final round from a partial cap even when stale rounds are present", () => {
+    const fields = { ...community(), cardsPerPlayerText: "40", roundsText: "5" };
+    expect(readRules(fields)).toMatchObject({ picks: 40, rounds: 2, pile: 24 });
+    expect(validateFields(fields)).toBeNull();
   });
 
   it("survives typing a pile digit by digit", () => {
@@ -127,7 +121,7 @@ describe("editing rules", () => {
     expect(RULE_PRESETS.map((p) => p.detail)).toEqual(["120 Main picks each, 480 cards dealt", "45 Main picks each, 180 cards dealt"]);
     expect(matchPreset(community())).toBe("community");
     expect(matchPreset(quick())).toBe("quick");
-    expect(matchPreset(editRule(quick(), "rounds", "4"))).toBeNull();
+    expect(matchPreset(editRule(quick(), "picks", "60"))).toBeNull();
   });
 });
 
@@ -171,7 +165,8 @@ describe("Fit to pool", () => {
     // 12 x 80 x 4 = 3840 is well over the pool, so a fit is needed, and it stays within 120 picks.
     expect(fit.ok).toBe(true);
     const r = readRules(fit.fields);
-    expect(r.rounds * r.pile).toBeLessThanOrEqual(120);
+    expect(r.picks).toBeLessThanOrEqual(120);
+    expect(r.rounds).toBe(Math.ceil(r.picks / r.pile));
   });
 
   it("fits the Extra round to the pool, or reports the deficit when no Extra card per seat exists", () => {
@@ -203,16 +198,16 @@ describe("fields <-> config", () => {
     expect(fieldsFromConfig({ ...configFromFields(fields) })).toEqual(fields);
   });
 
-  it("keeps rounds that do not match the old derived count", () => {
+  it("recalculates stale saved rounds for host edits", () => {
     const fields = fieldsFromConfig({ cardsPerPlayer: 40, packSize: 8, packsPerPlayer: 6 });
-    expect(configFromFields(fields).packsPerPlayer).toBe(6);
+    expect(configFromFields(fields).packsPerPlayer).toBe(5);
     expect(validateFields(fields)).toBeNull();
   });
 
-  it("validates explicit rounds and seats", () => {
-    expect(validateFields({ ...community(), roundsText: "13" })).toMatch(/Rounds must be between 1 and 12/);
+  it("ignores stale round text and validates seats", () => {
+    expect(validateFields({ ...community(), roundsText: "13" })).toBeNull();
     expect(validateFields({ ...community(), lobbySeatsText: "9" })).toMatch(/Seats must be between 2 and 8/);
-    expect(validateFields({ ...community(), roundsText: "2" })).toMatch(/2 rounds of 24 deal 48 cards each, but 120 picks are needed/);
+    expect(validateFields({ ...community(), roundsText: "2" })).toBeNull();
     expect(validateFields(community())).toBeNull();
     expect(validateFields(quick())).toBeNull();
   });
