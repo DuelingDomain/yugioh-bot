@@ -202,7 +202,7 @@ describe("Main Deck picks per player", () => {
       expect(app.db.prepare("select count(*) as n from draft_undealt where draft_id = ?").get(draft.id)).toEqual({ n: 16 });
     } finally { app.db.close(); }
   });
-  it("preserves an already active draft's saved Main/Extra deal boundaries", () => {
+  it.each([5, undefined])("preserves an active draft's Main/Extra boundaries with saved rounds %s", (savedRounds) => {
     const app = setup(2);
     try {
       const draft = app.create({ cubeCardIds: app.main, packSize: 24, cardsPerPlayer: 120,
@@ -210,7 +210,7 @@ describe("Main Deck picks per player", () => {
       app.drafts.start(draft.id);
       // Simulate an older active draft: five packs already dealt, but only forty picks kept.
       app.db.prepare("update drafts set config_json = ? where id = ?")
-        .run(JSON.stringify({ ...draft.config, cardsPerPlayer: 40, packsPerPlayer: 5 }), draft.id);
+        .run(JSON.stringify({ ...draft.config, cardsPerPlayer: 40, packsPerPlayer: savedRounds }), draft.id);
       finish(app, draft.id, 40);
       expect(app.drafts.findById(draft.id).currentPackRound).toBe(6);
       for (const player of app.players) expect(app.drafts.pool(draft.id, player)).toHaveLength(43);
