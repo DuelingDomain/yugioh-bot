@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, TriangleAlert, Zap } from "lucide-react";
+import { Check, Info, TriangleAlert, Zap } from "lucide-react";
 import { Segmented, SvCheck } from "@/components/sheet";
 import {
   DEFAULT_PICK_SECONDS_CHOICES,
@@ -117,7 +117,7 @@ function Ledger({ a, fit }: { a: RulesAnalysis; fit: () => void }) {
   const { rules } = a;
   const turns = Math.ceil(rules.pile / rules.picksPerStep);
   const rounds = Array.from({ length: rules.rounds }, (_, i) => i + 1);
-  const mainTone = a.mainShort > 0 || a.emptyPool ? "bad" : "ok";
+  const mainTone = a.mainPicksShort > 0 || a.emptyPool ? "bad" : "ok";
   let note: React.ReactNode;
   if (a.emptyPool) {
     note = (
@@ -126,16 +126,23 @@ function Ledger({ a, fit }: { a: RulesAnalysis; fit: () => void }) {
         <div><b>No pool yet.</b> Add cards or pick a cube to see the math.</div>
       </div>
     );
-  } else if (a.mainShort > 0 || a.extraShort > 0) {
+  } else if (a.mainPicksShort > 0 || a.extraShort > 0) {
     note = (
       <div className={`${styles.note} ${styles.noteBad}`}>
         <TriangleAlert size={16} aria-hidden="true" />
         <div>
-          <b>{a.mainShort > 0 ? `Main piles are ${plural(a.mainShort, "card", "cards")} short.` : `Extra Deck piles are ${plural(a.extraShort, "card", "cards")} short.`}</b>
-          {a.mainShort > 0 && a.extraShort > 0 && <> Extra Deck piles are {plural(a.extraShort, "card", "cards")} short too.</>}
+          <b>{a.mainPicksShort > 0 ? `Main piles are ${plural(a.mainPicksShort, "card", "cards")} short.` : `Extra Deck piles are ${plural(a.extraShort, "card", "cards")} short.`}</b>
+          {a.mainPicksShort > 0 && a.extraShort > 0 && <> Extra Deck piles are {plural(a.extraShort, "card", "cards")} short too.</>}
           <br />
           <button type="button" className={styles.fit} onClick={fit}><Zap size={14} aria-hidden="true" />Fit rules to pool</button>
         </div>
+      </div>
+    );
+  } else if (a.mainShort > 0) {
+    note = (
+      <div className={styles.note}>
+        <Info size={16} aria-hidden="true" />
+        <div>A full deal needs <b>{fmt(a.mainDemand)}</b> Main cards, but the pool has {fmt(a.mainHave)}. The last round will use partial piles.</div>
       </div>
     );
   } else {
@@ -172,7 +179,7 @@ function Ledger({ a, fit }: { a: RulesAnalysis; fit: () => void }) {
       <div className={styles.facts}>
         <div className={styles.fact}>
           <b>{a.picksEach}{rules.extraEnabled && <small> +{a.extraEach}</small>}</b>
-          <span>picks each{rules.extraEnabled ? " (+ Extra)" : ""}</span>
+          <span>Main Deck cards each{rules.extraEnabled ? " (+\u00a0Extra)" : ""}</span>
         </div>
         <div className={styles.fact}>
           <b>{turns}</b>
@@ -227,8 +234,6 @@ export function RulesPanel({ value, onChange, pool, metaSlot, visibilitySlot, ac
   };
 
   const seats = value.lobbySeatsText ?? String(rules.seats);
-  const rounds = value.roundsText ?? String(rules.rounds);
-  const picksBelowDeal = analysis.unpickedEach > 0;
 
   return (
     <section className={`${styles.panel}${className ? ` ${className}` : ""}`} aria-label="Draft rules">
@@ -254,11 +259,13 @@ export function RulesPanel({ value, onChange, pool, metaSlot, visibilitySlot, ac
 
         <Section title="Rounds & piles" summary={rulesSummary(value)} open={open.rules} onToggle={(v) => setOpen((o) => ({ ...o, rules: v }))}>
           <Stepper id="rules-seats" label="Players" text={seats} limitKey="seats" onType={type("seats")} onStep={step("seats")} onSettle={settle("seats")} hint={discordEnabled ? "Seats fill from the Discord lobby. The host can start early with 2 or more." : "Seats fill from the invite link. The host can start early with 2 or more."} />
-          <Stepper id="rules-rounds" label="Rounds" text={rounds} limitKey="rounds" onType={type("rounds")} onStep={step("rounds")} onSettle={settle("rounds")} />
+          <div className={styles.fld}>
+            <label htmlFor="rules-rounds">Rounds</label>
+            <div className={styles.ns}><input id="rules-rounds" value={String(rules.rounds)} readOnly aria-describedby="rules-rounds-h" /></div>
+            <p id="rules-rounds-h" className={styles.hh}>Calculated from Main Deck cards each and Cards per pile.</p>
+          </div>
           <Stepper id="rules-pile" label="Cards per pile" text={value.packSizeText} limitKey="pile" onType={type("pile")} onStep={step("pile")} onSettle={settle("pile")} hint="Each player holds one pile per turn and passes it on." />
-          {picksBelowDeal && (
-            <Stepper id="rules-picks" label="Picks each" text={value.cardsPerPlayerText} limitKey="picks" onType={type("picks")} onStep={step("picks")} onSettle={settle("picks")} hint={`${plural(rules.picks, "pick", "picks")}; ${plural(analysis.dealtEach, "card", "cards")} dealt to each seat.`} />
-          )}
+          <Stepper id="rules-picks" label="Main Deck cards each" text={value.cardsPerPlayerText} limitKey="picks" onType={type("picks")} onStep={step("picks")} onSettle={settle("picks")} hint={`Each player drafts exactly ${plural(rules.picks, "Main Deck card", "Main Deck cards")}. The Extra Deck round, if on, is added on top. ${plural(analysis.dealtEach, "card", "cards")} dealt to each seat.`} />
           <div className={styles.fld}>
             <span className={styles.lb} id="rules-pps">Picks per turn</span>
             <Segmented

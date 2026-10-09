@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  draftFromApi,
   formatDay,
   groupDrafts,
   listSummaryParts,
@@ -18,7 +19,7 @@ function item(over: Partial<DraftListItem> = {}): DraftListItem {
     playerCount: 6,
     wave: 2,
     pick: 4,
-    config: parseDraftConfig(JSON.stringify({ packsPerPlayer: 3, packSize: 8, pickSeconds: 45 })),
+    config: parseDraftConfig(JSON.stringify({ packsPerPlayer: 3, packSize: 8, pickSeconds: 45 }), "active"),
     ...over,
   };
 }
@@ -109,4 +110,23 @@ describe("formatDay", () => {
     expect(formatDay(undefined)).toBeNull();
     expect(formatDay("garbage")).toBeNull();
   });
+});
+
+it("derives a pending cap's round count instead of trusting stale saved rounds", () => {
+  expect(parseDraftConfig(JSON.stringify({ cardsPerPlayer: 41, packSize: 24, packsPerPlayer: 5 })))
+    .toMatchObject({ cardsPerPlayer: 41, packsPerPlayer: 2, extraDeckEnabled: false });
+});
+
+it("uses the theme cap and defaults for list phase and totals", () => {
+  const config = parseDraftConfig(JSON.stringify({ mode: "theme", cardsPerPlayer: 60 }));
+  const stages = liveStages(item({ config, wave: 61 }));
+  expect(stages.caption).toBe("Round 61 of 75, Extra deck");
+  expect(stages.steps.find((step) => step.label === "Main deck")?.state).toBe("done");
+});
+
+it("carries the same effective setup into rows loaded from the list API", () => {
+  const config = parseDraftConfig(JSON.stringify({ mode: "theme", cardsPerPlayer: 60 }));
+  const row = draftFromApi({ id: 2, name: "Theme", status: "active", playerCount: 3,
+    currentPackRound: 61, currentPickStep: 1, config });
+  expect(liveStages(row).caption).toBe("Round 61 of 75, Extra deck");
 });

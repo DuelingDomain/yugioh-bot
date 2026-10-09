@@ -6,7 +6,7 @@ import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
 import { env } from "@/lib/env";
-import { boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, DraftTerminalError } from "@yugidraft/shared/services";
+import { boosterDraftConfigError, cardsPerPlayerError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, DraftTerminalError } from "@yugidraft/shared/services";
 import { createDraftLobbyApi } from "@/lib/draft-lobby-api";
 import { isValidLobbySeats, type DraftConfig } from "@yugidraft/shared/types";
 import {
@@ -146,7 +146,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const drafts = createDraftService(db);
     const existing = drafts.findById(draftId);
     const patch = config === undefined ? undefined : config as Partial<DraftConfig>;
-    if (patch) assertDraftConfigShape(patch);
+    if (patch) {
+      assertDraftConfigShape(patch);
+      // A cleared host field returns to the shared forty-pick default.
+      if (patch.cardsPerPlayer === null) patch.cardsPerPlayer = 40;
+      const capError = cardsPerPlayerError(patch);
+      if (capError) throw new DraftLobbyApiError(capError, "INVALID_CONFIG");
+    }
 
     const merge = (base: DraftConfig) => {
       const sanitized = patch === undefined ? {} : sanitizePoolSource(db, existing.guildId, patch);

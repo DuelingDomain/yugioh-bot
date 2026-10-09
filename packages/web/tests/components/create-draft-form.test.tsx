@@ -51,7 +51,7 @@ async function pickGoat() {
 /** Rules a 2-seat table with 2 rounds of 20 can fill from 80 cards. */
 function setSmallTable() {
   fireEvent.change(screen.getByLabelText("Players"), { target: { value: "2" } });
-  fireEvent.change(screen.getByLabelText("Rounds"), { target: { value: "2" } });
+  fireEvent.change(screen.getByLabelText("Main Deck cards each"), { target: { value: "40" } });
   fireEvent.change(screen.getByLabelText("Cards per pile"), { target: { value: "20" } });
 }
 

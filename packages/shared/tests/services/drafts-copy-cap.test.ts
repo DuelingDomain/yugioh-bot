@@ -189,8 +189,19 @@ describe("per-player copy cap in booster drafts", () => {
     } finally { db.close(); }
   });
 
-  it.each([16, 17, 18, 19])("rejects %i singletons and a deck larger than the deal", (distinct) => {
-    expect(() => boosterDraft({ packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 60 }, distinctCube(distinct))).toThrow(/needs 80.*needs 60/);
+  it.each([16, 17, 18, 19])("warns and finishes with every available card from %i singletons", (distinct) => {
+    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 60 }, distinctCube(distinct));
+    try {
+      const config = drafts.findById(draftId).config;
+      expect(config.packsPerPlayer).toBe(8);
+      expect(drafts.analyzeBoosterDraft(config, 2, "g").warnings).toContainEqual(expect.stringMatching(/120 requested picks/));
+      for (let step = 0; step < 30 && drafts.findById(draftId).status === "active"; step++) {
+        expireNow(db, draftId);
+        drafts.expireCurrentPickStep(draftId);
+      }
+      expect(drafts.findById(draftId).status).toBe("completed");
+      expect(drafts.pool(draftId, a).length + drafts.pool(draftId, b).length).toBe(distinct);
+    } finally { db.close(); }
   });
 
   it("starts a narrow cube with enough copies", () => {
@@ -734,7 +745,8 @@ describe("a draft that started under the old pack rotation", () => {
     drafts.expireCurrentPickStep(draftId);
 
     expect(drafts.findById(draftId).status).toBe("completed");
-    expect(unpicked(db, draftId)).toBe(before);
+    expect(unpicked(db, draftId)).toBe(0);
+    expect(db.prepare("select count(*) as n from draft_undealt where draft_id = ?").get(draftId)).toEqual({ n: before });
     db.close();
   });
 });

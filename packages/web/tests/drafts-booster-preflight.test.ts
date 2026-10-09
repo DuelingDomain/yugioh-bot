@@ -28,11 +28,11 @@ afterEach(() => {
 });
 
 it.each([
-  { distinct: 100, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40, impossible: false },
-  { distinct: 8, packSize: 4, packsPerPlayer: 10, cardsPerPlayer: 40, impossible: false },
-  { distinct: 8, packSize: 4, packsPerPlayer: 10, cardsPerPlayer: 20, impossible: false },
-  ...[16, 17, 18, 19].map((distinct) => ({ distinct, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 60, impossible: true })),
-])("surfaces booster reachability for $distinct distinct cards and a $cardsPerPlayer-card deck in create, edit, preflight and start", async ({ distinct, packSize, packsPerPlayer, cardsPerPlayer, impossible }) => {
+  { distinct: 100, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40, shortPool: false },
+  { distinct: 8, packSize: 4, packsPerPlayer: 10, cardsPerPlayer: 40, shortPool: false },
+  { distinct: 8, packSize: 4, packsPerPlayer: 10, cardsPerPlayer: 20, shortPool: false },
+  ...[16, 17, 18, 19].map((distinct) => ({ distinct, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 60, shortPool: true })),
+])("surfaces booster reachability for $distinct distinct cards and a $cardsPerPlayer-card deck in create, edit, preflight and start", async ({ distinct, packSize, packsPerPlayer, cardsPerPlayer, shortPool }) => {
   const { getDb } = await import("../src/lib/db");
   const db = getDb();
   seedFixtureUsers(db, FIXTURE_KEYS);
@@ -40,7 +40,7 @@ it.each([
   const insert = db.prepare(`insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[{"set_name":"Set A"}]', 't')`);
   for (const id of ids) insert.run(id, `Card ${id}`);
   const { POST } = await import("../app/api/drafts/route");
-  const config = { setNames: ["Set A"], packSize, packsPerPlayer, cardsPerPlayer };
+  const config = { ...(shortPool ? { customCardIds: ids } : { setNames: ["Set A"] }), packSize, packsPerPlayer, cardsPerPlayer };
   const created = await POST(new Request("http://x/api/drafts", {
     method: "POST", body: JSON.stringify({ name: "Narrow", config }),
   }) as NextRequest);
@@ -52,29 +52,32 @@ it.each([
   expect(created.status).toBe(201);
   const draft = await created.json();
   const context = { params: Promise.resolve({ slug: draft.webSlug }) };
-  const expectedErrors = impossible ? expect.arrayContaining([expect.stringMatching(/Each player opens/)]) : [];
-  expect(draft.errors).toEqual(expectedErrors);
+  expect(draft.errors).toEqual([]);
+  if (shortPool) expect(draft.warnings).toContainEqual(expect.stringMatching(/requested picks/));
 
   const { PUT } = await import("../app/api/drafts/[slug]/route");
   const edited = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config }) }) as NextRequest, context);
-  expect(edited.status).toBe(packSize < 5 || cardsPerPlayer < 40 ? 400 : 200);
-  if (edited.status === 200) expect((await edited.json()).errors).toEqual(expectedErrors);
-  const impossibleAtStart = impossible;
+  expect(edited.status).toBe(200);
+  const editResult = await edited.json();
+  expect(editResult.errors).toEqual([]);
+  if (shortPool) expect(editResult.warnings).toContainEqual(expect.stringMatching(/requested picks/));
 
   const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
   const preflight = await GET(new Request("http://x"), context);
   expect(preflight.status).toBe(200);
-  expect((await preflight.json()).errors).toEqual(impossibleAtStart ? expectedErrors : []);
+  const preflightResult = await preflight.json();
+  expect(preflightResult.errors).toEqual([]);
+  if (shortPool) expect(preflightResult.warnings).toContainEqual(expect.stringMatching(/requested picks/));
 
   const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
   const players = createPlayerService(db);
   const drafts = createDraftService(db);
   drafts.join(draft.id, players.findOrCreate("g", fixtureUserId("other"), "Other").id);
-  if (impossibleAtStart) {
-    expect(() => drafts.start(draft.id)).toThrow(/Each player opens/);
-    expect(drafts.findById(draft.id).status).toBe("pending");
-  } else {
-    expect(drafts.start(draft.id).status).toBe("active");
+  expect(drafts.start(draft.id).status).toBe("active");
+  if (shortPool) {
+    const pool = db.prepare(`select catalog_card_id as id from draft_deal where draft_id = ?
+      union all select catalog_card_id as id from draft_undealt where draft_id = ?`).all(draft.id, draft.id) as Array<{ id: number }>;
+    expect(pool.map(({ id }) => id).sort((a, b) => a - b)).toEqual(ids);
   }
 });
 

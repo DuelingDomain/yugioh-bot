@@ -240,8 +240,9 @@ describe("PUT /api/drafts/[slug]", () => {
     expect(data.config.customCardIds).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
 
     expect(data.config.packSize).toBe(8); // Retain the configured pack size.
-    expect(data.config.packsPerPlayer).toBe(3); // Explicit round counts are independent of the pick quota.
-    expect(data.errors).toEqual(expect.arrayContaining([expect.stringMatching(/Each player opens 3 packs/)]));
+    expect(data.config.packsPerPlayer).toBe(5); // The Main cap determines rounds even when an older client submits them.
+    expect(data.errors).toEqual([]);
+    expect(data.warnings).toContainEqual(expect.stringMatching(/requested picks/));
   });
 
   it("keeps fifteen-card packs in a sixty-card draft", async () => {
@@ -252,7 +253,7 @@ describe("PUT /api/drafts/[slug]", () => {
     expect((await response.json()).config).toMatchObject({ cardsPerPlayer: 60, packSize: 15, packsPerPlayer: 4 });
   });
 
-  it.each([0, 4, 61, 5.5])("rejects bad pack size %s", async (packSize) => {
+  it.each([0, 4, 121, 5.5])("rejects bad pack size %s", async (packSize) => {
     await setupDraftWithCustomPool();
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { packSize } }) }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });

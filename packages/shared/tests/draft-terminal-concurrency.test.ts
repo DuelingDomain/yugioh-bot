@@ -15,7 +15,7 @@ afterEach(async () => {
   await Promise.all(workers.splice(0).map(worker => worker.terminate()));
   for (const { db, directory } of resources.splice(0)) { db.close(); rmSync(directory, { recursive: true, force: true }); }
 });
-function setup() {
+function setup(cappedMain = false) {
   const directory = mkdtempSync(join(tmpdir(), "draft-terminal-race-"));
   const path = join(directory, "test.sqlite");
   const db = new Database(path); resources.push({ db, directory });
@@ -28,10 +28,19 @@ function setup() {
     (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
     values (?,?,'Normal Monster','normal','i','i','[]','t')`);
   for (let id = 1; id <= 8; id++) insert.run(id, `Card ${id}`);
+  if (cappedMain) {
+    for (let id = 9; id <= 12; id++) insert.run(id, `Extra ${id}`);
+    db.prepare("update card_catalog set type = 'Fusion Monster', frame_type = 'fusion' where ygoprodeck_id >= 9").run();
+  }
   const drafts = createDraftService(db, { seedSource: () => 7 });
   const draft = drafts.create("g", "c", "Race", { customCardIds: [1,2,3,4,5,6,7,8], packSize: 2,
-    packsPerPlayer: 2, cardsPerPlayer: 4, pickSeconds: 30 }, host.userId, players[0]);
+    packsPerPlayer: 2, cardsPerPlayer: 4, pickSeconds: 30,
+    ...(cappedMain ? { cardsPerPlayer: 1, extraDeckEnabled: true, extraDeckSize: 2,
+      customExtraCardIds: [9,10,11,12] } : {}),
+  }, host.userId, players[0]);
   drafts.join(draft.id, players[1]); drafts.start(draft.id, new Date("2030-01-01"));
+  if (cappedMain) drafts.pickCard(draft.id, players[1], drafts.pickOptions(draft.id, players[1])[0].id,
+    "manual", new Date("2030-01-01T00:00:01Z"));
   return { db, path, drafts, draft, players, cardId: drafts.pickOptions(draft.id, players[0])[0].id };
 }
 
@@ -95,6 +104,47 @@ it.each(["end", "cancel"] as const)("serializes %s against concurrent manual pic
     }
     expect(ctx.drafts.expireCurrentPickStep(ctx.draft.id, new Date("2031-01-01"))).toEqual({ autoPickedPlayerIds: [] });
     expect(ctx.drafts.picks(ctx.draft.id)).toEqual(picks);
+  }
+}, 20_000);
+
+it.each(["end", "cancel"] as const)("serializes %s against the final capped Main pick and leftover cleanup", async action => {
+  for (const contender of ["manual", "bot", "expiry"]) {
+    const ctx = setup(true);
+    const baselinePicks = ctx.drafts.picks(ctx.draft.id);
+    const undealtBefore = (ctx.db.prepare("select count(*) as n from draft_undealt where draft_id = ?")
+      .get(ctx.draft.id) as { n: number }).n;
+    expect(baselinePicks).toHaveLength(1);
+    const gate = new SharedArrayBuffer(4);
+    const terminal = runWorker(ctx, action, gate);
+    const picking = runWorker(ctx, contender, gate);
+    await Promise.all([terminal.ready, picking.ready]);
+    Atomics.store(new Int32Array(gate), 0, 1); Atomics.notify(new Int32Array(gate), 0, 2);
+    const [stopped, picked] = await Promise.all([terminal.result, picking.result]);
+    expect(stopped).toMatchObject({ ok: true });
+    if (!picked.ok) expect(picked.error).toMatch(/Draft must be active/);
+    const committed = contender === "expiry"
+      ? (picked.value as { autoPickedPlayerIds: number[] }).autoPickedPlayerIds.length
+      : picked.ok ? 1 : 0;
+    expect(ctx.drafts.findById(ctx.draft.id)).toMatchObject({
+      status: action === "end" ? "completed" : "cancelled", pickDeadlineAt: null,
+      currentPackRound: committed ? 2 : 1,
+    });
+    expect(ctx.drafts.picks(ctx.draft.id)).toHaveLength(action === "cancel" ? 0 : 1 + committed);
+    // Only a pick committed before End may return the two leftover Main cards and open Extra packs.
+    expect(ctx.db.prepare("select count(*) as n from draft_undealt where draft_id = ?").get(ctx.draft.id))
+      .toEqual({ n: action === "cancel" ? 0 : undealtBefore + (committed ? 2 : 0) });
+    expect(ctx.db.prepare("select count(*) as n from draft_packs where draft_id = ? and wave_number = 2").get(ctx.draft.id))
+      .toEqual({ n: action === "cancel" || !committed ? 0 : 2 });
+    const snapshot = () => Object.fromEntries(["drafts", "draft_players", "draft_picks", "draft_cards",
+      "draft_packs", "draft_undealt", "draft_deal", "draft_passes", "saved_decks"].map(table => [table,
+      ctx.db.prepare(`select * from ${table} order by rowid`).all()]));
+    const stoppedState = snapshot();
+    for (const method of ["manual", "auto"] as const) {
+      expect(() => ctx.drafts.pickCard(ctx.draft.id, ctx.players[0], ctx.cardId, method)).toThrow(/active/);
+    }
+    expect(() => ctx.drafts.recordManualPick(ctx.draft.id, ctx.players[0], ctx.cardId)).toThrow(/active/);
+    expect(ctx.drafts.expireCurrentPickStep(ctx.draft.id, new Date("2031-01-01"))).toEqual({ autoPickedPlayerIds: [] });
+    expect(snapshot()).toEqual(stoppedState);
   }
 }, 20_000);
 

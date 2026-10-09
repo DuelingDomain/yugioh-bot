@@ -457,13 +457,13 @@ describe("manual and automatic deadlines", () => {
     expect(() => app.lobby.scheduleStart(app.draft.id, fixtureUserId("host"), { revision: app.read().lobby.revision, force: true }, now)).toThrowError(
       expect.objectContaining({ code: "PREFLIGHT_FAILED" }),
     );
-    const thin = setup({ cubeCardIds: [1] });
+    const thin = setup({ cubeCardIds: [], setNames: ["Missing set"] });
     expect(() => thin.lobby.scheduleStart(thin.draft.id, fixtureUserId("host"), { revision: thin.read().lobby.revision, force: true }, now)).toThrowError(
       expect.objectContaining({ code: "PREFLIGHT_FAILED" }),
     );
   });
 
-  it.each([{ packSize: 0 }, { packsPerPlayer: 0 }, { cardsPerPlayer: 0 }, { packSize: 2.5 }])(
+  it.each([{ packSize: 0 }, { cardsPerPlayer: 0 }, { packSize: 2.5 }])(
     "blocks invalid booster numbers %j even with force", (config) => {
       const app = setup(config);
       expect(() => app.lobby.scheduleStart(app.draft.id, fixtureUserId("host"), { revision: app.read().lobby.revision, force: true }, now))

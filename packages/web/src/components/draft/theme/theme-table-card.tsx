@@ -118,7 +118,7 @@ function ThemeRulesEditor({ config, players, cubeIds, table, controller, locked,
   const set = <K extends keyof RulesFields>(key: K, value: RulesFields[K]) => setFields((f) => ({ ...f, [key]: value }));
   const patch = patchOf(saved, fields);
   const changed = Object.keys(patch).length > 0;
-  const valid = fields.seats >= 2 && fields.seats <= 8 && fields.main >= 20 && fields.choices >= 2 && fields.seconds >= 5 && (!fields.extraOn || fields.extra >= 1);
+  const valid = fields.seats >= 2 && fields.seats <= 8 && fields.main >= 40 && fields.main <= 120 && fields.choices >= 2 && fields.seconds >= 5 && (!fields.extraOn || fields.extra >= 1);
   const toHost = fields.selection === "host_assigned" && saved.selection !== "host_assigned";
   const suggested = toHost ? suggestAssignments(players, table.cubeOf, cubeIds, fields.unique) : null;
   const short = toHost && suggested === null;
@@ -145,7 +145,7 @@ function ThemeRulesEditor({ config, players, cubeIds, table, controller, locked,
       <SvCheck compact label="Every player gets a different theme" checked={fields.unique} onChange={(e) => set("unique", e.target.checked)} disabled={locked} />
       <div className={styles.fieldRow}>
         <NumberField id={`${ids}-seats`} label="Seats" value={fields.seats} min={2} max={8} disabled={locked} onChange={(n) => set("seats", n)} />
-        <NumberField id={`${ids}-main`} label="Main deck size" value={fields.main} min={20} max={120} disabled={locked} onChange={(n) => set("main", n)} />
+        <NumberField id={`${ids}-main`} label="Main deck size" value={fields.main} min={40} max={120} disabled={locked} onChange={(n) => set("main", n)} />
         <NumberField id={`${ids}-choices`} label="Choices per pick" value={fields.choices} min={2} max={10} disabled={locked} onChange={(n) => set("choices", n)} />
         <NumberField id={`${ids}-secs`} label="Pick seconds" value={fields.seconds} min={5} max={300} disabled={locked} onChange={(n) => set("seconds", n)} />
       </div>

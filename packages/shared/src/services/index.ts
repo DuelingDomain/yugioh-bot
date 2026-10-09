@@ -9,6 +9,7 @@ export * from "./cubes.js";
 export * from "./deal.js";
 export * from "./card-images.js";
 export * from "./drafts.js";
+export * from "./draft-size.js";
 export * from "./draft-lobby.js";
 export * from "./draft-access.js";
 export * from "./draft-visibility.js";

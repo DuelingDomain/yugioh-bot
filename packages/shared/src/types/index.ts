@@ -9,6 +9,7 @@ export interface DraftConfig {
   excludeNames?: string[];
   packSize?: number;
   packsPerPlayer?: number;
+  /** Main-round picks per player. Hosts set 40–120; omitted means 40. Extra picks are separate. */
   cardsPerPlayer?: number;
   pickSeconds?: number;
   /** Normal drafts: sequential timed picks from each pack before passing; 1 (default) or 2. */
@@ -43,7 +44,7 @@ export interface DraftConfig {
   uniqueThemes?: boolean;
   /** Number of choices shown per pick. Admin-set; default 3, any X >= 2. */
   themePackSize?: number;
-  /** If true, the (themePackSize - 1) unpicked cards are discarded each round; if false (default) they return. */
+  /** Theme choices and leftovers at a booster Main cap: true discards unpicked cards; false returns them. */
   burnUnpicked?: boolean;
 
   // ----- cube metadata (kept in a saved cube's config; a draft ignores it) -----
@@ -190,3 +191,5 @@ export type {
   EngineUpdateWorkflowStatus, CardDataStatus, LocalCardDataStatus,
 } from "./card-data-status.js";
 export * from "./draft-lobby.js";
+
+export * from "./draft-size.js";

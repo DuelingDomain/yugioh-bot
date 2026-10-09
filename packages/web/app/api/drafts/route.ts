@@ -2,10 +2,11 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
+import { parseDraftConfig } from "@/components/draft/list/drafts-list-model";
 import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
-import { findDraftListPage, InvalidListCursorError, boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService, isDraftVisibility } from "@yugidraft/shared/services";
+import { findDraftListPage, InvalidListCursorError, boosterDraftConfigError, cardsPerPlayerError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService, isDraftVisibility } from "@yugidraft/shared/services";
 import { DEFAULT_LOBBY_SEATS, isValidLobbySeats } from "@yugidraft/shared/types";
 import { assertDraftConfigShape, readLobbyBody, draftLobbyErrorResponse } from "./[slug]/helpers";
 import type { DraftConfig } from "@yugidraft/shared/types";
@@ -22,8 +23,8 @@ export async function GET(request?: Request) {
     if (!actor.ok) return actor.response;
     const cursor = request ? new URL(request.url).searchParams.get("cursor") : null;
     const result = findDraftListPage(getDb(), env.discordGuildId, actor.userId, cursor);
-    const items = result.items.map(({ configJson: _config, ...item }) => ({
-      ...item, createdAt: toUtcIso(item.createdAt), endedAt: toUtcIso(item.endedAt),
+    const items = result.items.map(({ configJson, ...item }) => ({
+      ...item, config: parseDraftConfig(configJson, item.status), createdAt: toUtcIso(item.createdAt), endedAt: toUtcIso(item.endedAt),
     }));
     return NextResponse.json({ items, nextCursor: result.nextCursor });
   } catch (error) {
@@ -54,6 +55,8 @@ async function handlePOST(request: NextRequest) {
     return NextResponse.json({ error: "name and config are required", code: "INVALID_BODY" }, { status: 400 });
   }
   assertDraftConfigShape(rawConfig);
+  const capError = cardsPerPlayerError(rawConfig);
+  if (capError) return NextResponse.json({ error: capError }, { status: 400 });
   const lobbySeats = rawConfig.lobbySeats === undefined ? DEFAULT_LOBBY_SEATS : rawConfig.lobbySeats;
   if (!isValidLobbySeats(lobbySeats)) {
     return NextResponse.json({ error: "lobbySeats must be an integer from 2 to 8", code: "INVALID_LOBBY_SEATS" }, { status: 400 });

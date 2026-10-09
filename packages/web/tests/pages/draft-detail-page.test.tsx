@@ -84,7 +84,8 @@ vi.mock("../../src/components/draft/draft-summary-view", () => ({
   DraftSummaryView: () => <div data-testid="draft-summary-view">Summary</div>,
 }));
 vi.mock("../../src/components/draft/room/draft-room", () => ({
-  DraftRoom: () => <div data-testid="draft-room">Room</div>,
+  DraftRoom: ({ config }: { config: { cardsPerPlayer?: number; packsPerPlayer?: number } }) =>
+    <div data-testid="draft-room" data-main-total={config.cardsPerPlayer} data-rounds={config.packsPerPlayer}>Room</div>,
 }));
 vi.mock("../../src/components/draft/room/finale", () => ({
   DraftFinale: ({ onClose, pool, canCreateTournament }: { onClose: () => void; pool: Array<{ id: number; name: string }>; canCreateTournament: boolean }) => (
@@ -184,6 +185,17 @@ describe("DraftDetailPage — completion transition", () => {
 
     expect(screen.queryByTestId("draft-summary-view")).toBeNull();
     expect(screen.queryByTestId("draft-manage-view")).toBeNull();
+  });
+
+  it("uses reachable Main progress as the room total while keeping the host cap in the response", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => Promise.resolve({ ok: true, json: async () =>
+      url === "/api/auth/session" ? { user: { id: String(fixtureUserId("user-1")) } }
+      : { ...activeDraftResponse, config: { cardsPerPlayer: 40, packSize: 24, packsPerPlayer: 2 },
+        boosterProgress: { main: 0, mainTotal: 39, extra: 0, extraTotal: 0 } } } as Response));
+    render(<DraftDetailPage />);
+    const room = await screen.findByTestId("draft-room");
+    expect(room).toHaveAttribute("data-main-total", "39");
+    expect(room).toHaveAttribute("data-rounds", "2");
   });
 
   it("hands the active draft its config and shows the finale, then the summary, when you finish in the room", async () => {

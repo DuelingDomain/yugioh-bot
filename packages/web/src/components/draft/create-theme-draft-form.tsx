@@ -226,7 +226,7 @@ export function CreateThemeDraftForm({ discordEnabled = false }: CreateThemeDraf
             <div className={`fields ${styles.three}`}>
               <div>
                 <label className="label" htmlFor="theme-main-size">Main deck size</label>
-                <input className="input" id="theme-main-size" type="number" inputMode="numeric" min={20} value={cardsPerPlayer} onChange={(e) => setCardsPerPlayer(Number(e.target.value))} />
+                <input className="input" id="theme-main-size" type="number" inputMode="numeric" min={40} max={120} value={cardsPerPlayer} onChange={(e) => setCardsPerPlayer(Number(e.target.value))} />
               </div>
               <div>
                 <label className="label" htmlFor="theme-pack-size">Choices per pick</label>

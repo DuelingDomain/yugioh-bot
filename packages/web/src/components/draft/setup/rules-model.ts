@@ -18,12 +18,13 @@ import {
 
 /**
  * Workbench rules, without any UI. The fields are the same strings the older forms edit
- * (`DraftConfigFieldsValue`), plus explicit rounds and a seat target, so the result still goes
+ * (`DraftConfigFieldsValue`), plus a derived round count and a seat target, so the result still goes
  * through `configFromFields` and `validateFields`.
  *
  * Words: a "pile" is one pack (`packSize`), a "round" is one pack per player (`packsPerPlayer`), and
  * "picks" is `cardsPerPlayer`, the cards each player keeps from the Main rounds. A round deals
- * `seats x pile` cards, so Main demand is `seats x rounds x pile` copies, whatever the pick count is.
+ * `seats x pile` cards, so full Main demand is `seats x rounds x pile` copies. Partial final piles
+ * need only `seats x picks` copies to give each player their cap.
  */
 
 export type RulesFields = DraftConfigFieldsValue;
@@ -75,37 +76,15 @@ const raw = (text: string | undefined) => parseInt(text ?? "");
 
 export type RuleTextKey = "seats" | "rounds" | "pile" | "picks" | "pickSeconds" | "extraSize";
 
-/**
- * Edit one typed number. Changing rounds or pile moves picks with them while the player is
- * "taking every card dealt" (picks = rounds x pile, at most 120), as the preset pairs do. A picks
- * count set below that, such as 40 of the 45 cards in 3 x 15, stays put and only shrinks if the
- * deal gets smaller than it.
- */
+/** The host chooses the cap independently of pile size; round text is retained only for old callers. */
 export function editRule(fields: RulesFields, key: RuleTextKey, text: string): RulesFields {
   switch (key) {
-    case "seats":
-      return { ...fields, lobbySeatsText: text };
-    case "pickSeconds":
-      return { ...fields, pickSecondsText: text };
-    case "extraSize":
-      return { ...fields, extraDeckSizeText: text };
-    case "picks":
-      return { ...fields, cardsPerPlayerText: text };
-    case "rounds":
-    case "pile": {
-      const oldRounds = raw(fields.roundsText ?? String(readRules(fields).rounds));
-      const oldPile = raw(fields.packSizeText);
-      const picks = raw(fields.cardsPerPlayerText);
-      const wasFull = picks === Math.min(CARDS_PER_PLAYER_MAX, oldRounds * oldPile);
-      const next: RulesFields = key === "rounds"
-        ? { ...fields, roundsText: text }
-        : { ...fields, packSizeText: text, roundsText: fields.roundsText ?? String(readRules(fields).rounds) };
-      const total = (key === "rounds" ? raw(text) : oldRounds) * (key === "pile" ? raw(text) : oldPile);
-      if (!Number.isFinite(total)) return next;
-      if (wasFull) return { ...next, cardsPerPlayerText: String(Math.min(CARDS_PER_PLAYER_MAX, total)) };
-      if (Number.isFinite(picks) && picks > total) return { ...next, cardsPerPlayerText: String(total) };
-      return next;
-    }
+    case "seats": return { ...fields, lobbySeatsText: text };
+    case "pickSeconds": return { ...fields, pickSecondsText: text };
+    case "extraSize": return { ...fields, extraDeckSizeText: text };
+    case "picks": return { ...fields, cardsPerPlayerText: text };
+    case "rounds": return { ...fields, roundsText: text };
+    case "pile": return { ...fields, packSizeText: text };
   }
 }
 
@@ -162,7 +141,7 @@ const presetLabel = (r: Pick<Rules, "seats" | "rounds" | "pile" | "picksPerStep"
   `${r.rounds} × ${r.seats} × ${r.pile} · ${r.picksPerStep}-pick`;
 
 function makePreset(id: RulePresetId, rules: RulePreset["rules"]): RulePreset {
-  return { id, label: presetLabel(rules), detail: `${rules.picks} Main picks each, ${rules.seats * rules.rounds * rules.pile} cards dealt`, rules };
+  return { id, label: presetLabel(rules), detail: `${rules.picks} Main Deck cards each, ${rules.seats * rules.rounds * rules.pile} cards dealt`, rules };
 }
 
 /** 5 x 4 x 24 two-pick (120 Main picks) and 3 x 4 x 15 one-pick (45 Main picks). */
@@ -203,7 +182,10 @@ export interface RulesAnalysis {
   extraDemand: number;
   mainHave: number;
   extraHave: number;
+  /** Main copies missing from a full deal, including cards beyond each player's cap. */
   mainShort: number;
+  /** Main copies missing from seats x picks, even with partial final piles. */
+  mainPicksShort: number;
   extraShort: number;
   /** Main copies left out of the deal. */
   spare: number;
@@ -235,6 +217,7 @@ export function analyzeRules(fields: RulesFields, pool: PoolCounts): RulesAnalys
   const extraDemand = rules.seats * extraEach;
   const emptyPool = pool.main + pool.extra === 0;
   const mainShort = Math.max(0, mainDemand - pool.main);
+  const mainPicksShort = Math.max(0, rules.seats * rules.picks - pool.main);
   const extraShort = Math.max(0, extraDemand - pool.extra);
   const dealtEach = rules.rounds * rules.pile;
   const timedPicks = rules.picks + extraEach;
@@ -245,7 +228,8 @@ export function analyzeRules(fields: RulesFields, pool: PoolCounts): RulesAnalys
   if (fieldError) errors.push(fieldError);
   if (emptyPool) errors.push("Add cards to the pool");
   else {
-    if (mainShort > 0) errors.push(`Main piles are ${mainShort} cards short`);
+    if (mainPicksShort > 0) errors.push(`Main piles are ${plural(mainPicksShort, "card", "cards")} short`);
+    if (mainShort > 0) warnings.push(`A full deal needs ${mainDemand} Main cards, but the pool has ${pool.main}. The last round will use partial piles.`);
     if (extraShort > 0) errors.push(`Extra Deck piles are ${extraShort} cards short`);
   }
   if (!emptyPool && pool.mainReachable !== undefined && pool.mainReachable < rules.picks && rules.copyLimit) {
@@ -261,6 +245,7 @@ export function analyzeRules(fields: RulesFields, pool: PoolCounts): RulesAnalys
     mainHave: pool.main,
     extraHave: pool.extra,
     mainShort,
+    mainPicksShort,
     extraShort,
     spare: Math.max(0, pool.main - mainDemand),
     dealtEach,
@@ -309,7 +294,8 @@ export interface FitResult {
 }
 
 /**
- * Smallest change that makes the piles fit the pool, never an illegal preset. Main keeps the
+ * Smallest change that fills each player's cap from the pool, never an illegal preset. Main stays
+ * unchanged when partial final piles fill the cap. Otherwise it keeps the
  * rounds when it can, else the closest round count, and always stays within 40-120 picks, piles of
  * 5 or more, and the pool. No legal fit leaves Main as it is and reports the deficit.
  */
@@ -320,7 +306,7 @@ export function fitRulesToPool(fields: RulesFields, pool: PoolCounts): FitResult
   let mainDeficit = 0;
   let extraDeficit = 0;
 
-  if (rules.seats * rules.rounds * rules.pile > pool.main) {
+  if (rules.seats * rules.picks > pool.main) {
     const each = Math.floor(pool.main / rules.seats);
     let best: { rounds: number; pile: number } | null = null;
     for (let rounds = ROUNDS_MIN; rounds <= ROUNDS_MAX; rounds++) {
@@ -332,8 +318,11 @@ export function fitRulesToPool(fields: RulesFields, pool: PoolCounts): FitResult
       if (better) best = { rounds, pile };
     }
     if (best) {
-      next = editRule(editRule(next, "rounds", String(best.rounds)), "pile", String(best.pile));
+      const picks = Math.min(rules.picks, best.rounds * best.pile);
+      next = { ...next, roundsText: String(best.rounds), packSizeText: String(best.pile),
+        cardsPerPlayerText: String(picks) };
       changes.push(`${best.rounds} rounds of ${best.pile} per pile use ${rules.seats * best.rounds * best.pile} of ${pool.main} Main cards`);
+      if (picks !== rules.picks) changes.push(`Main Deck cards each: ${rules.picks} -> ${picks}`);
     } else {
       mainDeficit = Math.max(1, rules.seats * CARDS_PER_PLAYER_MIN - pool.main);
     }

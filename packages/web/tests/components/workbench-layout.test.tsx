@@ -226,7 +226,7 @@ describe("Workbench layout", () => {
     });
 
     it("shows a create error on the Rules tab and in the dock", async () => {
-      stubFetch({ extra: { "POST /api/drafts": () => Response.json({ error: "Name is taken" }, { status: 409 }) } });
+      const fetch = stubFetch({ extra: { "POST /api/drafts": () => Response.json({ error: "Name is taken" }, { status: 409 }) } });
       render(<CreateDraftForm />);
       fireEvent.click(tabButton(/Sources/));
       fireEvent.click(within(rail()).getByRole("tab", { name: "List" }));
@@ -235,11 +235,16 @@ describe("Workbench layout", () => {
       await screen.findByText(/^Pasted list - 99 cards/);
       fireEvent.click(tabButton(/Rules/));
       fireEvent.change(screen.getByLabelText("Players"), { target: { value: "2" } });
-      fireEvent.change(screen.getByLabelText("Rounds"), { target: { value: "2" } });
+      fireEvent.change(screen.getByLabelText("Main Deck cards each"), { target: { value: "40" } });
       fireEvent.change(screen.getByLabelText("Cards per pile"), { target: { value: "20" } });
+      expect(createButtons()[0]).toBeEnabled();
       fireEvent.click(createButtons()[0]);
       const alert = await screen.findByRole("alert");
       expect(alert).toHaveTextContent("Name is taken");
+      expect(alert).toBeVisible();
+      expect(alert.parentElement).toContainElement(createButtons()[0]);
+      expect(fetch.find("/api/drafts", "POST")).toHaveLength(1);
+      expect(push).not.toHaveBeenCalled();
       expect(tabButton(/Rules/)).toHaveAttribute("aria-current", "page");
     });
   });

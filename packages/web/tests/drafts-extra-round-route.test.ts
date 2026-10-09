@@ -125,7 +125,8 @@ it("uses source cube extras when no explicit extra array was sent, including wit
 
 it("reports too-small extras at create and preflight and blocks start atomically", async () => {
   const result = await create({ ...baseConfig, customExtraCardIds: [1001, 1002] });
-  expect(result.errors).toEqual(expect.arrayContaining([expect.stringMatching(/4 players.*160/), expect.stringMatching(/Extra.*2.*12/)]));
+  expect(result.errors).toEqual([expect.stringMatching(/Extra.*2.*12/)]);
+  expect(result.warnings).toContainEqual(expect.stringMatching(/160 requested picks/));
   await joinBot(result.id);
   const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
   expect((await (await GET(new Request("http://x"), context(result.webSlug))).json()).errors).toEqual([expect.stringMatching(/Extra.*2.*6/)]);
@@ -261,7 +262,7 @@ it.each(["POST", "PUT"])("accepts 1000 distinct extra ids and repeated copies on
 
 it.each([
   { cardsPerPlayer: 39 }, { cardsPerPlayer: 121 }, { cardsPerPlayer: 40.5 }, { cardsPerPlayer: "40" }, { cardsPerPlayer: null },
-  { packSize: 4 }, { packSize: 41 }, { packSize: 8.5 }, { packSize: "8" }, { packSize: null },
+  { packSize: 4 }, { packSize: 121 }, { packSize: 8.5 }, { packSize: "8" }, { packSize: null },
   { packsPerPlayer: 0 }, { packsPerPlayer: -1 }, { packsPerPlayer: 1.5 }, { packsPerPlayer: "5" }, { packsPerPlayer: null },
   { packsPerPlayer: Number.MAX_SAFE_INTEGER + 1 },
 ])("validates main numbers on POST before player/draft writes: %j", async (invalid) => {

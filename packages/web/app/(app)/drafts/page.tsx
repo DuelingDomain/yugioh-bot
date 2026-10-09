@@ -34,7 +34,7 @@ export default async function DraftsPage() {
     playerCount: row.playerCount,
     createdAt: row.createdAt,
     endedAt: row.endedAt,
-    config: parseDraftConfig(row.configJson),
+    config: parseDraftConfig(row.configJson, row.status),
   }));
 
   const rejoin = findRejoinDrafts(db, env.discordGuildId, userId);

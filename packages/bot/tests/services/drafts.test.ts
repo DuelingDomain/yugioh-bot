@@ -690,11 +690,11 @@ describe("draft service", () => {
     expect(app.drafts.currentWaveCards(draft.id).every((card) => card.waveNumber === 2)).toBe(true);
   });
 
-  it("completes the draft as soon as every player reaches 40 picks even if wave cards remain", () => {
+  it.each([false, true])("completes at 40 picks and handles leftover wave cards with burnUnpicked=%s", (burnUnpicked) => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "900000000000000112", "Yugi");
     const kaiba = app.players.upsert("guild-1", "900000000000000113", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { burnUnpicked }, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id);
 
     app.drafts.join(draft.id, kaiba.id);
     seedCatalogCards(app.db, 80);
@@ -727,6 +727,11 @@ describe("draft service", () => {
       finished_at: expect.any(String),
     });
 
+    // The first capped seat must not end the draft or retire the remaining cards.
+    expect(
+      app.db.prepare("select count(*) as count from draft_cards where draft_id = ? and wave_number = ? and picked_by_player_id is null").get(draft.id, 5),
+    ).toEqual({ count: 3 });
+
     app.drafts.pickCard(draft.id, kaiba.id, kaibaCardId);
 
     expect(app.drafts.findById(draft.id)).toMatchObject({
@@ -745,7 +750,12 @@ describe("draft service", () => {
     });
     expect(
       app.db.prepare("select count(*) as count from draft_cards where draft_id = ? and wave_number = ? and picked_by_player_id is null").get(draft.id, 5),
-    ).toEqual({ count: 2 });
+    ).toEqual({ count: 0 });
+    // Capped Main packs are retired: return authored copies unless burning is on.
+    expect(
+      app.db.prepare("select catalog_card_id from draft_undealt where draft_id = ? order by position").all(draft.id),
+    ).toEqual(burnUnpicked ? [] : [{ catalog_card_id: 3 }, { catalog_card_id: 4 }]);
+    expect(app.drafts.pickOptions(draft.id, kaiba.id)).toEqual([]);
   });
 
   it("rejects pickCard calls from players who already finished at 40 cards", () => {
