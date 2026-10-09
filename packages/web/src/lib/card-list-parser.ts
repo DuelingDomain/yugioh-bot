@@ -15,7 +15,12 @@ export interface CardListEntry {
   fallbackName?: string;
   /** Google Doc labels separated by two blank lines that repeat a counted card in their section. */
   heading?: boolean;
+  /** The line had a copy count (3 Dark Hole, Dark Hole x3). Section titles and prose rarely do. */
+  counted?: boolean;
 }
+
+/** No printed card name is this long. A longer line is not matched, so a huge line cannot stall the note regexes. */
+export const LIST_LINE_MAX_CHARS = 300;
 
 export class CardListError extends Error {}
 
@@ -56,11 +61,29 @@ export function parseCardList(text: string): CardListEntry[] {
       if (/^(?:#extra|extra(?: deck)?\s*:)$/i.test(original)) { pool = "extra"; continue; }
       if (/^(?:#main|main(?: deck)?\s*:|!side|#side|side(?: deck)?\s*:)$/i.test(original)) { pool = "main"; continue; }
       if (/^(?:#|\/\/)/.test(original)) continue;
-      let query = original;
-      // Peel trailing notes, leaving (xN) for the count parser.
-      while (/\s*\([^()]*\)\s*$/.test(query) && !/\(x\d+\)\s*$/i.test(query)) {
-        query = query.replace(/\s*\([^()]*\)\s*$/, "").trim();
+      if (original.length > LIST_LINE_MAX_CHARS) {
+        // Reported as not found, without a lookup, and with a short copy of the text.
+        entries.push({ query: "", copies: 1, pool, original: `${original.slice(0, 80)}…`, heading: true });
+        continue;
       }
+      let query = original;
+      // The last thing on a line may be a [Extra] / [Main] / [Side] marker (a pool hint for this line only) or a
+      // (note). Peel both in any order, leaving (xN) for the count parser.
+      let linePool = pool;
+      let sawMarker = false;
+      for (;;) {
+        // A marker is also allowed just before a trailing count: "Decode Talker [Extra] x2".
+        const marker = /\s*\[(extra|main|side)(?: deck)?\](?=\s+(?:x[0-9]+|\(x[0-9]+\))\s*$|\s*$)/i.exec(query);
+        if (marker) {
+          // The marker nearest the end of the line wins.
+          if (!sawMarker) linePool = marker[1].toLowerCase() === "extra" ? "extra" : "main";
+          sawMarker = true;
+          query = (query.slice(0, marker.index) + query.slice(marker.index + marker[0].length)).trim();
+        } else if (/\s*\([^()]*\)\s*$/.test(query) && !/\(x\d+\)\s*$/i.test(query)) {
+          query = query.replace(/\s*\([^()]*\)\s*$/, "").trim();
+        } else break;
+      }
+      if (!query) continue;
       let copies = 1;
       let fallbackName: string | undefined;
       const prefix = /^(?:([0-9]+)\s*x?\s+|x([0-9]+)\s+)(.+)$/i.exec(query);
@@ -72,8 +95,8 @@ export function parseCardList(text: string): CardListEntry[] {
       }
       if (!Number.isSafeInteger(copies) || copies <= 0) throw new CardListError(`Invalid copy count in "${original}".`);
       query = query.trim();
-      const entry: CardListEntry = { query: /^\d{1,10}$/.test(query) && Number(query) > 0 ? Number(query) : query, copies, pool, original,
-        ...(fallbackName ? { fallbackName } : {}) };
+      const entry: CardListEntry = { query: /^\d{1,10}$/.test(query) && Number(query) > 0 ? Number(query) : query, copies, pool: linePool, original,
+        ...(fallbackName ? { fallbackName } : {}), ...(prefix || suffix ? { counted: true } : {}) };
       entries.push(entry);
       byLine.set(lineIndex, { entry, counted: !!(prefix || suffix) });
     }

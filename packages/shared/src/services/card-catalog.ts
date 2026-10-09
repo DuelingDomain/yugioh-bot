@@ -3,7 +3,7 @@ import type { Card } from "../types/index.js";
 import { foldCardText } from "../duels/card-query.js";
 import { canonicalCardCode, type CardIdentityCatalog } from "../duels/pool.js";
 import { loadArtworkIdentityCatalog, mainArtworkId, type CardArtwork } from "./card-artworks.js";
-import { CardFetchError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
+import { CardDataError, CardFetchError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
 import { createCardLookupBudget, takeCardLookup, type CardLookupBudget } from "./card-lookup-budget.js";
 import { createImportedCardNameMatcher, normalizeImportedCardName, straightenCardQuotes } from "./card-name-match.js";
 
@@ -200,7 +200,7 @@ export function createCardCatalogService(
         || (card.card_sets != null && (!Array.isArray(card.card_sets) || card.card_sets.some((set) => typeof set.set_name !== "string")))
         || card.card_images.some((image) => typeof image.image_url !== "string" || typeof image.image_url_small !== "string"
           || (image.id != null && (!Number.isSafeInteger(image.id) || image.id <= 0))))) {
-        throw new Error("Invalid card response");
+        throw new CardDataError();
       }
       return payload.data;
     }, [400]);
@@ -212,19 +212,19 @@ export function createCardCatalogService(
   // Passcode responses can contain only the requested image. Exact-name
   // responses include the released alternatives; retain both sets of images.
   const enrichArtworkFamilies = async (cards: YgoprodeckCard[]): Promise<YgoprodeckCard[]> => {
+    // One exact-name request per 20 cards (pipe-separated names), so a long list does not send one per card.
+    // Extra artwork discovery is optional. Keep the usable ID response if
+    // the API is offline or rate limited; a later bulk sync can fill it.
+    // It must not spend the budget needed to resolve other cards.
+    const names: YgoprodeckCard[] = [];
+    for (let offset = 0; offset < cards.length; offset += 20) {
+      const chunk = cards.slice(offset, offset + 20);
+      try { names.push(...await fetchCardsWith({ name: [...new Set(chunk.map((card) => card.name))].join("|") })); }
+      catch { /* keep the ID responses of this chunk */ }
+    }
     const enriched: YgoprodeckCard[] = [];
     for (const card of cards) {
-      // Extra artwork discovery is optional. Keep the usable ID response if
-      // the API is offline or rate limited; a later bulk sync can fill it.
-      // It must not spend the budget needed to resolve other cards.
-      let named: YgoprodeckCard | undefined;
-      try {
-        named = (await fetchCardsWith({ name: card.name }))
-          .find((candidate) => normalizeName(candidate.name) === normalizeName(card.name) && candidate.type === card.type);
-      } catch {
-        enriched.push(card);
-        continue;
-      }
+      const named = names.find((candidate) => normalizeName(candidate.name) === normalizeName(card.name) && candidate.type === card.type);
       const images = new Map((named?.card_images ?? []).map((image) => [image.id ?? named!.id, image]));
       for (const image of card.card_images) {
         const artworkId = image.id ?? card.id;
@@ -557,6 +557,8 @@ export function createCardCatalogService(
       let cards: YgoprodeckCard[];
       try { cards = await fetchArtworkFamily(id, options.lookupBudget); }
       catch (error) {
+        // A card with invalid data is unknown, not a lost connection: the caller reports it and goes on.
+        if (error instanceof CardDataError) return findByIds([id])[0];
         if (!isTransientFetchFailure(error)) throw error;
         const cached = findByIds([id])[0];
         if (!cached) throw error;
@@ -572,6 +574,27 @@ export function createCardCatalogService(
       const savedIds = upsertCards([card]);
       ensureEngineArtwork(id);
       return findByIds([id])[0] ?? findByIds(savedIds)[0];
+    },
+
+    /**
+     * Warm the catalog for passcodes in batches of 20, one budgeted request per batch (the API takes id=a,b,c),
+     * so a long list does not spend one lookup per card and run out before its last passcodes. A few passcodes
+     * are left to `syncCardById`. Best effort: a batch that fails, or an ID a batch does not return, is settled
+     * one by one by the caller.
+     */
+    async prefetchCardsByIds(ids: readonly number[], options: { lookupBudget?: CardLookupBudget } = {}): Promise<void> {
+      const missing = [...new Set(ids)].filter((id) => Number.isSafeInteger(id) && id > 0 && !hasCatalogRow(id));
+      if (missing.length <= 3) return;
+      for (let offset = 0; offset < missing.length; offset += 20) {
+        let cards: YgoprodeckCard[];
+        try { cards = await fetchCardsWith({ id: missing.slice(offset, offset + 20).join(",") }, options.lookupBudget); }
+        catch (error) {
+          // Stop on a rate limit, a server error or no network. A bad card in one batch must not stop the rest.
+          if (isTransientFetchFailure(error) && !(error instanceof CardDataError)) return;
+          continue;
+        }
+        if (cards.length > 0) upsertCards(await enrichArtworkFamilies(cards));
+      }
     },
 
     /** Exact normalized names first; only unique, high-similarity names may be corrected. Includes Extra Deck cards. */

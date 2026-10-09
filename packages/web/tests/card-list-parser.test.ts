@@ -21,6 +21,41 @@ describe("parseCardList", () => {
     ]);
   });
 
+  it("strips a trailing [Extra] or [Main] marker and files the line in that pool", () => {
+    const entries = parseCardList("3 Dark Hole [Main]\n1 Shooting Star Dragon [Extra]\nGaia Drake, the Universal Force x2 [extra]\nMain:\n1 Dark Magician [extra deck]\nExtra:\n2 Cyber Dragon [Main]");
+    expect(entries.map(({ query, copies, pool }) => [query, copies, pool])).toEqual([
+      ["Dark Hole", 3, "main"], ["Shooting Star Dragon", 1, "extra"], ["Gaia Drake, the Universal Force", 2, "extra"],
+      ["Dark Magician", 1, "extra"], ["Cyber Dragon", 2, "main"],
+    ]);
+    expect(parseCardList("[Extra]")).toEqual([]);
+  });
+
+  it("strips the marker when a note or a count follows it", () => {
+    const entries = parseCardList("Dark Hole [Extra] (note)\nDecode Talker [Extra] x2\nCyber Dragon [Extra] (x3)\nGaia Drake [Main] (old) [Extra]\n2 Rescue Rabbit [Extra] (note)");
+    expect(entries.map(({ query, copies, pool }) => [query, copies, pool])).toEqual([
+      ["Dark Hole", 1, "extra"], ["Decode Talker", 2, "extra"], ["Cyber Dragon", 3, "extra"], ["Gaia Drake", 1, "extra"], ["Rescue Rabbit", 2, "extra"],
+    ]);
+  });
+
+  it("does not match a very long line, and reports it with a short copy of the text", () => {
+    const long = `Dark Hole ${"(note) ".repeat(3300)}[Extra]`;
+    expect(long.length).toBeGreaterThan(20000);
+    const started = performance.now();
+    const entries = parseCardList(`3 Dark Hole\n${long}\n2 Cyber Dragon`);
+    expect(performance.now() - started).toBeLessThan(100);
+    expect(entries.map(({ query, copies }) => [query, copies])).toEqual([["Dark Hole", 3], ["", 1], ["Cyber Dragon", 2]]);
+    expect(entries[1]).toMatchObject({ heading: true });
+    expect(entries[1].original.length).toBeLessThanOrEqual(81);
+    expect(entries[1].original.startsWith("Dark Hole (note)")).toBe(true);
+  });
+
+  it("marks counted lines so section titles and prose do not use the lookup budget first", () => {
+    const entries = parseCardList("Engines\n3 Dark Hole\nDark Hole x2\nFlip Notes");
+    expect(entries.map(({ query, counted }) => [query, counted ?? false])).toEqual([
+      ["Engines", false], ["Dark Hole", true], ["Dark Hole", true], ["Flip Notes", false],
+    ]);
+  });
+
   it("reuses YDK parsing for main, extra, side and deckmaster", () => {
     expect(parseCardList("#created by owner\n#main\n44095762\n44095762\n#extra\n44508094\n!side\n53129443\n#deckmaster\n89631139")
       .map(({ query, copies, pool }) => [query, copies, pool])).toEqual([

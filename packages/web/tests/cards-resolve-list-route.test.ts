@@ -53,6 +53,18 @@ afterEach(() => {
 });
 
 describe("POST /api/cards/resolve listText", () => {
+  it("reports a 20,000 character line as unknown without a lookup and resolves the other lines", async () => {
+    const long = `Dark Hole ${"(note) ".repeat(3300)}`;
+    const started = performance.now();
+    const response = await resolve({ listText: `Dark Hole\n${long}\n2 Dark Hole` });
+    expect(performance.now() - started).toBeLessThan(2000);
+    const body = await response.json();
+    expect(body.unknown).toHaveLength(1);
+    expect(body.unknown[0].length).toBeLessThanOrEqual(81);
+    expect(body.entries).toEqual([expect.objectContaining({ id: 1, copies: 3 })]);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
   it("resolves names/passcodes in first-appearance order with summed copies and unique diagnostics", async () => {
     const response = await resolve({ listText: "2 Artifact Moraltech\nDark Hole\n3 3\nDark Hole x3\n2 Artifact Moraltech\n3 Glue (note)\n3 Glue (note)\n999" });
     expect(response.status).toBe(200);
@@ -233,24 +245,58 @@ it("shares 50 remote lookups across names, fallbacks and passcodes and reports t
   expect(upstream).toHaveBeenCalledTimes(50);
 }, 40000);
 
-it.each([50, 51])("resolves 50 uncached passcodes and lists budget-skipped cards (%i requested)", async (count) => {
+it.each([50, 70])("resolves %i uncached passcodes in batches of 20 without running out of lookups", async (count) => {
   const cards = Array.from({ length: count }, (_, i) => ({
-    id: 900000 + i, name: `Fresh Card ${i}`, type: "Spell Card", frameType: "spell",
+    id: 900000 + i, name: `Fresh Card ${i}`, type: i % 4 === 0 ? "Fusion Monster" : "Spell Card", frameType: i % 4 === 0 ? "fusion" : "spell",
     card_images: [{ id: 900000 + i, image_url: "fresh", image_url_small: "fresh-small" }],
   }));
   upstream.mockImplementation(async (input) => {
     const params = new URL(String(input)).searchParams;
-    const card = cards.find((card) => params.has("id") ? card.id === Number(params.get("id")) : card.name === params.get("name"));
-    return Response.json({ data: card ? [card] : [] });
+    const wanted = params.has("id") ? params.get("id")!.split(",").map(Number) : [];
+    const found = params.has("id") ? cards.filter((card) => wanted.includes(card.id)) : cards.filter((card) => card.name === params.get("name"));
+    return Response.json({ data: found });
   });
   const response = await resolve({ listText: [...cards.map((card) => String(card.id)), "Dark Hole"].join("\n") });
   expect(response.status).toBe(200);
   const result = await response.json();
-  expect(result.entries).toEqual([...cards.slice(0, 50).map((card) => ({ id: card.id, copies: 1, pool: "main" })),
+  expect(result.entries).toEqual([...cards.map((card) => ({ id: card.id, copies: 1, pool: card.type === "Fusion Monster" ? "extra" : "main" })),
     { id: 1, copies: 1, pool: "main" }]);
-  expect(result.cards.map((card: { id: number }) => card.id)).toEqual([...cards.slice(0, 50).map((card) => card.id), 1]);
-  expect(result.unknown).toEqual(cards.slice(50).map((card) => String(card.id)));
-  if (count > 50) expect(result.lookupLimited).toBe(true);
-  else expect(result).not.toHaveProperty("lookupLimited");
-  expect(upstream.mock.calls.filter(([input]) => new URL(String(input)).searchParams.has("id"))).toHaveLength(50);
+  expect(result.unknown).toEqual([]);
+  expect(result).not.toHaveProperty("lookupLimited");
+  expect(upstream.mock.calls.filter(([input]) => new URL(String(input)).searchParams.has("id"))).toHaveLength(Math.ceil(count / 20));
+}, 60000);
+
+it("files lines with a trailing [Extra] or [Main] marker in that pool and strips the marker before the lookup", async () => {
+  const response = await resolve({ listText: "3 Dark Hole [Main]\n1 Shooting Star Dragon [Extra]\n2 Artifact Moralltach [main]" });
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result).toMatchObject({ unknown: [], entries: [
+    { id: 1, copies: 3, pool: "main" }, { id: 2, copies: 1, pool: "extra" }, { id: 3, copies: 2, pool: "main" },
+  ] });
+  expect(result).not.toHaveProperty("lookupLimited");
+  expect(upstream).not.toHaveBeenCalled();
+});
+
+it("looks up counted card lines before section titles and prose, so a long document keeps its Extra Deck monsters", async () => {
+  const fresh = [
+    { id: 910001, name: "Fresh Fusion Alpha", type: "Fusion Monster", frameType: "fusion" },
+    { id: 910002, name: "Fresh Link Beta", type: "Link Monster", frameType: "link" },
+    { id: 910003, name: "Fresh Effect Gamma", type: "Effect Monster", frameType: "effect" },
+  ].map((card) => ({ ...card, card_images: [{ id: card.id, image_url: "fresh", image_url_small: "fresh-small" }] }));
+  upstream.mockImplementation(async (input) => {
+    const params = new URL(String(input)).searchParams;
+    const names = params.get("name")?.split("|");
+    const word = params.get("fname")?.toLowerCase();
+    return Response.json({ data: fresh.filter((card) => names ? names.includes(card.name) : word ? card.name.toLowerCase().includes(word) : false) });
+  });
+  // The prose probes would use the 50 lookups before the misspelt Extra Deck name is reached, if they came first.
+  const prose = Array.from({ length: 40 }, (_, i) => `Heading${i} section${i} number${i}`);
+  const response = await resolve({ listText: [...prose, "2 Fresh Fusion Alpah [Extra]", "Fresh Link Beta x1", "3 Fresh Effect Gamma"].join("\n") });
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result.entries).toEqual([
+    { id: 910001, copies: 2, pool: "extra" }, { id: 910002, copies: 1, pool: "extra" }, { id: 910003, copies: 3, pool: "main" },
+  ]);
+  expect(result.corrected).toEqual([{ from: "Fresh Fusion Alpah", to: "Fresh Fusion Alpha" }]);
+  expect(result.unknown).toEqual(prose);
 }, 40000);

@@ -30,13 +30,17 @@ export async function prepareCubeListImport(catalog: CardCatalogService, text: u
   // A cached printed name such as 7 Colored Fish must work even when the upstream is offline.
   const preferFullName = new Set(parsed.filter((entry) => typeof entry.query === "string" && entry.fallbackName
     && !cached.get(entry.query)?.card && cached.get(entry.fallbackName)?.card));
-  const names = [...new Set(parsed.flatMap((entry) => !entry.heading && !preferFullName.has(entry)
-    && typeof entry.query === "string" ? [entry.query] : []))];
+  // The lookup budget is shared, and a misspelt name costs extra probes. Counted lines come first so section
+  // titles and prose in a pasted Doc cannot use up the budget before the real cards are looked up.
+  const nameEntries = parsed.filter((entry) => !entry.heading && !preferFullName.has(entry) && typeof entry.query === "string");
+  const names = [...new Set([...nameEntries.filter((entry) => entry.counted), ...nameEntries.filter((entry) => !entry.counted)]
+    .map((entry) => entry.query as string))];
   const resolutions = new Map((await catalog.resolveCardNames(names, { lookupBudget })).map((result) => [result.name, result]));
   const fallbackNames = [...new Set(parsed.flatMap((entry) => typeof entry.query === "string"
     && !preferFullName.has(entry) && !resolutions.get(entry.query)?.card && entry.fallbackName ? [entry.fallbackName] : []))];
   const fallbacks = new Map((await catalog.resolveCardNames(fallbackNames, { lookupBudget })).map((result) => [result.name, result]));
   const codes = [...new Set(parsed.flatMap((entry) => typeof entry.query === "number" ? [entry.query] : []))];
+  await catalog.prefetchCardsByIds(codes, { lookupBudget });
   const byCode = new Map(catalog.findByIds(codes).map((card) => [card.ygoprodeckId, card]));
   for (const code of codes) {
     if (byCode.has(code) && catalog.hasCatalogRow(code)) continue;
