@@ -835,7 +835,6 @@ export function DraftRoom({ slug, name, config, isParticipant, onCancel }: Draft
             setMotionOpen((v) => !v);
           }}
           canCancel={!!onCancel}
-          cancelOpen={cancelling}
           onCancel={(anchor) => {
             setSayAnchor(null);
             setMotionOpen(false);

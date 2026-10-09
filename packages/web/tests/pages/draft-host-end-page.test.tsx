@@ -205,14 +205,6 @@ describe("DraftDetailPage: host cancel", () => {
       await waitFor(() => expect(screen.getByTestId("draft-summary-view")).toHaveAttribute("data-status", "cancelled"));
     });
 
-    it("is not told anything for a stop that is not a cancel", async () => {
-      stubFetch("player", { current: draftBody });
-      render(<DraftDetailPage />);
-      await waitFor(() => expect(screen.getByTestId("draft-room")).toBeInTheDocument());
-      act(() => lastWsOptions()?.onHostStopped?.("completed"));
-      expect(screen.queryByRole("status")).toBeNull();
-    });
-
     it("is not told anything when the draft ends by itself", async () => {
       stubFetch("player", { current: draftBody });
       render(<DraftDetailPage />);

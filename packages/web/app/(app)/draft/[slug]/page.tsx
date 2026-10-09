@@ -216,9 +216,8 @@ function DraftDetailBody({ slug }: { slug: string }) {
   // Once the draft is not found or closed to this viewer there is nothing to keep live: the feed and the poll stop.
   const liveSlug = error?.status === 404 || error?.status === 403 ? "" : slug;
   useDraftWebsocket(liveSlug, {
-    onHostStopped: (status) => {
+    onHostStopped: () => {
       // The host knows already: this tab sent the stop, or another tab of the host did.
-      if (status !== "cancelled") return;
       if (sentTerminalRef.current || (currentUserId != null && draftRef.current?.createdByUserId === currentUserId)) return;
       setCancelNotice(true);
     },

@@ -192,6 +192,10 @@
 
 /* Cancel draft: the button in the bar, and the confirm. Red is only for this destructive choice. */
 .dr .cancel-btn { color: var(--loss-ink); border-color: rgb(228 90 77 / 0.3); }
+/* Icon only on the phone: a red tint keeps it from reading as "close room". */
+@media (max-width: 900px) {
+  .dr .cancel-btn { border-color: rgb(228 90 77 / 0.55); background: rgb(228 90 77 / 0.12); }
+}
 .dr .cancel-btn:hover { border-color: rgb(228 90 77 / 0.6); background: rgb(228 90 77 / 0.1); color: var(--loss-ink); }
 .dr .cancel-btn:focus-visible { outline: 2px solid var(--loss-ink); outline-offset: 2px; }
 

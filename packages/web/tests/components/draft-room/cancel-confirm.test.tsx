@@ -31,12 +31,12 @@ describe("Cancel draft button in the room bar", () => {
 
   it("is there for the host, labelled, and sends nothing itself", () => {
     const onCancel = vi.fn();
-    render(<RoomBar {...base} canCancel cancelOpen={false} onCancel={onCancel} />);
+    render(<RoomBar {...base} canCancel onCancel={onCancel} />);
     const button = screen.getByRole("button", { name: "Cancel draft" });
     expect(button).toHaveTextContent("Cancel draft");
     expect(button).toHaveAttribute("data-tone", "danger");
     expect(button).toHaveAttribute("aria-haspopup", "dialog");
-    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(button).not.toHaveAttribute("aria-expanded");
     fireEvent.click(button);
     expect(onCancel).toHaveBeenCalledExactlyOnceWith(button);
   });

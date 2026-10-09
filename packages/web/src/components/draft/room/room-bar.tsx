@@ -84,7 +84,6 @@ export interface RoomBarProps {
   onSay: (anchor: HTMLElement) => void;
   /** The host or an owner: the Cancel draft button, which opens the confirm. */
   canCancel?: boolean;
-  cancelOpen?: boolean;
   onCancel?: (anchor: HTMLElement) => void;
   /** 0 to 1: how far through the draft you are. */
   progress: number;
@@ -129,7 +128,6 @@ export const RoomBar = memo(
               className="ibtn cancel-btn"
               type="button"
               aria-haspopup="dialog"
-              aria-expanded={p.cancelOpen ?? false}
               aria-label="Cancel draft"
               data-tone="danger"
               onClick={(e) => p.onCancel?.(e.currentTarget)}

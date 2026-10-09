@@ -69,14 +69,13 @@ The audit found existing automatic completion paths in `packages/shared/src/serv
 
 These paths call `completeDraft`, which saves decks. A draft with that completed status can use the existing tournament creation flow. Manual/Discord picks and bot/worker expiry can reach them. Changing these rules requires a separate owner decision. There is no other host or admin command to force partial completion.
 
-## UI agent handoff
+## Browser UI
 
-The page reads `canCancel` and passes it to the existing lobby and room controls. The browser action type remains unchanged so the current components compile. The UI agent must:
+The page reads `canCancel` and passes it to the lobby and room controls. The draft room shows one "Cancel draft" button in the room bar for the host or an owner. It opens a typed `cancel` confirm (`packages/web/src/components/draft/room/cancel-confirm.tsx`). The confirm says the draft is void, nobody keeps cards, and the players must start a new draft.
 
-- Remove the end choice, confirmation and copy from `packages/web/src/components/draft/room/host-menu.tsx`.
-- Remove `"end"` and its error text from `packages/web/src/lib/draft-terminal-client.ts`. Remove advice to end a draft to keep picks.
-- Update host action comments in `draft-room.tsx`, `room-bar.tsx` and `app/(app)/draft/[slug]/page.tsx`.
-- Update `tests/components/draft-room/host-menu.test.tsx` and `tests/pages/draft-host-end-page.test.tsx`. The page test fixtures already use `canCancel`; end-action cases still belong to the UI work.
+- `packages/web/src/lib/draft-terminal-client.ts` sends only `POST /api/drafts/[slug]/cancel` (`requestDraftCancel`). It has no end action.
+- The WebSocket hook calls `onHostStopped` only for `"cancelled"`. Other players see the "The draft was cancelled" notice.
+- There is no End now choice and no Host menu in the draft room.
 
 The tournament sheet's separate End now action controls tournaments and is outside this draft task.
 
