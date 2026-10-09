@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDraftStore } from "../../../src/lib/stores/draft-store";
 
 vi.mock("next/font/google", () => {
@@ -26,19 +26,16 @@ const cards = Array.from({ length: 60 }, (_, i) => makeCard(i + 1));
 const config = { packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40, pickSeconds: 60 };
 
 let phone = false;
-let reduced = false;
 let stageWidth = 1440;
 let stageHeight = 900;
-let scrollIntoView: Mock<typeof Element.prototype.scrollIntoView>;
 
 beforeEach(() => {
   phone = false;
-  reduced = false;
   stageWidth = 1440;
   stageHeight = 900;
   localStorage.clear();
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: query === "(max-width: 900px)" ? phone : query === "(prefers-reduced-motion: reduce)" && reduced,
+    matches: query === "(max-width: 900px)" ? phone : false,
     media: query, addEventListener: vi.fn(), removeEventListener: vi.fn(),
   }));
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
@@ -46,7 +43,6 @@ beforeEach(() => {
       ? new DOMRect(0, 0, phone ? 390 : stageWidth, phone ? 844 : stageHeight)
       : new DOMRect();
   });
-  scrollIntoView = vi.fn<typeof Element.prototype.scrollIntoView>();
   vi.stubGlobal("ResizeObserver", undefined);
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
   useDraftStore.setState({

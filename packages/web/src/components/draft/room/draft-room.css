@@ -556,15 +556,15 @@
   background: #0b101d url("/duel/card-back-main-hd.webp") center / cover;
 }
 .dr .tcard .face .img-wait.x { background-image: url("/duel/card-back-extra-hd.webp"); }
-/* the dim veil carries three small gold dots, so a loading card still differs from a face-down card back when the sweep is off */
+/* the dim veil carries three small gold dots below the emblem, so a loading card still differs from a face-down card back when the sweep is off */
 .dr .tcard .face .img-wait::before {
   content: "";
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at calc(50% - 14px) 50%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
-    radial-gradient(circle at 50% 50%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
-    radial-gradient(circle at calc(50% + 14px) 50%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at calc(50% - 14px) 80%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at 50% 80%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at calc(50% + 14px) 80%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
     rgb(6 8 14 / 0.68);
 }
 /* a card that could not load: name on a panel, with a thin gold edge */
