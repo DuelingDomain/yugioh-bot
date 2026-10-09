@@ -87,13 +87,29 @@ describe("CreateDraftForm: the Workbench", () => {
     expect(sourceTab("Cubes")).toHaveAttribute("aria-selected", "true");
   });
 
-  it("starts from the community rules: 4 seats, 5 rounds of 24, 2 picks, 45 seconds", async () => {
+  it("starts from 4 seats, 4 rounds of 10, 1 pick, 40 Main Deck cards each, 45 seconds", async () => {
     stubFetch();
     render(<CreateDraftForm />);
     expect(screen.getByLabelText("Players")).toHaveValue("4");
-    expect(screen.getByLabelText("Rounds")).toHaveValue("5");
-    expect(screen.getByLabelText("Cards per pile")).toHaveValue("24");
+    expect(screen.getByLabelText("Rounds")).toHaveValue("4");
+    expect(screen.getByLabelText("Cards per pile")).toHaveValue("10");
+    expect(screen.getByLabelText("Main Deck cards each")).toHaveValue("40");
     expect(screen.getByLabelText("Seconds per pick")).toHaveValue("45");
+    expect(screen.getByRole("button", { name: "1 pick" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "2-pick" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("starts with no preset pressed, and the presets still apply when clicked", async () => {
+    stubFetch();
+    render(<CreateDraftForm />);
+    const presets = within(screen.getByRole("group", { name: "Presets" }));
+    for (const chip of presets.getAllByRole("button", { pressed: false })) expect(chip).toBeInTheDocument();
+    expect(presets.queryByRole("button", { pressed: true })).toBeNull();
+
+    fireEvent.click(presets.getByRole("button", { name: /^5 × 4 × 24/ }));
+    expect(screen.getByLabelText("Cards per pile")).toHaveValue("24");
+    expect(screen.getByLabelText("Main Deck cards each")).toHaveValue("120");
+    expect(screen.getByLabelText("Rounds")).toHaveValue("5");
     expect(screen.getByRole("button", { name: "2-pick" })).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -460,7 +476,7 @@ describe("CreateDraftForm: Create", () => {
       packsPerPlayer: 2,
       packSize: 20,
       cardsPerPlayer: 40,
-      picksPerStep: 2,
+      picksPerStep: 1,
       pickSeconds: 45,
       copyLimit: true,
       extraDeckEnabled: true,
@@ -561,7 +577,7 @@ describe("CreateDraftForm: Create", () => {
     paste("40 Dragon Egg");
     await screen.findByText(/^Pasted list - 40 cards/);
 
-    // 4 seats x 5 rounds x 24 is far more than 40 cards.
+    // 4 seats x 40 Main Deck cards each is far more than 40 cards.
     expect(createButton()).toBeDisabled();
     expect(screen.getAllByText(/Main piles are \d+ cards short/).length).toBeGreaterThan(0);
     fireEvent.keyDown(document.body, { key: "Enter", ctrlKey: true });
