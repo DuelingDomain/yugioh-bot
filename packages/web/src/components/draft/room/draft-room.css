@@ -634,7 +634,42 @@
   box-shadow: 0 1px 0 rgb(0 0 0 / 0.6), 0 6px 14px rgb(0 0 0 / 0.55);
   transition: box-shadow var(--rm-stand), filter var(--rm-stand);
 }
-.dr .tcard .face img { width: 100%; height: 100%; object-fit: cover; }
+.dr .tcard .face img { width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.28s var(--ease-out), filter 0.4s; }
+.dr .tcard .face img[data-loaded] { opacity: 1; }
+/* a card still on its way: its back, dimmed, with a slow violet sweep */
+.dr .tcard .face .img-wait {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #0b101d url("/duel/card-back-main-hd.webp") center / cover;
+}
+.dr .tcard .face .img-wait.x { background-image: url("/duel/card-back-extra-hd.webp"); }
+/* the dim veil carries three small gold dots below the emblem, so a loading card still differs from a face-down card back when the sweep is off */
+.dr .tcard .face .img-wait::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at calc(50% - 14px) 80%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at 50% 80%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at calc(50% + 14px) 80%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
+    rgb(6 8 14 / 0.68);
+}
+/* a card that could not load: name on a panel, with a thin gold edge */
+.dr .tcard .face .img-miss { box-sizing: border-box; border: 1px solid rgb(176 138 62 / 0.45); }
+.dr .tcard .face .img-wait::after {
+  content: "";
+  position: absolute;
+  inset: 0 -60%;
+  background: linear-gradient(105deg, transparent 40%, rgb(155 126 255 / 0.22) 50%, transparent 60%);
+  animation: dr-wait 1.6s ease-in-out infinite;
+}
+@keyframes dr-wait { 0% { transform: translateX(-45%); } 100% { transform: translateX(45%); } }
+.dr[data-motion="off"] .tcard .face .img-wait::after { animation: none; opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .dr .tcard .face .img-wait::after { animation: none; opacity: 0; }
+  .dr .tcard .face img { transition: none; }
+}
 /* the lamp catches a card now and then while you choose */
 .dr .tcard .face::after {
   content: "";
@@ -723,7 +758,7 @@
 .dr .tcard[data-kind="trap"] { --kc: var(--k-trap); }
 .dr .tcard[data-kind="extra"] { --kc: var(--k-extra); }
 .dr[data-turn="waiting"] .tcard, .dr[data-turn="settling"] .tcard { cursor: default; }
-.dr[data-turn="waiting"] .tcard .face img { filter: grayscale(0.7) brightness(0.45); transition: filter 0.4s; }
+.dr[data-turn="waiting"] .tcard .face img { filter: grayscale(0.7) brightness(0.45); }
 .dr .tcard.gone { visibility: hidden; }
 
 /* ---------- friends: everyone sits around the table with their pack in front of them ---------- */
