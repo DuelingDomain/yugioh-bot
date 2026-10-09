@@ -10,6 +10,8 @@ export interface DraftConfig {
   packSize?: number;
   packsPerPlayer?: number;
   cardsPerPlayer?: number;
+  /** Optional Main Deck draft target, integer 20–60. Overrides legacy main totals and booster round count. */
+  mainPicksPerPlayer?: number;
   pickSeconds?: number;
   /** Normal drafts: sequential timed picks from each pack before passing; 1 (default) or 2. */
   picksPerStep?: number;
@@ -43,7 +45,7 @@ export interface DraftConfig {
   uniqueThemes?: boolean;
   /** Number of choices shown per pick. Admin-set; default 3, any X >= 2. */
   themePackSize?: number;
-  /** If true, the (themePackSize - 1) unpicked cards are discarded each round; if false (default) they return. */
+  /** Theme choices and leftovers at a booster Main cap: true discards unpicked cards; false returns them. */
   burnUnpicked?: boolean;
 
   // ----- cube metadata (kept in a saved cube's config; a draft ignores it) -----

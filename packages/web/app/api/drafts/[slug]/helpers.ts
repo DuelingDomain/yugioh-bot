@@ -15,6 +15,8 @@ import {
   MAX_COPIES_PER_PLAYER,
   boosterDraftPhase,
   boosterExtraSize,
+  boosterMainRounds,
+  mainDraftPicksPerPlayer,
 } from "@yugidraft/shared/services";
 import { toUtcIso } from "@/lib/utils";
 import { announcer, broadcaster } from "@/lib/notify";
@@ -164,6 +166,11 @@ export async function buildDraftResponse(slug: string, userId: string) {
 
   const draftModel = drafts.findById(draft.id);
   const config = { ...draftModel.config };
+  if (config.mainPicksPerPlayer !== undefined) {
+    // Existing room consumers read these fields for "Your picks of N" and phase boundaries.
+    config.cardsPerPlayer = mainDraftPicksPerPlayer(config);
+    if (config.mode !== "theme") config.packsPerPlayer = boosterMainRounds(config);
+  }
   if (userId !== draft.created_by_user_id) {
     delete config.themeAssignments;
   }
@@ -279,13 +286,13 @@ export async function buildDraftResponse(slug: string, userId: string) {
 
   // Theme-mode extras: derived phase, progress, and lobby theme previews.
   const isTheme = draftModel.config.mode === "theme";
-  const mainSize = draftModel.config.cardsPerPlayer ?? 40;
+  const mainSize = mainDraftPicksPerPlayer(draftModel.config);
   const phase: "main" | "extra" | undefined = isTheme
     ? draftModel.currentPackRound <= mainSize
       ? "main"
       : "extra"
     : boosterExtraSize(config) > 0 ? boosterDraftPhase(config, draftModel.currentPackRound) : undefined;
-  const mainRounds = config.packsPerPlayer ?? 5;
+  const mainRounds = boosterMainRounds(config);
   const extraSize = boosterExtraSize(config);
   const totalPackRounds = isTheme ? undefined : mainRounds + (extraSize > 0 ? 1 : 0);
   const currentPackSize = isTheme ? undefined : phase === "extra" ? extraSize : config.packSize ?? 8;
@@ -334,10 +341,16 @@ export async function buildDraftResponse(slug: string, userId: string) {
       currentPlayer && isParticipant
         ? players.find((p) => p.playerId === currentPlayer.id)?.pickCount ?? 0
         : 0;
+    const phaseCounts = config.mainPicksPerPlayer !== undefined && currentPlayer && isParticipant
+      ? db.prepare(`select sum(case when wave_number <= ? then 1 else 0 end) as main,
+          sum(case when wave_number > ? then 1 else 0 end) as extra
+          from draft_picks where draft_id = ? and player_id = ?`)
+        .get(mainSize, mainSize, draft.id, currentPlayer.id) as { main: number | null; extra: number | null }
+      : undefined;
     themeProgress = {
-      main: Math.min(picked, mainSize),
+      main: phaseCounts ? phaseCounts.main ?? 0 : Math.min(picked, mainSize),
       mainTotal: mainSize,
-      extra: Math.max(0, picked - mainSize),
+      extra: phaseCounts ? phaseCounts.extra ?? 0 : Math.max(0, picked - mainSize),
       extraTotal: (draftModel.config.extraDeckEnabled ?? true) ? draftModel.config.extraDeckSize ?? 15 : 0,
     };
   }

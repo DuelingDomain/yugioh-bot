@@ -10,6 +10,7 @@ import { createDraftService, themeDraftNumberError } from "./drafts.js";
 import { createCubeService } from "./cubes.js";
 import { createCardCatalogService } from "./card-catalog.js";
 import { isTestBotDiscordId } from "./draft-decks.js";
+import { boosterMainRounds, mainDraftPicksPerPlayer } from "./draft-size.js";
 import {
   clearDraftLobbyStart, invalidateDraftLobby, DraftLobbyServiceError,
   type DraftLobbyInvalidationOptions,
@@ -112,8 +113,8 @@ export function createDraftLobbyService(db: Database.Database) {
     if (!Number.isFinite(config.pickSeconds) || (config.pickSeconds ?? 0) <= 0) errors.push("Pick timer must be positive");
     if (config.poolSource && !cubeExists(config.poolSource.cubeId, draft.guildId)) errors.push("Source cube must exist in the draft's guild");
     if (config.mode !== "theme") {
-      for (const [label, value] of [["Pack size", config.packSize], ["Packs per player", config.packsPerPlayer],
-        ["Cards per player", config.cardsPerPlayer]] as const) {
+      for (const [label, value] of [["Pack size", config.packSize], ["Packs per player", boosterMainRounds(config)],
+        ["Cards per player", mainDraftPicksPerPlayer(config)]] as const) {
         if (!Number.isInteger(value) || (value ?? 0) < 1) errors.push(`${label} must be a positive whole number`);
       }
       const analysis = drafts.analyzeBoosterDraft(config, players.length, draft.guildId);
@@ -150,7 +151,7 @@ export function createDraftLobbyService(db: Database.Database) {
     if (!numberError) for (const id of analyzed) {
       if (!cubeExists(id, draft.guildId)) continue;
       const analysis = cubes.analyzeCubePools(id, {
-        cardsPerPlayer: config.cardsPerPlayer ?? 40, themePackSize: config.themePackSize ?? 3,
+        cardsPerPlayer: mainDraftPicksPerPlayer(config), themePackSize: config.themePackSize ?? 3,
         extraDeckSize: config.extraDeckSize ?? 15, extraDeckEnabled: config.extraDeckEnabled ?? true,
         burnUnpicked: config.burnUnpicked ?? false, copyLimit: config.copyLimit,
       });
