@@ -1,21 +1,8 @@
 import type { DraftConfig } from "../types/index.js";
 import { buildDealWithRemainder, seededShuffle, type ShuffleSeed } from "./deal.js";
 
-export function mainPicksPerPlayerError(config: DraftConfig): string | null {
-  const target = config.mainPicksPerPlayer;
-  return target !== undefined && (!Number.isInteger(target) || target < 20 || target > 60)
-    ? "Main Deck cards per player must be a whole number from 20 to 60" : null;
-}
-
-export function mainDraftPicksPerPlayer(config: DraftConfig): number {
-  return config.mainPicksPerPlayer ?? config.cardsPerPlayer ?? 40;
-}
-
-/** A requested deck size determines the main rounds; absent means legacy pack count. */
-export function boosterMainRounds(config: DraftConfig): number {
-  return config.mainPicksPerPlayer === undefined ? config.packsPerPlayer ?? 5
-    : Math.ceil(config.mainPicksPerPlayer / (config.packSize ?? 8));
-}
+import { boosterMainRounds } from "../types/draft-size.js";
+export { boosterMainRounds, mainDraftPicksPerPlayer, cardsPerPlayerError, effectiveDraftNumbers, derivedBoosterMainRounds } from "../types/draft-size.js";
 
 /** Keep the same shuffle and full-pack deal, allowing an authored pool to end in partial packs. */
 export function buildCappedBoosterDeal(cardIds: number[], players: number, config: DraftConfig, seed: ShuffleSeed) {

@@ -5,7 +5,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
-import { findDraftListPage, InvalidListCursorError, boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService, isDraftVisibility } from "@yugidraft/shared/services";
+import { findDraftListPage, InvalidListCursorError, boosterDraftConfigError, cardsPerPlayerError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService, isDraftVisibility } from "@yugidraft/shared/services";
 import { DEFAULT_LOBBY_SEATS, isValidLobbySeats } from "@yugidraft/shared/types";
 import { assertDraftConfigShape, readLobbyBody, draftLobbyErrorResponse } from "./[slug]/helpers";
 import type { DraftConfig } from "@yugidraft/shared/types";
@@ -54,6 +54,8 @@ async function handlePOST(request: NextRequest) {
     return NextResponse.json({ error: "name and config are required", code: "INVALID_BODY" }, { status: 400 });
   }
   assertDraftConfigShape(rawConfig);
+  const capError = cardsPerPlayerError(rawConfig);
+  if (capError) return NextResponse.json({ error: capError }, { status: 400 });
   const lobbySeats = rawConfig.lobbySeats === undefined ? DEFAULT_LOBBY_SEATS : rawConfig.lobbySeats;
   if (!isValidLobbySeats(lobbySeats)) {
     return NextResponse.json({ error: "lobbySeats must be an integer from 2 to 8", code: "INVALID_LOBBY_SEATS" }, { status: 400 });

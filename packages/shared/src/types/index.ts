@@ -9,9 +9,8 @@ export interface DraftConfig {
   excludeNames?: string[];
   packSize?: number;
   packsPerPlayer?: number;
+  /** Main-round picks per player. Hosts set 40–120; omitted means 40. Extra picks are separate. */
   cardsPerPlayer?: number;
-  /** Optional Main Deck draft target, integer 20–60. Overrides legacy main totals and booster round count. */
-  mainPicksPerPlayer?: number;
   pickSeconds?: number;
   /** Normal drafts: sequential timed picks from each pack before passing; 1 (default) or 2. */
   picksPerStep?: number;
@@ -192,3 +191,5 @@ export type {
   EngineUpdateWorkflowStatus, CardDataStatus, LocalCardDataStatus,
 } from "./card-data-status.js";
 export * from "./draft-lobby.js";
+
+export * from "./draft-size.js";

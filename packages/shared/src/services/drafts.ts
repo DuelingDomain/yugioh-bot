@@ -12,7 +12,7 @@ import { analyzeCube, buildDealWithRemainder, prepareBoosterPool, seededShuffle,
 import { assertLobbySeatTarget, clearDraftLobbyStart, invalidateDraftLobby, DraftLobbyServiceError } from "./draft-lobby-mutations.js";
 import { findDraftReadAccess } from "./draft-access.js";
 import { CurrentNameTakenError } from "./current-name.js";
-import { boosterMainRounds, buildCappedBoosterDeal, mainDraftPicksPerPlayer, mainPicksPerPlayerError } from "./draft-size.js";
+import { boosterMainRounds, buildCappedBoosterDeal, mainDraftPicksPerPlayer, effectiveDraftNumbers } from "./draft-size.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
 export interface DraftStartOptions { scheduleToken?: string }
@@ -57,7 +57,7 @@ function mapDraft(row: any): Draft {
     status: row.status,
     visibility: row.visibility,
     createdByUserId: row.created_by_user_id,
-    config: normalizeDraftConfig(JSON.parse(row.config_json)),
+    config: normalizeDraftConfig(JSON.parse(row.config_json), row.status !== "pending"),
     currentPackRound: row.current_wave_number,
     currentPickStep: row.current_pick_step,
     pickDeadlineAt: row.pick_deadline_at,
@@ -105,12 +105,11 @@ const defaultDraftConfig = {
   randomizeSeats: false,
 } satisfies Required<Pick<DraftConfig, "packSize" | "packsPerPlayer" | "cardsPerPlayer" | "pickSeconds" | "alternatePassDirection" | "randomizeSeats">>;
 
-function normalizeDraftConfig(config: DraftConfig): DraftConfig {
+function normalizeDraftConfig(config: DraftConfig, preserveBoosterRounds = false): DraftConfig {
   const base = {
     ...config,
     packSize: config.packSize ?? defaultDraftConfig.packSize,
-    packsPerPlayer: config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer,
-    cardsPerPlayer: config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer,
+    ...effectiveDraftNumbers(config, preserveBoosterRounds),
     pickSeconds: config.pickSeconds ?? defaultDraftConfig.pickSeconds,
     alternatePassDirection: config.alternatePassDirection ?? defaultDraftConfig.alternatePassDirection,
     randomizeSeats: config.randomizeSeats ?? defaultDraftConfig.randomizeSeats,
@@ -134,8 +133,6 @@ function normalizeDraftConfig(config: DraftConfig): DraftConfig {
 
 /** Shared by theme start and the web create/edit routes. */
 export function themeDraftNumberError(config: DraftConfig): string | null {
-  const targetError = mainPicksPerPlayerError(config);
-  if (targetError) return targetError;
   const choices = config.themePackSize ?? 3;
   const main = mainDraftPicksPerPlayer(config);
   const extra = config.extraDeckSize ?? 15;
@@ -167,9 +164,8 @@ export function boosterDraftPhase(config: DraftConfig, packRound: number): "main
 
 /** Shared by normal start and create/edit routes. Theme validation stays independent. */
 export function boosterDraftConfigError(config: DraftConfig): string | null {
-  const targetError = mainPicksPerPlayerError(config);
-  if (targetError) return targetError;
-  if (config.mainPicksPerPlayer !== undefined && (!Number.isSafeInteger(config.packSize ?? 8) || (config.packSize ?? 8) < 1)) return "Pack size must be a positive whole number";
+  if (!Number.isSafeInteger(config.packSize ?? 8) || (config.packSize ?? 8) < 1) return "Pack size must be a positive whole number";
+  if (!Number.isInteger(mainDraftPicksPerPlayer(config)) || mainDraftPicksPerPlayer(config) < 1) return "Cards per player must be a positive whole number";
   if (config.extraDeckEnabled !== undefined && typeof config.extraDeckEnabled !== "boolean") return "Extra deck enabled must be a boolean";
   const extra = config.extraDeckSize === undefined ? 15 : config.extraDeckSize;
   if (!Number.isInteger(extra) || extra < 0 || extra > 15) return "Extra deck size must be a whole number from 0 to 15";
@@ -330,7 +326,6 @@ export function createDraftService(
 
   const boosterPhaseTarget = (draft: Draft, playerId: number): number => {
     if (boosterDraftPhase(draft.config, draft.currentPackRound) !== "extra") return mainDraftPicksPerPlayer(draft.config);
-    if (draft.config.mainPicksPerPlayer === undefined) return totalBoosterCards(draft.config);
     // A finite Main pool may run out early; each player still gets their own full Extra target.
     const main = db.prepare("select count(*) as n from draft_picks where draft_id = ? and player_id = ? and wave_number <= ?")
       .get(draft.id, playerId, boosterMainRounds(draft.config)) as { n: number };
@@ -591,19 +586,16 @@ export function createDraftService(
 
   const analyzeBoosterDraft = (config: DraftConfig, players: number, guildId: string) => {
     const numberError = boosterDraftConfigError(config);
-    if (config.mainPicksPerPlayer !== undefined && numberError) return { ok: false, errors: [numberError], warnings: [] };
+    if (numberError) return { ok: false, errors: [numberError], warnings: [] };
     const packSize = config.packSize ?? defaultDraftConfig.packSize;
     const waves = boosterMainRounds(config);
     const main = resolveMainCardIds(config);
     const mainPool = prepareBoosterPool(main, config, players * waves * packSize);
     const analysis = analyzeCube(mainPool, players, waves, packSize, mainDraftPicksPerPlayer(config));
-    if (config.mainPicksPerPlayer !== undefined) {
-      // Full final packs are optional. A truly exhausted pool is advisory, and uses every available copy.
-      analysis.errors = mainPool.length === 0 ? ["Draft pool is empty"] : [];
-      const needed = players * config.mainPicksPerPlayer;
-      if (mainPool.length < needed) analysis.warnings.push(`Main pool has ${mainPool.length} cards for ${needed} requested picks (${players} players × ${config.mainPicksPerPlayer}). Players may finish with fewer Main Deck cards when the pool runs out.`);
-    }
-    if (numberError) analysis.errors.push(numberError);
+    // Full final packs are optional. A truly exhausted pool is advisory, and uses every available copy.
+    analysis.errors = mainPool.length === 0 ? ["Draft pool is empty"] : [];
+    const needed = players * mainDraftPicksPerPlayer(config);
+    if (mainPool.length < needed) analysis.warnings.push(`Main pool has ${mainPool.length} cards for ${needed} requested picks (${players} players × ${mainDraftPicksPerPlayer(config)}). Players may finish with fewer Main Deck cards when the pool runs out.`);
     const extraSize = boosterExtraSize(config);
     if (!numberError && extraSize > 0) {
       const extra = analyzeCube(resolveExtraCardIds(config, guildId), players, 1, extraSize, extraSize);
@@ -616,8 +608,6 @@ export function createDraftService(
 
   const resolveMainCardIds = (config: DraftConfig): number[] => {
     const ids = config.cubeCardIds?.length ? config.cubeCardIds : config.poolCardIds?.length ? config.poolCardIds : catalogCardIdsForDraft(config);
-    // Legacy mixed snapshots retain their behavior; a Main cap counts only Main cards.
-    if (!boosterExtraSize(config) && config.mainPicksPerPlayer === undefined) return ids;
     const extra = new Set((db.prepare("select ygoprodeck_id, type, frame_type from card_catalog").all() as CatalogRow[])
       .filter(isExtraDeckCatalogRow).map((row) => row.ygoprodeck_id));
     return ids.filter((id) => !extra.has(id));
@@ -1032,9 +1022,7 @@ export function createDraftService(
     }
 
     const seed = seedSource();
-    const { packs, remainder } = draft.config.mainPicksPerPlayer === undefined
-      ? buildDealWithRemainder(cubeCardIds, { players, waves, packSize, seed })
-      : buildCappedBoosterDeal(cubeCardIds, players, draft.config, seed);
+    const { packs, remainder } = buildCappedBoosterDeal(cubeCardIds, players, draft.config, seed);
     const extraSize = boosterExtraSize(draft.config);
     const extraDeal = extraSize > 0 ? buildDealWithRemainder(resolveExtraCardIds(draft.config, draft.guildId),
       { players, waves: 1, packSize: extraSize, seed: seedSource() }) : { packs: [], remainder: [] };
@@ -1058,13 +1046,14 @@ export function createDraftService(
       `
         update drafts
         set status = 'active',
+            config_json = ?,
             started_at = ?,
             current_wave_number = 1,
             current_pick_step = 1,
             pick_deadline_at = ?
         where id = ?
       `,
-    ).run(now.toISOString(), deadlineIso(now, draft.config.pickSeconds ?? defaultDraftConfig.pickSeconds), draftId);
+    ).run(JSON.stringify(draft.config), now.toISOString(), deadlineIso(now, draft.config.pickSeconds ?? defaultDraftConfig.pickSeconds), draftId);
 
     clearDraftLobbyStart(db, draftId, true);
     db.prepare("update drafts set lobby_revision = lobby_revision + 1 where id = ?").run(draftId);
@@ -1075,7 +1064,7 @@ export function createDraftService(
     active.length > 0 && Boolean(db.prepare("select 1 from draft_cards where draft_id = ? and wave_number = ? and picked_by_player_id is null limit 1").get(draftId, waveNumber));
 
   const finishCappedMainPacks = (draft: Draft) => {
-    if (draft.config.mainPicksPerPlayer === undefined || boosterDraftPhase(draft.config, draft.currentPackRound) !== "main") return;
+    if (boosterDraftPhase(draft.config, draft.currentPackRound) !== "main") return;
     const mainRounds = boosterMainRounds(draft.config);
     if (!draft.config.burnUnpicked) {
       const leftover = db.prepare("select catalog_card_id from draft_cards where draft_id = ? and wave_number <= ? and picked_by_player_id is null order by id")

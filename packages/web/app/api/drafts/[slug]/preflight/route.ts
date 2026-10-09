@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
 import { draftReadAccess } from "@/lib/draft-access";
-import { createCardCatalogService, createDraftService, createCubeService, mainDraftPicksPerPlayer, mainPicksPerPlayerError } from "@yugidraft/shared/services";
+import { createCardCatalogService, createDraftService, createCubeService, mainDraftPicksPerPlayer, themeDraftNumberError } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
 
@@ -33,7 +33,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   if (draft.config.themeSelection === "host_assigned" && draft.createdByUserId !== actor.userId) {
     return NextResponse.json({ errors: [], warnings: [] });
   }
-  const numberError = mainPicksPerPlayerError(draft.config);
+  const numberError = themeDraftNumberError(draft.config);
   if (numberError) return NextResponse.json({ errors: [numberError], warnings: [] });
 
   const cubes = createCubeService(db, createCardCatalogService(db));
