@@ -5,24 +5,22 @@ import { createDraftService, totalBoosterCards, totalThemeRounds, boosterDraftCo
 import { createCubeService } from "../../src/services/cubes.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { seededShuffle } from "../../src/services/deal.js";
-import { seedIdentity, seedUser } from "../helpers/identity.js";
+import { createPlayerService } from "../../src/services/players.js";
 import type { DraftConfig } from "../../src/types/index.js";
 
 function setup(playerCount: number, mainCount = 600, extraCount = 20) {
   const db = new Database(":memory:");
   migrate(db);
   const drafts = createDraftService(db, { seedSource: () => 7 });
-  const players = Array.from({ length: playerCount }, (_, i) => {
-    const user = seedUser(db, `u${i}`);
-    return seedIdentity(db, { guildId: "g", name: `P${i}`, userId: user.userId, discordUserId: user.discordUserId }).playerId;
-  });
+  const playerService = createPlayerService(db);
+  const players = Array.from({ length: playerCount }, (_, i) => playerService.findOrCreate("g", `u${i}`, `P${i}`).id);
   const main = Array.from({ length: mainCount }, (_, i) => i + 1);
   const extra = Array.from({ length: extraCount }, (_, i) => 1001 + i);
   const insert = db.prepare("insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,?, 'i','i','[]','t')");
   for (const id of main) insert.run(id, `M${id}`, "Normal Monster", "normal");
   for (const id of extra) insert.run(id, `X${id}`, "Fusion Monster", "fusion");
   const create = (config: DraftConfig) => {
-    const draft = drafts.create("g", "c", "Size", config, seedUser(db, "u0").userId, players[0]);
+    const draft = drafts.create("g", "c", "Size", config, "u0", players[0]);
     for (const player of players.slice(1)) drafts.join(draft.id, player);
     return draft;
   };
@@ -144,7 +142,7 @@ describe("Main Deck picks per player", () => {
       const app = setup(players, burnUnpicked ? cap * 3 : cap + 2);
       try {
         const cubes = createCubeService(app.db, createCardCatalogService(app.db));
-        const cube = cubes.createBlank("g", "Theme", seedUser(app.db, "u0").userId);
+        const cube = cubes.createBlank("g", "Theme", "u0");
         for (const id of app.main) cubes.addCard(cube.id, id, "main", 1);
         for (const id of app.extra) cubes.addCard(cube.id, id, "extra", 1);
         const draft = app.create({ mode: "theme", allowedCubeIds: [cube.id], themeSelection: "random", uniqueThemes: false, cardsPerPlayer: cap, themePackSize: 3, burnUnpicked, extraDeckEnabled: true, extraDeckSize: 3 });

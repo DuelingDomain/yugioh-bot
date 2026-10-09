@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 
-vi.mock("@/lib/session-identity", async () => {
-  const { sessionFixture } = await import("./fixtures/session");
-  return sessionFixture(vi.fn().mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Host" } }));
-});
+vi.mock("@/lib/auth", () => ({ auth: vi.fn().mockResolvedValue({ user: { id: "host", name: "Host" } }) }));
+vi.mock("@/lib/discord-web-access", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/lib/discord-web-access")>(),
+  checkDiscordWebAccess: vi.fn().mockResolvedValue({ ok: true }),
+}));
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster: { draft: vi.fn() } }));
 vi.mock("@/lib/duel-host", () => ({ callDuelHost: async () => ({ ok: false, response: { status: 503 } }) }));
 
@@ -30,11 +30,10 @@ afterEach(() => {
 async function setup() {
   const { getDb } = await import("../src/lib/db");
   const db = getDb();
-  seedFixtureUsers(db, ["host", "other"]);
   const services = await import("@yugidraft/shared/services");
   const players = services.createPlayerService(db);
-  const host = players.findOrCreate("g", fixtureUserId("host"), "Host");
-  const other = players.findOrCreate("g", fixtureUserId("other"), "Other");
+  const host = players.findOrCreate("g", "host", "Host");
+  const other = players.findOrCreate("g", "other", "Other");
   const main = Array.from({ length: 120 }, (_, i) => i + 1);
   const extra = Array.from({ length: 6 }, (_, i) => 1001 + i);
   const insert = db.prepare("insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,?, 'i','i','[]',?)");
@@ -52,7 +51,7 @@ it.each(["booster", "theme"].flatMap((mode) => [39, 121, 40.5, "40", null].map((
     expect((await response.json()).error).toMatch(/40 to 120/);
     expect(app.db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
     if (cap === null) return; // Null is rejected on create, and resets the cap on edit.
-    const draft = app.drafts.create("g", "c", "Good", { mode: mode as "booster" | "theme", customCardIds: app.main }, fixtureUserId("host"), app.host.id);
+    const draft = app.drafts.create("g", "c", "Good", { mode: mode as "booster" | "theme", customCardIds: app.main }, "host", app.host.id);
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const edited = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { cardsPerPlayer: cap } }) }) as NextRequest, { params: Promise.resolve({ slug: draft.webSlug! }) });
     expect(edited.status).toBe(400);
@@ -77,7 +76,7 @@ it("uses the capped demand for create, edit, preflight, lobby start and the room
   const { GET: preflight } = await import("../app/api/drafts/[slug]/preflight/route");
   expect((await (await preflight(new Request("http://x"), context)).json()).errors).toEqual([]);
   const lobby = app.services.createDraftLobbyService(app.db);
-  expect(lobby.read(created.id, fixtureUserId("host")).lobby.errors).toEqual([]);
+  expect(lobby.read(created.id, "host").lobby.errors).toEqual([]);
   app.drafts.start(created.id);
   const room = await (await GET(new Request("http://x"), context)).json();
   expect(room.config.cardsPerPlayer).toBe(41);
@@ -114,22 +113,22 @@ it.each([40, 120])("accepts a %i-card target and can edit the room's projected c
   expect(edited.status).toBe(200);
   expect((await edited.json()).config.packsPerPlayer).toBe(2);
   app.drafts.join(draft.id, app.other.id);
-  expect(app.services.createDraftLobbyService(app.db).read(draft.id, fixtureUserId("host")).lobby.errors).toEqual([]);
+  expect(app.services.createDraftLobbyService(app.db).read(draft.id, "host").lobby.errors).toEqual([]);
 });
 
 it.each([false, true])("uses the cap in theme preflight, lobby checks and phase/progress (burn=%s)", async (burnUnpicked) => {
   const app = await setup();
   const cubes = app.services.createCubeService(app.db, app.services.createCardCatalogService(app.db));
-  const cube = cubes.createBlank("g", "Theme", fixtureUserId("host"));
+  const cube = cubes.createBlank("g", "Theme", "host");
   for (const id of app.main.slice(0, burnUnpicked ? 120 : 42)) cubes.addCard(cube.id, id, "main", 1);
   for (const id of app.extra) cubes.addCard(cube.id, id, "extra", 1);
-  const draft = app.drafts.create("g", "c", "Theme Size", { mode: "theme", cardsPerPlayer: 40, allowedCubeIds: [cube.id], themeSelection: "random", uniqueThemes: false, burnUnpicked, extraDeckEnabled: true, extraDeckSize: 2, themePackSize: 3 }, fixtureUserId("host"), app.host.id);
+  const draft = app.drafts.create("g", "c", "Theme Size", { mode: "theme", cardsPerPlayer: 40, allowedCubeIds: [cube.id], themeSelection: "random", uniqueThemes: false, burnUnpicked, extraDeckEnabled: true, extraDeckSize: 2, themePackSize: 3 }, "host", app.host.id);
   app.drafts.join(draft.id, app.other.id);
   const context = { params: Promise.resolve({ slug: draft.webSlug! }) };
   const { GET: preflight } = await import("../app/api/drafts/[slug]/preflight/route");
   expect((await (await preflight(new Request("http://x"), context)).json()).errors).toEqual([]);
   const lobby = app.services.createDraftLobbyService(app.db);
-  expect(lobby.read(draft.id, fixtureUserId("host")).lobby.errors).toEqual([]);
+  expect(lobby.read(draft.id, "host").lobby.errors).toEqual([]);
   app.drafts.start(draft.id);
   for (let step = 0; step < 40; step++) {
     for (const player of [app.host, app.other]) app.drafts.pickCard(draft.id, player.id, app.drafts.currentPackOptions(draft.id, player.id)[0].id);
@@ -145,7 +144,7 @@ it.each(["booster", "theme"].flatMap((mode) => [40, null].map((reset) => ({ mode
   ("resets the $mode cap to default with $reset", async ({ mode, reset }) => {
     const app = await setup();
     const draft = app.drafts.create("g", "c", "Reset", { mode: mode as "booster" | "theme",
-      customCardIds: app.main, cardsPerPlayer: 120, packSize: 24 }, fixtureUserId("host"), app.host.id);
+      customCardIds: app.main, cardsPerPlayer: 120, packSize: 24 }, "host", app.host.id);
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { cardsPerPlayer: reset } }) }) as NextRequest,
       { params: Promise.resolve({ slug: draft.webSlug! }) });
@@ -154,14 +153,15 @@ it.each(["booster", "theme"].flatMap((mode) => [40, null].map((reset) => ({ mode
     expect(app.drafts.findById(draft.id).config.cardsPerPlayer).toBe(40);
   });
 
-it("returns effective theme setup in the paginated draft list", async () => {
+it("returns effective theme setup in the draft list", async () => {
   const app = await setup();
   const draft = app.drafts.create("g", "c", "Listed Theme", { mode: "theme", cardsPerPlayer: 60,
-    packSize: 24, packsPerPlayer: 5, themeAssignments: { [app.host.id]: 999 } }, fixtureUserId("host"), app.host.id);
+    packSize: 24, packsPerPlayer: 5, themeAssignments: { [app.host.id]: 999 } }, "host", app.host.id);
   const { GET } = await import("../app/api/drafts/route");
-  const response = await GET(new Request("http://x/api/drafts"));
+  const response = await GET();
   expect(response.status).toBe(200);
-  const listed = (await response.json()).items.find((item: { id: number }) => item.id === draft.id);
+  const groups = await response.json() as Record<string, Array<{ id: number }>>;
+  const listed = Object.values(groups).flat().find((item) => item.id === draft.id) as unknown as { config: Record<string, unknown> };
   expect(listed.config).toMatchObject({ mode: "theme", cardsPerPlayer: 60, packsPerPlayer: 3,
     extraDeckEnabled: true, extraDeckSize: 15 });
   expect(listed.config).not.toHaveProperty("themeAssignments");
@@ -171,17 +171,15 @@ it.each([2, 3].flatMap((players) => [1, 2].flatMap((picksPerStep) => [false, tru
   [players * 40 - 1, players * 20].map((size) => ({ players, picksPerStep, extraDeckEnabled, size }))))))
   ("shows reachable totals for $players players, pool $size, $picksPerStep picks, Extra=$extraDeckEnabled", async ({ players, size, picksPerStep, extraDeckEnabled }) => {
     const app = await setup();
-    seedFixtureUsers(app.db, ["third"]);
-    const third = app.services.createPlayerService(app.db).findOrCreate("g", fixtureUserId("third"), "Third");
+    const third = app.services.createPlayerService(app.db).findOrCreate("g", "third", "Third");
     const roster = [app.host, app.other, third].slice(0, players);
     const draft = app.drafts.create("g", "c", "Reachable", { customCardIds: app.main.slice(0, size),
       cardsPerPlayer: 40, packSize: 24, picksPerStep, extraDeckEnabled, extraDeckSize: 2, customExtraCardIds: app.extra },
-      fixtureUserId("host"), app.host.id);
+      "host", app.host.id);
     for (const player of roster.slice(1)) app.drafts.join(draft.id, player.id);
     app.drafts.start(draft.id);
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
-    const read = (index: number) => buildDraftResponse(draft.webSlug!, {
-      userId: fixtureUserId(["host", "other", "third"][index]), discordUserId: null });
+    const read = (index: number) => buildDraftResponse(draft.webSlug!, ["host", "other", "third"][index]);
     const initial = await Promise.all(roster.map((_, index) => read(index)));
     expect(initial.some((room) => room!.boosterProgress!.mainTotal < 40)).toBe(true);
     for (let step = 0; step < 100 && app.drafts.findById(draft.id).status === "active"; step++) {
@@ -207,9 +205,9 @@ it.each([2, 3].flatMap((players) => [1, 2].flatMap((picksPerStep) => [false, tru
 
 it("takes test-bot picks through an odd two-pick Main cap without over-picking", async () => {
   const app = await setup();
-  const bot = app.services.createPlayerService(app.db).findOrCreateTestPlayer("g", "bot_player_dev_1", "Bot");
+  const bot = app.services.createPlayerService(app.db).findOrCreate("g", "bot_player_dev_1", "Bot");
   const draft = app.drafts.create("g", "c", "Bot cap", { customCardIds: app.main,
-    cardsPerPlayer: 41, packSize: 24, picksPerStep: 2 }, fixtureUserId("host"), app.host.id);
+    cardsPerPlayer: 41, packSize: 24, picksPerStep: 2 }, "host", app.host.id);
   app.drafts.join(draft.id, bot.id);
   app.drafts.start(draft.id);
   const { POST } = await import("../app/api/drafts/[slug]/pick/route");

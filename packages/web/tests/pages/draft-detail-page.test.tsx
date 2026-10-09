@@ -186,7 +186,7 @@ describe("DraftDetailPage — completion transition", () => {
 
   it("uses reachable Main progress as the room total while keeping the host cap in the response", async () => {
     global.fetch = vi.fn().mockImplementation((url: string) => Promise.resolve({ ok: true, json: async () =>
-      url === "/api/auth/session" ? { user: { id: String(fixtureUserId("user-1")) } }
+      url === "/api/auth/session" ? { user: { id: "user-1" } }
       : { ...activeDraftResponse, config: { cardsPerPlayer: 40, packSize: 24, packsPerPlayer: 2 },
         boosterProgress: { main: 0, mainTotal: 39, extra: 0, extraTotal: 0 } } } as Response));
     render(<DraftDetailPage />);
