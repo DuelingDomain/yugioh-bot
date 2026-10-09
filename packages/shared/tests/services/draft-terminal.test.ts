@@ -5,7 +5,7 @@ import { createDraftService, DraftTerminalError } from "../../src/services/draft
 import { createDraftTournamentService } from "../../src/services/draft-tournament.js";
 import { createCubeService } from "../../src/services/cubes.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
-import { seedIdentity, seedUser } from "../helpers/identity.js";
+import { createPlayerService } from "../../src/services/players.js";
 
 const databases: Database.Database[] = [];
 const now = new Date("2030-01-01T00:00:00Z");
@@ -13,10 +13,9 @@ function setup(mode: "booster" | "theme" = "booster", verbose?: (sql: unknown) =
   const db = new Database(":memory:", { verbose });
   databases.push(db);
   migrate(db);
-  const host = seedUser(db, "host");
-  const players = [host, seedUser(db, "guest")].map(user => seedIdentity(db, {
-    guildId: "g", userId: user.userId, discordUserId: user.discordUserId,
-  }).playerId);
+  const playerService = createPlayerService(db);
+  const host = { userId: "host" };
+  const players = [playerService.findOrCreate("g", "host", "Host").id, playerService.findOrCreate("g", "guest", "Guest").id];
   const main = Array.from({ length: 16 }, (_, i) => i + 1);
   const extra = Array.from({ length: 8 }, (_, i) => i + 101);
   const insert = db.prepare(`insert into card_catalog

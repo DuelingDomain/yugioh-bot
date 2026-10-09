@@ -10,7 +10,7 @@
 - [x] Add failing lifecycle tests in `packages/shared/tests/services/draft-terminal.test.ts` for lobby, uneven picks, theme/Extra, rollback, idempotence, bot/manual picks and tournament behavior.
 - [x] Implement `endNow` and guarded, idempotent cancellation in `packages/shared/src/services/drafts.ts`, reusing completion/deck saving and lobby disarming.
 - [x] Add failing route tests in `packages/web/tests/drafts-terminal-routes.test.ts` for host/non-host access, community isolation, response and broadcast contracts.
-- [x] Initial Discord admin override superseded by review: revert `b5424fa38` and authorize the host or `isOwnerUser(actor.userId)` per the accepted Clerk alpha policy.
+- [x] Initial Discord admin override superseded by review: revert `b5424fa38` and authorize the host or `isOwnerUser(actor.userId)` per the accepted Clerk alpha policy. (Local-all, pre-Clerk: the host or a guild admin through `checkDiscordWebAccess` instead.)
 - [x] Add dedicated `POST /api/drafts/[slug]/end` and `/cancel` with a shared handler and existing WS `status`/Discord notifications.
 - [x] Add concurrent SQLite connection tests against manual picks, bot picks and expiry; test stale snapshots and terminal behavior in both deployed worker and shelved bot timers.
 - [x] Run only affected test files and TypeScript checks for shared/web/bot/worker; review the final changes. Initial validation: 242 targeted tests passed; four TypeScript checks passed; production/staging Compose validation passed.

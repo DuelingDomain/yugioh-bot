@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import { fixtureUserId, fixtureDiscordId } from "../fixtures/identity";
 import React from "react";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -60,7 +59,7 @@ const draftBody = {
   id: 1,
   name: "Test Draft",
   status: "active",
-  createdByUserId: fixtureUserId("host"),
+  createdByUserId: "host",
   createdAt: "2026-05-06T12:00:00.000Z",
   config: { packSize: 5, packsPerPlayer: 3, pickSeconds: 60, setNames: [] },
   players: [],
@@ -85,7 +84,7 @@ function stubFetch(viewer: string, draft: { current: Body }, post: () => Promise
   global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     if (url === "/api/auth/session") {
-      return { ok: true, json: async () => ({ user: { id: String(fixtureUserId(viewer)), discordUserId: fixtureDiscordId(viewer) } }) } as Response;
+      return { ok: true, json: async () => ({ user: { id: viewer } }) } as Response;
     }
     calls.push({ url, method });
     if (method === "POST" && /\/(end|cancel)$/.test(url)) return post();
@@ -179,7 +178,7 @@ describe("DraftDetailPage: host end and cancel", () => {
 
     it.each([
       ["the host", "host", pending, "true"],
-      ["an owner who is not the host", "owner", { ...pending, canEndOrCancel: true }, "true"],
+      ["a guild admin who is not the host", "owner", { ...pending, canEndOrCancel: true }, "true"],
       ["another player", "player", pending, "false"],
     ])("offers Cancel to %s: %s", async (_label, viewer, body, expected) => {
       stubFetch(viewer, { current: body });

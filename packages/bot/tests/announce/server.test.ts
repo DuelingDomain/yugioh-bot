@@ -12,7 +12,7 @@ describe("announce server", () => {
     const handler = vi.fn();
     const app = createAnnounceServer({
       secret,
-      handlers: { onDraftCreated: handler, onDraftNudge: handler, onDraftStarted: handler, onDraftCompleted: handler, onTournamentCreated: handler, onTournamentStarted: handler, onMatchReportPending: handler, onMatchResolved: handler, onTournamentCompleted: handler, onDuelInvite: handler },
+      handlers: { onDraftStatus: handler, onDraftCreated: handler, onDraftNudge: handler, onDraftStarted: handler, onDraftCompleted: handler, onTournamentCreated: handler, onTournamentStarted: handler, onMatchReportPending: handler, onMatchResolved: handler, onTournamentCompleted: handler, onDuelInvite: handler },
     });
     const res = await app.handle(new Request("http://x/internal/announce/draft-created", {
       method: "POST",
@@ -28,6 +28,7 @@ describe("announce server", () => {
     const app = createAnnounceServer({
       secret,
       handlers: {
+        onDraftStatus: vi.fn(),
         onDraftCreated,
         onDraftNudge: vi.fn(),
         onDraftStarted: vi.fn(),
@@ -48,5 +49,24 @@ describe("announce server", () => {
     }));
     expect(res.status).toBe(204);
     expect(onDraftCreated).toHaveBeenCalledWith({ draftId: 1, channelId: "c1", name: "Test", webSlug: "abcd1234" });
+  });
+
+  it("dispatches a signed draft-status to its handler", async () => {
+    const onDraftStatus = vi.fn().mockResolvedValue(undefined);
+    const handler = vi.fn();
+    const app = createAnnounceServer({
+      secret,
+      handlers: { onDraftStatus, onDraftCreated: handler, onDraftNudge: handler, onDraftStarted: handler, onDraftCompleted: handler,
+        onTournamentCreated: handler, onTournamentStarted: handler, onMatchReportPending: handler, onMatchResolved: handler,
+        onTournamentCompleted: handler, onDuelInvite: handler },
+    });
+    const body = JSON.stringify({ draftId: 9 });
+    const res = await app.handle(new Request("http://x/internal/announce/draft-status", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-announce-signature": sign(body) },
+      body,
+    }));
+    expect(res.status).toBe(204);
+    expect(onDraftStatus).toHaveBeenCalledWith({ draftId: 9 });
   });
 });

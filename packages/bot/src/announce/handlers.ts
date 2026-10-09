@@ -34,6 +34,11 @@ export function createAnnounceHandlers({
   lobby?: Pick<DraftLobbyService, "read">;
 }): AnnounceHandlers {
   return {
+    async onDraftStatus({ draftId }) {
+      if (!Number.isSafeInteger(draftId) || draftId <= 0) throw new Error("Invalid draft ID");
+      const draft = drafts.findById(draftId);
+      if (draft.channelId) await messenger.updateStatus(draft);
+    },
     async onDraftCreated({ channelId, name, webSlug }) {
       const channel = await client.channels.fetch(channelId);
       if (channel?.type !== ChannelType.GuildText) return;

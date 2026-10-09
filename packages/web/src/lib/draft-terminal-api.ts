@@ -4,10 +4,10 @@ import { getDb } from "./db";
 import { env } from "./env";
 import { requireWebAccess } from "./web-access";
 import { draftReadAccess } from "./draft-access";
-import { isOwnerUser } from "./owner-access";
+import { checkDiscordWebAccess, webAccessError } from "./discord-web-access";
 import { announcer, broadcaster } from "./notify";
 
-/** Host or owner terminal actions retain the draft record on retries. */
+/** Host or guild admin terminal actions retain the draft record on retries. */
 export async function finishDraft(
   params: Promise<{ slug: string }>, action: "end" | "cancel",
 ): Promise<NextResponse> {
@@ -17,19 +17,29 @@ export async function finishDraft(
     const { slug } = await params;
     const db = getDb();
     const find = db.prepare("select id, created_by_user_id from drafts where web_slug = ? and guild_id = ?");
-    const draft = find.get(slug, env.discordGuildId) as { id: number; created_by_user_id: number } | undefined;
+    const draft = find.get(slug, env.discordGuildId) as { id: number; created_by_user_id: string } | undefined;
     if (!draft) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
 
-    if (draft.created_by_user_id !== actor.userId && !isOwnerUser(actor.userId)) {
-      const denied = draftReadAccess(db, slug, env.discordGuildId, actor.userId);
-      if (denied) return denied;
-      return NextResponse.json({ error: "Only the host or owner can end or cancel a draft" }, { status: 403 });
+    // Pre-Clerk rule: the host, or a member with Manage Server / Administrator (the Discord check is cached and can fail with 503).
+    let admin = false;
+    if (draft.created_by_user_id !== actor.userId) {
+      const access = await checkDiscordWebAccess(actor.userId, "admin");
+      if (access.ok) admin = true;
+      else if (access.status === 503) return NextResponse.json({ error: webAccessError(access.status) }, { status: access.status });
+      else {
+        const denied = draftReadAccess(db, slug, env.discordGuildId, actor.userId);
+        if (denied) return denied;
+        return NextResponse.json({ error: "Only the host or a guild admin can end or cancel a draft" }, { status: 403 });
+      }
     }
 
     const result = db.transaction(() => {
-      // Re-read the guild-scoped draft under the write lock; authorization above is synchronous.
+      // Discord verification can await I/O; re-read the guild-scoped draft and its host under the write lock.
       const current = find.get(slug, env.discordGuildId) as typeof draft;
       if (!current) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+      if (current.created_by_user_id !== actor.userId && !admin) {
+        return NextResponse.json({ error: "Only the host or a guild admin can end or cancel a draft" }, { status: 403 });
+      }
       const drafts = createDraftService(db);
       const before = drafts.findById(current.id);
       const finished = action === "end" ? drafts.endNow(current.id) : drafts.cancel(current.id);

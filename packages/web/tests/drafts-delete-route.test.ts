@@ -59,7 +59,7 @@ async function createCompletedDraftWithDeal(status = "completed", withPass = fal
   db.prepare("update drafts set status = ? where id = ?").run(status, draft.id);
   if (withTournament) {
     const tournament = db.prepare("insert into tournaments(guild_id,name,format,status,created_by_user_id) values ('guild-1','Legacy','round_robin','pending',?)")
-      .run(fixtureUserId("creator-user"));
+      .run("creator-user");
     db.prepare("update drafts set tournament_id = ? where id = ?").run(tournament.lastInsertRowid, draft.id);
   }
 

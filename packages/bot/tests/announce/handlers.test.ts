@@ -37,6 +37,21 @@ describe("announce handlers", () => {
     } finally { warn.mockRestore(); }
   });
 
+  it("refreshes the status message of a draft with a channel and rejects a bad id", async () => {
+    const draft = { id: 4, guildId: "g1", channelId: "stored", name: "Night", status: "cancelled" };
+    const messenger = { postStatus: vi.fn(), updateStatus: vi.fn() };
+    const handlers = createAnnounceHandlers({ client: {} as any, db: {} as any, guildSettings: {} as any,
+      drafts: { findById: () => draft } as any, messenger });
+    await handlers.onDraftStatus({ draftId: 4 });
+    expect(messenger.updateStatus).toHaveBeenCalledWith(draft);
+    await expect(handlers.onDraftStatus({ draftId: 0 })).rejects.toThrow("Invalid draft ID");
+    messenger.updateStatus.mockClear();
+    const noChannel = createAnnounceHandlers({ client: {} as any, db: {} as any, guildSettings: {} as any,
+      drafts: { findById: () => ({ ...draft, channelId: null }) } as any, messenger });
+    await noChannel.onDraftStatus({ draftId: 4 });
+    expect(messenger.updateStatus).not.toHaveBeenCalled();
+  });
+
   it("posts signup announcements to text channels", async () => {
     const send = vi.fn().mockResolvedValue(undefined);
     const handlers = createAnnounceHandlers({

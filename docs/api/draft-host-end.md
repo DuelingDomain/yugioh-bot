@@ -11,7 +11,7 @@ Backend branch: `feat/draft-host-end`, based on `origin/main` at `bee943a13b4181
 - Current Compose runs `packages/worker/src/draft-timer.ts`; the bot timer remains available for the shelved bot. Both timer paths now recheck terminal status before expiring a stale active-list candidate.
 - The existing web `DELETE /api/drafts/[slug]` cancels live drafts and permanently deletes completed or cancelled drafts. For a live draft, the first DELETE cancels and retains its record and roster; the second DELETE deletes it. Shared terminal errors, including a live draft's linked tournament, return 409 with `{ error, code }`. The new lobby UI must use `POST /cancel` for safe cancellation retries.
 - DELETE still has UI callers in `packages/web/app/(app)/draft/[slug]/page.tsx`: `handleCancel` for the lobby and `handleDelete` for the summary's Delete button. After moving lobby cancellation to POST, DELETE remains needed for the summary's Delete button on completed and cancelled drafts.
-- App Router APIs are in `packages/web/app/api`. Clerk sessions identify actors by app `users.id`; the accepted alpha access policy has no Discord guild check or admin role. Emergency controls use the existing `isOwnerUser` helper.
+- App Router APIs are in `packages/web/app/api`. On this local-only branch (pre-Clerk, no users table) the session user id is the Discord id. Emergency controls use the host-or-guild-admin rule through `checkDiscordWebAccess(userId, "admin")` in `src/lib/discord-web-access.ts`.
 
 ## HTTP contract
 
@@ -20,9 +20,9 @@ Backend branch: `feat/draft-host-end`, based on `origin/main` at `bee943a13b4181
 | End now (active only) | `POST /api/drafts/{slug}/end` | None | `completed` |
 | Cancel (pending or active) | `POST /api/drafts/{slug}/cancel` | None | `cancelled` |
 
-Both routes authenticate with the current Clerk web session and look up the slug only in configured `DISCORD_GUILD_ID` (the single community id). Only the **host or owner** may act: the host is `draft.created_by_user_id === actor.userId`; the owner passes `isOwnerUser(actor.userId)` using `OWNER_USER_IDS`. Neither needs a linked Discord account, and an owner can act on a private draft without being seated.
+Both routes authenticate with the current web session and look up the slug only in configured `DISCORD_GUILD_ID` (the single community id). Only the **host or a guild admin** may act: the host is `draft.created_by_user_id === actor.userId`; a guild admin has Manage Server or Administrator and passes `checkDiscordWebAccess(actor.userId, "admin")` (cached for 60 seconds). A guild admin can act without being seated. The draft detail returns `canEndOrCancel: true` under the same rule.
 
-For other actors, apply the same `draftReadAccess` check as GET before denying the action: an unreadable private draft returns generic 404; a readable draft returns 403. There is no Discord permission lookup or web `DISCORD_TOKEN` requirement. Current Compose keeps `DISCORD_BOT_ENABLED=0`.
+For other actors, apply the same `draftReadAccess` check as GET before denying the action: an unreadable draft returns generic 404; a readable draft returns 403. The admin lookup needs the web `DISCORD_TOKEN`. When Discord cannot verify the actor, the route returns 503 and changes nothing.
 
 Success is HTTP 200:
 

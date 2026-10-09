@@ -367,28 +367,15 @@ export async function buildDraftResponse(slug: string, userId: string) {
       })
     : null;
 
-  let canEndOrCancel = draft.created_by_user_id === userId;
-  if (!canEndOrCancel) {
-    try {
-      canEndOrCancel = (await checkDiscordWebAccess(userId, "admin")).ok;
-    } catch {
-      // The draft remains readable when Discord verification is unavailable.
-      canEndOrCancel = false;
-    }
-  }
+  // One Discord admin lookup serves both flags. A failed lookup only hides the controls; the draft stays readable.
+  let adminLookup: Promise<boolean> | undefined;
+  const isGuildAdmin = () => adminLookup ??= checkDiscordWebAccess(userId, "admin").then(access => access.ok, () => false);
+
+  const canEndOrCancel = draft.created_by_user_id === userId || await isGuildAdmin();
 
   let canCreateTournament = false;
   if (draft.status === "completed" && draft.tournament_id == null) {
-    if (draft.created_by_user_id === userId) {
-      canCreateTournament = true;
-    } else {
-      try {
-        canCreateTournament = (await checkDiscordWebAccess(userId, "admin")).ok;
-      } catch {
-        // The draft remains readable when Discord verification is unavailable.
-        canCreateTournament = false;
-      }
-    }
+    canCreateTournament = draft.created_by_user_id === userId || await isGuildAdmin();
   }
 
   return {

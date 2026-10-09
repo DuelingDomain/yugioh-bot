@@ -60,6 +60,25 @@ describe("draft read access", () => {
     vi.restoreAllMocks();
   });
 
+  describe("canEndOrCancel on the draft detail", () => {
+    it("is true for the host without asking Discord", async () => {
+      auth.mockResolvedValue({ user: { id: "creator" } });
+      const body = await (await read("draft")).json();
+      expect(body.canEndOrCancel).toBe(true);
+      expect(checkDiscordWebAccess).not.toHaveBeenCalled();
+    });
+    it("is true for a guild admin who is not the host", async () => {
+      checkDiscordWebAccess.mockResolvedValue({ ok: true });
+      const body = await (await read("draft")).json();
+      expect(body.canEndOrCancel).toBe(true);
+      expect(checkDiscordWebAccess).toHaveBeenCalledWith("player", "admin");
+    });
+    it.each([{ ok: false, status: 403 }, { ok: false, status: 503 }])("is absent for a non-admin player (%o)", async decision => {
+      checkDiscordWebAccess.mockResolvedValue(decision);
+      expect((await (await read("draft")).json()).canEndOrCancel).toBeUndefined();
+    });
+  });
+
   for (const route of routes) {
     describe(route, () => {
       for (const status of statuses) {
@@ -159,7 +178,8 @@ describe("draft read access", () => {
     expect(await response.json()).toMatchObject({
       tournamentId: 7, tournamentName: null, tournamentSlug: null, canCreateTournament: false,
     });
-    expect(checkDiscordWebAccess).not.toHaveBeenCalled();
+    // Only the End/Cancel flag asks; the tournament flag stays false without a lookup of its own.
+    expect(checkDiscordWebAccess).toHaveBeenCalledTimes(1);
   });
 
   describe("canCreateTournament", () => {
@@ -201,17 +221,18 @@ describe("draft read access", () => {
     });
 
     for (const user of ["creator", "player"]) {
-      it.each(["pending", "active", "cancelled"])(`is false for ${user} on a %s draft without checking admin access`, async (status) => {
+      it.each(["pending", "active", "cancelled"])(`is false for ${user} on a %s draft without a tournament admin lookup`, async (status) => {
         database.current!.prepare("update drafts set status = ? where id = 1").run(status);
         auth.mockResolvedValue({ user: { id: user } });
         checkDiscordWebAccess.mockResolvedValue({ ok: true });
         const response = await read("draft");
         expect(response.status).toBe(200);
         expect(await response.json()).toMatchObject({ canCreateTournament: false });
-        expect(checkDiscordWebAccess).not.toHaveBeenCalled();
+        // Only the End/Cancel flag may ask, and never for the host.
+        expect(checkDiscordWebAccess).toHaveBeenCalledTimes(user === "player" ? 1 : 0);
       });
 
-      it(`is false for ${user} when a tournament exists without checking admin access`, async () => {
+      it(`is false for ${user} when a tournament exists without a tournament admin lookup`, async () => {
         const db = database.current!;
         db.prepare("insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-1', 'Draft Cup', 'round_robin', 'pending', 'creator', 'draft-cup')").run();
         db.prepare("update drafts set tournament_id = 7 where id = 1").run();
@@ -220,7 +241,8 @@ describe("draft read access", () => {
         const response = await read("draft");
         expect(response.status).toBe(200);
         expect(await response.json()).toMatchObject({ canCreateTournament: false });
-        expect(checkDiscordWebAccess).not.toHaveBeenCalled();
+        // Only the End/Cancel flag may ask, and never for the host.
+        expect(checkDiscordWebAccess).toHaveBeenCalledTimes(user === "player" ? 1 : 0);
       });
     }
   });

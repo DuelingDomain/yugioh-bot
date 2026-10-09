@@ -7,7 +7,7 @@ import { Worker } from "node:worker_threads";
 import { afterEach, expect, it } from "vitest";
 import { migrate } from "../src/db/index.js";
 import { createDraftService } from "../src/services/drafts.js";
-import { seedIdentity, seedUser } from "./helpers/identity.js";
+import { createPlayerService } from "../src/services/players.js";
 
 const resources: Array<{ db: Database.Database; directory: string }> = [];
 const workers: Worker[] = [];
@@ -20,10 +20,9 @@ function setup() {
   const path = join(directory, "test.sqlite");
   const db = new Database(path); resources.push({ db, directory });
   db.pragma("journal_mode = WAL"); db.pragma("busy_timeout = 5000"); migrate(db);
-  const host = seedUser(db, "host");
-  const players = [host, seedUser(db, "guest")].map(user => seedIdentity(db, {
-    guildId: "g", userId: user.userId, discordUserId: user.discordUserId,
-  }).playerId);
+  const playerService = createPlayerService(db);
+  const host = { userId: "host" };
+  const players = [playerService.findOrCreate("g", "host", "Host").id, playerService.findOrCreate("g", "guest", "Guest").id];
   const insert = db.prepare(`insert into card_catalog
     (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
     values (?,?,'Normal Monster','normal','i','i','[]','t')`);

@@ -13,9 +13,7 @@ const directories: string[] = [];
 const broadcast = vi.fn();
 vi.mock("@/lib/db", () => ({ getDb: () => db }));
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g" } }));
-vi.mock("@/lib/web-access", () => ({ requireWebAccess: async () => ({
-  ok: true, userId: 1, userName: "Host", discordUserId: null,
-}) }));
+vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: { id: "100000000000000001", name: "Host" } }) }));
 vi.mock("@/lib/notify", () => ({ broadcaster: { draft: broadcast }, announcer: { announce: vi.fn() } }));
 vi.mock("@yugidraft/shared/services", async importOriginal => {
   const actual = await importOriginal<typeof import("@yugidraft/shared/services")>();
@@ -36,16 +34,15 @@ it.each(["end", "cancel"] as const)("stops the pick route's bot loop when %s com
   const path = join(directory, "test.sqlite");
   db = new Database(path); databases.push(db);
   db.pragma("journal_mode = WAL"); migrate(db);
-  db.exec(`insert into users(id, username, display_name) values (1, 'host', 'Host'), (2, 'bot', 'Bot');
-    insert into players(id, guild_id, user_id, discord_user_id, display_name)
-      values (1, 'g', 1, '100000000000000001', 'Host'), (2, 'g', 2, 'bot_player_dev_1', 'Bot');
+  db.exec(`insert into players(id, guild_id, discord_user_id, display_name)
+      values (1, 'g', '100000000000000001', 'Host'), (2, 'g', 'bot_player_dev_1', 'Bot');
     insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
       values (1,'A','Normal Monster','normal','i','i','[]','t'), (2,'B','Normal Monster','normal','i','i','[]','t'),
         (3,'C','Normal Monster','normal','i','i','[]','t'), (4,'D','Normal Monster','normal','i','i','[]','t');`);
   const drafts = createDraftService(db);
-  const draft = drafts.create("g", null, "Bot race", {
+  const draft = drafts.create("g", "c", "Bot race", {
     customCardIds: [1, 2, 3, 4], packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2,
-  }, 1, createPlayerService(db).findOrCreate("g", 1, "Host").id);
+  }, "100000000000000001", createPlayerService(db).findOrCreate("g", "100000000000000001", "Host").id);
   drafts.join(draft.id, 2); drafts.start(draft.id);
   const card = drafts.pickOptions(draft.id, 1)[0];
   const otherDb = new Database(path); databases.push(otherDb);

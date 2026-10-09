@@ -88,8 +88,7 @@ describe("draft timer service", () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
     const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
-    const host = createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" });
-    const draft = app.drafts.create("guild-1", "channel-1", "Stopped", {}, host.id, yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "Stopped", {}, "900000000000000116", yugi.id);
     app.drafts.join(draft.id, kaiba.id);
     seedDraftCatalog(app, 80);
     app.drafts.start(draft.id);
@@ -101,7 +100,7 @@ describe("draft timer service", () => {
     });
     const rec = recordingTransport();
     const onDraftCompleted = vi.fn().mockResolvedValue(undefined);
-    const timer = createDraftTimerService({ drafts: app.drafts, messenger: app.messenger,
+    const timer = createDraftTimerService({ ...app,
       broadcaster: createBroadcaster(rec.transport), onDraftCompleted });
     try {
       await timer.tick(new Date(Date.now() + 60_000));
