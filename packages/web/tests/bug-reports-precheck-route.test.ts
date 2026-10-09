@@ -20,7 +20,7 @@ const OTHER_ID = "990000000000000001";
 const TOKEN = "github_pat_SECRET_TOKEN_VALUE";
 
 const issue = (number: number, title: string, description: string, extra: Record<string, unknown> = {}) => ({
-  number, html_url: `https://github.com/imran443/yugioh-bot/issues/${number}`, title, state: "open",
+  number, html_url: `https://github.com/DuelingDomain/yugioh-bot/issues/${number}`, title, state: "open",
   labels: [{ name: "bug" }, { name: "from-app" }], body: `## Description\n\n\`\`\`\n${description}\n\`\`\`\n\n## Expected\n\nx`, ...extra,
 });
 
@@ -49,7 +49,7 @@ async function addReport(row: { player: number; slug?: string | null; turn?: num
   ).run(
     GUILD, row.player, new Date(Date.now() - (row.minutesAgo ?? 0) * 60_000).toISOString(), row.slug ?? null, row.description,
     JSON.stringify({ format: "ffa3", ...(row.turn === undefined ? {} : { turn: row.turn }) }),
-    row.issue ?? null, row.issue ? `https://github.com/imran443/yugioh-bot/issues/${row.issue}` : null, row.duplicateOf ?? null,
+    row.issue ?? null, row.issue ? `https://github.com/DuelingDomain/yugioh-bot/issues/${row.issue}` : null, row.duplicateOf ?? null,
   );
 }
 
@@ -79,6 +79,7 @@ describe("POST /api/bug-reports/precheck", () => {
     await seed();
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "WEB_URL"]) delete process.env[key];
@@ -161,7 +162,7 @@ describe("POST /api/bug-reports/precheck", () => {
     expect(github.mock.calls[0]![0]).toContain("labels=from-app");
     expect(json.duplicates).toHaveLength(3);
     expect(json.duplicates.map((d: { number: number }) => d.number)).not.toContain(1);
-    expect(json.duplicates[0]).toMatchObject({ number: 2, url: "https://github.com/imran443/yugioh-bot/issues/2", sameDuel: false });
+    expect(json.duplicates[0]).toMatchObject({ number: 2, url: "https://github.com/DuelingDomain/yugioh-bot/issues/2", sameDuel: false });
     expect(json.duplicates[0].score).toBeGreaterThanOrEqual(json.duplicates[1].score);
     expect(Object.keys(json.duplicates[0]).sort()).toEqual(["number", "sameDuel", "score", "title", "url"]);
     expect(await rows()).toHaveLength(0);
@@ -205,12 +206,13 @@ describe("POST /api/bug-reports/precheck", () => {
     const json = await (await POST(post(body()))).json();
     expect(github).not.toHaveBeenCalled();
     expect(json.duplicates).toHaveLength(1);
-    expect(json.duplicates[0]).toMatchObject({ number: 21, url: "https://github.com/imran443/yugioh-bot/issues/21", sameDuel: false });
+    expect(json.duplicates[0]).toMatchObject({ number: 21, url: "https://github.com/DuelingDomain/yugioh-bot/issues/21", sameDuel: false });
     expect(json.duplicates[0].title).toMatch(/^\[Bug\] \[FFA3\] The chain froze/);
   });
 
   it("falls back to saved reports when GitHub fails, and hides names and ids in their titles", async () => {
-    github.mockImplementation(async () => Response.json({ message: "boom" }, { status: 500 }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    github.mockImplementation(async () => Response.json({ message: `boom ${TOKEN}` }, { status: 500 }));
     await addReport({ player: 3, slug: "duel-z", description: `Orion Vale (${OTHER_ID}) says the chain froze and the duel never went on after the effect`, issue: 31 });
     const POST = await route();
     const res = await POST(post(body()));
@@ -220,6 +222,19 @@ describe("POST /api/bug-reports/precheck", () => {
     expect(text).not.toContain("Orion Vale");
     expect(text).not.toContain(OTHER_ID);
     expect(text).not.toContain(TOKEN);
+    expect(warn).toHaveBeenCalledWith("[api/bug-reports/precheck] issue lookup failed: GitHub answered 500: boom [token]");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
+  });
+
+  it("builds fallback duplicate links from the configured repo even when saved URLs predate a transfer", async () => {
+    vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", "");
+    vi.stubEnv("BUG_REPORT_GITHUB_REPO", "someone/else");
+    await addReport({ player: 3, description: "The chain froze and the duel never went on after the effect", issue: 21 });
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare("update bug_reports set github_issue_url = 'https://github.com/former-owner/yugioh-bot/issues/21'").run();
+    const json = await (await (await route())(post(body()))).json();
+    expect(json.duplicates[0]).toMatchObject({ number: 21, url: "https://github.com/someone/else/issues/21" });
+    expect(github).not.toHaveBeenCalled();
   });
 
   it("puts a same-duel saved report first in the fallback too", async () => {

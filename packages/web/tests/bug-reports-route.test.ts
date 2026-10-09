@@ -51,7 +51,7 @@ async function seed() {
 
 /** What GitHub answers to "create issue": the labels are part of it. */
 const created = (number: number, labels: string[] = ["bug", "needs-triage", "from-app"]) => ({
-  number, html_url: `https://github.com/imran443/yugioh-bot/issues/${number}`, labels: labels.map((name) => ({ name })),
+  number, html_url: `https://github.com/DuelingDomain/yugioh-bot/issues/${number}`, labels: labels.map((name) => ({ name })),
 });
 
 const body = (extra: Record<string, unknown> = {}) => ({
@@ -96,6 +96,7 @@ describe("POST /api/bug-reports", () => {
     await seed();
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "WEB_URL"]) delete process.env[key];
@@ -153,14 +154,14 @@ describe("POST /api/bug-reports", () => {
     const POST = await route();
     const res = await POST(post(body()));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ id: 1, issue: { number: 77, url: "https://github.com/imran443/yugioh-bot/issues/77" } });
+    expect(await res.json()).toEqual({ id: 1, issue: { number: 77, url: "https://github.com/DuelingDomain/yugioh-bot/issues/77" } });
     const [row] = await rows();
     expect(row).toMatchObject({
       guild_id: GUILD, player_id: 1, path: "/duels/duel-a", duel_slug: "duel-a", github_issue_number: 77,
-      github_issue_url: "https://github.com/imran443/yugioh-bot/issues/77", github_error: null,
+      github_issue_url: "https://github.com/DuelingDomain/yugioh-bot/issues/77", github_error: null,
     });
     const [call] = githubCalls();
-    expect(call!.url).toBe("https://api.github.com/repos/imran443/yugioh-bot/issues");
+    expect(call!.url).toBe("https://api.github.com/repos/DuelingDomain/yugioh-bot/issues");
     expect((call!.init.headers as Record<string, string>).Authorization).toBe(`Bearer ${TOKEN}`);
     expect(call!.payload.labels).toEqual(["bug", "needs-triage", "from-app"]);
     expect(call!.payload.title.startsWith("[Bug] [FFA3] ")).toBe(true);
@@ -248,14 +249,17 @@ describe("POST /api/bug-reports", () => {
   });
 
   it("keeps the report when GitHub fails, and never stores the token", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     github.mockResolvedValue(Response.json({ message: `Bad credentials ${TOKEN}` }, { status: 401 }));
     const POST = await route();
     const res = await POST(post(body()));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ id: 1, issue: null });
     const [row] = await rows();
-    expect(row!.github_error).toContain("401");
+    expect(row!.github_error).toBe("GitHub answered 401: Bad credentials [token]");
     expect(row!.github_error).not.toContain(TOKEN);
+    expect(warn).toHaveBeenCalledWith("[api/bug-reports] report 1 saved without an issue: GitHub answered 401: Bad credentials [token]");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
   });
 
   it("keeps the report when the request to GitHub throws", async () => {
@@ -296,7 +300,7 @@ describe("POST /api/bug-reports", () => {
   });
 
   it("records a warning when the answer holds no labels at all", async () => {
-    github.mockResolvedValue(Response.json({ number: 80, html_url: "https://github.com/imran443/yugioh-bot/issues/80" }, { status: 201 }));
+    github.mockResolvedValue(Response.json({ number: 80, html_url: "https://github.com/DuelingDomain/yugioh-bot/issues/80" }, { status: 201 }));
     const POST = await route();
     await POST(post(body()));
     expect((await rows())[0]!.github_error).toContain("from-app label");
@@ -369,7 +373,7 @@ describe("POST /api/bug-reports", () => {
 
 describe("POST /api/bug-reports with duplicateOf", () => {
   const ISSUE = 50;
-  const issueUrl = `https://github.com/imran443/yugioh-bot/issues/${ISSUE}`;
+  const issueUrl = `https://github.com/DuelingDomain/yugioh-bot/issues/${ISSUE}`;
   const raw = (extra: Record<string, unknown> = {}) => ({
     number: ISSUE, html_url: issueUrl, title: "[Bug] [FFA3] Chain froze", state: "open", labels: [{ name: "bug" }, { name: "from-app" }], ...extra,
   });
@@ -403,6 +407,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     await seed();
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "WEB_URL"]) delete process.env[key];
@@ -417,7 +422,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     expect(await res.json()).toEqual({ id: 1, issue: { number: ISSUE, url: issueUrl }, duplicate: true });
     const [row] = await rows();
     expect(row).toMatchObject({ player_id: 1, duplicate_of: ISSUE, github_issue_number: ISSUE, github_issue_url: issueUrl, github_error: null });
-    expect(calls().map((c) => `${c.method} ${c.url.replace("https://api.github.com/repos/imran443/yugioh-bot", "")}`)).toEqual([`GET /issues/${ISSUE}`, `POST /issues/${ISSUE}/comments`]);
+    expect(calls().map((c) => `${c.method} ${c.url.replace("https://api.github.com/repos/DuelingDomain/yugioh-bot", "")}`)).toEqual([`GET /issues/${ISSUE}`, `POST /issues/${ISSUE}/comments`]);
     const [comment] = comments();
     expect(comment!.body.body.startsWith("**+1** from `Report #1`")).toBe(true);
     expect(comment!.body.body).toContain("https://duel.example.com/duels/duel-a/replay");
@@ -496,6 +501,28 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     ).run(GUILD, ISSUE, issueUrl, ISSUE);
     const POST = await route();
     expect((await POST(post(body({ duplicateOf: ISSUE })))).status).toBe(409);
+  });
+
+  it("records and logs the GitHub lookup error when a saved issue takes a +1 without a comment", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("BUG_REPORT_GITHUB_REPO", "someone/else");
+    await ownIssueFromAnotherReport();
+    github.mockResolvedValue(Response.json({ message: `Resource not accessible ${TOKEN}` }, { status: 403 }));
+    const res = await (await route())(post(body({ duplicateOf: ISSUE })));
+    expect(await res.json()).toEqual({ id: 2, issue: { number: ISSUE, url: "https://github.com/someone/else/issues/50" }, duplicate: true });
+    expect((await rows())[1]).toMatchObject({ github_error: "GitHub answered 403: Resource not accessible [token]; no comment was added" });
+    expect(JSON.stringify(warn.mock.calls)).toContain("GitHub answered 403: Resource not accessible [token]");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
+    expect(comments()).toHaveLength(0);
+  });
+
+  it("logs GitHub's status and message when the duplicate target is missing or inaccessible", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    github.mockResolvedValue(Response.json({ message: `Not Found ${TOKEN}` }, { status: 404 }));
+    expect((await (await route())(post(body({ duplicateOf: ISSUE })))).status).toBe(409);
+    expect(warn).toHaveBeenCalledWith("[api/bug-reports] issue #50 cannot take a report: GitHub answered 404: Not Found [token]");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
+    expect(await rows()).toHaveLength(0);
   });
 
   it("keeps the report linked when the comment fails, and stores the error without the token", async () => {

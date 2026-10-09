@@ -13,7 +13,7 @@ import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 const fetchMock = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
-  fetchMock.mockImplementation(async (url: string) => String(url).endsWith("/precheck") ? new Response(JSON.stringify({ knownLimits: [], duplicates: [] })) : new Response(JSON.stringify({ id: 4, issue: { number: 77, url: "https://github.com/imran443/yugioh-bot/issues/77" } }), { status: 200 }));
+  fetchMock.mockImplementation(async (url: string) => String(url).endsWith("/precheck") ? new Response(JSON.stringify({ knownLimits: [], duplicates: [] })) : new Response(JSON.stringify({ id: 4, issue: { number: 77, url: "https://github.com/DuelingDomain/yugioh-bot/issues/77" } }), { status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
   window.history.replaceState(null, "", "/leaderboard");
 });

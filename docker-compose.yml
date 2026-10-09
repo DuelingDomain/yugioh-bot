@@ -91,7 +91,7 @@ services:
       - MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-1}
       # In-app Report bug button: the web server opens a GitHub issue per report. Without a token the report is only saved.
       - BUG_REPORT_GITHUB_TOKEN=${BUG_REPORT_GITHUB_TOKEN:-}
-      - BUG_REPORT_GITHUB_REPO=${BUG_REPORT_GITHUB_REPO:-imran443/yugioh-bot}
+      - BUG_REPORT_GITHUB_REPO=${BUG_REPORT_GITHUB_REPO:-DuelingDomain/yugioh-bot}
     volumes:
       - ./data:/app/data
     depends_on:

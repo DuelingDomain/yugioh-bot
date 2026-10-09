@@ -42,7 +42,7 @@ beforeEach(() => {
   window.localStorage.clear();
   vi.stubGlobal("ResizeObserver", RO);
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-  fetchMock.mockImplementation(async (url: string) => String(url).endsWith("/precheck") ? new Response(JSON.stringify({ knownLimits: [], duplicates: [] })) : new Response(JSON.stringify({ id: 12, issue: { number: 345, url: "https://github.com/imran443/yugioh-bot/issues/345" } }), { status: 200 }));
+  fetchMock.mockImplementation(async (url: string) => String(url).endsWith("/precheck") ? new Response(JSON.stringify({ knownLimits: [], duplicates: [] })) : new Response(JSON.stringify({ id: 12, issue: { number: 345, url: "https://github.com/DuelingDomain/yugioh-bot/issues/345" } }), { status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -75,7 +75,7 @@ async function reportFromMenu(expected: { format: string; seat: number | null; s
   fireEvent.change(screen.getByLabelText(/What did you expect\?/), { target: { value: "The chain resolves." } });
   await act(async () => { fireEvent.click(send); });
   await waitFor(() => expect(screen.getByTestId("bug-report-done")).toBeTruthy());
-  expect(screen.getByRole("link", { name: "#345" })).toHaveAttribute("href", "https://github.com/imran443/yugioh-bot/issues/345");
+  expect(screen.getByRole("link", { name: "#345" })).toHaveAttribute("href", "https://github.com/DuelingDomain/yugioh-bot/issues/345");
 
   // The room's developer report button may also ask the server; only the bug report call counts here.
   const calls = fetchMock.mock.calls.filter((call) => call[0] === "/api/bug-reports");

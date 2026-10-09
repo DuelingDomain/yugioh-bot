@@ -39,7 +39,7 @@ describe("Report bug in the app shell", () => {
   });
 
   it("opens a page report from the account menu and sends it with the path only", async () => {
-    const send = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ id: 2, issue: { number: 9, url: "https://github.com/imran443/yugioh-bot/issues/9" } }), { status: 200 }));
+    const send = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ id: 2, issue: { number: 9, url: "https://github.com/DuelingDomain/yugioh-bot/issues/9" } }), { status: 200 }));
     const base = global.fetch;
     global.fetch = vi.fn((url: string, init?: RequestInit) => (url === "/api/bug-reports" ? send(url, init) : url === "/api/bug-reports/precheck" ? Promise.resolve(Response.json({ knownLimits: [], duplicates: [] })) : (base as typeof fetch)(url, init))) as unknown as typeof fetch;
     render(<AppShell><p>page</p></AppShell>);
