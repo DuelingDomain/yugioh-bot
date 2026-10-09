@@ -103,14 +103,16 @@ describe("Main Deck picks per player", () => {
     } finally { app.db.close(); }
   });
 
-  it("counts only Main cards from an authored mixed pool when the cap is set", () => {
+  it("keeps Extra monsters in Main packs when separate Extra rounds are off", () => {
     const app = setup(2, 80);
     try {
       const draft = app.create({ cubeCardIds: [...app.main, ...app.extra], packSize: 24, cardsPerPlayer: 40, extraDeckEnabled: false });
       app.drafts.start(draft.id);
-      expect(app.db.prepare("select count(*) as n from draft_deal where draft_id = ? and catalog_card_id > 1000").get(draft.id)).toEqual({ n: 0 });
+      const dealtExtra = app.db.prepare("select count(*) as n from draft_deal where draft_id = ? and catalog_card_id > 1000").get(draft.id) as { n: number };
+      expect(dealtExtra.n).toBeGreaterThan(0);
       finish(app, draft.id, 40);
-      for (const player of app.players) expect(app.drafts.pool(draft.id, player).filter((card) => card.catalogCardId < 1000)).toHaveLength(40);
+      for (const player of app.players) expect(app.drafts.pool(draft.id, player)).toHaveLength(40);
+      expect(app.players.flatMap((player) => app.drafts.pool(draft.id, player)).some((card) => card.catalogCardId > 1000)).toBe(true);
     } finally { app.db.close(); }
   });
 

@@ -608,6 +608,8 @@ export function createDraftService(
 
   const resolveMainCardIds = (config: DraftConfig): number[] => {
     const ids = config.cubeCardIds?.length ? config.cubeCardIds : config.poolCardIds?.length ? config.poolCardIds : catalogCardIdsForDraft(config);
+    // Without a separate Extra round, authored mixed pools keep Extra monsters in the passing packs.
+    if (!boosterExtraSize(config)) return ids;
     const extra = new Set((db.prepare("select ygoprodeck_id, type, frame_type from card_catalog").all() as CatalogRow[])
       .filter(isExtraDeckCatalogRow).map((row) => row.ygoprodeck_id));
     return ids.filter((id) => !extra.has(id));
