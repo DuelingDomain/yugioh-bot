@@ -84,7 +84,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Only the draft creator can cancel or delete a draft" }, { status: 403 });
     }
 
-    if (draft.status === DRAFT_STATUS.completed) {
+    if (draft.status === DRAFT_STATUS.completed || draft.status === DRAFT_STATUS.cancelled) {
       db.transaction(() => {
         db.prepare("delete from draft_passes where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_picks where draft_id = ?").run(draft.id);

@@ -134,21 +134,24 @@ describe("DELETE /api/drafts/[slug]", () => {
     db.close();
   });
 
-  it("retains an already cancelled draft and its roster", async () => {
-    const draft = await createCompletedDraftWithDeal("cancelled");
+  it("deletes a cancelled draft with pass rows", async () => {
+    const draft = await createCompletedDraftWithDeal("cancelled", true);
     const { DELETE } = await import("../app/api/drafts/[slug]/route");
     const response = await DELETE(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "DELETE" }),
       { params: Promise.resolve({ slug: draft.webSlug! }) });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ id: draft.id, status: "cancelled" });
+    expect(await response.json()).toEqual({ deleted: true });
     const Database = (await import("better-sqlite3")).default;
     const db = new Database(process.env.DATABASE_PATH!);
-    expect(db.prepare("select status from drafts where id = ?").get(draft.id)).toEqual({ status: "cancelled" });
-    expect(db.prepare("select count(*) as n from draft_players where draft_id = ?").get(draft.id)).toEqual({ n: 1 });
+    expect(db.prepare("select id from drafts where id = ?").get(draft.id)).toBeUndefined();
+    for (const table of ["draft_deal", "draft_passes", "draft_players"]) {
+      expect(db.prepare(`select count(*) as n from ${table} where draft_id = ?`).get(draft.id)).toEqual({ n: 0 });
+    }
+    expect(db.pragma("foreign_key_check")).toEqual([]);
     db.close();
   });
 
-  it.each(["pending", "active"])("makes double DELETE of a %s draft an idempotent cancellation", async status => {
+  it.each(["pending", "active"])("cancels a %s draft on the first DELETE and deletes it on the second", async status => {
     const draft = await createCompletedDraftWithDeal(status, true);
     const { DELETE } = await import("../app/api/drafts/[slug]/route");
     const call = () => DELETE(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "DELETE" }),
@@ -158,12 +161,16 @@ describe("DELETE /api/drafts/[slug]", () => {
     expect(await first.json()).toMatchObject({ id: draft.id, status: "cancelled" });
     const Database = (await import("better-sqlite3")).default;
     const db = new Database(process.env.DATABASE_PATH!);
-    const before = db.prepare("select * from drafts where id = ?").get(draft.id);
+    expect(db.prepare("select status from drafts where id = ?").get(draft.id)).toEqual({ status: "cancelled" });
+    expect(db.prepare("select count(*) as n from draft_players where draft_id = ?").get(draft.id)).toEqual({ n: 1 });
+    for (const table of ["draft_deal", "draft_passes", "draft_picks"]) {
+      expect(db.prepare(`select count(*) as n from ${table} where draft_id = ?`).get(draft.id)).toEqual({ n: 0 });
+    }
     const second = await call();
     expect(second.status).toBe(200);
-    expect(await second.json()).toMatchObject({ id: draft.id, status: "cancelled" });
-    expect(db.prepare("select * from drafts where id = ?").get(draft.id)).toEqual(before);
-    expect(db.prepare("select count(*) as n from draft_players where draft_id = ?").get(draft.id)).toEqual({ n: 1 });
+    expect(await second.json()).toEqual({ deleted: true });
+    expect(db.prepare("select id from drafts where id = ?").get(draft.id)).toBeUndefined();
+    expect(db.prepare("select count(*) as n from draft_players where draft_id = ?").get(draft.id)).toEqual({ n: 0 });
     for (const table of ["draft_deal", "draft_passes", "draft_picks"]) {
       expect(db.prepare(`select count(*) as n from ${table} where draft_id = ?`).get(draft.id)).toEqual({ n: 0 });
     }
