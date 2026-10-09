@@ -336,3 +336,55 @@
   /* The panel's height is short: the "hover to read" line gives its row to the cards (the peek still opens on hover and focus). */
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .hint { display: none; }
 }
+
+/*
+ * A chain response in its own room (the stage css sets --sr-card, the width of a tile, about twice the 65px tile of the pair box):
+ * the same wrapping grid as the card picks, on any host. The grid scrolls up and down inside the panel, so every card can be
+ * reached and the title and the buttons stay in view.
+ */
+:global([data-strip-room]) .wrap[data-tone="chain"] {
+  --cs-u: 1px;
+  --cs-w: var(--sr-card, 130px);
+  --cs-gap: 12px;
+  --cs-pad-x: 14px;
+  --cs-pad-top: 12px;
+  --cs-pad-bottom: 4px;
+  --cs-fade: 28px;
+  flex: 1 1 auto;
+}
+:global([data-strip-room]) .wrap[data-tone="chain"] .frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+:global([data-strip-room]) .wrap[data-tone="chain"] .strip {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, var(--cs-w));
+  width: calc(var(--cs-n, 1) * var(--cs-w) + (var(--cs-n, 1) - 1) * var(--cs-gap) + 2 * var(--cs-pad-x));
+  max-width: 100%;
+  margin-inline: auto;
+  column-gap: var(--cs-gap);
+  flex-wrap: wrap;
+  align-content: start;
+  justify-content: center;
+  row-gap: 18px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+  scroll-snap-type: none;
+  scroll-padding-block: 14px;
+  --cs-fade-t: 0px;
+  --cs-fade-b: 0px;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 var(--cs-fade-t), #000 calc(100% - var(--cs-fade-b)), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 var(--cs-fade-t), #000 calc(100% - var(--cs-fade-b)), transparent 100%);
+}
+:global([data-strip-room]) .wrap[data-tone="chain"] .strip::-webkit-scrollbar { display: none; }
+:global([data-strip-room]) .wrap[data-tone="chain"] .frame[data-up="true"] .strip { --cs-fade-t: var(--cs-fade); }
+:global([data-strip-room]) .wrap[data-tone="chain"] .frame[data-down="true"] .strip { --cs-fade-b: var(--cs-fade); }
+:global([data-strip-room]) .wrap[data-tone="chain"] .cell:first-child,
+:global([data-strip-room]) .wrap[data-tone="chain"] .cell:last-child { margin-inline: 0; }
+:global([data-strip-room]) .wrap[data-tone="chain"] .hint { display: none; }

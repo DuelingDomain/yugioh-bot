@@ -1316,3 +1316,38 @@
   grid-template-rows: var(--z);
   height: var(--z);
 }
+
+/*
+ * A chain response whose options are all cards ("You can respond") has a room of its own (strip-room.ts, published as --sr-*): large cards,
+ * wholly inside the viewport, off the plates and the hub. It scrolls inside the panel when the cards do not fit. The tripled attribute outranks
+ * the panel's own rules. The room is measured at rest (use-strip-room.ts): the panel waits, hidden, so it never shows at the wrong place first.
+ */
+.viewport[data-strip-room][data-strip-room][data-strip-room] :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) {
+  --duel-unit: 1px;
+  --duel-t-xs: calc(12px * var(--tt, 1));
+  --duel-t-sm: calc(13px * var(--tt, 1));
+  --duel-t-body: calc(14px * var(--tt, 1));
+  --duel-t-head: calc(15px * var(--tt, 1));
+  --pc-title: calc(18px * var(--tt, 1));
+  --pc-sub: calc(14px * var(--tt, 1));
+  inset: var(--sr-y) auto calc(100% - var(--sr-y) - var(--sr-h)) var(--sr-x);
+  translate: none;
+  margin: auto 0;
+  width: var(--sr-w);
+  min-width: 0;
+  max-width: none;
+  height: fit-content;
+  max-height: var(--sr-h);
+  overflow: hidden;
+}
+.viewport[data-strip-room][data-strip-room][data-strip-room] :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) > :global(:not([data-strip-wrap])) {
+  flex-shrink: 0;
+}
+.viewport[data-strip-room][data-strip-room][data-strip-room] :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) > :global([data-strip-wrap]) {
+  flex: 1 1 auto;
+  flex-shrink: 1;
+  min-height: 0;
+}
+.viewport[data-strip-pending][data-strip-pending] :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) {
+  visibility: hidden;
+}

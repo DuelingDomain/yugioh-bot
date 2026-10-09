@@ -13,6 +13,7 @@ import { onCrumbleStart } from "./crumble-gate";
 import { watchMeasure } from "./measure-watch";
 import { BAR_HUD, promptUnit } from "./grid-stage";
 import { planPickBarRoom } from "./pick-bar-room";
+import { isChainStripPrompt } from "../prompt-center";
 import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
@@ -24,6 +25,9 @@ import { useFlyWorld } from "./use-fly-world";
 import { GLIDE_MS, useSeatExits } from "./use-seat-exits";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
 import { ROOF_ZOOM_MS } from "../tag/roof-camera";
+import { zoneKey } from "../constants";
+import { sameRects, type Rect } from "./rect-util";
+import { useStripRoom } from "./use-strip-room";
 import { ViewReset } from "./view-reset";
 import { clearRoom, FOLLOW_ATTR, fitItemRect, fitRoom, followShift, VIEW_IDENTITY, type FitItem, type View } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
@@ -38,14 +42,6 @@ export function tiltSupersample(k: number): number {
   return Math.min(4, Math.max(1.5, Math.round(k * 2 * 4) / 4));
 }
 
-interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-const sameRects = (a: readonly Rect[], b: readonly Rect[]) =>
-  a.length === b.length && a.every((r, i) => r.x === b[i].x && r.y === b[i].y && r.width === b[i].width && r.height === b[i].height);
 /** How long after a change the targets are measured again: the regroup glide and the crumble are over by then. */
 const SETTLE_MS = 1500;
 
@@ -75,6 +71,12 @@ function edgeHint(centre: { x: number; y: number }, box: { width: number; height
 const HUD_AIR = 8;
 /** The least size of a prompt room that still holds the seat choice (px). */
 const PANEL_MIN = { width: 220, height: 170 } as const;
+/** The HUD a chain-response panel keeps off unless the box leaves no place: the life plates, the phase strip and ring, the Reset control, the top bar. */
+/** The rest of the HUD a chain-response panel keeps off while a place exists: it draws over the panel (the corners, the chain banner, the plates, the chip). */
+/** The turn actions and the response switch (bottom right): the panel keeps off them. */
+const STRIP_CONTROLS_HUD = "[data-testid='hud-corner']";
+const STRIP_SOFT_HUD = "[data-grid-controls], [data-camera-panel], [data-testid='hud-master'], [data-opponent-bar], [data-table-chrome], [data-camera-chip], [data-chain-panel], [data-testid='chain-tower']";
+const KEY_HUD = "[data-holo], [data-hub-slot], [data-turn-ring], [data-view-reset], [data-testid='hud-top']";
 /** The card pinned in the peek (the fit keeps clear of it). */
 const PINNED_PEEK = '[data-testid="hover-preview"][data-pinned="true"]';
 /** The most a chip takes (the CSS max-width, 152 px, keeps it inside the box at the nearest it sits to a side edge). */
@@ -431,8 +433,31 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     return planPickBarRoom({ box, targets, hand: handRect, hud: pinnedRect ? [...hudRects, pinnedRect] : hudRects, cards });
   }, [floating, zoom.zoomed, handRect, nearBox, targets, cards, hudRects, pinnedRect, box]);
 
+  // The chain-response panel (every option a card): a wide room of its own, big enough for large cards, wholly inside the box, off the HUD,
+  // the chain's cards and your hand (it may cover the field). At home it starts from the middle of your field, in your own zoom from the middle
+  // of the box. It is measured and planned at rest, once (use-strip-room.ts); the camera never moves for it.
+  const stripCount = controller.prompt && isChainStripPrompt(controller.prompt) ? controller.prompt.options.length : 0;
+  const stripAnchor = useMemo(() => (nearBox ? { x: nearBox.x + nearBox.width / 2, y: nearBox.y + nearBox.height / 2 } : undefined), [nearBox]);
+  const sourceKeys = useMemo(() => engine.chain.flatMap((link) => (link.zone ? [zoneKey(link.zone.controller, link.zone.location, link.zone.sequence)] : [])), [engine.chain]);
+  const { room: stripRoom, pending: stripPending } = useStripRoom({
+    rootRef,
+    active: floating && stripCount > 0,
+    promptId: controller.prompt?.id ?? "",
+    count: stripCount,
+    box,
+    anchor: stripAnchor,
+    keyHud: KEY_HUD,
+    controlsHud: STRIP_CONTROLS_HUD,
+    softHud: STRIP_SOFT_HUD,
+    hand: `${OWN_HAND} [data-hand-card]`,
+    sourceKeys,
+    extraHud: pinnedRect,
+    viewKey: `${zoom.zoomed ? 1 : 0}|${ownZoom ? 1 : 0}|${handMoves}|${regroup ? 1 : 0}|${Math.round(zoom.view.s * 100)}|${Math.round(zoom.view.x)},${Math.round(zoom.view.y)}`,
+  });
+  const stripKey = stripRoom ? `${stripRoom.x},${stripRoom.y},${stripRoom.width},${stripRoom.height}` : "";
+
   // A prompt that opens, closes or moves changes the HUD insets: the view eases into the new clamps (no gap stays).
-  const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${controller.seatPick ? 1 : 0}|${barRoom ?? ""}|${rooms?.panel ? `${rooms.panel.x},${rooms.panel.y}` : ""}|${rivalHints.map((h) => h.seat).join(",")}`;
+  const hudKey = `${controller.prompt?.id ?? ""}|${promptCenter ? 1 : 0}|${overlay ? 1 : 0}|${controller.seatPick ? 1 : 0}|${barRoom ?? ""}|${stripKey}|${rooms?.panel ? `${rooms.panel.x},${rooms.panel.y}` : ""}|${rivalHints.map((h) => h.seat).join(",")}`;
   const { refit } = zoom;
   useEffect(() => {
     const frame = window.requestAnimationFrame(refit);
@@ -682,7 +707,9 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-room-snug={rooms?.panel && !nearBox && (rooms.panel.width < 262 || rooms.panel.height < 300) ? "true" : undefined}
       data-bar-clamp={barRoom ? "true" : undefined}
       data-bar-room={barRoom ?? (rooms?.bar ? `${rooms.bar.x},${rooms.bar.y},${rooms.bar.width},${rooms.bar.height}` : undefined)}
-      style={rooms?.panel && !nearBox ? ({ "--room-x": `${rooms.panel.x}px`, "--room-y": `${rooms.panel.y}px`, "--room-w": `${rooms.panel.width}px`, "--room-h": `${rooms.panel.height}px` } as CSSProperties) : undefined}
+      data-strip-room={stripRoom ? "true" : undefined}
+      data-strip-pending={stripPending ? "true" : undefined}
+      style={stripRoom || (rooms?.panel && !nearBox) ? ({ ...(stripRoom ? { "--sr-x": `${stripRoom.x}px`, "--sr-y": `${stripRoom.y}px`, "--sr-w": `${stripRoom.width}px`, "--sr-h": `${stripRoom.height}px`, "--sr-card": `${stripRoom.card}px` } : {}), ...(rooms?.panel && !nearBox ? { "--room-x": `${rooms.panel.x}px`, "--room-y": `${rooms.panel.y}px`, "--room-w": `${rooms.panel.width}px`, "--room-h": `${rooms.panel.height}px` } : {}) } as CSSProperties) : undefined}
     >
       <div ref={canvasRef} className={styles.canvas} style={canvas} data-fly-capable={threeWay ? "true" : undefined}>
         {threeWay ? (

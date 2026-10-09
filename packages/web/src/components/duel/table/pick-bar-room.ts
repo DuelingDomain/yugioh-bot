@@ -1,11 +1,7 @@
 import { PICK_BAR } from "./grid-stage";
+import { along, coverTable, grow, handReach, hits, overlap, type Rect } from "./rect-util";
 
-interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export { handReach };
 
 /** Widths tried after the full one: the bar stacks its text and buttons below PICK_BAR.row. */
 const NARROW = [380, 340, 300, 260, 220];
@@ -13,9 +9,6 @@ const NARROW = [380, 340, 300, 260, 220];
 const STEP = 16;
 /** A narrower bar costs this much (px of distance to the middle) per step: it wins only where it is clearly nearer the middle. */
 const WIDTH_COST = 40;
-/** A raised hand card grows about this much of the hand's height above the hand, and this much of it to each side. */
-const HAND_RISE = 1.15;
-const HAND_SIDE = 0.4;
 /** Keep off a card on the board by this much (px): the bar never sits on its border or its glow. */
 const CARD_AIR = 4;
 
@@ -30,20 +23,6 @@ export interface PickBarInput {
   hud?: readonly Rect[];
   /** Every card on the board, targets or not: the bar keeps off them while a clear place exists. */
   cards?: readonly Rect[];
-}
-
-const hits = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-
-const overlap = (a: Rect, b: Rect) =>
-  Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
-
-const grow = (r: Rect, pad: number): Rect => ({ x: r.x - pad, y: r.y - pad, width: r.width + 2 * pad, height: r.height + 2 * pad });
-
-/** The hand with the room a raised card takes: a band above it and a margin at its sides. The bar keeps off all of it. */
-export function handReach(hand: Rect): Rect {
-  const rise = hand.height * HAND_RISE;
-  const side = hand.height * HAND_SIDE;
-  return { x: hand.x - side, y: hand.y - rise, width: hand.width + 2 * side, height: hand.height + rise };
 }
 
 /** The size of the bar for a width: a row, or stacked below PICK_BAR.row. */
@@ -87,30 +66,7 @@ export function planPickBarRoom(input: PickBarInput): string | undefined {
   const cy = box.height / 2;
   // A sum table of the grid cells that lie wholly inside a target or the hand: a room that touches one covers it, found in O(1). The
   // search starts at the middle and, in a box full of targets, would otherwise test every place against every block.
-  const cols = Math.ceil(box.width / STEP);
-  const rows = Math.ceil(box.height / STEP);
-  const sums = new Int32Array((cols + 1) * (rows + 1));
-  for (const block of must) {
-    const c0 = Math.max(0, Math.ceil(block.x / STEP));
-    const c1 = Math.min(cols, Math.floor((block.x + block.width) / STEP));
-    const r0 = Math.max(0, Math.ceil(block.y / STEP));
-    const r1 = Math.min(rows, Math.floor((block.y + block.height) / STEP));
-    for (let r = r0; r < r1; r += 1) for (let c = c0; c < c1; c += 1) sums[(r + 1) * (cols + 1) + c + 1] = 1;
-  }
-  for (let r = 1; r <= rows; r += 1) {
-    for (let c = 1; c <= cols; c += 1) {
-      const at = r * (cols + 1) + c;
-      sums[at] += sums[at - 1] + sums[at - (cols + 1)] - sums[at - (cols + 1) - 1];
-    }
-  }
-  const covered = (x: number, y: number, width: number, height: number) => {
-    const c0 = Math.max(0, Math.floor(x / STEP));
-    const c1 = Math.min(cols, Math.ceil((x + width) / STEP));
-    const r0 = Math.max(0, Math.floor(y / STEP));
-    const r1 = Math.min(rows, Math.ceil((y + height) / STEP));
-    const w = cols + 1;
-    return sums[r1 * w + c1] - sums[r0 * w + c1] - sums[r1 * w + c0] + sums[r0 * w + c0] > 0;
-  };
+  const covered = coverTable(box, must, STEP);
   /** The strictest tier a room passes: 0 all of them, 1 not the cards, 2 not the HUD, -1 none (it covers a target or the hand). */
   const tierOf = (room: Rect) => {
     for (const block of must) if (hits(room, block)) return -1;
@@ -118,20 +74,13 @@ export function planPickBarRoom(input: PickBarInput): string | undefined {
     for (const block of cards) if (hits(room, block)) return 1;
     return 0;
   };
-  /** The places along one axis, nearest the middle first. */
-  const along = (low: number, high: number, size: number, centre: number, step: number = STEP) => {
-    const out: number[] = [];
-    for (let v = low; v < high; v += step) out.push(v);
-    out.push(high);
-    return out.sort((a, b) => Math.abs(a + size / 2 - centre) - Math.abs(b + size / 2 - centre));
-  };
   const best: (Rect | null)[] = [null, null, null];
   const bestScore = [Infinity, Infinity, Infinity];
   widths.forEach((width, step) => {
     const cost = step * WIDTH_COST;
     const height = Math.min(heightOf(width), box.height - 2 * edge);
-    const xs = along(edge, Math.max(edge, box.width - width - edge), width, cx);
-    const ys = along(edge, Math.max(edge, box.height - height - edge), height, cy);
+    const xs = along(edge, Math.max(edge, box.width - width - edge), width, cx, STEP);
+    const ys = along(edge, Math.max(edge, box.height - height - edge), height, cy, STEP);
     for (const y of ys) {
       const dy = y + height / 2 - cy;
       if (Math.abs(dy) + cost >= bestScore[0]) break;

@@ -386,6 +386,50 @@
 }
 
 /*
+ * A chain response whose options are all cards ("You can respond") has a room of its own (strip-room.ts, published as --sr-*): wide
+ * enough for large cards, wholly inside the box, off the HUD and your hand. It may cover the field. The panel sits in the room, centred
+ * between its top and bottom, and the card grid scrolls inside it when the cards do not fit. Home and own zoom use the same rules. The
+ * tripled attribute outranks the panel-room, snug and prompt-center rules above.
+ */
+.board[data-strip-room][data-strip-room][data-strip-room] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) {
+  --duel-unit: 1px;
+  --duel-t-xs: calc(12px * var(--tt, 1));
+  --duel-t-sm: calc(13px * var(--tt, 1));
+  --duel-t-body: calc(14px * var(--tt, 1));
+  --duel-t-head: calc(15px * var(--tt, 1));
+  --pc-title: calc(18px * var(--tt, 1));
+  --pc-sub: calc(14px * var(--tt, 1));
+  inset: var(--sr-y) auto calc(100% - var(--sr-y) - var(--sr-h)) var(--sr-x);
+  translate: none;
+  margin: auto 0;
+  width: var(--sr-w);
+  min-width: 0;
+  max-width: none;
+  height: fit-content;
+  max-height: var(--sr-h);
+  overflow: hidden;
+}
+.board[data-strip-room][data-strip-room][data-strip-room] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) > :global(:not([data-strip-wrap])) {
+  flex-shrink: 0;
+}
+.board[data-strip-room][data-strip-room][data-strip-room] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) > :global([data-strip-wrap]) {
+  flex: 1 1 auto;
+  flex-shrink: 1;
+  min-height: 0;
+}
+
+/* The camera chip and the other overlay controls sit in the overlay slot, after this one: the room panel stands over them, never under.
+   Not while a dialog of that slot is open (the pile viewer and its scrim): the slot keeps its own order then, and the dialog stands over the panel. */
+.board[data-strip-room]:not(:has([data-pile-viewer])) .slot[data-slot="prompt"]:not([data-seat-pick]) {
+  z-index: 51;
+}
+
+/* The room is measured at rest (use-strip-room.ts): the panel waits, hidden, so it never shows at the wrong place first. */
+.board[data-strip-pending][data-strip-pending] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"][data-strip="true"]:not([data-precheck])) {
+  visibility: hidden;
+}
+
+/*
  * A rival's hand backs hang off the owner's back edge. In a 1v1 they tuck half behind the field; on a table of 3 or
  * 4 a rival field is read closely (focus, look), so the backs sit nearly outside the box and never cover its top row
  * of zones. One `data-hand-seat` per seat stays: the effects aim at it.

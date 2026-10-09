@@ -1,6 +1,6 @@
 import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { ev, MZ, SZ } from "../../fx-lab/board";
-import { LOCATION_HAND, LOCATION_MZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
+import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
 import {
   fixtureEngine,
   fixtureLog,
@@ -9,6 +9,7 @@ import {
   newSeat,
   putMonster,
   putSpell,
+  respondPrompt,
   TABLE_CARDS as C,
   searchPrompt,
   withHiddenHands,
@@ -280,8 +281,31 @@ const banishPrompt = (id: string) => (): DuelPrompt => ({
   ],
 });
 
+/** A title that wraps on three or four lines: the panel's header is taller than its usual estimate (Back and Pass must stay in view). */
+const LONG_TITLE = `${NAMES[MIKA]} activated ${C.callOfTheHaunted.name} and the chain now holds two links that target the monsters on both sides of the table. Your hand has more than one answer: pick the one you want to respond with, or pass and let the chain resolve in order. Respond?`;
+
+/** "You can respond" with `count` cards to activate (`?state=respond-<count>`): the card-choice panel of a chain response. */
+const respondState = (count: number, long = false) => {
+  const id = long ? `respond-long-${count}` : `respond-${count}`;
+  return make(id as TableStateId, `Respond: ${count} cards`, {
+    phase: "battle",
+    battleStep: "battle",
+    edit: (seats) => {
+      putSpell(seats[RYO], 1, C.mirrorForce);
+      putSpell(seats[MIKA], 0, C.callOfTheHaunted);
+    },
+    chain: [{ ...link(1, RYO, C.mirrorForce), zone: { controller: RYO, location: LOCATION_SZONE, sequence: 1 } }, { ...link(2, MIKA, C.callOfTheHaunted), zone: { controller: MIKA, location: LOCATION_SZONE, sequence: 0 } }],
+    prompt: () => respondPrompt(REN, count, long ? LONG_TITLE : `${NAMES[MIKA]} activated ${C.callOfTheHaunted.name}. Respond?`),
+  });
+};
+
 /** States only the FFA3 preview shows (`?state=<id>`). */
 const extra = {
+  "respond-2": respondState(2),
+  "respond-5": respondState(5),
+  "respond-10": respondState(10),
+  "respond-14": respondState(14),
+  "respond-long-5": respondState(5, true),
   // A field-select bar over cards in your hand and on your field (the Banish cost of a summon).
   "banish-pick": make("banish-pick" as TableStateId, "Banish: select a card", { prompt: banishPrompt("banish-pick") }),
   // The same pick while a chain is open: the chain tower stands at the side of the board.
