@@ -126,7 +126,7 @@ services:
       - DUEL_FX_LAB=${DUEL_FX_LAB:-0}
       - DRAFT_TEST_BOTS=${DRAFT_TEST_BOTS:-0}
       - BUG_REPORT_GITHUB_TOKEN=${BUG_REPORT_GITHUB_TOKEN:-}
-      - BUG_REPORT_GITHUB_REPO=${BUG_REPORT_GITHUB_REPO:-imran443/yugioh-bot}
+      - BUG_REPORT_GITHUB_REPO=${BUG_REPORT_GITHUB_REPO:-DuelingDomain/yugioh-bot}
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET:?WS_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
       - DUEL_INTERNAL_URL=http://duel:4003

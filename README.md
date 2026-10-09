@@ -172,8 +172,8 @@ Source attribution: [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm), [EDOP
 | `NEXT_PUBLIC_WS_URL` | No (dev only) | Separate browser WebSocket URL, e.g. `http://localhost:3001`; production uses page origin |
 | `WS_INTERNAL_SECRET` | Yes (web + duel + worker + ws) | Shared HMAC secret for broadcasts and room tokens; generate with `openssl rand -hex 32` |
 | `WS_INTERNAL_URL` | Yes (web + duel + worker) | Internal WS URL; `http://ws:4002` in Compose |
-| `BUG_REPORT_GITHUB_TOKEN` | No (web runtime) | Server-side token for issue creation; empty keeps reports local |
-| `BUG_REPORT_GITHUB_REPO` | No | Defaults to `imran443/yugioh-bot` |
+| `BUG_REPORT_GITHUB_TOKEN` | No (web runtime) | Server-side token for issue creation; fine-grained PATs need resource owner `DuelingDomain`, Issues write access and org approval if required; empty keeps reports local |
+| `BUG_REPORT_GITHUB_REPO` | No | Defaults to `DuelingDomain/yugioh-bot` |
 | `DUEL_FX_LAB`, `DUEL_SCENARIOS`, `DRAFT_TEST_BOTS` | No | Server feature gates; staging enables scenarios only |
 | `E2E_AUTH`, `E2E_AUTH_SECRET` | Isolated E2E only | Literal `1` and ≥32-character secret enable signed-cookie test login; absent from production/staging Compose |
 | `DUEL_INTERNAL_SECRET` | Yes (web + duel) | Shared HMAC secret for web → private duel host (`x-announce-signature`). Generate with `openssl rand -hex 32`. Never expose port 4003 |

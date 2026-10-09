@@ -60,14 +60,15 @@ export async function POST(request: Request) {
   }
 
   // Check the target before anything is saved, so a refused +1 costs the player nothing.
-  let target: { number: number; url: string; verified: boolean } | null = null;
+  let target: { number: number; url: string; verified: boolean; checkError?: string } | null = null;
   if (report.duplicateOf !== undefined) {
     const checked = await getOpenFromAppIssue(report.duplicateOf);
     if (checked.ok) target = { number: checked.issue.number, url: checked.issue.url, verified: true };
     else if (checked.reason === "unavailable" && reports.ownsIssue(guildId, report.duplicateOf)) {
       // GitHub cannot be asked (no token, or it failed): accept only an issue one of our reports opened, and do not comment.
-      target = { number: report.duplicateOf, url: `https://github.com/${bugReportRepo()}/issues/${report.duplicateOf}`, verified: false };
+      target = { number: report.duplicateOf, url: `https://github.com/${bugReportRepo()}/issues/${report.duplicateOf}`, verified: false, checkError: checked.error };
     } else {
+      console.warn(`[api/bug-reports] issue #${report.duplicateOf} cannot take a report: ${checked.error}`);
       return NextResponse.json({ error: "That issue is not open for reports. Send your report as a new one." }, { status: 409 });
     }
   }
@@ -113,7 +114,7 @@ export async function POST(request: Request) {
 
   if (target) {
     reports.recordIssue(saved.id, guildId, { number: target.number, url: target.url });
-    const commented = target.verified ? await commentOnIssue(target.number, issueInput, redact) : { ok: false as const, error: "GitHub could not check the issue, so no comment was added" };
+    const commented = target.verified ? await commentOnIssue(target.number, issueInput, redact) : { ok: false as const, error: `${target.checkError}; no comment was added` };
     if (!commented.ok) {
       reports.recordIssueError(saved.id, guildId, commented.error);
       console.warn(`[api/bug-reports] report ${saved.id} saved as +1 for #${target.number} without a comment: ${commented.error}`);

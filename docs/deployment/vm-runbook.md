@@ -4,7 +4,7 @@ This runbook covers deploying Dueling Domain web/WS/duel/worker to a VM. The sta
 
 ## Current Repository State
 
-- GitHub repo: `https://github.com/imran443/yugioh-bot`
+- GitHub repo: `https://github.com/DuelingDomain/yugioh-bot`
 - Production branch: `main`
 - Deploy workflow: `.github/workflows/deploy.yml`
 - VM provider: Hetzner Cloud
@@ -160,13 +160,16 @@ full report with the player id stays in the database. Each player may send 5 rep
 Set it up once:
 
 1. In GitHub open Settings, Developer settings, Personal access tokens, Fine-grained tokens, Generate new token.
-   Resource owner `imran443`, repository access "Only select repositories" with `imran443/yugioh-bot`, repository
+   Resource owner `DuelingDomain`, repository access "Only select repositories" with `DuelingDomain/yugioh-bot`, repository
    permission **Issues: Read and write** (the Metadata read permission is added by itself). Pick an expiry and note the date.
+   The organization must allow fine-grained PATs and approve the token if its policy requires approval. After a repository
+   transfer, re-issue a token previously scoped to the personal resource owner: it cannot write to the organization's repo.
+   See [GitHub's token setup instructions](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
 2. On the VM add these lines to `/opt/yugioh-bot/.env` (the token never goes in git or in a `NEXT_PUBLIC_` name):
 
    ```bash
    BUG_REPORT_GITHUB_TOKEN=github_pat_xxxxxxxx
-   BUG_REPORT_GITHUB_REPO=imran443/yugioh-bot   # optional, this is the default
+   BUG_REPORT_GITHUB_REPO=DuelingDomain/yugioh-bot   # optional, this is the default
    ```
 
 3. Recreate only the web service so it reads the new values: `docker compose -f docker-compose.yml up -d web`.
@@ -333,7 +336,7 @@ apt install -y docker.io docker-compose-plugin git
 
 ```bash
 mkdir -p /opt && cd /opt
-git clone https://github.com/imran443/yugioh-bot.git
+git clone https://github.com/DuelingDomain/yugioh-bot.git
 cd yugioh-bot
 ```
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createBugReportService, type BugReport } from "@yugidraft/shared/services";
 import { parseBugReportRequest } from "@/lib/bug-report";
-import { listOpenFromAppIssues } from "@/lib/bug-report-github";
+import { bugReportRepo, listOpenFromAppIssues } from "@/lib/bug-report-github";
 import { candidateFromRow, isSameDuelMoment, takePrecheckSlot } from "@/lib/bug-reports/precheck";
 import { matchKnownLimits } from "@/lib/bug-reports/known-limits";
 import { formatFromTitle, rankCandidates, type DuplicateCandidate } from "@/lib/bug-reports/similarity";
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     return [who?.discord_user_id ?? "", who?.display_name ?? "", guildId];
   };
   const fromRow = (row: BugReport, sameDuel: boolean): DuplicateCandidate => ({
-    ...candidateFromRow(row, row.githubIssueUrl!, redactFor(row)),
+    ...candidateFromRow(row, `https://github.com/${bugReportRepo()}/issues/${row.githubIssueNumber}`, redactFor(row)),
     sameDuel,
   });
 
@@ -64,6 +64,7 @@ export async function POST(request: Request) {
     // Only issues GitHub shows as open: a same-duel issue that was closed since is simply not in the list.
     candidates = open.issues.map((issue) => ({ ...issue, format: formatFromTitle(issue.title), sameDuel: sameDuelNumbers.has(issue.number) }));
   } else {
+    console.warn(`[api/bug-reports/precheck] issue lookup failed: ${open.error}`);
     candidates = reports.listWithIssue(guildId).map((row) => fromRow(row, sameDuelNumbers.has(row.githubIssueNumber!)));
     // A same-duel report can be older than the newest rows that were listed.
     for (const row of sameDuelRows) {

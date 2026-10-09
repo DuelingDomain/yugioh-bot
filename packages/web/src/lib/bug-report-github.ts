@@ -1,6 +1,6 @@
 import { buildCommentBody, buildIssueBody, issueTitle, type IssueBodyInput } from "./bug-report";
 
-const DEFAULT_REPO = "imran443/yugioh-bot";
+const DEFAULT_REPO = "DuelingDomain/yugioh-bot";
 const ISSUE_LABELS = ["bug", "needs-triage", "from-app"];
 const TIMEOUT_MS = 10_000;
 
@@ -17,6 +17,29 @@ function githubHeaders(token: string): Record<string, string> {
     "User-Agent": "dueling-domain-bug-reports",
     "Content-Type": "application/json",
   };
+}
+
+/** Preserve POSTs on moved-repo redirects; fetch's automatic 301 handling would turn them into GETs. */
+async function fetchGithub(url: string, init: RequestInit): Promise<Response> {
+  for (let hops = 0; ; hops += 1) {
+    const response = await fetch(url, { ...init, redirect: "manual" });
+    if (![301, 302, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get("location");
+    await response.body?.cancel();
+    if (hops >= 3) throw new Error(`GitHub redirect ${response.status} exceeded 3 hops`);
+    if (!location) throw new Error(`GitHub redirect ${response.status} has no Location header`);
+    let next: URL;
+    try {
+      next = new URL(location, url);
+    } catch {
+      throw new Error(`GitHub redirect ${response.status} has an invalid Location header`);
+    }
+    // Keep the token inside GitHub's HTTPS API, including redirects to /repositories/:id.
+    if (next.origin !== "https://api.github.com" || next.username || next.password) {
+      throw new Error(`GitHub redirect ${response.status} points outside the trusted API`);
+    }
+    url = next.href;
+  }
 }
 
 /** The repo to file issues in. A value that is not `owner/name` falls back to the default. */
@@ -61,7 +84,7 @@ export async function createGithubIssue(input: IssueBodyInput, redact: readonly 
   const scrub = (text: string) => text.split(token).join("[token]").slice(0, 300);
 
   async function post(labels: string[] | null): Promise<Response> {
-    return fetch(url, {
+    return fetchGithub(url, {
       method: "POST",
       signal,
       headers: githubHeaders(token!),
@@ -77,9 +100,7 @@ export async function createGithubIssue(input: IssueBodyInput, redact: readonly 
       retriedWithoutLabels = true;
     }
     if (!response.ok) {
-      const detail = await response.json().then((json: unknown) =>
-        json && typeof json === "object" && "message" in json && typeof json.message === "string" ? json.message : "", () => "");
-      return { ok: false, error: scrub(`GitHub answered ${response.status}${detail ? `: ${detail}` : ""}`) };
+      return { ok: false, error: scrub(await errorDetail(response)) };
     }
     const issue = (await response.json()) as { number?: unknown; html_url?: unknown; labels?: unknown };
     if (typeof issue.number !== "number" || typeof issue.html_url !== "string") {
@@ -177,7 +198,7 @@ export async function listOpenFromAppIssues(): Promise<IssueListResult> {
 
 async function fetchOpenFromAppIssues(repo: string, token: string): Promise<IssueListResult> {
   try {
-    const response = await fetch(`https://api.github.com/repos/${repo}/issues?state=open&labels=from-app&per_page=100`, {
+    const response = await fetchGithub(`https://api.github.com/repos/${repo}/issues?state=open&labels=from-app&per_page=100`, {
       signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: githubHeaders(token),
     });
@@ -198,11 +219,11 @@ export async function getOpenFromAppIssue(number: number): Promise<IssueCheckRes
   const token = process.env.BUG_REPORT_GITHUB_TOKEN?.trim();
   if (!token) return { ok: false, reason: "unavailable", error: "BUG_REPORT_GITHUB_TOKEN is not set" };
   try {
-    const response = await fetch(`https://api.github.com/repos/${bugReportRepo()}/issues/${number}`, {
+    const response = await fetchGithub(`https://api.github.com/repos/${bugReportRepo()}/issues/${number}`, {
       signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: githubHeaders(token),
     });
-    if (response.status === 404 || response.status === 410) return { ok: false, reason: "not_eligible", error: "The issue does not exist" };
+    if (response.status === 404 || response.status === 410) return { ok: false, reason: "not_eligible", error: (await errorDetail(response)).split(token).join("[token]").slice(0, 300) };
     if (!response.ok) return { ok: false, reason: "unavailable", error: (await errorDetail(response)).split(token).join("[token]").slice(0, 300) };
     const issue = toFromAppIssue(await response.json());
     return issue ? { ok: true, issue } : { ok: false, reason: "not_eligible", error: "The issue is closed or was not filed by the app" };
@@ -216,7 +237,7 @@ export async function commentOnIssue(number: number, input: IssueBodyInput, reda
   const token = process.env.BUG_REPORT_GITHUB_TOKEN?.trim();
   if (!token) return { ok: false, error: "BUG_REPORT_GITHUB_TOKEN is not set" };
   try {
-    const response = await fetch(`https://api.github.com/repos/${bugReportRepo()}/issues/${number}/comments`, {
+    const response = await fetchGithub(`https://api.github.com/repos/${bugReportRepo()}/issues/${number}/comments`, {
       method: "POST",
       signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: githubHeaders(token),

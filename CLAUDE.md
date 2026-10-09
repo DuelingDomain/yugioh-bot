@@ -146,7 +146,7 @@ Dark-mode-first competitive UI. High-contrast card displays, crisp typography, m
 
 ### Issue tracker
 
-Issues live as GitHub issues in `imran443/yugioh-bot`, managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live as GitHub issues in `DuelingDomain/yugioh-bot`, managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
