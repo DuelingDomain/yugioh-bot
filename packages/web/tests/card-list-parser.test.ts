@@ -30,6 +30,13 @@ describe("parseCardList", () => {
     expect(parseCardList("[Extra]")).toEqual([]);
   });
 
+  it("strips the marker when a note or a count follows it", () => {
+    const entries = parseCardList("Dark Hole [Extra] (note)\nDecode Talker [Extra] x2\nCyber Dragon [Extra] (x3)\nGaia Drake [Main] (old) [Extra]\n2 Rescue Rabbit [Extra] (note)");
+    expect(entries.map(({ query, copies, pool }) => [query, copies, pool])).toEqual([
+      ["Dark Hole", 1, "extra"], ["Decode Talker", 2, "extra"], ["Cyber Dragon", 3, "extra"], ["Gaia Drake", 1, "extra"], ["Rescue Rabbit", 2, "extra"],
+    ]);
+  });
+
   it("marks counted lines so section titles and prose do not use the lookup budget first", () => {
     const entries = parseCardList("Engines\n3 Dark Hole\nDark Hole x2\nFlip Notes");
     expect(entries.map(({ query, counted }) => [query, counted ?? false])).toEqual([
