@@ -1,0 +1,90 @@
+// @vitest-environment jsdom
+import React from "react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DuelCardInfo, DuelDeck, DuelSettings } from "@yugidraft/shared/duels";
+import { DeckEditor } from "../../src/components/duel/deck-editor";
+import { canBeDeckMaster } from "../../src/components/duel/deck-card-types";
+import { TYPE_EFFECT, TYPE_FUSION, TYPE_MONSTER, TYPE_SPELL, TYPE_TRAP } from "../../src/components/duel/constants";
+
+const { validateDuelDeck, getDuelCards } = vi.hoisted(() => ({ validateDuelDeck: vi.fn(), getDuelCards: vi.fn() }));
+
+vi.mock("next/font/google", () => {
+  const font = () => ({ variable: "font-var", className: "font-class" });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
+vi.mock("../../src/components/decks/api", () => ({ listSavedDecks: vi.fn(async () => []) }));
+vi.mock("../../src/components/duel/api", async (importActual) => ({
+  ...await importActual<typeof import("../../src/components/duel/api")>(),
+  validateDuelDeck, getDuelCards, searchDuelCards: vi.fn(async () => ({ cards: [] })),
+}));
+
+const settings = { validateDeck: true } as DuelSettings;
+const MONSTER = 1001;
+const SPELL = 1002;
+const TRAP = 1003;
+const FUSION = 1004;
+
+function info(code: number, name: string, type: number): DuelCardInfo {
+  return { code, name, description: "", type, attack: 0, defense: 0, level: 4, attribute: 1, race: "Warrior" };
+}
+const CARDS = [
+  info(MONSTER, "Test Warrior", TYPE_MONSTER | TYPE_EFFECT),
+  info(SPELL, "Test Spell", TYPE_SPELL),
+  info(TRAP, "Test Trap", TYPE_TRAP),
+  info(FUSION, "Test Fusion", TYPE_MONSTER | TYPE_FUSION),
+];
+const deck: DuelDeck = { main: [MONSTER, SPELL, TRAP], extra: [FUSION], side: [] };
+
+beforeEach(() => {
+  validateDuelDeck.mockReset().mockResolvedValue({ issues: [] });
+  getDuelCards.mockReset().mockImplementation(async (codes: number[]) => ({
+    cards: CARDS.filter((card) => codes.includes(card.code)),
+    missing: [],
+  }));
+});
+afterEach(cleanup);
+
+describe("canBeDeckMaster", () => {
+  it("accepts monsters, Extra Deck monsters included, and nothing else", () => {
+    expect(canBeDeckMaster(TYPE_MONSTER | TYPE_EFFECT)).toBe(true);
+    expect(canBeDeckMaster(TYPE_MONSTER | TYPE_FUSION)).toBe(true);
+    expect(canBeDeckMaster(TYPE_SPELL)).toBe(false);
+    expect(canBeDeckMaster(TYPE_TRAP)).toBe(false);
+    expect(canBeDeckMaster(undefined)).toBe(false);
+  });
+});
+
+describe("Deck Master controls in the room deck editor", () => {
+  it("shows Master on Main and Extra monsters only, never on Spells or Traps", async () => {
+    render(<DeckEditor slug="t" mode="domain" settings={settings} initial={deck} busy={false} onReady={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "Use Test Warrior as Deck Master" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Use Test Fusion as Deck Master" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Use Test Spell as Deck Master/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Use Test Trap as Deck Master/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /as Deck Master$/ })).toHaveLength(2);
+  });
+
+  it("shows no Master control before the card types are known", async () => {
+    getDuelCards.mockImplementation(() => new Promise(() => {}));
+    render(<DeckEditor slug="t" mode="domain" settings={settings} initial={deck} busy={false} onReady={vi.fn()} />);
+    await waitFor(() => expect(getDuelCards).toHaveBeenCalled());
+    expect(screen.queryAllByRole("button", { name: /as Deck Master$/ })).toHaveLength(0);
+  });
+
+  it("shows no Master control outside Domain", async () => {
+    render(<DeckEditor slug="t" mode="normal" settings={settings} initial={deck} busy={false} onReady={vi.fn()} />);
+    await waitFor(() => expect(getDuelCards).toHaveBeenCalled());
+    expect(screen.queryAllByRole("button", { name: /as Deck Master$/ })).toHaveLength(0);
+  });
+
+  it("does not crash on a saved Spell Deck Master and shows the server problem", async () => {
+    validateDuelDeck.mockResolvedValue({
+      issues: [{ message: "Deck Master must be a playable monster card", cards: [{ section: "deckMaster", index: 0, code: SPELL, name: "Test Spell" }] }],
+    });
+    render(<DeckEditor slug="t" mode="domain" settings={settings} initial={{ ...deck, deckMaster: SPELL }} busy={false} onReady={vi.fn()} />);
+    expect((await screen.findAllByText("Deck Master must be a playable monster card")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /Use Test Spell as Deck Master/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Clear Deck Master" })).toBeInTheDocument();
+  });
+});
