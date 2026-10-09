@@ -37,11 +37,12 @@ jobs:
   staging:
     name: Staging stack on the VM
     runs-on: ubuntu-latest
+    environment: staging
     timeout-minutes: 90
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
-      VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+      HAS_VM_SSH_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY != '' }}
       VM_PORT: ${{ secrets.VM_PORT || '22' }}
       # Inputs go through the environment, never straight into a shell line.
       INPUT_REF: ${{ inputs.ref }}
@@ -60,7 +61,7 @@ jobs:
         run: |
           set -eu
           printf '%s' "$STAGING_CLERK_ENV" | grep -Eq '^/[A-Za-z0-9_./-]+$' || { echo "Invalid STAGING_CLERK_ENV path" >&2; exit 1; }
-          if [ -z "$VM_HOST" ] || [ -z "$VM_USER" ] || [ -z "$VM_SSH_PRIVATE_KEY" ]; then
+          if [ -z "$VM_HOST" ] || [ -z "$VM_USER" ] || [ "$HAS_VM_SSH_KEY" != true ]; then
             echo "The VM secrets (VM_HOST, VM_USER, VM_SSH_PRIVATE_KEY) are not set." >&2
             exit 1
           fi
@@ -210,14 +211,25 @@ jobs:
           rm -rf "$RUNNER_TEMP/staging-bundle-check"
 
       - name: Configure SSH key
+        env:
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$VM_SSH_PRIVATE_KEY" > ~/.ssh/vm_deploy_key
           chmod 600 ~/.ssh/vm_deploy_key
 
-      - name: Trust VM host key
-        run: ssh-keyscan -p "$VM_PORT" -H "$VM_HOST" >> ~/.ssh/known_hosts
+      - name: Configure pinned VM host keys
+        env:
+          VM_SSH_KNOWN_HOSTS: ${{ secrets.VM_SSH_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          if [ -z "$VM_SSH_KNOWN_HOSTS" ]; then
+            echo "Set the VM_SSH_KNOWN_HOSTS secret with the pinned VM host keys." >&2
+            exit 1
+          fi
+          printf '%s\n' "$VM_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       # remote-deploy.sh runs in /opt/yugioh-bot-staging. All values were checked in the first step.
       - name: Run on the VM
@@ -228,19 +240,19 @@ jobs:
           cleanup_transfer() {
             if [ -n "$bundle_tar" ]; then rm -f "$bundle_tar"; fi
             if [ -n "$remote_bundle" ]; then
-              ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_bundle'" || true
             fi
           }
           trap cleanup_transfer EXIT
           if [ "$INPUT_ACTION" = deploy ]; then
             bundle_tar=$(mktemp "$RUNNER_TEMP/yugidraft-staging-bundle.XXXXXX.tar.gz")
-            remote_bundle=$(ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            remote_bundle=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
               'mktemp /tmp/yugidraft-staging-bundle.XXXXXX.tar.gz')
             printf '%s' "$remote_bundle" | grep -Eq '^/tmp/yugidraft-staging-bundle\.[A-Za-z0-9]{6}\.tar\.gz$' || exit 1
             tar -C "$RUNNER_TEMP/staging-bundle" -czf "$bundle_tar" .
-            scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" "$bundle_tar" "$VM_USER@$VM_HOST:$remote_bundle"
+            scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" "$bundle_tar" "$VM_USER@$VM_HOST:$remote_bundle"
           fi
-          ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+          ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
             "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' STAGING_CLERK_ENV='$STAGING_CLERK_ENV' sh -s" \
             < scripts/staging/remote-deploy.sh
