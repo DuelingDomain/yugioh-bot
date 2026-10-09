@@ -2,7 +2,7 @@
 
 The multiplayer merge ships with two limits. Both are set by environment variables on the VM.
 
-1. 1v1 duels must not change. The owner can go back to the old engine at any time.
+1. Saved 1v1 duels keep their engine. The owner can select the engine for new duels.
 2. 3-player, 4-player and Tag tables are on in production by default (Standard and Domain; each needs its multi core).
 
 ## MULTIPLAYER_TABLES (default on in production compose)
@@ -20,7 +20,7 @@ The multiplayer merge ships with two limits. Both are set by environment variabl
 
 ## DUEL_1V1_ENGINE (`legacy` or `pinned`, default `legacy`)
 
-| Value | 1v1 Standard and Domain duels run on |
+| Value | 1v1 Standard and Domain duels run on (without a Standard override) |
 | --- | --- |
 | `legacy` (default) | main's engine from before the n-seat work: the `ocgcore-wasm` npm package core for Standard, and `ocgcore.domain.legacy.wasm` with `card-scripts/domain.legacy.lua` for Domain. The engine code is `packages/duel-server/src/legacy/`. |
 | `pinned` | the merged engine: `ocgcore.standard.wasm` and `ocgcore.domain.wasm` of the bundle. |
@@ -29,7 +29,30 @@ The multiplayer merge ships with two limits. Both are set by environment variabl
 - Tables with 3 or more seats always use the multi core. The switch does not change them.
 - `docker-compose.yml` sets `DUEL_1V1_ENGINE=${DUEL_1V1_ENGINE:-legacy}`. Staging sets `${STAGING_DUEL_1V1_ENGINE:-legacy}` so staging tests the engine that production uses. Set `STAGING_DUEL_1V1_ENGINE=pinned` to test the merged engine.
 - The deploy ships both engines. The engine bundle holds the merged and the legacy files.
-- The switch is read when a NEW table starts. Change it, then restart the `duel` service. Duels that are active keep their engine (see below).
+- The switch is read when a NEW table starts. Change it, then recreate the `duel` container to apply the environment value. Duels that are active keep their engine (see below).
+
+### DUEL_STANDARD_1V1_ENGINE (optional Standard override)
+
+Set `DUEL_STANDARD_1V1_ENGINE=pinned` to start new Standard 1v1 duels on the existing pinned Standard core.
+Keep `DUEL_1V1_ENGINE=legacy` to keep Domain 1v1 on its current legacy core. No engine files or bundle version change.
+
+The legacy Standard and Domain cores are different. The npm `ocgcore-wasm@0.1.2` release uses upstream
+`ygopro-core` `8e5f4e4f0ab6b8ca750e8e1c91c1a58f407e3272` (April 2026). Legacy Domain and pinned Standard
+use `efc21aa433b88cd35b7c37db4072a35c58d9d435` (September 2026). Pinned Standard applies shared core
+fixes without Domain changes. It supports the triggering Scale and Link queries in the current `chain.lua`.
+
+- Valid values are `legacy` and `pinned`; case and surrounding spaces do not matter. A valid value takes priority
+  over the global switch for Standard only. Missing, empty or invalid values use `DUEL_1V1_ENGINE`.
+- Domain keeps the global choice. Tag and 3+ seats keep the multi cores. Scenarios and presets keep pinned.
+- Production Compose passes `${DUEL_STANDARD_1V1_ENGINE:-}` to `duel`. Staging uses
+  `${STAGING_DUEL_STANDARD_1V1_ENGINE:-}`. Set `STAGING_DUEL_STANDARD_1V1_ENGINE=pinned` to test this change first.
+- Deploy this code, then set the production value in `/opt/yugioh-bot/.env`. Recreate the container with
+  `docker compose -f docker-compose.yml up -d --force-recreate duel`. A Compose `restart` does not apply a changed
+  environment value. The engine choice is read at each new start; card admission uses the same choice.
+- Recovery and replay use the saved `setup.engine`, even after the override changes. Records with no choice
+  still use legacy. Old Standard duels retain the old core limits. Keep both cores in the bundle.
+- To roll back new Standard duels only, set `DUEL_STANDARD_1V1_ENGINE=legacy` and recreate `duel`.
+  To restore the global choice, remove the override and recreate `duel`. Active duels keep their saved choice.
 
 ### The engine of a duel is recorded
 
@@ -84,8 +107,9 @@ Run the 1v1 specs with `E2E_1V1_ENGINE=legacy` to check the production default.
 
 ## How to roll back
 
-- To use the old 1v1 engine: set `DUEL_1V1_ENGINE=legacy` (or remove it) and restart the `duel` service. New 1v1 tables then start on the old engine.
-- To go back to the merged engine: set `DUEL_1V1_ENGINE=pinned` and restart `duel`.
+- To use the old engine for all new 1v1 tables: set `DUEL_1V1_ENGINE=legacy` (or remove it) and remove
+  `DUEL_STANDARD_1V1_ENGINE`. Recreate `duel` with `docker compose -f docker-compose.yml up -d --force-recreate duel`.
+- To use pinned for all new 1v1 tables: set `DUEL_1V1_ENGINE=pinned`, remove `DUEL_STANDARD_1V1_ENGINE` and recreate `duel`.
 - To close the multi-seat tables: set `MULTIPLAYER_TABLES=0` in `/opt/yugioh-bot/.env` and recreate `duel` and `web` (`docker compose -f docker-compose.yml up -d duel web`).
 - To remove the whole merge: follow "Rollback" in `vm-runbook.md`.
 
