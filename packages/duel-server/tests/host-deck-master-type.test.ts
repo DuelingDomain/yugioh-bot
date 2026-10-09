@@ -159,7 +159,7 @@ describe("old Domain Deck Masters", () => {
   });
 
   it.each([SPELL, TRAP])("blocks series Ready for the current stored master %s", async code => {
-    const opponent = seedIdentity(db).playerId;
+    const opponent = seedIdentity(db, { name: "Opponent", discordUserId: "900000000000000999" }).playerId;
     const series = createDuelSeriesService(db);
     const { duel, series: info } = series.createChallenge({
       guildId: "g", challengerPlayerId: playerId, opponentPlayerId: opponent,
@@ -185,7 +185,7 @@ describe("old Domain Deck Masters", () => {
   });
 
   it.each([SPELL, TRAP])("rejects master %s before a series side-deck write", async code => {
-    const opponent = seedIdentity(db).playerId;
+    const opponent = seedIdentity(db, { name: "Opponent", discordUserId: "900000000000000999" }).playerId;
     const series = createDuelSeriesService(db);
     const { duel, series: info } = series.createChallenge({
       guildId: "g", challengerPlayerId: playerId, opponentPlayerId: opponent,

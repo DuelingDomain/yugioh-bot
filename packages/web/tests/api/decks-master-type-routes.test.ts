@@ -34,10 +34,9 @@ beforeEach(() => {
   vi.resetAllMocks();
   db = new Database(":memory:");
   migrate(db);
-  db.prepare("insert into users(id, username, display_name) values (1, 'owner', 'Owner')").run();
   decks = createSavedDeckService(db);
   mocks.getDb.mockReturnValue(db);
-  mocks.savedActor.mockResolvedValue({ ok: true, guildId: "g", ownerUserId: 1, discordUserId: null, decks });
+  mocks.savedActor.mockResolvedValue({ ok: true, guildId: "g", ownerUserId: "owner", discordUserId: null, decks });
   mocks.duelActor.mockResolvedValue({ ok: true, guildId: "g", playerId: 7 });
   mocks.callDuelHost.mockImplementation(async ({ deck: value }: { deck: DuelDeck }) =>
     value.deckMaster === SPELL || value.deckMaster === TRAP
@@ -51,18 +50,18 @@ describe("saved Domain Deck Master types", () => {
     const response = await POST(request("domain", code));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: MESSAGE });
-    expect(decks.list("g", 1)).toEqual([]);
+    expect(decks.list("g", "owner")).toEqual([]);
     expect(mocks.callDuelHost).toHaveBeenCalledWith({
       op: "validate-deck-master", guildId: "g", playerId: 7, mode: "domain", deck: deck(code),
     });
   });
 
   it.each([SPELL, TRAP])("rejects %s on update and keeps the stored deck", async code => {
-    const saved = decks.create("g", 1, { name: "Original", mode: "domain", deck: deck(MONSTER) });
+    const saved = decks.create("g", "owner", { name: "Original", mode: "domain", deck: deck(MONSTER) });
     const response = await PUT(request("domain", code), params(saved.id));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: MESSAGE });
-    expect(decks.get(saved.id, "g", 1)).toEqual(saved);
+    expect(decks.get(saved.id, "g", "owner")).toEqual(saved);
   });
 
   it.each([MONSTER, EXTRA])("accepts monster %s on create and update", async code => {
@@ -71,7 +70,7 @@ describe("saved Domain Deck Master types", () => {
     const { deck: saved } = await created.json();
     const updated = await PUT(request("domain", code), params(saved.id));
     expect(updated.status).toBe(200);
-    expect(decks.get(saved.id, "g", 1).deck.deckMaster).toBe(code);
+    expect(decks.get(saved.id, "g", "owner").deck.deckMaster).toBe(code);
   });
 
   it.each([SPELL, TRAP])("keeps an ignored master %s available in Normal mode", async code => {
@@ -92,7 +91,7 @@ describe("saved Domain Deck Master types", () => {
     mocks.callDuelHost.mockResolvedValue({ ok: false, response: NextResponse.json({ error: "Host unavailable" }, { status: 503 }) });
     const response = await POST(request("domain", MONSTER));
     expect(response.status).toBe(503);
-    expect(decks.list("g", 1)).toEqual([]);
+    expect(decks.list("g", "owner")).toEqual([]);
   });
 
   it("does not save a master when the host response is invalid", async () => {
@@ -100,7 +99,7 @@ describe("saved Domain Deck Master types", () => {
     const response = await POST(request("domain", MONSTER));
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: "Invalid engine response" });
-    expect(decks.list("g", 1)).toEqual([]);
+    expect(decks.list("g", "owner")).toEqual([]);
   });
 
   it("checks saved deck ownership before the host lookup", async () => {
@@ -110,11 +109,11 @@ describe("saved Domain Deck Master types", () => {
   });
 
   it("keeps an old bad master readable without a host call or data change", async () => {
-    const saved = decks.create("g", 1, { name: "Old", mode: "domain", deck: deck(SPELL) });
+    const saved = decks.create("g", "owner", { name: "Old", mode: "domain", deck: deck(SPELL) });
     const response = await GET(new Request("http://test/api/decks/1"), params(saved.id));
     expect(response.status).toBe(200);
     expect((await response.json()).deck.deck).toEqual(deck(SPELL));
-    expect(decks.get(saved.id, "g", 1)).toEqual(saved);
+    expect(decks.get(saved.id, "g", "owner")).toEqual(saved);
     expect(mocks.callDuelHost).not.toHaveBeenCalled();
   });
 });
