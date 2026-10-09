@@ -18,34 +18,35 @@ jobs:
     name: Deploy to Production VM
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: production
     timeout-minutes: 90
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
-      VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+      HAS_VM_SSH_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY != '' }}
       VM_PORT: ${{ secrets.VM_PORT || '22' }}
       # Public production key only. The secret remains in the protected VM runtime env.
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
     steps:
       - name: Skip deploy when VM secrets are not configured
-        if: ${{ env.VM_HOST == '' || env.VM_USER == '' || env.VM_SSH_PRIVATE_KEY == '' }}
+        if: ${{ env.VM_HOST == '' || env.VM_USER == '' || env.HAS_VM_SSH_KEY != 'true' }}
         run: echo "VM deploy secrets are not configured yet; skipping deploy."
 
       - name: Checkout
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
         uses: actions/checkout@v4
 
       - name: Record checked-out deploy commit
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
         run: echo "DEPLOY_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Compute bundle cache key
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
         run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/card-script-patches.ts', 'packages/duel-server/card-script-patches/**', 'packages/duel-server/scripts/released-card-data.ts', 'packages/duel-server/scripts/prerelease-history.ts', 'packages/duel-server/scripts/prerelease-graduations.ts', 'packages/duel-server/scripts/prerelease-script-smoke.ts', 'packages/duel-server/scripts/prerelease-script-exclusions.ts', 'packages/duel-server/card-remap-overrides.json', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'packages/duel-server/src/released-database-files.ts', 'packages/duel-server/src/cards.ts', 'packages/shared/src/duels/**', 'packages/shared/package.json', 'packages/shared/tsconfig*.json', 'tsconfig.json', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
 
       - name: Restore pinned duel-engine bundle
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
         id: bundle
         uses: actions/cache/restore@v4
         with:
@@ -53,14 +54,14 @@ jobs:
           key: ${{ env.BUNDLE_CACHE_KEY }}
 
       - name: Setup Node.js
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
 
       - name: Install duel-engine build dependencies
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         run: |
           npm ci --ignore-scripts
           npx patch-package --error-on-fail
@@ -68,17 +69,17 @@ jobs:
           npm rebuild better-sqlite3
 
       - name: Build shared for card preparation
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         run: npm run build --workspace=packages/shared
 
       - name: Prepare card data and scripts
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: npm run duel:prepare
 
       - name: Build pinned duel-engine cores
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         run: |
           docker pull docker.io/emscripten/emsdk:4.0.9@sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811
           npx tsx packages/duel-server/scripts/build-domain-core.ts
@@ -87,7 +88,7 @@ jobs:
           npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
 
       - name: Save pinned duel-engine bundle
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: data/duel-engine
@@ -104,15 +105,15 @@ jobs:
       # Same inputs as staging, with a separate production prefix: pins, full series, build scripts and Domain sources.
       # The version prefix is a literal: raise it when the build step below changes (the hash cannot see it).
       - name: Compute multi core cache key
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
         run: echo "MULTI_CACHE_KEY=duel-multi-cores-v2-${{ hashFiles('packages/duel-server/scripts/build-deploy-multi-cores.sh', 'packages/duel-server/scripts/package-deploy-multi-cores.mjs', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**') }}" >> "$GITHUB_ENV"
 
       - name: Read the emsdk image from pins.json
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
         run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
 
       - name: Restore multi cores
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
         id: multi
         uses: actions/cache/restore@v4
         with:
@@ -126,11 +127,11 @@ jobs:
       # Both cores use the full patch series. Domain also uses APPLY_DOMAIN=1 DOMAIN_MULTI=1.
       # Production Lua randomness: no LUA_FIXED_SEED (test.yml keeps that flag for differential tests).
       - name: Build multi cores
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.multi.outputs.cache-hit != 'true' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' && steps.multi.outputs.cache-hit != 'true' }}
         run: bash packages/duel-server/scripts/build-deploy-multi-cores.sh
 
       - name: Save multi cores
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.multi.outputs.cache-hit != 'true' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' && steps.multi.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: |
@@ -141,7 +142,7 @@ jobs:
           key: ${{ env.MULTI_CACHE_KEY }}
 
       - name: Verify duel-engine bundle
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
         run: |
           DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
           # The legacy 1v1 files must match the approved legacy pin (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
@@ -150,7 +151,7 @@ jobs:
       # The deploy tarball is made here, not from data/duel-engine: that folder stays the pinned bundle.
       # The check at the end runs the install script on this exact content, in a scratch folder of the runner.
       - name: Add both multi cores to the deploy bundle
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
         run: |
           set -eu
           bundle="$RUNNER_TEMP/deploy-bundle"
@@ -167,20 +168,30 @@ jobs:
           rm -rf "$RUNNER_TEMP/deploy-bundle-check"
 
       - name: Configure SSH key
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
+        env:
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$VM_SSH_PRIVATE_KEY" > ~/.ssh/vm_deploy_key
           chmod 600 ~/.ssh/vm_deploy_key
 
-      - name: Trust VM host key
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+      - name: Configure pinned VM host keys
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
+        env:
+          VM_SSH_KNOWN_HOSTS: ${{ secrets.VM_SSH_KNOWN_HOSTS }}
         run: |
-          ssh-keyscan -p "$VM_PORT" -H "$VM_HOST" >> ~/.ssh/known_hosts
+          set -eu
+          if [ -z "$VM_SSH_KNOWN_HOSTS" ]; then
+            echo "Set the VM_SSH_KNOWN_HOSTS secret with the pinned VM host keys." >&2
+            exit 1
+          fi
+          printf '%s\n' "$VM_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Deploy over SSH
-        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.HAS_VM_SSH_KEY == 'true' }}
         run: |
           set -eu
           case "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" in
@@ -193,19 +204,19 @@ jobs:
           cleanup_transfer() {
             rm -f "$bundle_tar"
             if [ -n "$remote_bundle" ]; then
-              ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_bundle'" || true
             fi
           }
           trap cleanup_transfer EXIT
-          remote_bundle=$(ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+          remote_bundle=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
             'mktemp /tmp/yugidraft-duel-engine.XXXXXX.tar.gz')
           printf '%s' "$remote_bundle" | grep -Eq '^/tmp/yugidraft-duel-engine\.[A-Za-z0-9]{6}\.tar\.gz$' || exit 1
           tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
-          scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$bundle_tar" \
             "$VM_USER@$VM_HOST:$remote_bundle"
-          ssh -i ~/.ssh/vm_deploy_key \
+          ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
             "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
