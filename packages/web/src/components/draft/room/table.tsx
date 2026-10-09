@@ -335,7 +335,7 @@ export const Table = memo(function Table(props: TableProps) {
             <span className="shadow" />
             <span className="flip">
               <span className="face">
-                <CardImg card={it.card} />
+                <CardImg key={it.card.id} card={it.card} eager placeholder={kind === "extra" ? "extra" : "main"} />
               </span>
               <span className={`back${kind === "extra" ? " x" : ""}`} />
             </span>
