@@ -153,9 +153,12 @@ describe("state change broadcasts", () => {
   it.each(["active", "completed"])("the draft timer broadcasts %s progress", async (status) => {
     const { draft, deps } = setup();
     deps.drafts.listActive.mockReturnValue([{ ...draft, status: "active", pickDeadlineAt: "2026-01-01T00:00:00Z" }]);
-    deps.drafts.findById.mockReturnValue({ ...draft, status, currentPickStep: 2 });
+    // The timer rechecks active status before expiring the pick, then reads the committed result.
+    deps.drafts.findById.mockReturnValueOnce({ ...draft, status: "active" })
+      .mockReturnValue({ ...draft, status, currentPickStep: 2 });
     const timer = createDraftTimerService(deps as unknown as Parameters<typeof createDraftTimerService>[0]);
     await timer.tick(new Date("2026-01-01T00:01:00Z"));
+    expect(deps.drafts.expireCurrentPickStep).toHaveBeenCalledExactlyOnceWith(1, new Date("2026-01-01T00:01:00Z"));
     expect(deps.broadcaster.draft).toHaveBeenCalledExactlyOnceWith(status === "completed"
       ? { kind: "complete", slug: "draft-cup" }
       : { kind: "resync", slug: "draft-cup", packRound: 1, pickStep: 2 });
@@ -164,12 +167,15 @@ describe("state change broadcasts", () => {
   it.each(["active", "completed"])("a Discord message failure cannot swallow the timer's %s broadcast", async (status) => {
     const { draft, deps } = setup();
     deps.drafts.listActive.mockReturnValue([{ ...draft, status: "active", pickDeadlineAt: "2026-01-01T00:00:00Z" }]);
-    deps.drafts.findById.mockReturnValue({ ...draft, status, currentPickStep: 2 });
+    deps.drafts.findById.mockReturnValueOnce({ ...draft, status: "active" })
+      .mockReturnValue({ ...draft, status, currentPickStep: 2 });
     deps.messenger.updateStatus.mockRejectedValue(new Error("Discord unavailable"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const timer = createDraftTimerService(deps as unknown as Parameters<typeof createDraftTimerService>[0]);
       await timer.tick(new Date("2026-01-01T00:01:00Z"));
+      expect(deps.drafts.expireCurrentPickStep).toHaveBeenCalledExactlyOnceWith(1, new Date("2026-01-01T00:01:00Z"));
+      expect(deps.messenger.updateStatus).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status }));
       expect(deps.broadcaster.draft).toHaveBeenCalledExactlyOnceWith(status === "completed"
         ? { kind: "complete", slug: "draft-cup" }
         : { kind: "resync", slug: "draft-cup", packRound: 1, pickStep: 2 });

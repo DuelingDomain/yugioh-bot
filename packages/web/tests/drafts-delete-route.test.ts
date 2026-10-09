@@ -18,7 +18,7 @@ vi.mock("@/lib/notify", () => ({
   announcer: { announce: vi.fn() },
 }));
 
-async function createCompletedDraftWithDeal(status = "completed", withPass = false) {
+async function createCompletedDraftWithDeal(status = "completed", withPass = false, withTournament = false) {
   const tempDir = mkdtempSync(join(tmpdir(), "yugioh-drafts-delete-route-"));
   const dbPath = join(tempDir, "drafts-delete-route.sqlite");
   tempDirs.push(tempDir);
@@ -60,6 +60,11 @@ async function createCompletedDraftWithDeal(status = "completed", withPass = fal
       .run(draft.id, creator.id);
   }
   db.prepare("update drafts set status = ? where id = ?").run(status, draft.id);
+  if (withTournament) {
+    const tournament = db.prepare("insert into tournaments(guild_id,name,format,status,created_by_user_id) values ('guild-1','Legacy','round_robin','pending',?)")
+      .run(fixtureUserId("creator-user"));
+    db.prepare("update drafts set tournament_id = ? where id = ?").run(tournament.lastInsertRowid, draft.id);
+  }
 
   db.close();
 
@@ -111,8 +116,8 @@ describe("DELETE /api/drafts/[slug]", () => {
     expect(dealRows.c).toBe(0);
   });
 
-  it.each(["completed", "cancelled"])("deletes a %s draft with pass rows", async (status) => {
-    const draft = await createCompletedDraftWithDeal(status, true);
+  it("deletes a completed draft with pass rows", async () => {
+    const draft = await createCompletedDraftWithDeal("completed", true);
     const { DELETE } = await import("../app/api/drafts/[slug]/route");
     const response = await DELETE(
       new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "DELETE" }),
@@ -126,6 +131,66 @@ describe("DELETE /api/drafts/[slug]", () => {
     expect(db.prepare("select id from drafts where id = ?").get(draft.id)).toBeUndefined();
     expect(db.prepare("select count(*) as n from draft_passes where draft_id = ?").get(draft.id)).toEqual({ n: 0 });
     expect(db.pragma("foreign_key_check")).toEqual([]);
+    db.close();
+  });
+
+  it("deletes a cancelled draft with pass rows", async () => {
+    const draft = await createCompletedDraftWithDeal("cancelled", true);
+    const { DELETE } = await import("../app/api/drafts/[slug]/route");
+    const response = await DELETE(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "DELETE" }),
+      { params: Promise.resolve({ slug: draft.webSlug! }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ deleted: true });
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(process.env.DATABASE_PATH!);
+    expect(db.prepare("select id from drafts where id = ?").get(draft.id)).toBeUndefined();
+    for (const table of ["draft_deal", "draft_passes", "draft_players"]) {
+      expect(db.prepare(`select count(*) as n from ${table} where draft_id = ?`).get(draft.id)).toEqual({ n: 0 });
+    }
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+    db.close();
+  });
+
+  it.each(["pending", "active"])("cancels a %s draft on the first DELETE and deletes it on the second", async status => {
+    const draft = await createCompletedDraftWithDeal(status, true);
+    const { DELETE } = await import("../app/api/drafts/[slug]/route");
+    const call = () => DELETE(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "DELETE" }),
+      { params: Promise.resolve({ slug: draft.webSlug! }) });
+    const first = await call();
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ id: draft.id, status: "cancelled" });
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(process.env.DATABASE_PATH!);
+    expect(db.prepare("select status from drafts where id = ?").get(draft.id)).toEqual({ status: "cancelled" });
+    expect(db.prepare("select count(*) as n from draft_players where draft_id = ?").get(draft.id)).toEqual({ n: 1 });
+    for (const table of ["draft_deal", "draft_passes", "draft_picks"]) {
+      expect(db.prepare(`select count(*) as n from ${table} where draft_id = ?`).get(draft.id)).toEqual({ n: 0 });
+    }
+    const second = await call();
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual({ deleted: true });
+    expect(db.prepare("select id from drafts where id = ?").get(draft.id)).toBeUndefined();
+    expect(db.prepare("select count(*) as n from draft_players where draft_id = ?").get(draft.id)).toEqual({ n: 0 });
+    for (const table of ["draft_deal", "draft_passes", "draft_picks"]) {
+      expect(db.prepare(`select count(*) as n from ${table} where draft_id = ?`).get(draft.id)).toEqual({ n: 0 });
+    }
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+    db.close();
+  });
+
+  it("returns 409 and preserves a live draft with a linked tournament", async () => {
+    const draft = await createCompletedDraftWithDeal("active", true, true);
+    const { DELETE } = await import("../app/api/drafts/[slug]/route");
+    const response = await DELETE(new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "DELETE" }),
+      { params: Promise.resolve({ slug: draft.webSlug! }) });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "DRAFT_HAS_TOURNAMENT" });
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(process.env.DATABASE_PATH!);
+    expect(db.prepare("select status from drafts where id = ?").get(draft.id)).toEqual({ status: "active" });
+    expect(db.prepare("select count(*) as n from draft_deal where draft_id = ?").get(draft.id)).toEqual({ n: 1 });
+    expect(db.prepare("select count(*) as n from draft_passes where draft_id = ?").get(draft.id)).toEqual({ n: 1 });
+    expect(db.prepare("select status from tournaments").get()).toEqual({ status: "pending" });
     db.close();
   });
 

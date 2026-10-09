@@ -286,6 +286,32 @@ describe("useDraftWebsocket", () => {
     expect(onStatusChange).toHaveBeenCalledWith("completed");
   });
 
+  it.each(["completed", "cancelled"] as const)("calls onHostStopped when the host stops the draft (%s)", (status) => {
+    const onHostStopped = vi.fn();
+
+    render(<HookHarness slug="my-draft" options={{ onHostStopped }} />);
+
+    act(() => {
+      simulateEvent("connect");
+      simulateEvent("draft:status", { status });
+    });
+
+    expect(onHostStopped).toHaveBeenCalledExactlyOnceWith(status);
+  });
+
+  it("does not call onHostStopped when the draft finishes by itself", () => {
+    const onHostStopped = vi.fn();
+
+    render(<HookHarness slug="my-draft" options={{ onHostStopped }} />);
+
+    act(() => {
+      simulateEvent("connect");
+      simulateEvent("draft:complete");
+    });
+
+    expect(onHostStopped).not.toHaveBeenCalled();
+  });
+
   it("disconnects the socket when unmounted", () => {
     const { unmount } = render(<HookHarness slug="my-draft" />);
 

@@ -14,6 +14,13 @@ import { findDraftReadAccess } from "./draft-access.js";
 import { CurrentNameTakenError } from "./current-name.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
+export class DraftTerminalError extends Error {
+  readonly status = 409;
+  constructor(message: string, readonly code: "DRAFT_ALREADY_FINISHED" | "DRAFT_HAS_TOURNAMENT" | "DRAFT_NOT_STARTED") {
+    super(message);
+    this.name = "DraftTerminalError";
+  }
+}
 export interface DraftStartOptions { scheduleToken?: string }
 export type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
 
@@ -199,9 +206,9 @@ export function createDraftService(
   const completeDraft = (draftId: number, now: Date, waveNumber?: number) => {
     clearDraftLobbyStart(db, draftId, true);
     if (waveNumber === undefined) {
-      db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
+      db.prepare("update drafts set status = 'completed', pick_deadline_at = null, ended_at = ? where id = ?").run(now.toISOString(), draftId);
     } else {
-      db.prepare("update drafts set status = 'completed', current_wave_number = ?, ended_at = ? where id = ?").run(
+      db.prepare("update drafts set status = 'completed', pick_deadline_at = null, current_wave_number = ?, ended_at = ? where id = ?").run(
         waveNumber,
         now.toISOString(),
         draftId,
@@ -1695,15 +1702,48 @@ export function createDraftService(
       db.prepare("update drafts set status_message_id = ? where id = ?").run(messageId, draftId);
     },
 
+    /** Complete an active draft with exactly its committed picks, including uneven picks. */
+    endNow(draftId: number, now = new Date()): Draft {
+      return db.transaction(() => {
+        const draft = findById(draftId);
+        if (draft.status === "completed") return draft;
+        if (draft.status === "cancelled") {
+          throw new DraftTerminalError("Draft is already finished", "DRAFT_ALREADY_FINISHED");
+        }
+        if (draft.status === "pending") {
+          throw new DraftTerminalError("Draft has not started", "DRAFT_NOT_STARTED");
+        }
+        const changed = db.prepare(`update drafts set status = 'completed', pick_deadline_at = null
+          where id = ? and status = 'active'`).run(draftId).changes;
+        if (changed !== 1) throw new DraftTerminalError("Draft is already finished", "DRAFT_ALREADY_FINISHED");
+        db.prepare("update draft_players set finished_at = coalesce(finished_at, ?) where draft_id = ?")
+          .run(now.toISOString(), draftId);
+        completeDraft(draftId, now);
+        db.prepare("update drafts set lobby_revision = lobby_revision + 1 where id = ?").run(draftId);
+        return findById(draftId);
+      }).immediate();
+    },
+
     cancel(draftId: number): Draft {
       return db.transaction(() => {
         const draft = findById(draftId);
 
-        if (draft.status === "completed" || draft.status === "cancelled") {
-          throw new Error("Draft is already finished");
+        if (draft.status === "cancelled") return draft;
+        if (draft.status === "completed") {
+          throw new DraftTerminalError("Draft is already finished", "DRAFT_ALREADY_FINISHED");
         }
-
-        db.prepare("update drafts set status = 'cancelled', ended_at = current_timestamp where id = ?").run(draftId);
+        // Normally only completed drafts have tournaments. Protect legacy/manual links as well.
+        if (draft.tournamentId !== undefined) {
+          throw new DraftTerminalError("Draft has a linked tournament", "DRAFT_HAS_TOURNAMENT");
+        }
+        const changed = db.prepare(`update drafts set status = 'cancelled', ended_at = current_timestamp,
+          pick_deadline_at = null where id = ? and status in ('pending', 'active')`).run(draftId).changes;
+        if (changed !== 1) throw new DraftTerminalError("Draft is already finished", "DRAFT_ALREADY_FINISHED");
+        // Keep the draft and roster for access and the cancelled room; discard all drafting data.
+        for (const table of ["draft_passes", "draft_picks", "draft_cards", "draft_packs", "draft_undealt", "draft_deal", "draft_player_cube"]) {
+          db.prepare(`delete from ${table} where draft_id = ?`).run(draftId);
+        }
+        db.prepare("update draft_players set pick_count = 0, finished_at = null where draft_id = ?").run(draftId);
         clearDraftLobbyStart(db, draftId, true);
         db.prepare("update drafts set lobby_revision = lobby_revision + 1 where id = ?").run(draftId);
 

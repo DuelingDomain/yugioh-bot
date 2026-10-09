@@ -206,7 +206,7 @@ describe("DraftSummaryView", () => {
         myPool={samplePool}
       />
     );
-    expect(screen.getByText("The host cancelled this draft before it finished.")).toBeTruthy();
+    expect(screen.getByText("This draft was cancelled before it finished.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Dark Hole" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: /deck/i })).toBeNull();
     expect(screen.getByText("Cancelled")).toBeTruthy();
