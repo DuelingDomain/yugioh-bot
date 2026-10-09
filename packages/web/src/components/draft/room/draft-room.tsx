@@ -798,7 +798,8 @@ export function DraftRoom({ slug, name, config, isParticipant, onHostAction }: D
 
   return (
     <FullscreenLayer ref={rootRef} label="Draft room" attrs={attrs}>
-      <div className="room">
+      {/* The confirm dialog is a sibling of .room, so the whole room is locked while it is open: no Tab, click or key reaches it. */}
+      <div className="room" inert={hostAction != null}>
         <RoomBar
           ref={motionBtn}
           name={name}
