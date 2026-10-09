@@ -11,6 +11,7 @@ import { loadArtworkIdentityCatalog } from "./card-artworks.js";
 import { analyzeCube, buildDealWithRemainder, prepareBoosterPool, seededShuffle, type ShuffleSeed } from "./deal.js";
 import { assertLobbySeatTarget, clearDraftLobbyStart, invalidateDraftLobby, DraftLobbyServiceError } from "./draft-lobby-mutations.js";
 import { findDraftReadAccess } from "./draft-access.js";
+import { CurrentNameTakenError } from "./current-name.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
 export interface DraftStartOptions { scheduleToken?: string }
@@ -1488,7 +1489,7 @@ export function createDraftService(
         .get(guildId, createdByUserId, name);
 
       if (existingCurrent) {
-        throw new Error("You already have a draft called this that hasn't finished.");
+        throw new CurrentNameTakenError("draft");
       }
 
       assertPlayerGuild(creatorPlayerId, guildId);
@@ -1498,7 +1499,7 @@ export function createDraftService(
       } catch (error) {
         if ((error as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE" && error instanceof Error
           && error.message.includes("drafts.guild_id, drafts.created_by_user_id, drafts.name")) {
-          throw new Error("You already have a draft called this that hasn't finished.");
+          throw new CurrentNameTakenError("draft");
         }
         throw error;
       }
