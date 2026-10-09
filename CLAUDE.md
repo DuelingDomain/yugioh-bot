@@ -52,7 +52,8 @@ npx vitest run packages/web/tests/cards-resolve-route.test.ts -c packages/web/vi
 docker compose --env-file .env --env-file packages/web/.env.local up -d --build
 
 # Docker (production — start already built images without the override file)
-# For image updates, run the Deploy workflow on main; see docs/deployment/vm-runbook.md.
+# Image updates: test staging, then manually run Deploy from main in downtime.
+# Use the tested staging SHA as ref; see docs/deployment/vm-runbook.md.
 docker compose -f docker-compose.yml up -d
 
 # Seed test data and restart services
@@ -73,6 +74,17 @@ This is an npm workspaces + Turborepo monorepo with seven packages (see `docs/ar
 - **`packages/duel-server`** (`@yugidraft/duel-server`) — EDOPro engine host using `ocgcore-wasm` and engine workers. `build` compiles TypeScript; `dev` runs `tsx watch src/server.ts`; `start` runs `dist/server.js`. Only exposes private HTTP on `127.0.0.1:4003` by default (`DUEL_INTERNAL_HOST` / `DUEL_INTERNAL_PORT`). Web routes call it through `src/lib/duel-host.ts`.
 - **`packages/worker`** (`@yugidraft/worker`) — Draft expiry (1s), report approval and tournament deadline closure (60s), set metadata sync and image eviction. Exactly one worker per SQLite file; startup sweeps catch durable deadlines and SIGTERM drains in-flight work. No public port; `WORKER_HEALTH_PATH` holds its local heartbeat.
 - **`packages/e2e`** (`@yugidraft/e2e`) — Playwright duel tests on an isolated stack (web/ws/duel plus worker, 3300 port family, own SQLite file/cache/heartbeat, offline HMAC-signed E2E cookie). `E2E_SLOT=0-9` gives concurrent stacks. See `packages/e2e/README.md`.
+
+### Deployment flow
+
+Each merge to `main` auto-deploys **staging**, subject to the shared VM lock and resource checks.
+Test the staging SHA, then the owner runs **Deploy** (prod) manually from `main` in downtime with that SHA as `ref`.
+Production has no push trigger. Its read-only SQLite guard refuses active duels, drafts, tournament rounds and
+active/between-game series, before changes and again before service stops. `force` skips only this activity guard;
+the engine bundle preflight, build lock and backups still apply. Prod stops staging and leaves it off.
+Staging skips busy or low-resource runs with success; check for `staging is running`, then test the site.
+Use a separate staging Clerk instance and HTTPS host. On the shared 4 GB VM, resource limits cannot guarantee prod uptime;
+a second staging VM is advised for the alpha. See `docs/deployment/staging.md` and `docs/deployment/vm-runbook.md`.
 
 ### Duel resources and Docker
 

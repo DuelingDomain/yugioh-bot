@@ -1,10 +1,18 @@
 name: Deploy
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref or SHA to deploy (must be on main; use the tested staging SHA)"
+        required: true
+        default: main
+        type: string
+      force:
+        description: "Allow deploy during active gameplay (engine preflight still applies)"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: deploy-production
@@ -24,6 +32,7 @@ jobs:
       VM_USER: ${{ secrets.VM_USER }}
       VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
       VM_PORT: ${{ secrets.VM_PORT || '22' }}
+      DEPLOY_FORCE: ${{ inputs.force && 'true' || 'false' }}
       # Public production key only. The secret remains in the protected VM runtime env.
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
@@ -35,6 +44,17 @@ jobs:
       - name: Checkout
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
         uses: actions/checkout@v4
+
+      # Keep the activity guard from the workflow revision, even when deploying an older main SHA.
+      - name: Save deployment activity guard
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        run: cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/check-prod-activity.py"
+
+      - name: Checkout deploy ref
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Record checked-out deploy commit
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
@@ -190,17 +210,27 @@ jobs:
           printf '%s' "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" | grep -Eq '^pk_live_[A-Za-z0-9_-]+$' || exit 1
           bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
           remote_bundle=
+          remote_guard=
           cleanup_transfer() {
             rm -f "$bundle_tar"
             if [ -n "$remote_bundle" ]; then
               ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_bundle'" || true
             fi
+            if [ -n "$remote_guard" ]; then
+              ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_guard'" || true
+            fi
           }
           trap cleanup_transfer EXIT
           remote_bundle=$(ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
             'mktemp /tmp/yugidraft-duel-engine.XXXXXX.tar.gz')
           printf '%s' "$remote_bundle" | grep -Eq '^/tmp/yugidraft-duel-engine\.[A-Za-z0-9]{6}\.tar\.gz$' || exit 1
+          remote_guard=$(ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            'mktemp /tmp/yugidraft-activity-guard.XXXXXX.py')
+          printf '%s' "$remote_guard" | grep -Eq '^/tmp/yugidraft-activity-guard\.[A-Za-z0-9]{6}\.py$' || exit 1
+          scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+            "$RUNNER_TEMP/check-prod-activity.py" "$VM_USER@$VM_HOST:$remote_guard"
           tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
           scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$bundle_tar" \
@@ -208,13 +238,13 @@ jobs:
           ssh -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_FORCE='$DEPLOY_FORCE' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
              context_ready=0
              cleanup() {
-               rm -f "$DEPLOY_BUNDLE"
+               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD"
                if [ -n "$installer" ]; then rm -f "$installer"; fi
                if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
                if [ "$context_ready" = 1 ]; then rm -rf /opt/yugioh-bot/.deploy-duel-engine; fi
@@ -227,7 +257,11 @@ jobs:
              if command -v flock >/dev/null 2>&1; then
                exec 9>/var/lock/yugidraft-build.lock
                flock -w 900 9 || { echo "Another build (maybe the staging deploy) holds the build lock." >&2; exit 1; }
+             else
+               echo "flock is required for the shared VM build lock. Install util-linux." >&2
+               exit 1
              fi
+             python3 "$DEPLOY_GUARD" /opt/yugioh-bot/data/bot.sqlite --force "$DEPLOY_FORCE"
              cd /opt/yugioh-bot
              git fetch origin "$DEPLOY_COMMIT"
              git fetch origin main && git merge-base --is-ancestor "$DEPLOY_COMMIT" FETCH_HEAD || exit 1
@@ -278,6 +312,9 @@ jobs:
              context_ready=1
              cp -a "$bundle_src/." .deploy-duel-engine/
              docker compose -f docker-compose.yml build --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+             # Recheck after the build, immediately before any production service is stopped.
+             # A game may have started since the first check. Refusal leaves production running.
+             python3 "$DEPLOY_GUARD" /opt/yugioh-bot/data/bot.sqlite --force "$DEPLOY_FORCE"
              # Retire the bot container from the previous release before migration.
              project=$(docker compose -f docker-compose.yml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')
              retired_ids=$(docker ps -q --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=bot)
