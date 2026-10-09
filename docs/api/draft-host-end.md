@@ -53,7 +53,7 @@ Cancel returns the same shape with `status: "cancelled"`. A retry of the same te
 
 ## Live updates and status display
 
-Both endpoints send the existing shared broadcasts `{ kind: "status", slug, status }` and `{ kind: "resync", slug, packRound, pickStep }` after commit. The WS service emits **`draft:status`** to the draft room with **`{ status: "completed" }`** or **`{ status: "cancelled" }`**, plus **`draft:resync`** with **`{ packRound, pickStep }`**. Resync makes existing lobby clients fetch the terminal state immediately. No new WS event type is required. Repeated successful requests resend both events so clients can recover a missed notification. Refetch `GET /api/drafts/{slug}` and stop the local picking/countdown UI.
+Both endpoints send the existing shared broadcasts `{ kind: "status", slug, status }` and `{ kind: "resync", slug, packRound, pickStep }` after commit only when `changed: true`. The WS service emits **`draft:status`** to the draft room with **`{ status: "completed" }`** or **`{ status: "cancelled" }`**, plus **`draft:resync`** with **`{ packRound, pickStep }`**. Resync makes existing lobby clients fetch the terminal state immediately. No new WS event type is required. Repeated successful requests return `changed: false` without sending either event or any Discord notice. Refetch `GET /api/drafts/{slug}` to recover a missed notification and stop the local picking/countdown UI.
 
 | Stored status | UI label / behavior |
 | --- | --- |
@@ -64,7 +64,7 @@ Both endpoints send the existing shared broadcasts `{ kind: "status", slug, stat
 
 End preserves each active draft player's exact committed pick history, including uneven or zero picks. It deals no replacement cards and disarms scheduled lobby starts. The existing completed-draft deck and export flows remain in use. Cancel discards picks, passes, dealt cards, packs, undealt/deal data, and theme claims; it retains the draft and roster for room access and cancelled-state display. Both clear the live pick deadline. Timer status guards and bot/manual pick guards reject further work. Cancelled drafts do not enter completed-draft deck/tournament flows or create match/season point awards.
 
-For a channel-backed draft, both actions request the existing Discord `draft-status` update. End also calls the existing deduplicated `draft-completed` announcement flow, honoring guild announcement settings. Discord-disabled deployments use the existing no-op announcer.
+For a channel-backed draft, both actions request the existing Discord `draft-status` update only when `changed: true`. End also calls the existing deduplicated `draft-completed` announcement flow on that transition, honoring guild announcement settings. Discord-disabled deployments use the existing no-op announcer.
 
 ## Tournaments
 

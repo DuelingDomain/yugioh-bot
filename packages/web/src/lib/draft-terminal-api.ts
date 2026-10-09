@@ -38,22 +38,23 @@ export async function finishDraft(
     if (result instanceof NextResponse) return result;
 
     const finished = result.draft;
-    // Notify only after commit. Transport failures cannot turn a committed change into an error.
-    // A retry re-sends status so clients can recover a missed broadcast.
-    const notifications: Promise<unknown>[] = [
-      broadcaster.draft({ kind: "status", slug, status: finished.status as "completed" | "cancelled" }),
-      // Lobby clients also need a full fetch: their completion effect only watches active drafts.
-      broadcaster.draft({ kind: "resync", slug, packRound: finished.currentPackRound, pickStep: finished.currentPickStep }),
-    ];
-    if (result.changed && finished.channelId) {
-      notifications.push(announcer.announce({ kind: "draft-status", draftId: finished.id }));
-      if (finished.status === "completed") notifications.push(announcer.announce({
-        kind: "draft-completed", draftId: finished.id, channelId: finished.channelId,
-        name: finished.name, webSlug: slug,
-      }));
-    }
-    for (const notification of await Promise.allSettled(notifications)) {
-      if (notification.status === "rejected") console.warn("[draft-terminal] notification failed:", notification.reason);
+    // Notify only committed state changes. Transport failures cannot turn a committed change into an error.
+    if (result.changed) {
+      const notifications: Promise<unknown>[] = [
+        broadcaster.draft({ kind: "status", slug, status: finished.status as "completed" | "cancelled" }),
+        // Lobby clients also need a full fetch: their completion effect only watches active drafts.
+        broadcaster.draft({ kind: "resync", slug, packRound: finished.currentPackRound, pickStep: finished.currentPickStep }),
+      ];
+      if (finished.channelId) {
+        notifications.push(announcer.announce({ kind: "draft-status", draftId: finished.id }));
+        if (finished.status === "completed") notifications.push(announcer.announce({
+          kind: "draft-completed", draftId: finished.id, channelId: finished.channelId,
+          name: finished.name, webSlug: slug,
+        }));
+      }
+      for (const notification of await Promise.allSettled(notifications)) {
+        if (notification.status === "rejected") console.warn("[draft-terminal] notification failed:", notification.reason);
+      }
     }
     return NextResponse.json({
       id: finished.id, name: finished.name, webSlug: slug, status: finished.status,
