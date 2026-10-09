@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCardInfo, DuelDeck, DuelSettings } from "@yugidraft/shared/duels";
 import { DeckEditor } from "../../src/components/duel/deck-editor";
-import { canBeDeckMaster } from "../../src/components/duel/deck-card-types";
-import { TYPE_EFFECT, TYPE_FUSION, TYPE_MONSTER, TYPE_SPELL, TYPE_TRAP } from "../../src/components/duel/constants";
+import { canBeDeckMaster, useDeckCardMeta } from "../../src/components/duel/deck-card-types";
+import { TYPE_EFFECT, TYPE_FUSION, TYPE_MONSTER, TYPE_SPELL, TYPE_TOKEN, TYPE_TRAP } from "../../src/components/duel/constants";
 
 const { validateDuelDeck, getDuelCards } = vi.hoisted(() => ({ validateDuelDeck: vi.fn(), getDuelCards: vi.fn() }));
 
@@ -52,6 +52,7 @@ describe("canBeDeckMaster", () => {
     expect(canBeDeckMaster(TYPE_SPELL)).toBe(false);
     expect(canBeDeckMaster(TYPE_TRAP)).toBe(false);
     expect(canBeDeckMaster(undefined)).toBe(false);
+    expect(canBeDeckMaster(TYPE_MONSTER | TYPE_TOKEN)).toBe(false);
   });
 });
 
@@ -74,8 +75,23 @@ describe("Deck Master controls in the room deck editor", () => {
 
   it("shows no Master control outside Domain", async () => {
     render(<DeckEditor slug="t" mode="normal" settings={settings} initial={deck} busy={false} onReady={vi.fn()} />);
-    await waitFor(() => expect(getDuelCards).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(getDuelCards).not.toHaveBeenCalled();
     expect(screen.queryAllByRole("button", { name: /as Deck Master$/ })).toHaveLength(0);
+  });
+
+  it("shows the Master buttons after a failed card lookup is retried", async () => {
+    getDuelCards.mockRejectedValueOnce(new Error("offline"));
+    render(<DeckEditor slug="t" mode="domain" settings={settings} initial={deck} busy={false} onReady={vi.fn()} />);
+    await waitFor(() => expect(getDuelCards).toHaveBeenCalledTimes(1));
+    expect(screen.queryAllByRole("button", { name: /as Deck Master$/ })).toHaveLength(0);
+    expect(await screen.findByRole("button", { name: "Use Test Warrior as Deck Master" }, { timeout: 4000 })).toBeInTheDocument();
+    expect(getDuelCards).toHaveBeenCalledTimes(2);
+  });
+
+  it("names the Remove buttons from the card lookup", async () => {
+    render(<DeckEditor slug="t" mode="domain" settings={settings} initial={deck} busy={false} onReady={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "Remove Test Spell from Main" })).toBeInTheDocument();
   });
 
   it("does not crash on a saved Spell Deck Master and shows the server problem", async () => {
@@ -86,5 +102,33 @@ describe("Deck Master controls in the room deck editor", () => {
     expect((await screen.findAllByText("Deck Master must be a playable monster card")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Use Test Spell as Deck Master/ })).toBeNull();
     expect(screen.getByRole("button", { name: "Clear Deck Master" })).toBeInTheDocument();
+  });
+});
+
+describe("useDeckCardMeta", () => {
+  it("asks only for the codes it does not know when the deck changes", async () => {
+    const { result, rerender } = renderHook(({ main }: { main: number[] }) => useDeckCardMeta({ main, extra: [], side: [] }), {
+      initialProps: { main: [MONSTER, SPELL] },
+    });
+    await waitFor(() => expect(result.current.size).toBe(2));
+    expect(getDuelCards).toHaveBeenCalledTimes(1);
+    expect(getDuelCards.mock.calls[0][0].sort()).toEqual([MONSTER, SPELL]);
+    rerender({ main: [MONSTER, SPELL, TRAP] });
+    await waitFor(() => expect(result.current.size).toBe(3));
+    expect(getDuelCards).toHaveBeenCalledTimes(2);
+    expect(getDuelCards.mock.calls[1][0]).toEqual([TRAP]);
+    rerender({ main: [SPELL] });
+    expect(getDuelCards).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks again when the retry value changes after a failure", async () => {
+    getDuelCards.mockRejectedValueOnce(new Error("offline")).mockRejectedValueOnce(new Error("offline"));
+    const { result, rerender } = renderHook(({ retry }: { retry: number }) => useDeckCardMeta({ main: [MONSTER], extra: [], side: [] }, { retry }), {
+      initialProps: { retry: 0 },
+    });
+    await waitFor(() => expect(getDuelCards).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    expect(result.current.size).toBe(0);
+    rerender({ retry: 1 });
+    await waitFor(() => expect(result.current.size).toBe(1));
   });
 });
