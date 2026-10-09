@@ -338,8 +338,11 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     const small = start("small");
     warmImages.current = small;
     let pending = small.length;
+    let full: HTMLImageElement[] = [];
     const loadFull = () => {
-      if (!cancelled) warmImages.current = [...small, ...start("full")];
+      if (cancelled) return;
+      full = start("full");
+      warmImages.current = [...small, ...full];
     };
     if (!pending) return;
     const settle = () => {
@@ -354,6 +357,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     }
     return () => {
       cancelled = true;
+      // The next pack's small pictures must not wait behind the old pack's large ones.
+      for (const img of full) if (!img.complete) img.src = "";
     };
   }, [rs.cards]);
   useEffect(() => {

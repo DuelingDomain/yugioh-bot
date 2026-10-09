@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import React from "react";
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CardImg } from "@/components/draft/room/card-img";
 import type { RoomCard } from "@/components/draft/room/room-model";
 
 const card = { id: 1, passcode: 46986414, name: "Dark Magician" } as RoomCard;
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("draft room card image loading state", () => {
   it("shows a card back while the picture loads, then fades the picture in", () => {
@@ -45,5 +48,20 @@ describe("draft room card image loading state", () => {
     const miss = container.querySelector(".img-miss")!;
     expect(miss.textContent).toBe("Dark Magician");
     expect(miss.getAttribute("aria-label")).toBe("Dark Magician");
+  });
+
+  it("shows a picture that the browser cache finished before the page mounted as loaded", () => {
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(421);
+    const { container } = render(<CardImg card={card} placeholder="main" />);
+    expect(container.querySelector(".img-wait")).toBeNull();
+    expect(container.querySelector("img")!.hasAttribute("data-loaded")).toBe(true);
+  });
+
+  it("keeps the placeholder for a picture that is complete but empty", () => {
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(0);
+    const { container } = render(<CardImg card={card} placeholder="main" />);
+    expect(container.querySelector(".img-wait")).not.toBeNull();
   });
 });
