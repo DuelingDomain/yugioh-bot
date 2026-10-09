@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { RulesMetaFields, RulesPanel, useRulesAnalysis } from "../../src/components/draft/setup/rules-panel";
 import { applyPreset, type PoolCounts, type RulesFields } from "../../src/components/draft/setup/rules-model";
 import { configFromFields } from "../../src/components/draft/draft-config-fields";
+import styles from "../../src/components/draft/setup/rules-panel.module.css";
 
 afterEach(cleanup);
 
@@ -77,6 +78,35 @@ describe("RulesPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fit rules to pool" }));
     expect(onFit).toHaveBeenCalledWith(expect.objectContaining({ ok: false, mainDeficit: 10 }));
     expect(screen.getByLabelText("Rounds")).toHaveValue("3");
+    expect(screen.getByRole("button", { name: "Create draft" })).toBeDisabled();
+  });
+
+  it("shows partial final piles neutrally and preserves a 41-pick cap for two seats with 82 Main cards", () => {
+    const initial: RulesFields = { ...start(), cardsPerPlayerText: "41", packSizeText: "24", lobbySeatsText: "2" };
+    let latest = initial;
+    const onFit = vi.fn();
+    const { container } = render(<Host initial={initial} pool={{ main: 82, extra: 0 }} onValue={(v) => { latest = v; }} onFit={onFit} />);
+    expect(container.querySelector(`.${styles.noteBad}`)).toBeNull();
+    expect(screen.getByRole("meter", { name: "Main piles" }).parentElement).not.toHaveClass(styles.bad);
+    expect(screen.queryByText(/Main piles are .* short/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Fit rules to pool" })).not.toBeInTheDocument();
+    const note = screen.getByText(/last round will use partial piles/i).closest(`.${styles.note}`);
+    expect(note).toBeInTheDocument();
+    expect(note).not.toHaveClass(styles.noteBad);
+    expect(note).not.toHaveClass(styles.noteOk);
+    expect(screen.getByLabelText("Picks each")).toHaveValue("41");
+    expect(screen.getByRole("button", { name: "Create draft" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Fit to pool" }));
+    expect(onFit).toHaveBeenCalledWith(expect.objectContaining({ ok: true, changes: [], fields: initial }));
+    expect(screen.getByLabelText("Picks each")).toHaveValue("41");
+    expect(configFromFields(latest)).toMatchObject({ cardsPerPlayer: 41, packSize: 24, packsPerPlayer: 2 });
+  });
+
+  it("shows only the cap deficit when partial final piles are one Main card short", () => {
+    render(<Host initial={{ ...start(), cardsPerPlayerText: "41", packSizeText: "24", lobbySeatsText: "2" }} pool={{ main: 81, extra: 0 }} />);
+    const note = screen.getByText("Main piles are 1 card short.").closest(`.${styles.note}`);
+    expect(note).toHaveClass(styles.noteBad);
+    expect(screen.getByRole("button", { name: "Fit rules to pool" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create draft" })).toBeDisabled();
   });
 
