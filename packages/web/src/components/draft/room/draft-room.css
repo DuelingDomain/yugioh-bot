@@ -603,10 +603,24 @@
 }
 .dr .tcard[data-blocked] .face { filter: saturate(0.4) brightness(0.7); }
 .dr .tcard[data-blocked] { cursor: default; }
+/* Hover and selection never move or turn the card: a tilted card that stands up changes its drawn size and the pack looks
+   like it shrank. The cue is a glow on the face, so the size and the slot stay what the layout gave them. */
 @media (hover: hover) {
-  .dr[data-turn="picking"] .tcard:hover .lift { transform: translateZ(10px) rotateX(calc(var(--tilt) * -0.42)); }
+  .dr[data-turn="picking"] .tcard:hover:not([data-sel], [data-blocked]) .face { box-shadow: 0 0 0 2px rgb(155 126 255 / 0.5), 0 0 18px rgb(155 126 255 / 0.32), 0 6px 14px rgb(0 0 0 / 0.55); }
 }
-.dr .tcard[data-sel] .lift { transform: translateZ(14px) rotateX(calc(var(--tilt) * -1)); }
+.dr .tcard[data-sel] .face::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--pen) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.2 8.4l2.6 2.6 5-5.4' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% no-repeat;
+  box-shadow: 0 0 0 2px rgb(7 11 21 / 0.85);
+  pointer-events: none;
+}
 .dr .tcard[data-sel] .face { box-shadow: 0 0 0 3px var(--pen), 0 0 0 5px rgb(7 11 21 / 0.85), 0 0 26px rgb(155 126 255 / 0.6); }
 .dr .tcard:focus-visible .face { box-shadow: 0 0 0 2px var(--ink), 0 6px 14px rgb(0 0 0 / 0.55); }
 .dr .tcard[data-sel]:focus-visible .face { box-shadow: 0 0 0 3px var(--pen), 0 0 0 5px rgb(7 11 21 / 0.85), 0 0 26px rgb(155 126 255 / 0.6); }
