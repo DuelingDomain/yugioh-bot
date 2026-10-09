@@ -60,22 +60,22 @@ describe("draft read access", () => {
     vi.restoreAllMocks();
   });
 
-  describe("canEndOrCancel on the draft detail", () => {
+  describe("canCancel on the draft detail", () => {
     it("is true for the host without asking Discord", async () => {
       auth.mockResolvedValue({ user: { id: "creator" } });
       const body = await (await read("draft")).json();
-      expect(body.canEndOrCancel).toBe(true);
+      expect(body.canCancel).toBe(true);
       expect(checkDiscordWebAccess).not.toHaveBeenCalled();
     });
     it("is true for a guild admin who is not the host", async () => {
       checkDiscordWebAccess.mockResolvedValue({ ok: true });
       const body = await (await read("draft")).json();
-      expect(body.canEndOrCancel).toBe(true);
+      expect(body.canCancel).toBe(true);
       expect(checkDiscordWebAccess).toHaveBeenCalledWith("player", "admin");
     });
     it.each([{ ok: false, status: 403 }, { ok: false, status: 503 }])("is absent for a non-admin player (%o)", async decision => {
       checkDiscordWebAccess.mockResolvedValue(decision);
-      expect((await (await read("draft")).json()).canEndOrCancel).toBeUndefined();
+      expect((await (await read("draft")).json()).canCancel).toBeUndefined();
     });
   });
 

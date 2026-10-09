@@ -15,7 +15,7 @@ afterEach(async () => {
   await Promise.all(workers.splice(0).map(worker => worker.terminate()));
   for (const { db, directory } of resources.splice(0)) { db.close(); rmSync(directory, { recursive: true, force: true }); }
 });
-function setup() {
+function setup(cappedMain = false) {
   const directory = mkdtempSync(join(tmpdir(), "draft-terminal-race-"));
   const path = join(directory, "test.sqlite");
   const db = new Database(path); resources.push({ db, directory });
@@ -27,10 +27,19 @@ function setup() {
     (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
     values (?,?,'Normal Monster','normal','i','i','[]','t')`);
   for (let id = 1; id <= 8; id++) insert.run(id, `Card ${id}`);
+  if (cappedMain) {
+    for (let id = 9; id <= 12; id++) insert.run(id, `Extra ${id}`);
+    db.prepare("update card_catalog set type = 'Fusion Monster', frame_type = 'fusion' where ygoprodeck_id >= 9").run();
+  }
   const drafts = createDraftService(db, { seedSource: () => 7 });
   const draft = drafts.create("g", "c", "Race", { customCardIds: [1,2,3,4,5,6,7,8], packSize: 2,
-    packsPerPlayer: 2, cardsPerPlayer: 4, pickSeconds: 30 }, host.userId, players[0]);
+    packsPerPlayer: 2, cardsPerPlayer: 4, pickSeconds: 30,
+    ...(cappedMain ? { cardsPerPlayer: 1, extraDeckEnabled: true, extraDeckSize: 2,
+      customExtraCardIds: [9,10,11,12] } : {}),
+  }, host.userId, players[0]);
   drafts.join(draft.id, players[1]); drafts.start(draft.id, new Date("2030-01-01"));
+  if (cappedMain) drafts.pickCard(draft.id, players[1], drafts.pickOptions(draft.id, players[1])[0].id,
+    "manual", new Date("2030-01-01T00:00:01Z"));
   return { db, path, drafts, draft, players, cardId: drafts.pickOptions(draft.id, players[0])[0].id };
 }
 
