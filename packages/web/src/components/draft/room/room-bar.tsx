@@ -4,6 +4,7 @@ import Link from "next/link";
 import { forwardRef, memo } from "react";
 import { useDraftStore } from "@/lib/stores/draft-store";
 import { ARROW } from "./card-img";
+import { HOST_ICON } from "./host-menu";
 import { motionLabel } from "./motion-menu";
 import type { Motion } from "./motion";
 import { formatClock, passLabel } from "./room-model";
@@ -81,6 +82,10 @@ export interface RoomBarProps {
   canSay: boolean;
   sayOpen: boolean;
   onSay: (anchor: HTMLElement) => void;
+  /** The host or an owner: the Host button, which opens End now and Cancel draft. */
+  canHost?: boolean;
+  hostOpen?: boolean;
+  onHost?: (anchor: HTMLElement) => void;
   /** 0 to 1: how far through the draft you are. */
   progress: number;
 }
@@ -117,6 +122,20 @@ export const RoomBar = memo(
             >
               {SAY_ICON}
               <span className="t">Say</span>
+            </button>
+          ) : null}
+          {p.canHost ? (
+            <button
+              className="ibtn host-btn"
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={p.hostOpen ?? false}
+              aria-controls="hostPop"
+              aria-label="Host controls"
+              onClick={(e) => p.onHost?.(e.currentTarget)}
+            >
+              {HOST_ICON}
+              <span className="t">Host</span>
             </button>
           ) : null}
           <button
