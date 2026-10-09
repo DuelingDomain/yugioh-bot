@@ -8,11 +8,15 @@ const { migrate } = await import("../../src/db/index.js");
 const { createCubeService } = await import("../../src/services/cubes.js");
 const { createCardCatalogService } = await import("../../src/services/card-catalog.js");
 
-function catalogWith(db: Database.Database, calls: string[], limit = Infinity) {
+function catalogWith(db: Database.Database, calls: string[], limit = Infinity, badBatchId = 0) {
   return createCardCatalogService(db, {
     fetch: async (input) => {
       const url = new URL(String(input));
       calls.push(url.search);
+      // A batch (more than one passcode) that holds this id answers with invalid card data.
+      if (badBatchId && (url.searchParams.get("id") ?? "").split(",").length > 1 && url.searchParams.get("id")!.split(",").includes(String(badBatchId))) {
+        return { ok: true, async json() { return { data: [{ id: badBatchId, name: "Bad" }] }; } } as Response;
+      }
       const ids = (url.searchParams.get("id") ?? "").split(",").filter(Boolean).map(Number).filter((id) => id < limit);
       const data = ids.map((id) => id > 1000
         ? { id, name: `Extra ${id}`, type: "Fusion Monster", frameType: "fusion", card_images: [{ image_url: "i", image_url_small: "i" }] }
@@ -51,5 +55,18 @@ describe("long passcode imports", () => {
     const res = await cubes.importPasscodeGroups(cube.id, [{ codes: [...main.slice(0, 10), 1001, 1031] }]);
     expect(res).toEqual({ added: 11, unknown: [1031] });
     expect(cubes.getCubePools(cube.id).extra.map((c) => c.catalogCardId)).toEqual([1001]);
+  });
+
+  it("does not stop the later batches because one batch holds invalid card data", async () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    const calls: string[] = [];
+    const cubes = createCubeService(db, catalogWith(db, calls, Infinity, 25));
+    const cube = cubes.createBlank("g", "Bad", seedUser(db, "u").userId);
+    const res = await cubes.importPasscodeGroups(cube.id, [{ codes: main, pool: "main" }]);
+    expect(res).toEqual({ added: 90, unknown: [] });
+    // All 5 batches of 20 are tried, also the ones after the bad batch. The bad batch falls back to one by one.
+    expect(calls.filter((search) => /id=[^&]*(%2C|,)/.test(search))).toHaveLength(5);
+    expect(calls.filter((search) => /id=\d+(&|$)/.test(search))).toHaveLength(20);
   });
 });
