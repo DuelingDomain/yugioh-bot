@@ -166,11 +166,6 @@ export async function buildDraftResponse(slug: string, userId: string) {
 
   const draftModel = drafts.findById(draft.id);
   const config = { ...draftModel.config };
-  if (config.mainPicksPerPlayer !== undefined) {
-    // Existing room consumers read these fields for "Your picks of N" and phase boundaries.
-    config.cardsPerPlayer = mainDraftPicksPerPlayer(config);
-    if (config.mode !== "theme") config.packsPerPlayer = boosterMainRounds(config);
-  }
   if (userId !== draft.created_by_user_id) {
     delete config.themeAssignments;
   }
@@ -341,7 +336,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
       currentPlayer && isParticipant
         ? players.find((p) => p.playerId === currentPlayer.id)?.pickCount ?? 0
         : 0;
-    const phaseCounts = config.mainPicksPerPlayer !== undefined && currentPlayer && isParticipant
+    const phaseCounts = currentPlayer && isParticipant
       ? db.prepare(`select sum(case when wave_number <= ? then 1 else 0 end) as main,
           sum(case when wave_number > ? then 1 else 0 end) as extra
           from draft_picks where draft_id = ? and player_id = ?`)

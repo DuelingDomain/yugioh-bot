@@ -45,12 +45,12 @@ function finish(app: ReturnType<typeof setup>, draftId: number, cap: number) {
 }
 
 describe("Main Deck picks per player", () => {
-  it.each([2, 3, 4].flatMap((players) => [1, 2].flatMap((picksPerStep) => [20, 40, 41, 60].map((cap) => ({ players, picksPerStep, cap })))))
+  it.each([2, 3, 4].flatMap((players) => [1, 2].flatMap((picksPerStep) => [40, 41, 60, 120].map((cap) => ({ players, picksPerStep, cap })))))
     ("drafts exactly $cap Main cards for $players players with $picksPerStep picks before passing", ({ players, picksPerStep, cap }) => {
       const app = setup(players);
       try {
-        // The configured packs/legacy target may be below or above the requested size.
-        const config = { cubeCardIds: app.main, packSize: 24, packsPerPlayer: cap < 40 ? 5 : 1, cardsPerPlayer: 40, mainPicksPerPlayer: cap, picksPerStep };
+        // A stale client round count cannot override the cap.
+        const config = { cubeCardIds: app.main, packSize: 24, packsPerPlayer: 1, cardsPerPlayer: cap, picksPerStep };
         const draft = app.create(config);
         expect(totalBoosterCards(draft.config)).toBe(cap);
         expect(app.drafts.analyzeBoosterDraft(draft.config, players, "g").errors).toEqual([]);
@@ -64,7 +64,7 @@ describe("Main Deck picks per player", () => {
   it.each([80, 79])("deals partial final packs from a truly finite %i-card pool", (size) => {
     const app = setup(2, size);
     try {
-      const draft = app.create({ cubeCardIds: app.main, packSize: 24, packsPerPlayer: 5, mainPicksPerPlayer: 40 });
+      const draft = app.create({ cubeCardIds: app.main, packSize: 24, packsPerPlayer: 5, cardsPerPlayer: 40 });
       const analysis = app.drafts.analyzeBoosterDraft(draft.config, 2, "g");
       expect(analysis.errors).toEqual([]);
       expect(analysis.warnings.length).toBe(size < 80 ? 1 : 0);
@@ -80,7 +80,7 @@ describe("Main Deck picks per player", () => {
   it.each([false, true])("handles leftover Main cards with burnUnpicked=%s", (burnUnpicked) => {
     const app = setup(2, 96);
     try {
-      const draft = app.create({ cubeCardIds: app.main, packSize: 24, packsPerPlayer: 5, mainPicksPerPlayer: 40, burnUnpicked });
+      const draft = app.create({ cubeCardIds: app.main, packSize: 24, packsPerPlayer: 5, cardsPerPlayer: 40, burnUnpicked });
       app.drafts.start(draft.id);
       finish(app, draft.id, 40);
       expect(app.db.prepare("select count(*) as n from draft_undealt where draft_id = ?").get(draft.id)).toEqual({ n: burnUnpicked ? 0 : 16 });
@@ -91,7 +91,7 @@ describe("Main Deck picks per player", () => {
   it.each([40, 80])("keeps all Extra picks separate with %i Main cards available", (mainCount) => {
     const app = setup(2, mainCount);
     try {
-      const draft = app.create({ cubeCardIds: app.main, packSize: 24, packsPerPlayer: 5, mainPicksPerPlayer: 40, extraDeckEnabled: true, extraDeckSize: 3, customExtraCardIds: app.extra, picksPerStep: 2 });
+      const draft = app.create({ cubeCardIds: app.main, packSize: 24, packsPerPlayer: 5, cardsPerPlayer: 40, extraDeckEnabled: true, extraDeckSize: 3, customExtraCardIds: app.extra, picksPerStep: 2 });
       expect(totalBoosterCards(draft.config)).toBe(43);
       app.drafts.start(draft.id);
       finish(app, draft.id, 40);
@@ -106,7 +106,7 @@ describe("Main Deck picks per player", () => {
   it("counts only Main cards from an authored mixed pool when the cap is set", () => {
     const app = setup(2, 80);
     try {
-      const draft = app.create({ cubeCardIds: [...app.main, ...app.extra], packSize: 24, mainPicksPerPlayer: 40, extraDeckEnabled: false });
+      const draft = app.create({ cubeCardIds: [...app.main, ...app.extra], packSize: 24, cardsPerPlayer: 40, extraDeckEnabled: false });
       app.drafts.start(draft.id);
       expect(app.db.prepare("select count(*) as n from draft_deal where draft_id = ? and catalog_card_id > 1000").get(draft.id)).toEqual({ n: 0 });
       finish(app, draft.id, 40);
@@ -117,7 +117,7 @@ describe("Main Deck picks per player", () => {
   it("rejects another pick as soon as a player reaches an odd cap during a two-pick turn", () => {
     const app = setup(2);
     try {
-      const draft = app.create({ cubeCardIds: app.main, packSize: 24, mainPicksPerPlayer: 41, picksPerStep: 2 });
+      const draft = app.create({ cubeCardIds: app.main, packSize: 24, cardsPerPlayer: 41, picksPerStep: 2 });
       app.drafts.start(draft.id);
       while (app.drafts.pool(draft.id, app.players[0]).length < 40) {
         for (const player of app.players) app.drafts.pickCard(draft.id, player, app.drafts.currentPackOptions(draft.id, player)[0].id);
@@ -131,13 +131,13 @@ describe("Main Deck picks per player", () => {
     } finally { app.db.close(); }
   });
 
-  it.each([19, 61, 20.5, "40", null])("validates the optional cap %j for both draft modes", (cap) => {
-    const config = { mainPicksPerPlayer: cap } as unknown as DraftConfig;
-    expect(boosterDraftConfigError(config)).toMatch(/whole number from 20 to 60/);
-    expect(themeDraftNumberError(config)).toMatch(/whole number from 20 to 60/);
+  it.each([0, -1, 40.5, "40"])("validates invalid stored targets %j for both draft modes", (cap) => {
+    const config = { cardsPerPlayer: cap } as unknown as DraftConfig;
+    expect(boosterDraftConfigError(config)).toMatch(/positive whole number/);
+    expect(themeDraftNumberError(config)).toMatch(/positive whole number/);
   });
 
-  it.each([2, 3, 4].flatMap((players) => [false, true].flatMap((burnUnpicked) => [20, 40].map((cap) => ({ players, burnUnpicked, cap })))))
+  it.each([2, 3, 4].flatMap((players) => [false, true].flatMap((burnUnpicked) => [40, 60].map((cap) => ({ players, burnUnpicked, cap })))))
     ("uses the $cap cap for theme rounds and sufficiency with $players players, burn=$burnUnpicked", ({ players, burnUnpicked, cap }) => {
       const app = setup(players, burnUnpicked ? cap * 3 : cap + 2);
       try {
@@ -145,7 +145,7 @@ describe("Main Deck picks per player", () => {
         const cube = cubes.createBlank("g", "Theme", seedUser(app.db, "u0").userId);
         for (const id of app.main) cubes.addCard(cube.id, id, "main", 1);
         for (const id of app.extra) cubes.addCard(cube.id, id, "extra", 1);
-        const draft = app.create({ mode: "theme", allowedCubeIds: [cube.id], themeSelection: "random", uniqueThemes: false, cardsPerPlayer: cap === 20 ? 60 : 20, mainPicksPerPlayer: cap, themePackSize: 3, burnUnpicked, extraDeckEnabled: true, extraDeckSize: 3 });
+        const draft = app.create({ mode: "theme", allowedCubeIds: [cube.id], themeSelection: "random", uniqueThemes: false, cardsPerPlayer: cap, themePackSize: 3, burnUnpicked, extraDeckEnabled: true, extraDeckSize: 3 });
         expect(totalThemeRounds(draft.config)).toBe(cap + 3);
         app.drafts.start(draft.id);
         finish(app, draft.id, cap);
@@ -162,7 +162,7 @@ describe("Main Deck picks per player", () => {
       const cap = 41;
       const app = setup(players, players * cap + delta);
       try {
-        const draft = app.create({ cubeCardIds: app.main, packSize: 24, mainPicksPerPlayer: cap, picksPerStep });
+        const draft = app.create({ cubeCardIds: app.main, packSize: 24, cardsPerPlayer: cap, picksPerStep });
         app.drafts.start(draft.id);
         const dealt = app.db.prepare("select catalog_card_id as id from draft_deal where draft_id = ? order by position").all(draft.id) as Array<{ id: number }>;
         const undealt = app.db.prepare("select catalog_card_id as id from draft_undealt where draft_id = ? order by position").all(draft.id) as Array<{ id: number }>;
@@ -177,7 +177,7 @@ describe("Main Deck picks per player", () => {
   it("caps automatic picks and resumes the persisted partial round", () => {
     const app = setup(3, 150);
     try {
-      const draft = app.create({ cubeCardIds: app.main, packSize: 24, mainPicksPerPlayer: 41, picksPerStep: 2 });
+      const draft = app.create({ cubeCardIds: app.main, packSize: 24, cardsPerPlayer: 41, picksPerStep: 2 });
       app.drafts.start(draft.id);
       const resumed = createDraftService(app.db, { seedSource: () => { throw new Error("Must keep the persisted shuffle"); } });
       for (let step = 0; step < 100 && resumed.findById(draft.id).status === "active"; step++) {
@@ -189,7 +189,7 @@ describe("Main Deck picks per player", () => {
     } finally { app.db.close(); }
   });
 
-  it("retains legacy targets and rounds when the field is absent", () => {
+  it("uses the existing cardsPerPlayer cap without a second field", () => {
     const app = setup(2, 96);
     try {
       const draft = app.create({ cubeCardIds: app.main, packSize: 24, packsPerPlayer: 2, cardsPerPlayer: 40 });
@@ -197,7 +197,34 @@ describe("Main Deck picks per player", () => {
       app.drafts.start(draft.id);
       finish(app, draft.id, 40);
       for (const player of app.players) expect(app.drafts.pool(draft.id, player)).toHaveLength(40);
-      expect(app.db.prepare("select count(*) as n from draft_undealt where draft_id = ?").get(draft.id)).toEqual({ n: 0 });
+      expect(app.db.prepare("select count(*) as n from draft_undealt where draft_id = ?").get(draft.id)).toEqual({ n: 16 });
     } finally { app.db.close(); }
   });
+  it("preserves an already active draft's saved Main/Extra deal boundaries", () => {
+    const app = setup(2);
+    try {
+      const draft = app.create({ cubeCardIds: app.main, packSize: 24, cardsPerPlayer: 120,
+        extraDeckEnabled: true, extraDeckSize: 3, customExtraCardIds: app.extra });
+      app.drafts.start(draft.id);
+      // Simulate an older active draft: five packs already dealt, but only forty picks kept.
+      app.db.prepare("update drafts set config_json = ? where id = ?")
+        .run(JSON.stringify({ ...draft.config, cardsPerPlayer: 40, packsPerPlayer: 5 }), draft.id);
+      finish(app, draft.id, 40);
+      expect(app.drafts.findById(draft.id).currentPackRound).toBe(6);
+      for (const player of app.players) expect(app.drafts.pool(draft.id, player)).toHaveLength(43);
+    } finally { app.db.close(); }
+  });
+
+  it("derives rounds for a pending historical config before persisting the deal", () => {
+    const app = setup(2, 80);
+    try {
+      const draft = app.create({ cubeCardIds: app.main, packSize: 24, cardsPerPlayer: 40 });
+      app.db.prepare("update drafts set config_json = ? where id = ?")
+        .run(JSON.stringify({ ...draft.config, packsPerPlayer: 5 }), draft.id);
+      app.drafts.start(draft.id);
+      expect(app.drafts.findById(draft.id).config.packsPerPlayer).toBe(2);
+      finish(app, draft.id, 40);
+    } finally { app.db.close(); }
+  });
+
 });

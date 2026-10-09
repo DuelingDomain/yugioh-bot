@@ -35,7 +35,7 @@ async function setup() {
   const players = services.createPlayerService(db);
   const host = players.findOrCreate("g", fixtureUserId("host"), "Host");
   const other = players.findOrCreate("g", fixtureUserId("other"), "Other");
-  const main = Array.from({ length: 80 }, (_, i) => i + 1);
+  const main = Array.from({ length: 120 }, (_, i) => i + 1);
   const extra = Array.from({ length: 6 }, (_, i) => 1001 + i);
   const insert = db.prepare("insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,?, 'i','i','[]',?)");
   for (const id of main) insert.run(id, `M${id}`, "Normal Monster", "normal", new Date().toISOString());
@@ -43,25 +43,25 @@ async function setup() {
   return { db, host, other, main, extra, drafts: services.createDraftService(db), services };
 }
 
-it.each(["booster", "theme"].flatMap((mode) => [19, 61, 20.5, "40", null].map((cap) => ({ mode, cap }))))
+it.each(["booster", "theme"].flatMap((mode) => [39, 121, 40.5, "40", null].map((cap) => ({ mode, cap }))))
   ("rejects invalid $mode cap $cap on create and edit", async ({ mode, cap }) => {
     const app = await setup();
     const { POST } = await import("../app/api/drafts/route");
-    const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ name: "Bad", config: { mode, customCardIds: app.main, mainPicksPerPlayer: cap } }) }) as NextRequest);
+    const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ name: "Bad", config: { mode, customCardIds: app.main, cardsPerPlayer: cap } }) }) as NextRequest);
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toMatch(/whole number from 20 to 60/);
+    expect((await response.json()).error).toMatch(/40 to 120/);
     expect(app.db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
     const draft = app.drafts.create("g", "c", "Good", { mode: mode as "booster" | "theme", customCardIds: app.main }, fixtureUserId("host"), app.host.id);
     const { PUT } = await import("../app/api/drafts/[slug]/route");
-    const edited = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { mainPicksPerPlayer: cap } }) }) as NextRequest, { params: Promise.resolve({ slug: draft.webSlug! }) });
+    const edited = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { cardsPerPlayer: cap } }) }) as NextRequest, { params: Promise.resolve({ slug: draft.webSlug! }) });
     expect(edited.status).toBe(400);
-    expect((await edited.json()).error).toMatch(/whole number from 20 to 60/);
+    expect((await edited.json()).error).toMatch(/40 to 120/);
     expect(app.drafts.findById(draft.id).config).toEqual(draft.config);
   });
 
 it("uses the capped demand for create, edit, preflight, lobby start and the room response", async () => {
   const app = await setup();
-  const config = { customCardIds: app.main, mainPicksPerPlayer: 40, packSize: 24, packsPerPlayer: 5, cardsPerPlayer: 60, picksPerStep: 2, lobbySeats: 2, extraDeckEnabled: true, extraDeckSize: 3, customExtraCardIds: app.extra };
+  const config = { customCardIds: app.main, cardsPerPlayer: 40, packSize: 24, packsPerPlayer: 5, picksPerStep: 2, lobbySeats: 2, extraDeckEnabled: true, extraDeckSize: 3, customExtraCardIds: app.extra };
   const { POST } = await import("../app/api/drafts/route");
   const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ name: "Capped", config }) }) as NextRequest);
   expect(response.status).toBe(201);
@@ -69,7 +69,7 @@ it("uses the capped demand for create, edit, preflight, lobby start and the room
   expect(created.errors).toEqual([]);
   const context = { params: Promise.resolve({ slug: created.webSlug }) };
   const { PUT, GET } = await import("../app/api/drafts/[slug]/route");
-  const edited = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { mainPicksPerPlayer: 20 } }) }) as NextRequest, context);
+  const edited = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { cardsPerPlayer: 41 } }) }) as NextRequest, context);
   expect(edited.status).toBe(200);
   expect((await edited.json()).errors).toEqual([]);
   app.drafts.join(created.id, app.other.id);
@@ -79,11 +79,10 @@ it("uses the capped demand for create, edit, preflight, lobby start and the room
   expect(lobby.read(created.id, fixtureUserId("host")).lobby.errors).toEqual([]);
   app.drafts.start(created.id);
   const room = await (await GET(new Request("http://x"), context)).json();
-  expect(room.config.mainPicksPerPlayer).toBe(20);
-  expect(room.config.cardsPerPlayer).toBe(20);
-  expect(room.config.packsPerPlayer).toBe(1);
-  expect(room.totalPackRounds).toBe(2);
-  expect(room.boosterProgress).toEqual({ main: 0, mainTotal: 20, extra: 0, extraTotal: 3 });
+  expect(room.config.cardsPerPlayer).toBe(41);
+  expect(room.config.packsPerPlayer).toBe(2);
+  expect(room.totalPackRounds).toBe(3);
+  expect(room.boosterProgress).toEqual({ main: 0, mainTotal: 41, extra: 0, extraTotal: 3 });
   for (let step = 0; step < 100 && app.drafts.findById(created.id).status === "active"; step++) {
     for (const player of [app.host, app.other]) {
       const options = app.drafts.currentPackOptions(created.id, player.id);
@@ -93,16 +92,16 @@ it("uses the capped demand for create, edit, preflight, lobby start and the room
   expect(app.drafts.findById(created.id).status).toBe("completed");
   const finished = await (await GET(new Request("http://x"), context)).json();
   expect(finished.phase).toBe("extra");
-  expect(finished.boosterProgress).toEqual({ main: 20, mainTotal: 20, extra: 3, extraTotal: 3 });
-  expect(finished.myPool).toHaveLength(23);
-  // The room projects effective numbers, while the stored legacy config stays intact.
-  expect(app.drafts.findById(created.id).config.cardsPerPlayer).toBe(60);
+  expect(finished.boosterProgress).toEqual({ main: 41, mainTotal: 41, extra: 3, extraTotal: 3 });
+  expect(finished.myPool).toHaveLength(44);
+  // The same cap and derived rounds are stored and exposed.
+  expect(app.drafts.findById(created.id).config.cardsPerPlayer).toBe(41);
 });
 
-it.each([20, 60])("accepts a %i-card target and can edit the room's projected config", async (cap) => {
+it.each([40, 120])("accepts a %i-card target and can edit the room's projected config", async (cap) => {
   const app = await setup();
   const { POST } = await import("../app/api/drafts/route");
-  const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ name: "Small", config: { customCardIds: app.main, mainPicksPerPlayer: cap, cardsPerPlayer: 20, packSize: 24, packsPerPlayer: 5, lobbySeats: 2 } }) }) as NextRequest);
+  const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ name: "Small", config: { customCardIds: app.main, cardsPerPlayer: cap, packSize: 24, packsPerPlayer: 5, lobbySeats: 2 } }) }) as NextRequest);
   expect(response.status).toBe(201);
   const draft = await response.json();
   const context = { params: Promise.resolve({ slug: draft.webSlug }) };
@@ -110,7 +109,7 @@ it.each([20, 60])("accepts a %i-card target and can edit the room's projected co
   const room = await (await GET(new Request("http://x"), context)).json();
   expect(room.config.cardsPerPlayer).toBe(cap);
   expect(room.config.packsPerPlayer).toBe(Math.ceil(cap / 24));
-  const edited = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { ...room.config, mainPicksPerPlayer: 41 } }) }) as NextRequest, context);
+  const edited = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { ...room.config, cardsPerPlayer: 41 } }) }) as NextRequest, context);
   expect(edited.status).toBe(200);
   expect((await edited.json()).config.packsPerPlayer).toBe(2);
   app.drafts.join(draft.id, app.other.id);
@@ -121,9 +120,9 @@ it.each([false, true])("uses the cap in theme preflight, lobby checks and phase/
   const app = await setup();
   const cubes = app.services.createCubeService(app.db, app.services.createCardCatalogService(app.db));
   const cube = cubes.createBlank("g", "Theme", fixtureUserId("host"));
-  for (const id of app.main.slice(0, burnUnpicked ? 60 : 22)) cubes.addCard(cube.id, id, "main", 1);
+  for (const id of app.main.slice(0, burnUnpicked ? 120 : 42)) cubes.addCard(cube.id, id, "main", 1);
   for (const id of app.extra) cubes.addCard(cube.id, id, "extra", 1);
-  const draft = app.drafts.create("g", "c", "Theme Size", { mode: "theme", cardsPerPlayer: 60, mainPicksPerPlayer: 20, allowedCubeIds: [cube.id], themeSelection: "random", uniqueThemes: false, burnUnpicked, extraDeckEnabled: true, extraDeckSize: 2, themePackSize: 3 }, fixtureUserId("host"), app.host.id);
+  const draft = app.drafts.create("g", "c", "Theme Size", { mode: "theme", cardsPerPlayer: 40, allowedCubeIds: [cube.id], themeSelection: "random", uniqueThemes: false, burnUnpicked, extraDeckEnabled: true, extraDeckSize: 2, themePackSize: 3 }, fixtureUserId("host"), app.host.id);
   app.drafts.join(draft.id, app.other.id);
   const context = { params: Promise.resolve({ slug: draft.webSlug! }) };
   const { GET: preflight } = await import("../app/api/drafts/[slug]/preflight/route");
@@ -131,12 +130,12 @@ it.each([false, true])("uses the cap in theme preflight, lobby checks and phase/
   const lobby = app.services.createDraftLobbyService(app.db);
   expect(lobby.read(draft.id, fixtureUserId("host")).lobby.errors).toEqual([]);
   app.drafts.start(draft.id);
-  for (let step = 0; step < 20; step++) {
+  for (let step = 0; step < 40; step++) {
     for (const player of [app.host, app.other]) app.drafts.pickCard(draft.id, player.id, app.drafts.currentPackOptions(draft.id, player.id)[0].id);
   }
   const { GET } = await import("../app/api/drafts/[slug]/route");
   const room = await (await GET(new Request("http://x"), context)).json();
   expect(room.phase).toBe("extra");
-  expect(room.config.cardsPerPlayer).toBe(20);
-  expect(room.themeProgress).toEqual({ main: 20, mainTotal: 20, extra: 0, extraTotal: 2 });
+  expect(room.config.cardsPerPlayer).toBe(40);
+  expect(room.themeProgress).toEqual({ main: 40, mainTotal: 40, extra: 0, extraTotal: 2 });
 });
