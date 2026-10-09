@@ -39,4 +39,23 @@ describe("draft room pack cards keep their size when selected", () => {
     expect(sel.some((r) => /box-shadow:[^;]*rgb\(155 126 255/.test(r.body))).toBe(true);
     expect(rulesFor(/\[data-sel\] \.face::before/).length).toBe(1);
   });
+
+  it("has no contact shadow under a selected or hovered card", () => {
+    expect(rulesFor(/\.shadow/).filter((r) => /\[data-sel\]|:hover/.test(r.selector))).toEqual([]);
+  });
+
+  it("does not dim the selected card when the filter misses it", () => {
+    const rules = rulesFor(/\[data-lens="miss"\]\[data-sel\]/);
+    const face = rules.find((r) => /\.face$/.test(r.selector));
+    expect(face?.body).toMatch(/filter:\s*none/);
+    // only the art may dim, and not below the readable range
+    const art = rules.find((r) => /\.face img$/.test(r.selector));
+    const level = Number(art?.body.match(/brightness\(([\d.]+)\)/)?.[1] ?? 0);
+    expect(level).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it("keeps no leftover rule for the removed stand-up lift", () => {
+    expect(css).not.toMatch(/\.tcard \.lift\s*\{/);
+    expect(css).not.toMatch(/standing up/);
+  });
 });
