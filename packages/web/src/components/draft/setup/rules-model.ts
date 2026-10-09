@@ -310,9 +310,11 @@ export function fitRulesToPool(fields: RulesFields, pool: PoolCounts): FitResult
       if (better) best = { rounds, pile };
     }
     if (best) {
+      const picks = Math.min(rules.picks, best.rounds * best.pile);
       next = { ...next, roundsText: String(best.rounds), packSizeText: String(best.pile),
-        cardsPerPlayerText: String(Math.min(rules.picks, best.rounds * best.pile)) };
+        cardsPerPlayerText: String(picks) };
       changes.push(`${best.rounds} rounds of ${best.pile} per pile use ${rules.seats * best.rounds * best.pile} of ${pool.main} Main cards`);
+      if (picks !== rules.picks) changes.push(`Picks each: ${rules.picks} -> ${picks}`);
     } else {
       mainDeficit = Math.max(1, rules.seats * CARDS_PER_PLAYER_MIN - pool.main);
     }
