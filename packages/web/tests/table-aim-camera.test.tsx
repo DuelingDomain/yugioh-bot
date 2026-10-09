@@ -120,7 +120,11 @@ describe("camera keys on the 3-way shell", () => {
     let now = 1000;
     // A manual frame clock. cancelAnimationFrame must really cancel: a no-op cancel keeps every cancelled measure frame (watchMeasure,
     // the refit) in the queue, and the first frames then run dozens of stale board measures in jsdom (over 1 s here, over 5 s on CI).
+    // It also kept the fly-in pump (place() in use-fly-world.ts) asking for frames after `h`, so the queue never emptied and the loop
+    // below always ran all 80 frames.
     let queue = new Map<number, FrameRequestCallback>();
+    // The callbacks of the frame that runs now: a callback that cancels another one of the same frame stops it, as in a browser.
+    let running = new Map<number, FrameRequestCallback>();
     let nextId = 1;
     const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
     const realRaf = window.requestAnimationFrame;
@@ -130,12 +134,17 @@ describe("camera keys on the 3-way shell", () => {
       queue.set(id, cb);
       return id;
     };
-    window.cancelAnimationFrame = (id: number) => void queue.delete(id);
+    window.cancelAnimationFrame = (id: number) => {
+      queue.delete(id);
+      running.delete(id);
+    };
     const frame = (advanceMs: number) => {
       now += advanceMs;
-      const run = [...queue.values()];
+      // New requests go to the next frame; an id that was cancelled during this frame is no longer in `running`.
+      running = queue;
       queue = new Map();
-      act(() => run.forEach((cb) => cb(now)));
+      const ids = [...running.keys()];
+      act(() => ids.forEach((id) => running.get(id)?.(now)));
     };
     function Moving() {
       const controller = useFixtureController(FFA3_FIXTURES.states.main, { reducedMotion: false });
