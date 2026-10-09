@@ -4,10 +4,14 @@ Staging is a second copy of the web app, the websocket server, duel server and s
 production. Its data, services and Clerk instance are separate. It shares VM memory, CPU, disk and the Docker build cache.
 People can test releases there before the owner deploys production in downtime.
 
-Merge to `main` → **Deploy Staging** runs → test the staging SHA → the owner runs **Deploy** (prod) in downtime.
-A merge does not deploy production. Staging can skip a run when the VM is busy or low on memory.
+After owner setup and `STAGING_AUTO_DEPLOY=1`: merge to `main` → **Deploy Staging** runs → test the staging SHA → the owner runs **Deploy** (prod) in downtime.
+Push deploys stay disabled until the owner sets that repository variable. A merge does not deploy production.
+Staging skips when production gameplay is active, the activity guard fails, or the VM is busy or short of resources.
 Use the tested SHA as the production `ref`; `main` may have moved since the test.
-Both workflows keep their safety controls from the workflow revision when a manual `ref` selects older code.
+Dispatch both workflows from `main`; their jobs refuse dispatch from other branches. The selected `ref` can differ.
+Prod keeps its activity guard from the main workflow revision. Staging keeps its remote entry script and activity guard
+from that revision; other staging helpers come from the selected ref. Prod checks main ancestry on the runner
+before it runs selected code. The SSH private key is in the Configure SSH key step only in both workflows.
 
 ## Current state (2026-10-09)
 
@@ -61,24 +65,31 @@ The VM has 4 GB of RAM. Production uses most of it at busy times. The limits of 
 | worker | 192 MB |
 | caddy | 64 MB |
 
-The weak point is the build: `next build` needs about 1 GB or more for a short time. The workflow protects production like this:
+The weak point is the build: `next build` needs about 1 GB or more for a short time. BuildKit does not use the staging
+containers' memory limits, CPU shares or OOM score. The workflow applies these checks:
 
 1. It takes `/var/lock/yugidraft-build.lock` before it changes the staging checkout, env or build context.
-   It uses the same lock for `stop`. If the lock is busy, staging skips immediately and leaves the old stack alone.
-   Prod uses the same lock, waits up to 15 minutes, then stops staging to free memory for its build.
+   It uses the same lock for `stop`. A deploy skips immediately when the lock is busy and leaves the old stack alone.
+   A stop waits up to 15 minutes, then fails if it cannot get the lock.
+   Prod uses the same lock and waits only 15 minutes. A cold staging build can take longer, so prod can fail on the lock wait.
+   After it gets the lock, prod stops staging to free memory for its build.
    Prod leaves staging off. Restart staging later with **Deploy Staging**.
-2. It stops the old staging containers. If it detects another build outside the lock, it skips.
+2. Before it stops staging, it checks production activity with read-only SQLite queries. Any active duel, RPS or dice
+   opening, draft, tournament round or series skips the build. A failed guard also skips. There is no staging force override.
+   It then stops the old staging containers. If it detects another build outside the lock, it skips.
 3. It skips below 1100 MB of available memory or 6000 MB of free disk before the build.
    After the build, it skips below 2500 MB of free disk. Worker startup/cron owns image-cache eviction.
 4. It skips below 1900 MB of available memory before it starts staging.
 5. After a healthy start, it removes only old staging image IDs. Docker refuses to remove an image still used by a container.
 
-A resource skip returns success and writes `skipping staging` to the log. **A green run alone does not prove a deploy.**
-After a resource skip, staging stays down. Check for the final `staging is running` line and test the site.
+A skip returns success, emits a **Staging skipped** warning and writes a line in the step summary.
+**A green run alone does not prove a deploy.** A lock or activity skip leaves existing staging containers running.
+After a resource skip, staging stays down. Check the warning, summary and final `staging is running` line, then test the site.
 A health failure returns failure and stops staging. Temporary engine bundles and build contexts are removed on exit.
 No staging step stops production or prunes the shared Docker build cache.
 
-A main push can stop staging games during a staging update. It does not restart production.
+After auto deploy is enabled, a main push can stop staging games during a staging update. It does not restart production.
+The production activity check is a snapshot. A game can start after it passes; use downtime for staging builds on this VM.
 Production and staging still compete for resources. For the 15–16 tester alpha, use a **second VM** for staging if possible.
 A larger VM (at least 8 GB) gives more RAM, but still shares CPU, disk and a failure boundary.
 
@@ -94,7 +105,7 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
 ## One-time steps for the owner
 
 1. **Put this deploy-flow change on `main` after review.** The branch alone does not change live triggers.
-   Once it is on `main`, pushes deploy staging only. Production uses manual **Deploy**.
+   Leave `STAGING_AUTO_DEPLOY` unset or `0` until setup and a manual staging test pass. Production uses manual **Deploy**.
 2. **Choose the staging HTTPS host and add DNS.** `SITE_DOMAIN` is `app.duelingdomain.com`, so
    `staging.<SITE_DOMAIN>` is `staging.app.duelingdomain.com`. `staging.duelingdomain.com` is also an option.
    Point an A record to the VM. Add AAAA only if that IPv6 address reaches it. Use a hostname separate from prod.
@@ -131,7 +142,9 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
    If the saved DB still has production Clerk bindings from the old stack, use `refresh_db=true` once.
    This replaces staging data; production stays unchanged. Verify `/sign-in`, invitations, Discord and email sign-in,
    username/consent, session isolation, Socket.IO, a duel, a draft, a tournament round and worker timers.
-   Record the staging SHA. In downtime, run **Deploy** from `main` with that SHA as `ref`, `force=false`.
+   Record the staging SHA. In downtime, run **Deploy** from `main` with that SHA as `ref`, `force=false`, `rollback=false`.
+8. **Enable push deploys after setup and testing pass.** Set the repository Actions variable `STAGING_AUTO_DEPLOY` to `1`.
+   Later pushes to `main` can deploy staging. Set it to `0` to disable push deploys; manual dispatch from `main` still works.
 
 The workflow health check covers `/sign-in` 200, anonymous `/api/auth/session` 200 with body `null`, Socket.IO and worker health.
 It does not test public DNS, certificates or real Clerk sign-in. The owner must test those in a browser before inviting testers.
@@ -418,7 +431,8 @@ WHERE web_slug = '<verified-local-duel-slug>'
   AND json_extract(setup_json, '$.firstTurnDraw') IS NULL;
 ```
 
-- **Update staging to a newer commit.** Merge to `main` for an automatic deploy, or run the workflow with a `ref` and `action` = `deploy`.
+- **Update staging to a newer commit.** With `STAGING_AUTO_DEPLOY=1`, merge to `main` for an automatic deploy.
+  Or dispatch the workflow from `main` with a branch or SHA as `ref` and `action` = `deploy`.
   The staging database is kept. Staging is stopped during a deploy, so a duel that is running in staging at that time
   is set to `interrupted` (the engine install refuses a new bundle while a duel is active).
 - **Refresh the database from production.** Run the workflow with `refresh_db` on. Staging duels and anything

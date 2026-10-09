@@ -1,6 +1,6 @@
 # VM Deployment Runbook
 
-This runbook covers deploying Dueling Domain web/WS/duel/worker to a VM. The stack runs via Docker Compose with Caddy as a reverse proxy. A push to `main` deploys staging. The owner runs the manual **Deploy** workflow for production in downtime.
+This runbook covers deploying Dueling Domain web/WS/duel/worker to a VM. The stack runs via Docker Compose with Caddy as a reverse proxy. After owner setup and `STAGING_AUTO_DEPLOY=1`, a push to `main` can deploy staging. The owner runs the manual **Deploy** workflow for production in downtime.
 
 ## Current Repository State
 
@@ -58,12 +58,16 @@ The deploy workflow requires these GitHub Actions secrets:
 
 ## Deployment Pipeline
 
-1. Merge code to `main`. **Deploy Staging** builds and starts the separate staging stack on the VM.
-   It can skip when memory, disk or the shared build lock is unavailable. See [staging setup and limits](staging.md).
+1. Complete [staging setup and tests](staging.md#one-time-steps-for-the-owner), then set repository variable `STAGING_AUTO_DEPLOY=1`.
+   Merge code to `main`. **Deploy Staging** can build and start the separate staging stack on the VM.
+   It skips for active production gameplay, a failed activity guard, low memory/disk or a busy build lock.
 2. Test the deployed staging SHA. In downtime, open Actions → **Deploy** → Run workflow.
-   Use workflow from `main`, set `ref` to the tested SHA (default `main`), and leave `force=false`.
+   Use workflow from `main`, set `ref` to the tested SHA (default `main`), and leave `force=false`, `rollback=false`.
    Prod has no push trigger. The prod job runs only with the workflow on `refs/heads/main`, on
    `ubuntu-latest` (amd64), with a 90-minute limit. The target ref must resolve to a commit on `main`.
+   Right after target checkout, the runner runs `git fetch origin main && git merge-base --is-ancestor HEAD FETCH_HEAD`.
+   This check runs before `npm rebuild`, `duel:prepare`, `tsx` or other code from that ref.
+   `VM_SSH_PRIVATE_KEY` is in the Configure SSH key step only; build steps do not receive it.
 3. The workflow builds or restores the pinned duel-engine resource bundle
    (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `ocgcore.standard.wasm`, `manifest.json`, and the legacy 1v1 files `ocgcore.domain.legacy.wasm` and `card-scripts/domain.legacy.lua`)
    using `npm run duel:prepare`, `packages/duel-server/scripts/build-domain-core.ts` (Domain wasm) and `packages/duel-server/scripts/build-domain-core.ts standard` (Standard wasm: stock rules plus the shared fixes in `domain-core/src/apply-core-fixes.mjs`, `build-standard-core.sh`)
@@ -81,10 +85,14 @@ The deploy workflow requires these GitHub Actions secrets:
    cached base bundle independent. See [staging's engine build details](staging.md#engine-files-and-image-build).
 4. The workflow SSHes into the VM and fetches the exact commit checked out on the runner. It also
    fetches `origin main` and checks that the deploy commit is an ancestor of `FETCH_HEAD` before preflight.
-   It waits up to 15 minutes for the shared VM build lock; missing `flock` fails closed.
+   The VM also requires `git merge-base --is-ancestor HEAD "$DEPLOY_COMMIT"` before any checkout or image change.
+   An older or diverged target is refused unless the owner explicitly sets `rollback=true`. The target must still be on main.
+   Rollback does not restore the matching database or env; use the restore procedure when those are needed.
+   It waits only 15 minutes for the shared VM build lock; missing `flock` fails closed. A cold staging build can take longer.
+   If prod reaches the lock timeout, let staging finish, then run Deploy again.
    Before checkout changes, backups or stopping staging, it runs `scripts/deployment/check-prod-activity.py`
    from the workflow revision against the VM's `data/bot.sqlite`. It opens SQLite with `mode=ro` and `query_only=on`.
-   One snapshot counts active duels, active drafts, open/pending-approval rounds in active tournaments,
+   One snapshot counts active duels and lobby duels with RPS/dice openings, active drafts, open/pending-approval rounds in active tournaments,
    and active/between-game series. Committed WAL writes are included. Missing, locked, corrupt or incomplete
    DBs refuse the deploy. Any active count refuses unless `force=true` was explicitly set.
    Force skips only this new guard; it never disables the engine preflight, lock or backups.
@@ -105,6 +113,7 @@ The deploy workflow requires these GitHub Actions secrets:
    any previous bot container is stopped by its project/service labels before migration.
    After the image build, it checks gameplay again immediately before any prod service stop.
    A refusal there leaves prod containers running, but the checkout/images may already be updated and staging stopped.
+   The job prints: **Do not run compose up. Run Deploy again.** Wait for downtime, then run the full workflow again.
    This is a snapshot guard, not an admission lock: the owner must prevent new games during the downtime window.
    It stops web/duel/worker and WS, captures a final drained backup, installs the engine bundle,
    and runs one migration with the new worker image before starting consumers. FK and integrity
@@ -426,32 +435,35 @@ Go to your GitHub repo → Settings → Secrets and variables → Actions, and a
 | `VM_SSH_PRIVATE_KEY` | Full contents of your SSH private key |
 | `VM_PORT` | `22` |
 
-Also set repository **variable** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` to the production `pk_live_...` value. The runtime `CLERK_SECRET_KEY` stays on the VM. A push to `main` deploys staging only; complete its [one-time setup](staging.md#one-time-steps-for-the-owner). Production deploys are manual.
+Also set repository **variable** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` to the production `pk_live_...` value. The runtime `CLERK_SECRET_KEY` stays on the VM. Complete staging's [one-time setup and tests](staging.md#one-time-steps-for-the-owner), then set repository variable `STAGING_AUTO_DEPLOY=1` to enable staging push deploys. Production deploys are manual.
 
 ## Staging First, Manual Production
 
-`.github/workflows/deploy-staging.yml` runs on each push to `main` and on manual dispatch.
-`.github/workflows/deploy.yml` runs only on manual dispatch. Both use the shared VM build lock.
+`.github/workflows/deploy-staging.yml` runs on pushes to `main` only with `STAGING_AUTO_DEPLOY=1`, and on manual dispatch from `main`.
+`.github/workflows/deploy.yml` runs only on manual dispatch from `main`. Both use the shared VM build lock.
 
 Normal flow:
 
 1. Work on a branch.
 2. Open a pull request.
 3. Merge into `main`.
-4. GitHub Actions deploys staging, or skips if the VM is busy or short of resources.
-5. Test staging and record its deployed SHA. A green run can mean a resource skip; check the job log and site.
-6. During downtime, the owner runs **Deploy** from `main`, with the tested SHA as `ref` and `force=false`.
+4. After auto deploy is enabled, GitHub Actions deploys staging, or skips for prod activity, guard failure, or resource limits.
+5. Test staging and record its deployed SHA. A green run can mean a skip; check warnings, the step summary and the site.
+6. During downtime, the owner runs **Deploy** from `main`, with the tested SHA as `ref`, `force=false`, `rollback=false`.
 
-For a manual staging test of a branch or SHA, use **Deploy Staging**, `action=deploy`, `refresh_db=false`.
+For a manual staging test of a branch or SHA, dispatch **Deploy Staging** from `main`, set that target as `ref`, and use `action=deploy`, `refresh_db=false`.
 Prod stops staging before its build; staging stays down until its workflow runs again.
+Prod waits only 15 minutes for the lock. A cold staging build can take longer and cause a prod lock timeout.
 
 Local safety checks (no VM access):
 
 ```bash
-python3 -m unittest discover -s scripts/deployment -p test_deploy_safety.py -v
+python3 -B -m unittest discover -s scripts/deployment -p test_deploy_safety.py -v
 node --test scripts/ci/deploy-flow.test.mjs
-npx --yes @action-validator/cli .github/workflows/deploy.yml
-npx --yes @action-validator/cli .github/workflows/deploy-staging.yml
+npx vitest run scripts/staging/deploy.test.ts
+npx --yes @action-validator/cli@0.6.0 .github/workflows/deploy.yml
+npx --yes @action-validator/cli@0.6.0 .github/workflows/deploy-staging.yml
+npx --yes @action-validator/cli@0.6.0 .github/workflows/test.yml
 sh -n scripts/staging/remote-deploy.sh
 ```
 

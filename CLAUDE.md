@@ -77,12 +77,16 @@ This is an npm workspaces + Turborepo monorepo with seven packages (see `docs/ar
 
 ### Deployment flow
 
-Each merge to `main` auto-deploys **staging**, subject to the shared VM lock and resource checks.
+After owner setup and repository variable `STAGING_AUTO_DEPLOY=1`, each merge to `main` can deploy **staging**,
+subject to production activity, the shared VM lock and resource checks. Both workflows require dispatch from `main`.
 Test the staging SHA, then the owner runs **Deploy** (prod) manually from `main` in downtime with that SHA as `ref`.
 Production has no push trigger. Its read-only SQLite guard refuses active duels, drafts, tournament rounds and
-active/between-game series, before changes and again before service stops. `force` skips only this activity guard;
+active/between-game series and RPS/dice openings, before changes and again before service stops. `force` skips only this activity guard;
 the engine bundle preflight, build lock and backups still apply. Prod stops staging and leaves it off.
-Staging skips busy or low-resource runs with success; check for `staging is running`, then test the site.
+The runner checks the prod target's main ancestry before running its code. SSH key env is limited to the key setup step.
+The VM refuses an older or diverged prod SHA unless `rollback=true`. Staging skips active prod games, guard failures,
+busy or low-resource runs with a warning and step-summary line; check for `staging is running`, then test the site.
+Staging stop waits for the lock or fails. Prod waits only 15 minutes; a cold staging build can take longer.
 Use a separate staging Clerk instance and HTTPS host. On the shared 4 GB VM, resource limits cannot guarantee prod uptime;
 a second staging VM is advised for the alpha. See `docs/deployment/staging.md` and `docs/deployment/vm-runbook.md`.
 
