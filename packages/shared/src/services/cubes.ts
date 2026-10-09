@@ -156,6 +156,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     const unknown: number[] = [];
     const ids = [...new Set(groups.flatMap((g) => g.codes))];
     for (const card of catalog.findByIds(ids)) cards.set(card.ygoprodeckId, card);
+    await catalog.prefetchCardsByIds(ids.filter((id) => !cards.has(id) || !catalog.hasCatalogRow(id)), { lookupBudget });
     for (const id of ids) {
       if (cards.has(id) && catalog.hasCatalogRow(id)) continue;
       let card: Card | undefined;

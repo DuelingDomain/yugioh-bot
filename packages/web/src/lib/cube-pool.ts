@@ -34,7 +34,8 @@ export async function ensureCatalogCards(
   lookupBudget: CardLookupBudget = createCardLookupBudget(),
 ): Promise<number[]> {
   const missing = [...new Set(ids)].filter((id) => !catalog.hasCatalogRow(id));
-  for (const id of missing) {
+  await catalog.prefetchCardsByIds(missing, { lookupBudget });
+  for (const id of missing.filter((id) => !catalog.hasCatalogRow(id))) {
     try {
       await catalog.syncCardById(id, { lookupBudget });
     } catch (error) {
