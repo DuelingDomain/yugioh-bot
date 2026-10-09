@@ -367,6 +367,16 @@ export async function buildDraftResponse(slug: string, userId: string) {
       })
     : null;
 
+  let canEndOrCancel = draft.created_by_user_id === userId;
+  if (!canEndOrCancel) {
+    try {
+      canEndOrCancel = (await checkDiscordWebAccess(userId, "admin")).ok;
+    } catch {
+      // The draft remains readable when Discord verification is unavailable.
+      canEndOrCancel = false;
+    }
+  }
+
   let canCreateTournament = false;
   if (draft.status === "completed" && draft.tournament_id == null) {
     if (draft.created_by_user_id === userId) {
@@ -387,6 +397,8 @@ export async function buildDraftResponse(slug: string, userId: string) {
     channelId: draft.channel_id,
     name: draft.name,
     status: draft.status,
+    // The same rule as POST /end and /cancel: the host or a guild admin. The page only uses it to show the controls.
+    ...(canEndOrCancel ? { canEndOrCancel: true } : {}),
     createdByUserId: draft.created_by_user_id,
     config,
     currentPackRound: draftModel.currentPackRound,
