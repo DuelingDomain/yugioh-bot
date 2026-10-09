@@ -179,7 +179,7 @@ function Ledger({ a, fit }: { a: RulesAnalysis; fit: () => void }) {
       <div className={styles.facts}>
         <div className={styles.fact}>
           <b>{a.picksEach}{rules.extraEnabled && <small> +{a.extraEach}</small>}</b>
-          <span>picks each{rules.extraEnabled ? " (+ Extra)" : ""}</span>
+          <span>Main Deck cards each{rules.extraEnabled ? " (+\u00a0Extra)" : ""}</span>
         </div>
         <div className={styles.fact}>
           <b>{turns}</b>
@@ -262,10 +262,10 @@ export function RulesPanel({ value, onChange, pool, metaSlot, visibilitySlot, ac
           <div className={styles.fld}>
             <label htmlFor="rules-rounds">Rounds</label>
             <div className={styles.ns}><input id="rules-rounds" value={String(rules.rounds)} readOnly aria-describedby="rules-rounds-h" /></div>
-            <p id="rules-rounds-h" className={styles.hh}>Calculated from Picks each and Cards per pile.</p>
+            <p id="rules-rounds-h" className={styles.hh}>Calculated from Main Deck cards each and Cards per pile.</p>
           </div>
           <Stepper id="rules-pile" label="Cards per pile" text={value.packSizeText} limitKey="pile" onType={type("pile")} onStep={step("pile")} onSettle={settle("pile")} hint="Each player holds one pile per turn and passes it on." />
-          <Stepper id="rules-picks" label="Picks each" text={value.cardsPerPlayerText} limitKey="picks" onType={type("picks")} onStep={step("picks")} onSettle={settle("picks")} hint={`${plural(rules.picks, "pick", "picks")}; ${plural(analysis.dealtEach, "card", "cards")} dealt to each seat.`} />
+          <Stepper id="rules-picks" label="Main Deck cards each" text={value.cardsPerPlayerText} limitKey="picks" onType={type("picks")} onStep={step("picks")} onSettle={settle("picks")} hint={`Each player drafts exactly ${plural(rules.picks, "Main Deck card", "Main Deck cards")}. The Extra Deck round, if on, is added on top. ${plural(analysis.dealtEach, "card", "cards")} dealt to each seat.`} />
           <div className={styles.fld}>
             <span className={styles.lb} id="rules-pps">Picks per turn</span>
             <Segmented
