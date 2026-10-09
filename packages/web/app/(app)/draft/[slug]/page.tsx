@@ -7,8 +7,8 @@ import { DangerConfirm } from "@/components/draft/danger-confirm";
 import { DraftFrame } from "@/components/draft/draft-frame";
 import { DraftManageView } from "@/components/draft/draft-manage-view";
 import { DraftState } from "@/components/draft/draft-state";
-import { HostActionNotice, type HostAction } from "@/components/draft/host-action-notice";
-import { DraftTerminalError, requestDraftTerminal, type DraftTerminalAction } from "@/lib/draft-terminal-client";
+import { HostActionNotice } from "@/components/draft/host-action-notice";
+import { DraftTerminalError, requestDraftCancel } from "@/lib/draft-terminal-client";
 import { DraftSummaryView } from "@/components/draft/draft-summary-view";
 import { DraftRoom } from "@/components/draft/room/draft-room";
 import { DraftFinale } from "@/components/draft/room/finale";
@@ -70,8 +70,8 @@ function DraftDetailBody({ slug }: { slug: string }) {
   // indicator stays in lock-step with the Your Pool / DRAFTED counters.
   const storePool = useDraftStore((s) => s.myPool);
 
-  // News for a player: the draft was ended or cancelled early. Not set for the host, who started it.
-  const [hostNotice, setHostNotice] = useState<HostAction | null>(null);
+  // News for a player: the draft was cancelled. Not set for the host, who started it.
+  const [cancelNotice, setCancelNotice] = useState(false);
   const sentTerminalRef = useRef(false);
 
   const loadedRef = useRef(false);
@@ -185,8 +185,9 @@ function DraftDetailBody({ slug }: { slug: string }) {
   useDraftWebsocket(slug, {
     onHostStopped: (status) => {
       // The host knows already: this tab sent the stop, or another tab of the host did.
+      if (status !== "cancelled") return;
       if (sentTerminalRef.current || (currentUserId != null && draftRef.current?.createdByUserId === currentUserId)) return;
-      setHostNotice(status === "completed" ? "ended" : "cancelled");
+      setCancelNotice(true);
     },
     onStatusChange: (status) => {
       if (status === DRAFT_STATUS.completed) return;
@@ -236,12 +237,12 @@ function DraftDetailBody({ slug }: { slug: string }) {
     router.refresh();
   };
 
-  // End now and Cancel draft. The socket echoes the change to this tab before the answer arrives, so the tab marks
-  // itself first: the host does not get the "the host ended the draft" news for their own click.
-  const handleTerminal = async (action: DraftTerminalAction) => {
+  // Cancel draft. The socket echoes the change to this tab before the answer arrives, so the tab marks
+  // itself first: the host does not get the "the draft was cancelled" news for their own click.
+  const handleCancel = async () => {
     sentTerminalRef.current = true;
     try {
-      await requestDraftTerminal(slug, action);
+      await requestDraftCancel(slug);
     } catch (err) {
       sentTerminalRef.current = false;
       // The draft is not what this page shows (it ended or was cancelled in another tab): show the real state.
@@ -250,8 +251,6 @@ function DraftDetailBody({ slug }: { slug: string }) {
     }
     await fetchDraft();
   };
-
-  const handleCancel = () => handleTerminal("cancel");
 
   const handleUpdate = async ({ revision: seen, ...data }: { name?: string; config?: unknown; revision?: number }) => {
     // The newest revision known: the page's own read, or the lobby answer the caller saw after its own change (Ready,
@@ -325,7 +324,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
   const withNotice = (view: ReactNode) => (
     <>
       {view}
-      <HostActionNotice action={hostNotice} hasPicks={isParticipant} onClose={() => setHostNotice(null)} />
+      <HostActionNotice open={cancelNotice} onClose={() => setCancelNotice(false)} />
     </>
   );
 
@@ -379,7 +378,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
         name={draft.name}
         config={roomConfig}
         isParticipant={isParticipant}
-        onHostAction={canCancel ? handleTerminal : undefined}
+        onCancel={canCancel ? handleCancel : undefined}
       />,
     );
   }
