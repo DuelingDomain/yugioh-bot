@@ -70,7 +70,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
   // indicator stays in lock-step with the Your Pool / DRAFTED counters.
   const storePool = useDraftStore((s) => s.myPool);
 
-  // News for a player: the host ended or cancelled the draft. Not set on the tab that sent the request.
+  // News for a player: the draft was ended or cancelled early. Not set for the host, who started it.
   const [hostNotice, setHostNotice] = useState<HostAction | null>(null);
   const sentTerminalRef = useRef(false);
 
@@ -184,7 +184,8 @@ function DraftDetailBody({ slug }: { slug: string }) {
 
   useDraftWebsocket(slug, {
     onHostStopped: (status) => {
-      if (sentTerminalRef.current) return;
+      // The host knows already: this tab sent the stop, or another tab of the host did.
+      if (sentTerminalRef.current || (currentUserId != null && draftRef.current?.createdByUserId === currentUserId)) return;
       setHostNotice(status === "completed" ? "ended" : "cancelled");
     },
     onStatusChange: (status) => {

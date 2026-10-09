@@ -44,7 +44,7 @@ export function HostMenu({
       }}
     >
       <h3>Host controls</h3>
-      <p className="host-lede">Only you can see these. Each one asks you to confirm.</p>
+      <p className="host-lede">Each one asks you to confirm.</p>
       <div className="host-acts">
         <button type="button" data-host-action="end" onClick={() => onChoose("end")}>
           <b>End now (keep picks)</b>
