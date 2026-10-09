@@ -91,6 +91,27 @@ test("manual staging refs cannot replace the workflow revision's remote safety e
   assert.match(transfer, /STAGING_GUARD='\$remote_guard'/);
 });
 
+test("only manual staging dispatch can ignore production activity", () => {
+  const staging = workflow("deploy-staging.yml");
+  const input = staging.on.workflow_dispatch.inputs.ignore_prod_activity;
+  assert.ok(input, "manual staging dispatch must provide ignore_prod_activity");
+  assert.equal(input.type, "boolean");
+  assert.equal(input.default, false);
+  const expression = staging.jobs.staging.env.INPUT_IGNORE_PROD_ACTIVITY;
+  for (const [event, enabled, expected] of [
+    ["push", undefined, "false"], ["push", true, "false"],
+    ["workflow_dispatch", undefined, "false"], ["workflow_dispatch", false, "false"],
+    ["workflow_dispatch", true, "true"],
+  ]) {
+    assert.equal(value(expression, { ignore_prod_activity: enabled }, { event_name: event }), expected);
+  }
+  const steps = staging.jobs.staging.steps;
+  assert.match(steps.find(step => step.name === "Check inputs and secrets").run,
+    /check "ignore_prod_activity" "\$INPUT_IGNORE_PROD_ACTIVITY" '\^\(true\|false\)\$'/);
+  assert.match(steps.find(step => step.name === "Run on the VM").run,
+    /STAGING_IGNORE_PROD_ACTIVITY='\$INPUT_IGNORE_PROD_ACTIVITY'/);
+});
+
 test("selected production code runs only after its main ancestry check, without the SSH key", t => {
   const prod = workflow("deploy.yml");
   assert.equal(prod.jobs.deploy.env.VM_SSH_PRIVATE_KEY, undefined);

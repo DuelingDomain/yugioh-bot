@@ -60,14 +60,15 @@ The deploy workflow requires these GitHub Actions secrets:
 
 1. Complete [staging setup and tests](staging.md#one-time-steps-for-the-owner), then set repository variable `STAGING_AUTO_DEPLOY=1`.
    Merge code to `main`. **Deploy Staging** can build and start the separate staging stack on the VM.
-   It skips for active production gameplay, a failed activity guard, low memory/disk or a busy build lock.
+   It skips for live production duels, openings or active drafts, a failed activity guard, low memory/disk or a busy build lock.
+   Open tournament rounds and series alone do not block staging. Manual dispatch can skip only the activity guard.
 2. Test the deployed staging SHA. In downtime, open Actions → **Deploy** → Run workflow.
    Use workflow from `main`, set `ref` to the tested SHA (default `main`), and leave `force=false`, `rollback=false`.
    Prod has no push trigger. The prod job runs only with the workflow on `refs/heads/main`, on
    `ubuntu-latest` (amd64), with a 90-minute limit. The target ref must resolve to a commit on `main`.
    Right after target checkout, the runner runs `git fetch origin main && git merge-base --is-ancestor HEAD FETCH_HEAD`.
    This check runs before `npm rebuild`, `duel:prepare`, `tsx` or other code from that ref.
-   `VM_SSH_PRIVATE_KEY` is in the Configure SSH key step only; build steps do not receive it.
+   `VM_SSH_PRIVATE_KEY` is in the Configure SSH key step only. This placement does not isolate the key from code that ran earlier.
 3. The workflow builds or restores the pinned duel-engine resource bundle
    (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `ocgcore.standard.wasm`, `manifest.json`, and the legacy 1v1 files `ocgcore.domain.legacy.wasm` and `card-scripts/domain.legacy.lua`)
    using `npm run duel:prepare`, `packages/duel-server/scripts/build-domain-core.ts` (Domain wasm) and `packages/duel-server/scripts/build-domain-core.ts standard` (Standard wasm: stock rules plus the shared fixes in `domain-core/src/apply-core-fixes.mjs`, `build-standard-core.sh`)
@@ -442,6 +443,10 @@ Also set repository **variable** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` to the prod
 `.github/workflows/deploy-staging.yml` runs on pushes to `main` only with `STAGING_AUTO_DEPLOY=1`, and on manual dispatch from `main`.
 `.github/workflows/deploy.yml` runs only on manual dispatch from `main`. Both use the shared VM build lock.
 
+The SSH key step does not protect the production key from staging ref code that runs before it. That code can use
+`GITHUB_ENV`, `GITHUB_PATH` or `RUNNER_TEMP` to reach the key in a later step. For a real control, put the production key
+in a GitHub environment with a required reviewer. This is an owner choice for later; it is not configured by these changes.
+
 Normal flow:
 
 1. Work on a branch.
@@ -451,7 +456,11 @@ Normal flow:
 5. Test staging and record its deployed SHA. A green run can mean a skip; check warnings, the step summary and the site.
 6. During downtime, the owner runs **Deploy** from `main`, with the tested SHA as `ref`, `force=false`, `rollback=false`.
 
-For a manual staging test of a branch or SHA, dispatch **Deploy Staging** from `main`, set that target as `ref`, and use `action=deploy`, `refresh_db=false`.
+For a manual staging test of a branch or SHA, dispatch **Deploy Staging** from `main`, set that target as `ref`, and use
+`action=deploy`, `refresh_db=false`, `ignore_prod_activity=false`. Set `ignore_prod_activity=true` to build during production play.
+This input skips only the activity guard. It keeps the shared lock and all resource checks. Push deploys cannot enable it.
+Staging checks only live duels, openings and active drafts, before clone, fetch or checkout reset.
+Production keeps its full activity guard, including open tournament rounds and active/between-game series.
 Prod stops staging before its build; staging stays down until its workflow runs again.
 Prod waits only 15 minutes for the lock. A cold staging build can take longer and cause a prod lock timeout.
 

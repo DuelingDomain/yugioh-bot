@@ -29,9 +29,12 @@ class ProductionActivityTests(unittest.TestCase):
             create table duel_series (status text);
         """)
 
-    def run_guard(self, force="false"):
+    def run_guard(self, force="false", target=None):
+        command = ["python3", str(GUARD), str(self.path), "--force", force]
+        if target:
+            command.extend(["--target", target])
         return subprocess.run(
-            ["python3", str(GUARD), str(self.path), "--force", force],
+            command,
             text=True, capture_output=True, timeout=10,
         )
 
@@ -91,6 +94,37 @@ class ProductionActivityTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("drafts=1", result.stdout)
         self.assertEqual(self.db.execute("select count(*) from drafts").fetchone()[0], 1)
+
+    def test_staging_ignores_open_rounds_and_series(self):
+        self.db.executescript("""
+            insert into tournaments values (1, 'active');
+            insert into tournament_matches values (1, 1, 'open'), (1, 2, 'pending_approval');
+            insert into duel_series values ('active'), ('between_games');
+        """)
+        result = self.run_guard(target="staging")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("duels=0 drafts=0", result.stdout)
+        self.assertNotIn("tournament_rounds=", result.stdout)
+        self.assertNotIn("series=", result.stdout)
+        self.assertEqual(self.run_guard().returncode, 1)
+
+    def test_staging_refuses_live_duels_openings_and_drafts_with_its_own_label(self):
+        for statement in [
+            "insert into duels (status) values ('active')",
+            "insert into duels values ('lobby', '{\"phase\":\"rps\"}')",
+            "insert into duels values ('lobby', '{\"phase\":\"dice\"}')",
+            "insert into drafts values ('active')",
+        ]:
+            with self.subTest(statement=statement):
+                self.db.execute(statement)
+                self.db.commit()
+                result = self.run_guard(target="staging")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("Staging deploy skipped: production is busy", result.stderr)
+                self.assertNotIn("Production deploy refused", result.stderr)
+                for table in ("duels", "drafts"):
+                    self.db.execute(f"delete from {table}")
+                self.db.commit()
 
     def test_missing_corrupt_locked_and_incomplete_databases_fail_closed(self):
         missing = Path(self.tmp.name) / "missing.sqlite"
@@ -192,23 +226,32 @@ fi
     def assert_skip_reported(self, result):
         self.assertIn("::warning title=Staging skipped::", result.stdout)
 
+    def command_log(self):
+        return self.log.read_text() if self.log.exists() else ""
+
     def test_active_production_duel_skips_without_stopping_or_building_staging(self):
         with sqlite3.connect(self.prod) as db:
             db.execute("insert into duels (status) values ('active')")
         result = self.run_remote()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("duels=1", result.stdout)
-        log = self.log.read_text()
+        log = self.command_log()
+        self.assertNotIn("git fetch", log)
+        self.assertNotIn("git reset", log)
         self.assertNotIn("compose stop", log)
         self.assertNotIn("compose build", log)
         self.assertNotIn("compose up", log)
+        self.assertIn("Staging deploy skipped: production is busy", result.stderr)
+        self.assertNotIn("Production deploy refused", result.stderr)
         self.assert_skip_reported(result)
 
     def test_failed_production_guard_skips_without_stopping_or_building_staging(self):
         self.prod.unlink()
         result = self.run_remote()
         self.assertEqual(result.returncode, 0, result.stderr)
-        log = self.log.read_text()
+        log = self.command_log()
+        self.assertNotIn("git fetch", log)
+        self.assertNotIn("git reset", log)
         self.assertNotIn("compose stop", log)
         self.assertNotIn("compose build", log)
         self.assert_skip_reported(result)
@@ -217,10 +260,61 @@ fi
         self.guard.unlink()
         result = self.run_remote()
         self.assertEqual(result.returncode, 0, result.stderr)
-        log = self.log.read_text()
+        log = self.command_log()
+        self.assertNotIn("git fetch", log)
+        self.assertNotIn("git reset", log)
         self.assertNotIn("compose stop", log)
         self.assertNotIn("compose build", log)
         self.assert_skip_reported(result)
+
+    def test_open_tournament_round_builds_when_ignore_prod_activity_is_on(self):
+        with sqlite3.connect(self.prod) as db:
+            db.executescript("""
+                insert into tournaments values (1, 'active');
+                insert into tournament_matches values (1, 1, 'open');
+            """)
+        result = self.run_remote(STAGING_IGNORE_PROD_ACTIVITY="true")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("compose build", self.command_log())
+        self.assertIn("compose up -d", self.command_log())
+        self.assertIn("ignore_prod_activity=true", result.stdout)
+
+    def test_open_tournament_round_builds_without_override(self):
+        with sqlite3.connect(self.prod) as db:
+            db.executescript("""
+                insert into tournaments values (1, 'active');
+                insert into tournament_matches values (1, 1, 'open');
+                insert into duel_series values ('between_games');
+            """)
+        result = self.run_remote()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("compose build", self.command_log())
+
+    def test_ignore_prod_activity_builds_with_live_production_duel_and_no_guard(self):
+        with sqlite3.connect(self.prod) as db:
+            db.execute("insert into duels (status) values ('active')")
+        self.guard.unlink()
+        result = self.run_remote(STAGING_IGNORE_PROD_ACTIVITY="true")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("compose build", self.command_log())
+
+    def test_ignore_prod_activity_keeps_the_build_lock(self):
+        with self.lock.open("w") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.run_remote(STAGING_IGNORE_PROD_ACTIVITY="true")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_skip_reported(result)
+        self.assertEqual(self.command_log(), "")
+
+    def test_ignore_prod_activity_keeps_resource_checks(self):
+        with sqlite3.connect(self.prod) as db:
+            db.execute("insert into duels (status) values ('active')")
+        self.set_memory(500)
+        result = self.run_remote(STAGING_IGNORE_PROD_ACTIVITY="true")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("the build resource check did not pass", result.stdout)
+        self.assertNotIn("compose build", self.command_log())
+        self.assertNotIn("compose up", self.command_log())
 
     def test_busy_stop_fails_instead_of_reporting_a_skip(self):
         with self.lock.open("w") as handle:

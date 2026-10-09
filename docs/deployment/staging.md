@@ -6,12 +6,16 @@ People can test releases there before the owner deploys production in downtime.
 
 After owner setup and `STAGING_AUTO_DEPLOY=1`: merge to `main` → **Deploy Staging** runs → test the staging SHA → the owner runs **Deploy** (prod) in downtime.
 Push deploys stay disabled until the owner sets that repository variable. A merge does not deploy production.
-Staging skips when production gameplay is active, the activity guard fails, or the VM is busy or short of resources.
+Staging skips for live production duels, openings or active drafts, a failed activity guard, or a VM that is busy or short of resources.
+Open tournament rounds and series alone do not block staging. Manual dispatch can skip only the activity guard with `ignore_prod_activity=true`.
 Use the tested SHA as the production `ref`; `main` may have moved since the test.
 Dispatch both workflows from `main`; their jobs refuse dispatch from other branches. The selected `ref` can differ.
 Prod keeps its activity guard from the main workflow revision. Staging keeps its remote entry script and activity guard
 from that revision; other staging helpers come from the selected ref. Prod checks main ancestry on the runner
 before it runs selected code. The SSH private key is in the Configure SSH key step only in both workflows.
+This step placement does not isolate the key from staging ref code that runs earlier. That code can use `GITHUB_ENV`,
+`GITHUB_PATH` or `RUNNER_TEMP` to reach the later key step. Run only trusted staging refs.
+See the [runbook note on a required-reviewer environment](vm-runbook.md#staging-first-manual-production).
 
 ## Current state (2026-10-09)
 
@@ -74,8 +78,10 @@ containers' memory limits, CPU shares or OOM score. The workflow applies these c
    Prod uses the same lock and waits only 15 minutes. A cold staging build can take longer, so prod can fail on the lock wait.
    After it gets the lock, prod stops staging to free memory for its build.
    Prod leaves staging off. Restart staging later with **Deploy Staging**.
-2. Before it stops staging, it checks production activity with read-only SQLite queries. Any active duel, RPS or dice
-   opening, draft, tournament round or series skips the build. A failed guard also skips. There is no staging force override.
+2. Before clone, fetch, checkout reset or env changes, it checks production activity with read-only SQLite queries.
+   Any active duel, RPS or dice opening, or active draft skips the build. Open tournament rounds and series do not block it.
+   A failed guard also skips. Manual dispatch can set `ignore_prod_activity=true` to skip only this check.
+   Push deploys always keep the check. The shared lock and all resource checks still apply with the input on.
    It then stops the old staging containers. If it detects another build outside the lock, it skips.
 3. It skips below 1100 MB of available memory or 6000 MB of free disk before the build.
    After the build, it skips below 2500 MB of free disk. Worker startup/cron owns image-cache eviction.
@@ -138,7 +144,8 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
    No new GitHub secret or environment is needed. If the deploy user is not root, ensure it owns
    `/opt/yugioh-bot-staging` and can use the shared build lock.
 7. **Deploy staging once and test it.** Run **Deploy Staging** from `main`, `ref=main`, `action=deploy`,
-   `refresh_db=false`. This also starts staging after prod stops it or after a VM reboot.
+   `refresh_db=false`, `ignore_prod_activity=false`. This also starts staging after prod stops it or after a VM reboot.
+   Set `ignore_prod_activity=true` only when you intend to build staging during production play.
    If the saved DB still has production Clerk bindings from the old stack, use `refresh_db=true` once.
    This replaces staging data; production stays unchanged. Verify `/sign-in`, invitations, Discord and email sign-in,
    username/consent, session isolation, Socket.IO, a duel, a draft, a tournament round and worker timers.

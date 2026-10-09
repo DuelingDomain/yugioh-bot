@@ -8,6 +8,7 @@
 #   STAGING_REF          the git ref or SHA to run (required for deploy)
 #   STAGING_COMMIT       exact checked-out CI commit (required for deploy)
 #   STAGING_REFRESH_DB   "true" copies the production database again (default false)
+#   STAGING_IGNORE_PROD_ACTIVITY  "true" skips only the activity guard (manual dispatch only, default false)
 #   STAGING_HOST         public address of the VM, used only when .env.staging does not exist yet
 #   STAGING_DOMAIN       host name for the staging address, used only when .env.staging does not exist yet (optional)
 #   STAGING_HTTP_PORT    host port of staging (optional, default 8080, never below 1024)
@@ -62,6 +63,13 @@ fi
 # Context cleanup is safe only after this process holds the lock.
 if [ "$action" = "deploy" ]; then
   trap 'rm -f "$bundle" "$guard"; rm -rf "$staging_dir/.deploy-duel-engine"' EXIT
+  # Read production activity before cloning, fetching, resetting or changing the env.
+  # Staging counts only live duels, openings and active drafts. Guard failures also skip.
+  if [ "${STAGING_IGNORE_PROD_ACTIVITY:-false}" = "true" ]; then
+    echo "remote-deploy: ignore_prod_activity=true; skipping only the production activity guard."
+  elif [ -z "$guard" ] || ! python3 "$guard" "$prod_dir/data/bot.sqlite" --target staging; then
+    skip_staging "production gameplay is active or the activity guard failed. Existing staging containers keep running."
+  fi
 fi
 
 # First run: the clone. The owner makes the folder once (docs/deployment/staging.md).
@@ -120,11 +128,6 @@ if [ ! -f .env.staging ]; then
 fi
 
 # 2. The shared build lock is held until this script exits.
-# Read production activity before stopping staging or starting a build.
-# A missing guard or an unreadable database also skips the build.
-if [ -z "$guard" ] || ! python3 "$guard" "$prod_dir/data/bot.sqlite"; then
-  skip_staging "production gameplay is active or the activity guard failed. Existing staging containers keep running."
-fi
 # Free the memory of the old staging stack, then check the build resources.
 compose stop || true
 if pgrep -f 'turbo run build|next build' >/dev/null 2>&1; then

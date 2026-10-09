@@ -20,6 +20,11 @@ on:
         required: false
         default: false
         type: boolean
+      ignore_prod_activity:
+        description: "Skip only the production activity guard (resource checks and build lock still apply)"
+        required: false
+        default: false
+        type: boolean
       action:
         description: "deploy builds and starts staging, stop takes it down"
         required: true
@@ -51,6 +56,7 @@ jobs:
       INPUT_REF: ${{ inputs.ref || github.sha }}
       INPUT_ACTION: ${{ inputs.action || 'deploy' }}
       INPUT_REFRESH_DB: ${{ inputs.refresh_db && 'true' || 'false' }}
+      INPUT_IGNORE_PROD_ACTIVITY: ${{ github.event_name == 'workflow_dispatch' && inputs.ignore_prod_activity && 'true' || 'false' }}
       DEPLOY_COMMIT: ""
       # Optional repository variables. They are read only when .env.staging does not exist on the VM yet.
       STAGING_DOMAIN: ${{ vars.STAGING_DOMAIN }}
@@ -74,6 +80,7 @@ jobs:
           check "ref" "$INPUT_REF" '^[A-Za-z0-9._/-]+$'
           check "action" "$INPUT_ACTION" '^(deploy|stop)$'
           check "refresh_db" "$INPUT_REFRESH_DB" '^(true|false)$'
+          check "ignore_prod_activity" "$INPUT_IGNORE_PROD_ACTIVITY" '^(true|false)$'
           check "STAGING_HOST" "$STAGING_HOST" '^[A-Za-z0-9.-]+$'
           if [ -n "$STAGING_DOMAIN" ]; then check "STAGING_DOMAIN" "$STAGING_DOMAIN" '^[A-Za-z0-9.-]+$'; fi
           # A host port below 1024 is refused: 80 and 443 belong to the production Caddy.
@@ -266,7 +273,7 @@ jobs:
             scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" "$RUNNER_TEMP/staging-activity-guard.py" "$VM_USER@$VM_HOST:$remote_guard"
           fi
           ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
-            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' STAGING_GUARD='$remote_guard' STAGING_CLERK_ENV='$STAGING_CLERK_ENV' sh -s" \
+            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_IGNORE_PROD_ACTIVITY='$INPUT_IGNORE_PROD_ACTIVITY' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' STAGING_GUARD='$remote_guard' STAGING_CLERK_ENV='$STAGING_CLERK_ENV' sh -s" \
             < "$RUNNER_TEMP/staging-remote-deploy.sh" | tee "$RUNNER_TEMP/staging-deploy.log"
 
       - name: Report staging result
