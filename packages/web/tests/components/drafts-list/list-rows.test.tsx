@@ -9,7 +9,8 @@ import { parseDraftConfig, type DraftListItem } from "@/components/draft/list/dr
 const draft: DraftListItem = {
   id: 1, name: "Friday cube night", status: "active", webSlug: "friday", playerCount: 3,
   wave: 1, pick: 2, createdAt: "2026-10-02 12:00:00",
-  config: parseDraftConfig(JSON.stringify({ packsPerPlayer: 3, pickSeconds: 600 })),
+  // This is an active draft: preserve its saved deal boundaries.
+  config: parseDraftConfig(JSON.stringify({ packsPerPlayer: 3, pickSeconds: 600 }), "active"),
 };
 
 const wrap = (node: React.ReactNode) => render(<SheetRoot><FloorList>{node}</FloorList></SheetRoot>);
