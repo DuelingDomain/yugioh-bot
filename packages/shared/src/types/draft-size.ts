@@ -23,6 +23,6 @@ export function boosterMainRounds(config: DraftConfig): number {
 export function effectiveDraftNumbers(config: DraftConfig, preserveBoosterRounds = false) {
   return {
     cardsPerPlayer: mainDraftPicksPerPlayer(config),
-    packsPerPlayer: preserveBoosterRounds ? boosterMainRounds(config) : derivedBoosterMainRounds(config),
+    packsPerPlayer: preserveBoosterRounds ? config.packsPerPlayer ?? 5 : derivedBoosterMainRounds(config),
   };
 }
