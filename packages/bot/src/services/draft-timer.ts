@@ -73,8 +73,11 @@ export function createDraftTimerService({
     for (const draft of drafts.listActive()) {
       if (!draft.pickDeadlineAt || new Date(draft.pickDeadlineAt) > now) continue;
       try {
+        // Another process may have ended/cancelled this draft after listActive's snapshot.
+        if (drafts.findById(draft.id).status !== "active") continue;
         drafts.expireCurrentPickStep(draft.id, now);
         const updatedDraft = drafts.findById(draft.id);
+        if (updatedDraft.status === "cancelled") continue;
         if (updatedDraft.webSlug) {
           if (updatedDraft.status === "completed") {
             queue(`completion broadcast for ${draft.id}`, () => broadcaster.draft({ kind: "complete", slug: updatedDraft.webSlug! }));
