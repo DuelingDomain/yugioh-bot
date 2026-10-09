@@ -3,7 +3,7 @@
 import { parseUserId } from "@/lib/user-id";
 import { signInHref } from "@/lib/draft-invite";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { DraftDetailResponse } from "@yugidraft/shared/types";
 import { DangerConfirm } from "@/components/draft/danger-confirm";
@@ -12,6 +12,8 @@ import { DraftInviteGate } from "@/components/draft/invite-gate";
 import { LobbyBarSub } from "@/components/draft/visibility/visibility-badge";
 import { DraftManageView } from "@/components/draft/draft-manage-view";
 import { DraftState } from "@/components/draft/draft-state";
+import { HostActionNotice, type HostAction } from "@/components/draft/host-action-notice";
+import { DraftTerminalError, requestDraftTerminal, type DraftTerminalAction } from "@/lib/draft-terminal-client";
 import { DraftSummaryView } from "@/components/draft/draft-summary-view";
 import { DraftRoom } from "@/components/draft/room/draft-room";
 import { DraftFinale } from "@/components/draft/room/finale";
@@ -77,6 +79,10 @@ function DraftDetailBody({ slug }: { slug: string }) {
   // Live drafted count (updates optimistically on each pick), so the theme phase
   // indicator stays in lock-step with the Your Pool / DRAFTED counters.
   const storePool = useDraftStore((s) => s.myPool);
+
+  // News for a player: the draft was ended or cancelled early. Not set for the host, who started it.
+  const [hostNotice, setHostNotice] = useState<HostAction | null>(null);
+  const sentTerminalRef = useRef(false);
 
   const loadedRef = useRef(false);
   // The newest draft the page holds, for the revision check and for edits that carry the revision they were made on.
@@ -210,6 +216,11 @@ function DraftDetailBody({ slug }: { slug: string }) {
   // Once the draft is not found or closed to this viewer there is nothing to keep live: the feed and the poll stop.
   const liveSlug = error?.status === 404 || error?.status === 403 ? "" : slug;
   useDraftWebsocket(liveSlug, {
+    onHostStopped: (status) => {
+      // The host knows already: this tab sent the stop, or another tab of the host did.
+      if (sentTerminalRef.current || (currentUserId != null && draftRef.current?.createdByUserId === currentUserId)) return;
+      setHostNotice(status === "completed" ? "ended" : "cancelled");
+    },
     onStatusChange: (status) => {
       if (status === DRAFT_STATUS.completed) return;
       void fetchDraft();
@@ -258,14 +269,22 @@ function DraftDetailBody({ slug }: { slug: string }) {
     router.refresh();
   };
 
-  const handleCancel = async () => {
-    const res = await fetch(`/api/drafts/${slug}`, { method: "DELETE" });
-    if (!res.ok) {
-      const body = await res.json();
-      throw new Error(body.error ?? "Failed to cancel draft");
+  // End now and Cancel draft. The socket echoes the change to this tab before the answer arrives, so the tab marks
+  // itself first: the host does not get the "the host ended the draft" news for their own click.
+  const handleTerminal = async (action: DraftTerminalAction) => {
+    sentTerminalRef.current = true;
+    try {
+      await requestDraftTerminal(slug, action);
+    } catch (err) {
+      sentTerminalRef.current = false;
+      // The draft is not what this page shows (it ended or was cancelled in another tab): show the real state.
+      if (err instanceof DraftTerminalError && err.refresh) void fetchDraft();
+      throw err;
     }
     await fetchDraft();
   };
+
+  const handleCancel = () => handleTerminal("cancel");
 
   const handleUpdate = async ({ revision: seen, ...data }: { name?: string; config?: unknown; revision?: number }) => {
     // The newest revision known: the page's own read, or the lobby answer the caller saw after its own change (Ready,
@@ -314,6 +333,8 @@ function DraftDetailBody({ slug }: { slug: string }) {
   }
 
   const isCreator = currentUserId === draft.createdByUserId;
+  // The host, or an owner. The server decides; this only shows or hides the controls.
+  const canEndOrCancel = isCreator || draft.canEndOrCancel === true;
   const isParticipant = draft.isParticipant;
 
   const handleJoin = async () => {
@@ -334,16 +355,24 @@ function DraftDetailBody({ slug }: { slug: string }) {
     await fetchDraft();
   };
 
+  const withNotice = (view: ReactNode) => (
+    <>
+      {view}
+      <HostActionNotice action={hostNotice} hasPicks={isParticipant} onClose={() => setHostNotice(null)} />
+    </>
+  );
+
   const isThemeDraft = draft.config.mode === "theme";
   const discordEnabled = draft.discordEnabled === true;
 
   if (draft.status === "pending") {
     if (isThemeDraft) {
-      return (
+      return withNotice(
         <ThemeTablePage
           draft={draft}
           slug={slug}
           isCreator={isCreator}
+          canCancel={canEndOrCancel}
           isParticipant={isParticipant}
           viewerUserId={currentUserId}
           discordEnabled={discordEnabled}
@@ -351,14 +380,15 @@ function DraftDetailBody({ slug }: { slug: string }) {
           onAddBot={handleAddBot}
           onCancel={handleCancel}
           onChanged={() => void fetchDraft()}
-        />
+        />,
       );
     }
-    return (
+    return withNotice(
       <DraftManageView
         draft={draft}
         slug={slug}
         isCreator={isCreator}
+        canCancel={canEndOrCancel}
         isParticipant={isParticipant}
         onStart={handleStart}
         onCancel={handleCancel}
@@ -368,7 +398,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
         onChanged={() => void fetchDraft()}
         botsEnabled={draft.botsEnabled === true}
         discordEnabled={discordEnabled}
-      />
+      />,
     );
   }
 
@@ -376,8 +406,14 @@ function DraftDetailBody({ slug }: { slug: string }) {
     const roomConfig = draft.config.mode !== "theme" && draft.boosterProgress
       ? { ...draft.config, cardsPerPlayer: draft.boosterProgress.mainTotal }
       : draft.config;
-    return (
-      <DraftRoom slug={slug} name={draft.name} config={roomConfig} isParticipant={isParticipant} />
+    return withNotice(
+      <DraftRoom
+        slug={slug}
+        name={draft.name}
+        config={roomConfig}
+        isParticipant={isParticipant}
+        onHostAction={canEndOrCancel ? handleTerminal : undefined}
+      />,
     );
   }
 
@@ -407,7 +443,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
     }
   };
 
-  return (
+  return withNotice(
     <div>
       <DraftSummaryView
         draft={draft}
@@ -434,7 +470,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
           onClose={() => setFinaleClosed(true)}
         />
       )}
-    </div>
+    </div>,
   );
 }
 
@@ -448,6 +484,7 @@ function ThemeTablePage({
   draft,
   slug,
   isCreator,
+  canCancel,
   isParticipant,
   viewerUserId,
   discordEnabled,
@@ -459,6 +496,8 @@ function ThemeTablePage({
   draft: PendingDraft;
   slug: string;
   isCreator: boolean;
+  /** The host or an owner: the lobby offers Cancel draft. */
+  canCancel: boolean;
   isParticipant: boolean;
   viewerUserId: number | null;
   discordEnabled: boolean;
@@ -490,14 +529,14 @@ function ThemeTablePage({
       sub={<LobbyBarSub name={draft.name} visibility={draft.visibility} />}
       back={{ href: "/drafts", label: "Drafts" }}
       actions={
-        isCreator && !confirm.open ? (
+        canCancel && !confirm.open ? (
           <button ref={confirm.triggerRef} type="button" className={svButtonClass("danger")} onClick={() => confirm.setOpen(true)}>
             Cancel draft
           </button>
         ) : undefined
       }
     >
-      {isCreator && confirm.open && (
+      {canCancel && confirm.open && (
         <div onKeyDown={confirm.onKeyDown}>
           <DangerConfirm
             title="Cancel this draft?"

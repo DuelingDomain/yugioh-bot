@@ -229,6 +229,14 @@ describe("detail and creation contracts", () => {
     expect(guest).toMatchObject({ visibility: "private", canJoin: true });
     expect(guest).not.toHaveProperty("canManageInvite"); expect(guest).not.toHaveProperty("inviteUrl"); expect(guest).not.toHaveProperty("inviteCode");
   });
+  it("flags the host and an owner, and nobody else, as able to end or cancel", async () => {
+    expect(await (await detail()).json()).toMatchObject({ canEndOrCancel: true });
+    actor.userId = 103;
+    expect(await (await detail()).json()).not.toHaveProperty("canEndOrCancel");
+    vi.stubEnv("OWNER_USER_IDS", "103");
+    try { expect(await (await detail()).json()).toMatchObject({ canEndOrCancel: true }); }
+    finally { vi.unstubAllEnvs(); }
+  });
   for (const mode of ["booster", "theme"] as const) {
     it.each([undefined, "private", "open"])(`${mode} creation persists visibility (%s)`, async (value) => {
       database.current!.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values(100,'Card','Normal Monster','normal','i','i','[]',?)").run(new Date().toISOString());

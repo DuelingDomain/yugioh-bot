@@ -51,8 +51,10 @@ export function createDraftTimer({ db, drafts, effects, startedAt }: {
           // A web request may have advanced the stale candidate. The shared
           // immediate transaction rereads the deadline before picking.
           const before = drafts.findById(candidate.id);
+          if (before.status !== "active") continue;
           drafts.expireCurrentPickStep(candidate.id, now);
           const after = drafts.findById(candidate.id);
+          if (after.status === "cancelled") continue;
           if (before.status === after.status && before.currentPackRound === after.currentPackRound
               && before.currentPickStep === after.currentPickStep) continue;
 

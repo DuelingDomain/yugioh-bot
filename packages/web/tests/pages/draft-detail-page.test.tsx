@@ -676,12 +676,13 @@ describe("DraftDetailPage — pending lobby wiring", () => {
     await screen.findByTestId("theme-table");
     fireEvent.click(screen.getByRole("button", { name: "Cancel draft" }));
     expect(screen.getByRole("dialog", { name: "Cancel this draft?" })).toBeTruthy();
-    expect(server.drafts("DELETE")).toHaveLength(0);
+    expect(server.drafts("POST")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel draft" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes, cancel" }));
-    await waitFor(() => expect(server.drafts("DELETE")).toHaveLength(1));
+    await waitFor(() => expect(server.drafts("POST").map((c) => c.url)).toEqual(["/api/drafts/test-draft/cancel"]));
+    expect(server.drafts("DELETE")).toHaveLength(0);
   });
 
   it("gives a guest on the Theme Table no Cancel draft", async () => {
