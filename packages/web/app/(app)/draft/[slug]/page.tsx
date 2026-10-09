@@ -183,9 +183,8 @@ function DraftDetailBody({ slug }: { slug: string }) {
   });
 
   useDraftWebsocket(slug, {
-    onHostStopped: (status) => {
+    onHostStopped: () => {
       // The host knows already: this tab sent the stop, or another tab of the host did.
-      if (status !== "cancelled") return;
       if (sentTerminalRef.current || (currentUserId != null && draftRef.current?.createdByUserId === currentUserId)) return;
       setCancelNotice(true);
     },
