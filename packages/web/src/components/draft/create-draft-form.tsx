@@ -17,7 +17,7 @@ import { usePoolEditor } from "./pool/use-pool-editor";
 import { CardInspector } from "./setup/card-inspector";
 import { PoolBrowser, type PoolBrowserHandle } from "./setup/pool-browser";
 import { RulesMetaFields, RulesPanel, useRulesAnalysis } from "./setup/rules-panel";
-import { applyPreset, readinessText } from "./setup/rules-model";
+import { applyStartRules, readinessText } from "./setup/rules-model";
 import { SourceRail, type SourceTab } from "./setup/source-rail";
 import { useCardInspector } from "./setup/use-card-inspector";
 import type { PoolEditActions, PoolLane } from "./setup/pool-browser-model";
@@ -65,7 +65,7 @@ export function CreateDraftForm({ discordEnabled = true }: CreateDraftFormProps 
   const [autoName, setAutoName] = React.useState("");
   const [channelId, setChannelId] = React.useState("");
   const [channels, setChannels] = React.useState<Channel[]>([DEFAULT_CHANNEL]);
-  const [fields, setFields] = React.useState<DraftConfigFieldsValue>(() => applyPreset(BASE_FIELDS, "community"));
+  const [fields, setFields] = React.useState<DraftConfigFieldsValue>(() => applyStartRules(BASE_FIELDS));
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState<SourceTab>("cards");

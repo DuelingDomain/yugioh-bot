@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   RULE_PRESETS,
   analyzeRules,
+  START_RULES,
   applyPreset,
+  applyStartRules,
   editRule,
   fitRulesToPool,
   matchPreset,
@@ -142,6 +144,15 @@ describe("editing rules", () => {
     expect(matchPreset(community())).toBe("community");
     expect(matchPreset(quick())).toBe("quick");
     expect(matchPreset(editRule(quick(), "picks", "60"))).toBeNull();
+  });
+
+  it("a new form starts at 1 pick, piles of 10, 40 Main Deck cards each: 4 rounds, no preset", () => {
+    const start = applyStartRules({ cardsPerPlayerText: "", packSizeText: "", pickSecondsText: "" });
+    expect(readRules(start)).toMatchObject({ seats: 4, rounds: 4, pile: 10, picks: 40, picksPerStep: 1, pickSeconds: 45 });
+    expect(START_RULES).toMatchObject({ rounds: 4, pile: 10, picks: 40, picksPerStep: 1 });
+    expect(matchPreset(start)).toBeNull();
+    expect(validateFields(start)).toBeNull();
+    expect(configFromFields(start)).toMatchObject({ packsPerPlayer: 4, packSize: 10, cardsPerPlayer: 40, picksPerStep: 1 });
   });
 });
 

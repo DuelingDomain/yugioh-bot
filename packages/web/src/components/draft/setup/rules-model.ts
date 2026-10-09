@@ -165,6 +165,25 @@ export function applyPreset(fields: RulesFields, id: RulePresetId): RulesFields 
   };
 }
 
+/**
+ * Where a new booster draft form starts: 4 seats, 1 pick per turn, piles of 10, 40 Main Deck cards each (4 rounds), 45s.
+ * It is not a preset, so no preset chip is pressed. The host raises the numbers from here.
+ */
+export const START_RULES: RulePreset["rules"] = { seats: 4, rounds: 4, pile: 10, picks: 40, picksPerStep: 1, pickSeconds: 45 };
+
+export function applyStartRules(fields: RulesFields): RulesFields {
+  const r = START_RULES;
+  return {
+    ...fields,
+    lobbySeatsText: String(r.seats),
+    roundsText: String(r.rounds),
+    packSizeText: String(r.pile),
+    cardsPerPlayerText: String(r.picks),
+    picksPerStep: r.picksPerStep,
+    pickSecondsText: String(r.pickSeconds),
+  };
+}
+
 /** The preset the fields spell out, if any. */
 export function matchPreset(fields: RulesFields): RulePresetId | null {
   const rules = readRules(fields);
