@@ -44,13 +44,14 @@ async function setup() {
 }
 
 it.each(["booster", "theme"].flatMap((mode) => [39, 121, 40.5, "40", null].map((cap) => ({ mode, cap }))))
-  ("rejects invalid $mode cap $cap on create and edit", async ({ mode, cap }) => {
+  ("rejects invalid $mode cap $cap on create and non-null edits", async ({ mode, cap }) => {
     const app = await setup();
     const { POST } = await import("../app/api/drafts/route");
     const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ name: "Bad", config: { mode, customCardIds: app.main, cardsPerPlayer: cap } }) }) as NextRequest);
     expect(response.status).toBe(400);
     expect((await response.json()).error).toMatch(/40 to 120/);
     expect(app.db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
+    if (cap === null) return; // Null is rejected on create, and resets the cap on edit.
     const draft = app.drafts.create("g", "c", "Good", { mode: mode as "booster" | "theme", customCardIds: app.main }, fixtureUserId("host"), app.host.id);
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const edited = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { cardsPerPlayer: cap } }) }) as NextRequest, { params: Promise.resolve({ slug: draft.webSlug! }) });
@@ -139,3 +140,16 @@ it.each([false, true])("uses the cap in theme preflight, lobby checks and phase/
   expect(room.config.cardsPerPlayer).toBe(40);
   expect(room.themeProgress).toEqual({ main: 40, mainTotal: 40, extra: 0, extraTotal: 2 });
 });
+
+it.each(["booster", "theme"].flatMap((mode) => [40, null].map((reset) => ({ mode, reset }))))
+  ("resets the $mode cap to default with $reset", async ({ mode, reset }) => {
+    const app = await setup();
+    const draft = app.drafts.create("g", "c", "Reset", { mode: mode as "booster" | "theme",
+      customCardIds: app.main, cardsPerPlayer: 120, packSize: 24 }, fixtureUserId("host"), app.host.id);
+    const { PUT } = await import("../app/api/drafts/[slug]/route");
+    const response = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { cardsPerPlayer: reset } }) }) as NextRequest,
+      { params: Promise.resolve({ slug: draft.webSlug! }) });
+    expect(response.status).toBe(200);
+    expect((await response.json()).config).toMatchObject({ cardsPerPlayer: 40, packsPerPlayer: 2 });
+    expect(app.drafts.findById(draft.id).config.cardsPerPlayer).toBe(40);
+  });

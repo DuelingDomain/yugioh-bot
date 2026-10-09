@@ -145,6 +145,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const patch = config === undefined ? undefined : config as Partial<DraftConfig>;
     if (patch) {
       assertDraftConfigShape(patch);
+      // A cleared host field returns to the shared forty-pick default.
+      if (patch.cardsPerPlayer === null) patch.cardsPerPlayer = 40;
       const capError = cardsPerPlayerError(patch);
       if (capError) throw new DraftLobbyApiError(capError, "INVALID_CONFIG");
     }
