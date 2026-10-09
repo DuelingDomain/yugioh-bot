@@ -23,7 +23,8 @@ def main():
             db.execute("pragma query_only=on")
             counts = db.execute("""
                 select
-                    (select count(*) from duels where status = 'active'),
+                    (select count(*) from duels where status = 'active'
+                        or (status = 'lobby' and opening_json is not null)),
                     (select count(*) from drafts where status = 'active'),
                     (select count(*) from (
                         select tm.tournament_id, tm.round_number

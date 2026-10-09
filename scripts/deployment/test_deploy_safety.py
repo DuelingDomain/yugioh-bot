@@ -22,7 +22,7 @@ class ProductionActivityTests(unittest.TestCase):
         self.db = sqlite3.connect(self.path)
         self.addCleanup(self.db.close)
         self.db.executescript("""
-            create table duels (status text);
+            create table duels (status text, opening_json text);
             create table drafts (status text);
             create table tournaments (id integer, status text);
             create table tournament_matches (tournament_id integer, round_number integer, status text);
@@ -37,7 +37,7 @@ class ProductionActivityTests(unittest.TestCase):
 
     def test_idle_database_passes_without_changes(self):
         self.db.executescript("""
-            insert into duels values ('lobby'), ('completed'), ('interrupted');
+            insert into duels (status) values ('lobby'), ('completed'), ('interrupted');
             insert into drafts values ('pending'), ('completed');
             insert into tournaments values (1, 'completed'), (2, 'pending');
             insert into tournament_matches values (1, 1, 'open'), (2, 1, 'open');
@@ -51,7 +51,9 @@ class ProductionActivityTests(unittest.TestCase):
 
     def test_each_active_game_type_refuses_and_force_overrides(self):
         for statement in [
-            "insert into duels values ('active')",
+            "insert into duels (status) values ('active')",
+            "insert into duels values ('lobby', '{\"phase\":\"rps\"}')",
+            "insert into duels values ('lobby', '{\"phase\":\"dice\"}')",
             "insert into drafts values ('active')",
             "insert into duel_series values ('active')",
             "insert into duel_series values ('between_games')",
@@ -126,6 +128,22 @@ class StagingResourceTests(unittest.TestCase):
         self.set_memory(3000)
         self.lock = self.root / "build.lock"
         self.bundle = self.root / "bundle.tar.gz"
+        self.prod = self.root / "prod.sqlite"
+        self.guard = self.root / "guard.py"
+        self.guard.write_text(GUARD.read_text())
+        with sqlite3.connect(self.prod) as db:
+            db.executescript("""
+                create table duels (status text, opening_json text);
+                create table drafts (status text);
+                create table tournaments (id integer, status text);
+                create table tournament_matches (tournament_id integer, round_number integer, status text);
+                create table duel_series (status text);
+            """)
+        # Map the fixed production path to a fixture; no production files are opened.
+        self.remote = self.root / "remote-deploy.sh"
+        self.remote.write_text(REMOTE.read_text().replace(
+            '"$prod_dir/data/bot.sqlite"', f'"{self.prod}"'
+        ))
         contents = self.root / "contents"
         contents.mkdir()
         for core in ("ocgcore.multi", "ocgcore.multi-domain"):
@@ -136,7 +154,10 @@ class StagingResourceTests(unittest.TestCase):
             archive.add(contents, arcname=".")
         self.command("git", 'echo "git $*" >> "$TEST_LOG"\n[ "$1" != rev-parse ] || echo 0123456\n')
         self.command("pgrep", 'exit "${TEST_BUSY_BUILD:-1}"\n')
-        self.command("df", 'printf "Filesystem Size Used Avail Use%% Mounted\\nfixture 20000 1000 19000 5%% /opt\\n"\n')
+        self.command("df", '''disk=${TEST_DISK_MB:-19000}
+if grep -q '^compose build$' "$TEST_LOG" 2>/dev/null; then disk=${TEST_DISK_AFTER_BUILD_MB:-$disk}; fi
+printf "Filesystem Size Used Avail Use%% Mounted\\nfixture 20000 1000 %s 5%% /opt\\n" "$disk"
+''')
         self.command("docker", 'echo "docker $*" >> "$TEST_LOG"\n')
         (self.scripts / "compose.sh").write_text('''#!/bin/sh
 echo "compose $*" >> "$TEST_LOG"
@@ -165,7 +186,49 @@ fi
                    STAGING_BUILD_LOCK=str(self.lock), STAGING_LOCK_WAIT_S="0",
                    STAGING_MEMINFO_FILE=str(self.meminfo), STAGING_BUNDLE=str(self.bundle),
                    STAGING_REF="main", STAGING_COMMIT="a" * 40, **extra)
-        return subprocess.run(["sh", str(REMOTE)], env=env, text=True, capture_output=True, timeout=10)
+        env.update(STAGING_GUARD=str(self.guard))
+        return subprocess.run(["sh", str(self.remote)], env=env, text=True, capture_output=True, timeout=10)
+
+    def assert_skip_reported(self, result):
+        self.assertIn("::warning title=Staging skipped::", result.stdout)
+
+    def test_active_production_duel_skips_without_stopping_or_building_staging(self):
+        with sqlite3.connect(self.prod) as db:
+            db.execute("insert into duels (status) values ('active')")
+        result = self.run_remote()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("duels=1", result.stdout)
+        log = self.log.read_text()
+        self.assertNotIn("compose stop", log)
+        self.assertNotIn("compose build", log)
+        self.assertNotIn("compose up", log)
+        self.assert_skip_reported(result)
+
+    def test_failed_production_guard_skips_without_stopping_or_building_staging(self):
+        self.prod.unlink()
+        result = self.run_remote()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        log = self.log.read_text()
+        self.assertNotIn("compose stop", log)
+        self.assertNotIn("compose build", log)
+        self.assert_skip_reported(result)
+
+    def test_missing_production_guard_skips_without_stopping_or_building_staging(self):
+        self.guard.unlink()
+        result = self.run_remote()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        log = self.log.read_text()
+        self.assertNotIn("compose stop", log)
+        self.assertNotIn("compose build", log)
+        self.assert_skip_reported(result)
+
+    def test_busy_stop_fails_instead_of_reporting_a_skip(self):
+        with self.lock.open("w") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.run_remote(STAGING_ACTION="stop")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("skipping", result.stdout)
+        self.assertFalse(self.log.exists())
 
     def test_busy_lock_skips_before_checkout_or_context_cleanup(self):
         context = self.staging / ".deploy-duel-engine"
@@ -177,6 +240,7 @@ fi
             result = self.run_remote()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("skipping", result.stdout)
+        self.assert_skip_reported(result)
         self.assertFalse(self.log.exists())
         self.assertTrue(marker.exists())
 
@@ -185,6 +249,7 @@ fi
         result = self.run_remote()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("skipping", result.stdout)
+        self.assert_skip_reported(result)
         log = self.log.read_text()
         self.assertNotIn("compose build", log)
         self.assertNotIn("compose up", log)
@@ -193,14 +258,38 @@ fi
         result = self.run_remote(TEST_LOW_AFTER_BUILD="1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("skipping", result.stdout)
+        self.assert_skip_reported(result)
         log = self.log.read_text()
         self.assertIn("compose build", log)
         self.assertNotIn("compose up", log)
+
+    def test_low_disk_before_build_skips_without_building(self):
+        result = self.run_remote(TEST_DISK_MB="1000")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_skip_reported(result)
+        self.assertNotIn("compose build", self.log.read_text())
+
+    def test_low_disk_after_build_skips_without_starting(self):
+        result = self.run_remote(TEST_DISK_AFTER_BUILD_MB="2000")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_skip_reported(result)
+        self.assertIn("compose build", self.log.read_text())
+        self.assertNotIn("compose up", self.log.read_text())
+
+    def test_stop_with_free_lock_removes_staging_without_activity_guard(self):
+        self.prod.unlink()
+        result = self.run_remote(STAGING_ACTION="stop")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        log = self.log.read_text()
+        self.assertIn("compose down --rmi local --remove-orphans", log)
+        self.assertNotIn("compose build", log)
+        self.assertNotIn("git reset", log)
 
     def test_another_build_skips_without_building(self):
         result = self.run_remote(TEST_BUSY_BUILD="0")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("skipping", result.stdout)
+        self.assert_skip_reported(result)
         self.assertNotIn("compose build", self.log.read_text())
 
 

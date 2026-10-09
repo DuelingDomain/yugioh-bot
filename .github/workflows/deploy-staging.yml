@@ -1,7 +1,7 @@
 name: Deploy Staging
 
 # A separate staging stack on the production VM, for human tests of 3 and 4 player duels.
-# Main pushes and manual dispatches. It never runs docker compose on docker-compose.yml and never writes in /opt/yugioh-bot.
+# Main pushes after owner setup, and manual dispatches from main. It never runs docker compose on docker-compose.yml and never writes in /opt/yugioh-bot.
 # Runbook and owner steps: docs/deployment/staging.md
 
 on:
@@ -39,12 +39,13 @@ permissions:
 jobs:
   staging:
     name: Staging stack on the VM
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'push' || vars.STAGING_AUTO_DEPLOY == '1')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
-      VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+      VM_DEPLOY_ENABLED: ${{ secrets.VM_HOST != '' && secrets.VM_USER != '' && secrets.VM_SSH_PRIVATE_KEY != '' && 'true' || 'false' }}
       VM_PORT: ${{ secrets.VM_PORT || '22' }}
       # Inputs go through the environment, never straight into a shell line.
       INPUT_REF: ${{ inputs.ref || github.sha }}
@@ -63,7 +64,7 @@ jobs:
         run: |
           set -eu
           printf '%s' "$STAGING_CLERK_ENV" | grep -Eq '^/[A-Za-z0-9_./-]+$' || { echo "Invalid STAGING_CLERK_ENV path" >&2; exit 1; }
-          if [ -z "$VM_HOST" ] || [ -z "$VM_USER" ] || [ -z "$VM_SSH_PRIVATE_KEY" ]; then
+          if [ "$VM_DEPLOY_ENABLED" != "true" ]; then
             echo "The VM secrets (VM_HOST, VM_USER, VM_SSH_PRIVATE_KEY) are not set." >&2
             exit 1
           fi
@@ -83,7 +84,9 @@ jobs:
 
       # A manual ref can predate these lock and resource checks. Keep the current controls.
       - name: Save staging deployment controls
-        run: cp scripts/staging/remote-deploy.sh "$RUNNER_TEMP/staging-remote-deploy.sh"
+        run: |
+          cp scripts/staging/remote-deploy.sh "$RUNNER_TEMP/staging-remote-deploy.sh"
+          cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/staging-activity-guard.py"
 
       - name: Checkout deploy ref
         uses: actions/checkout@v4
@@ -220,6 +223,8 @@ jobs:
           rm -rf "$RUNNER_TEMP/staging-bundle-check"
 
       - name: Configure SSH key
+        env:
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -232,14 +237,19 @@ jobs:
       # remote-deploy.sh runs in /opt/yugioh-bot-staging. All values were checked in the first step.
       - name: Run on the VM
         run: |
-          set -eu
+          set -euo pipefail
           bundle_tar=
           remote_bundle=
+          remote_guard=
           cleanup_transfer() {
             if [ -n "$bundle_tar" ]; then rm -f "$bundle_tar"; fi
             if [ -n "$remote_bundle" ]; then
               ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_bundle'" || true
+            fi
+            if [ -n "$remote_guard" ]; then
+              ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_guard'" || true
             fi
           }
           trap cleanup_transfer EXIT
@@ -250,7 +260,19 @@ jobs:
             printf '%s' "$remote_bundle" | grep -Eq '^/tmp/yugidraft-staging-bundle\.[A-Za-z0-9]{6}\.tar\.gz$' || exit 1
             tar -C "$RUNNER_TEMP/staging-bundle" -czf "$bundle_tar" .
             scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" "$bundle_tar" "$VM_USER@$VM_HOST:$remote_bundle"
+            remote_guard=$(ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+              'mktemp /tmp/yugidraft-staging-guard.XXXXXX.py')
+            printf '%s' "$remote_guard" | grep -Eq '^/tmp/yugidraft-staging-guard\.[A-Za-z0-9]{6}\.py$' || exit 1
+            scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" "$RUNNER_TEMP/staging-activity-guard.py" "$VM_USER@$VM_HOST:$remote_guard"
           fi
           ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
-            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' STAGING_CLERK_ENV='$STAGING_CLERK_ENV' sh -s" \
-            < "$RUNNER_TEMP/staging-remote-deploy.sh"
+            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' STAGING_GUARD='$remote_guard' STAGING_CLERK_ENV='$STAGING_CLERK_ENV' sh -s" \
+            < "$RUNNER_TEMP/staging-remote-deploy.sh" | tee "$RUNNER_TEMP/staging-deploy.log"
+
+      - name: Report staging result
+        if: ${{ always() }}
+        run: |
+          if [ -f "$RUNNER_TEMP/staging-deploy.log" ]; then
+            sed -n 's/^::warning title=Staging skipped::/**Staging skipped:** /p' \
+              "$RUNNER_TEMP/staging-deploy.log" >> "$GITHUB_STEP_SUMMARY"
+          fi
