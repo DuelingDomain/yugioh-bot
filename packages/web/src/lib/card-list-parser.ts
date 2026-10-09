@@ -19,6 +19,9 @@ export interface CardListEntry {
   counted?: boolean;
 }
 
+/** No printed card name is this long. A longer line is not matched, so a huge line cannot stall the note regexes. */
+export const LIST_LINE_MAX_CHARS = 300;
+
 export class CardListError extends Error {}
 
 /** Parse list syntax only. Unknown names and prose titles remain entries for resolution to report. */
@@ -58,6 +61,11 @@ export function parseCardList(text: string): CardListEntry[] {
       if (/^(?:#extra|extra(?: deck)?\s*:)$/i.test(original)) { pool = "extra"; continue; }
       if (/^(?:#main|main(?: deck)?\s*:|!side|#side|side(?: deck)?\s*:)$/i.test(original)) { pool = "main"; continue; }
       if (/^(?:#|\/\/)/.test(original)) continue;
+      if (original.length > LIST_LINE_MAX_CHARS) {
+        // Reported as not found, without a lookup, and with a short copy of the text.
+        entries.push({ query: "", copies: 1, pool, original: `${original.slice(0, 80)}…`, heading: true });
+        continue;
+      }
       let query = original;
       // The last thing on a line may be a [Extra] / [Main] / [Side] marker (a pool hint for this line only) or a
       // (note). Peel both in any order, leaving (xN) for the count parser.

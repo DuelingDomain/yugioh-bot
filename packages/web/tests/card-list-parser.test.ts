@@ -37,6 +37,18 @@ describe("parseCardList", () => {
     ]);
   });
 
+  it("does not match a very long line, and reports it with a short copy of the text", () => {
+    const long = `Dark Hole ${"(note) ".repeat(3300)}[Extra]`;
+    expect(long.length).toBeGreaterThan(20000);
+    const started = performance.now();
+    const entries = parseCardList(`3 Dark Hole\n${long}\n2 Cyber Dragon`);
+    expect(performance.now() - started).toBeLessThan(100);
+    expect(entries.map(({ query, copies }) => [query, copies])).toEqual([["Dark Hole", 3], ["", 1], ["Cyber Dragon", 2]]);
+    expect(entries[1]).toMatchObject({ heading: true });
+    expect(entries[1].original.length).toBeLessThanOrEqual(81);
+    expect(entries[1].original.startsWith("Dark Hole (note)")).toBe(true);
+  });
+
   it("marks counted lines so section titles and prose do not use the lookup budget first", () => {
     const entries = parseCardList("Engines\n3 Dark Hole\nDark Hole x2\nFlip Notes");
     expect(entries.map(({ query, counted }) => [query, counted ?? false])).toEqual([
