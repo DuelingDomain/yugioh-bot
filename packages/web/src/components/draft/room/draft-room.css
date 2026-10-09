@@ -556,7 +556,19 @@
   background: #0b101d url("/duel/card-back-main-hd.webp") center / cover;
 }
 .dr .tcard .face .img-wait.x { background-image: url("/duel/card-back-extra-hd.webp"); }
-.dr .tcard .face .img-wait::before { content: ""; position: absolute; inset: 0; background: rgb(6 8 14 / 0.62); }
+/* the dim veil carries three small gold dots, so a loading card still differs from a face-down card back when the sweep is off */
+.dr .tcard .face .img-wait::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at calc(50% - 14px) 50%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at 50% 50%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at calc(50% + 14px) 50%, rgb(224 190 110 / 0.9) 0 2.5px, transparent 3.5px),
+    rgb(6 8 14 / 0.68);
+}
+/* a card that could not load: name on a panel, with a thin gold edge */
+.dr .tcard .face .img-miss { box-sizing: border-box; border: 1px solid rgb(176 138 62 / 0.45); }
 .dr .tcard .face .img-wait::after {
   content: "";
   position: absolute;
@@ -1595,7 +1607,7 @@
 }
 
 /* a card whose image would not load shows its name instead */
-.dr .img-miss { box-sizing: border-box; border: 1px solid rgb(176 138 62 / 0.45); display: grid; place-items: center; width: 100%; height: 100%; padding: 6px; background: var(--panel-3); color: var(--ink-2); font: 500 12px/1.2 var(--f-ui); text-align: center; }
+.dr .img-miss { display: grid; place-items: center; width: 100%; height: 100%; padding: 6px; background: var(--panel-3); color: var(--ink-2); font: 500 12px/1.2 var(--f-ui); text-align: center; }
 
 /* the draft API sends the whole card, not cropped art: show the artwork window of the card face in the square portraits */
 .dr .portrait img.crop { display: block; width: 128.2%; height: auto; max-width: none; margin: -33.6% 0 0 -14.1%; object-fit: fill; }
