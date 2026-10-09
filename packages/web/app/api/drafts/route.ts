@@ -2,6 +2,7 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
+import { parseDraftConfig } from "@/components/draft/list/drafts-list-model";
 import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
@@ -22,8 +23,8 @@ export async function GET(request?: Request) {
     if (!actor.ok) return actor.response;
     const cursor = request ? new URL(request.url).searchParams.get("cursor") : null;
     const result = findDraftListPage(getDb(), env.discordGuildId, actor.userId, cursor);
-    const items = result.items.map(({ configJson: _config, ...item }) => ({
-      ...item, createdAt: toUtcIso(item.createdAt), endedAt: toUtcIso(item.endedAt),
+    const items = result.items.map(({ configJson, ...item }) => ({
+      ...item, config: parseDraftConfig(configJson, item.status), createdAt: toUtcIso(item.createdAt), endedAt: toUtcIso(item.endedAt),
     }));
     return NextResponse.json({ items, nextCursor: result.nextCursor });
   } catch (error) {

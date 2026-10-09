@@ -153,3 +153,16 @@ it.each(["booster", "theme"].flatMap((mode) => [40, null].map((reset) => ({ mode
     expect((await response.json()).config).toMatchObject({ cardsPerPlayer: 40, packsPerPlayer: 2 });
     expect(app.drafts.findById(draft.id).config.cardsPerPlayer).toBe(40);
   });
+
+it("returns effective theme setup in the paginated draft list", async () => {
+  const app = await setup();
+  const draft = app.drafts.create("g", "c", "Listed Theme", { mode: "theme", cardsPerPlayer: 60,
+    packSize: 24, packsPerPlayer: 5, themeAssignments: { [app.host.id]: 999 } }, fixtureUserId("host"), app.host.id);
+  const { GET } = await import("../app/api/drafts/route");
+  const response = await GET(new Request("http://x/api/drafts"));
+  expect(response.status).toBe(200);
+  const listed = (await response.json()).items.find((item: { id: number }) => item.id === draft.id);
+  expect(listed.config).toMatchObject({ mode: "theme", cardsPerPlayer: 60, packsPerPlayer: 3,
+    extraDeckEnabled: true, extraDeckSize: 15 });
+  expect(listed.config).not.toHaveProperty("themeAssignments");
+});

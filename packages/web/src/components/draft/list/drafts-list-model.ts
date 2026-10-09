@@ -1,4 +1,5 @@
 /** Row model for the drafts list (/drafts). Pure, so it is easy to test. */
+import { effectiveDraftNumbers, mainDraftPicksPerPlayer } from "@yugidraft/shared/types";
 import type { ListStatusCounts } from "@yugidraft/shared/services";
 import type { StageStep } from "@/components/sheet";
 import { formatPickSeconds } from "../pick-time";
@@ -15,7 +16,7 @@ export interface DraftListConfig {
 
 /**
  * The setup a row knows about. The page parses the whole of config_json, so its rows carry every field.
- * Rows appended from `/api/drafts` know only the mode, so the other fields can be missing, and the
+ * Older rows appended from `/api/drafts` can know only the mode, so the other fields can be missing, and the
  * row then leaves out whatever it would have to guess (the pack total, the pick time).
  */
 export type DraftListSetup = Pick<DraftListConfig, "mode"> & Partial<Omit<DraftListConfig, "mode">>;
@@ -58,7 +59,7 @@ function posInt(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : fallback;
 }
 
-export function parseDraftConfig(json: string | null | undefined): DraftListConfig {
+export function parseDraftConfig(json: string | null | undefined, status = "pending"): DraftListConfig {
   let raw: Record<string, unknown> = {};
   try {
     const parsed = JSON.parse(json ?? "{}");
@@ -66,15 +67,16 @@ export function parseDraftConfig(json: string | null | undefined): DraftListConf
   } catch {
     // malformed config_json: use defaults
   }
-  return {
+  const config: DraftListConfig = {
     mode: raw.mode === "theme" ? "theme" : "booster",
     packsPerPlayer: posInt(raw.packsPerPlayer, DEFAULTS.packsPerPlayer),
     packSize: posInt(raw.packSize, DEFAULTS.packSize),
     pickSeconds: posInt(raw.pickSeconds, DEFAULTS.pickSeconds),
     cardsPerPlayer: posInt(raw.cardsPerPlayer, DEFAULTS.cardsPerPlayer),
-    extraDeckEnabled: typeof raw.extraDeckEnabled === "boolean" ? raw.extraDeckEnabled : DEFAULTS.extraDeckEnabled,
+    extraDeckEnabled: typeof raw.extraDeckEnabled === "boolean" ? raw.extraDeckEnabled : raw.mode === "theme",
     extraDeckSize: posInt(raw.extraDeckSize, DEFAULTS.extraDeckSize),
   };
+  return { ...config, ...effectiveDraftNumbers(config, status !== "pending") };
 }
 
 /** One draft as `/api/drafts` returns it (the setup is left out; dates are UTC ISO strings). */
@@ -83,6 +85,7 @@ export interface DraftApiItem {
   name: string;
   status: string;
   mode?: "booster" | "theme";
+  config?: DraftListConfig;
   webSlug?: string;
   currentPackRound: number;
   currentPickStep: number;
@@ -94,7 +97,7 @@ export interface DraftApiItem {
 /**
  * The one adapter from an API row to a page row. The API names the stage `currentPackRound` and
  * `currentPickStep` (the page: `wave`, `pick`); its UTC dates already parse with `parseDbDate`.
- * The setup is not in the payload, so only the mode is carried over.
+ * New payloads carry effective setup; older payloads still work with only the mode.
  */
 export function draftFromApi(item: DraftApiItem): DraftListItem {
   return {
@@ -107,7 +110,7 @@ export function draftFromApi(item: DraftApiItem): DraftListItem {
     playerCount: item.playerCount,
     createdAt: item.createdAt ?? undefined,
     endedAt: item.endedAt ?? undefined,
-    config: { mode: item.mode === "theme" ? "theme" : "booster" },
+    config: item.config ?? { mode: item.mode === "theme" ? "theme" : "booster" },
   };
 }
 
@@ -182,9 +185,10 @@ export function liveStages(d: DraftListItem): LiveStages {
       return { steps: lobbyToBuild("Draft"), caption: `Round ${wave}` };
     }
     const withExtra = c.extraDeckEnabled && c.extraDeckSize > 0;
-    const total = Math.max(c.cardsPerPlayer + (withExtra ? c.extraDeckSize : 0), 1);
+    const main = mainDraftPicksPerPlayer(c);
+    const total = Math.max(main + (withExtra ? c.extraDeckSize : 0), 1);
     const round = clamp(d.wave, 1, total);
-    const inExtra = withExtra && round > c.cardsPerPlayer;
+    const inExtra = withExtra && round > main;
     const steps: StageStep[] = [
       { label: "Lobby", state: "done" },
       { label: "Main deck", state: inExtra ? "done" : "now" },
