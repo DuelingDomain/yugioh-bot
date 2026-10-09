@@ -229,12 +229,14 @@ describe("detail and creation contracts", () => {
     expect(guest).toMatchObject({ visibility: "private", canJoin: true });
     expect(guest).not.toHaveProperty("canManageInvite"); expect(guest).not.toHaveProperty("inviteUrl"); expect(guest).not.toHaveProperty("inviteCode");
   });
-  it("flags the host and an owner, and nobody else, as able to end or cancel", async () => {
-    expect(await (await detail()).json()).toMatchObject({ canEndOrCancel: true });
+  it("flags the host and an owner, and nobody else, as able to cancel", async () => {
+    const host = await (await detail()).json();
+    expect(host).toMatchObject({ canCancel: true });
+    expect(host).not.toHaveProperty("canEndOrCancel");
     actor.userId = 103;
-    expect(await (await detail()).json()).not.toHaveProperty("canEndOrCancel");
+    expect(await (await detail()).json()).not.toHaveProperty("canCancel");
     vi.stubEnv("OWNER_USER_IDS", "103");
-    try { expect(await (await detail()).json()).toMatchObject({ canEndOrCancel: true }); }
+    try { expect(await (await detail()).json()).toMatchObject({ canCancel: true }); }
     finally { vi.unstubAllEnvs(); }
   });
   for (const mode of ["booster", "theme"] as const) {
