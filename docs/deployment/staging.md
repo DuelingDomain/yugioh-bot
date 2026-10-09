@@ -27,7 +27,7 @@ Rules that keep production safe:
   `yugidraft-staging`, the file `docker-compose.staging.yml` and the file `.env.staging`. It refuses to run in `/opt/yugioh-bot`.
 - Staging reads three things from `/opt/yugioh-bot`: the file `.env` (only to build `.env.staging` the first time),
   `data/bot.sqlite` (read-only, to make the copy) and the git remote address (only for the first clone). It writes nothing there.
-- There is no bot in either PR 2 Compose stack. Web and worker fix `DISCORD_BOT_ENABLED=0`; no Discord token/client credentials or bot announce variables reach web. Gameplay mutations and worker timers continue with WS broadcasts.
+- There is no bot in either PR 2 Compose stack. Web and worker fix `DISCORD_BOT_ENABLED=0`; announcements remain disabled. Web optionally receives `DISCORD_TOKEN` solely to verify linked Discord guild admins for emergency draft controls; use an isolated staging token and guild. Without that token, hosts can still end/cancel and non-host admin verification returns 503. Gameplay mutations and worker timers continue with WS broadcasts.
 - Staging Clerk keys come only from `STAGING_CLERK_ENV` (default `/etc/yugidraft/staging-clerk.env`), a separate staging instance. Production and dev keys must never be used. Newly copied databases have production Clerk IDs and sync timestamps cleared before consumers start; staging users link through their staging Clerk accounts. A kept staging DB retains its staging IDs.
 - Every service has a memory limit and no swap. If the VM runs out of memory, the kernel stops a staging process first.
 - Every service has a lower CPU weight than production (`cpu_shares: 256`). Staging containers never restart by themselves
