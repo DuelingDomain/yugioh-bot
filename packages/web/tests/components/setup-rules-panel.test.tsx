@@ -94,11 +94,11 @@ describe("RulesPanel", () => {
     expect(note).toBeInTheDocument();
     expect(note).not.toHaveClass(styles.noteBad);
     expect(note).not.toHaveClass(styles.noteOk);
-    expect(screen.getByLabelText("Picks each")).toHaveValue("41");
+    expect(screen.getByLabelText("Main Deck cards each")).toHaveValue("41");
     expect(screen.getByRole("button", { name: "Create draft" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Fit to pool" }));
     expect(onFit).toHaveBeenCalledWith(expect.objectContaining({ ok: true, changes: [], fields: initial }));
-    expect(screen.getByLabelText("Picks each")).toHaveValue("41");
+    expect(screen.getByLabelText("Main Deck cards each")).toHaveValue("41");
     expect(configFromFields(latest)).toMatchObject({ cardsPerPlayer: 41, packSize: 24, packsPerPlayer: 2 });
   });
 
@@ -127,11 +127,11 @@ describe("RulesPanel", () => {
   it("holds picks at 40 of the 45 dealt, and always exposes the host cap", () => {
     let latest: RulesFields = start();
     render(<Host pool={{ main: 180, extra: 0 }} onValue={(v) => { latest = v; }} />);
-    expect(screen.getByLabelText("Picks each")).toHaveValue("40");
-    expect(screen.getByText(/40 picks; 45 cards dealt to each seat/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Main Deck cards each")).toHaveValue("40");
+    expect(screen.getByText(/Each player drafts exactly 40 Main Deck cards\..*45 cards dealt to each seat/)).toBeInTheDocument();
     expect(configFromFields(latest)).toMatchObject({ cardsPerPlayer: 40, packsPerPlayer: 3, packSize: 15, lobbySeats: 4 });
     fireEvent.click(screen.getByRole("button", { name: /3 × 4 × 15/ }));
-    expect(screen.getByLabelText("Picks each")).toHaveValue("45");
+    expect(screen.getByLabelText("Main Deck cards each")).toHaveValue("45");
   });
 
   it("switches between 1 and 2 picks per turn", () => {
@@ -203,10 +203,10 @@ describe("RulesPanel", () => {
 
 it("keeps the host cap fixed when changing pile size and derives rounds", () => {
   render(<Host initial={applyPreset(start(), "community")} pool={{ main: 1000, extra: 0 }} />);
-  expect(screen.getByLabelText("Picks each")).toHaveValue("120");
-  fireEvent.change(screen.getByLabelText("Picks each"), { target: { value: "40" } });
+  expect(screen.getByLabelText("Main Deck cards each")).toHaveValue("120");
+  fireEvent.change(screen.getByLabelText("Main Deck cards each"), { target: { value: "40" } });
   expect(screen.getByLabelText("Rounds")).toHaveValue("2");
   fireEvent.change(screen.getByLabelText("Cards per pile"), { target: { value: "15" } });
-  expect(screen.getByLabelText("Picks each")).toHaveValue("40");
+  expect(screen.getByLabelText("Main Deck cards each")).toHaveValue("40");
   expect(screen.getByLabelText("Rounds")).toHaveValue("3");
 });

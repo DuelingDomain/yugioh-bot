@@ -138,7 +138,7 @@ describe("editing rules", () => {
 
   it("presets name themselves and are recognised", () => {
     expect(RULE_PRESETS.map((p) => p.label)).toEqual(["5 × 4 × 24 · 2-pick", "3 × 4 × 15 · 1-pick"]);
-    expect(RULE_PRESETS.map((p) => p.detail)).toEqual(["120 Main picks each, 480 cards dealt", "45 Main picks each, 180 cards dealt"]);
+    expect(RULE_PRESETS.map((p) => p.detail)).toEqual(["120 Main Deck cards each, 480 cards dealt", "45 Main Deck cards each, 180 cards dealt"]);
     expect(matchPreset(community())).toBe("community");
     expect(matchPreset(quick())).toBe("quick");
     expect(matchPreset(editRule(quick(), "picks", "60"))).toBeNull();
@@ -153,7 +153,7 @@ describe("Fit to pool", () => {
     const fit = fitRulesToPool(applyPreset(base(), preset), { main, extra: 0 });
     expect(fit.ok).toBe(true);
     expect(readRules(fit.fields).picks).toBe(after);
-    expect(fit.changes).toContain(`Picks each: ${before} -> ${after}`);
+    expect(fit.changes).toContain(`Main Deck cards each: ${before} -> ${after}`);
   });
 
   it("keeps rounds and shrinks the pile when the pool is a little short", () => {

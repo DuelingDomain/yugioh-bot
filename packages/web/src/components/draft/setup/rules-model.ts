@@ -141,7 +141,7 @@ const presetLabel = (r: Pick<Rules, "seats" | "rounds" | "pile" | "picksPerStep"
   `${r.rounds} × ${r.seats} × ${r.pile} · ${r.picksPerStep}-pick`;
 
 function makePreset(id: RulePresetId, rules: RulePreset["rules"]): RulePreset {
-  return { id, label: presetLabel(rules), detail: `${rules.picks} Main picks each, ${rules.seats * rules.rounds * rules.pile} cards dealt`, rules };
+  return { id, label: presetLabel(rules), detail: `${rules.picks} Main Deck cards each, ${rules.seats * rules.rounds * rules.pile} cards dealt`, rules };
 }
 
 /** 5 x 4 x 24 two-pick (120 Main picks) and 3 x 4 x 15 one-pick (45 Main picks). */
@@ -322,7 +322,7 @@ export function fitRulesToPool(fields: RulesFields, pool: PoolCounts): FitResult
       next = { ...next, roundsText: String(best.rounds), packSizeText: String(best.pile),
         cardsPerPlayerText: String(picks) };
       changes.push(`${best.rounds} rounds of ${best.pile} per pile use ${rules.seats * best.rounds * best.pile} of ${pool.main} Main cards`);
-      if (picks !== rules.picks) changes.push(`Picks each: ${rules.picks} -> ${picks}`);
+      if (picks !== rules.picks) changes.push(`Main Deck cards each: ${rules.picks} -> ${picks}`);
     } else {
       mainDeficit = Math.max(1, rules.seats * CARDS_PER_PLAYER_MIN - pool.main);
     }
