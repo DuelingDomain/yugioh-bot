@@ -5,7 +5,7 @@
  * the rules and Create on the right. The card preview is always on the left (a big readable pane): inside the sources
  * column when it is open, in a column of its own at mid width or when the sources are collapsed. Only a phone gets the
  * card sheet. One pool editor feeds all three. The request is the real config: target seats,
- * explicit rounds, the custom Main and Extra pools and the Extra Deck round.
+ * a Main cap and derived rounds, the custom Main and Extra pools and the Extra Deck round.
  */
 
 import * as React from "react";

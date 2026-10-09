@@ -49,8 +49,13 @@ describe("pack fields and config", () => {
 
   it("falls back to derived rounds when a saved config's rounds cannot deal its picks", () => {
     const fields = fieldsFromConfig({ cardsPerPlayer: 45, packSize: 5, packsPerPlayer: 3 });
-    expect(fields.roundsText).toBeUndefined();
+    expect(fields.roundsText).toBe("9");
     expect(configFromFields(fields).packsPerPlayer).toBe(9);
     expect(validateFields(fields)).toBeNull();
   });
+});
+
+it("uses cap-derived rounds even when a stale form submits explicit rounds", () => {
+  expect(configFromFields({ cardsPerPlayerText: "40", packSizeText: "24", roundsText: "5", pickSecondsText: "45" }))
+    .toMatchObject({ cardsPerPlayer: 40, packSize: 24, packsPerPlayer: 2 });
 });

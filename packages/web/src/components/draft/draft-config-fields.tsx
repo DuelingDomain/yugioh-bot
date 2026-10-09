@@ -16,7 +16,7 @@ export const PICK_SECONDS_MAX = 300;
 export const PICK_SECONDS_DEFAULT = 45;
 export const EXTRA_DECK_SIZE_MAX = 15;
 export const EXTRA_DECK_SIZE_DEFAULT = 15;
-/** Explicit rounds (packs per player). Without them rounds are derived from the cards and the pack size. */
+/** Historical form limits; effective rounds are always derived from the Main cap and pile size. */
 export const ROUNDS_MIN = 1;
 export const ROUNDS_MAX = 12;
 /** Largest pile when rounds are explicit. */
@@ -40,7 +40,7 @@ export type DraftConfigFieldsValue = {
   extraDeckSizeText?: string;
   /** Cards each player takes from a pack before it moves on. */
   picksPerStep?: 1 | 2;
-  /** Explicit rounds. Leave it out to derive rounds from cardsPerPlayer and the pack size, as the older forms do. */
+  /** Legacy/display round text. Effective rounds are derived from cardsPerPlayer and packSize. */
   roundsText?: string;
   /** Seat target (2-8). Leave it out and the config carries no lobbySeats, as for a draft made before seat targets. */
   lobbySeatsText?: string;
@@ -52,24 +52,18 @@ function parseCardsPerPlayer(text: string): number {
   return clamp(parseInt(text) || CARDS_PER_PLAYER_DEFAULT, CARDS_PER_PLAYER_MIN, CARDS_PER_PLAYER_MAX);
 }
 
-function parsePackSize(text: string, cardsPerPlayer: number, explicitRounds = false): number {
-  return clamp(parseInt(text) || PACK_SIZE_DEFAULT, PACK_SIZE_MIN, explicitRounds ? PACK_SIZE_MAX : cardsPerPlayer);
-}
-
-function parseRounds(text: string): number {
-  return clamp(parseInt(text) || 1, ROUNDS_MIN, ROUNDS_MAX);
+function parsePackSize(text: string): number {
+  return clamp(parseInt(text) || PACK_SIZE_DEFAULT, PACK_SIZE_MIN, PACK_SIZE_MAX);
 }
 
 function parseLobbySeats(text: string): number {
   return clamp(parseInt(text) || LOBBY_SEATS_DEFAULT, LOBBY_SEATS_MIN, LOBBY_SEATS_MAX);
 }
 
-/** Rounds as the fields mean them: explicit when typed, else derived from the cards and the pile. */
+/** A host cap determines the Main rounds, including the partial final round. */
 function resolvePacks(fields: DraftConfigFieldsValue, cardsPerPlayer: number) {
-  const explicit = fields.roundsText !== undefined;
-  const packSize = parsePackSize(fields.packSizeText, cardsPerPlayer, explicit);
-  const packsPerPlayer = explicit ? parseRounds(fields.roundsText as string) : derivePacksPerPlayer(cardsPerPlayer, packSize);
-  return { packSize, packsPerPlayer };
+  const packSize = parsePackSize(fields.packSizeText);
+  return { packSize, packsPerPlayer: derivePacksPerPlayer(cardsPerPlayer, packSize) };
 }
 
 function parsePickSeconds(text: string): number {
@@ -122,9 +116,7 @@ export function configFromFields(fields: DraftConfigFieldsValue): {
 export function fieldsFromConfig(config: SeatedDraftConfig): DraftConfigFieldsValue {
   const cards = config.cardsPerPlayer ?? CARDS_PER_PLAYER_DEFAULT;
   const pile = config.packSize ?? PACK_SIZE_DEFAULT;
-  // Rounds carry over only when they deal what the picks need, as a saved config always does. A config whose rounds
-  // cannot cover its picks gets the old derived rounds instead, so editing it never opens on an error.
-  const rounds = typeof config.packsPerPlayer === "number" && config.packsPerPlayer * pile >= cards ? config.packsPerPlayer : null;
+  const rounds = derivePacksPerPlayer(cards, pile);
   return {
     copyLimit: config.copyLimit ?? true,
     cardsPerPlayerText: String(config.cardsPerPlayer ?? CARDS_PER_PLAYER_DEFAULT),
@@ -133,7 +125,7 @@ export function fieldsFromConfig(config: SeatedDraftConfig): DraftConfigFieldsVa
     picksPerStep: config.picksPerStep === 2 ? 2 : 1,
     extraDeckEnabled: config.extraDeckEnabled === true,
     extraDeckSizeText: String(config.extraDeckSize ?? EXTRA_DECK_SIZE_DEFAULT),
-    ...(rounds !== null ? { roundsText: String(rounds) } : {}),
+    roundsText: String(rounds),
     ...(typeof config.lobbySeats === "number" ? { lobbySeatsText: String(config.lobbySeats) } : {}),
   };
 }
@@ -147,20 +139,7 @@ export function validateFields(fields: DraftConfigFieldsValue): string | null {
   if (!packSize || packSize < PACK_SIZE_MIN) {
     return `Pack size must be at least ${PACK_SIZE_MIN}`;
   }
-  const explicitRounds = fields.roundsText !== undefined;
-  if (!explicitRounds && packSize > cards) {
-    return "Pack size cannot exceed the number of cards per player";
-  }
-  if (explicitRounds) {
-    if (packSize > PACK_SIZE_MAX) return `Pack size cannot be more than ${PACK_SIZE_MAX}`;
-    const rounds = parseInt(fields.roundsText as string);
-    if (!rounds || rounds < ROUNDS_MIN || rounds > ROUNDS_MAX) {
-      return `Rounds must be between ${ROUNDS_MIN} and ${ROUNDS_MAX}`;
-    }
-    if (rounds * packSize < cards) {
-      return `${rounds} rounds of ${packSize} deal ${rounds * packSize} cards each, but ${cards} picks are needed`;
-    }
-  }
+  if (packSize > PACK_SIZE_MAX) return `Pack size cannot be more than ${PACK_SIZE_MAX}`;
   if (fields.lobbySeatsText !== undefined) {
     const seats = parseInt(fields.lobbySeatsText);
     if (!seats || seats < LOBBY_SEATS_MIN || seats > LOBBY_SEATS_MAX) {
