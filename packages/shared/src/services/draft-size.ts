@@ -24,3 +24,29 @@ export function buildCappedBoosterDeal(cardIds: number[], players: number, confi
   }
   return { packs, remainder: deck.slice(position) };
 }
+
+/** Exact per-seat Main totals for a persisted deal, including partial packs and grouped passing. */
+export function reachableBoosterMainPicks(packCounts: number[][], config: DraftConfig): number[] {
+  const players = packCounts[0]?.length ?? 0;
+  const cap = config.cardsPerPlayer ?? 40;
+  const picksPerStep = config.picksPerStep ?? 1;
+  const totals = Array<number>(players).fill(0);
+  for (const [wave, sizes] of packCounts.entries()) {
+    const remaining = sizes.slice();
+    const holders = Array.from({ length: players }, (_, seat) => seat);
+    const direction = wave % 2 === 1 && config.alternatePassDirection ? -1 : 1;
+    for (let step = 1; remaining.some((n) => n > 0) && totals.some((n) => n < cap); step++) {
+      for (let pack = 0; pack < players; pack++) {
+        const seat = holders[pack];
+        if (remaining[pack] > 0 && totals[seat] < cap) {
+          remaining[pack]--;
+          totals[seat]++;
+        }
+      }
+      if (step % picksPerStep === 0) {
+        for (let pack = 0; pack < players; pack++) holders[pack] = (holders[pack] + direction + players) % players;
+      }
+    }
+  }
+  return totals;
+}

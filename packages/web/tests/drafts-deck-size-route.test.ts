@@ -166,3 +166,41 @@ it("returns effective theme setup in the paginated draft list", async () => {
     extraDeckEnabled: true, extraDeckSize: 15 });
   expect(listed.config).not.toHaveProperty("themeAssignments");
 });
+
+it.each([2, 3].flatMap((players) => [1, 2].flatMap((picksPerStep) => [false, true].flatMap((extraDeckEnabled) =>
+  [players * 40 - 1, players * 20].map((size) => ({ players, picksPerStep, extraDeckEnabled, size }))))))
+  ("shows reachable totals for $players players, pool $size, $picksPerStep picks, Extra=$extraDeckEnabled", async ({ players, size, picksPerStep, extraDeckEnabled }) => {
+    const app = await setup();
+    seedFixtureUsers(app.db, ["third"]);
+    const third = app.services.createPlayerService(app.db).findOrCreate("g", fixtureUserId("third"), "Third");
+    const roster = [app.host, app.other, third].slice(0, players);
+    const draft = app.drafts.create("g", "c", "Reachable", { customCardIds: app.main.slice(0, size),
+      cardsPerPlayer: 40, packSize: 24, picksPerStep, extraDeckEnabled, extraDeckSize: 2, customExtraCardIds: app.extra },
+      fixtureUserId("host"), app.host.id);
+    for (const player of roster.slice(1)) app.drafts.join(draft.id, player.id);
+    app.drafts.start(draft.id);
+    const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
+    const read = (index: number) => buildDraftResponse(draft.webSlug!, {
+      userId: fixtureUserId(["host", "other", "third"][index]), discordUserId: null });
+    const initial = await Promise.all(roster.map((_, index) => read(index)));
+    expect(initial.some((room) => room!.boosterProgress!.mainTotal < 40)).toBe(true);
+    for (let step = 0; step < 100 && app.drafts.findById(draft.id).status === "active"; step++) {
+      for (const player of roster) {
+        const options = app.drafts.currentPackOptions(draft.id, player.id);
+        if (options.length) app.drafts.pickCard(draft.id, player.id, options[0].id);
+      }
+      if (step === 5) {
+        for (let index = 0; index < roster.length; index++) {
+          expect((await read(index))!.boosterProgress!.mainTotal).toBe(initial[index]!.boosterProgress!.mainTotal);
+        }
+      }
+    }
+    expect(app.drafts.findById(draft.id).status).toBe("completed");
+    for (let index = 0; index < roster.length; index++) {
+      const main = app.drafts.pool(draft.id, roster[index].id).filter((card) => card.catalogCardId < 1000).length;
+      expect(initial[index]!.boosterProgress!.mainTotal).toBe(main);
+      expect((await read(index))!.boosterProgress).toEqual({ main, mainTotal: main,
+        extra: extraDeckEnabled ? 2 : 0, extraTotal: extraDeckEnabled ? 2 : 0 });
+      expect(initial[index]!.config.cardsPerPlayer).toBe(40);
+    }
+  });
