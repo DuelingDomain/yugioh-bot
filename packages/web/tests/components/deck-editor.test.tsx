@@ -1038,6 +1038,25 @@ describe("Domain one copy of each card", () => {
     expect(screen.getAllByText(/1 card has too many copies/).length).toBeGreaterThan(0);
   });
 
+  it("offers Use as Deck Master for a monster but not for a Spell", async () => {
+    stored = domainDeck([BLUE_EYES.code, POT.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ }));
+    expect(await screen.findByRole("button", { name: "Use as Deck Master" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /^Pot of Greed, Main Deck card/ }));
+    await waitFor(() => expect(screen.getAllByText("Pot of Greed").length).toBeGreaterThan(0));
+    expect(screen.queryByRole("button", { name: "Use as Deck Master" })).toBeNull();
+  });
+
+  it("renders a saved Spell Deck Master without crashing and offers no Master control for it", async () => {
+    stored = { ...domainDeck([BLUE_EYES.code]), deck: { main: [BLUE_EYES.code], extra: [], side: [], deckMaster: POT.code } };
+    render(<SavedDeckEditor deckId="7" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Deck Master: Pot of Greed/ }));
+    await waitFor(() => expect(screen.getAllByText("Pot of Greed").length).toBeGreaterThan(0));
+    expect(screen.queryByRole("button", { name: "This is your Deck Master" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use as Deck Master" })).toBeNull();
+  });
+
   it("does not flag two copies in a Standard deck", async () => {
     stored = savedDeck([POT.code, POT.code]);
     render(<SavedDeckEditor deckId="7" />);
