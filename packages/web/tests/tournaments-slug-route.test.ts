@@ -204,6 +204,57 @@ describe("PUT /api/tournaments/[slug] is atomic", () => {
       db.prepare("select name, deadline_at, report_confirm_window_hours, best_of from tournaments where web_slug = ?").get(SLUG),
     );
 
+  it.each(["pending", "active", "completed", "cancelled"])("renames to another host's private %s tournament name", async (status) => {
+    await setupDb({ status: "pending" });
+    await readDb(db => db.prepare("insert into tournaments(guild_id,name,format,status,created_by_user_id,web_slug) values('guild-1','Friday Cup','round_robin',?,?,'other-cup')")
+      .run(status, fixtureUserId("intruder")));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect((await put({ name: "Friday Cup" })).status).toBe(200);
+    }
+    expect(await row()).toMatchObject({ name: "Friday Cup" });
+  });
+
+  it.each(["pending", "active", "completed", "cancelled"])("checks the host's own %s tournament name on rename", async (status) => {
+    await setupDb({ status: "pending" });
+    await readDb(db => db.prepare("insert into tournaments(guild_id,name,format,status,created_by_user_id,web_slug) values('guild-1','Friday Cup','round_robin',?,?,'other-cup')")
+      .run(status, fixtureUserId("host")));
+    const response = await put({ name: "Friday Cup" });
+    if (status === "pending" || status === "active") {
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "You already have a tournament called this that hasn't finished." });
+      expect(await row()).toMatchObject({ name: "Cup" });
+    } else {
+      expect(response.status).toBe(200);
+      expect(await row()).toMatchObject({ name: "Friday Cup" });
+    }
+  });
+
+  it("keeps host-only copy when a competing rename wins after the pre-check", async () => {
+    await setupDb({ status: "pending" });
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+    const prepare = db.prepare.bind(db);
+    const prepareSpy = vi.spyOn(db, "prepare").mockImplementation(sql => {
+      const statement = prepare(sql);
+      if (sql.includes("select id from tournaments where guild_id") && sql.includes("name = ?")) {
+        const get = statement.get.bind(statement);
+        vi.spyOn(statement, "get").mockImplementation((...params: unknown[]) => {
+          const result = get(...params);
+          prepareSpy.mockRestore();
+          db.prepare("insert into tournaments(guild_id,name,format,status,created_by_user_id,web_slug) values('guild-1','Friday Cup','round_robin','pending',?,'competing-cup')")
+            .run(fixtureUserId("host"));
+          return result;
+        });
+      }
+      return statement;
+    });
+    const response = await put({ name: "Friday Cup" });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "You already have a tournament called this that hasn't finished." });
+    expect(await row()).toMatchObject({ name: "Cup" });
+    vi.restoreAllMocks();
+  });
+
   it("a failing rules update leaves the name and settings unchanged", async () => {
     await setupDb({ status: "pending" });
     const before = await row();

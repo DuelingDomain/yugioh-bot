@@ -10,6 +10,7 @@ import { canonicalCardCode } from "../duels/pool.js";
 import { loadArtworkIdentityCatalog } from "./card-artworks.js";
 import { analyzeCube, buildDealWithRemainder, prepareBoosterPool, seededShuffle, type ShuffleSeed } from "./deal.js";
 import { assertLobbySeatTarget, clearDraftLobbyStart, invalidateDraftLobby, DraftLobbyServiceError } from "./draft-lobby-mutations.js";
+import { findDraftReadAccess } from "./draft-access.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
 export interface DraftStartOptions { scheduleToken?: string }
@@ -1478,37 +1479,49 @@ export function createDraftService(
           `
           select id from drafts
           where guild_id = ?
+            and created_by_user_id = ?
             and name = ?
             and status in ('pending', 'active')
           limit 1
         `,
         )
-        .get(guildId, name);
+        .get(guildId, createdByUserId, name);
 
       if (existingCurrent) {
-        throw new Error("An active or pending draft already uses that name");
+        throw new Error("You already have a draft called this that hasn't finished.");
       }
 
       assertPlayerGuild(creatorPlayerId, guildId);
 
-      return findById(createDraft(guildId, channelId, name, config, createdByUserId, creatorPlayerId, visibility));
+      try {
+        return findById(createDraft(guildId, channelId, name, config, createdByUserId, creatorPlayerId, visibility));
+      } catch (error) {
+        if ((error as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE" && error instanceof Error
+          && error.message.includes("drafts.guild_id, drafts.created_by_user_id, drafts.name")) {
+          throw new Error("You already have a draft called this that hasn't finished.");
+        }
+        throw error;
+      }
     },
 
     findById,
 
-    findByName(guildId: string, name: string): Draft | undefined {
-      const row = db
+    /** Caller-aware bot lookup: prefer their current entry, then the newest readable entry. */
+    findByName(guildId: string, name: string, userId?: number): Draft | undefined {
+      const rows = db
         .prepare(
           `
           select * from drafts
           where guild_id = ? and name = ?
           order by
-            case status when 'active' then 0 when 'pending' then 1 else 2 end,
-            id desc
-          limit 1
+            case when status in ('pending', 'active') then 0 else 1 end,
+            case when created_by_user_id = ? then 0 else 1 end,
+            created_at desc, id desc
         `,
         )
-        .get(guildId, name);
+        .all(guildId, name, userId ?? null) as Array<{ id: number }>;
+
+      const row = rows.find(row => userId === undefined || findDraftReadAccess(db, row.id, guildId, userId)?.canRead);
 
       return row ? mapDraft(row) : undefined;
     },

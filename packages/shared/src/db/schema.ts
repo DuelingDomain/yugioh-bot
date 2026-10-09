@@ -162,14 +162,10 @@ insert into saved_decks_identity_new
 
 const IDENTITY_INDEX_SQL = `
 create index if not exists players_user_idx on players(user_id);
-create unique index if not exists tournaments_current_name_unique
-  on tournaments(guild_id, name) where status in ('pending', 'active');
 create unique index if not exists tournaments_web_slug_unique
   on tournaments(web_slug) where web_slug is not null;
 create index if not exists tournaments_creator_idx on tournaments(created_by_user_id);
 create index if not exists cubes_creator_idx on cubes(created_by_user_id);
-create unique index if not exists drafts_current_name_unique
-  on drafts(guild_id, name) where status in ('pending', 'active');
 create index if not exists drafts_creator_idx on drafts(created_by_user_id);
 create unique index if not exists seasons_one_active on seasons(guild_id) where status = 'active';
 create index if not exists seasons_creator_idx on seasons(created_by_user_id);
@@ -234,6 +230,7 @@ function assertIdentitySourceShape(db: Database.Database): void {
   };
   const indexes = new Set([
     "tournaments_current_name_unique", "tournaments_web_slug_unique", "drafts_current_name_unique",
+    "tournaments_current_host_name_unique", "drafts_current_host_name_unique",
     "seasons_one_active", "saved_decks_owner_list_idx", "saved_decks_owner_draft_idx",
     "drafts_web_slug_unique", "drafts_web_slug_idx", "draft_players_player_idx",
     "tournament_participants_player_idx", "drafts_guild_status_created_idx",
@@ -710,17 +707,9 @@ export function migrate(db: Database.Database) {
   }
 
   db.exec(`
-    create unique index if not exists tournaments_current_name_unique
-    on tournaments (guild_id, name)
-    where status in ('pending', 'active');
-
     create unique index if not exists tournaments_web_slug_unique
     on tournaments (web_slug)
     where web_slug is not null;
-
-    create unique index if not exists drafts_current_name_unique
-    on drafts (guild_id, name)
-    where status in ('pending', 'active');
 
     create index if not exists draft_cards_unpicked_by_draft_wave
     on draft_cards (draft_id, wave_number)
@@ -1163,6 +1152,19 @@ export function migrate(db: Database.Database) {
         created_at text not null default current_timestamp,
         primary key (tournament_id, user_id)
       );
+    `);
+  }).immediate();
+
+  // Names belong to their host. Never recreate the old guild-wide indexes on
+  // startup: different hosts can already share names after this migration.
+  db.transaction(() => {
+    db.exec(`
+      drop index if exists tournaments_current_name_unique;
+      drop index if exists drafts_current_name_unique;
+      create unique index if not exists tournaments_current_host_name_unique
+        on tournaments(guild_id, created_by_user_id, name) where status in ('pending', 'active');
+      create unique index if not exists drafts_current_host_name_unique
+        on drafts(guild_id, created_by_user_id, name) where status in ('pending', 'active');
     `);
   }).immediate();
 }

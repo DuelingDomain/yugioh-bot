@@ -104,7 +104,7 @@ describe("modal interactions", () => {
     });
 
     await expect(handleModal(interaction, app)).rejects.toThrow(
-      "An active or pending tournament already uses that name",
+      "You already have a tournament called this that hasn't finished.",
     );
   });
 

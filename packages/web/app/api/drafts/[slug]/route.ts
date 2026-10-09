@@ -169,9 +169,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       const assignmentError = hostThemeAssignmentError(db, existing.guildId, candidate, roster);
       if (assignmentError) throw new DraftLobbyApiError(assignmentError, "INVALID_CONFIG");
       if (name !== undefined) {
-        const collision = db.prepare("select id from drafts where guild_id = ? and name = ? and status in ('pending','active') and id != ?")
-          .get(existing.guildId, name, draftId);
-        if (collision) throw new DraftLobbyApiError("A draft with that name already exists", "INVALID_BODY");
+        const collision = db.prepare("select id from drafts where guild_id = ? and created_by_user_id = ? and name = ? and status in ('pending','active') and id != ?")
+          .get(existing.guildId, existing.createdByUserId, name, draftId);
+        if (collision) throw new DraftLobbyApiError("You already have a draft called this that hasn't finished.", "INVALID_BODY");
       }
     };
     let mergedConfig = merge(existing.config);

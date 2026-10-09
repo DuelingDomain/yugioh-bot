@@ -77,6 +77,12 @@ export function createDraftTournamentService(db: Database.Database) {
       const randomizeSeats = (JSON.parse(draft.config_json) as DraftConfig).randomizeSeats === true;
 
       const result = db.transaction(() => {
+        const collision = db.prepare(`select id from tournaments
+          where guild_id = ? and created_by_user_id = ? and name = ? and status in ('pending', 'active')`)
+          .get(draft.guild_id, draft.created_by_user_id, draft.name);
+        if (collision) {
+          throw new TournamentDuelError("You already have a tournament called this that hasn't finished.", 400);
+        }
         const insertResult = db
           .prepare(
             `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, best_of, visibility)
@@ -132,7 +138,7 @@ export function createDraftTournamentService(db: Database.Database) {
           tournamentName: tournament.name,
           webSlug: tournament.web_slug ?? undefined,
         };
-      })();
+      }).immediate();
 
       return result;
     },
