@@ -20,6 +20,7 @@ import {
   boosterDraftPhase,
   boosterExtraSize,
   boosterMainRounds,
+  reachableBoosterMainPicks,
   mainDraftPicksPerPlayer,
 } from "@yugidraft/shared/services";
 import { toUtcIso } from "@/lib/utils";
@@ -302,7 +303,29 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
       sum(case when wave_number > ? then 1 else 0 end) as extra
       from draft_picks where draft_id = ? and player_id = ?`)
       .get(mainRounds, mainRounds, draft.id, currentPlayer.id) as { main: number | null; extra: number | null } : undefined;
-    boosterProgress = { main: counts?.main ?? 0, mainTotal: mainSize, extra: counts?.extra ?? 0, extraTotal: extraSize };
+    let mainTotal = mainSize;
+    if (draft.status !== "pending") {
+      if (counts && (draft.status === "completed" || phase === "extra")) {
+        mainTotal = counts.main ?? 0;
+      } else {
+        const playerCount = players.length;
+        const packSize = config.packSize ?? 8;
+        const deal = db.prepare("select position from draft_deal where draft_id = ? and position < ?")
+          .all(draft.id, mainRounds * playerCount * packSize) as Array<{ position: number }>;
+        // Older active drafts without a persisted deal retain their generator's configured total.
+        if (deal.length > 0) {
+          const sizes = Array.from({ length: mainRounds }, () => Array<number>(playerCount).fill(0));
+          for (const card of deal) {
+            const pack = Math.floor(card.position / packSize);
+            sizes[Math.floor(pack / playerCount)][pack % playerCount]++;
+          }
+          const reachable = reachableBoosterMainPicks(sizes, config);
+          const seat = players.find((player) => player.playerId === currentPlayer?.id)?.seatIndex;
+          mainTotal = seat == null ? Math.max(...reachable) : reachable[seat];
+        }
+      }
+    }
+    boosterProgress = { main: counts?.main ?? 0, mainTotal, extra: counts?.extra ?? 0, extraTotal: extraSize };
   }
 
   let allowedCubes: DraftAllowedCube[] | undefined;

@@ -373,8 +373,11 @@ function DraftDetailBody({ slug }: { slug: string }) {
   }
 
   if (draft.status === "active") {
+    const roomConfig = draft.config.mode !== "theme" && draft.boosterProgress
+      ? { ...draft.config, cardsPerPlayer: draft.boosterProgress.mainTotal }
+      : draft.config;
     return (
-      <DraftRoom slug={slug} name={draft.name} config={draft.config} isParticipant={isParticipant} />
+      <DraftRoom slug={slug} name={draft.name} config={roomConfig} isParticipant={isParticipant} />
     );
   }
 
