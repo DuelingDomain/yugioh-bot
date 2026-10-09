@@ -78,6 +78,24 @@ describe("rules math", () => {
     expect(thin.errors[0]).toMatch(/between 40 and 120/);
   });
 
+  it.each([82, 95])("allows %i Main cards for two 41-pick seats with partial final piles", (main) => {
+    const fields = { ...base(), cardsPerPlayerText: "41", packSizeText: "24", lobbySeatsText: "2" };
+    const a = analyzeRules(fields, { main, extra: 0 });
+    expect(a.mainDemand).toBe(96);
+    expect(a.mainShort).toBe(96 - main);
+    expect(a.picksEach).toBe(41);
+    expect(a.errors).toEqual([]);
+    expect(a.warnings).toContainEqual(expect.stringMatching(/full deal.*96.*partial piles/));
+    expect(a.ok).toBe(true);
+  });
+
+  it("reports only the required-pick deficit when partial final piles cannot fill the cap", () => {
+    const fields = { ...base(), cardsPerPlayerText: "41", packSizeText: "24", lobbySeatsText: "2" };
+    const a = analyzeRules(fields, { main: 81, extra: 0 });
+    expect(a.errors).toEqual(["Main piles are 1 card short"]);
+    expect(a.ok).toBe(false);
+  });
+
   it("warns about unpicked cards and the 3-copy limit without blocking", () => {
     const a = analyzeRules({ ...base(), roundsText: "3", lobbySeatsText: "4" }, { main: 180, extra: 0, mainReachable: 30 });
     expect(a.unpickedEach).toBe(5);

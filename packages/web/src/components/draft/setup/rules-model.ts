@@ -23,7 +23,8 @@ import {
  *
  * Words: a "pile" is one pack (`packSize`), a "round" is one pack per player (`packsPerPlayer`), and
  * "picks" is `cardsPerPlayer`, the cards each player keeps from the Main rounds. A round deals
- * `seats x pile` cards, so Main demand is `seats x rounds x pile` copies, whatever the pick count is.
+ * `seats x pile` cards, so full Main demand is `seats x rounds x pile` copies. Partial final piles
+ * need only `seats x picks` copies to give each player their cap.
  */
 
 export type RulesFields = DraftConfigFieldsValue;
@@ -213,6 +214,7 @@ export function analyzeRules(fields: RulesFields, pool: PoolCounts): RulesAnalys
   const extraDemand = rules.seats * extraEach;
   const emptyPool = pool.main + pool.extra === 0;
   const mainShort = Math.max(0, mainDemand - pool.main);
+  const mainPicksShort = Math.max(0, rules.seats * rules.picks - pool.main);
   const extraShort = Math.max(0, extraDemand - pool.extra);
   const dealtEach = rules.rounds * rules.pile;
   const timedPicks = rules.picks + extraEach;
@@ -223,7 +225,8 @@ export function analyzeRules(fields: RulesFields, pool: PoolCounts): RulesAnalys
   if (fieldError) errors.push(fieldError);
   if (emptyPool) errors.push("Add cards to the pool");
   else {
-    if (mainShort > 0) errors.push(`Main piles are ${mainShort} cards short`);
+    if (mainPicksShort > 0) errors.push(`Main piles are ${plural(mainPicksShort, "card", "cards")} short`);
+    if (mainShort > 0) warnings.push(`A full deal needs ${mainDemand} Main cards, but the pool has ${pool.main}. The last round will use partial piles.`);
     if (extraShort > 0) errors.push(`Extra Deck piles are ${extraShort} cards short`);
   }
   if (!emptyPool && pool.mainReachable !== undefined && pool.mainReachable < rules.picks && rules.copyLimit) {
