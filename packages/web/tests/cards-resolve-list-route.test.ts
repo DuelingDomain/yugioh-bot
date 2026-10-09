@@ -53,6 +53,18 @@ afterEach(() => {
 });
 
 describe("POST /api/cards/resolve listText", () => {
+  it("reports a 20,000 character line as unknown without a lookup and resolves the other lines", async () => {
+    const long = `Dark Hole ${"(note) ".repeat(3300)}`;
+    const started = performance.now();
+    const response = await resolve({ listText: `Dark Hole\n${long}\n2 Dark Hole` });
+    expect(performance.now() - started).toBeLessThan(2000);
+    const body = await response.json();
+    expect(body.unknown).toHaveLength(1);
+    expect(body.unknown[0].length).toBeLessThanOrEqual(81);
+    expect(body.entries).toEqual([expect.objectContaining({ id: 1, copies: 3 })]);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
   it("resolves names/passcodes in first-appearance order with summed copies and unique diagnostics", async () => {
     const response = await resolve({ listText: "2 Artifact Moraltech\nDark Hole\n3 3\nDark Hole x3\n2 Artifact Moraltech\n3 Glue (note)\n3 Glue (note)\n999" });
     expect(response.status).toBe(200);
