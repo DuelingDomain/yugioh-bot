@@ -190,6 +190,94 @@
 .dr .says button:hover:not(:disabled) { border-color: var(--rule-hi); background: var(--panel-3); }
 .dr .says button:disabled { color: var(--ink-3); cursor: default; }
 
+/* host controls: the menu under the Host button, and the confirm. Red is only for the destructive choice. */
+.dr .host-pop { width: 320px; }
+.dr .host-pop .host-lede { margin: -4px 0 10px; }
+.dr .host-acts { display: grid; gap: 6px; }
+.dr .host-acts button {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-lo);
+  border-radius: 9px;
+  background: rgb(0 0 0 / 0.2);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.dr .host-acts button b { font-weight: 500; font-size: 14.5px; }
+.dr .host-acts button small { color: var(--ink-3); font-size: 13px; line-height: 1.35; }
+.dr .host-acts button:hover { border-color: var(--rule-hi); background: var(--panel-3); }
+.dr .host-acts button[data-tone="danger"] b { color: var(--loss-ink); }
+.dr .host-acts button[data-tone="danger"]:hover { border-color: rgb(228 90 77 / 0.6); background: rgb(228 90 77 / 0.1); }
+.dr .host-btn[aria-expanded="true"] { color: var(--pen-ink); }
+
+.dr .hc-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(3 6 12 / 0.74);
+}
+.dr .hc {
+  display: grid;
+  gap: 12px;
+  width: min(440px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  background: var(--panel-2);
+  box-shadow: 0 30px 70px rgb(0 0 0 / 0.65);
+  animation: dr-pop-in var(--rm-pop-in) var(--ease-out) backwards;
+}
+.dr .hc[data-tone="danger"] { border-color: rgb(228 90 77 / 0.55); }
+.dr .hc h2 { margin: 0; font: 500 19px/1.25 var(--f-display); color: var(--ink); }
+.dr .hc[data-tone="danger"] h2 { color: var(--loss-ink); }
+.dr .hc p { margin: 0; color: var(--ink-2); font-size: 14.5px; line-height: 1.5; }
+.dr .hc-type { display: grid; gap: 6px; color: var(--ink-2); font-size: 14px; }
+.dr .hc-type b { color: var(--loss-ink); font-weight: 600; }
+.dr .hc-type input {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.3);
+  color: var(--ink);
+  font: 400 16px/1 var(--f-ui);
+}
+.dr .hc-type input:focus-visible { outline: 2px solid var(--loss); outline-offset: 1px; }
+.dr .hc .hc-error {
+  padding: 9px 12px;
+  border: 1px solid rgb(228 90 77 / 0.5);
+  border-radius: 8px;
+  background: rgb(228 90 77 / 0.1);
+  color: var(--loss-ink);
+  font-size: 14px;
+}
+.dr .hc-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
+.dr .hc-btn {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  background: none;
+  color: var(--ink);
+  font: 500 14.5px/1 var(--f-ui);
+  cursor: pointer;
+}
+.dr .hc-btn:hover:not(:disabled) { border-color: var(--rule-hi); background: var(--panel-3); }
+.dr .hc-btn[data-kind="primary"] { border-color: var(--pen); background: var(--pen-fill); }
+.dr .hc-btn[data-kind="primary"]:hover:not(:disabled) { background: #6a46ee; border-color: var(--pen-ink); }
+.dr .hc-btn[data-kind="danger"] { border-color: var(--loss); background: rgb(228 90 77 / 0.16); color: var(--loss-ink); }
+.dr .hc-btn[data-kind="danger"]:hover:not(:disabled) { background: rgb(228 90 77 / 0.3); border-color: var(--loss-ink); }
+.dr .hc-btn:disabled { opacity: 0.45; cursor: default; }
+.dr .hc-btn:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+.dr .hc-btn[data-kind="danger"]:focus-visible { outline-color: var(--loss-ink); }
+
 /* ---------- body ----------
    Stage, then the reader dock, then the binder. The table stays centred in the stage and Pick sits at the
    bottom right of the dock, where a draft is confirmed. */
