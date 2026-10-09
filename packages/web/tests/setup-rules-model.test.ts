@@ -126,6 +126,16 @@ describe("editing rules", () => {
 });
 
 describe("Fit to pool", () => {
+  it.each([
+    { preset: "community" as const, main: 400, before: 120, after: 100 },
+    { preset: "quick" as const, main: 170, before: 45, after: 42 },
+  ])("reports the $preset cap change when fitting $main Main cards", ({ preset, main, before, after }) => {
+    const fit = fitRulesToPool(applyPreset(base(), preset), { main, extra: 0 });
+    expect(fit.ok).toBe(true);
+    expect(readRules(fit.fields).picks).toBe(after);
+    expect(fit.changes).toContain(`Picks each: ${before} -> ${after}`);
+  });
+
   it("keeps rounds and shrinks the pile when the pool is a little short", () => {
     const fit = fitRulesToPool(community(), { main: 401, extra: 0 });
     expect(fit.ok).toBe(true);
