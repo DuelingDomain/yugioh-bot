@@ -324,14 +324,42 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     setPassing(false);
     closeCardSheet();
   }, [deal.seq, closeCardSheet]);
-  // The dock swaps cards the moment the pointer moves, so the big pictures are fetched as the pack lands.
+  // The table shows the small pictures, so they go first. The dock swaps to the big pictures the moment the
+  // pointer moves, so those are fetched after the small ones are done and do not slow the pack down.
   const warmImages = useRef<HTMLImageElement[]>([]);
   useEffect(() => {
-    warmImages.current = rs.cards.map((c) => {
-      const img = new Image();
-      img.src = cardImageUrl(c.passcode ?? c.id);
-      return img;
-    });
+    let cancelled = false;
+    const start = (variant: "small" | "full") =>
+      rs.cards.map((c) => {
+        const img = new Image();
+        img.src = cardImageUrl(c.passcode ?? c.id, variant);
+        return img;
+      });
+    const small = start("small");
+    warmImages.current = small;
+    let pending = small.length;
+    let full: HTMLImageElement[] = [];
+    const loadFull = () => {
+      if (cancelled) return;
+      full = start("full");
+      warmImages.current = [...small, ...full];
+    };
+    if (!pending) return;
+    const settle = () => {
+      if (--pending === 0) loadFull();
+    };
+    for (const img of small) {
+      if (img.complete) settle();
+      else {
+        img.addEventListener("load", settle, { once: true });
+        img.addEventListener("error", settle, { once: true });
+      }
+    }
+    return () => {
+      cancelled = true;
+      // The next pack's small pictures must not wait behind the old pack's large ones.
+      for (const img of full) if (!img.complete) img.src = "";
+    };
   }, [rs.cards]);
   useEffect(() => {
     if (selectedId != null && !rs.cards.some((c) => c.id === selectedId)) setSelectedId(null);
