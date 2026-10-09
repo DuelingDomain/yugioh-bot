@@ -269,7 +269,7 @@ describe("GET /api/drafts/[slug]", () => {
     verifyDb.close();
   }, testTimeoutMs);
 
-  it("create does not warn that authored copies exceed the pack count", async () => {
+  it.each([63, 160])("create reports only real pool shortages when authored copies exceed the pack count (%i copies)", async (poolSize) => {
     const tempDir = mkdtempSync(join(tmpdir(), "yugioh-draft-route-"));
     const dbPath = join(tempDir, "draft-route.sqlite");
     const guildId = "196382772699332609";
@@ -280,10 +280,11 @@ describe("GET /api/drafts/[slug]", () => {
     vi.stubEnv("DISCORD_GUILD_ID", guildId);
     vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel-1");
 
-    // card 1 has 5 copies > 3 waves; plus cards 2..59 so a 40-card deck is possible.
+    // Card 1 has 5 copies > 3 waves. Only the 63-copy pool falls short of
+    // the default four-seat lobby's 160 requested picks.
     const range = (start: number, end: number) =>
       Array.from({ length: end - start }, (_, i) => start + i);
-    const customCardIds = [1, 1, 1, 1, 1, ...range(2, 60)];
+    const customCardIds = [1, 1, 1, 1, 1, ...range(2, poolSize - 3)];
     const distinctIds = [...new Set(customCardIds)];
 
     const Database = (await import("better-sqlite3")).default;
@@ -335,7 +336,11 @@ describe("GET /api/drafts/[slug]", () => {
 
     const body = await res.json();
     expect(res.status).toBe(201);
-    expect(body.warnings).toEqual([]);
+    expect(body.config.lobbySeats).toBe(4);
+    expect(body.errors).toEqual([]);
+    expect(body.warnings).toEqual(poolSize < 160 ? [
+      "Main pool has 63 cards for 160 requested picks (4 players × 40). Players may finish with fewer Main Deck cards when the pool runs out.",
+    ] : []);
   }, testTimeoutMs);
 
   it("syncs custom card ids before starting a custom pool draft from the web route", async () => {
