@@ -134,6 +134,42 @@ describe("draft timer service", () => {
     expect(rec.calls[0].path).toBe("/internal/draft/resync");
   });
 
+  it.each(["succeeds", "fails"])("broadcasts timer-driven completion when Discord delivery %s", async (delivery) => {
+    const app = setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const updateStatus = vi.spyOn(app.messenger, "updateStatus");
+    if (delivery === "fails") updateStatus.mockRejectedValue(new Error("Discord unavailable"));
+    try {
+      const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+      const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+      const host = createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" });
+      const draft = app.drafts.create("guild-1", "channel-1", "Final pick", {
+        packSize: 1, packsPerPlayer: 1, cardsPerPlayer: 1,
+      }, host.id, yugi.id);
+      app.drafts.join(draft.id, kaiba.id);
+      seedDraftCatalog(app, 2);
+      app.drafts.start(draft.id);
+      expect(app.drafts.findById(draft.id).status).toBe("active");
+
+      const rec = recordingTransport();
+      const timer = createDraftTimerService({ drafts: app.drafts, messenger: app.messenger,
+        broadcaster: createBroadcaster(rec.transport) });
+      await timer.tick(new Date(Date.now() + 60_000));
+      await timer.tick(new Date(Date.now() + 120_000));
+
+      expect(app.drafts.findById(draft.id).status).toBe("completed");
+      expect(app.drafts.picks(draft.id)).toHaveLength(2);
+      expect(rec.calls).toEqual([{ path: "/internal/draft/complete", body: JSON.stringify({ slug: draft.webSlug }) }]);
+      expect(updateStatus).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: draft.id, status: "completed" }));
+      if (delivery === "fails") expect(warn).toHaveBeenCalledTimes(1);
+      else expect(warn).not.toHaveBeenCalled();
+    } finally {
+      updateStatus.mockRestore();
+      warn.mockRestore();
+      app.db.close();
+    }
+  });
+
   it("does not expire picks before deadline", async () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
