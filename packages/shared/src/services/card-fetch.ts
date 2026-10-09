@@ -20,6 +20,9 @@ export class CardFetchError extends Error {
   }
 }
 
+/** The API answered, but the card data was not valid. Not a network failure: other cards may still load. */
+export class CardDataError extends CardFetchError {}
+
 export function isCardFetchError(error: unknown): error is CardFetchError {
   return error instanceof CardFetchError || (error instanceof Error && error.message.startsWith("Could not reach the card database"));
 }

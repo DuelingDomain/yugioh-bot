@@ -3,7 +3,7 @@ import type { Card } from "../types/index.js";
 import { foldCardText } from "../duels/card-query.js";
 import { canonicalCardCode, type CardIdentityCatalog } from "../duels/pool.js";
 import { loadArtworkIdentityCatalog, mainArtworkId, type CardArtwork } from "./card-artworks.js";
-import { CardFetchError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
+import { CardDataError, CardFetchError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
 import { createCardLookupBudget, takeCardLookup, type CardLookupBudget } from "./card-lookup-budget.js";
 import { createImportedCardNameMatcher, normalizeImportedCardName, straightenCardQuotes } from "./card-name-match.js";
 
@@ -200,7 +200,7 @@ export function createCardCatalogService(
         || (card.card_sets != null && (!Array.isArray(card.card_sets) || card.card_sets.some((set) => typeof set.set_name !== "string")))
         || card.card_images.some((image) => typeof image.image_url !== "string" || typeof image.image_url_small !== "string"
           || (image.id != null && (!Number.isSafeInteger(image.id) || image.id <= 0))))) {
-        throw new Error("Invalid card response");
+        throw new CardDataError();
       }
       return payload.data;
     }, [400]);
@@ -588,7 +588,7 @@ export function createCardCatalogService(
         try { cards = await fetchCardsWith({ id: missing.slice(offset, offset + 20).join(",") }, options.lookupBudget); }
         catch (error) {
           // Stop on a rate limit, a server error or no network. A bad card in one batch must not stop the rest.
-          if (isTransientFetchFailure(error)) return;
+          if (isTransientFetchFailure(error) && !(error instanceof CardDataError)) return;
           continue;
         }
         if (cards.length > 0) upsertCards(await enrichArtworkFamilies(cards));
