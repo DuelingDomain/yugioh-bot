@@ -198,7 +198,7 @@ describe("DraftDetailPage: host end and cancel", () => {
   });
 
   describe("another player", () => {
-    it("is told the host ended the draft, and moves to the summary", async () => {
+    it("is told the draft was ended early, and moves to the summary", async () => {
       const draft = { current: draftBody as Body };
       stubFetch("player", draft);
       render(<DraftDetailPage />);
@@ -211,16 +211,16 @@ describe("DraftDetailPage: host end and cancel", () => {
       act(() => lastWsOptions()?.onResync?.());
 
       const notice = await screen.findByRole("status");
-      expect(notice).toHaveTextContent("The host ended the draft");
-      expect(notice).toHaveTextContent("The cards you picked are kept");
+      expect(notice).toHaveTextContent("The draft was ended early");
+      expect(notice).toHaveTextContent("Everyone keeps their picks");
       await waitFor(() => expect(screen.getByTestId("draft-summary-view")).toHaveAttribute("data-status", "completed"));
       // The notice stays after the room has gone, until the player closes it.
-      expect(screen.getByRole("status")).toHaveTextContent("The host ended the draft");
+      expect(screen.getByRole("status")).toHaveTextContent("The draft was ended early");
       act(() => screen.getByRole("button", { name: "Dismiss" }).click());
       expect(screen.queryByRole("status")).toBeNull();
     });
 
-    it("is told the host cancelled the draft, and moves to the cancelled state", async () => {
+    it("is told the draft was cancelled, and moves to the cancelled state", async () => {
       const draft = { current: draftBody as Body };
       stubFetch("player", draft);
       render(<DraftDetailPage />);
@@ -231,8 +231,8 @@ describe("DraftDetailPage: host end and cancel", () => {
       act(() => lastWsOptions()?.onStatusChange?.("cancelled"));
 
       const notice = await screen.findByRole("status");
-      expect(notice).toHaveTextContent("The host cancelled the draft");
-      expect(notice).toHaveTextContent("no picks were kept");
+      expect(notice).toHaveTextContent("The draft was cancelled");
+      expect(notice).toHaveTextContent("No picks were kept");
       expect(screen.getByRole("link", { name: "All drafts" })).toHaveAttribute("href", "/drafts");
       await waitFor(() => expect(screen.getByTestId("draft-summary-view")).toHaveAttribute("data-status", "cancelled"));
     });
@@ -270,13 +270,43 @@ describe("DraftDetailPage: host end and cancel", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("announces a later host stop after the host's own request failed", async () => {
-    stubFetch("host", { current: draftBody }, async () => ({ ok: false, status: 503, json: async () => ({ error: "x" }) }));
+  it("is not told about a stop made in another tab of the host", async () => {
+    stubFetch("host", { current: draftBody });
+    render(<DraftDetailPage />);
+    await waitFor(() => expect(room.onHostAction).toBeDefined());
+    act(() => lastWsOptions()?.onHostStopped?.("completed"));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("tells an owner who is not the host about a later stop, after their own request failed", async () => {
+    stubFetch("owner", { current: { ...draftBody, canEndOrCancel: true } }, async () => ({ ok: false, status: 503, json: async () => ({ error: "x" }) }));
     render(<DraftDetailPage />);
     await waitFor(() => expect(room.onHostAction).toBeDefined());
     await expect(act(async () => room.onHostAction?.("end"))).rejects.toThrow();
     // The failed request cleared the self mark, so a later real change is announced.
     act(() => lastWsOptions()?.onHostStopped?.("completed"));
-    expect(await screen.findByRole("status")).toHaveTextContent("The host ended the draft");
+    expect(await screen.findByRole("status")).toHaveTextContent("The draft was ended early");
+  });
+
+  it("does not tell an owner about their own click, even when the socket answers first", async () => {
+    let finish: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    stubFetch("owner", { current: { ...draftBody, canEndOrCancel: true } }, async () => {
+      await gate;
+      return { ok: true, status: 200, json: async () => ({ changed: true }) };
+    });
+    render(<DraftDetailPage />);
+    await waitFor(() => expect(room.onHostAction).toBeDefined());
+    let sent: Promise<void> | undefined;
+    act(() => {
+      sent = room.onHostAction?.("cancel");
+    });
+    act(() => lastWsOptions()?.onHostStopped?.("cancelled"));
+    expect(screen.queryByRole("status")).toBeNull();
+    await act(async () => {
+      finish();
+      await sent;
+    });
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
