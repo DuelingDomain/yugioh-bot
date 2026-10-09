@@ -277,6 +277,27 @@ describe("ThemeTableLobby rules and warnings", () => {
     expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ config: { cardsPerPlayer: 50 }, revision: 5 });
   });
 
+  it("keeps Save off outside 40 to 120 Main picks", async () => {
+    const calls = mockFetch({ "PUT /api/drafts/theme-night": () => ({ ok: true }) });
+    render(<ThemeTableLobby {...table({ isCreator: true, draft: { config: { ...BASE_CONFIG, cardsPerPlayer: 60 }, players: [person(1, "Imran", { isHost: true, isYou: true })] } })} />);
+    fireEvent.click(screen.getByRole("button", { name: /edit theme rules/i }));
+    const main = screen.getByLabelText("Main deck size");
+    const save = screen.getByRole("button", { name: "Save rules" });
+    for (const value of [20, 39, 121]) {
+      fireEvent.change(main, { target: { value: String(value) } });
+      expect(save).toBeDisabled();
+      fireEvent.click(save);
+    }
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(0);
+    for (const value of [40, 120]) {
+      fireEvent.change(main, { target: { value: String(value) } });
+      expect(save).toBeEnabled();
+    }
+    fireEvent.click(save);
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ config: { cardsPerPlayer: 120 }, revision: 5 });
+  });
+
   it("gives a non-host no rule editor and no tools to change the box", () => {
     mockFetch({});
     render(<ThemeTableLobby {...table()} />);

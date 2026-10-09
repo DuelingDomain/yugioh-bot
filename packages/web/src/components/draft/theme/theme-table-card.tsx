@@ -118,7 +118,7 @@ function ThemeRulesEditor({ config, players, cubeIds, table, controller, locked,
   const set = <K extends keyof RulesFields>(key: K, value: RulesFields[K]) => setFields((f) => ({ ...f, [key]: value }));
   const patch = patchOf(saved, fields);
   const changed = Object.keys(patch).length > 0;
-  const valid = fields.seats >= 2 && fields.seats <= 8 && fields.main >= 20 && fields.choices >= 2 && fields.seconds >= 5 && (!fields.extraOn || fields.extra >= 1);
+  const valid = fields.seats >= 2 && fields.seats <= 8 && fields.main >= 40 && fields.main <= 120 && fields.choices >= 2 && fields.seconds >= 5 && (!fields.extraOn || fields.extra >= 1);
   const toHost = fields.selection === "host_assigned" && saved.selection !== "host_assigned";
   const suggested = toHost ? suggestAssignments(players, table.cubeOf, cubeIds, fields.unique) : null;
   const short = toHost && suggested === null;
