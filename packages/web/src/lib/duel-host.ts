@@ -16,7 +16,7 @@ import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 import type { CardDataStatus } from "@yugidraft/shared/types";
 import { checkDiscordWebAccess, webAccessError, type WebAccessLevel } from "@/lib/discord-web-access";
 
-export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode" | SandboxHostOp;
+export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode" | SandboxHostOp;
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {
