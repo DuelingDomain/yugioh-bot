@@ -536,7 +536,6 @@
   outline: none;
 }
 .dr .tcard .mv, .dr .tcard .lift, .dr .tcard .flip { position: absolute; inset: 0; transform-style: preserve-3d; }
-.dr .tcard .lift { transform-origin: 50% 100%; transition: transform var(--rm-stand) var(--ease-out); }
 .dr .tcard .face, .dr .tcard .back {
   position: absolute;
   inset: 0;
@@ -624,9 +623,11 @@
 .dr .tcard[data-sel] .face { box-shadow: 0 0 0 3px var(--pen), 0 0 0 5px rgb(7 11 21 / 0.85), 0 0 26px rgb(155 126 255 / 0.6); }
 .dr .tcard:focus-visible .face { box-shadow: 0 0 0 2px var(--ink), 0 6px 14px rgb(0 0 0 / 0.55); }
 .dr .tcard[data-sel]:focus-visible .face { box-shadow: 0 0 0 3px var(--pen), 0 0 0 5px rgb(7 11 21 / 0.85), 0 0 26px rgb(155 126 255 / 0.6); }
-.dr .tcard[data-sel] .shadow, .dr .tcard:hover .shadow { opacity: 1; }
 /* the lens: with a filter on, matches keep their light and the rest of the pack goes dark */
 .dr .tcard[data-lens="miss"] .face { filter: brightness(0.3) saturate(0.35); }
+/* a selected card the filter does not match keeps its ring and badge bright: only the art goes a little dim */
+.dr .tcard[data-lens="miss"][data-sel] .face { filter: none; }
+.dr .tcard[data-lens="miss"][data-sel] .face img { filter: brightness(0.55) saturate(0.6); }
 .dr .tcard[data-lens="hit"] .face { box-shadow: 0 0 0 2px var(--kc), 0 0 18px var(--kc), 0 6px 14px rgb(0 0 0 / 0.55); }
 .dr .tcard[data-lens="hit"][data-sel] .face { box-shadow: 0 0 0 3px var(--pen), 0 0 0 5px rgb(7 11 21 / 0.85), 0 0 26px rgb(155 126 255 / 0.6); }
 .dr .tcard[data-kind="monster"] { --kc: var(--k-monster); }
@@ -1517,10 +1518,10 @@
     --rm-move: var(--d-rm);
     --rm-stand: var(--d-rm);
   }
-  /* a card standing up or sliding to a new place is movement, so it just changes */
-  .dr .tcard, .dr .tcard .lift { transition: none; }
+  /* a card sliding to a new place is movement, so it just changes */
+  .dr .tcard { transition: none; }
 }
-/* calm: a card that is re-placed on the table just changes place; a card standing up still rises, shorter */
+/* calm: a card that is re-placed on the table just changes place */
 .dr[data-motion="calm"] .tcard { transition: none; }
 /* reduced motion: the sheets fade where they would have slid. The slide itself is held back until the fade is
    done, so a closing sheet stays in place while it fades and an opening one is in place at once. */
