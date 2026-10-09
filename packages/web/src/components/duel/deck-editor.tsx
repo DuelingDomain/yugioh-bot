@@ -10,7 +10,7 @@ import styles from "./deck-editor.module.css";
 import { applyDomainMaster, parseDeckText, selectDomainMaster, serializeYdk, type DeckMasterSelection } from "./ydk";
 import { DeckValidationSkippedError, validateDuelDeck } from "./api";
 import { DeckMasterPicker } from "./deck-master-picker";
-import { canBeDeckMaster, useDeckCardMeta, type DeckCardMeta } from "./deck-card-types";
+import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE, useDeckCardMeta, type DeckCardMeta } from "./deck-card-types";
 import { SavedDeckPicker, useSavedDecks } from "./saved-deck-picker";
 import { createSavedDeck, listSavedDecks } from "../decks/api";
 import { deckNameFromFile } from "../decks/import";
@@ -167,6 +167,9 @@ export function DeckEditor({
     return byPosition;
   }, [report]);
   const masterProblem = problems.get("deckMaster:0");
+  // The server check says the same once it answers; this shows it as soon as the card is known.
+  const masterMessage = masterProblem?.messages.join(" ")
+    ?? (mode === "domain" && masterCode != null && isSpellOrTrapType(cardMeta.get(masterCode)?.type) ? SPELL_TRAP_MASTER_MESSAGE : undefined);
   const leadCard = masterCode ?? main[0] ?? extra[0];
 
   useEffect(() => {
@@ -436,7 +439,7 @@ export function DeckEditor({
 
       {mode === "domain" ? (
         <DeckMasterPicker code={masterCode} onChange={chooseMaster}
-          problem={masterProblem?.messages.join(" ")} custom={!settings.validateDeck} />
+          problem={masterMessage} custom={!settings.validateDeck} />
       ) : null}
 
       <CardAddField mode={mode} slug={slug} settings={settings} sideAllowed={sideAllowed} onAdd={addCard} onError={setParseError} />

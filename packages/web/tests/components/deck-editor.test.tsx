@@ -1055,6 +1055,29 @@ describe("Domain one copy of each card", () => {
     await waitFor(() => expect(screen.getAllByText("Pot of Greed").length).toBeGreaterThan(0));
     expect(screen.queryByRole("button", { name: "This is your Deck Master" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use as Deck Master" })).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("You can't use a Spell or Trap as your Deck Master.");
+    expect(screen.getByRole("button", { name: "Clear" })).toBeEnabled();
+  });
+
+  it("shows no Spell or Trap message for a monster Deck Master", async () => {
+    stored = { ...domainDeck([POT.code]), deck: { main: [POT.code], extra: [], side: [], deckMaster: BLUE_EYES.code } };
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findByRole("button", { name: /^Deck Master: Blue-Eyes White Dragon/ });
+    expect(screen.queryByText(/Spell or Trap/)).toBeNull();
+  });
+
+  it("shows the server's message when a save is refused for a Spell Deck Master", async () => {
+    stored = { ...domainDeck([BLUE_EYES.code]), deck: { main: [BLUE_EYES.code], extra: [], side: [], deckMaster: POT.code } };
+    const fetch = vi.mocked(globalThis.fetch);
+    const original = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url, init) => {
+      if (url === "/api/decks/7" && init?.method === "PUT") return Response.json({ error: "You can't use a Spell or Trap as your Deck Master." }, { status: 400 });
+      return original(url, init);
+    });
+    render(<SavedDeckEditor deckId="7" />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getAllByText("You can't use a Spell or Trap as your Deck Master.").length).toBeGreaterThan(1));
   });
 
   it("does not flag two copies in a Standard deck", async () => {
