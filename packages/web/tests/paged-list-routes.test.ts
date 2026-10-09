@@ -35,7 +35,7 @@ describe("paged list HTTP and server page contract", () => {
       const first = await response.json(); expect(first.items).toHaveLength(25); expect(first.items[0].id).toBe(30);
       expect(first.nextCursor).toEqual(expect.any(String));
       expect(first.items[0]).not.toHaveProperty("configJson");
-      if(kind === "drafts") expect(first.items[0]).toEqual({ id:30,guildId:"g",name:"Draft 30",status:"pending",mode:"booster",webSlug:"draft-30",currentPackRound:0,currentPickStep:0,playerCount:1,createdAt:"2026-10-01T12:00:00Z" });
+      if(kind === "drafts") expect(first.items[0]).toEqual({ id:30,guildId:"g",name:"Draft 30",status:"pending",mode:"booster",config:{ mode:"booster",packSize:8,packsPerPlayer:5,cardsPerPlayer:40,pickSeconds:45,extraDeckEnabled:false,extraDeckSize:15 },webSlug:"draft-30",currentPackRound:0,currentPickStep:0,playerCount:1,createdAt:"2026-10-01T12:00:00Z" });
       const last = await (await api(kind,first.nextCursor)).json();
       expect(last.items.map((i:any)=>i.id)).toEqual([5,4,3,2,1]); expect(last.nextCursor).toBeNull();
     });
