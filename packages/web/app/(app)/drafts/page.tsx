@@ -65,7 +65,7 @@ export default async function DraftsPage() {
         playerCount: row.player_count,
         createdAt: row.created_at ?? undefined,
         endedAt: row.ended_at ?? undefined,
-        config: parseDraftConfig(row.config_json),
+        config: parseDraftConfig(row.config_json, row.status),
       }));
   }
 

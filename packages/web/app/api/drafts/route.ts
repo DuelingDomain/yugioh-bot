@@ -2,6 +2,7 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { parseDraftConfig } from "@/components/draft/list/drafts-list-model";
 import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
@@ -85,6 +86,7 @@ export async function GET() {
           name: row.name,
           status: row.status,
           mode,
+          config: parseDraftConfig(row.config_json, row.status),
           webSlug: row.web_slug ?? undefined,
           currentPackRound: row.current_wave_number ?? 0,
           currentPickStep: row.current_pick_step ?? 0,

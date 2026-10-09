@@ -1,4 +1,5 @@
 /** Row model for the drafts list (/drafts). Pure, so it is easy to test. */
+import { effectiveDraftNumbers, mainDraftPicksPerPlayer } from "@yugidraft/shared/types";
 import type { StageStep } from "@/components/sheet";
 import { formatPickSeconds } from "../pick-time";
 
@@ -50,7 +51,7 @@ function posInt(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : fallback;
 }
 
-export function parseDraftConfig(json: string | null | undefined): DraftListConfig {
+export function parseDraftConfig(json: string | null | undefined, status = "pending"): DraftListConfig {
   let raw: Record<string, unknown> = {};
   try {
     const parsed = JSON.parse(json ?? "{}");
@@ -58,15 +59,16 @@ export function parseDraftConfig(json: string | null | undefined): DraftListConf
   } catch {
     // malformed config_json: use defaults
   }
-  return {
+  const config: DraftListConfig = {
     mode: raw.mode === "theme" ? "theme" : "booster",
     packsPerPlayer: posInt(raw.packsPerPlayer, DEFAULTS.packsPerPlayer),
     packSize: posInt(raw.packSize, DEFAULTS.packSize),
     pickSeconds: posInt(raw.pickSeconds, DEFAULTS.pickSeconds),
     cardsPerPlayer: posInt(raw.cardsPerPlayer, DEFAULTS.cardsPerPlayer),
-    extraDeckEnabled: typeof raw.extraDeckEnabled === "boolean" ? raw.extraDeckEnabled : DEFAULTS.extraDeckEnabled,
+    extraDeckEnabled: typeof raw.extraDeckEnabled === "boolean" ? raw.extraDeckEnabled : raw.mode === "theme",
     extraDeckSize: posInt(raw.extraDeckSize, DEFAULTS.extraDeckSize),
   };
+  return { ...config, ...effectiveDraftNumbers(config, status !== "pending") };
 }
 
 export function kindLabel(config: Pick<DraftListConfig, "mode">): string {
@@ -124,9 +126,10 @@ export function liveStages(d: DraftListItem): LiveStages {
   const c = d.config;
   if (c.mode === "theme") {
     const withExtra = c.extraDeckEnabled && c.extraDeckSize > 0;
-    const total = Math.max(c.cardsPerPlayer + (withExtra ? c.extraDeckSize : 0), 1);
+    const main = mainDraftPicksPerPlayer(c);
+    const total = Math.max(main + (withExtra ? c.extraDeckSize : 0), 1);
     const round = clamp(d.wave, 1, total);
-    const inExtra = withExtra && round > c.cardsPerPlayer;
+    const inExtra = withExtra && round > main;
     const steps: StageStep[] = [
       { label: "Lobby", state: "done" },
       { label: "Main deck", state: inExtra ? "done" : "now" },
