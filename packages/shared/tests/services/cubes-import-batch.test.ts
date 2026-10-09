@@ -1,4 +1,3 @@
-import { seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
@@ -36,7 +35,7 @@ describe("long passcode imports", () => {
     migrate(db);
     const calls: string[] = [];
     const cubes = createCubeService(db, catalogWith(db, calls));
-    const cube = cubes.createBlank("g", "Long", seedUser(db, "u").userId);
+    const cube = cubes.createBlank("g", "Long", "u");
     // The file lists the main deck first and the Extra Deck last, like a .ydk.
     const res = await cubes.importPasscodeGroups(cube.id, [{ codes: main, pool: "main" }, { codes: extra, pool: "extra" }]);
     expect(res).toEqual({ added: 120, unknown: [] });
@@ -52,7 +51,7 @@ describe("long passcode imports", () => {
     migrate(db);
     const calls: string[] = [];
     const cubes = createCubeService(db, catalogWith(db, calls, 1030));
-    const cube = cubes.createBlank("g", "Long", seedUser(db, "u").userId);
+    const cube = cubes.createBlank("g", "Long", "u");
     const res = await cubes.importPasscodeGroups(cube.id, [{ codes: [...main.slice(0, 10), 1001, 1031] }]);
     expect(res).toEqual({ added: 11, unknown: [1031] });
     expect(cubes.getCubePools(cube.id).extra.map((c) => c.catalogCardId)).toEqual([1001]);
@@ -63,7 +62,7 @@ describe("long passcode imports", () => {
     migrate(db);
     const calls: string[] = [];
     const cubes = createCubeService(db, catalogWith(db, calls, Infinity, 25));
-    const cube = cubes.createBlank("g", "Bad", seedUser(db, "u").userId);
+    const cube = cubes.createBlank("g", "Bad", "u");
     const res = await cubes.importPasscodeGroups(cube.id, [{ codes: main, pool: "main" }]);
     expect(res).toEqual({ added: 90, unknown: [] });
     // All 5 batches of 20 are tried, also the ones after the bad batch. The bad batch falls back to one by one.
@@ -76,7 +75,7 @@ describe("long passcode imports", () => {
     migrate(db);
     const calls: string[] = [];
     const cubes = createCubeService(db, catalogWith(db, calls, Infinity, 25, true));
-    const cube = cubes.createBlank("g", "Bad", seedUser(db, "u").userId);
+    const cube = cubes.createBlank("g", "Bad", "u");
     const res = await cubes.importPasscodeGroups(cube.id, [{ codes: main, pool: "main" }]);
     expect(res).toEqual({ added: 89, unknown: [25] });
   });
