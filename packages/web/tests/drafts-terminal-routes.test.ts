@@ -94,12 +94,19 @@ describe("emergency draft API", () => {
     expect((await call(action, draft.webSlug!)).status).toBe(404);
     expect(state.broadcast).not.toHaveBeenCalled();
   });
-  it.each(["end", "cancel"] as const)("makes repeated %s safe and rejects the opposite terminal transition", async action => {
+  it.each(["end", "cancel"] as const)("notifies only once for repeated %s and rejects the opposite terminal transition", async action => {
     const { draft } = setup(action === "end" ? "active" : "pending");
-    expect((await call(action, draft.webSlug!)).status).toBe(200);
-    expect(await (await call(action, draft.webSlug!)).json()).toMatchObject({ changed: false });
-    // Re-send ws status on retry to help a client recover a missed notification.
-    expect(state.broadcast).toHaveBeenCalledTimes(4);
+    const status = action === "end" ? "completed" : "cancelled";
+    const first = await call(action, draft.webSlug!);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ status, changed: true });
+    const retry = await call(action, draft.webSlug!);
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ status, changed: false });
+    expect(state.broadcast.mock.calls.map(([payload]) => payload)).toEqual([
+      { kind: "status", slug: draft.webSlug, status },
+      { kind: "resync", slug: draft.webSlug, packRound: action === "end" ? 1 : 0, pickStep: action === "end" ? 1 : 0 },
+    ]);
     expect(state.announce).toHaveBeenCalledTimes(action === "end" ? 2 : 1);
     const conflict = await call(action === "end" ? "cancel" : "end", draft.webSlug!);
     expect(conflict.status).toBe(409);
