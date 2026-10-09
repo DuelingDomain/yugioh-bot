@@ -94,6 +94,8 @@ interface DraftManageViewProps {
     playerCount: number;
   };
   isCreator: boolean;
+  /** Offer Cancel draft. The host, or an owner who is not the host. Default: the host. */
+  canCancel?: boolean;
   isParticipant: boolean;
   onStart: () => Promise<void>;
   onCancel: () => Promise<void>;
@@ -118,6 +120,7 @@ function formatCreated(iso: string) {
 export function DraftManageView({
   draft,
   isCreator,
+  canCancel = isCreator,
   isParticipant,
   onStart,
   onCancel,
@@ -652,7 +655,7 @@ export function DraftManageView({
 
           {isEditingConfig && editPanel(sf.edit)}
 
-          {isCreator && <div className={sf.danger}>{cancelNode}</div>}
+          {canCancel && <div className={sf.danger}>{cancelNode}</div>}
         </div>
 
         {poolOpen && (
@@ -847,7 +850,7 @@ export function DraftManageView({
             )}
           </RailSection>
 
-          {isCreator && <RailSection>{cancelNode}</RailSection>}
+          {canCancel && <RailSection>{cancelNode}</RailSection>}
         </DraftRail>
       </DraftLayout>
     </DraftFrame>
