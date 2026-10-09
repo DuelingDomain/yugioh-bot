@@ -59,18 +59,23 @@ export function parseCardList(text: string): CardListEntry[] {
       if (/^(?:#main|main(?: deck)?\s*:|!side|#side|side(?: deck)?\s*:)$/i.test(original)) { pool = "main"; continue; }
       if (/^(?:#|\/\/)/.test(original)) continue;
       let query = original;
-      // A trailing [Extra] / [Main] / [Side] marker is a pool hint for this line only. Strip it before the notes.
+      // The last thing on a line may be a [Extra] / [Main] / [Side] marker (a pool hint for this line only) or a
+      // (note). Peel both in any order, leaving (xN) for the count parser.
       let linePool = pool;
-      const marker = /\s*\[(extra|main|side)(?: deck)?\]\s*$/i.exec(query);
-      if (marker) {
-        query = query.slice(0, marker.index).trim();
-        linePool = marker[1].toLowerCase() === "extra" ? "extra" : "main";
-        if (!query) continue;
+      let sawMarker = false;
+      for (;;) {
+        // A marker is also allowed just before a trailing count: "Decode Talker [Extra] x2".
+        const marker = /\s*\[(extra|main|side)(?: deck)?\](?=\s+(?:x[0-9]+|\(x[0-9]+\))\s*$|\s*$)/i.exec(query);
+        if (marker) {
+          // The marker nearest the end of the line wins.
+          if (!sawMarker) linePool = marker[1].toLowerCase() === "extra" ? "extra" : "main";
+          sawMarker = true;
+          query = (query.slice(0, marker.index) + query.slice(marker.index + marker[0].length)).trim();
+        } else if (/\s*\([^()]*\)\s*$/.test(query) && !/\(x\d+\)\s*$/i.test(query)) {
+          query = query.replace(/\s*\([^()]*\)\s*$/, "").trim();
+        } else break;
       }
-      // Peel trailing notes, leaving (xN) for the count parser.
-      while (/\s*\([^()]*\)\s*$/.test(query) && !/\(x\d+\)\s*$/i.test(query)) {
-        query = query.replace(/\s*\([^()]*\)\s*$/, "").trim();
-      }
+      if (!query) continue;
       let copies = 1;
       let fallbackName: string | undefined;
       const prefix = /^(?:([0-9]+)\s*x?\s+|x([0-9]+)\s+)(.+)$/i.exec(query);
