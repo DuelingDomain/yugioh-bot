@@ -182,7 +182,10 @@ export interface RulesAnalysis {
   extraDemand: number;
   mainHave: number;
   extraHave: number;
+  /** Main copies missing from a full deal, including cards beyond each player's cap. */
   mainShort: number;
+  /** Main copies missing from seats x picks, even with partial final piles. */
+  mainPicksShort: number;
   extraShort: number;
   /** Main copies left out of the deal. */
   spare: number;
@@ -242,6 +245,7 @@ export function analyzeRules(fields: RulesFields, pool: PoolCounts): RulesAnalys
     mainHave: pool.main,
     extraHave: pool.extra,
     mainShort,
+    mainPicksShort,
     extraShort,
     spare: Math.max(0, pool.main - mainDemand),
     dealtEach,
@@ -290,7 +294,8 @@ export interface FitResult {
 }
 
 /**
- * Smallest change that makes the piles fit the pool, never an illegal preset. Main keeps the
+ * Smallest change that fills each player's cap from the pool, never an illegal preset. Main stays
+ * unchanged when partial final piles fill the cap. Otherwise it keeps the
  * rounds when it can, else the closest round count, and always stays within 40-120 picks, piles of
  * 5 or more, and the pool. No legal fit leaves Main as it is and reports the deficit.
  */
@@ -301,7 +306,7 @@ export function fitRulesToPool(fields: RulesFields, pool: PoolCounts): FitResult
   let mainDeficit = 0;
   let extraDeficit = 0;
 
-  if (rules.seats * rules.rounds * rules.pile > pool.main) {
+  if (rules.seats * rules.picks > pool.main) {
     const each = Math.floor(pool.main / rules.seats);
     let best: { rounds: number; pile: number } | null = null;
     for (let rounds = ROUNDS_MIN; rounds <= ROUNDS_MAX; rounds++) {

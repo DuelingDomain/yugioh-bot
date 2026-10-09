@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, TriangleAlert, Zap } from "lucide-react";
+import { Check, Info, TriangleAlert, Zap } from "lucide-react";
 import { Segmented, SvCheck } from "@/components/sheet";
 import {
   DEFAULT_PICK_SECONDS_CHOICES,
@@ -117,7 +117,7 @@ function Ledger({ a, fit }: { a: RulesAnalysis; fit: () => void }) {
   const { rules } = a;
   const turns = Math.ceil(rules.pile / rules.picksPerStep);
   const rounds = Array.from({ length: rules.rounds }, (_, i) => i + 1);
-  const mainTone = a.mainShort > 0 || a.emptyPool ? "bad" : "ok";
+  const mainTone = a.mainPicksShort > 0 || a.emptyPool ? "bad" : "ok";
   let note: React.ReactNode;
   if (a.emptyPool) {
     note = (
@@ -126,16 +126,23 @@ function Ledger({ a, fit }: { a: RulesAnalysis; fit: () => void }) {
         <div><b>No pool yet.</b> Add cards or pick a cube to see the math.</div>
       </div>
     );
-  } else if (a.mainShort > 0 || a.extraShort > 0) {
+  } else if (a.mainPicksShort > 0 || a.extraShort > 0) {
     note = (
       <div className={`${styles.note} ${styles.noteBad}`}>
         <TriangleAlert size={16} aria-hidden="true" />
         <div>
-          <b>{a.mainShort > 0 ? `Main piles are ${plural(a.mainShort, "card", "cards")} short.` : `Extra Deck piles are ${plural(a.extraShort, "card", "cards")} short.`}</b>
-          {a.mainShort > 0 && a.extraShort > 0 && <> Extra Deck piles are {plural(a.extraShort, "card", "cards")} short too.</>}
+          <b>{a.mainPicksShort > 0 ? `Main piles are ${plural(a.mainPicksShort, "card", "cards")} short.` : `Extra Deck piles are ${plural(a.extraShort, "card", "cards")} short.`}</b>
+          {a.mainPicksShort > 0 && a.extraShort > 0 && <> Extra Deck piles are {plural(a.extraShort, "card", "cards")} short too.</>}
           <br />
           <button type="button" className={styles.fit} onClick={fit}><Zap size={14} aria-hidden="true" />Fit rules to pool</button>
         </div>
+      </div>
+    );
+  } else if (a.mainShort > 0) {
+    note = (
+      <div className={styles.note}>
+        <Info size={16} aria-hidden="true" />
+        <div>A full deal needs <b>{fmt(a.mainDemand)}</b> Main cards, but the pool has {fmt(a.mainHave)}. The last round will use partial piles.</div>
       </div>
     );
   } else {

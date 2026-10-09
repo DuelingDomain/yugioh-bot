@@ -83,6 +83,7 @@ describe("rules math", () => {
     const a = analyzeRules(fields, { main, extra: 0 });
     expect(a.mainDemand).toBe(96);
     expect(a.mainShort).toBe(96 - main);
+    expect(a.mainPicksShort).toBe(0);
     expect(a.picksEach).toBe(41);
     expect(a.errors).toEqual([]);
     expect(a.warnings).toContainEqual(expect.stringMatching(/full deal.*96.*partial piles/));
@@ -92,6 +93,7 @@ describe("rules math", () => {
   it("reports only the required-pick deficit when partial final piles cannot fill the cap", () => {
     const fields = { ...base(), cardsPerPlayerText: "41", packSizeText: "24", lobbySeatsText: "2" };
     const a = analyzeRules(fields, { main: 81, extra: 0 });
+    expect(a.mainPicksShort).toBe(1);
     expect(a.errors).toEqual(["Main piles are 1 card short"]);
     expect(a.ok).toBe(false);
   });
@@ -188,9 +190,25 @@ describe("Fit to pool", () => {
     expect(fit.fields).toBe(f);
   });
 
+  it.each([82, 95])("keeps a 41-pick cap and piles of 24 when %i Main cards fill two seats", (main) => {
+    const fields = { ...base(), cardsPerPlayerText: "41", packSizeText: "24", lobbySeatsText: "2" };
+    const fit = fitRulesToPool(fields, { main, extra: 0 });
+    expect(fit).toMatchObject({ ok: true, changes: [], mainDeficit: 0, extraDeficit: 0 });
+    expect(fit.fields).toBe(fields);
+    expect(readRules(fit.fields)).toMatchObject({ picks: 41, pile: 24, rounds: 2 });
+  });
+
+  it("fits only Extra when partial Main piles already fill every seat's cap", () => {
+    const fields = { ...base(), cardsPerPlayerText: "41", packSizeText: "24", lobbySeatsText: "2", extraDeckEnabled: true, extraDeckSizeText: "15" };
+    const fit = fitRulesToPool(fields, { main: 82, extra: 20 });
+    expect(fit.ok).toBe(true);
+    expect(fit.fields).toEqual({ ...fields, extraDeckSizeText: "10" });
+    expect(fit.changes).toEqual(["Extra Deck round: 10 per player"]);
+  });
+
   it("never fits above 120 picks or 12 rounds", () => {
-    const fit = fitRulesToPool({ ...quick(), roundsText: "12", packSizeText: "80", cardsPerPlayerText: "120" }, { main: 4 * 200, extra: 0 });
-    // 12 x 80 x 4 = 3840 is well over the pool, so a fit is needed, and it stays within 120 picks.
+    const fit = fitRulesToPool({ ...quick(), roundsText: "12", packSizeText: "80", cardsPerPlayerText: "120" }, { main: 4 * 119, extra: 0 });
+    // The 120-pick cap exceeds the pool, so fitting must keep the cap and derived rounds legal.
     expect(fit.ok).toBe(true);
     const r = readRules(fit.fields);
     expect(r.picks).toBeLessThanOrEqual(120);
