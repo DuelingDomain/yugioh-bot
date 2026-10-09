@@ -33,7 +33,7 @@ function finish(app: ReturnType<typeof setup>, draftId: number, cap: number) {
   for (let step = 0; step < 500 && app.drafts.findById(draftId).status === "active"; step++) {
     let acted = false;
     for (const player of app.players) {
-      const options = app.drafts.currentPackOptions(draftId, player);
+      const options = app.drafts.pickOptions(draftId, player);
       if (options.length === 0) continue;
       app.drafts.pickCard(draftId, player, options[0].id);
       acted = true;
@@ -226,6 +226,63 @@ describe("Main Deck picks per player", () => {
       app.drafts.start(draft.id);
       expect(app.drafts.findById(draft.id).config.packsPerPlayer).toBe(2);
       finish(app, draft.id, 40);
+    } finally { app.db.close(); }
+  });
+
+  it("uses an authored multi-copy pool without exceeding the three-copy limit", () => {
+    const app = setup(3, 24);
+    try {
+      const copies = app.main.flatMap((id) => Array<number>(6).fill(id));
+      const draft = app.create({ cubeCardIds: copies, packSize: 24, cardsPerPlayer: 41, picksPerStep: 2, copyLimit: true });
+      app.drafts.start(draft.id);
+      expect(app.db.prepare("select count(*) as n from draft_deal where draft_id = ?").get(draft.id)).toEqual({ n: 144 });
+      finish(app, draft.id, 41);
+      for (const player of app.players) {
+        const pool = app.drafts.pool(draft.id, player);
+        expect(pool).toHaveLength(41);
+        expect(pool.some((card) => card.forced)).toBe(false);
+        for (const id of app.main) expect(pool.filter((card) => card.catalogCardId === id).length).toBeLessThanOrEqual(3);
+      }
+    } finally { app.db.close(); }
+  });
+
+  it("caps a deadline-only player while the other seats pick manually", () => {
+    const app = setup(3);
+    try {
+      const draft = app.create({ cubeCardIds: app.main, packSize: 24, cardsPerPlayer: 41, picksPerStep: 2,
+        extraDeckEnabled: true, extraDeckSize: 3, customExtraCardIds: app.extra });
+      app.drafts.start(draft.id);
+      for (let step = 0; step < 100 && app.drafts.findById(draft.id).status === "active"; step++) {
+        for (const player of app.players.slice(0, 2)) {
+          const options = app.drafts.currentPackOptions(draft.id, player);
+          if (options.length) app.drafts.pickCard(draft.id, player, options[0].id);
+        }
+        const current = app.drafts.findById(draft.id);
+        if (current.status === "active") app.drafts.expireCurrentPickStep(draft.id, new Date(current.pickDeadlineAt!));
+        for (const player of app.players) expect(app.drafts.pool(draft.id, player).filter((card) => card.packRound <= 2).length).toBeLessThanOrEqual(41);
+      }
+      expect(app.drafts.findById(draft.id).status).toBe("completed");
+      for (const [index, player] of app.players.entries()) {
+        const pool = app.drafts.pool(draft.id, player);
+        expect(pool).toHaveLength(44);
+        expect(pool.every((card) => card.pickMethod === (index === 2 ? "auto" : "manual"))).toBe(true);
+      }
+    } finally { app.db.close(); }
+  });
+
+  it("gives three seats their full Extra targets after a short odd Main pool", () => {
+    const app = setup(3, 121);
+    try {
+      const draft = app.create({ cubeCardIds: app.main, packSize: 24, cardsPerPlayer: 41, picksPerStep: 2,
+        extraDeckEnabled: true, extraDeckSize: 3, customExtraCardIds: app.extra });
+      app.drafts.start(draft.id);
+      finish(app, draft.id, 41);
+      const pools = app.players.map((player) => app.drafts.pool(draft.id, player));
+      expect(pools.flat().filter((card) => card.packRound <= 2)).toHaveLength(121);
+      for (const pool of pools) {
+        expect(pool.filter((card) => card.packRound <= 2).length).toBeGreaterThanOrEqual(40);
+        expect(pool.filter((card) => card.packRound === 3)).toHaveLength(3);
+      }
     } finally { app.db.close(); }
   });
 

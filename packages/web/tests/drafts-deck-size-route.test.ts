@@ -204,3 +204,31 @@ it.each([2, 3].flatMap((players) => [1, 2].flatMap((picksPerStep) => [false, tru
       expect(initial[index]!.config.cardsPerPlayer).toBe(40);
     }
   });
+
+it("takes test-bot picks through an odd two-pick Main cap without over-picking", async () => {
+  const app = await setup();
+  const bot = app.services.createPlayerService(app.db).findOrCreateTestPlayer("g", "bot_player_dev_1", "Bot");
+  const draft = app.drafts.create("g", "c", "Bot cap", { customCardIds: app.main,
+    cardsPerPlayer: 41, packSize: 24, picksPerStep: 2 }, fixtureUserId("host"), app.host.id);
+  app.drafts.join(draft.id, bot.id);
+  app.drafts.start(draft.id);
+  const { POST } = await import("../app/api/drafts/[slug]/pick/route");
+  const context = { params: Promise.resolve({ slug: draft.webSlug! }) };
+  let lastId = 0;
+  for (let step = 0; step < 100 && app.drafts.findById(draft.id).status === "active"; step++) {
+    const options = app.drafts.currentPackOptions(draft.id, app.host.id);
+    expect(options.length).toBeGreaterThan(0);
+    lastId = options[0].id;
+    const response = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ cardId: lastId }) }) as NextRequest, context);
+    expect(response.status).toBe(200);
+    for (const player of [app.host, bot]) expect(app.drafts.pool(draft.id, player.id).length).toBeLessThanOrEqual(41);
+  }
+  expect(app.drafts.findById(draft.id).status).toBe("completed");
+  expect(app.drafts.pool(draft.id, app.host.id)).toHaveLength(41);
+  const botPool = app.drafts.pool(draft.id, bot.id);
+  expect(botPool).toHaveLength(41);
+  expect(botPool.every((card) => card.pickMethod === "auto")).toBe(true);
+  const repeated = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ cardId: lastId }) }) as NextRequest, context);
+  expect(repeated.status).toBe(400);
+  expect(app.drafts.pool(draft.id, bot.id)).toHaveLength(41);
+});

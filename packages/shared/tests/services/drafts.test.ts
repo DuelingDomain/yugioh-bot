@@ -668,7 +668,7 @@ describe("shared draft service", () => {
     expect(app.drafts.currentPackOptions(draft.id, kaiba.id)).toHaveLength(8);
   });
 
-  it("blocks start when the cube has too few copies for the deal", () => {
+  it("warns but starts when the authored pool cannot reach the Main cap", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
@@ -677,7 +677,8 @@ describe("shared draft service", () => {
     // 2 players × 5 packs × 8 cards needs 80 authored copies; provide 15.
     seedCatalogCards(app.db, 15);
 
-    expect(() => app.drafts.start(draft.id)).toThrow(/15.*80/);
+    expect(app.drafts.analyzeBoosterDraft(draft.config, 2, "guild-1").warnings).toContainEqual(expect.stringMatching(/80 requested picks/));
+    expect(app.drafts.start(draft.id).status).toBe("active");
   });
 
   it("starts with two card names when there are enough copies", () => {
