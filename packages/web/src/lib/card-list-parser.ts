@@ -15,6 +15,8 @@ export interface CardListEntry {
   fallbackName?: string;
   /** Google Doc labels separated by two blank lines that repeat a counted card in their section. */
   heading?: boolean;
+  /** The line had a copy count (3 Dark Hole, Dark Hole x3). Section titles and prose rarely do. */
+  counted?: boolean;
 }
 
 export class CardListError extends Error {}
@@ -57,6 +59,14 @@ export function parseCardList(text: string): CardListEntry[] {
       if (/^(?:#main|main(?: deck)?\s*:|!side|#side|side(?: deck)?\s*:)$/i.test(original)) { pool = "main"; continue; }
       if (/^(?:#|\/\/)/.test(original)) continue;
       let query = original;
+      // A trailing [Extra] / [Main] / [Side] marker is a pool hint for this line only. Strip it before the notes.
+      let linePool = pool;
+      const marker = /\s*\[(extra|main|side)(?: deck)?\]\s*$/i.exec(query);
+      if (marker) {
+        query = query.slice(0, marker.index).trim();
+        linePool = marker[1].toLowerCase() === "extra" ? "extra" : "main";
+        if (!query) continue;
+      }
       // Peel trailing notes, leaving (xN) for the count parser.
       while (/\s*\([^()]*\)\s*$/.test(query) && !/\(x\d+\)\s*$/i.test(query)) {
         query = query.replace(/\s*\([^()]*\)\s*$/, "").trim();
@@ -72,8 +82,8 @@ export function parseCardList(text: string): CardListEntry[] {
       }
       if (!Number.isSafeInteger(copies) || copies <= 0) throw new CardListError(`Invalid copy count in "${original}".`);
       query = query.trim();
-      const entry: CardListEntry = { query: /^\d{1,10}$/.test(query) && Number(query) > 0 ? Number(query) : query, copies, pool, original,
-        ...(fallbackName ? { fallbackName } : {}) };
+      const entry: CardListEntry = { query: /^\d{1,10}$/.test(query) && Number(query) > 0 ? Number(query) : query, copies, pool: linePool, original,
+        ...(fallbackName ? { fallbackName } : {}), ...(prefix || suffix ? { counted: true } : {}) };
       entries.push(entry);
       byLine.set(lineIndex, { entry, counted: !!(prefix || suffix) });
     }

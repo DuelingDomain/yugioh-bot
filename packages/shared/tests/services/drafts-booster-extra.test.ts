@@ -79,6 +79,26 @@ describe("normal cube Extra Deck packs", () => {
     expect(ctx.drafts.picks(ctx.draft.id).every((p) => p.pickMethod === "auto")).toBe(true);
   });
 
+  it("deals the Extra Deck round from a 61-card, 85-copy extra pool for four players", () => {
+    // The four-player cube list: 61 different Extra Deck monsters, 85 copies in all.
+    const probe = setup();
+    const copies = probe.extra.slice(0, 61).flatMap((id, i) => Array<number>(i < 24 ? 2 : 1).fill(id));
+    expect(copies).toHaveLength(85);
+    const ctx = setup({ customCardIds: probe.main.slice(0, 40), customExtraCardIds: copies, extraDeckEnabled: true, extraDeckSize: 15 }, 4);
+    expect(ctx.drafts.analyzeBoosterDraft(ctx.draft.config, 4, "g")).toMatchObject({ ok: true, errors: [] });
+    ctx.drafts.start(ctx.draft.id);
+    expireToRound(ctx, 3);
+    const dealt = ctx.drafts.currentWaveCards(ctx.draft.id).map((c) => c.catalogCardId);
+    // 4 players x 15 cards come out of the 85 copies; every one is an Extra Deck card of the pool, never above its copies.
+    expect(dealt).toHaveLength(60);
+    const pool = new Map<number, number>();
+    for (const id of copies) pool.set(id, (pool.get(id) ?? 0) + 1);
+    const used = new Map<number, number>();
+    for (const id of dealt) used.set(id, (used.get(id) ?? 0) + 1);
+    for (const [id, n] of used) expect(n).toBeLessThanOrEqual(pool.get(id) ?? 0);
+    expect(dealt.every((id) => pool.has(id))).toBe(true);
+  });
+
   it("honors the main quota when the last main pack has leftover cards", () => {
     const ctx = setup({ cardsPerPlayer: 5, extraDeckEnabled: true, extraDeckSize: 2 });
     ctx.drafts.start(ctx.draft.id);

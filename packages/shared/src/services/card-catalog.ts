@@ -574,6 +574,26 @@ export function createCardCatalogService(
       return findByIds([id])[0] ?? findByIds(savedIds)[0];
     },
 
+    /**
+     * Warm the catalog for passcodes in batches of 20, one budgeted request per batch (the API takes id=a,b,c),
+     * so a long list does not spend one lookup per card and run out before its last passcodes. A few passcodes
+     * are left to `syncCardById`. Best effort: a batch that fails, or an ID a batch does not return, is settled
+     * one by one by the caller.
+     */
+    async prefetchCardsByIds(ids: readonly number[], options: { lookupBudget?: CardLookupBudget } = {}): Promise<void> {
+      const missing = [...new Set(ids)].filter((id) => Number.isSafeInteger(id) && id > 0 && !hasCatalogRow(id));
+      if (missing.length <= 3) return;
+      for (let offset = 0; offset < missing.length; offset += 20) {
+        let cards: YgoprodeckCard[];
+        try { cards = await fetchCardsWith({ id: missing.slice(offset, offset + 20).join(",") }, options.lookupBudget); }
+        catch (error) {
+          if (isTransientFetchFailure(error)) return;
+          continue;
+        }
+        if (cards.length > 0) upsertCards(await enrichArtworkFamilies(cards));
+      }
+    },
+
     /** Exact normalized names first; only unique, high-similarity names may be corrected. Includes Extra Deck cards. */
     async resolveCardNames(names: readonly string[], options: { cacheOnly?: boolean; lookupBudget?: CardLookupBudget } = {}): Promise<CardNameResolution[]> {
       if (names.length === 0) return [];

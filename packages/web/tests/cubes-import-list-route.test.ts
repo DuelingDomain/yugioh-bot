@@ -74,6 +74,14 @@ describe("cube editor list import", () => {
     expect(rows()).toEqual([{ id: 1, pool: "main", copies: 3 }, { id: 2, pool: "extra", copies: 1 }]);
   });
 
+  it("keeps Extra Deck lines that end in [Extra] or [Main] and adds them to the extra pool", async () => {
+    const result = await mutate({ op: "importList", text: "3 Dark Hole [Main]\n1 Shooting Star Dragon [Extra]\n2 Artifact Moralltach" });
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ added: 3, copies: 6, unknown: [] });
+    expect(rows()).toEqual([{ id: 1, pool: "main", copies: 3 }, { id: 2, pool: "extra", copies: 1 }, { id: 3, pool: "main", copies: 2 }]);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
   it("accepts YDK and reports unknown names with their original count/notes", async () => {
     expect((await mutate({ op: "importList", text: "#created by owner\n#main\n1\n1\n#extra\n2\n!side\n3" })).status).toBe(200);
     const unknown = await (await mutate({ op: "importList", text: "3 Imaginary Card (note)\n999" })).json();

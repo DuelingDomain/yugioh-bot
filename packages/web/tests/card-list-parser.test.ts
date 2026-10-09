@@ -21,6 +21,22 @@ describe("parseCardList", () => {
     ]);
   });
 
+  it("strips a trailing [Extra] or [Main] marker and files the line in that pool", () => {
+    const entries = parseCardList("3 Dark Hole [Main]\n1 Shooting Star Dragon [Extra]\nGaia Drake, the Universal Force x2 [extra]\nMain:\n1 Dark Magician [extra deck]\nExtra:\n2 Cyber Dragon [Main]");
+    expect(entries.map(({ query, copies, pool }) => [query, copies, pool])).toEqual([
+      ["Dark Hole", 3, "main"], ["Shooting Star Dragon", 1, "extra"], ["Gaia Drake, the Universal Force", 2, "extra"],
+      ["Dark Magician", 1, "extra"], ["Cyber Dragon", 2, "main"],
+    ]);
+    expect(parseCardList("[Extra]")).toEqual([]);
+  });
+
+  it("marks counted lines so section titles and prose do not use the lookup budget first", () => {
+    const entries = parseCardList("Engines\n3 Dark Hole\nDark Hole x2\nFlip Notes");
+    expect(entries.map(({ query, counted }) => [query, counted ?? false])).toEqual([
+      ["Engines", false], ["Dark Hole", true], ["Dark Hole", true], ["Flip Notes", false],
+    ]);
+  });
+
   it("reuses YDK parsing for main, extra, side and deckmaster", () => {
     expect(parseCardList("#created by owner\n#main\n44095762\n44095762\n#extra\n44508094\n!side\n53129443\n#deckmaster\n89631139")
       .map(({ query, copies, pool }) => [query, copies, pool])).toEqual([
