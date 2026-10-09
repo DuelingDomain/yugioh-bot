@@ -47,7 +47,7 @@ export function CardImg({
   return (
     <>
       {placeholder && !loaded ? (
-        <span className={`img-wait${placeholder === "extra" ? " x" : ""}`} data-loading="" aria-hidden="true" />
+        <span className={`img-wait${placeholder === "extra" ? " x" : ""}`} aria-hidden="true" />
       ) : null}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
