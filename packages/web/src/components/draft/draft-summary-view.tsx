@@ -359,7 +359,7 @@ export function DraftSummaryView({
               ]}
             />
             {!isCompleted && (
-              <StatusLine tone="neutral">The host cancelled this draft before it finished.</StatusLine>
+              <StatusLine tone="neutral">This draft was cancelled before it finished.</StatusLine>
             )}
             {canBuildDeck && (
               <div className={styles.next} role="group" aria-labelledby="df-next-t">
