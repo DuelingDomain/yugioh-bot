@@ -28,6 +28,45 @@ function setup(bot = false) {
     tournament: vi.fn(async () => {}), discord: vi.fn(async () => {}), duel: vi.fn(async () => {}) };
   return { db, drafts, lobby, draft, host, guest, effects, startedAt: now };
 }
+it.each(["end", "cancel"])("ignores %s drafts in a stale active-list snapshot", async action => {
+  const app = setup(true);
+  app.drafts.start(app.draft.id, now);
+  const snapshot = app.drafts.findById(app.draft.id);
+  const expire = vi.spyOn(app.drafts, "expireCurrentPickStep");
+  vi.spyOn(app.drafts, "listActive").mockImplementationOnce(() => {
+    if (action === "end") app.drafts.endNow(app.draft.id); else app.drafts.cancel(app.draft.id);
+    return [snapshot];
+  });
+  const timer = createDraftTimer(app);
+  await timer.tick(new Date(now.getTime() + 60_000));
+  await timer.tick(new Date(now.getTime() + 120_000));
+  expect(expire).not.toHaveBeenCalled();
+  expect(app.drafts.picks(app.draft.id)).toEqual([]);
+  expect(app.effects.draft).not.toHaveBeenCalled();
+  expect(app.effects.discord).not.toHaveBeenCalled();
+});
+it("does not resync a draft cancelled between the timer read and expiry", async () => {
+  const app = setup(true);
+  app.drafts.start(app.draft.id, now);
+  const expiry = app.drafts.expireCurrentPickStep.bind(app.drafts);
+  vi.spyOn(app.drafts, "expireCurrentPickStep").mockImplementation((id, time) => {
+    app.drafts.cancel(id);
+    return expiry(id, time);
+  });
+  await createDraftTimer(app).tick(new Date(now.getTime() + 60_000));
+  expect(app.drafts.findById(app.draft.id).status).toBe("cancelled");
+  expect(app.effects.draft).not.toHaveBeenCalled();
+  expect(app.effects.discord).not.toHaveBeenCalled();
+});
+it.each(["end", "cancel"])("does not start an armed lobby after %s", async action => {
+  const app = setup(true);
+  app.lobby.setAutoStart(app.draft.id, app.host.userId, { revision: app.lobby.read(app.draft.id).lobby.revision, enabled: true }, now);
+  if (action === "end") app.drafts.endNow(app.draft.id); else app.drafts.cancel(app.draft.id);
+  await createDraftTimer(app).tick(new Date(now.getTime() + 60_000));
+  expect(app.drafts.findById(app.draft.id).status).toBe(action === "end" ? "completed" : "cancelled");
+  expect(app.drafts.picks(app.draft.id)).toEqual([]);
+  expect(app.effects.draft).not.toHaveBeenCalled();
+});
 it.each(["manual", "auto"] as const)("starts an unattended %s lobby with Discord off and publishes the dealt state", async kind => {
   const app = setup(kind === "auto");
   const revision = app.lobby.read(app.draft.id).lobby.revision;

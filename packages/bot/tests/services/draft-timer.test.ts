@@ -81,6 +81,36 @@ describe("draft timer service", () => {
     vi.useRealTimers();
   });
 
+  it.each(["end", "cancel"])("ignores %s drafts, including a stale active-list snapshot", async (action) => {
+    const app = setup();
+    const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "900000000000000117", "Kaiba");
+    const host = createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" });
+    const draft = app.drafts.create("guild-1", "channel-1", "Stopped", {}, host.id, yugi.id);
+    app.drafts.join(draft.id, kaiba.id);
+    seedDraftCatalog(app, 80);
+    app.drafts.start(draft.id);
+    const snapshot = app.drafts.findById(draft.id);
+    const expire = vi.spyOn(app.drafts, "expireCurrentPickStep");
+    const list = vi.spyOn(app.drafts, "listActive").mockImplementationOnce(() => {
+      if (action === "end") app.drafts.endNow(draft.id); else app.drafts.cancel(draft.id);
+      return [snapshot];
+    });
+    const rec = recordingTransport();
+    const onDraftCompleted = vi.fn().mockResolvedValue(undefined);
+    const timer = createDraftTimerService({ drafts: app.drafts, messenger: app.messenger,
+      broadcaster: createBroadcaster(rec.transport), onDraftCompleted });
+    try {
+      await timer.tick(new Date(Date.now() + 60_000));
+      await timer.tick(new Date(Date.now() + 120_000));
+      expect(expire).not.toHaveBeenCalled();
+      expect(app.drafts.picks(draft.id)).toEqual([]);
+      expect(rec.calls).toEqual([]);
+      expect(app.updateStatusCalls).toEqual([]);
+      expect(onDraftCompleted).not.toHaveBeenCalled();
+    } finally { list.mockRestore(); expire.mockRestore(); app.db.close(); }
+  });
+
   it("expires overdue picks and updates status", async () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");

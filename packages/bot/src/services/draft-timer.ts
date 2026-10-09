@@ -24,8 +24,11 @@ export function createDraftTimerService({
       if (deadline > now) continue;
 
       try {
+        // Another process may have ended/cancelled this draft after listActive's snapshot.
+        if (drafts.findById(draft.id).status !== "active") continue;
         drafts.expireCurrentPickStep(draft.id, now);
         const updatedDraft = drafts.findById(draft.id);
+        if (updatedDraft.status === "cancelled") continue;
         // Publish the committed step before Discord I/O, which can fail independently.
         if (updatedDraft.webSlug) {
           if (updatedDraft.status === "completed") {
