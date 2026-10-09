@@ -59,6 +59,8 @@ function Section({
           {codes.map((code, index) => {
             const problem = problems.get(`${section}:${index}`);
             const reason = problem?.messages.join(" ");
+            const meta = cardMeta?.get(code);
+            const cardName = meta?.name ?? problem?.name ?? code;
             return (
               <li key={`${title}-${index}-${code}`}>
                 <button
@@ -67,7 +69,7 @@ function Section({
                   onClick={() => onRemove(index)}
                   onMouseEnter={() => onPreview?.(code)}
                   onFocus={() => onPreview?.(code)}
-                  aria-label={`Remove ${problem?.name ?? code} from ${title}${reason ? `. Invalid: ${reason}` : ""}`}
+                  aria-label={`Remove ${cardName} from ${title}${reason ? `. Invalid: ${reason}` : ""}`}
                   title={reason ? `${reason} Click to remove this copy.` : "Click to remove this copy"}
                   data-invalid={problem ? "true" : undefined}
                 >
@@ -77,9 +79,9 @@ function Section({
                   ) : null}
                   <span className={styles.removeVeil}><X size={16} strokeWidth={1.6} aria-hidden />Remove</span>
                 </button>
-                {onChooseMaster && canBeDeckMaster(cardMeta?.get(code)?.type) ? (
+                {onChooseMaster && meta && canBeDeckMaster(meta.type) ? (
                   <button type="button" className={styles.chooseMaster}
-                    aria-label={`Use ${problem?.name ?? cardMeta?.get(code)?.name ?? code} as Deck Master`}
+                    aria-label={`Use ${meta.name} as Deck Master`}
                     onClick={() => onChooseMaster(code)}>
                     Master
                   </button>
@@ -123,13 +125,13 @@ export function DeckEditor({
   }));
   const { deck } = selection;
   const { main, extra, side, deckMaster: masterCode } = deck;
-  const cardMeta = useDeckCardMeta(deck);
   const [paste, setPaste] = useState(initial ? serializeYdk(initial) : "");
   const [parseError, setParseError] = useState<string | null>(null);
   const [edited, setEdited] = useState(false);
   // The deck as it came from the room or a saved deck. Replacing it asks for no confirmation.
   const [pristineDeck, setPristineDeck] = useState<DuelDeck>(deck);
   const [retry, setRetry] = useState(0);
+  const cardMeta = useDeckCardMeta(deck, { enabled: mode === "domain", retry });
   const [fileName, setFileName] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const savedList = useSavedDecks();
