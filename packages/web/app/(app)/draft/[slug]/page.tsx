@@ -334,7 +334,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
 
   const isCreator = currentUserId === draft.createdByUserId;
   // The host, or an owner. The server decides; this only shows or hides the controls.
-  const canEndOrCancel = isCreator || draft.canEndOrCancel === true;
+  const canCancel = isCreator || draft.canCancel === true;
   const isParticipant = draft.isParticipant;
 
   const handleJoin = async () => {
@@ -372,7 +372,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
           draft={draft}
           slug={slug}
           isCreator={isCreator}
-          canCancel={canEndOrCancel}
+          canCancel={canCancel}
           isParticipant={isParticipant}
           viewerUserId={currentUserId}
           discordEnabled={discordEnabled}
@@ -388,7 +388,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
         draft={draft}
         slug={slug}
         isCreator={isCreator}
-        canCancel={canEndOrCancel}
+        canCancel={canCancel}
         isParticipant={isParticipant}
         onStart={handleStart}
         onCancel={handleCancel}
@@ -412,7 +412,7 @@ function DraftDetailBody({ slug }: { slug: string }) {
         name={draft.name}
         config={roomConfig}
         isParticipant={isParticipant}
-        onHostAction={canEndOrCancel ? handleTerminal : undefined}
+        onHostAction={canCancel ? handleTerminal : undefined}
       />,
     );
   }
