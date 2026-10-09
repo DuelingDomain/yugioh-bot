@@ -18,7 +18,7 @@ import { usePoolEditor } from "./pool/use-pool-editor";
 import { CardInspector } from "./setup/card-inspector";
 import { PoolBrowser, type PoolBrowserHandle } from "./setup/pool-browser";
 import { RulesMetaFields, RulesPanel, useRulesAnalysis } from "./setup/rules-panel";
-import { applyPreset, readinessText } from "./setup/rules-model";
+import { applyStartRules, readinessText } from "./setup/rules-model";
 import { SourceRail, type SourceTab } from "./setup/source-rail";
 import { VisibilityChoice } from "./visibility/visibility-choice";
 import { useCardInspector } from "./setup/use-card-inspector";
@@ -69,7 +69,7 @@ export function CreateDraftForm({ discordEnabled = false }: CreateDraftFormProps
   // New drafts start private: only people with the host's invite link can see and join.
   const [visibility, setVisibility] = React.useState<DraftVisibility>("private");
   const [channels, setChannels] = React.useState<Channel[]>([DEFAULT_CHANNEL]);
-  const [fields, setFields] = React.useState<DraftConfigFieldsValue>(() => applyPreset(BASE_FIELDS, "community"));
+  const [fields, setFields] = React.useState<DraftConfigFieldsValue>(() => applyStartRules(BASE_FIELDS));
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState<SourceTab>("cards");
