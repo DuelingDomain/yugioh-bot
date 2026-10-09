@@ -39,7 +39,7 @@ import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, elimina
 import { EngineAnswerError } from "./prompts.js";
 import { ENGINE_LOOP_REASON, EngineLoopError } from "./engine-loop-error.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
-import { DeckLegalityError, inspectDeck, validateDeck, type InspectDeckOptions } from "./deck-legality.js";
+import { DeckLegalityError, inspectDeck, validateDeck, validateDeckMasterType, type InspectDeckOptions } from "./deck-legality.js";
 import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
@@ -116,7 +116,7 @@ const DUEL_OPS = new Set([
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "add-bot", "archive", "cancel",
   "replay", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
   "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset",
-  "report", "debug-trace", "bug-context", "chain-mode",
+  "report", "debug-trace", "bug-context", "chain-mode", "validate-deck-master",
 ]);
 
 /** What the `bug-context` op answers: public duel facts only. */
@@ -424,6 +424,13 @@ export function createDuelHost(options: {
   async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
     const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format, cardBlocks: admissionEntries(mode, format) };
     validateDeck(mode, deck, options.dataDirectory, settings, checks);
+  }
+
+  async function validateDeckMasterWrite(mode: DuelMode, deck: DuelDeck): Promise<void> {
+    if (mode !== "domain" || deck?.deckMaster === undefined) return;
+    // Resolve imports and artwork ids, but do not require a complete library deck.
+    const master = await normalizeImportedDeck({ main: [], extra: [], side: [], deckMaster: deck.deckMaster }, options.dataDirectory, options.db);
+    validateDeckMasterType(mode, master, options.dataDirectory);
   }
 
   function workerCreateOptions(
@@ -2349,6 +2356,11 @@ export function createDuelHost(options: {
       const codes = await normalizeCardCodes(body.codes as number[], options.dataDirectory, options.db, { preserveArtwork: body.preserveArtwork === true });
       return { codes: Object.fromEntries(codes) };
     }
+    if (op === "validate-deck-master") {
+      if (body.mode !== "normal" && body.mode !== "domain") throw new RequestError("Duel mode must be normal or domain", 400);
+      await validateDeckMasterWrite(body.mode, body.deck as DuelDeck);
+      return { ok: true };
+    }
     if (op === "check-deck") {
       const mode = body.mode;
       if (mode !== "normal" && mode !== "domain") throw new RequestError("Duel mode must be normal or domain", 400);
@@ -2448,6 +2460,7 @@ export function createDuelHost(options: {
       if (!info.playerIds.includes(actor)) throw new RequestError("Only the players of this series can do that", 403);
       if (op === "series-side") {
         if (info.status !== "between_games") throw new RequestError("Side decking is only open between games", 409);
+        await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
         // Like check-deck, unresolved ids stay as sent so validateSessionDeck can report them.
         const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
         await validateSessionDeck(room.session.mode, deck, room.session.settings, room.session.format, { session: room.session, playerId: actor });
@@ -2481,6 +2494,9 @@ export function createDuelHost(options: {
         if (cleared.readyCleared) await emitChange(cleared.series.currentDuelSlug ?? slug, guildId);
         return { series: cleared.series, nextSlug: null };
       }
+      if (room.session.mode === "domain") {
+        await validateDeckMasterWrite(room.session.mode, series.sideState(seriesId, guildId, actor).currentDeck);
+      }
       const updated = series.setSideReady(seriesId, guildId, actor);
       await emitChange(updated.currentDuelSlug ?? slug, guildId);
       const advanced = isSeriesDue(updated, now()) ? await advanceSeries(seriesId, guildId) : null;
@@ -2493,6 +2509,7 @@ export function createDuelHost(options: {
     const seat = room.mySeat;
     if (op === "ready") {
       if (room.session.status !== "lobby") throw new RequestError("Decks are locked after the duel starts", 409);
+      if (room.myDeck) await validateDeckMasterWrite(room.session.mode, room.myDeck);
       const session = service.markReady(slug, guildId, actor);
       await emitChange(slug, guildId);
       return { session: await autoStart(slug, guildId, session) };
@@ -2512,6 +2529,7 @@ export function createDuelHost(options: {
         }
       }
       const settings = room.session.settings;
+      if (op === "deck") await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
       const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, {
         keepUnresolved: op === "validate-deck",
       });
