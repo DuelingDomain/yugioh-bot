@@ -1,0 +1,49 @@
+/* A small bar at the top of the screen, over the draft room (z-index 100) and the page. Dark, gold rule, no red:
+   this is news, not a destructive action. */
+.notice {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: min(560px, calc(100vw - 32px));
+  padding: 12px 14px 12px 16px;
+  border: 1px solid rgb(181 153 99 / 0.45);
+  border-left: 3px solid #e4b64f;
+  border-radius: 10px;
+  background: #0e1729;
+  color: #efe7d5;
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.55);
+  transform: translateX(-50%);
+  animation: notice-in var(--d-toast-in, 220ms) var(--ease-out, ease-out) backwards;
+}
+.text { display: grid; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.text b { font-size: 15.5px; font-weight: 600; }
+.text span { color: #c3bba8; font-size: 14px; line-height: 1.4; }
+.acts { display: flex; flex: none; align-items: center; gap: 8px; }
+.link, .close {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgb(181 153 99 / 0.35);
+  border-radius: 8px;
+  background: none;
+  color: #efe7d5;
+  font: inherit;
+  font-size: 14px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.link:hover, .close:hover { border-color: rgb(181 153 99 / 0.7); background: #132037; }
+.link:focus-visible, .close:focus-visible { outline: 2px solid #c6b6ff; outline-offset: 2px; }
+@keyframes notice-in { from { opacity: 0; translate: 0 -8px; } }
+@media (max-width: 520px) {
+  .notice { flex-direction: column; align-items: stretch; gap: 10px; }
+  .acts { justify-content: flex-end; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notice { animation: none; }
+}
