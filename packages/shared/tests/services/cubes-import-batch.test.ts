@@ -6,15 +6,16 @@ import { describe, expect, it } from "vitest";
 process.env.CARD_FETCH_REQUESTS_PER_SECOND = "1000";
 const { migrate } = await import("../../src/db/index.js");
 const { createCubeService } = await import("../../src/services/cubes.js");
+const { CardDataError } = await import("../../src/services/card-fetch.js");
 const { createCardCatalogService } = await import("../../src/services/card-catalog.js");
 
-function catalogWith(db: Database.Database, calls: string[], limit = Infinity, badBatchId = 0) {
+function catalogWith(db: Database.Database, calls: string[], limit = Infinity, badBatchId = 0, badSingle = false) {
   return createCardCatalogService(db, {
     fetch: async (input) => {
       const url = new URL(String(input));
       calls.push(url.search);
-      // A batch (more than one passcode) that holds this id answers with invalid card data.
-      if (badBatchId && (url.searchParams.get("id") ?? "").split(",").length > 1 && url.searchParams.get("id")!.split(",").includes(String(badBatchId))) {
+      // A batch (or, with badSingle, also a one-passcode request) that holds this id answers with invalid card data.
+      if (badBatchId && (badSingle || (url.searchParams.get("id") ?? "").split(",").length > 1) && url.searchParams.get("id")!.split(",").includes(String(badBatchId))) {
         return { ok: true, async json() { return { data: [{ id: badBatchId, name: "Bad" }] }; } } as Response;
       }
       const ids = (url.searchParams.get("id") ?? "").split(",").filter(Boolean).map(Number).filter((id) => id < limit);
@@ -68,5 +69,23 @@ describe("long passcode imports", () => {
     // All 5 batches of 20 are tried, also the ones after the bad batch. The bad batch falls back to one by one.
     expect(calls.filter((search) => /id=[^&]*(%2C|,)/.test(search))).toHaveLength(5);
     expect(calls.filter((search) => /id=\d+(&|$)/.test(search))).toHaveLength(20);
+  });
+
+  it("reports a card whose data is also invalid on its own as unknown, and imports the rest", async () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    const calls: string[] = [];
+    const cubes = createCubeService(db, catalogWith(db, calls, Infinity, 25, true));
+    const cube = cubes.createBlank("g", "Bad", seedUser(db, "u").userId);
+    const res = await cubes.importPasscodeGroups(cube.id, [{ codes: main, pool: "main" }]);
+    expect(res).toEqual({ added: 89, unknown: [25] });
+  });
+
+  it("gives invalid card data its own message, not the network one", async () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    const catalog = catalogWith(db, [], Infinity, 25, true);
+    await expect(catalog.syncCardById(25)).resolves.toBeUndefined();
+    expect(new CardDataError().message).not.toMatch(/Could not reach/);
   });
 });

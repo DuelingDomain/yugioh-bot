@@ -557,6 +557,8 @@ export function createCardCatalogService(
       let cards: YgoprodeckCard[];
       try { cards = await fetchArtworkFamily(id, options.lookupBudget); }
       catch (error) {
+        // A card with invalid data is unknown, not a lost connection: the caller reports it and goes on.
+        if (error instanceof CardDataError) return findByIds([id])[0];
         if (!isTransientFetchFailure(error)) throw error;
         const cached = findByIds([id])[0];
         if (!cached) throw error;
