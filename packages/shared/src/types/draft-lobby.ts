@@ -156,8 +156,8 @@ interface DraftDetailResponseBase {
   guildId: string;
   channelId: string;
   name: string;
-  /** Present only for the host or a guild admin: the viewer may POST /end and /cancel. A UI hint; the routes check access. */
-  canEndOrCancel?: true;
+  /** Present only for the host or a guild admin: the viewer may POST /cancel. A UI hint; the routes check access. */
+  canCancel?: true;
   /** Ownership survives Leave; compare this with the viewer's session ID. */
   createdByUserId: string;
   /** Retains existing filtering of assignment maps and any private seeds. */

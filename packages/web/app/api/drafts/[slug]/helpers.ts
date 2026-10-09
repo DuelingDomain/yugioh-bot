@@ -402,7 +402,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
   let adminLookup: Promise<boolean> | undefined;
   const isGuildAdmin = () => adminLookup ??= checkDiscordWebAccess(userId, "admin").then(access => access.ok, () => false);
 
-  const canEndOrCancel = draft.created_by_user_id === userId || await isGuildAdmin();
+  const canCancel = draft.created_by_user_id === userId || await isGuildAdmin();
 
   let canCreateTournament = false;
   if (draft.status === "completed" && draft.tournament_id == null) {
@@ -415,8 +415,8 @@ export async function buildDraftResponse(slug: string, userId: string) {
     channelId: draft.channel_id,
     name: draft.name,
     status: draft.status,
-    // The same rule as POST /end and /cancel: the host or a guild admin. The page only uses it to show the controls.
-    ...(canEndOrCancel ? { canEndOrCancel: true } : {}),
+    // The same rule as POST /cancel: the host or a guild admin. The page only uses it to show the controls.
+    ...(canCancel ? { canCancel: true } : {}),
     createdByUserId: draft.created_by_user_id,
     config,
     currentPackRound: draftModel.currentPackRound,

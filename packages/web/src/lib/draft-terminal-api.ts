@@ -7,9 +7,9 @@ import { draftReadAccess } from "./draft-access";
 import { checkDiscordWebAccess, webAccessError } from "./discord-web-access";
 import { announcer, broadcaster } from "./notify";
 
-/** Host or guild admin terminal actions retain the draft record on retries. */
+/** Host or guild admin cancellation retains the draft record on retries. */
 export async function finishDraft(
-  params: Promise<{ slug: string }>, action: "end" | "cancel",
+  params: Promise<{ slug: string }>,
 ): Promise<NextResponse> {
   try {
     const actor = await requireWebAccess();
@@ -29,7 +29,7 @@ export async function finishDraft(
       else {
         const denied = draftReadAccess(db, slug, env.discordGuildId, actor.userId);
         if (denied) return denied;
-        return NextResponse.json({ error: "Only the host or a guild admin can end or cancel a draft" }, { status: 403 });
+        return NextResponse.json({ error: "Only the host or a guild admin can cancel a draft" }, { status: 403 });
       }
     }
 
@@ -38,11 +38,11 @@ export async function finishDraft(
       const current = find.get(slug, env.discordGuildId) as typeof draft;
       if (!current) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
       if (current.created_by_user_id !== actor.userId && !admin) {
-        return NextResponse.json({ error: "Only the host or a guild admin can end or cancel a draft" }, { status: 403 });
+        return NextResponse.json({ error: "Only the host or a guild admin can cancel a draft" }, { status: 403 });
       }
       const drafts = createDraftService(db);
       const before = drafts.findById(current.id);
-      const finished = action === "end" ? drafts.endNow(current.id) : drafts.cancel(current.id);
+      const finished = drafts.cancel(current.id);
       return { draft: finished, changed: before.status !== finished.status };
     }).immediate();
     if (result instanceof NextResponse) return result;
@@ -51,16 +51,12 @@ export async function finishDraft(
     // Notify only committed state changes. Transport failures cannot turn a committed change into an error.
     if (result.changed) {
       const notifications: Promise<unknown>[] = [
-        broadcaster.draft({ kind: "status", slug, status: finished.status as "completed" | "cancelled" }),
-        // Lobby clients also need a full fetch: their completion effect only watches active drafts.
+        broadcaster.draft({ kind: "status", slug, status: finished.status as "cancelled" }),
+        // Lobby clients also need a full fetch: their status effect only watches active drafts.
         broadcaster.draft({ kind: "resync", slug, packRound: finished.currentPackRound, pickStep: finished.currentPickStep }),
       ];
       if (finished.channelId) {
         notifications.push(announcer.announce({ kind: "draft-status", draftId: finished.id }));
-        if (finished.status === "completed") notifications.push(announcer.announce({
-          kind: "draft-completed", draftId: finished.id, channelId: finished.channelId,
-          name: finished.name, webSlug: slug,
-        }));
       }
       for (const notification of await Promise.allSettled(notifications)) {
         if (notification.status === "rejected") console.warn("[draft-terminal] notification failed:", notification.reason);

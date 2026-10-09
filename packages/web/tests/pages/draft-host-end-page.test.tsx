@@ -115,7 +115,7 @@ describe("DraftDetailPage: host end and cancel", () => {
     });
 
     it("gives an owner who is not the host the control, from the server flag", async () => {
-      stubFetch("owner", { current: { ...draftBody, canEndOrCancel: true } });
+      stubFetch("owner", { current: { ...draftBody, canCancel: true } });
       render(<DraftDetailPage />);
       await waitFor(() => expect(screen.getByTestId("draft-room")).toHaveAttribute("data-host-action", "true"));
     });
@@ -178,7 +178,7 @@ describe("DraftDetailPage: host end and cancel", () => {
 
     it.each([
       ["the host", "host", pending, "true"],
-      ["a guild admin who is not the host", "owner", { ...pending, canEndOrCancel: true }, "true"],
+      ["a guild admin who is not the host", "owner", { ...pending, canCancel: true }, "true"],
       ["another player", "player", pending, "false"],
     ])("offers Cancel to %s: %s", async (_label, viewer, body, expected) => {
       stubFetch(viewer, { current: body });
@@ -278,7 +278,7 @@ describe("DraftDetailPage: host end and cancel", () => {
   });
 
   it("tells an owner who is not the host about a later stop, after their own request failed", async () => {
-    stubFetch("owner", { current: { ...draftBody, canEndOrCancel: true } }, async () => ({ ok: false, status: 503, json: async () => ({ error: "x" }) }));
+    stubFetch("owner", { current: { ...draftBody, canCancel: true } }, async () => ({ ok: false, status: 503, json: async () => ({ error: "x" }) }));
     render(<DraftDetailPage />);
     await waitFor(() => expect(room.onHostAction).toBeDefined());
     await expect(act(async () => room.onHostAction?.("end"))).rejects.toThrow();
@@ -290,7 +290,7 @@ describe("DraftDetailPage: host end and cancel", () => {
   it("does not tell an owner about their own click, even when the socket answers first", async () => {
     let finish: () => void = () => {};
     const gate = new Promise<void>((resolve) => { finish = resolve; });
-    stubFetch("owner", { current: { ...draftBody, canEndOrCancel: true } }, async () => {
+    stubFetch("owner", { current: { ...draftBody, canCancel: true } }, async () => {
       await gate;
       return { ok: true, status: 200, json: async () => ({ changed: true }) };
     });
