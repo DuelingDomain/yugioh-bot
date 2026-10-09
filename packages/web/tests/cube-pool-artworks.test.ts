@@ -53,12 +53,12 @@ it("fills Extra Deck artworks once across repeated cube checks", async () => {
 
 const listing = () => vi.fn(async (input: string | URL | Request) => {
   const params = new URL(String(input)).searchParams;
-  const ids = params.has("id") ? params.get("id")!.split(",").map(Number) : [Number(params.get("name")!.split(" ")[1])];
+  const ids = params.has("id") ? params.get("id")!.split(",").map(Number) : params.get("name")!.split("|").map((name) => Number(name.split(" ")[1]));
   return Response.json({ data: ids.map((id) => ({ id, name: `Card ${id}`, type: "Effect Monster", frameType: "effect",
     card_images: [{ id, image_url: "i", image_url_small: "i" }] })) });
 });
 
-it("looks passcodes up in batches of 20, one budgeted request each, and keeps artwork lookups off the budget", async () => {
+it("looks passcodes up in batches of 20, one budgeted request each, and one artwork request per batch off the budget", async () => {
   const db = new Database(":memory:"); migrate(db);
   const fetch = listing();
   const catalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch });
@@ -71,7 +71,7 @@ it("looks passcodes up in batches of 20, one budgeted request each, and keeps ar
     await Promise.all([result, vi.runAllTimersAsync()]);
     const requests = fetch.mock.calls.map(([input]) => new URL(String(input)).searchParams);
     expect(requests.filter((params) => params.has("id")).map((params) => params.get("id")!.split(",").length)).toEqual([20, 20, 20]);
-    expect(requests.filter((params) => params.has("name"))).toHaveLength(60);
+    expect(requests.filter((params) => params.has("name")).map((params) => params.get("name")!.split("|").length)).toEqual([20, 20, 20]);
     expect(budget).toEqual({ remaining: 47, lookupLimited: false });
     expect(catalog.findByIds(ids).map((card) => card.ygoprodeckId)).toEqual(ids);
   } finally { vi.useRealTimers(); db.close(); }
@@ -90,5 +90,20 @@ it("reserves the lookup budget for cards and retains successfully fetched cards"
     await Promise.all([result, vi.runAllTimersAsync()]);
     expect(budget).toEqual({ remaining: 0, lookupLimited: true });
     expect(catalog.findByIds(ids).map((card) => card.ygoprodeckId)).toEqual(ids.slice(0, 40));
+  } finally { vi.useRealTimers(); db.close(); }
+});
+
+it("sends about 100 requests in total for 1000 uncached passcodes, not one per card", async () => {
+  const db = new Database(":memory:"); migrate(db);
+  const fetch = listing();
+  const catalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch });
+  const ids = Array.from({ length: 1000 }, (_, i) => i + 1);
+  vi.useFakeTimers();
+  try {
+    const result = expect(ensureCatalogCards(catalog, ids)).resolves.toEqual([]);
+    await Promise.all([result, vi.runAllTimersAsync()]);
+    // 50 passcode batches and 50 artwork batches. The 50 lookup limit covers every batch.
+    expect(fetch.mock.calls.length).toBeLessThanOrEqual(100);
+    expect(catalog.findByIds(ids)).toHaveLength(1000);
   } finally { vi.useRealTimers(); db.close(); }
 });

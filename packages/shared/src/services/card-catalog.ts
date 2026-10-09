@@ -212,19 +212,19 @@ export function createCardCatalogService(
   // Passcode responses can contain only the requested image. Exact-name
   // responses include the released alternatives; retain both sets of images.
   const enrichArtworkFamilies = async (cards: YgoprodeckCard[]): Promise<YgoprodeckCard[]> => {
+    // One exact-name request per 20 cards (pipe-separated names), so a long list does not send one per card.
+    // Extra artwork discovery is optional. Keep the usable ID response if
+    // the API is offline or rate limited; a later bulk sync can fill it.
+    // It must not spend the budget needed to resolve other cards.
+    const names: YgoprodeckCard[] = [];
+    for (let offset = 0; offset < cards.length; offset += 20) {
+      const chunk = cards.slice(offset, offset + 20);
+      try { names.push(...await fetchCardsWith({ name: [...new Set(chunk.map((card) => card.name))].join("|") })); }
+      catch { /* keep the ID responses of this chunk */ }
+    }
     const enriched: YgoprodeckCard[] = [];
     for (const card of cards) {
-      // Extra artwork discovery is optional. Keep the usable ID response if
-      // the API is offline or rate limited; a later bulk sync can fill it.
-      // It must not spend the budget needed to resolve other cards.
-      let named: YgoprodeckCard | undefined;
-      try {
-        named = (await fetchCardsWith({ name: card.name }))
-          .find((candidate) => normalizeName(candidate.name) === normalizeName(card.name) && candidate.type === card.type);
-      } catch {
-        enriched.push(card);
-        continue;
-      }
+      const named = names.find((candidate) => normalizeName(candidate.name) === normalizeName(card.name) && candidate.type === card.type);
       const images = new Map((named?.card_images ?? []).map((image) => [image.id ?? named!.id, image]));
       for (const image of card.card_images) {
         const artworkId = image.id ?? card.id;
@@ -587,6 +587,7 @@ export function createCardCatalogService(
         let cards: YgoprodeckCard[];
         try { cards = await fetchCardsWith({ id: missing.slice(offset, offset + 20).join(",") }, options.lookupBudget); }
         catch (error) {
+          // Stop on a rate limit, a server error or no network. A bad card in one batch must not stop the rest.
           if (isTransientFetchFailure(error)) return;
           continue;
         }
