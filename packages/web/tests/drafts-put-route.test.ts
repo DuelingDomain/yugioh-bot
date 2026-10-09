@@ -169,7 +169,21 @@ describe("PUT /api/drafts/[slug]", () => {
     expect(getDb().prepare("select name from drafts where web_slug = 'test-slug'").get()).toEqual({ name: "Renamed Draft" });
   });
 
-  it.each(["pending", "active"])("rejects a rename colliding with a %s draft in the same guild", async (status) => {
+  it.each(["pending", "active"])("rejects a rename colliding with the host's own %s draft", async (status) => {
+    await setupDraftWithCustomPool();
+    const { getDb } = await import("@/lib/db");
+    getDb().prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, ${fixtureUserId("creator-user")}, '{}', 'other-slug')`).run(status);
+    const { PUT } = await import("../app/api/drafts/[slug]/route");
+    const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
+      method: "PUT", body: JSON.stringify({ name: "Existing Draft" }),
+    }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe("You already have a draft called this that hasn't finished.");
+    expect(getDb().prepare("select name from drafts where web_slug = 'test-slug'").get()).toEqual({ name: "My Draft" });
+  });
+
+  it.each(["pending", "active"])("allows a rename matching another host's private %s draft", async (status) => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
     getDb().prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, ${fixtureUserId("other-user")}, '{}', 'other-slug')`).run(status);
@@ -178,15 +192,14 @@ describe("PUT /api/drafts/[slug]", () => {
       method: "PUT", body: JSON.stringify({ name: "Existing Draft" }),
     }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
 
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toMatch(/name already exists/i);
-    expect(getDb().prepare("select name from drafts where web_slug = 'test-slug'").get()).toEqual({ name: "My Draft" });
+    expect(response.status).toBe(200);
+    expect(getDb().prepare("select name from drafts where web_slug = 'test-slug'").get()).toEqual({ name: "Existing Draft" });
   });
 
   it.each(["completed", "cancelled"])("allows a rename matching a %s draft in the same guild", async (status) => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
-    getDb().prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, ${fixtureUserId("other-user")}, '{}', 'other-slug')`).run(status);
+    getDb().prepare(`insert into drafts (guild_id, channel_id, name, status, created_by_user_id, config_json, web_slug) values ('guild-1', 'channel-1', 'Existing Draft', ?, ${fixtureUserId("creator-user")}, '{}', 'other-slug')`).run(status);
     const { PUT } = await import("../app/api/drafts/[slug]/route");
     const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
       method: "PUT", body: JSON.stringify({ name: "Existing Draft" }),

@@ -12,6 +12,8 @@ import { generateWebSlug } from "../util/web-slug.js";
 import { MAX_REPORT_CONFIRM_HOURS, MIN_REPORT_CONFIRM_HOURS } from "./constants.js";
 import { createSeriesStore } from "./duel-series.js";
 import { serializeTournamentDuelRules, TournamentDuelError } from "./tournament-duels.js";
+import { findTournamentReadAccess } from "./tournament-access.js";
+import { CurrentNameTakenError } from "./current-name.js";
 
 export type TournamentFormat = "round_robin" | "single_elim";
 export type TournamentStatus = "pending" | "active" | "cancelled" | "completed";
@@ -377,15 +379,16 @@ export function createTournamentService(db: Database.Database) {
           `
           select id from tournaments
           where guild_id = ?
+            and created_by_user_id = ?
             and name = ?
             and status in ('pending', 'active')
           limit 1
         `,
         )
-        .get(guildId, name);
+        .get(guildId, createdByUserId, name);
 
       if (existingCurrent) {
-        throw new Error("An active or pending tournament already uses that name");
+        throw new CurrentNameTakenError("tournament");
       }
 
       const insert = db.prepare(
@@ -412,6 +415,10 @@ export function createTournamentService(db: Database.Database) {
           );
           break;
         } catch (err: any) {
+          if (err?.code === "SQLITE_CONSTRAINT_UNIQUE"
+            && err.message?.includes("tournaments.guild_id, tournaments.created_by_user_id, tournaments.name")) {
+            throw new CurrentNameTakenError("tournament");
+          }
           if (err?.code !== "SQLITE_CONSTRAINT_UNIQUE" || attempt === 4) throw err;
         }
       }
@@ -421,19 +428,22 @@ export function createTournamentService(db: Database.Database) {
 
     findById,
 
-    findByName(guildId: string, name: string): Tournament | undefined {
-      const row = db
+    /** Caller-aware bot lookup: prefer their current entry, then the newest readable entry. */
+    findByName(guildId: string, name: string, userId?: number): Tournament | undefined {
+      const rows = db
         .prepare(
           `
           select * from tournaments
           where guild_id = ? and name = ?
           order by
-            case status when 'active' then 0 when 'pending' then 1 else 2 end,
-            id desc
-          limit 1
+            case when status in ('pending', 'active') then 0 else 1 end,
+            case when created_by_user_id = ? then 0 else 1 end,
+            created_at desc, id desc
         `,
         )
-        .get(guildId, name);
+        .all(guildId, name, userId ?? null) as Array<{ id: number }>;
+
+      const row = rows.find(row => userId === undefined || findTournamentReadAccess(db, row.id, guildId, userId)?.canRead);
 
       return row ? mapTournament(row) : undefined;
     },
@@ -768,27 +778,37 @@ export function createTournamentService(db: Database.Database) {
     },
 
     reopenTournamentMatch(tournamentMatchId: number, requesterUserId: number): void {
-      const tm = db
-        .prepare("select * from tournament_matches where id = ?")
-        .get(tournamentMatchId) as
-        | { id: number; tournament_id: number; match_id: number | null; status: string }
-        | undefined;
-      if (!tm) {
-        throw new Error("Tournament match not found");
-      }
-
-      const tournament = findById(tm.tournament_id);
-      if (tournament.createdByUserId !== requesterUserId) {
-        throw new Error("Only the organizer can reopen a match");
-      }
-      if (tournament.format !== "round_robin") {
-        throw new Error("Reopening results is only available for round-robin events");
-      }
-      if (tm.status !== "completed" || tm.match_id === null) {
-        throw new Error("Match is not completed");
-      }
-
       db.transaction(() => {
+        const tm = db
+          .prepare("select * from tournament_matches where id = ?")
+          .get(tournamentMatchId) as
+          | { id: number; tournament_id: number; match_id: number | null; status: string }
+          | undefined;
+        if (!tm) {
+          throw new Error("Tournament match not found");
+        }
+
+        const tournament = findById(tm.tournament_id);
+        if (tournament.createdByUserId !== requesterUserId) {
+          throw new Error("Only the organizer can reopen a match");
+        }
+        if (tournament.format !== "round_robin") {
+          throw new Error("Reopening results is only available for round-robin events");
+        }
+        if (tm.status !== "completed" || tm.match_id === null) {
+          throw new Error("Match is not completed");
+        }
+
+        if (tournament.status === "completed") {
+          const collision = db.prepare(`select id from tournaments
+            where guild_id = ? and created_by_user_id = ? and name = ?
+              and status in ('pending', 'active') and id != ? limit 1`)
+            .get(tournament.guildId, tournament.createdByUserId, tournament.name, tournament.id);
+          if (collision) {
+            throw new Error("You already have a tournament called this that hasn't finished. Finish or rename it before reopening this match.");
+          }
+        }
+
         const result = db.prepare("select status from matches where id=?").get(tm.match_id) as { status: string };
         const scored = db.prepare("select 1 from point_awards where match_id=? and kind='match_win'").get(tm.match_id);
         db.prepare(
@@ -805,7 +825,7 @@ export function createTournamentService(db: Database.Database) {
         if (result.status === "approved" || scored) {
           createScoringService(db).rebuildStandings(tournament.guildId, { reopenedTournamentId: tm.tournament_id });
         }
-      })();
+      }).immediate();
     },
 
     cancel(tournamentId: number): Tournament {

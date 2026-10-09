@@ -230,8 +230,8 @@ function winnerFromResult(result: string, reporterId: number, opponentId: number
   throw new Error("Result must be win or loss");
 }
 
-function requireTournament(deps: CommandDependencies, guildId: string, name: string) {
-  const tournament = deps.tournaments.findByName(guildId, name);
+function requireTournament(deps: CommandDependencies, guildId: string, name: string, userId: number) {
+  const tournament = deps.tournaments.findByName(guildId, name, userId);
 
   if (!tournament) {
     throw new Error(`Tournament not found: ${name}`);
@@ -240,8 +240,8 @@ function requireTournament(deps: CommandDependencies, guildId: string, name: str
   return tournament;
 }
 
-function requireDraft(deps: CommandDependencies, guildId: string, name: string) {
-  const draft = deps.drafts.findByName(guildId, name);
+function requireDraft(deps: CommandDependencies, guildId: string, name: string, userId: number) {
+  const draft = deps.drafts.findByName(guildId, name, userId);
 
   if (!draft) {
     throw new Error(`Draft not found: ${name}`);
@@ -444,7 +444,8 @@ async function handleStats(
   const tournamentName = interaction.options.getString("tournament");
 
   if (tournamentName) {
-    const tournament = requireTournament(deps, guildId, tournamentName);
+    const actorUserId = deps.players.ensureUser(interaction.user.id, displayName(interaction.user)).id;
+    const tournament = requireTournament(deps, guildId, tournamentName, actorUserId);
     const stats = deps.tournaments.stats(tournament.id, player.id);
 
     await interaction.reply(`${formatStats(`${player.displayName} in ${tournament.name}`, stats)}\nView on web: ${WEB_URL}/dashboard`);
@@ -530,7 +531,7 @@ async function handleEvent(
     }
     case "join": {
       const name = requireStringOption(interaction, "name");
-      const tournament = requireTournament(deps, guildId, name);
+      const tournament = requireTournament(deps, guildId, name, actorUserId);
       const player = deps.players.upsert(guildId, interaction.user.id, displayName(interaction.user));
       try {
         deps.tournaments.join(tournament.id, player.id);
@@ -561,7 +562,7 @@ async function handleEvent(
     }
     case "signup": {
       const name = requireStringOption(interaction, "name");
-      const tournament = requireTournament(deps, guildId, name);
+      const tournament = requireTournament(deps, guildId, name, actorUserId);
       const role = interaction.options.getRole("role");
       const roleMention = role ? `<@&${role.id}> ` : "";
 
@@ -572,7 +573,7 @@ async function handleEvent(
     }
     case "start": {
       const name = requireStringOption(interaction, "name");
-      const tournament = requireTournament(deps, guildId, name);
+      const tournament = requireTournament(deps, guildId, name, actorUserId);
       requireEventCreator(tournament, actorUserId);
       deps.tournaments.start(tournament.id);
       const started = deps.tournaments.findById(tournament.id);
@@ -583,21 +584,21 @@ async function handleEvent(
     }
     case "show": {
       const name = requireStringOption(interaction, "name");
-      const tournament = requireTournament(deps, guildId, name);
+      const tournament = requireTournament(deps, guildId, name, actorUserId);
       const openMatches = deps.tournaments.openMatches(tournament.id);
       await interaction.reply(`${tournament.name}: ${openMatches.length} open match(es).`);
       return;
     }
     case "participants": {
       const name = requireStringOption(interaction, "name");
-      const tournament = requireTournament(deps, guildId, name);
+      const tournament = requireTournament(deps, guildId, name, actorUserId);
       const participants = deps.tournaments.participantRecords(tournament.id);
       await interaction.reply(formatTournamentParticipants(tournament.name, participants));
       return;
     }
     case "report": {
       const name = requireStringOption(interaction, "name");
-      const tournament = requireTournament(deps, guildId, name);
+      const tournament = requireTournament(deps, guildId, name, actorUserId);
       const opponentUser = requireUserOption(interaction, "player");
       const result = requireStringOption(interaction, "result");
       const reporter = deps.players.upsert(guildId, interaction.user.id, displayName(interaction.user));
@@ -612,7 +613,7 @@ async function handleEvent(
     }
     case "cancel": {
       const name = requireStringOption(interaction, "name");
-      const tournament = requireTournament(deps, guildId, name);
+      const tournament = requireTournament(deps, guildId, name, actorUserId);
       requireEventCreator(tournament, actorUserId);
       const { changedDuelSlugs } = deps.tournaments.cancelWithChanges(tournament.id);
       if (tournament.webSlug) void deps.broadcaster.tournament({ kind: "cancelled", slug: tournament.webSlug });
@@ -639,7 +640,7 @@ async function handleDraft(
       case "save": {
         const templateName = requireStringOption(interaction, "name");
         const draftName = requireStringOption(interaction, "draft");
-        const draft = requireDraft(deps, guildId, draftName);
+        const draft = requireDraft(deps, guildId, draftName, actorUserId);
         requireDraftCreator(draft, actorUserId);
         deps.templates.save(guildId, templateName, draft.config, actorUserId);
         await interaction.reply(`Saved template: ${templateName}.`);
@@ -728,7 +729,7 @@ async function handleDraft(
     }
     case "join": {
       const name = requireStringOption(interaction, "name");
-      const draft = requireDraft(deps, guildId, name);
+      const draft = requireDraft(deps, guildId, name, actorUserId);
       const player = deps.players.upsert(guildId, interaction.user.id, displayName(interaction.user));
       try {
         deps.drafts.join(draft.id, player.id);
@@ -746,14 +747,14 @@ async function handleDraft(
     }
     case "start": {
       const name = requireStringOption(interaction, "name");
-      const draft = requireDraft(deps, guildId, name);
+      const draft = requireDraft(deps, guildId, name, actorUserId);
       requireDraftCreator(draft, actorUserId);
       await interaction.reply(await scheduleDiscordDraftStart(draft, actorUserId, deps));
       return;
     }
     case "export": {
       const name = requireStringOption(interaction, "name");
-      const draft = requireDraft(deps, guildId, name);
+      const draft = requireDraft(deps, guildId, name, actorUserId);
       const player = deps.players.upsert(guildId, interaction.user.id, displayName(interaction.user));
       const ydk = deps.drafts.exportYdk(draft.id, player.id);
       const safeName = draft.name.replace(/[^a-zA-Z0-9]/g, "-");
@@ -767,7 +768,7 @@ async function handleDraft(
     }
     case "cancel": {
       const name = requireStringOption(interaction, "name");
-      const draft = requireDraft(deps, guildId, name);
+      const draft = requireDraft(deps, guildId, name, actorUserId);
       requireDraftCreator(draft, actorUserId);
       deps.drafts.cancel(draft.id);
       if (draft.webSlug) void deps.broadcaster.draft({ kind: "status", slug: draft.webSlug, status: "cancelled" });
@@ -778,7 +779,7 @@ async function handleDraft(
     }
     case "show": {
       const name = requireStringOption(interaction, "name");
-      const draft = requireDraft(deps, guildId, name);
+      const draft = requireDraft(deps, guildId, name, actorUserId);
       const players = deps.drafts.players(draft.id);
       const visiblePlayers = players.slice(0, draftParticipantListLimit);
       const hiddenCount = players.length - visiblePlayers.length;

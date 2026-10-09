@@ -225,6 +225,15 @@ Merge refuses two Clerk IDs or two Discord IDs; resolve the conflict in Clerk fi
 
 Stop web/duel/worker and WS (and any separately run bot). Preserve the current DB/WAL/SHM and Clerk mappings/new activity. Restore the recorded **PR 1-compatible** checkout/images/env/origin, with its explicit bot service and `DISCORD_BOT_ENABLED=1`, then start exactly one worker with the PR 1 bot that has no migrated timers. NextAuth cannot sign in email-only users; keep their rows/history and Clerk accounts for forward recovery. Never replace new activity with a stale backup for a PR 2 auth rollback. Coordinate cached domain redirects. A pre-PR1 rollback requires the separate matched DB restore below.
 
+Code before per-host draft/tournament names recreates guild-wide current-name indexes at startup. If two hosts now have current entries with the same name, index creation fails and every service crash-loops. Check the current DB read-only before starting older code:
+
+```sh
+sqlite3 -readonly /opt/yugioh-bot/data/bot.sqlite "select guild_id, name, count(*) from drafts where status in ('pending','active') group by guild_id, name having count(*) > 1"
+sqlite3 -readonly /opt/yugioh-bot/data/bot.sqlite "select guild_id, name, count(*) from tournaments where status in ('pending','active') group by guild_id, name having count(*) > 1"
+```
+
+Resolve these duplicates, or restore the matched DB backup using the restore procedure below, before starting older code; preserve new activity for reconciliation.
+
 Check the [backup retention policy](#backups) before choosing a release. Database rollback further than **14 days** is not possible from release directories: the daily timer removes their database copies even when no deployments occur. After that window, only the newest release retains checkout/deploy commits, image IDs and protected runtime env for code-only rollback against a compatible current database. Older release directories are deleted; the retained metadata is not a database restore point.
 
 ### PR 1 migration rollback (historical)

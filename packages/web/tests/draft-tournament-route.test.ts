@@ -73,6 +73,22 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     expect(data.name).toBe("My Draft");
   });
 
+  it.each(["creator-user", "other-user"] as const)("scopes a duplicate tournament name to %s", async (owner) => {
+    await setupCompletedDraft();
+    const { getDb } = await import("@/lib/db");
+    getDb().prepare("insert into tournaments(guild_id,name,format,status,created_by_user_id,web_slug) values('guild-1','My Draft','round_robin','pending',?,'existing-cup')")
+      .run(fixtureUserId(owner));
+    const response = await postWithBody({ format: "round_robin" });
+    if (owner === "creator-user") {
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "You already have a tournament called this that hasn't finished." });
+      expect(getDb().prepare("select tournament_id from drafts where id=1").get()).toEqual({ tournament_id: null });
+    } else {
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({ name: "My Draft" });
+    }
+  });
+
   it("returns 409 when tournament already linked", async () => {
     await setupCompletedDraft();
     const { POST } = await import("../app/api/drafts/[slug]/tournament/route");

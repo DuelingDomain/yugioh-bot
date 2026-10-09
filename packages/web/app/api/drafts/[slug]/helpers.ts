@@ -14,6 +14,7 @@ import {
   findDraftReadAccess,
   findTournamentReadAccess,
   DraftLobbyServiceError,
+  CurrentNameTakenError,
   createSavedDeckService,
   MAX_COPIES_PER_PLAYER,
   boosterDraftPhase,
@@ -430,6 +431,9 @@ export class DraftLobbyApiError extends Error {
 export function draftLobbyErrorResponse(error: unknown): Response {
   const fetchFailure = cardFetchErrorResponse(error);
   if (fetchFailure) return fetchFailure;
+  if (error instanceof CurrentNameTakenError) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
   if (error instanceof DraftLobbyServiceError) {
     return NextResponse.json({ error: error.message, code: error.code, ...error.details }, { status: error.status });
   }

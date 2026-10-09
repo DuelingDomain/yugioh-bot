@@ -99,6 +99,26 @@ describe("POST /api/tournaments/[slug]/reopen", () => {
     );
     expect(res.status).toBe(403);
   });
+
+  it.each(["pending", "active"])("returns host-only copy for a reused %s name", async status => {
+    const db = freshDb();
+    const { tm } = await setupCompletedRR(db);
+    const current = createTournamentService(db).create("g1", "RR", "round_robin", fixtureUserId("u-creator"));
+    db.prepare("update tournaments set status=? where id=?").run(status, current.id);
+    const before = db.prepare("select status,match_id from tournament_matches where id=?").get(tm.id);
+    const { POST } = await import("../app/api/tournaments/[slug]/reopen/route");
+    const res = await POST(
+      new Request("http://localhost/x", { method: "POST", body: JSON.stringify({ tournamentMatchId: tm.id }) }),
+      { params: Promise.resolve({ slug: "slug1" }) },
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "You already have a tournament called this that hasn't finished. Finish or rename it before reopening this match.",
+    });
+    expect(db.prepare("select status,match_id from tournament_matches where id=?").get(tm.id))
+      .toEqual(before);
+    db.close();
+  });
 });
 
 const FIXTURE_KEYS = ["u-creator", "u-a", "Host", "u-b"] as const;

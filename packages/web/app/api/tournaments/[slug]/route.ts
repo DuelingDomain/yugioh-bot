@@ -324,12 +324,12 @@ export async function PUT(
 
       const existing = db
         .prepare(
-          "select id from tournaments where guild_id = ? and name = ? and status in ('pending', 'active') and id != ?"
+          "select id from tournaments where guild_id = ? and created_by_user_id = ? and name = ? and status in ('pending', 'active') and id != ?"
         )
-        .get(tournament.guild_id, name, tournamentId) as { id: number } | undefined;
+        .get(tournament.guild_id, tournament.created_by_user_id, name, tournamentId) as { id: number } | undefined;
 
       if (existing) {
-        return NextResponse.json({ error: "A tournament with that name already exists" }, { status: 400 });
+        return NextResponse.json({ error: "You already have a tournament called this that hasn't finished." }, { status: 400 });
       }
     }
 
@@ -403,6 +403,10 @@ export async function PUT(
       duelRules: rules,
     });
   } catch (error) {
+    if ((error as { code?: string } | null)?.code === "SQLITE_CONSTRAINT_UNIQUE" && error instanceof Error
+      && error.message.includes("tournaments.guild_id, tournaments.created_by_user_id, tournaments.name")) {
+      return NextResponse.json({ error: "You already have a tournament called this that hasn't finished." }, { status: 400 });
+    }
     console.error("[api/tournaments/[slug] PUT] error:", error);
     return NextResponse.json({ error: "Failed to update tournament" }, { status: 500 });
   }

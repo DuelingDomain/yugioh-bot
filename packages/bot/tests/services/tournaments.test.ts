@@ -119,7 +119,7 @@ describe("tournament service", () => {
     app.tournaments.create("guild-1", "locals", "round_robin", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
 
     expect(() => app.tournaments.create("guild-1", "locals", "single_elim", createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id)).toThrow(
-      "An active or pending tournament already uses that name",
+      "You already have a tournament called this that hasn't finished.",
     );
   });
 

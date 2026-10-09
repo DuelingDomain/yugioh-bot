@@ -29,6 +29,39 @@ function completedRoundRobin() {
 }
 
 describe("reopenTournamentMatch", () => {
+  it.each(["pending", "active"])("refuses the host's own %s name without changing any rows", status => {
+    const { db, tournaments, t, tm } = completedRoundRobin();
+    const hostId = seedUser(db, "u-creator").userId;
+    const current = tournaments.create("g1", "RR", "round_robin", hostId);
+    db.prepare("update tournaments set status=? where id=?").run(status, current.id);
+    const tables = ["tournaments", "tournament_matches", "matches", "player_ratings", "season_standings", "point_awards", "player_achievements"];
+    const snapshot = () => tables.map(table => db.prepare(`select * from ${table} order by rowid`).all());
+    const before = snapshot();
+
+    expect(() => tournaments.reopenTournamentMatch(tm.id, hostId)).toThrow(
+      "You already have a tournament called this that hasn't finished. Finish or rename it before reopening this match.",
+    );
+    expect(snapshot()).toEqual(before);
+    expect(tournaments.findById(t.id).status).toBe("completed");
+    db.close();
+  });
+
+  it.each(["other host", "other guild", "completed", "cancelled"])("can reopen when the same name belongs to %s", scope => {
+    const { db, tournaments, t, tm } = completedRoundRobin();
+    const hostId = seedUser(db, "u-creator").userId;
+    const current = tournaments.create(scope === "other guild" ? "g2" : "g1", "RR", "round_robin",
+      scope === "other host" ? seedUser(db, "u-other").userId : hostId);
+    if (scope === "completed" || scope === "cancelled") {
+      db.prepare("update tournaments set status=? where id=?").run(scope, current.id);
+    }
+
+    tournaments.reopenTournamentMatch(tm.id, hostId);
+    expect(tournaments.findById(t.id).status).toBe("active");
+    expect(db.prepare("select status,match_id from tournament_matches where id=?").get(tm.id))
+      .toEqual({ status: "open", match_id: null });
+    db.close();
+  });
+
   it("removes the old ratings and winnings before a replacement is reported", () => {
     const { db, tournaments, tm } = completedRoundRobin();
     tournaments.reopenTournamentMatch(tm.id, seedUser(db, "u-creator").userId);

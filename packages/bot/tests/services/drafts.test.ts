@@ -231,7 +231,7 @@ describe("draft service", () => {
 
     expect(() =>
       app.drafts.create("guild-1", "channel-2", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id, yugi.id),
-    ).toThrow("An active or pending draft already uses that name");
+    ).toThrow("You already have a draft called this that hasn't finished.");
   });
 
   it("starts a draft by seating players and opening one 8-card pack per player", () => {

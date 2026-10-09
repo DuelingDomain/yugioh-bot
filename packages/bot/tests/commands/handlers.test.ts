@@ -164,6 +164,40 @@ function fakeInteraction(input: {
 }
 
 describe("command handlers", () => {
+  it.each(["draft", "event"])("/%s show hides a stranger's private named entry", async (commandName) => {
+    const app = setup();
+    const host = app.players.upsert("guild-1", "900000000000000112", "Host");
+    if (commandName === "draft") {
+      app.drafts.create("guild-1", null, "Private Cup", { setNames: ["Metal Raiders"] }, host.userId, host.id);
+    } else {
+      app.tournaments.create("guild-1", "Private Cup", "round_robin", host.userId);
+    }
+    const { interaction } = fakeInteraction({ commandName, subcommand: "show", user: { id: "900000000000000113", username: "Stranger" }, strings: { name: "Private Cup" } });
+    await expect(handleCommand(interaction, app)).rejects.toThrow(`${commandName === "draft" ? "Draft" : "Tournament"} not found: Private Cup`);
+    app.db.close();
+  });
+
+  it.each(["draft", "event"])("/%s cancel selects the caller's own entry when hosts share a name", async (commandName) => {
+    const app = setup();
+    const host = app.players.upsert("guild-1", "900000000000000112", "Host");
+    const other = app.players.upsert("guild-1", "900000000000000113", "Other");
+    const table = commandName === "draft" ? "drafts" : "tournaments";
+    app.db.exec(`drop index if exists ${table}_current_name_unique; drop index if exists ${table}_current_host_name_unique;`);
+    const create = (actor: typeof host) => commandName === "draft"
+      ? app.drafts.create("guild-1", null, "Friday Cup", { setNames: ["Metal Raiders"] }, actor.userId, actor.id)
+      : app.tournaments.create("guild-1", "Friday Cup", "round_robin", actor.userId);
+    const owned = create(host);
+    // Raw insert models the new schema independently of the create pre-check.
+    const columns = commandName === "event" ? ",format" : "";
+    const values = commandName === "event" ? ",'round_robin'" : "";
+    const otherId = Number(app.db.prepare(`insert into ${table}(guild_id,name,status,created_by_user_id${columns}) values('guild-1','Friday Cup','pending',?${values})`).run(other.userId).lastInsertRowid);
+    const { interaction } = fakeInteraction({ commandName, subcommand: "cancel", user: { id: "900000000000000112", username: "Host" }, strings: { name: "Friday Cup" } });
+    await handleCommand(interaction, app);
+    expect(app.db.prepare(`select status from ${table} where id=?`).get(owned.id)).toEqual({ status: "cancelled" });
+    expect(app.db.prepare(`select status from ${table} where id=?`).get(otherId)).toEqual({ status: "pending" });
+    app.db.close();
+  });
+
   it("/help lists duel and tournament commands", async () => {
     const app = setup();
     const yugi = { id: "900000000000000112", username: "Yugi" };
@@ -344,7 +378,7 @@ describe("command handlers", () => {
   it("/draft join joins a pending draft by name", async () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
-    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id, "open");
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "join",
@@ -438,6 +472,7 @@ describe("command handlers", () => {
       }).interaction,
       app,
     );
+    app.db.prepare("update drafts set visibility = 'open' where name = 'retro draft'").run();
 
     await handleCommand(
       fakeInteraction({
@@ -504,7 +539,7 @@ describe("command handlers", () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
     app.players.upsert("guild-1", "900000000000000117", "Kaiba");
-    app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
+    app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id, "open");
 
     await expect(
       handleCommand(
@@ -594,7 +629,7 @@ describe("command handlers", () => {
   it("/draft cancel rejects non-creators", async () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
-    app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
+    app.drafts.create("guild-1", "channel-1", "cube night", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id, "open");
 
     await expect(
       handleCommand(
@@ -618,7 +653,7 @@ describe("command handlers", () => {
     const { interaction, replies } = fakeInteraction({
       commandName: "draft",
       subcommand: "show",
-      user: { id: "900000000000000112", username: "Yugi" },
+      user: { id: "900000000000000116", username: "Yugi" },
       strings: { name: "cube night" },
     });
 
@@ -633,7 +668,7 @@ describe("command handlers", () => {
   it("/draft show caps participant lists", async () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "900000000000000116", "Yugi");
-    app.drafts.create("guild-1", "channel-1", "big draft", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id);
+    app.drafts.create("guild-1", "channel-1", "big draft", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000116", displayName: "Host" }).id, yugi.id, "open");
 
     for (let index = 0; index < 30; index += 1) {
       await handleCommand(
@@ -1212,6 +1247,7 @@ describe("command handlers", () => {
       }).interaction,
       app,
     );
+    app.db.prepare("update tournaments set visibility = 'open' where name = 'locals'").run();
 
     await expect(
       handleCommand(
@@ -1285,6 +1321,7 @@ describe("command handlers", () => {
       }).interaction,
       app,
     );
+    app.db.prepare("update tournaments set visibility = 'open' where name = 'locals'").run();
     await handleCommand(
       fakeInteraction({ commandName: "event", subcommand: "join", user: yugi, strings: { name: "locals" } })
         .interaction,
@@ -1340,6 +1377,7 @@ describe("command handlers", () => {
         }).interaction,
         app,
       );
+      if (subcommand === "create") app.db.prepare("update tournaments set visibility = 'open' where name = 'locals'").run();
     }
     const tournament = app.tournaments.findByName("guild-1", "locals")!;
     const slot = app.tournaments.openMatches(tournament.id)[0]!;
@@ -1511,6 +1549,7 @@ describe("command handlers", () => {
       }).interaction,
       app,
     );
+    app.db.prepare("update tournaments set visibility = 'open' where name = 'locals'").run();
 
     await expect(
       handleCommand(
