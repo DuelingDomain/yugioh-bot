@@ -3,10 +3,11 @@ import { createDraftService, DraftTerminalError } from "@yugidraft/shared/servic
 import { getDb } from "./db";
 import { env } from "./env";
 import { requireWebAccess } from "./web-access";
-import { checkDiscordWebAccess, webAccessError } from "./discord-web-access";
+import { draftReadAccess } from "./draft-access";
+import { isOwnerUser } from "./owner-access";
 import { announcer, broadcaster } from "./notify";
 
-/** Dedicated terminal actions never delete a draft on a retry (unlike legacy DELETE). */
+/** Host or owner terminal actions retain the draft record on retries. */
 export async function finishDraft(
   params: Promise<{ slug: string }>, action: "end" | "cancel",
 ): Promise<NextResponse> {
@@ -19,21 +20,16 @@ export async function finishDraft(
     const draft = find.get(slug, env.discordGuildId) as { id: number; created_by_user_id: number } | undefined;
     if (!draft) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
 
-    let admin = false;
-    if (draft.created_by_user_id !== actor.userId) {
-      if (!actor.discordUserId) return NextResponse.json({ error: "Only the host or a guild admin can end or cancel a draft" }, { status: 403 });
-      const access = await checkDiscordWebAccess(actor.discordUserId, "admin");
-      if (!access.ok) return NextResponse.json({ error: webAccessError(access.status) }, { status: access.status });
-      admin = true;
+    if (draft.created_by_user_id !== actor.userId && !isOwnerUser(actor.userId)) {
+      const denied = draftReadAccess(db, slug, env.discordGuildId, actor.userId);
+      if (denied) return denied;
+      return NextResponse.json({ error: "Only the host or owner can end or cancel a draft" }, { status: 403 });
     }
 
     const result = db.transaction(() => {
-      // Discord verification can await I/O; re-read guild and ownership under the write lock.
+      // Re-read the guild-scoped draft under the write lock; authorization above is synchronous.
       const current = find.get(slug, env.discordGuildId) as typeof draft;
       if (!current) return NextResponse.json({ error: "Draft not found" }, { status: 404 });
-      if (current.created_by_user_id !== actor.userId && !admin) {
-        return NextResponse.json({ error: "Only the host or a guild admin can end or cancel a draft" }, { status: 403 });
-      }
       const drafts = createDraftService(db);
       const before = drafts.findById(current.id);
       const finished = action === "end" ? drafts.endNow(current.id) : drafts.cancel(current.id);

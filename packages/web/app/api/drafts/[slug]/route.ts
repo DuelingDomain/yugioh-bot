@@ -6,7 +6,7 @@ import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
 import { env } from "@/lib/env";
-import { boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
+import { boosterDraftConfigError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, DraftTerminalError } from "@yugidraft/shared/services";
 import { createDraftLobbyApi } from "@/lib/draft-lobby-api";
 import { isValidLobbySeats, type DraftConfig } from "@yugidraft/shared/types";
 import {
@@ -84,7 +84,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Only the draft creator can cancel or delete a draft" }, { status: 403 });
     }
 
-    if (draft.status === DRAFT_STATUS.completed || draft.status === DRAFT_STATUS.cancelled) {
+    if (draft.status === DRAFT_STATUS.completed) {
       db.transaction(() => {
         db.prepare("delete from draft_passes where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_picks where draft_id = ?").run(draft.id);
@@ -116,6 +116,9 @@ export async function DELETE(
       webSlug: cancelled.webSlug,
     });
   } catch (error) {
+    if (error instanceof DraftTerminalError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
     const fetchFailure = cardFetchErrorResponse(error);
     if (fetchFailure) return fetchFailure;
     console.error("[api/drafts/[slug] DELETE] error:", error);

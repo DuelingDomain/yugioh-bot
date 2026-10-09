@@ -9,19 +9,20 @@ Backend branch: `feat/draft-host-end`, based on `origin/main` at `bee943a13b4181
 - Discord `/draft cancel` is creator-only, calls the shared cancellation service, broadcasts a status event, and updates the Discord status message. No emergency end command existed.
 - The draft cleanup service manages cached card images; it does not implement draft cancellation or completion.
 - Current Compose runs `packages/worker/src/draft-timer.ts`; the bot timer remains available for the shelved bot. Both timer paths now recheck terminal status before expiring a stale active-list candidate.
-- The existing web `DELETE /api/drafts/[slug]` cancels live drafts and deletes finished drafts. Its retry semantics are unsuitable for an emergency action. The new UI must use the dedicated endpoints below.
-- On fetched main, App Router APIs are in `packages/web/app/api`, not `packages/web/src/app/api`. Main migrated to app-user authentication and removed the Discord access helpers; this branch restores the existing helpers from the original checkout for the requested guild-admin override. Hosts are compared by app `users.id`; admins must have a linked Discord identity.
+- The existing web `DELETE /api/drafts/[slug]` cancels live drafts and deletes completed drafts. A cancelled draft returns a no-op 200 and retains its record and roster, so a cancellation retry never deletes it. Shared terminal errors, including a live draft's linked tournament, return 409 with `{ error, code }`. The new lobby UI must use `POST /cancel`.
+- DELETE still has UI callers in `packages/web/app/(app)/draft/[slug]/page.tsx`: `handleCancel` for the lobby and `handleDelete` for the summary's Delete button. After moving lobby cancellation to POST, DELETE remains needed for deleting completed drafts. The summary currently also offers Delete on cancelled drafts; that action now retains the draft and needs a UI update.
+- App Router APIs are in `packages/web/app/api`. Clerk sessions identify actors by app `users.id`; the accepted alpha access policy has no Discord guild check or admin role. Emergency controls use the existing `isOwnerUser` helper.
 
 ## HTTP contract
 
 | Action | Method and route | Body | Successful status |
 | --- | --- | --- | --- |
-| End now | `POST /api/drafts/{slug}/end` | None | `completed` |
-| Cancel | `POST /api/drafts/{slug}/cancel` | None | `cancelled` |
+| End now (active only) | `POST /api/drafts/{slug}/end` | None | `completed` |
+| Cancel (pending or active) | `POST /api/drafts/{slug}/cancel` | None | `cancelled` |
 
-Both routes authenticate with the current web session and look up the slug only in configured `DISCORD_GUILD_ID`. The creator is the host, including a host without a linked Discord account. A non-host must pass `checkDiscordWebAccess(discordUserId, "admin")`: guild owner, Administrator, or Manage Server. The admin override also works for a private draft in which the admin is not seated. Discord checks use `DISCORD_TOKEN`, existing 60-second permission caching, in-flight deduplication, request timeouts, and failure/rate-limit backoff.
+Both routes authenticate with the current Clerk web session and look up the slug only in configured `DISCORD_GUILD_ID` (the single community id). Only the **host or owner** may act: the host is `draft.created_by_user_id === actor.userId`; the owner passes `isOwnerUser(actor.userId)` using `OWNER_USER_IDS`. Neither needs a linked Discord account, and an owner can act on a private draft without being seated.
 
-Production and staging Compose forward optional `DISCORD_TOKEN` to web for this verification. Set it to a bot token able to read the configured guild, then recreate web to load the runtime environment. Host access works without the token; non-host admin verification returns 503 when it is absent. This does not enable Discord announcements; current Compose keeps `DISCORD_BOT_ENABLED=0`.
+For other actors, apply the same `draftReadAccess` check as GET before denying the action: an unreadable private draft returns generic 404; a readable draft returns 403. There is no Discord permission lookup or web `DISCORD_TOKEN` requirement. Current Compose keeps `DISCORD_BOT_ENABLED=0`.
 
 Success is HTTP 200:
 
@@ -37,16 +38,17 @@ Success is HTTP 200:
 }
 ```
 
-Cancel returns the same shape with `status: "cancelled"`. A retry of the same terminal action returns 200 and `changed: false`, retaining the draft record and original result. Requesting end for a cancelled draft or cancel for a completed draft returns 409. Notification transport failures do not undo a committed transition or make its HTTP result fail; each parallel notification has a five-second timeout.
+Cancel returns the same shape with `status: "cancelled"`. A retry of the same terminal action returns 200 and `changed: false`, retaining the draft record and original result. Requesting end for a cancelled draft or cancel for a completed draft returns 409. Ending a pending lobby returns 409 with `DRAFT_NOT_STARTED` without changing its schedule or state; the lobby UI should offer only Cancel. Notification transport failures do not undo a committed transition or make its HTTP result fail; each parallel notification has a five-second timeout.
 
 | HTTP status | Meaning / JSON body |
 | --- | --- |
 | 401 | No authenticated session: `{ "error": "unauthorized" }` |
-| 403 | Actor is neither host nor verified guild admin: `{ "error": "..." }` |
-| 404 | Slug does not exist in the configured guild: `{ "error": "Draft not found" }` |
+| 403 | Actor can read the draft but is neither host nor owner: `{ "error": "Only the host or owner can end or cancel a draft" }` |
+| 404 | Slug is missing, belongs to another community, or actor cannot read the draft: `{ "error": "Draft not found" }` |
+| 409 | End requested for a pending draft: `{ "error": "Draft has not started", "code": "DRAFT_NOT_STARTED" }` |
 | 409 | Opposite terminal status: `{ "error": "Draft is already finished", "code": "DRAFT_ALREADY_FINISHED" }` |
 | 409 | Live draft has a legacy/manual tournament link: `{ "error": "Draft has a linked tournament", "code": "DRAFT_HAS_TOURNAMENT" }` (cancel only) |
-| 503 | Session or Discord admin verification unavailable: `{ "error": "..." }` |
+| 503 | Session resolution unavailable: `{ "error": "session_unavailable" }` |
 | 500 | Unexpected database/server failure: `{ "error": "Failed to finish draft" }` |
 
 ## Live updates and status display
@@ -60,7 +62,7 @@ Both endpoints send the existing shared broadcasts `{ kind: "status", slug, stat
 | `completed` | Complete; decks and export available |
 | `cancelled` | Cancelled; no decks/export or tournament creation |
 
-End preserves each player's exact committed pick history, including uneven or zero picks. It deals no replacement cards and disarms scheduled lobby starts. The existing completed-draft deck and export flows remain in use. Cancel discards picks, passes, dealt cards, packs, undealt/deal data, and theme claims; it retains the draft and roster for room access and cancelled-state display. Both clear the live pick deadline. Timer status guards and bot/manual pick guards reject further work. Cancelled drafts do not enter completed-draft deck/tournament flows or create match/season point awards.
+End preserves each active draft player's exact committed pick history, including uneven or zero picks. It deals no replacement cards and disarms scheduled lobby starts. The existing completed-draft deck and export flows remain in use. Cancel discards picks, passes, dealt cards, packs, undealt/deal data, and theme claims; it retains the draft and roster for room access and cancelled-state display. Both clear the live pick deadline. Timer status guards and bot/manual pick guards reject further work. Cancelled drafts do not enter completed-draft deck/tournament flows or create match/season point awards.
 
 For a channel-backed draft, both actions request the existing Discord `draft-status` update. End also calls the existing deduplicated `draft-completed` announcement flow, honoring guild announcement settings. Discord-disabled deployments use the existing no-op announcer.
 
@@ -68,8 +70,8 @@ For a channel-backed draft, both actions request the existing Discord `draft-sta
 
 Normal tournament links are created only after a draft is completed. End permits the existing tournament-creation flow from the retained picks; it neither starts nor cancels a tournament. Retrying end on a linked completed draft preserves the tournament and its registered/locked decks. Cancel refuses completed drafts and defensively refuses a live draft with a legacy/manual tournament link. It never deletes tournament participants, matches, results, or season awards.
 
-Early-ended pools may be smaller than normal deck requirements. Existing deck-registration and duel validation still apply; no cards are invented to satisfy those requirements. Owner policy question: should tournament creation be disabled when an early-ended player pool cannot meet the usual deck minimum?
+Early-ended pools may be smaller than normal deck requirements. Existing deck-registration and duel validation still apply; no cards are invented to satisfy those requirements.
 
 ## Validation
 
-Targeted tests cover host/non-host/admin and guild scope; lobby/mid-draft cancellation; uneven, theme and Extra-round completion; retry/conflict behavior; transaction rollback; separate-connection races with manual/bot picks and expiry; terminal/stale-snapshot timer behavior in bot and worker; WS broadcast and Discord announcement calls; existing deck, tournament, pick and cancellation regressions. TypeScript checks run for shared, web, bot, and worker with Node 22.
+Targeted tests cover host/non-host/owner and community scope; private-draft concealment; lobby-end rejection; lobby/mid-draft cancellation; uneven, theme and Extra-round completion; retry/conflict and double-DELETE behavior; linked-tournament cancellation errors; transaction rollback; separate-connection races with manual/bot picks and expiry, including the pick route's bot loop; terminal/stale-snapshot timer behavior in bot and worker; WS broadcast and Discord announcement calls; existing deck, tournament, pick, cancellation and admin-removal regressions. TypeScript checks run for shared, web, bot, and worker with Node 22.

@@ -58,14 +58,26 @@ it("does not resync a draft cancelled between the timer read and expiry", async 
   expect(app.effects.draft).not.toHaveBeenCalled();
   expect(app.effects.discord).not.toHaveBeenCalled();
 });
-it.each(["end", "cancel"])("does not start an armed lobby after %s", async action => {
+it("does not start an armed lobby after cancellation", async () => {
   const app = setup(true);
   app.lobby.setAutoStart(app.draft.id, app.host.userId, { revision: app.lobby.read(app.draft.id).lobby.revision, enabled: true }, now);
-  if (action === "end") app.drafts.endNow(app.draft.id); else app.drafts.cancel(app.draft.id);
+  app.drafts.cancel(app.draft.id);
   await createDraftTimer(app).tick(new Date(now.getTime() + 60_000));
-  expect(app.drafts.findById(app.draft.id).status).toBe(action === "end" ? "completed" : "cancelled");
+  expect(app.drafts.findById(app.draft.id).status).toBe("cancelled");
   expect(app.drafts.picks(app.draft.id)).toEqual([]);
   expect(app.effects.draft).not.toHaveBeenCalled();
+});
+it("preserves an armed lobby after a rejected end and starts it at its deadline", async () => {
+  const app = setup(true);
+  const scheduled = app.lobby.setAutoStart(app.draft.id, app.host.userId, {
+    revision: app.lobby.read(app.draft.id).lobby.revision, enabled: true,
+  }, now);
+  expect(() => app.drafts.endNow(app.draft.id)).toThrow(expect.objectContaining({ status: 409, code: "DRAFT_NOT_STARTED" }));
+  expect(app.drafts.findById(app.draft.id).status).toBe("pending");
+  expect(app.lobby.read(app.draft.id, app.host.userId)).toEqual(scheduled);
+  await createDraftTimer(app).tick(new Date(scheduled.lobby.start!.startsAt));
+  expect(app.drafts.findById(app.draft.id).status).toBe("active");
+  expect(app.effects.draft).toHaveBeenCalledWith({ kind: "status", slug: app.draft.webSlug, status: "active" });
 });
 it.each(["manual", "auto"] as const)("starts an unattended %s lobby with Discord off and publishes the dealt state", async kind => {
   const app = setup(kind === "auto");

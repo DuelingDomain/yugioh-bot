@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
-import { createDraftService } from "../../src/services/drafts.js";
+import { createDraftService, DraftTerminalError } from "../../src/services/drafts.js";
 import { createDraftTournamentService } from "../../src/services/draft-tournament.js";
 import { createCubeService } from "../../src/services/cubes.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
@@ -73,15 +73,18 @@ describe("emergency draft termination", () => {
     expect(() => drafts.cancel(draft.id)).toThrow(/finished/);
   });
 
-  it("ends an unstarted lobby without dealing cards and disarms scheduled start", () => {
+  it("rejects ending an unstarted lobby without changing its scheduled start or dealing cards", () => {
     const { db, drafts, draft } = setup();
     db.prepare("update drafts set lobby_auto_start = 1, lobby_start_at = ?, lobby_start_token = 'token' where id = ?")
       .run(now.toISOString(), draft.id);
-    drafts.endNow(draft.id, now);
+    const before = drafts.findById(draft.id);
+    expect(() => drafts.endNow(draft.id, now)).toThrow(DraftTerminalError);
+    expect(() => drafts.endNow(draft.id, now)).toThrow(expect.objectContaining({ status: 409, code: "DRAFT_NOT_STARTED" }));
+    expect(drafts.findById(draft.id)).toEqual(before);
     expect(drafts.picks(draft.id)).toEqual([]);
     expect(db.prepare("select status, lobby_auto_start, lobby_start_at, lobby_start_token from drafts where id = ?").get(draft.id))
-      .toEqual({ status: "completed", lobby_auto_start: 0, lobby_start_at: null, lobby_start_token: null });
-    expect(() => drafts.start(draft.id)).toThrow();
+      .toEqual({ status: "pending", lobby_auto_start: 1, lobby_start_at: now.toISOString(), lobby_start_token: "token" });
+    expect(db.prepare("select count(*) as n from saved_decks where draft_id = ?").get(draft.id)).toEqual({ n: 0 });
   });
 
   it.each(["booster", "theme"] as const)("ends %s during Extra rounds", mode => {
@@ -116,6 +119,7 @@ describe("emergency draft termination", () => {
   it.each(["end", "cancel"])("uses an immediate write transaction for %s", action => {
     const statements: string[] = [];
     const { drafts, draft } = setup("booster", sql => statements.push(String(sql)));
+    if (action === "end") drafts.start(draft.id, now);
     statements.length = 0;
     if (action === "end") drafts.endNow(draft.id); else drafts.cancel(draft.id);
     expect(statements.find(sql => sql.startsWith("BEGIN"))).toBe("BEGIN IMMEDIATE");

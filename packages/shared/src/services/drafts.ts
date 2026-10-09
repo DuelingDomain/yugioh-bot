@@ -16,7 +16,7 @@ import { CurrentNameTakenError } from "./current-name.js";
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
 export class DraftTerminalError extends Error {
   readonly status = 409;
-  constructor(message: string, readonly code: "DRAFT_ALREADY_FINISHED" | "DRAFT_HAS_TOURNAMENT") {
+  constructor(message: string, readonly code: "DRAFT_ALREADY_FINISHED" | "DRAFT_HAS_TOURNAMENT" | "DRAFT_NOT_STARTED") {
     super(message);
     this.name = "DraftTerminalError";
   }
@@ -1702,7 +1702,7 @@ export function createDraftService(
       db.prepare("update drafts set status_message_id = ? where id = ?").run(messageId, draftId);
     },
 
-    /** Complete with exactly the committed picks, even in a lobby or between uneven picks. */
+    /** Complete an active draft with exactly its committed picks, including uneven picks. */
     endNow(draftId: number, now = new Date()): Draft {
       return db.transaction(() => {
         const draft = findById(draftId);
@@ -1710,8 +1710,11 @@ export function createDraftService(
         if (draft.status === "cancelled") {
           throw new DraftTerminalError("Draft is already finished", "DRAFT_ALREADY_FINISHED");
         }
+        if (draft.status === "pending") {
+          throw new DraftTerminalError("Draft has not started", "DRAFT_NOT_STARTED");
+        }
         const changed = db.prepare(`update drafts set status = 'completed', pick_deadline_at = null
-          where id = ? and status in ('pending', 'active')`).run(draftId).changes;
+          where id = ? and status = 'active'`).run(draftId).changes;
         if (changed !== 1) throw new DraftTerminalError("Draft is already finished", "DRAFT_ALREADY_FINISHED");
         db.prepare("update draft_players set finished_at = coalesce(finished_at, ?) where draft_id = ?")
           .run(now.toISOString(), draftId);
