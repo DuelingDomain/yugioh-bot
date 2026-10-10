@@ -4,19 +4,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fixtureUserId, seedFixtureUsers } from "./fixtures/identity";
 
 const auth = vi.fn();
 const broadcast = vi.fn();
-vi.mock("@/lib/session-identity", async () => {
-  const { sessionFixture } = await import("./fixtures/session");
-  return sessionFixture(auth);
-});
+vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/discord-web-access", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/lib/discord-web-access")>(),
+  checkDiscordWebAccess: vi.fn().mockResolvedValue({ ok: true }),
+}));
 vi.mock("@/lib/notify", () => ({ broadcaster: { draft: broadcast }, announcer: { announce: vi.fn() } }));
 
 let db: Database.Database;
 let directory: string;
-const userId = fixtureUserId("host");
+const userId = "host";
 const context = { params: Promise.resolve({ slug: "draft" }) };
 const request = (method: string, body?: unknown) => new Request("http://localhost/api/drafts/draft", {
   method, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -26,15 +26,14 @@ const closed = { error: "Theme drafts are not open yet." };
 beforeEach(async () => {
   vi.resetModules();
   vi.clearAllMocks();
-  auth.mockResolvedValue({ user: { id: String(userId), name: "Host" } });
+  auth.mockResolvedValue({ user: { id: userId, name: "Host" } });
   directory = mkdtempSync(join(tmpdir(), "theme-drafts-flag-"));
   vi.stubEnv("DATABASE_PATH", join(directory, "test.sqlite"));
   vi.stubEnv("DISCORD_GUILD_ID", "guild");
   vi.stubEnv("DISCORD_BOT_ENABLED", "0");
   vi.stubEnv("THEME_DRAFTS", "0");
   db = (await import("@/lib/db")).getDb();
-  seedFixtureUsers(db, ["host", "guest"]);
-  db.prepare("insert into players (guild_id, user_id, display_name) values ('guild', ?, 'Host')").run(userId);
+  db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild', ?, 'Host')").run(userId);
   db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild', 'First', ?), ('guild', 'Second', ?)").run(userId, userId);
 });
 
@@ -45,8 +44,8 @@ afterEach(() => {
 });
 
 function seedDraft(mode: "theme" | "booster" = "theme", status = "pending") {
-  db.prepare(`insert into drafts (guild_id, name, status, config_json, created_by_user_id, web_slug)
-    values ('guild', 'Draft', ?, ?, ?, 'draft')`).run(status, JSON.stringify({
+  db.prepare(`insert into drafts (guild_id, channel_id, name, status, config_json, created_by_user_id, web_slug)
+    values ('guild', 'c', 'Draft', ?, ?, ?, 'draft')`).run(status, JSON.stringify({
     mode, allowedCubeIds: [1], themeSelection: "player_pick", extraDeckEnabled: false,
   }), userId);
   db.prepare("insert into draft_players (draft_id, player_id) values (1, 1)").run();

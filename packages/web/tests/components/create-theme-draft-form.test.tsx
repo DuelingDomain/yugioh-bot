@@ -39,7 +39,7 @@ describe("CreateThemeDraftForm", () => {
   it("closed: says theme drafts are not open, disables Create and sends nothing", () => {
     const fetchMock = vi.fn(async () => Response.json({}));
     vi.stubGlobal("fetch", fetchMock);
-    render(<CreateThemeDraftForm />);
+    render(<CreateThemeDraftForm discordEnabled={false} />);
     expect(screen.getByRole("status")).toHaveTextContent("Theme drafts are not open yet.");
     const create = screen.getByRole("button", { name: /create theme draft/i });
     expect(create).toBeDisabled();
