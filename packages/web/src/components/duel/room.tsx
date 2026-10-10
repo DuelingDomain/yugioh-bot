@@ -629,7 +629,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // A refused answer (a stale choice, a rejected move) is no cause for a follow-up: forget it, so the next prompt keeps its beat.
       void run(async () => {
         try {
-          return await sendDuelAction(slug, command, forkControl?.actingSeat);
+          return await (forkControl ? sendDuelAction(slug, command, forkControl.actingSeat) : sendDuelAction(slug, command));
         } catch (err) {
           pick.clearAnswer();
           throw err;
@@ -803,7 +803,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         const binding = now?.fork && now.engine
           ? { as: now.fork.actingSeat, revision: now.engine.revision, ...(now.engine.prompt ? { promptId: now.engine.prompt.id } : {}) }
           : undefined;
-        const result = await setChainResponseMode(slug, mode, binding);
+        const result = await (binding ? setChainResponseMode(slug, mode, binding) : setChainResponseMode(slug, mode));
         if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
       } catch (err) {
         // An answer that was sent meanwhile may have had its reply dropped for this request: read the room again.
@@ -1099,7 +1099,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       initialOutOrder: eliminationOrder(liveController.engine),
       connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
       actions: { onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame },
-      noResultScreen: forkMode,
+      ...(forkMode ? { noResultScreen: true } : {}),
       headerTools: <>
         {forkBar}
         {forkMode ? null : <BugReportHeaderButton room={data} />}

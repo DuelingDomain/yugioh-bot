@@ -1,0 +1,414 @@
+// @vitest-environment jsdom
+import React from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DuelRoom, ReplayForkControl } from "@yugidraft/shared/duels";
+import { resetCoinTossState } from "@/components/duel/coin-toss-lock";
+import { frame, replayV2, session } from "./replay-fixtures";
+
+vi.mock("next/font/google", () => {
+  const font = () => ({ variable: "font-var", className: "font-class" });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
+}));
+
+const nav = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => nav, usePathname: () => "/", useSearchParams: () => new URLSearchParams() }));
+
+const swr = vi.hoisted(() => ({ data: null as unknown, keys: [] as unknown[], mutate: vi.fn() }));
+vi.mock("swr", () => ({
+  default: (key: unknown) => { swr.keys.push(key); return { data: swr.data, error: undefined, isLoading: false, mutate: swr.mutate }; },
+}));
+const ws = vi.hoisted(() => ({ seats: [] as unknown[] }));
+vi.mock("@/lib/hooks/use-duel-websocket", () => ({
+  useDuelWebsocket: (_slug: string, seat: unknown) => {
+    ws.seats.push(seat);
+    return { syncing: false, recovering: false, connected: true, presence: null, resync: vi.fn() };
+  },
+}));
+vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
+vi.mock("@/components/duel/field", () => ({
+  DuelField: (props: { mySeat: number | null }) => <div data-testid="field" data-my-seat={props.mySeat ?? ""} />,
+  DeckMasterRail: () => null,
+}));
+vi.mock("@/components/duel/feedback", () => ({ DuelFeedback: () => null }));
+vi.mock("@/components/duel/summon-fx", () => ({ SummonFx: () => null }));
+vi.mock("@/components/duel/move-fx", () => ({ MoveFx: () => null }));
+vi.mock("@/components/duel/position-fx", () => ({ PositionFx: () => null }));
+vi.mock("@/components/duel/chain-fx", () => ({ ChainFx: () => null }));
+vi.mock("@/components/duel/master-return-fx", () => ({ MasterReturnFx: () => null }));
+vi.mock("@/components/duel/battle-fx", () => ({ BattleFx: () => null }));
+vi.mock("@/components/duel/destroy-fx", () => ({ DestroyFx: () => null }));
+
+import {
+  askAllState, followSeat, forkRoomState, forkViewSettled, livingSeats,
+} from "@/components/duel/replay-fork-control";
+import { ReplayForkBar, sourceReplayHref } from "@/components/duel/replay-fork-bar";
+import { canOfferFork, forkDisabledReason } from "@/components/duel/replay-fork-button";
+import {
+  duelRoomKey, getDuelRoom, getOwnerReplayFrames, searchDuelCards, sendDuelAction, setChainResponseMode,
+} from "@/components/duel/api";
+import { DuelReplayView } from "@/components/duel/replay";
+import { DuelRoomView } from "@/components/duel/room";
+
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+const control = (over: Partial<ReplayForkControl> = {}): ReplayForkControl => ({
+  identitySeat: 0, actingSeat: 0, manualSeats: [0, 1], revealHands: true, chainModes: { 0: "auto", 1: "auto" },
+  origin: { sourceSlug: "game-1", sourceFrameId: "f2", sourceStep: 2, sourceSeats: [{ seat: 0, displayName: "Ada" }, { seat: 1, displayName: "Bo" }] },
+  ...over,
+});
+
+function forkRoom(over: Partial<DuelRoom> = {}, fork: ReplayForkControl | null = control()): DuelRoom {
+  const view = frame({ step: 2 }).view;
+  return {
+    session: session("1v1", { slug: "fork-1", kind: "replay-fork", status: "active", endedAt: null }),
+    role: "player", mySeat: 0, myDeck: null,
+    engine: { ...view, prioritySeat: 1 },
+    clock: null, metadataOnly: false,
+    ...(fork ? { fork } : {}),
+    ...over,
+  };
+}
+
+beforeEach(() => {
+  resetCoinTossState();
+  nav.push.mockReset();
+  nav.replace.mockReset();
+  swr.keys = [];
+  ws.seats = [];
+  window.localStorage.clear();
+  window.history.replaceState(null, "", "/duels/game-1/replay");
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  }));
+});
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); resetCoinTossState(); });
+
+describe("fork view helpers", () => {
+  it("tells a fork, an ordinary room and an unusable fork row apart", () => {
+    expect(forkRoomState(null)).toEqual({ kind: "ordinary" });
+    expect(forkRoomState(forkRoom())).toEqual({ kind: "fork", control: control() });
+    // A control on an ordinary duel is no fork. A fork row without its control fails closed.
+    expect(forkRoomState({ session: session("1v1"), fork: control() }).kind).toBe("ordinary");
+    expect(forkRoomState(forkRoom({}, null)).kind).toBe("unusable");
+  });
+
+  it("settles only when the room shows what the view asked for", () => {
+    expect(forkViewSettled(control(), null)).toBe(true);
+    expect(forkViewSettled(control({ revealHands: false }), null)).toBe(false);
+    expect(forkViewSettled(control({ revealHands: false }), { as: null, reveal: false })).toBe(true);
+    expect(forkViewSettled(control({ actingSeat: 0 }), { as: 1, reveal: true })).toBe(false);
+    expect(forkViewSettled(control({ actingSeat: 1 }), { as: 1, reveal: true })).toBe(true);
+  });
+
+  it("finds living seats, the ask-all state and the seat to follow", () => {
+    const engine = { seats: [{ seat: 0 }, { seat: 1, eliminated: true }, { seat: 2 }] } as never;
+    expect(livingSeats(engine, [0, 1, 2])).toEqual([0, 2]);
+    expect(livingSeats(null, [0, 1])).toEqual([0, 1]);
+    expect(askAllState({ 0: "always", 1: "always" }, [0, 1])).toBe("all");
+    expect(askAllState({ 0: "always", 1: "off" }, [0, 1])).toBe("mixed");
+    expect(askAllState({ 0: "always" }, [0, 1])).toBe("unknown");
+    expect(askAllState(undefined, [0])).toBe("unknown");
+    // An eliminated seat does not count against "all".
+    expect(askAllState({ 0: "always", 1: "off" }, [0])).toBe("all");
+    expect(followSeat({ prioritySeat: 1, result: null }, 0)).toBe(1);
+    expect(followSeat({ prioritySeat: 0, result: null }, 0)).toBeNull();
+    expect(followSeat({ prioritySeat: null, result: null }, 0)).toBeNull();
+    expect(followSeat({ prioritySeat: 1, result: { winnerSeat: 0, reason: "x" } }, 0)).toBeNull();
+  });
+
+  it("builds the room key, and links back to the source replay at the start frame", () => {
+    expect(duelRoomKey("fork-1")).toBe("/api/duels/fork-1");
+    expect(duelRoomKey("fork-1", false, null)).toBe("/api/duels/fork-1");
+    expect(duelRoomKey("fork-1", false, { as: 2, reveal: true })).toBe("/api/duels/fork-1?as=2");
+    expect(duelRoomKey("fork-1", false, { as: null, reveal: false })).toBe("/api/duels/fork-1?reveal=0");
+    expect(duelRoomKey("fork-1", false, { as: 1, reveal: false })).toBe("/api/duels/fork-1?as=1&reveal=0");
+    expect(sourceReplayHref(control().origin)).toBe("/duels/game-1/replay?frame=f2");
+  });
+
+  it("offers a fork only when the server said so, and never for a frame without a cursor", () => {
+    const model = { version: 2, sourceVersion: "src-1", capabilities: { canFork: true, privateSeats: [0] } } as never;
+    expect(canOfferFork(model)).toBe(true);
+    expect(canOfferFork({ version: 2, sourceVersion: "src-1" } as never)).toBe(false);
+    expect(canOfferFork({ version: 2, sourceVersion: "", capabilities: { canFork: true, privateSeats: [] } } as never)).toBe(false);
+    expect(canOfferFork({ version: 1, sourceVersion: "src-1", capabilities: { canFork: true, privateSeats: [] } } as never)).toBe(false);
+    expect(forkDisabledReason({ cursor: "c1", kind: "engine" })).toBeNull();
+    expect(forkDisabledReason({ cursor: null, kind: "opening" })).toMatch(/not a start point/);
+    expect(forkDisabledReason({ cursor: null, kind: "result" })).toMatch(/final result/);
+  });
+});
+
+describe("fork requests", () => {
+  let calls: Array<{ url: string; init?: RequestInit }>;
+  beforeEach(() => {
+    calls = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => { calls.push({ url, init }); return json(forkRoom()); }));
+  });
+
+  it("sends the acting seat and reveal choice only for a fork view", async () => {
+    await getDuelRoom("fork-1", false, { as: 1, reveal: false });
+    await getDuelRoom("fork-1");
+    expect(calls.map((call) => call.url)).toEqual(["/api/duels/fork-1?as=1&reveal=0", "/api/duels/fork-1"]);
+  });
+
+  it("sends actions and chain-mode changes for the acting seat with the revision they were made on", async () => {
+    await sendDuelAction("fork-1", { promptId: "p1", revision: 4, answer: { choice: "a" } }, 1);
+    await sendDuelAction("fork-1", { promptId: "p1", revision: 4, answer: { choice: "a" } });
+    await setChainResponseMode("fork-1", "always", { as: 1, revision: 4, promptId: "p1" });
+    await setChainResponseMode("fork-1", "always", { as: 1, revision: 4 });
+    await setChainResponseMode("game-9", "off");
+    expect(calls.map((call) => call.url)).toEqual([
+      "/api/duels/fork-1/actions?as=1", "/api/duels/fork-1/actions",
+      "/api/duels/fork-1/chain-mode?as=1", "/api/duels/fork-1/chain-mode?as=1", "/api/duels/game-9/chain-mode",
+    ]);
+    expect(JSON.parse(String(calls[2]!.init!.body))).toEqual({ mode: "always", revision: 4, promptId: "p1" });
+    expect(JSON.parse(String(calls[3]!.init!.body))).toEqual({ mode: "always", revision: 4 });
+    expect(JSON.parse(String(calls[4]!.init!.body))).toEqual({ mode: "off" });
+  });
+
+  it("binds the announce-card search to the fork seat, prompt and revision", async () => {
+    await searchDuelCards("dark", "fork-1", { as: 1, promptId: "p9", revision: 7 });
+    await searchDuelCards("dark", "game-9", null);
+    expect(calls[0]!.url).toBe("/api/duels/cards?q=dark&slug=fork-1&as=1&promptId=p9&revision=7");
+    expect(calls[1]!.url).toBe("/api/duels/cards?q=dark&slug=game-9");
+  });
+
+  it("asks the owner route for one data seat and the reveal choice", async () => {
+    calls.length = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => { calls.push({ url }); return json(replayV2()); }));
+    await getOwnerReplayFrames("game-1", { visibility: "mine", seat: 1, reveal: true });
+    await getOwnerReplayFrames("game-1", { visibility: "public", seat: null, reveal: false });
+    expect(calls.map((call) => call.url)).toEqual([
+      "/api/admin/duels/game-1/replay?version=2&visibility=mine&seat=1&reveal=1",
+      "/api/admin/duels/game-1/replay?version=2&visibility=public",
+    ]);
+  });
+});
+
+describe("ReplayForkBar", () => {
+  const props = () => ({
+    fork: control(), seatName: (seat: number) => ["Ada", "Bo", "Cy"][seat]!, living: [0, 1], waitingSeat: 1 as number | null,
+    follow: true, reveal: true, disabled: false,
+    onPickSeat: vi.fn(), onFollow: vi.fn(), onReveal: vi.fn(), onAskAll: vi.fn(), onRestart: vi.fn(), onEnd: vi.fn(),
+  });
+
+  it("shows a seat button for each seat, marks the one that waits and picks a seat", () => {
+    const p = props();
+    render(<ReplayForkBar {...p} />);
+    const group = screen.getByRole("group", { name: "Acting seat" });
+    const [ada, bo] = within(group).getAllByRole("button");
+    expect(ada!.getAttribute("aria-pressed")).toBe("true");
+    expect(bo!.getAttribute("aria-pressed")).toBe("false");
+    expect(bo!.getAttribute("data-prompt")).toBe("true");
+    fireEvent.click(bo!);
+    expect(p.onPickSeat).toHaveBeenCalledExactlyOnceWith(1);
+  });
+
+  it("blocks seat changes while busy and for a seat that is out", () => {
+    const p = { ...props(), living: [0] };
+    const { rerender } = render(<ReplayForkBar {...p} />);
+    expect((within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name: /Bo/ }) as HTMLButtonElement).disabled).toBe(true);
+    rerender(<ReplayForkBar {...p} living={[0, 1]} disabled />);
+    for (const button of within(screen.getByRole("group", { name: "Acting seat" })).getAllByRole("button")) expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps Follow prompt, Reveal hands and ask-all in the controls sheet", () => {
+    const p = props();
+    render(<ReplayForkBar {...p} />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    const dialog = screen.getByRole("dialog");
+    expect((within(dialog).getByLabelText("Follow prompt") as HTMLInputElement).checked).toBe(true);
+    expect((within(dialog).getByLabelText("Reveal hands") as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(within(dialog).getByLabelText("Follow prompt"));
+    expect(p.onFollow).toHaveBeenCalledWith(false);
+    fireEvent.click(within(dialog).getByLabelText("Reveal hands"));
+    expect(p.onReveal).toHaveBeenCalledWith(false);
+    expect(within(dialog).getByRole("status").textContent).toMatch(/Some seats skip|not known|Every seat/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ask at all response windows" }));
+    expect(p.onAskAll).toHaveBeenCalledTimes(1);
+    expect(within(dialog).getByRole("link", { name: "Open the source replay" }).getAttribute("href")).toBe("/duels/game-1/replay?frame=f2");
+  });
+
+  it("says when every seat already asks at every window", () => {
+    render(<ReplayForkBar {...props()} fork={control({ chainModes: { 0: "always", 1: "always" } })} />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    expect(within(screen.getByRole("dialog")).getByRole("status").textContent).toBe("Every seat asks at every response window.");
+  });
+
+  it("asks twice before restart or end, and Keep playing backs out", () => {
+    const p = props();
+    render(<ReplayForkBar {...p} />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restart from start point" }));
+    expect(p.onRestart).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep playing" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "End fork" }));
+    expect(p.onEnd).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole("group", { name: "Confirm" })).getByRole("button", { name: "End fork" }));
+    expect(p.onEnd).toHaveBeenCalledTimes(1);
+    expect(p.onRestart).not.toHaveBeenCalled();
+  });
+
+  it("restarts after the second click", () => {
+    const p = props();
+    render(<ReplayForkBar {...p} />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Restart from start point" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Confirm" })).getByRole("button", { name: "Restart" }));
+    expect(p.onRestart).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Jump in on the replay viewer", () => {
+  const caps = { canFork: true, privateSeats: [0, 1] };
+  let calls: Array<{ url: URL; init?: RequestInit }>;
+
+  function server(answer: (url: URL, init?: RequestInit) => Response | Promise<Response>) {
+    calls = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, "http://localhost");
+      calls.push({ url, init });
+      return answer(url, init);
+    }));
+  }
+  const ownerReplay = () => ({ ...replayV2({ visibility: "mine" }), capabilities: caps });
+
+  async function open(canInspectSource: boolean) {
+    render(<DuelReplayView slug="game-1" canInspectSource={canInspectSource} />);
+    await screen.findByRole("group", { name: "Replay controls" });
+  }
+
+  it("never calls the owner route or shows the button for a user who is not the owner", async () => {
+    server((url) => json(replayV2({ visibility: url.searchParams.get("visibility") === "public" ? "public" : "mine" })));
+    await open(false);
+    expect(calls.every((call) => !call.url.pathname.startsWith("/api/admin"))).toBe(true);
+    expect(screen.queryByRole("button", { name: /Jump in/ })).toBeNull();
+  });
+
+  it("shows no button when the owner answer carries no fork capability", async () => {
+    server(() => json(replayV2({ visibility: "mine" })));
+    await open(true);
+    expect(calls[0]!.url.pathname).toBe("/api/admin/duels/game-1/replay");
+    expect(screen.queryByRole("button", { name: /Jump in/ })).toBeNull();
+  });
+
+  it("falls back to the ordinary route when the owner route refuses", async () => {
+    server((url) => url.pathname.startsWith("/api/admin")
+      ? json({ error: "No", code: "ACCESS_DENIED" }, 403)
+      : json(replayV2({ visibility: "mine" })));
+    await open(true);
+    expect(calls.some((call) => call.url.pathname === "/api/duels/game-1/replay")).toBe(true);
+    expect(screen.queryByRole("button", { name: /Jump in/ })).toBeNull();
+  });
+
+  it("disables Jump in on a frame without a cursor and starts a fork from one with a cursor", async () => {
+    server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
+      ? json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: forkRoom() })
+      : json(ownerReplay()));
+    await open(true);
+    const jump = screen.getByRole("button", { name: /Jump in/ }) as HTMLButtonElement;
+    // Move 0 is the opening board: no cursor, no fork.
+    expect(jump.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Next move" }));
+    expect(jump.disabled).toBe(false);
+    fireEvent.click(jump);
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/duels/fork-9"));
+    const post = calls.find((call) => call.init?.method === "POST")!;
+    expect(post.url.pathname).toBe("/api/admin/duels/game-1/replay/fork");
+    const body = JSON.parse(String(post.init!.body)) as { cursor: string; sourceVersion: string; requestId: string };
+    expect(body.cursor).toBe("c1");
+    expect(body.sourceVersion).toBe("src-1");
+    expect(body.requestId).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+    expect(body.requestId.length).toBeLessThanOrEqual(128);
+  });
+
+  it("disables Jump in on the final result frame", async () => {
+    server(() => json(ownerReplay()));
+    await open(true);
+    fireEvent.click(screen.getByRole("button", { name: "Last move" }));
+    expect((screen.getByRole("button", { name: /Jump in/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps one request id for a retry of the same frame, and a new one for another frame", async () => {
+    let attempt = 0;
+    server((url, init) => {
+      if (url.pathname.endsWith("/replay/fork") && init?.method === "POST") {
+        attempt += 1;
+        return attempt === 1 ? json({ error: "Busy", code: "ENGINE_BUSY" }, 503) : json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: forkRoom() });
+      }
+      return json(ownerReplay());
+    });
+    await open(true);
+    fireEvent.click(screen.getByRole("button", { name: "Next move" }));
+    fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
+    await screen.findByRole("alert");
+    expect(nav.push).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/duels/fork-9"));
+    const ids = calls.filter((call) => call.init?.method === "POST").map((call) => (JSON.parse(String(call.init!.body)) as { requestId: string }).requestId);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe(ids[1]);
+  });
+
+  it("offers a reload when the source changed", async () => {
+    server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
+      ? json({ error: "Changed", code: "SOURCE_CHANGED" }, 409)
+      : json(ownerReplay()));
+    await open(true);
+    fireEvent.click(screen.getByRole("button", { name: "Next move" }));
+    fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
+    const alert = await screen.findByRole("alert");
+    const before = calls.filter((call) => call.url.pathname === "/api/admin/duels/game-1/replay").length;
+    fireEvent.click(within(alert).getByRole("button", { name: "Reload replay" }));
+    await waitFor(() => expect(calls.filter((call) => call.url.pathname === "/api/admin/duels/game-1/replay").length).toBeGreaterThan(before));
+  });
+});
+
+describe("the live room of a fork", () => {
+  it("keeps the websocket identity at seat 0 and draws the table for the acting seat", () => {
+    swr.data = forkRoom({}, control({ actingSeat: 1 }));
+    render(<DuelRoomView slug="fork-1" />);
+    expect(screen.getByTestId("field").getAttribute("data-my-seat")).toBe("1");
+    expect(new Set(ws.seats)).toEqual(new Set([0]));
+    expect(swr.keys.at(-1)).toBe("/api/duels/fork-1");
+  });
+
+  it("shows the fork bar and leaves out Surrender, Cancel, Report bug, Pop out and invites", () => {
+    swr.data = forkRoom();
+    render(<DuelRoomView slug="fork-1" />);
+    expect(document.querySelector("[data-replay-fork-bar]")).not.toBeNull();
+    expect(screen.getByText("Replay fork")).toBeTruthy();
+    for (const name of [/Surrender/, /Cancel duel/, /Report bug/i, /Pop out/, /Archive/]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(screen.queryByText("Watch replay")).toBeNull();
+  });
+
+  it("asks for another seat or hidden hands through the room key", () => {
+    swr.data = forkRoom();
+    render(<DuelRoomView slug="fork-1" />);
+    const group = screen.getByRole("group", { name: "Acting seat" });
+    fireEvent.click(within(group).getByRole("button", { name: /Bo/ }));
+    expect(swr.keys.at(-1)).toBe("/api/duels/fork-1?as=1");
+    act(() => { swr.keys = []; });
+  });
+
+  it("fails closed on a fork row without its seat control", () => {
+    swr.data = forkRoom({}, null);
+    render(<DuelRoomView slug="fork-1" />);
+    expect(document.querySelector("[data-replay-fork-unusable]")).not.toBeNull();
+    expect(screen.queryByTestId("field")).toBeNull();
+    expect(screen.queryByText("Replay fork")).toBeNull();
+  });
+
+  it("shows no fork controls on an ordinary duel", () => {
+    swr.data = forkRoom({ session: session("1v1", { slug: "game-1", kind: "play", status: "active", endedAt: null }) });
+    render(<DuelRoomView slug="game-1" />);
+    expect(document.querySelector("[data-replay-fork-bar]")).toBeNull();
+    expect(screen.getByTestId("field").getAttribute("data-my-seat")).toBe("0");
+  });
+});
