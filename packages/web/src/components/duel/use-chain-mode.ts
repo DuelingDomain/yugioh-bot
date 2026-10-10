@@ -27,13 +27,15 @@ interface Options {
   /** Sends one mode to the server and applies the room it returns. Throws when the server refuses. */
   send: (mode: DuelChainMode) => Promise<void>;
   onError: (message: string) => void;
+  /** False for a replay fork: this browser's remembered mode is neither restored nor changed, so a fork never leaks into live duels. */
+  remember?: boolean;
 }
 
 /**
  * The state behind the chain response switch: an optimistic position while a request is out, one request in flight at a
  * time (the newest wish wins), the R shortcut, and the browser's remembered Auto or Always.
  */
-export function useChainModeControl({ slug, serverMode, enabled, suspended = false, send, onError }: Options): ChainModeControl | null {
+export function useChainModeControl({ slug, serverMode, enabled, suspended = false, send, onError, remember = true }: Options): ChainModeControl | null {
   const [pending, setPending] = useState<DuelChainMode | null>(null);
   const shown: DuelChainMode | null = serverMode === undefined ? null : pending ?? serverMode;
   const live = enabled && serverMode !== undefined;
@@ -45,6 +47,8 @@ export function useChainModeControl({ slug, serverMode, enabled, suspended = fal
   const appliedFor = useRef<string | null>(null);
   const latest = useRef({ send, onError });
   latest.current = { send, onError };
+  const rememberRef = useRef(remember);
+  rememberRef.current = remember;
 
   useEffect(() => {
     if (shown && shown !== "off") lastOn.current = shown;
@@ -61,7 +65,7 @@ export function useChainModeControl({ slug, serverMode, enabled, suspended = fal
         wanted.current = null;
         try {
           await latest.current.send(next.mode);
-          if (next.remember) rememberChainMode(next.mode);
+          if (next.remember && rememberRef.current) rememberChainMode(next.mode);
         } catch (err) {
           wanted.current = null;
           latest.current.onError(err instanceof Error ? err.message : "The response switch could not be changed");
@@ -81,6 +85,10 @@ export function useChainModeControl({ slug, serverMode, enabled, suspended = fal
   useEffect(() => {
     if (!live || serverMode === undefined || appliedFor.current === slug) return;
     appliedFor.current = slug;
+    if (!remember) {
+      if (serverMode !== "off") lastOn.current = serverMode;
+      return;
+    }
     const remembered = loadRememberedChainMode();
     if (!remembered) {
       if (serverMode !== "off") lastOn.current = serverMode;
@@ -88,7 +96,7 @@ export function useChainModeControl({ slug, serverMode, enabled, suspended = fal
     }
     lastOn.current = remembered;
     if (serverMode !== "off" && serverMode !== remembered) void request(remembered, false);
-  }, [live, serverMode, slug, request]);
+  }, [live, serverMode, slug, request, remember]);
 
   const current = shown ?? "auto";
   useEffect(() => {

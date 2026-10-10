@@ -108,6 +108,8 @@ export interface TableShellProps {
    */
   fxActive?: boolean;
   busy?: boolean;
+  /** A replay fork has no stats, rematch or series: the room draws its own result panel, so the shell shows none. */
+  noResultScreen?: boolean;
   headerTools?: ReactNode;
   modals?: ReactNode;
   notices?: ReactNode;
@@ -201,6 +203,7 @@ function TableShellBody({
   preferences,
   chainMode = null,
   hubPlace = "band",
+  noResultScreen = false,
   replay,
   replayCarry,
 }: TableShellRootProps & { preferences: DuelPreferences }) {
@@ -308,7 +311,7 @@ function TableShellBody({
     reducedMotion: controller.reducedMotion,
     board: boardRef,
   });
-  const showResult = !replay && !hideResult && resultReady && hasResult;
+  const showResult = !replay && !noResultScreen && !hideResult && resultReady && hasResult;
 
   // Who left, in order (groups: seats that left in one update share a place): the placings of a table of 3 or 4 read it.
   const [outOrder, setOutOrder] = useState<number[][]>(() => eliminationOrder(engine, initialOutOrder));

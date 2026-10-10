@@ -16,7 +16,7 @@ import {
   type ReplayOwnerCapabilities,
   type ReplayVisibility,
 } from "@yugidraft/shared/duels";
-import { DuelRequestError, getDuelReplayFrames } from "./api";
+import { DuelRequestError, getDuelReplayFrames, getOwnerReplayFrames } from "./api";
 import { useCoinPlaying } from "./coin-toss-lock";
 import { seatTeamLabel } from "./table-format";
 import type { PromptDraft, TableController } from "./table/types";
@@ -38,6 +38,10 @@ export interface ReplayModel {
   slug: string;
   /** What this client asked for. A v1 server ignores it and answers with the viewer's own cards. */
   requested: ReplayVisibility;
+  /** Names the whole request (owner seat and reveal included). Equal to `requested` for an ordinary viewer. */
+  requestKey: string;
+  /** The private view that was asked for. Only an owner request can carry a seat or reveal. */
+  requestedView: ReplayRequestView;
   /** The card visibility the frames really have. */
   visibility: ReplayVisibility;
   sourceVersion: string | null;
@@ -49,6 +53,19 @@ export interface ReplayModel {
   dataSeat: number | null;
   frames: ReplayFrameV2[];
   capabilities?: ReplayOwnerCapabilities;
+}
+
+/** The card view a request asks for. `seat` and `reveal` exist only in the owner request. */
+export interface ReplayRequestView {
+  visibility: ReplayVisibility;
+  seat: number | null;
+  reveal: boolean;
+}
+
+export const ORDINARY_VIEW: ReplayRequestView = { visibility: "mine", seat: null, reveal: false };
+
+export function replayRequestKey(view: ReplayRequestView, owner: boolean): string {
+  return owner ? `owner:${view.visibility}:${view.seat ?? "-"}:${view.reveal ? 1 : 0}` : view.visibility;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -65,18 +82,27 @@ export function legacyFrameId(step: number): string {
   return `step-${step}`;
 }
 
-export function normalizeReplay(raw: DuelReplay | DuelReplayV2, slug: string, requested: ReplayVisibility): ReplayModel {
+export function normalizeReplay(
+  raw: DuelReplay | DuelReplayV2,
+  slug: string,
+  requested: ReplayVisibility,
+  requestedView: ReplayRequestView = { ...ORDINARY_VIEW, visibility: requested },
+  requestKey: string = requested,
+): ReplayModel {
   if (isReplayV2(raw)) {
     const frames = raw.frames.map((frame) => ({ ...frame, view: toOrdinaryReplayView(frame.view) }));
     return {
       version: 2,
       slug,
       requested,
+      requestKey,
+      requestedView,
       visibility: raw.visibility === "public" ? "public" : "mine",
       sourceVersion: raw.sourceVersion,
       session: raw.session,
       role: raw.role,
-      mySeat: raw.mySeat,
+      // An owner who asked for one seat's cards views the table as that seat: the camera and hand follow it.
+      mySeat: requestedView.seat != null && raw.capabilities && raw.dataSeat != null ? raw.dataSeat : raw.mySeat,
       dataSeat: raw.dataSeat,
       frames,
       capabilities: raw.capabilities,
@@ -102,6 +128,8 @@ export function normalizeReplay(raw: DuelReplay | DuelReplayV2, slug: string, re
     version: 1,
     slug,
     requested,
+    requestKey,
+    requestedView,
     visibility: "mine",
     sourceVersion: null,
     session: legacy.session,
@@ -129,6 +157,10 @@ const FAILURE_COPY: Record<string, string> = {
     "The saved moves of this duel no longer replay the same way, so the replay cannot run. The saved final board is still available.",
   NOT_PLAYABLE: "This duel cannot be replayed move by move. The saved final board is still available.",
   ENGINE_BUSY: "The duel engine is busy. Try again in a moment.",
+  SOURCE_CHANGED: "The source duel changed after this replay was loaded. Reload the replay and pick the move again.",
+  REQUEST_CONFLICT: "That start request was already used for another move. Try again.",
+  FORK_LIMIT: "You have too many replay forks open. End one first, then try again.",
+  INVALID_CURSOR: "That move cannot be a start point. Reload the replay and pick the move again.",
   ACCESS_UNAVAILABLE: "Access to this duel cannot be checked right now. Try again in a moment.",
 };
 
@@ -157,38 +189,63 @@ export interface ReplayData {
   settled: boolean;
   error: unknown;
   reload: () => void;
+  /** Names the current request. A reply for any other key is old. */
+  requestKey: string;
 }
 
-export function useReplayData(slug: string, visibility: ReplayVisibility): ReplayData {
+/**
+ * `owner` turns on the private replay request. It must come from the server page (the owner check) and is a UI
+ * hint only: the route checks the owner list again, and the answer has to carry `capabilities` before any fork
+ * control shows. An owner request that the server refuses with ACCESS_DENIED falls back to the ordinary replay.
+ */
+export function useReplayData(
+  slug: string,
+  visibility: ReplayVisibility,
+  owner: { enabled: boolean; seat: number | null; reveal: boolean } | null = null,
+): ReplayData {
   const [model, setModel] = useState<ReplayModel | null>(null);
-  const [failure, setFailure] = useState<{ slug: string; visibility: ReplayVisibility; error: unknown } | null>(null);
+  const [failure, setFailure] = useState<{ slug: string; key: string; error: unknown } | null>(null);
   const [nonce, setNonce] = useState(0);
   const generation = useRef(0);
+  const ownerOn = owner?.enabled === true;
+  const seat = ownerOn ? owner.seat : null;
+  const reveal = ownerOn ? owner.reveal : false;
+  const requestKey = replayRequestKey({ visibility, seat, reveal }, ownerOn);
 
   useEffect(() => {
     if (!slug) return;
     const mine = ++generation.current;
     const abort = new AbortController();
-    getDuelReplayFrames(slug, visibility, abort.signal)
+    const view: ReplayRequestView = { visibility, seat, reveal };
+    const load = ownerOn
+      ? getOwnerReplayFrames(slug, view, abort.signal).catch((error: unknown) => {
+          if (error instanceof DuelRequestError && error.code === "ACCESS_DENIED" && !abort.signal.aborted) {
+            return getDuelReplayFrames(slug, visibility, abort.signal);
+          }
+          throw error;
+        })
+      : getDuelReplayFrames(slug, visibility, abort.signal);
+    load
       .then((raw) => {
         if (mine !== generation.current) return;
-        const next = normalizeReplay(raw, slug, visibility);
+        const next = normalizeReplay(raw, slug, visibility, view, requestKey);
         setModel(next);
         setFailure(null);
       })
       .catch((error: unknown) => {
         if (mine !== generation.current || abort.signal.aborted) return;
-        setFailure({ slug, visibility, error });
+        setFailure({ slug, key: requestKey, error });
       });
     return () => abort.abort();
-  }, [slug, visibility, nonce]);
+  }, [slug, visibility, seat, reveal, ownerOn, requestKey, nonce]);
 
   const current = model && model.slug === slug ? model : null;
-  const error = failure && failure.slug === slug && failure.visibility === visibility ? failure.error : null;
+  const error = failure && failure.slug === slug && failure.key === requestKey ? failure.error : null;
   return {
     model: current,
-    settled: current != null && current.requested === visibility,
+    settled: current != null && current.requestKey === requestKey,
     error,
+    requestKey,
     reload: useCallback(() => {
       setFailure(null);
       setNonce((value) => value + 1);

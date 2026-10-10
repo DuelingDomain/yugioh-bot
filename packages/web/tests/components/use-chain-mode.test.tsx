@@ -183,4 +183,16 @@ describe("useChainModeControl", () => {
     rerender({ ...initial, slug: "game-2", serverMode: "always" });
     await waitFor(() => expect(send).toHaveBeenCalledExactlyOnceWith("auto"));
   });
+
+  it("a fork neither restores nor stores this browser's remembered mode", async () => {
+    rememberChainMode("always");
+    const { result, send } = setup({ remember: false, serverMode: "auto" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(send).not.toHaveBeenCalled();
+    act(() => result.current!.onChange("off"));
+    await waitFor(() => expect(send).toHaveBeenCalledExactlyOnceWith("off"));
+    act(() => result.current!.onChange("auto"));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(loadRememberedChainMode()).toBe("always");
+  });
 });
