@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useContext, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   DuelAnswer,
   DuelCard,
@@ -11,6 +11,7 @@ import type {
 } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { searchDuelCards } from "./api";
+import { ForkSearchContext } from "./replay-fork-control";
 import { cardArtUrl, LOCATION_HAND, LOCATION_MZONE, zoneKey } from "./constants";
 import { stripCardsPerRow } from "./card-strip";
 import { nextEnabledIndex, rowStep } from "./multi-seat";
@@ -380,6 +381,7 @@ export function AnnounceSearch({
   onPick: (card: DuelCardInfo) => void;
 }) {
   const styles = useSkinStyles(baseStyles, "tray");
+  const fork = useContext(ForkSearchContext);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DuelCardInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -396,7 +398,7 @@ export function AnnounceSearch({
     let cancelled = false;
     const handle = window.setTimeout(() => {
       setSearching(true);
-      searchDuelCards(trimmed, slug)
+      searchDuelCards(trimmed, slug, fork)
         .then((data) => {
           if (cancelled) return;
           setResults(data.cards);
@@ -414,7 +416,7 @@ export function AnnounceSearch({
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [query, slug]);
+  }, [query, slug, fork]);
 
   return (
     <div className={styles.search}>

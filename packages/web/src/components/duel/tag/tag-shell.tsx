@@ -120,6 +120,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
     boardRef: roomBoardRef,
     preview = false,
     chainMode: chainModeProp = null,
+    noResultScreen = false,
     replay,
     replayCarry,
   } = props;
@@ -189,7 +190,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
     reducedMotion: controller.reducedMotion,
     board: boardRef,
   });
-  const showResult = !replay && !hideResult && resultReady && hasResult;
+  const showResult = !replay && !noResultScreen && !hideResult && resultReady && hasResult;
 
   // ---------- roof camera ----------
   const [camera, dispatchCamera] = useReducer(roofReducer, undefined, () =>
