@@ -26,6 +26,7 @@ import {
   useReplayController,
   useReplayData,
 } from "./replay-controller";
+import { ReplayOwnerTools, type OwnerViewState } from "./replay-fork-button";
 import { ReplayTag } from "./replay-tag";
 import { ReplayFfa, isFfaFormat } from "./replay-ffa";
 import { buildReplayTimeline, type ReplayLogEntry } from "./replay-timeline";
@@ -98,10 +99,17 @@ function ReplayBoard({ table, masterRule, camera, focusSeat, mySeat, playerName 
   );
 }
 
-export function DuelReplayView({ slug }: { slug: string }) {
+/**
+ * `canInspectSource` comes from the server page (the owner check). It only asks for the private replay and the
+ * owner controls; the routes check the owner list again and the answer must carry capabilities before any control shows.
+ */
+export function DuelReplayView({ slug, canInspectSource = false }: { slug: string; canInspectSource?: boolean }) {
   const [visibility, setVisibility] = useState<ReplayVisibility>("mine");
+  const [ownerView, setOwnerView] = useState<OwnerViewState>({ seat: null, reveal: false });
   const [notice, setNotice] = useState<string | null>(null);
-  const { model, settled, error } = useReplayData(slug, visibility);
+  const { model, settled, error, reload } = useReplayData(
+    slug, visibility, canInspectSource ? { enabled: true, ...ownerView } : null,
+  );
   const preferences = useDuelPreferences();
   const [focusChoice, setFocusChoice] = useState<number | null>(null);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
@@ -118,6 +126,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
 
   useEffect(() => {
     setVisibility("mine");
+    setOwnerView({ seat: null, reveal: false });
     setNotice(null);
     setFocusChoice(null);
     setInspect(null);
@@ -129,6 +138,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
     if (!error || !model) return;
     setNotice(replayFailure(error, "Could not switch the card view.").message);
     setVisibility(model.visibility);
+    setOwnerView({ seat: model.requestedView.seat, reveal: model.requestedView.reveal });
   }, [error, model]);
 
   const engine = useMemo(() => (timeline && timeline.length > 0 ? timeline.viewAt(index) : null), [timeline, index]);
@@ -147,9 +157,23 @@ export function DuelReplayView({ slug }: { slug: string }) {
     controller.pause();
     controller.resetEffects();
     setVisibility(next);
+    // The public view and "my cards" have no seat choice.
+    setOwnerView((value) => (value.seat == null ? value : { ...value, seat: null }));
   }
 
-  const awaiting = model != null && !settled && model.visibility !== visibility;
+  function changeOwnerView(next: OwnerViewState) {
+    if (next.seat === ownerView.seat && next.reveal === ownerView.reveal) return;
+    setInspect(null);
+    setHover(null);
+    setMobileInspect(false);
+    setNotice(null);
+    controller.pause();
+    controller.resetEffects();
+    if (next.seat != null) setVisibility("mine");
+    setOwnerView(next);
+  }
+
+  const awaiting = model != null && !settled && (model.visibility !== visibility || canInspectSource);
   if ((!model || awaiting) && !error) return <div className="p-6 text-sm text-text-secondary" aria-busy="true">Loading replay…</div>;
   if (error && !model) {
     const failure = replayFailure(error);
@@ -176,10 +200,15 @@ export function DuelReplayView({ slug }: { slug: string }) {
   }
 
   const session = model.session;
+  // Fail closed: the controls need both the page's owner hint and the capabilities the server put in this answer.
+  const ownerTools = canInspectSource && model.capabilities ? (
+    <ReplayOwnerTools slug={slug} model={model} frame={model.frames[index]} busy={!settled}
+      view={ownerView} onViewChange={changeOwnerView} onReload={reload} onPause={controller.pause} />
+  ) : null;
   // Tag draws the Rooftop table (four seats, team LP, shared Extra Monster zones) in its own page.
   if (session.format === "tag") {
     return <ReplayTag slug={slug} model={model} timeline={timeline} engine={engine} controller={controller}
-      visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} />;
+      visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} />;
   }
   const frame = timeline.frame(index);
   const domain = session.mode === "domain";
@@ -202,7 +231,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
     return (
       <ReplayFfa slug={slug} model={model} frames={model.frames} engine={engine} controller={controller} preferences={preferences}
         visibility={visibility} canSwitchCards={canSwitchCards} onVisibility={changeVisibility} notice={notice}
-        newLines={newLines} onCamera={() => { setInspect(null); setHover(null); setFocusChoice(null); }} />
+        newLines={newLines} onCamera={() => { setInspect(null); setHover(null); setFocusChoice(null); }} tools={ownerTools} />
     );
   }
 
@@ -379,6 +408,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
                     ))}
                   </div>
                 ) : null}
+                {ownerTools}
               </div>
               {notice ? <p role="alert" className={replayStyles.note}>{notice}</p> : null}
               {model.mySeat == null || model.visibility === "public"

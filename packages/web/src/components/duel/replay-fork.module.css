@@ -1,0 +1,79 @@
+/* Owner replay controls and the fork bar. They sit in the shell header (a --duel-unit scope), so sizes use it. */
+.group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: calc(30 * var(--duel-unit, 1px));
+  min-height: 30px;
+  padding: 0 calc(10 * var(--duel-unit, 1px));
+  border: 1px solid var(--duel-rule, #3a3348);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--duel-ink-2, #c5d0de);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.btn:hover:not(:disabled) { border-color: #c4a35a; color: var(--duel-ink, #f4edff); }
+.btn:focus-visible { outline: 2px solid #c4a35a; outline-offset: 2px; }
+.btn:disabled { cursor: default; opacity: 0.55; }
+.btn[aria-pressed="true"] { border-color: #8b5cf6; color: #f4edff; background: rgb(139 92 246 / 0.18); }
+.primary { border-color: #c4a35a; color: #f1e2b4; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: calc(26 * var(--duel-unit, 1px));
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid #8b5cf6;
+  border-radius: 6px;
+  color: #e4d6ff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.chips { display: inline-flex; gap: 4px; align-items: center; }
+.chip {
+  height: calc(28 * var(--duel-unit, 1px));
+  min-height: 28px;
+  min-width: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--duel-rule, #3a3348);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--duel-ink-2, #c5d0de);
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip:hover:not(:disabled) { color: var(--duel-ink, #f4edff); border-color: #c4a35a; }
+.chip:focus-visible { outline: 2px solid #c4a35a; outline-offset: 2px; }
+.chip:disabled { cursor: default; opacity: 0.55; }
+.chip[aria-pressed="true"] { border-color: #8b5cf6; color: #f4edff; background: rgb(139 92 246 / 0.24); }
+.chip[data-prompt="true"]::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #c4a35a; }
+.note { margin: 0; color: #9db0c4; font-size: 12px; max-width: 46ch; }
+.alert { margin: 0; color: #ffb4b4; font-size: 12px; max-width: 52ch; }
+.sheetBody { display: grid; gap: 14px; font-size: 14px; }
+.sheetBody label { display: grid; gap: 6px; }
+.sheetBody select { height: 38px; padding: 0 8px; border: 1px solid #61738b; border-radius: 6px; background: #142130; color: #e7edf6; }
+.sheetBody .check { display: flex; align-items: center; gap: 8px; }
+.sheetBody .hint { margin: 0; color: #9db0c4; font-size: 12px; }
+.sheetBody button.action {
+  justify-self: start; min-height: 38px; padding: 0 14px; border: 1px solid #61738b; border-radius: 6px;
+  background: #142130; color: #e7edf6; cursor: pointer;
+}
+.sheetBody button.action:hover:not(:disabled) { border-color: #c4a35a; }
+.sheetBody button.action:disabled { opacity: 0.55; cursor: default; }
+.sheetBody button.danger { border-color: #8f4a4a; color: #ffc9c9; }
+@media (max-width: 600px) {
+  .btn { padding: 0 8px; }
+  .btn .wide { display: none; }
+}
