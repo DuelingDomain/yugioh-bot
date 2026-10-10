@@ -75,7 +75,9 @@ export const DUEL_LIST_KEY = "/api/duels";
  * An ordinary table rejects both flags, so they are sent only after the room says it is a fork.
  */
 export interface ForkViewControl {
-  as: number;
+  /** Null follows the seat the engine waits on; the host picks it on every read. */
+  as: number | null;
+  /** Reveal hands is on at the host unless a view asks for off. */
   reveal: boolean;
 }
 
@@ -83,8 +85,8 @@ export function duelRoomKey(slug: string, spectate = false, fork: ForkViewContro
   const query = new URLSearchParams();
   if (spectate) query.set("spectate", "1");
   if (fork) {
-    query.set("as", String(fork.as));
-    query.set("reveal", fork.reveal ? "1" : "0");
+    if (fork.as != null) query.set("as", String(fork.as));
+    if (!fork.reveal) query.set("reveal", "0");
   }
   const text = query.toString();
   return `/api/duels/${slug}${text ? `?${text}` : ""}`;
@@ -163,11 +165,11 @@ export async function restartReplayFork(slug: string): Promise<ReceivedDuelRoom>
   ));
 }
 
-/** Fork creator only: end the fork. The source duel never changes. */
-export async function cancelReplayFork(slug: string): Promise<ReceivedDuelRoom> {
-  return withRoomReceivedAt(await parseBody<DuelRoom>(
+/** Fork creator only: end the fork. The source duel never changes. The host answers with the session only. */
+export async function cancelReplayFork(slug: string): Promise<{ session: DuelSession }> {
+  return parseBody<{ session: DuelSession }>(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/fork/cancel`, { method: "POST", cache: "no-store" }),
-  ));
+  );
 }
 
 /** A hint for the UI only: every owner route checks access again. Anything but a clear yes is no. */
