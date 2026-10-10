@@ -118,6 +118,8 @@ services:
     environment:
       - NODE_OPTIONS=--max-old-space-size=${STAGING_WEB_HEAP_MB:-384}
       - DATABASE_PATH=/app/data/bot.sqlite
+      - DRAFT_TEST_BOTS=${DRAFT_TEST_BOTS:-0}
+      - THEME_DRAFTS=${STAGING_THEME_DRAFTS:-1}
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET:?WS_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
       - DUEL_INTERNAL_URL=http://duel:4003

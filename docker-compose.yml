@@ -79,6 +79,7 @@ services:
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
       - DUEL_DATA_DIR=/app/data/duel-engine
+      - THEME_DRAFTS=${THEME_DRAFTS:-0}
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
       - DUEL_INTERNAL_URL=http://duel:4003

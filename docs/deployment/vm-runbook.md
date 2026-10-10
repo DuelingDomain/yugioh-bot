@@ -330,6 +330,7 @@ NEXTAUTH_SECRET=  # generate with: openssl rand -base64 32
 NEXTAUTH_URL=https://${SITE_DOMAIN}
 WEB_URL=https://${SITE_DOMAIN}
 
+THEME_DRAFTS=0
 WS_INTERNAL_SECRET=  # openssl rand -hex 32; same on web, bot, duel, ws
 BOT_ANNOUNCE_SECRET=  # openssl rand -hex 32
 DUEL_INTERNAL_SECRET=  # openssl rand -hex 32; same on web and duel
@@ -340,6 +341,15 @@ REMINDER_TIMEZONE=America/New_York
 ```
 
 After editing `.env`, recreate containers with `docker compose -f docker-compose.yml up -d`. `restart` does not re-read `.env`.
+
+| Environment variable | Default | Behavior |
+| --- | --- | --- |
+| `THEME_DRAFTS` | `0` for production web | Only `1`, `true` and `on` permit new theme drafts. The code default is off in every build. |
+| `STAGING_THEME_DRAFTS` | `1` for staging web | Sets web's `THEME_DRAFTS` in staging Compose. Use `0` to close new theme drafts there. |
+
+The owner keeps new production theme drafts closed for the alpha testers. Existing theme lobbies
+and active games can finish when the flag is off. Summary and deck export remain available.
+`GET /api/drafts` and `GET /api/cubes` return `themeDraftsEnabled` for browser create flows.
 
 ### Build & Run
 

@@ -9,6 +9,7 @@ import { cubeDraftTypeOf, parseCubeDraftType, setCubeDraftType } from "@/lib/cub
 import { checkDiscordWebAccess } from "@/lib/discord-web-access";
 import { ensureCatalogCards, parsePoolEntries } from "@/lib/cube-pool";
 import { prepareCubeListImport } from "@/lib/cube-list-import";
+import { themeDraftsEnabled } from "@/lib/theme-drafts";
 
 export const runtime = "nodejs";
 
@@ -102,7 +103,7 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ cubes });
+  return NextResponse.json({ cubes, themeDraftsEnabled: themeDraftsEnabled() });
 }
 
 export async function POST(request: Request) {
