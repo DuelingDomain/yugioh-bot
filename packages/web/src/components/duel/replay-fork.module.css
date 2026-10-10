@@ -66,14 +66,34 @@
 .sheetBody select { height: 38px; padding: 0 8px; border: 1px solid #61738b; border-radius: 6px; background: #142130; color: #e7edf6; }
 .sheetBody .check { display: flex; align-items: center; gap: 8px; }
 .sheetBody .hint { margin: 0; color: #9db0c4; font-size: 12px; }
-.sheetBody button.action {
+.sheetBody .action {
   justify-self: start; min-height: 38px; padding: 0 14px; border: 1px solid #61738b; border-radius: 6px;
   background: #142130; color: #e7edf6; cursor: pointer;
 }
-.sheetBody button.action:hover:not(:disabled) { border-color: #c4a35a; }
-.sheetBody button.action:disabled { opacity: 0.55; cursor: default; }
-.sheetBody button.danger { border-color: #8f4a4a; color: #ffc9c9; }
+.sheetBody .action:hover:not(:disabled) { border-color: #c4a35a; }
+.sheetBody .action:disabled { opacity: 0.55; cursor: default; }
+.sheetBody .danger { border-color: #8f4a4a; color: #ffc9c9; }
 @media (max-width: 600px) {
   .btn { padding: 0 8px; }
   .btn .wide { display: none; }
 }
+.result {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  max-width: min(92vw, 520px);
+  padding: 14px 18px;
+  border: 1px solid #8b5cf6;
+  border-radius: 10px;
+  background: rgb(10 14 24 / 0.94);
+  color: #f4edff;
+  text-align: center;
+}
+.result strong { font-size: 18px; }
+.result span { color: #c5d0de; font-size: 13px; }
+.result a { text-decoration: none; }
