@@ -53,7 +53,7 @@ export function ReplayForkBar({
   return (
     <span className={styles.group} data-replay-fork-bar>
       <strong className={styles.badge} title="A private copy. The source duel never changes.">
-        <GitFork size={13} aria-hidden /> Replay fork
+        <GitFork size={13} aria-hidden /> <span className={styles.badgeText}>Replay fork</span>
       </strong>
       <span className={styles.chips} role="group" aria-label="Acting seat">
         {fork.manualSeats.map((seat) => (
@@ -61,11 +61,12 @@ export function ReplayForkBar({
             data-prompt={waitingSeat === seat ? "true" : undefined}
             title={`Play as ${seatName(seat)}${waitingSeat === seat ? " (the engine waits for this seat)" : ""}`}
             disabled={disabled || !living.includes(seat)} onClick={() => onPickSeat(seat)}>
-            {seatName(seat)}
+            <span className={styles.full}>{seatName(seat)}</span>
+            <span className={styles.short} aria-hidden>{seat + 1}</span>
           </button>
         ))}
       </span>
-      <button type="button" className={styles.btn} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+      <button type="button" className={styles.btn} title="Fork controls" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
         <SlidersHorizontal size={14} aria-hidden /><span className={styles.wide}>Fork controls</span>
         <span className="sr-only">Fork controls</span>
       </button>

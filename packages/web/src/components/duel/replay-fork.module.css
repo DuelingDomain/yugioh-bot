@@ -37,7 +37,8 @@
   text-transform: uppercase;
   white-space: nowrap;
 }
-.chips { display: inline-flex; gap: 4px; align-items: center; }
+.chips { display: inline-flex; gap: 4px; align-items: center; min-width: 0; }
+.group[data-replay-fork-bar] { flex-wrap: nowrap; flex: 0 1 auto; }
 .chip {
   height: calc(28 * var(--duel-unit, 1px));
   min-height: 28px;
@@ -49,7 +50,8 @@
   color: var(--duel-ink-2, #c5d0de);
   font-size: 12px;
   cursor: pointer;
-  max-width: 120px;
+  max-width: 84px;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -73,10 +75,19 @@
 .sheetBody .action:hover:not(:disabled) { border-color: #c4a35a; }
 .sheetBody .action:disabled { opacity: 0.55; cursor: default; }
 .sheetBody .danger { border-color: #8f4a4a; color: #ffc9c9; }
+.short { display: none; }
 @media (max-width: 600px) {
+  .badgeText { display: none; }
+  .badge { padding: 0 6px; }
+  .chip { min-width: 26px; padding: 0 6px; }
+  .full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .short { display: inline; }
+  .chip[data-prompt="true"]::after { margin-left: 3px; }
   .btn { padding: 0 8px; }
   .btn .wide { display: none; }
 }
+.group[data-replay-fork-bar] .btn .wide { display: none; }
+.group[data-replay-fork-bar] .btn { padding: 0 8px; }
 .result {
   position: fixed;
   left: 50%;
