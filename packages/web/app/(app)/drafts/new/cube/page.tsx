@@ -1,3 +1,4 @@
+import { themeDraftsEnabled } from "@/lib/theme-drafts";
 import { CreateDraftForm } from "@/components/draft/create-draft-form";
 import { WorkbenchFrame } from "@/components/draft/setup/workbench";
 
@@ -8,7 +9,8 @@ export default function NewCubeDraftPage() {
   const discordEnabled = process.env.DISCORD_BOT_ENABLED === "1";
   return (
     <WorkbenchFrame
-      back={{ href: "/drafts/new", label: "New draft" }}
+      // With one kind of draft open, /drafts/new sends you here, so Back goes to the list.
+      back={themeDraftsEnabled() ? { href: "/drafts/new", label: "New draft" } : { href: "/drafts", label: "All drafts" }}
       title="New cube draft"
       sub="You get a lobby and an invite link."
     >

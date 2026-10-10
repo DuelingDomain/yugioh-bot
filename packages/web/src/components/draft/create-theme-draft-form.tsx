@@ -18,9 +18,11 @@ type Channel = { id: string; name: string };
 export interface CreateThemeDraftFormProps {
   /** The Discord bot is on. The server reads the flag; the form never reads the environment. When false there is no channel picker. Default on. */
   discordEnabled?: boolean;
+  /** The server says theme drafts are open. Closed, the form says so and cannot be sent. The page also redirects. Default closed. */
+  themeDraftsEnabled?: boolean;
 }
 
-export function CreateThemeDraftForm({ discordEnabled = true }: CreateThemeDraftFormProps = {}) {
+export function CreateThemeDraftForm({ discordEnabled = true, themeDraftsEnabled = false }: CreateThemeDraftFormProps = {}) {
   const router = useRouter();
   const [name, setName] = React.useState("");
   const [channelId, setChannelId] = React.useState("");
@@ -51,6 +53,7 @@ export function CreateThemeDraftForm({ discordEnabled = true }: CreateThemeDraft
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!themeDraftsEnabled) return;
     if (!name.trim()) {
       setError("Draft name is required");
       setNameError(true);
@@ -101,6 +104,11 @@ export function CreateThemeDraftForm({ discordEnabled = true }: CreateThemeDraft
   return (
     <DraftLayout as="form" onSubmit={handleSubmit}>
       <DraftMain>
+        {!themeDraftsEnabled && (
+          <div role="status" className={styles.alert}>
+            <StatusLine tone="neutral">Theme drafts are not open yet.</StatusLine>
+          </div>
+        )}
         {error && (
           <div role="alert" className={styles.alert}>
             <StatusLine tone="block">{error}</StatusLine>
@@ -269,7 +277,7 @@ export function CreateThemeDraftForm({ discordEnabled = true }: CreateThemeDraft
       <DraftRail
         aria-label="Draft summary"
         actions={
-          <SvButton type="submit" variant="primary" big wide disabled={submitting} aria-busy={submitting || undefined}>
+          <SvButton type="submit" variant="primary" big wide disabled={submitting || !themeDraftsEnabled} aria-busy={submitting || undefined}>
             Create theme draft
           </SvButton>
         }
