@@ -7,16 +7,22 @@ import { createDuelService } from "@yugidraft/shared/services";
 import { defaultDuelSettings, seatCountFor, type DuelEngineView } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
+import { chooseSurrenderedAnswer } from "../src/practice-bot.js";
 import { seedIdentity } from "./helpers/identity.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
-// CI can use its prepared bundle for both runs. Locally, select a second prepared source bundle.
+// Without DUEL_REPLAY_SOURCE_DATA_DIR, CI checks a changed label in one prepared bundle.
+// Set it to a second prepared source bundle to require different identities and verify the
+// original version without relabeling it. See docs/deployment/engine-data-updates.md.
+const TWO_BUNDLES = process.env.DUEL_REPLAY_SOURCE_DATA_DIR !== undefined;
 const SOURCE_DATA = resolve(process.env.DUEL_REPLAY_SOURCE_DATA_DIR ?? DATA);
+const POT_OF_GREED = 55144522;
 const secret = "real-cross-version-fixture", guildId = "real-replay-fixture";
 
-describeWithCores("real cross-version replay", [needs.cards(DATA), needs.scripts(DATA), needs.standard(DATA),
-  needs.installedMulti(DATA), needs.cards(SOURCE_DATA), needs.scripts(SOURCE_DATA), needs.standard(SOURCE_DATA),
+describeWithCores(TWO_BUNDLES ? "real cross-version replay (two bundles)" : "real cross-version replay (single-bundle label check)",
+  [needs.cards(DATA), needs.scripts(DATA, `official/c${POT_OF_GREED}.lua`), needs.standard(DATA),
+  needs.installedMulti(DATA), needs.cards(SOURCE_DATA), needs.scripts(SOURCE_DATA, `official/c${POT_OF_GREED}.lua`), needs.standard(SOURCE_DATA),
   needs.installedMulti(SOURCE_DATA), needs.file("engine manifest", join(DATA, "manifest.json"))], () => {
   it.each(["1v1", "ffa3"] as const)("verifies an original live %s engine win and refuses a changed board", async format => {
     const db = new Database(":memory:"); migrate(db);
@@ -32,7 +38,7 @@ describeWithCores("real cross-version replay", [needs.cards(DATA), needs.scripts
       db.prepare("delete from duel_seats where duel_id=?").run(session.id);
       for (const [seat, playerId] of players.entries()) db.prepare(
         "insert into duel_seats(duel_id,seat,player_id,is_bot,ready,deck_json) values(?,?,?,0,1,?)")
-        .run(session.id, seat, playerId, JSON.stringify({ main: Array(8).fill(46986414), extra: [], side: [] }));
+        .run(session.id, seat, playerId, JSON.stringify({ main: Array(20).fill(POT_OF_GREED), extra: [], side: [] }));
       const original = getCurrentEngineResources(SOURCE_DATA, { mode: "normal", format, engine: "pinned" });
       db.prepare("update duels set status='active',seed_json=?,bundle_version=?,setup_json=? where id=?")
         .run(JSON.stringify(["1", "2", "3", "4"]), original.bundleVersion,
@@ -46,22 +52,28 @@ describeWithCores("real cross-version replay", [needs.cards(DATA), needs.scripts
       };
       let room = await post({ op: "view" });
       expect(room.status, JSON.stringify(room.body)).toBe(200);
+      const activated = new Set<number>(), resolvedDraws = new Set<number>();
       for (let move = 0; move < 100 && room.body.session.status === "active"; move++) {
         const publicView = (await post({ op: "view", playerId: players[0] })).body.engine as DuelEngineView;
         const seat = publicView.prioritySeat ?? publicView.turnSeat;
         const own = await post({ op: "view", playerId: players[seat] });
         const view = own.body.engine as DuelEngineView, prompt = view.prompt;
         expect(prompt, `No prompt at move ${move}`).not.toBeNull();
-        const next = prompt!.options.find(option => option.id === "to_ep")
-          ?? prompt!.options.find(option => option.id === "to_m1" || option.id === "to_m2" || option.id === "no");
-        if (prompt!.kind !== "cards") expect(next, JSON.stringify(prompt)).toBeDefined();
-        const answer = prompt!.kind === "cards" ? { selected: prompt!.options.slice(0, prompt!.min ?? 1).map(option => option.id) }
-          : { choice: next!.id };
+        const effect = prompt!.kind === "choice" ? prompt!.options.find(option =>
+          option.id.startsWith("activate:") && option.card?.code === POT_OF_GREED) : undefined;
+        if (effect) activated.add(seat);
+        const answer = effect ? { choice: effect.id } : chooseSurrenderedAnswer(prompt!);
         room = await post({ op: "respond", playerId: players[seat], command: {
           revision: view.revision, promptId: prompt!.id, answer } });
         expect(room.status, JSON.stringify(room.body)).toBe(200);
+        // A two-card draw in Main Phase proves the Lua operation ran, beyond script loading.
+        if (view.phase === "main1") for (const before of view.seats) {
+          if (room.body.engine.seats[before.seat].deckCount === before.deckCount - 2) resolvedDraws.add(before.seat);
+        }
       }
       expect(room.body.session.status).toBe("completed");
+      expect([...activated].sort()).toEqual(players.map((_, seat) => seat));
+      expect([...resolvedDraws].sort()).toEqual(players.map((_, seat) => seat));
       const saved = service.privateState(session.slug, guildId);
       expect(saved.commands.length).toBeGreaterThan(8);
       expect(saved.session.winnerSeat).not.toBeNull();
@@ -76,9 +88,10 @@ describeWithCores("real cross-version replay", [needs.cards(DATA), needs.scripts
       expect(await post({ op: "replay", version: 2 })).toMatchObject({ status: 200, body: { verification: "exact" } });
       await host.close();
       const current = getCurrentEngineResources(DATA, { mode: "normal", format, engine: "pinned" });
-      if (SOURCE_DATA !== DATA) expect(current.identity).not.toEqual(original.identity);
+      if (TWO_BUNDLES) expect(current.identity, "Second-bundle mode requires distinct engine identities").not.toEqual(original.identity);
       host = createDuelHost({ db, dataDirectory: DATA, secret, searchCards: () => [], pollIntervalMs: 60_000 });
-      db.prepare("update duels set bundle_version='older-live-fixture-label' where id=?").run(session.id);
+      const sourceBundleVersion = TWO_BUNDLES ? original.bundleVersion : "older-live-fixture-label";
+      if (!TWO_BUNDLES) db.prepare("update duels set bundle_version=? where id=?").run(sourceBundleVersion, session.id);
       expect(await post({ op: "replay", version: 2 })).toMatchObject({ status: 200, body: { verification: "verified" } });
       expect(db.prepare("select result,reason from duel_replay_verifications where duel_id=?").get(session.id))
         .toEqual({ result: "verified", reason: null });
@@ -88,7 +101,7 @@ describeWithCores("real cross-version replay", [needs.cards(DATA), needs.scripts
         code: "REPLAY_UNVERIFIED", reason: "board_mismatch" } });
       expect(db.prepare("select result,reason from duel_replay_verifications where duel_id=?").get(session.id))
         .toEqual({ result: "unverified", reason: "board_mismatch" });
-      expect(service.privateState(session.slug, guildId).bundleVersion).toBe("older-live-fixture-label");
+      expect(service.privateState(session.slug, guildId).bundleVersion).toBe(sourceBundleVersion);
     } finally { await host?.close(); db.close(); }
   }, 30_000);
 });

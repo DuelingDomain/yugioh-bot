@@ -105,6 +105,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     // is the same FIRST_TURN_DRAW bit used before d4338a2 for Standard FFA and Domain 1v1/Tag.
     const game: EngineGame = await createEngineGame({ ...t.options, ...{ firstTurnDraw } });
     const history: DuelEngineView[][] = [];
+    let finalPublic: DuelEngineView;
     const commands: Array<{ seat: number; command: { promptId: string; revision: number; answer: { choice: string } } }> = [];
     try {
       if (saved) {
@@ -129,6 +130,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
         commands.push({ seat: actor, command });
       }
       history.push(Array.from({ length: t.count }, (_, viewer) => game.view(viewer)));
+      finalPublic = game.view(null);
     } finally { game.close(); }
     // Recovery creates a fresh real worker. A second recovery follows a stopped worker.
     for (let recovery = 0; recovery < 2; recovery++) {
@@ -139,7 +141,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       }
       await t.workers.at(-1)!.close();
     }
-    t.duels.interrupt(t.session.slug, "g", "Test finished");
+    t.duels.interrupt(t.session.slug, "g", "Test finished", { public: finalPublic!, seats: history.at(-1)! });
     for (let viewer = 0; viewer < t.count; viewer++) {
       const response = await t.post("replay", viewer);
       expect(response.status, response.data.error).toBe(200);
@@ -194,6 +196,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     const game = await createEngineGame({ ...t.options, firstTurnDraw });
     let initial: DuelEngineView[];
     let expected: DuelEngineView[];
+    let finalPublic: DuelEngineView;
     try {
       initial = Array.from({ length: t.count }, (_, viewer) => game.view(viewer));
       for (const view of initial) checkDraws(view, firstTurnDraw, 0);
@@ -204,13 +207,14 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       game.answer(0, command.promptId, command.answer);
       t.duels.recordCommand(t.session.slug, "g", 0, command, null);
       expected = Array.from({ length: t.count }, (_, viewer) => game.view(viewer));
+      finalPublic = game.view(null);
     } finally { game.close(); }
     for (let viewer = 0; viewer < t.count; viewer++) {
       const recovered = await t.post("view", viewer);
       expect(recovered.status, recovered.data.error).toBe(200);
       expect(recovered.data.engine).toEqual(expected[viewer]);
     }
-    t.duels.interrupt(t.session.slug, "g", "Test finished");
+    t.duels.interrupt(t.session.slug, "g", "Test finished", { public: finalPublic!, seats: expected! });
     for (let viewer = 0; viewer < t.count; viewer++) {
       const replay = await t.post("replay", viewer);
       expect(replay.status, replay.data.error).toBe(200);
@@ -232,7 +236,15 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     expect(t.changes).toEqual([{ slug: t.session.slug, guildId: "g", status: "interrupted" }]);
     const replay = await t.post("replay");
     expect(replay.status).toBe(409);
-    expect(replay.data.code).toBe("ENGINE_UNAVAILABLE_FOR_SOURCE");
+    expect(replay.data).toMatchObject({ code: "REPLAY_UNVERIFIED", reason: "no_saved_board" });
+    // The owner can bypass the missing-board check, but cannot bypass missing rules.
+    const { userId } = t.db.prepare("select user_id as userId from players where id=?").get(t.players[0]!) as { userId: number };
+    vi.stubEnv("OWNER_USER_IDS", String(userId));
+    const unchecked = await t.post("owner-replay", 0, { userId, unchecked: true });
+    expect(unchecked.status).toBe(409);
+    expect(unchecked.data.code).toBe("ENGINE_UNAVAILABLE_FOR_SOURCE");
+    expect(unchecked.data.error).toContain("first-turn draw rule was not saved");
+    expect(t.workers).toHaveLength(0);
     const dir = mkdtempSync(join(tmpdir(), "first-draw-missing-"));
     dirs.push(dir);
     const file = join(dir, "missing-rule.json");

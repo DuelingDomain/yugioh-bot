@@ -316,7 +316,7 @@ describe("server-recorded engine identity", () => {
     expect(t.duels.privateState(t.session.slug, "g1").bundleVersion).toBe(current.bundleVersion);
   });
 
-  it("replays an old source with current resources and keeps its saved final board", async () => {
+  it("verifies a null-identity source at the current label and keeps its saved final board", async () => {
     const t = await table("1v1");
     t.duels.activate(t.session.slug, "g1", t.player, ["1", "2", "3", "4"], MANIFEST.bundleVersion, null, { engine: "legacy" });
     const board = await new FakeWorker().view(null);
@@ -324,9 +324,10 @@ describe("server-recorded engine identity", () => {
     const before = t.db.prepare("select * from duels where id = ?").get(t.session.id);
     const replay = await post(t.host, { op: "replay", version: 2, ...t.organizer });
     expect(replay.status).toBe(200);
+    expect(replay.data.verification).toBe("verified");
     expect(replay.data.frames[0].cursor).toBeNull();
     expect(t.workers).toHaveLength(1);
-    expect(t.workers[0]!.created?.engineIdentity).toBeUndefined();
+    expect(t.workers[0]!.created?.engineIdentity).toEqual(getCurrentEngineResources(DATA, { mode: "normal", engine: "legacy" }).identity);
     expect(t.db.prepare("select * from duels where id = ?").get(t.session.id)).toEqual(before);
     expect(setupOf(t.duels, t.session.slug)?.engineIdentity).toBeUndefined();
     expect(t.duels.room(t.session.slug, "g1", t.player).engine).toMatchObject({ revision: board.revision, seats: board.seats });

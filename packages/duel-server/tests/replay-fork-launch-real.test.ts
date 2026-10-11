@@ -27,7 +27,10 @@ describeWithCores("real fork launch and copied-prefix restart", [needs.cards(DAT
   needs.installedMulti(DATA), needs.file("Domain multi core", join(DATA, "ocgcore.multi-domain.wasm")),
   needs.file("legacy Domain core", join(DATA, "ocgcore.domain.legacy.wasm")),
   needs.file("legacy Domain script", join(DATA, "card-scripts/domain.legacy.lua"))], () => {
-  it.each(cases.flatMap(test => [true, false].map(recordIdentity => ({ ...test, recordIdentity }))))("launches, answers, recovers and restarts $mode $format $engine (identity=$recordIdentity)", async ({ mode, format, engine, recordIdentity }) => {
+  it.each([
+    ...cases.flatMap(test => [true, false].map(recordIdentity => ({ ...test, recordIdentity, saveBoard: true }))),
+    { ...cases[0]!, recordIdentity: false, saveBoard: false },
+  ])("launches, answers, recovers and restarts $mode $format $engine (identity=$recordIdentity, board=$saveBoard)", async ({ mode, format, engine, recordIdentity, saveBoard }) => {
     vi.stubEnv("OWNER_USER_IDS", "101"); vi.stubEnv("MULTIPLAYER_TABLES", "1");
     const db = new Database(":memory:"); migrate(db);
     const owner = { guildId: "real-fork-test", playerId: 61, userId: 101 };
@@ -45,11 +48,11 @@ describeWithCores("real fork launch and copied-prefix restart", [needs.cards(DAT
     const changes: string[] = [];
     const startHost = () => host = createDuelHost({ db, dataDirectory: DATA, secret, searchCards: () => [],
       pollIntervalMs: 60_000, onChange: slug => { changes.push(slug); } });
-    async function post<T>(input: Record<string, unknown>): Promise<T> {
+    async function post<T>(input: Record<string, unknown>, expectedStatus = 200): Promise<T> {
       const raw = JSON.stringify({ ...owner, ...input });
       const response = await host!.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
         headers: { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
-      const data = await response.json(); expect(response.status, JSON.stringify(data)).toBe(200); return data as T;
+      const data = await response.json(); expect(response.status, JSON.stringify(data)).toBe(expectedStatus); return data as T;
     }
     try {
       await sourceWorker.create({ mode, format, decks, seed, dataDirectory: DATA, masterRule: session.masterRule,
@@ -57,7 +60,7 @@ describeWithCores("real fork launch and copied-prefix restart", [needs.cards(DAT
       db.prepare("delete from duel_seats where duel_id = ?").run(session.id);
       for (let seat = 0; seat < count; seat++) db.prepare("insert into duel_seats(duel_id,seat,player_id,ready,deck_json) values(?,?,?,1,?)")
         .run(session.id, seat, 64 + seat, JSON.stringify(decks[seat]));
-      db.prepare("update duels set status = 'interrupted', seed_json = ?, bundle_version = ?, setup_json = ? where id = ?")
+      db.prepare("update duels set status = 'active', seed_json = ?, bundle_version = ?, setup_json = ? where id = ?")
         .run(JSON.stringify(seed), resources.bundleVersion, JSON.stringify(setup), session.id);
       // Real saved commands use gapped database IDs and include a private no-op mode change.
       for (let step = 0; step < 3; step++) {
@@ -73,6 +76,11 @@ describeWithCores("real fork launch and copied-prefix restart", [needs.cards(DAT
       db.prepare("insert into duel_commands(duel_id,seq,seat,command_json) values(?,19,1,?)")
         .run(session.id, JSON.stringify({ promptId: "chain-mode:off", revision: beforeMode.revision, answer: {} }));
       await sourceWorker.setChainMode(1, "off");
+      // Save the real public and own-seat views through the normal terminal persistence path.
+      duels.interrupt(session.slug, owner.guildId, "Saved source", saveBoard ? {
+        public: await sourceWorker.view(null),
+        seats: await Promise.all(Array.from({ length: count }, (_, seat) => sourceWorker.view(seat))),
+      } : undefined);
       const state = duels.privateState(session.slug, owner.guildId);
       const source: ReplaySource = { session: state.session, setup: { engine, firstTurnDraw: setup.firstTurnDraw, scriptErrorMode: "strict" },
         engineIdentity: setup.engineIdentity ?? null, decks, seed, bundleVersion: state.bundleVersion!, commands: state.commands };
@@ -82,7 +90,21 @@ describeWithCores("real fork launch and copied-prefix restart", [needs.cards(DAT
       const before = [db.prepare("select * from duels where id = ?").get(session.id),
         db.prepare("select * from duel_commands where duel_id = ? order by seq").all(session.id), db.prepare("select * from players").all()];
       startHost();
-      const launch = await post<ReplayForkResult>({ op: "replay-fork", slug: session.slug, cursor, sourceVersion, requestId: "real-request-1" });
+      const request = { op: "replay-fork", slug: session.slug, cursor, sourceVersion, requestId: "real-request-1" };
+      if (!recordIdentity) {
+        const checked = await post(request, saveBoard ? 503 : 409);
+        expect(checked).toMatchObject(saveBoard ? { code: "REPLAY_VERIFIED_RETRY" }
+          : { code: "REPLAY_UNVERIFIED", reason: "no_saved_board" });
+        expect(db.prepare("select result,reason from duel_replay_verifications where duel_id=?").all(session.id))
+          .toEqual([saveBoard ? { result: "verified", reason: null } : { result: "unverified", reason: "no_saved_board" }]);
+        expect(db.prepare("select id from duels where kind='replay-fork'").all()).toEqual([]);
+        expect(db.prepare("select * from replay_fork_requests").all()).toEqual([]);
+        expect([db.prepare("select * from duels where id = ?").get(session.id),
+          db.prepare("select * from duel_commands where duel_id = ? order by seq").all(session.id), db.prepare("select * from players").all()]).toEqual(before);
+        expect(changes).toEqual([]);
+        if (!saveBoard) return;
+      }
+      const launch = await post<ReplayForkResult>(request);
       const forkSlug = launch.slug;
       expect(launch.room.mySeat).toBe(0); expect(launch.room.fork!.manualSeats).toHaveLength(count);
       expect(launch.room.fork!.chainModes).toEqual(Object.fromEntries(Array.from({ length: count }, (_, seat) => [seat, "always"])));
