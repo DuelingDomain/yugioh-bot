@@ -43,9 +43,10 @@ describe("POST /api/duels/[slug]/chain-mode", () => {
 
   it("lets a failed room lookup answer through duelErrorResponse", async () => {
     actor(() => { throw new Error("Duel not found"); });
-    host.duelErrorResponse.mockReturnValue(NextResponse.json({ error: "Duel not found" }, { status: 404 }));
+    host.duelErrorResponse.mockReturnValue(NextResponse.json({ error: "Not found", code: "ACCESS_DENIED" }, { status: 404 }));
     const response = await POST(request({ mode: "off" }), params);
     expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Not found", code: "ACCESS_DENIED" });
     expect(host.callDuelHost).not.toHaveBeenCalled();
   });
 

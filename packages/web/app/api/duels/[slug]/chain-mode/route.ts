@@ -17,11 +17,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400, headers: { "cache-control": "private, no-store" } });
   }
   const mode = body && typeof body === "object" ? (body as { mode?: unknown }).mode : undefined;
   if (!isDuelChainMode(mode)) {
-    return NextResponse.json({ error: "Choose Auto, Always or Off" }, { status: 400 });
+    return NextResponse.json({ error: "Choose Auto, Always or Off" }, { status: 400, headers: { "cache-control": "private, no-store" } });
   }
 
   let fork = false;
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const supplied = body as { revision?: unknown; promptId?: unknown };
       if (!Number.isSafeInteger(supplied.revision) || (supplied.revision as number) < 0
         || (supplied.promptId !== undefined && (typeof supplied.promptId !== "string" || !supplied.promptId || supplied.promptId.length > 200))) {
-        return NextResponse.json({ error: "Fork response changes require a valid revision and prompt" }, { status: 400 });
+        return NextResponse.json({ error: "Fork response changes require a valid revision and prompt" }, { status: 400, headers: { "cache-control": "private, no-store" } });
       }
       binding = { revision: supplied.revision as number, ...(supplied.promptId !== undefined ? { promptId: supplied.promptId as string } : {}) };
     }

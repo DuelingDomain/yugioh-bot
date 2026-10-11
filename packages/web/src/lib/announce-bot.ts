@@ -1,5 +1,5 @@
-import type { AnnouncePayload } from "@yugidraft/shared/notify";
-import { findDuelEventTarget } from "@yugidraft/shared/services";
+import { isDuelInviteReference, type AnnouncePayload } from "@yugidraft/shared/notify";
+import { DuelInviteRefusalError, findDuelEventTarget } from "@yugidraft/shared/services";
 import { isReplayFork } from "@yugidraft/shared/duels";
 import { getDb } from "./db";
 import { env } from "./env";
@@ -23,6 +23,15 @@ export function webBaseUrl(request?: Request): string {
 
 export function duelUrl(slug: string, request?: Request): string {
   return `${webBaseUrl(request)}/duels/${slug}`;
+}
+
+/** Check the URL before creation; the persisted target is checked when sending. */
+export function assertDuelInviteUrl(guildId: string, request?: Request): void {
+  // The generated id and slug do not exist yet. These placeholders validate the URL base.
+  const slug = "pending-duel";
+  if (!isDuelInviteReference({ duelId: 1, slug, guildId, url: duelUrl(slug, request) })) {
+    throw new DuelInviteRefusalError("Invalid duel invite reference");
+  }
 }
 
 /** Asks the bot to DM a duel invite and says whether the bot accepted it. Never throws; a failure is logged. */

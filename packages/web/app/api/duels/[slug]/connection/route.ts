@@ -32,7 +32,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
       room = result.data as DuelRoom;
     }
     if (!env.wsInternalSecret) {
-      return NextResponse.json({ error: "Realtime is unavailable" }, { status: 503 });
+      return NextResponse.json({ error: "Realtime is unavailable" }, { status: 503, headers: { "cache-control": "private, no-store" } });
     }
     const expiresAt = Date.now() + DUEL_CONNECTION_TTL_MS;
     const token = createDuelConnectionToken(
