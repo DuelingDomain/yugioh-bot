@@ -8,6 +8,7 @@ import { isEliminated } from "./multi-seat";
 import type { DuelPreferences } from "./preferences";
 import {
   SPEEDS,
+  stepButtonProps,
   createReadOnlyTableController,
   frameCaption,
   replayResultHeadline,
@@ -16,6 +17,7 @@ import {
   type ReplayModel,
 } from "./replay-controller";
 import type { ReplayLogEntry } from "./replay-timeline";
+import { ReplayStatus } from "./replay-status";
 import { TableShell } from "./table/table-shell";
 import type { ReplayShellMode } from "./table/types";
 import replayStyles from "./replay.module.css";
@@ -86,6 +88,7 @@ export function ReplayTableTransport({
           <span>{result.reason}</span>
         </div>
       ) : null}
+      <ReplayStatus playing={playing} index={index} last={last} caption={caption} />
       <div className={styles.top}>
         <span className={styles.say} aria-live="off" title={said ? `${caption}. ${said}` : caption}>
           <b>{caption}</b>{said ? <> · {said}</> : null}
@@ -95,17 +98,17 @@ export function ReplayTableTransport({
       <div className={styles.row}>
         <div className={replayStyles.buttons} role="group" aria-label="Replay controls">
           <button type="button" className={icon} aria-label="First move"
-            disabled={index === 0} onClick={() => controller.seek(0)}><SkipBack size={16} aria-hidden /></button>
+            {...stepButtonProps(index === 0, () => controller.seek(0))}><SkipBack size={16} aria-hidden /></button>
           <button type="button" className={icon} aria-label="Previous move"
-            disabled={index === 0} onClick={controller.stepBack}><ChevronLeft size={18} aria-hidden /></button>
+            {...stepButtonProps(index === 0, controller.stepBack)}><ChevronLeft size={18} aria-hidden /></button>
           <button type="button" className={`${icon} ${replayStyles.play}`}
             aria-label={playing ? "Pause" : "Play"} onClick={controller.togglePlay}>
             {playing ? <Pause size={18} aria-hidden /> : <Play size={18} aria-hidden />}
           </button>
           <button type="button" className={icon} aria-label="Next move"
-            disabled={atEnd} onClick={controller.stepForward}><ChevronRight size={18} aria-hidden /></button>
+            {...stepButtonProps(atEnd, controller.stepForward)}><ChevronRight size={18} aria-hidden /></button>
           <button type="button" className={icon} aria-label="Last move"
-            disabled={atEnd} onClick={() => controller.seek(last)}><SkipForward size={16} aria-hidden /></button>
+            {...stepButtonProps(atEnd, () => controller.seek(last))}><SkipForward size={16} aria-hidden /></button>
         </div>
         <label className={styles.speedField}>
           <span className="sr-only">Playback speed</span>

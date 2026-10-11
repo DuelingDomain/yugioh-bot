@@ -126,6 +126,27 @@ describe("useReplayController", () => {
     expect(result.current.index).toBe(0);
     document.body.innerHTML = "";
   });
+
+  it("leaves the arrow and Home/End keys to the log, the table panels and other regions", () => {
+    const { result } = setup();
+    document.body.insertAdjacentHTML("beforeend",
+      `<ol aria-label="Duel log"><li id="log-line" tabindex="0">line</li></ol>`
+      + `<nav data-table-chrome=""><button id="rail-btn">Rail</button></nav>`
+      + `<div role="region" aria-label="Card"><span id="in-region" tabindex="0">card</span></div>`
+      + `<button id="plain-btn">Plain</button>`);
+    const press = (id: string, keyName: string) => act(() => {
+      document.getElementById(id)!.dispatchEvent(new KeyboardEvent("keydown", { key: keyName, bubbles: true, cancelable: true }));
+    });
+    for (const id of ["log-line", "rail-btn", "in-region"]) {
+      press(id, "End");
+      press(id, "ArrowRight");
+    }
+    expect(result.current.index).toBe(0);
+    // A focused transport button still steps with the arrows.
+    press("plain-btn", "ArrowRight");
+    expect(result.current.index).toBe(1);
+    document.body.innerHTML = "";
+  });
 });
 
 describe("useReplayData", () => {

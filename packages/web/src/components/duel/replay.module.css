@@ -23,8 +23,8 @@
   background: #121822;
   color: #e7edf6;
 }
-.iconButton:hover:not(:disabled) { border-color: #d1ad6e; background: #2a2438; }
-.iconButton:disabled { color: #6d7a8a; cursor: default; }
+.iconButton:hover:not(:disabled):not([aria-disabled="true"]) { border-color: #d1ad6e; background: #2a2438; }
+.iconButton:disabled, .iconButton[aria-disabled="true"] { color: #6d7a8a; cursor: default; }
 .play { background: #352052; border-color: #b48bea; }
 .iconButton:focus-visible, .slider:focus-visible, .select:focus-visible, .link:focus-visible {
   outline: 2px solid #c4a35a;

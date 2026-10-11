@@ -8,6 +8,7 @@ import { useDuelPreferences } from "./preferences";
 import { useIsNarrow } from "./side-panel";
 import {
   SPEEDS,
+  stepButtonProps,
   createReadOnlyTableController,
   frameCaption,
   replayResultHeadline,
@@ -18,6 +19,7 @@ import {
 import type { ReplayTimeline } from "./replay-timeline";
 import { defaultTeamNames } from "./tag/live-tag";
 import { TagShell } from "./tag/tag-shell";
+import { ReplayStatus } from "./replay-status";
 import styles from "./replay-tag.module.css";
 
 const noop = () => undefined;
@@ -111,14 +113,15 @@ export function ReplayTag({ slug, model, timeline, engine, controller, visibilit
         )}
         {result ? <p className={styles.actor}>{actor}</p> : null}
       </div>
+      <ReplayStatus playing={playing} index={index} last={last} caption={actor} />
       <div className={styles.buttons} role="group" aria-label="Replay controls">
-        <button type="button" className={styles.icon} aria-label="First move" disabled={index === 0} onClick={() => controller.seek(0)}><SkipBack size={16} aria-hidden /></button>
-        <button type="button" className={styles.icon} aria-label="Previous move" disabled={index === 0} onClick={controller.stepBack}><ChevronLeft size={18} aria-hidden /></button>
+        <button type="button" className={styles.icon} aria-label="First move" {...stepButtonProps(index === 0, () => controller.seek(0))}><SkipBack size={16} aria-hidden /></button>
+        <button type="button" className={styles.icon} aria-label="Previous move" {...stepButtonProps(index === 0, controller.stepBack)}><ChevronLeft size={18} aria-hidden /></button>
         <button type="button" className={`${styles.icon} ${styles.play}`} aria-label={playing ? "Pause" : "Play"} onClick={controller.togglePlay}>
           {playing ? <Pause size={18} aria-hidden /> : <Play size={18} aria-hidden />}
         </button>
-        <button type="button" className={styles.icon} aria-label="Next move" disabled={atEnd} onClick={controller.stepForward}><ChevronRight size={18} aria-hidden /></button>
-        <button type="button" className={styles.icon} aria-label="Last move" disabled={atEnd} onClick={() => controller.seek(last)}><SkipForward size={16} aria-hidden /></button>
+        <button type="button" className={styles.icon} aria-label="Next move" {...stepButtonProps(atEnd, controller.stepForward)}><ChevronRight size={18} aria-hidden /></button>
+        <button type="button" className={styles.icon} aria-label="Last move" {...stepButtonProps(atEnd, () => controller.seek(last))}><SkipForward size={16} aria-hidden /></button>
       </div>
       <div className={styles.scrub}>
         <input type="range" className={styles.slider} aria-label="Replay position" min={0} max={last} step={1} value={index}

@@ -309,6 +309,14 @@ export function resolveFocusSeat(session: Pick<DuelSession, "format">, camera: n
   return opponentSeatsOf(session.format, camera)[0] ?? (camera === 0 ? 1 : 0);
 }
 
+/**
+ * Props for a step button at the end of the replay. It stays focusable (a `disabled` button drops keyboard focus
+ * to the page) and does nothing; the styles key on aria-disabled.
+ */
+export function stepButtonProps(disabled: boolean, onClick: () => void) {
+  return { "aria-disabled": disabled || undefined, onClick: disabled ? undefined : onClick } as const;
+}
+
 export type ReplayKeyAction = "toggle" | "next" | "previous" | "first" | "last";
 
 /** The keyboard map of the replay. Fields, dialogs and focused buttons keep their own keys. */
@@ -319,6 +327,8 @@ export function replayKeyAction(event: KeyboardEvent, doc: Pick<Document, "query
   if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || target?.isContentEditable) return null;
   // A dialog owns the keyboard, whether focus is inside it or still on the page behind it.
   if (target?.closest("[role='dialog']") || doc.querySelector("[role='dialog'][aria-modal='true']:not([inert])")) return null;
+  // The log and the table panels scroll with these keys; they are not the transport.
+  if (target?.closest("[data-table-chrome], [role='region'], [aria-label='Duel log']")) return null;
   switch (event.key) {
     case " ":
     case "Spacebar":
