@@ -289,3 +289,30 @@ it("keeps owner checkpoints even when a single final board exceeds the cap", asy
     expect(result.body.forkSteps?.filter(step => step.cursor !== null)).toHaveLength(3);
   } finally { encode.mockRestore(); }
 });
+
+it.each(["plain", "gzip", "deduped"])("reads %s final boards for result, admin reveal, bug context, and cache", async encoding => {
+  const { gzipSync } = await import("node:zlib");
+  const finalWorker = new ReplayWorker();
+  await finalWorker.create({ mode: "normal", decks: replaySource().decks, seed: replaySource().seed, dataDirectory: dir });
+  const publicBoard = { ...await finalWorker.view(null), revision: 100, turn: 12, log: [{ id: 1, text: "Final public log" }], result: { winnerSeat: 0, reason: "Finished" } };
+  const own = await Promise.all([finalWorker.view(0), finalWorker.view(1)]);
+  const encode = (v: unknown) => encoding === "plain" ? JSON.stringify(v) : gzipSync(JSON.stringify(v));
+  db.prepare("update duels set snapshot_public_json=?,snapshot_seat0_json=?,snapshot_seat1_json=?,snapshot_seats_json=? where web_slug=?")
+    .run(encode(publicBoard), encoding === "deduped" ? null : encode(own[0]), encoding === "deduped" ? null : encode(own[1]), encoding === "deduped" ? encode(own) : null, slug);
+  const result = await post({ version: 2, visibility: "public" });
+  expect(result.response.status).toBe(200);
+  expect(result.body.frames.at(-1)?.view).toMatchObject({ turn: 12, result: publicBoard.result });
+  const reveal = await post({ op: "owner-replay", ...owner, reveal: true });
+  expect(reveal.response.status).toBe(200);
+  expect(reveal.body.frames.at(-1)?.view.seats.map(s => s.hand[0]?.code)).toEqual([900, 901]);
+  const bug = await post({ op: "bug-context" });
+  expect(bug.response.status).toBe(200);
+  expect(bug.body).toMatchObject({ turn: 12, log: ["Final public log"] });
+  const count = workers.length;
+  await post({ version: 2, visibility: "public" });
+  expect(workers).toHaveLength(count);
+  db.prepare("update duels set snapshot_public_json=? where web_slug=?").run(encode({ ...publicBoard, turn: 13 }), slug);
+  const changed = await post({ version: 2, visibility: "public" });
+  expect(workers).toHaveLength(count + 1);
+  expect(changed.body.frames.at(-1)?.view.turn).toBe(13);
+});

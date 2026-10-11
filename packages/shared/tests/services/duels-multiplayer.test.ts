@@ -282,3 +282,15 @@ describe("migration of old rows", () => {
     expect(state.setup).toBeUndefined();
   });
 });
+
+it("opens gzip public and deduped own-seat boards in a finished room", async () => {
+  const { gzipSync } = await import("node:zlib");
+  const { db, duels, ids } = setup();
+  const session = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "Compressed", mode: "normal", format: "ffa4" });
+  for (let seat = 1; seat < 4; seat++) duels.takeSeat(session.slug, "g1", ids[seat]!);
+  db.prepare("update duels set status='completed',snapshot_public_json=?,snapshot_seats_json=? where id=?")
+    .run(gzipSync(JSON.stringify(view(4, 10))), gzipSync(JSON.stringify([0, 1, 2, 3].map(seat => view(4, 20 + seat)))), session.id);
+  for (let seat = 0; seat < 4; seat++) expect(duels.room(session.slug, "g1", ids[seat]!).engine?.revision).toBe(20 + seat);
+  expect(duels.room(session.slug, "g1", ids[4]!).engine?.revision).toBe(10);
+  db.close();
+});

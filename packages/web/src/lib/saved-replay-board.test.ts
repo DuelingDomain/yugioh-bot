@@ -128,3 +128,29 @@ it.each(["completed", "interrupted", "cancelled"])("opens another player's priva
   expect(body.engine.seats.map((seat: any) => seat.hand[0].code)).toEqual([undefined, undefined]);
   expect(routeState.fetch).not.toHaveBeenCalled();
 });
+
+it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("reads plain and gzip deduped %s fallback boards and all-seat reveal", async format => {
+  const { gzipSync } = await import("node:zlib");
+  const { storedBoardFixture } = await import("../../../shared/tests/helpers/stored-board");
+  const input = await fixture();
+  const publicBoard = storedBoardFixture(format);
+  const seats = publicBoard.seats.map(s => storedBoardFixture(format, s.seat));
+  // The accessor is exercised through the route's saved-board response contract.
+  for (const compressed of [false, true]) {
+    const encode = (value: unknown) => compressed ? gzipSync(JSON.stringify(value)) : JSON.stringify(value);
+    input.db.prepare("update duels set snapshot_public_json=?,snapshot_seats_json=?,snapshot_seat0_json=null,snapshot_seat1_json=null where id=?")
+      .run(encode(publicBoard), encode(seats), input.session.id);
+    const mine = await savedReplayBoardResponse(tooLarge(), { ...input, owner: false });
+    expect((await mine!.json()).frames[0].view.seats.map((s: any) => s.hand[0].code)).toEqual(seats.map((_, seat) => seat === 0 ? 1000 : undefined));
+    const revealed = await savedReplayBoardResponse(tooLarge(), { ...input, owner: true, reveal: true, seat: seats.length - 1 });
+    expect((await revealed!.json()).frames[0].view.seats.map((s: any) => s.hand[0].code)).toEqual(seats.map((_, seat) => 1000 + seat * 7));
+  }
+});
+
+it("opens the stored result when source engine resources are unavailable", async () => {
+  const input = await fixture();
+  const response = NextResponse.json({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE", error: "Historical engine is unavailable." }, { status: 409 });
+  const fallback = await savedReplayBoardResponse(response, { ...input, owner: false });
+  expect(fallback?.status).toBe(200);
+  expect((await fallback!.json()).replayError.code).toBe("ENGINE_UNAVAILABLE_FOR_SOURCE");
+});

@@ -1,3 +1,4 @@
+import { readStoredBoard, freezeStoredBoard, encodeStoredSnapshot, type StoredSnapshot } from "./stored-duel-snapshots.js";
 import type { DuelScriptErrorMode } from "../duels/index.js";
 import type Database from "better-sqlite3";
 import { generateWebSlug } from "../util/web-slug.js";
@@ -272,10 +273,10 @@ type DuelRow = {
   winner_player_id: number | null;
   winner_seat: number | null;
   result_reason: string | null;
-  snapshot_public_json: string | null;
-  snapshot_seat0_json: string | null;
-  snapshot_seat1_json: string | null;
-  snapshot_seats_json?: string | null;
+  snapshot_public_json: StoredSnapshot;
+  snapshot_seat0_json: StoredSnapshot;
+  snapshot_seat1_json: StoredSnapshot;
+  snapshot_seats_json?: StoredSnapshot;
   format?: string | null;
   setup_json?: string | null;
   settings_json: string | null;
@@ -378,39 +379,6 @@ function parseSeed(raw: string | null): string[] | null {
     return seed;
   } catch {
     return null;
-  }
-}
-
-function parseEngineView(raw: string | null): DuelEngineView | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as DuelEngineView;
-    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.seats)) return null;
-    return { ...parsed, prompt: null, prioritySeat: null };
-  } catch {
-    return null;
-  }
-}
-
-function freezeSnapshot(
-  view: DuelEngineView,
-  result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string },
-): string {
-  const frozen: DuelEngineView = { ...view, prompt: null, prioritySeat: null, result };
-  return JSON.stringify(frozen);
-}
-
-function parseSeatSnapshots(raw: string | null | undefined): Array<DuelEngineView | null> {
-  if (!raw) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((entry) => {
-      if (!entry || typeof entry !== "object" || !Array.isArray((entry as DuelEngineView).seats)) return null;
-      return { ...(entry as DuelEngineView), prompt: null, prioritySeat: null };
-    });
-  } catch {
-    return [];
   }
 }
 
@@ -529,16 +497,6 @@ function rowFormat(row: Pick<DuelRow, "format">): DuelFormat {
   const value = row.format ?? DEFAULT_DUEL_FORMAT;
   if (!isDuelFormat(value)) throw new DuelServiceError("Duel record is invalid", 500);
   return value;
-}
-
-function snapshotForRole(row: DuelRow, mySeat: number | null): DuelEngineView | null {
-  if (mySeat !== null) {
-    const fromList = parseSeatSnapshots(row.snapshot_seats_json)[mySeat];
-    if (fromList) return fromList;
-  }
-  if (mySeat === 0) return parseEngineView(row.snapshot_seat0_json);
-  if (mySeat === 1) return parseEngineView(row.snapshot_seat1_json);
-  return parseEngineView(row.snapshot_public_json);
 }
 
 function mapSeat(row: SeatRow): DuelSeat {
@@ -1221,7 +1179,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         reason,
       };
       if (format === "tag") result.winnerTeam = winnerTeam;
-      const publicJson = snapshots ? freezeSnapshot(snapshots.public, result) : null;
+      const publicJson = snapshots ? freezeStoredBoard(snapshots.public, result) : null;
       const seatCount = seatCountFor(rowFormat(row));
       const seatViews: Array<DuelEngineView | undefined> = [];
       for (let index = 0; index < seatCount; index += 1) {
@@ -1229,10 +1187,10 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       }
       const seatsJson =
         snapshots && seatCount > 2 && seatViews.every((view) => view)
-          ? JSON.stringify(seatViews.map((view) => JSON.parse(freezeSnapshot(view as DuelEngineView, result)) as unknown))
+          ? encodeStoredSnapshot(seatViews.map((view) => JSON.parse(freezeStoredBoard(view as DuelEngineView, result)) as unknown))
           : null;
-      const seat0Json = !seatsJson && seatViews[0] ? freezeSnapshot(seatViews[0], result) : null;
-      const seat1Json = !seatsJson && seatViews[1] ? freezeSnapshot(seatViews[1], result) : null;
+      const seat0Json = !seatsJson && seatViews[0] ? freezeStoredBoard(seatViews[0], result) : null;
+      const seat1Json = !seatsJson && seatViews[1] ? freezeStoredBoard(seatViews[1], result) : null;
       const turnCount = [snapshots?.public.turn, ...seatViews.map(view => view?.turn), parseStoredDuelClock(row.clock_json)?.turn]
         .find(turn => typeof turn === "number" && Number.isSafeInteger(turn) && turn >= 0) ?? null;
 
@@ -1444,7 +1402,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       const role: DuelActorRole = seated ? "player" : "spectator";
       const mySeat = seated ? seated.seat : null;
       const terminal = isTerminalStatus(session.status);
-      const engine = terminal ? snapshotForRole(row, mySeat) : null;
+      const engine = terminal ? readStoredBoard(row, mySeat) : null;
       const room: DuelRoom = {
         session,
         role,

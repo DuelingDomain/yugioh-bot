@@ -1,3 +1,4 @@
+import { readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, type StoredDuelBoards } from "@yugidraft/shared/services";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
@@ -1504,10 +1505,10 @@ export function createDuelHost(options: {
         room.engine = await game.view(null);
       } else {
         // Keep the seat record for standings; the saved public view has spectator privacy.
-        const saved = options.db.prepare<[string, string], { snapshot_public_json: string | null }>(
+        const saved = options.db.prepare<[string, string], StoredDuelBoards>(
           "select snapshot_public_json from duels where web_slug = ? and guild_id = ?",
         ).get(slug, guildId);
-        room.engine = saved?.snapshot_public_json ? JSON.parse(saved.snapshot_public_json) as DuelEngineView : null;
+        room.engine = readStoredBoard(saved, null);
       }
       room.role = "spectator";
       room.mySeat = null;
@@ -1522,21 +1523,11 @@ export function createDuelHost(options: {
     return room;
   }
 
-  /** Stored projections are read only after ordinary room or privileged source access succeeds. */
+  /** Stored projections are read only after source access succeeds. */
   function savedReplayBoard(slug: string, guildId: string, dataSeat: number | null): DuelEngineView | null {
-    const row = options.db.prepare<[string, string], {
-      snapshot_public_json: string | null; snapshot_seat0_json: string | null;
-      snapshot_seat1_json: string | null; snapshot_seats_json: string | null;
-    }>("select snapshot_public_json, snapshot_seat0_json, snapshot_seat1_json, snapshot_seats_json from duels where web_slug = ? and guild_id = ?").get(slug, guildId);
-    if (!row) return null;
-    try {
-      if (dataSeat !== null && row.snapshot_seats_json) {
-        const seats: unknown = JSON.parse(row.snapshot_seats_json);
-        if (Array.isArray(seats) && seats[dataSeat]) return seats[dataSeat] as DuelEngineView;
-      }
-      const raw = dataSeat === 0 ? row.snapshot_seat0_json : dataSeat === 1 ? row.snapshot_seat1_json : row.snapshot_public_json;
-      return raw ? JSON.parse(raw) as DuelEngineView : null;
-    } catch { return null; }
+    const row = options.db.prepare<[string, string], StoredDuelBoards>(
+      `select ${STORED_BOARD_COLUMNS} from duels where web_slug = ? and guild_id = ?`).get(slug, guildId);
+    return readStoredBoard(row, dataSeat);
   }
 
   interface ReplayProjection {
@@ -1547,17 +1538,10 @@ export function createDuelHost(options: {
     ownerUserId?: number;
   }
 
-  /** Hash the already-stored JSON bytes; never stringify a potentially large final board for a cache key. */
   function savedReplayBoardStamp(slug: string, guildId: string, dataSeat: number | null, reveal?: boolean): string {
-    const row = options.db.prepare<[string, string], {
-      snapshot_public_json: string | null; snapshot_seat0_json: string | null;
-      snapshot_seat1_json: string | null; snapshot_seats_json: string | null;
-    }>("select snapshot_public_json, snapshot_seat0_json, snapshot_seat1_json, snapshot_seats_json from duels where web_slug = ? and guild_id = ?").get(slug, guildId);
-    const hash = createHash("sha256");
-    const selected = !row ? [] : reveal ? Object.values(row) : dataSeat === null ? [row.snapshot_public_json]
-      : [row.snapshot_seats_json, dataSeat === 0 ? row.snapshot_seat0_json : dataSeat === 1 ? row.snapshot_seat1_json : null];
-    for (const raw of selected) hash.update(raw ?? "null").update("\0");
-    return hash.digest("hex");
+    const row = options.db.prepare<[string, string], StoredDuelBoards>(
+      `select ${STORED_BOARD_COLUMNS} from duels where web_slug = ? and guild_id = ?`).get(slug, guildId);
+    return storedBoardStamp(row, dataSeat, reveal);
   }
 
   async function replay(slug: string, guildId: string, room: DuelRoom,
@@ -2074,10 +2058,10 @@ export function createDuelHost(options: {
         view = lastViews.get(slug)?.get(-1) ?? null;
       }
     } else if (room.session.status === "completed" || room.session.status === "interrupted") {
-      const saved = options.db.prepare<[string, string], { snapshot_public_json: string | null }>(
+      const saved = options.db.prepare<[string, string], StoredDuelBoards>(
         "select snapshot_public_json from duels where web_slug = ? and guild_id = ?",
       ).get(slug, guildId);
-      try { view = saved?.snapshot_public_json ? JSON.parse(saved.snapshot_public_json) as DuelEngineView : null; } catch { view = null; }
+      view = readStoredBoard(saved, null);
     }
     if (!view) return out;
     const gone = live?.surrendered ?? new Set<number>();
