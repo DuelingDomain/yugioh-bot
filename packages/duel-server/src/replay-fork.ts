@@ -61,9 +61,9 @@ interface ForkLaunchOptions {
   db: Database.Database;
   codec: ReplayCursorCodec;
   sourceOf: (state: DuelPrivateState) => ReplaySource;
-  resourcesOf: (state: DuelPrivateState) => JournalResources | Promise<JournalResources>;
+  resourcesOf: (state: DuelPrivateState, purpose: "launch" | "restart") => JournalResources | Promise<JournalResources>;
   /** Check the complete source, with the shared bounded replay build, before a prefix can be forked. */
-  authorizeSource?: (state: DuelPrivateState, actor: OwnerPlayerActor, unchecked: boolean, signal?: AbortSignal) => Promise<void>;
+  authorizeSource?: (state: DuelPrivateState, actor: OwnerPlayerActor, unchecked: boolean, signal?: AbortSignal) => Promise<JournalResources>;
   /** Recorder is disabled until persistence. The closure supplies the new fork ID after commit. */
   createWorker: (duelId: () => number | undefined) => DuelGameWorker;
   /** All engine reads finish before commit. Handoff has no asynchronous failure window. */
@@ -96,8 +96,9 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
   };
 
   async function detached(actor: OwnerPlayerActor, state: DuelPrivateState, prefixCount: number,
-    target: { revision: number } | undefined, save: (defaults: Array<{ seat: number; command: DuelCommand }>, resources: JournalResources) => { session: DuelSession; reused: boolean },
-    enforceActive: boolean, restore?: () => void, signal?: AbortSignal): Promise<DuelRoom> {
+    target: { revision: number } | undefined, save: (defaults: Array<{ seat: number; command: DuelCommand }>, resources: JournalResources,
+      rules: JournalRunResult["creationRules"]) => { session: DuelSession; reused: boolean },
+    enforceActive: boolean, restore?: () => void, signal?: AbortSignal, selectedResources?: JournalResources): Promise<DuelRoom> {
     signal?.throwIfAborted();
     const release = reserve(actor, enforceActive);
     let worker: DuelGameWorker | undefined, committed: DuelSession | undefined, recorderId: number | undefined;
@@ -109,7 +110,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
     };
     const work = async () => {
       const source = options.sourceOf(state);
-      const resources = await options.resourcesOf(state); check();
+      const resources = selectedResources ?? await options.resourcesOf(state, restore ? "restart" : "launch"); check();
       const result: JournalRunResult = await runJournalPrefix({ source, resources, prefixCount, target,
         manualLossAnswersAfter: prefixCount,
         createWorker: () => (worker = options.createWorker(() => recorderId)) });
@@ -130,7 +131,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
       }
       if (views.some(view => view.result)) throw new ReplayForkLaunchError("This checkpoint has no playable engine state.", "NOT_PLAYABLE");
       check();
-      const saved = save(defaults, resources);
+      const saved = save(defaults, resources, result.creationRules);
       if (saved.reused) {
         await worker!.close(); worker = undefined;
         check(); return options.room(saved.session.slug, actor);
@@ -202,12 +203,12 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
       const claims = resolveReplayCursor(options.codec, request.cursor, source);
       if (claims.sourceVersion !== request.sourceVersion) throw new ReplayCursorError("SOURCE_CHANGED");
       if (claims.frameId !== replayFrameId(claims.sourceVersion, claims.step)) throw new ReplayCursorError("INVALID_CURSOR");
-      await options.authorizeSource?.(state, actor, request.unchecked === true, signal);
+      const resources = await options.authorizeSource?.(state, actor, request.unchecked === true, signal);
       signal?.throwIfAborted();
       const origin = { sourceSlug: slug, sourceVersion: claims.sourceVersion, frameId: claims.frameId, step: claims.step,
         prefixCount: claims.prefixCount, prefixHash: hashReplayForkPrefix(source.commands.slice(0, claims.prefixCount)),
         sourceSeats: source.session.seats.map(s => ({ seat: s.seat, displayName: s.displayName })) };
-      const room = await detached(actor, state, claims.prefixCount, { revision: claims.revision }, (defaults, resources) => db.transaction(() => {
+      const room = await detached(actor, state, claims.prefixCount, { revision: claims.revision }, (defaults, resources, rules) => db.transaction(() => {
         const savedRetry = store.retry({ actor, requestId: request.requestId, sourceSlug: slug, sourceVersion: request.sourceVersion, cursorDigest });
         if (savedRetry) return savedRetry;
         assertOwnerReplaySourceAccess(db, slug, actor);
@@ -219,11 +220,11 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
           throw new ReplayForkLaunchError("Replay fork limit reached. Cancel a fork and try again.", "FORK_LIMIT");
         }
         const saved = store.create({ actor, requestId: request.requestId, cursorDigest, source, origin,
-          ...(resources.engineIdentity ? { resources: { engineIdentity: resources.engineIdentity,
+          ...(resources.engineIdentity ? { resources: { ...rules, engineIdentity: resources.engineIdentity,
             bundleVersion: pinnedEngineVersion(resources.bundleVersion, source.decks.length, resources.engineIdentity.multiOverlayHash) } } : {}) });
         if (!saved.reused) for (const { seat, command } of defaults) duels.recordCommand(saved.session.slug, actor.guildId, seat, command, null);
         return saved;
-      }).immediate(), true, undefined, signal);
+      }).immediate(), true, undefined, signal, resources);
       return { slug: room.session.slug, sourceFrameId: claims.frameId, initialSeat: room.fork!.actingSeat, room };
     },
     async restart(slug: string, actor: OwnerPlayerActor, signal?: AbortSignal): Promise<DuelRoom> {

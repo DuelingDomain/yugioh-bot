@@ -62,6 +62,8 @@ export interface JournalRunOptions {
 }
 
 export interface JournalRunResult {
+  /** Persist these resolved historical defaults when pinning a new fork identity. */
+  creationRules: { firstTurnDraw: boolean; scriptErrorMode: "strict" | "tolerant" };
   worker: DuelGameWorker;
   prefixCount: number;
   views: JournalTargetViews;
@@ -190,7 +192,8 @@ export async function runJournalPrefix(options: JournalRunOptions): Promise<Jour
     const stateDigest = createHash("sha256").update(JSON.stringify(canonical(views))).digest("hex");
     if (options.target && (views.public.revision !== options.target.revision
       || (options.target.stateDigest !== undefined && stateDigest !== options.target.stateDigest))) mismatch("Journal replay did not reproduce the selected target state");
-    return { worker, prefixCount: options.prefixCount, views, stateDigest };
+    return { worker, prefixCount: options.prefixCount, views, stateDigest,
+      creationRules: { firstTurnDraw: created.firstTurnDraw!, scriptErrorMode: created.scriptErrorMode! } };
   } catch (error) {
     const code = stage === "command" && worker.running ? "REPLAY_MISMATCH" : "ENGINE_BUSY";
     try { await worker.close(); } catch { /* Keep the original failure if the worker already exited. */ }

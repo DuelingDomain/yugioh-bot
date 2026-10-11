@@ -106,7 +106,8 @@ describe("current engine identity", () => {
     }
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
     // Cross-version verification adds an explicit resource authorization policy.
-    // Engine command application and Manual loss timing are unchanged, so duel-rules-2 stays intact.
+    // Resolved creation rules are returned as metadata for new fork storage. Engine command
+    // application and Manual loss timing are unchanged, so duel-rules-2 stays intact.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 

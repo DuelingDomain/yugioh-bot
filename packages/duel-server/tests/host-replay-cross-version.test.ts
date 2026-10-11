@@ -7,9 +7,11 @@ import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
-import type { DuelEngineView, EngineIdentity } from "@yugidraft/shared/duels";
+import { seatCountFor, type DuelEngineView, type EngineIdentity } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { EngineResourceCache } from "../src/engine-resource-cache.js";
+import { EngineResourceUnavailableError } from "../src/engine-resource-resolver.js";
+import { multiScriptsFolderHash, pinnedEngineVersion, repoMultiScriptsDirectory } from "../src/multi-scripts.js";
 import { seedIdentity } from "./helpers/identity.js";
 import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
 
@@ -155,8 +157,9 @@ it("reports owner availability as false if the owner is revoked during a failed 
     body: { code: "REPLAY_UNVERIFIED", canOpenUnchecked: false, reason: "board_mismatch" } });
 });
 it("keeps a missing-core failure separate from an unverified replay", async () => {
-  cross(); vi.mocked(EngineResourceCache.prototype.get).mockRejectedValueOnce(new Error("private resource path"));
+  cross(); vi.mocked(EngineResourceCache.prototype.get).mockRejectedValueOnce(new EngineResourceUnavailableError("the source core is not installed"));
   const result = await post();
+  expect(result).toMatchObject({ status: 409, body: { code: "ENGINE_UNAVAILABLE_FOR_SOURCE", finalBoard: "available" } });
   expect(result.body).not.toHaveProperty("frames"); expect(JSON.stringify(result.body)).not.toContain("private resource path");
   expect(workers).toHaveLength(0); expect(checks()).toEqual([]);
 });
@@ -185,4 +188,77 @@ it("refuses an unverified fork unless the owner explicitly requests unchecked", 
   expect(db.prepare("select * from replay_fork_requests").all()).toEqual([]);
   expect((await post({ ...input, unchecked: true })).status).toBe(200);
   expect((await post({ ...input, unchecked: true, playerId: 64, userId: 201, requestId: "member-fork" })).status).toBe(403);
+});
+it("pins the verified resource selection through detached fork launch", async () => {
+  cross(); const replay = await post({ op: "owner-replay", ...owner });
+  let reads = 0;
+  vi.mocked(EngineResourceCache.prototype.get).mockImplementation(async () => ({ dataDirectory: dir,
+    bundleVersion: "test-bundle", rawBundleVersion: "test-bundle",
+    identity: ++reads === 1 ? identity : { ...identity, cardDatabaseHash: "e".repeat(64) } }));
+  const result = await post({ op: "replay-fork", ...owner, cursor: replay.body.frames[1].cursor,
+    sourceVersion: replay.body.sourceVersion, requestId: "resource-race" });
+  expect(result.status).toBe(200);
+  expect(workers.at(-1)!.created?.engineIdentity).toEqual(identity);
+  expect(createDuelService(db).privateState(result.body.slug, owner.guildId).setup?.engineIdentity).toEqual(identity);
+  expect(reads).toBe(1);
+});
+it("keeps restart pinned to the fork's stored identity after current resources change", async () => {
+  cross(); const replay = await post({ op: "owner-replay", ...owner });
+  const result = await post({ op: "replay-fork", ...owner, cursor: replay.body.frames[1].cursor,
+    sourceVersion: replay.body.sourceVersion, requestId: "pinned-restart" });
+  expect(result.status).toBe(200);
+  const before = createDuelService(db).privateState(result.body.slug, owner.guildId);
+  currentBundleVersion = "next-bundle";
+  expect(await post({ op: "fork-restart", slug: result.body.slug, ...owner })).toMatchObject({ status: 409,
+    body: { code: "ENGINE_UNAVAILABLE_FOR_SOURCE" } });
+  expect(createDuelService(db).privateState(result.body.slug, owner.guildId)).toEqual(before);
+  expect(workers).toHaveLength(2);
+});
+it("persists resolved old 1v1 rules on the new fork for restart and recovery", async () => {
+  cross(); db.prepare("update duels set setup_json=json_remove(setup_json,'$.firstTurnDraw','$.scriptErrorMode') where id=?").run(duelId);
+  const original = createDuelService(db).privateState(slug, owner.guildId);
+  const replay = await post({ op: "owner-replay", ...owner }); expect(replay.status).toBe(200);
+  const result = await post({ op: "replay-fork", ...owner, cursor: replay.body.frames[1].cursor,
+    sourceVersion: replay.body.sourceVersion, requestId: "old-rules" });
+  expect(result.status).toBe(200);
+  expect(createDuelService(db).privateState(result.body.slug, owner.guildId).setup)
+    .toMatchObject({ firstTurnDraw: false, scriptErrorMode: "tolerant", engineIdentity: identity });
+  expect((await post({ op: "fork-restart", slug: result.body.slug, ...owner })).status).toBe(200);
+  await host.close(); start();
+  expect((await post({ op: "view", slug: result.body.slug, ...owner })).status).toBe(200);
+  expect(createDuelService(db).privateState(slug, owner.guildId)).toEqual(original);
+});
+it.each([
+  ["normal", "1v1", "legacy"], ["normal", "1v1", "pinned"],
+  ["domain", "1v1", "legacy"], ["domain", "1v1", "pinned"],
+  ["normal", "tag", "legacy"], ["domain", "tag", "pinned"],
+  ["normal", "ffa3", "legacy"], ["domain", "ffa4", "pinned"],
+] as const)("verifies saved %s %s %s projections with the original engine family", async (mode, format, engine) => {
+  const count = seatCountFor(format), service = createDuelService(db), fixture = replaySource(format);
+  for (const [playerId, userId] of [[66, 203], [67, 204]]) seedIdentity(db, { guildId: owner.guildId, playerId, userId });
+  db.prepare("delete from duel_seats where duel_id=?").run(duelId);
+  for (let seat = 0; seat < count; seat++) db.prepare("insert into duel_seats(duel_id,seat,player_id,is_bot,ready,deck_json) values(?,?,?,0,1,?)")
+    .run(duelId, seat, 64 + seat, JSON.stringify(fixture.decks[seat]));
+  db.prepare("update duels set status='active',mode=?,format=?,setup_json=? where id=?")
+    .run(mode, format, JSON.stringify({ ...fixture.setup, engine }), duelId);
+  const savedWorker = new ReplayWorker(); await savedWorker.create({ mode, decks: fixture.decks, seed: fixture.seed, dataDirectory: dir });
+  savedWorker.revision = 3;
+  service.complete(slug, owner.guildId, 0, "Finished", { public: await savedWorker.view(null),
+    seats: await Promise.all(fixture.decks.map((_, seat) => savedWorker.view(seat))) });
+  await savedWorker.close();
+  const overlay = count > 2 ? repoMultiScriptsDirectory() : undefined;
+  const overlayHash = overlay ? multiScriptsFolderHash(overlay) : null;
+  const selectedIdentity: EngineIdentity = { ...identity, mode, coreFamily: count > 2 ? "multi" : engine,
+    domainScriptHash: mode === "domain" ? "e".repeat(64) : null, multiOverlayHash: overlayHash };
+  vi.mocked(EngineResourceCache.prototype.get).mockImplementation(async (_directory, choice) => {
+    expect(choice).toMatchObject({ mode, format, engine });
+    return { dataDirectory: dir, identity: selectedIdentity, rawBundleVersion: "test-bundle",
+      bundleVersion: pinnedEngineVersion("test-bundle", count, overlayHash), ...(overlay ? { multiScriptsDirectory: overlay } : {}) };
+  });
+  cross();
+  const result = await post(); expect(result).toMatchObject({ status: 200, body: { verification: "verified" } });
+  expect(workers[0]!.created).toMatchObject({ mode, engineIdentity: selectedIdentity,
+    ...(count > 2 ? { format } : { engine }) });
+  expect(result.body.frames[0].view.seats[1].hand[0].code).toBeUndefined();
+  expect(checks()[0]).toMatchObject({ result: "verified" });
 });

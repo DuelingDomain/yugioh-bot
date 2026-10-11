@@ -518,16 +518,16 @@ export function createDuelHost(options: {
       setup, engineIdentity: engineIdentity ?? null, commands: state.commands };
   }
 
-  async function resourcesOfSource(state: DuelPrivateState, purpose: "replay" | "live-recovery" = "replay"): Promise<EngineResources | undefined> {
+  async function resourcesOfSource(state: DuelPrivateState, purpose: "replay" | "live-recovery" | "fork-recovery" = "replay"): Promise<EngineResources | undefined> {
     // Preserve the exact old path and live recovery. Cross-version viewing selects the original family.
-    if (state.setup?.engineIdentity == null && (purpose === "live-recovery" || state.bundleVersion === pinnedVersionFor(state.session.format))) return undefined;
+    if (state.setup?.engineIdentity == null && (purpose !== "replay" || state.bundleVersion === pinnedVersionFor(state.session.format))) return undefined;
     try {
       const current = await engineResourceCache.get(options.dataDirectory, { mode: state.session.mode, format: state.session.format,
         engine: sourceEngineChoice({ setup: state.setup, engineIdentity: state.setup?.engineIdentity ?? null }) });
       return resolveEngineResourcesForSource(options.dataDirectory, {
         session: state.session, setup: state.setup, bundleVersion: state.bundleVersion ?? "",
         engineIdentity: state.setup?.engineIdentity ?? null,
-      }, current, purpose === "replay" ? "replay-verification" : purpose);
+      }, current, purpose === "replay" ? "replay-verification" : purpose === "fork-recovery" ? "replay" : purpose);
     } catch (error) {
       if (error instanceof EngineResourceUnavailableError) throw new RequestError(error.message, error.status, error.code);
       throw error;
@@ -1216,7 +1216,7 @@ export function createDuelHost(options: {
     let resources: EngineResources | undefined;
     if (state.setup?.engineIdentity) {
       try {
-        resources = await resourcesOfSource(state, fork ? "replay" : "live-recovery");
+        resources = await resourcesOfSource(state, fork ? "fork-recovery" : "live-recovery");
       } catch (error) {
         service.interrupt(slug, guildId, "The recorded engine resources or runtime rules changed; this duel cannot be recovered safely.");
         await emitChange(slug, guildId);
@@ -1278,26 +1278,28 @@ export function createDuelHost(options: {
   }
 
   const forkLauncher = createReplayForkLauncher({ db: options.db, codec: replayCursorCodec,
-    sourceOf: journalSourceOf, resourcesOf: async state => {
-      const resources = await resourcesOfSource(state);
-      return { ...journalResourcesOf(resources), ...(isCrossVersion(journalSourceOf(state), resources) ? { allowVersionMismatch: true } : {}) };
+    sourceOf: journalSourceOf, resourcesOf: async (state, purpose) => {
+      const resources = await resourcesOfSource(state, purpose === "restart" ? "fork-recovery" : "replay");
+      return { ...journalResourcesOf(resources), ...(purpose === "launch" && isCrossVersion(journalSourceOf(state), resources) ? { allowVersionMismatch: true } : {}) };
     },
     authorizeSource: async (state, actor, unchecked, signal) => {
-      if (unchecked) return;
       const source = journalSourceOf(state), resources = await resourcesOfSource(state);
-      if (!isCrossVersion(source, resources)) return;
+      const crossVersion = isCrossVersion(source, resources);
+      const selected = { ...journalResourcesOf(resources), ...(crossVersion ? { allowVersionMismatch: true } : {}) };
+      if (unchecked || !crossVersion) return selected;
       const owner = resolveOwnerPlayer(options.db, actor);
       if (!owner) throw new ReplayAccessError();
       const saved = savedReplayBoards(state.session.slug, actor.guildId);
       const previous = replayVerifications.get(verificationKeyOf(source, resources!, saved));
-      if (previous?.result === "verified") return;
+      if (previous?.result === "verified") return selected;
       if (previous?.result === "unverified") {
         throw new RequestError("Replay could not be verified against the saved final board.", 409, "REPLAY_UNVERIFIED",
           readStoredBoard(saved, null) ? "available" : "none", { canOpenUnchecked: true, reason: previous.reason! });
       }
       await replay(state.session.slug, actor.guildId, { session: state.session, role: "spectator", mySeat: null,
         myDeck: null, engine: null, clock: null, metadataOnly: true },
-      { version: 2, visibility: "public", dataSeat: null, ownerUserId: owner.userId, ownerPlayerId: owner.playerId }, signal);
+      { version: 2, visibility: "public", dataSeat: null, ownerUserId: owner.userId, ownerPlayerId: owner.playerId }, signal, resources);
+      return selected;
     },
     createWorker: duelId => spawn(duelId), timeoutMs: options.forkTimeoutMs, isStopped: () => stopped,
     remove: async (slug, game) => { if (games.get(slug)?.game === game) await disposeGame(slug); },
@@ -1583,7 +1585,8 @@ export function createDuelHost(options: {
   }
 
   async function replay(slug: string, guildId: string, room: DuelRoom,
-    projection: ReplayProjection = { version: 1, visibility: "mine", dataSeat: room.mySeat }, signal?: AbortSignal): Promise<ReplayHttpResult> {
+    projection: ReplayProjection = { version: 1, visibility: "mine", dataSeat: room.mySeat }, signal?: AbortSignal,
+    selectedResources?: EngineResources): Promise<ReplayHttpResult> {
     const saved = savedReplayBoards(slug, guildId);
     const readSaved = createStoredBoardReader(saved);
     let finalView = readSaved(projection.dataSeat);
@@ -1603,7 +1606,7 @@ export function createDuelHost(options: {
       const state = service.privateState(slug, guildId);
       const source = journalSourceOf(state);
       const sourceVersion = replaySourceVersion(source);
-      const resources = await resourcesOfSource(state);
+      const resources = selectedResources ?? await resourcesOfSource(state);
       const crossVersion = isCrossVersion(source, resources);
       const verification: ReplayVerification = projection.unchecked ? "unverified" : crossVersion ? "verified" : "exact";
       if (crossVersion) {

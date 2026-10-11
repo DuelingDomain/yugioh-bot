@@ -44,6 +44,9 @@ it("rejects a member's unchecked request before the host call", async () => {
   expect((await get(false, "unchecked=1")).status).toBe(403);
   expect(state.fetch).not.toHaveBeenCalled();
 });
+it("returns 403 for a member's unchecked request on the admin replay route", async () => {
+  expect((await get(true, "unchecked=1")).status).toBe(403); expect(state.fetch).not.toHaveBeenCalled();
+});
 it.each(["unchecked=0", "unchecked=true", "unchecked=", "unchecked=1&unchecked=1"])("rejects invalid unchecked query %s", async query => {
   signIn(101); expect((await get(false, query)).status).toBe(400); expect(state.fetch).not.toHaveBeenCalled();
 });

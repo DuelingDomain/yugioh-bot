@@ -60,6 +60,9 @@ it("forwards an explicit unchecked fork request for the owner", async () => {
   expect((await launch({ ...input, unchecked: true })).status).toBe(200);
   expect(payload()).toMatchObject({ ...input, unchecked: true, userId: 101 });
 });
+it("returns 403 for a member's unchecked fork request", async () => {
+  signIn(103); expect((await launch({ ...input, unchecked: true })).status).toBe(403); expect(state.fetch).not.toHaveBeenCalled();
+});
 it.each([1, "true", null])("rejects a malformed unchecked fork flag %s", async unchecked => {
   expect((await launch({ ...input, unchecked })).status).toBe(400); expect(state.fetch).not.toHaveBeenCalled();
 });

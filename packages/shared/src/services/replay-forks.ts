@@ -29,7 +29,7 @@ export interface ReplayForkCreateInput {
   source: ReplaySource;
   origin: ForkOrigin;
   /** Selected and checked by the host. Original source matching and prefix copying still use source. */
-  resources?: { bundleVersion: string; engineIdentity: EngineIdentity };
+  resources?: { bundleVersion: string; engineIdentity: EngineIdentity; firstTurnDraw: boolean; scriptErrorMode: "strict" | "tolerant" };
 }
 
 export interface ReplayForkRetryInput {
@@ -198,8 +198,11 @@ export function createReplayForkService(db: Database.Database): ReplayForkServic
       if (!isEngineIdentity(identity) || identity.mode !== source.session.mode
         || identity.coreFamily !== (source.session.format === "1v1" ? source.engineIdentity?.coreFamily ?? source.setup?.engine
           ?? (source.setup?.startupScripts?.length ? "pinned" : "legacy") : "multi")
-        || !input.resources.bundleVersion.trim()) mismatch("Invalid selected fork resources");
+        || !input.resources.bundleVersion.trim() || typeof input.resources.firstTurnDraw !== "boolean"
+        || (input.resources.scriptErrorMode !== "strict" && input.resources.scriptErrorMode !== "tolerant")) mismatch("Invalid selected fork resources");
       setup.engineIdentity = identity;
+      setup.firstTurnDraw = input.resources.firstTurnDraw;
+      setup.scriptErrorMode = input.resources.scriptErrorMode;
       if (identity.coreFamily !== "multi") setup.engine = identity.coreFamily;
     }
     // Retain recorded engine rules in settings. A null clock disables live timers; no opening or invite is created.
