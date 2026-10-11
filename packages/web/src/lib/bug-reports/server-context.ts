@@ -1,4 +1,5 @@
 import type { DuelService } from "@yugidraft/shared/services";
+import { isReplayFork } from "@yugidraft/shared/duels";
 import { BUG_LOG_LINES, sanitizeLine, type BugFormat, type BugReportContext } from "../bug-report";
 import { callDuelHost } from "../duel-host";
 
@@ -21,6 +22,8 @@ export interface ServerReportContext {
   context: BugReportContext;
   /** True when the player may see the duel the browser named. Otherwise the report must not keep that slug. */
   duelVerified: boolean;
+  /** Fork reports must be rejected before they reach the public issue tracker. */
+  replayFork?: true;
 }
 
 /**
@@ -45,6 +48,7 @@ export async function buildReportContext(input: ServerContextInput): Promise<Ser
   } catch {
     return { context, duelVerified: false };
   }
+  if (isReplayFork(room.session)) return { context, duelVerified: false, replayFork: true };
   context.format = room.session.format as BugFormat;
   context.duelMode = room.session.mode;
   context.seat = room.mySeat;
