@@ -4,8 +4,13 @@ import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { parse } from "yaml";
 import { changedLayers } from "./changed-layers.mjs";
+import { smokeCommitStatus } from "./new-card-smoke-status.mjs";
 
 const workflow = parse(readFileSync(new URL("../../.github/workflows/test.yml", import.meta.url), "utf8"));
+test("the required smoke status context matches the report job name exactly", () => {
+  assert.equal(smokeCommitStatus("final", "success", "https://github.com/owner/repo/actions/runs/1").context,
+    workflow.jobs["new-card-smoke-report"].name);
+});
 test("overlapping same-head bot PR/dispatch runs share a serial gate; other runs keep their groups", () => {
   const head = "a".repeat(40), next = "b".repeat(40);
   const bot = sha => ({ head: { sha, ref: "chore/engine-data-update", repo: { full_name: "owner/repo" } } });
