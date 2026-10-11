@@ -49,7 +49,7 @@ test("production dispatch is manual and retains workflow safety when an older ma
   assert.match(steps[save].run, /cp scripts\/deployment\/check-prod-activity.py "\$RUNNER_TEMP\/check-prod-activity.py"/);
   const remote = steps.find(step => step.name === "Deploy over SSH").run;
   assert.match(remote, /"\$RUNNER_TEMP\/check-prod-activity.py" "\$VM_USER@\$VM_HOST:\$remote_guard"/);
-  assert.equal(remote.match(/python3 "\$DEPLOY_GUARD"/g).length, 2);
+  assert.equal(remote.match(/python3 "\$DEPLOY_GUARD"/g).length, 3);
   assert.match(remote, /git merge-base --is-ancestor HEAD "\$DEPLOY_COMMIT"/);
   assert.match(remote, /Do not run compose up\. Run Deploy again\./);
 });

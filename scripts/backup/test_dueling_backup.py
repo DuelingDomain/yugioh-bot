@@ -9,12 +9,16 @@ import io
 import os
 from pathlib import Path
 import runpy
+import select
 import shutil
+import signal
 import sqlite3
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -65,6 +69,7 @@ class BackupTests(unittest.TestCase):
         environment.pop("DUELING_BACKUP_KEEP", None)
         environment.pop("DUELING_RELEASE_KEEP_DAYS", None)
         environment.pop("DUELING_DEPLOY_BACKUP_KEEP", None)
+        environment.pop("DUELING_BACKUP_LOCK_WAIT_SECONDS", None)
         environment.update(
             DUELING_BACKUP_SRC=str(source or self.source),
             DUELING_BACKUP_DIR=str(self.destination),
@@ -539,8 +544,9 @@ class BackupTests(unittest.TestCase):
         self.assert_rows(backup)
         self.assertEqual(list(self.destination.glob(".*.tmp")), [])
 
-    @unittest.skipUnless(shutil.which("zstd"), "zstd is not installed")
+    @unittest.skipUnless(shutil.which("zstd") or os.environ.get("CI") == "true", "zstd is not installed")
     def test_zstd_produces_a_verified_compressed_pair(self):
+        self.assertIsNotNone(shutil.which("zstd"), "CI requires zstd")
         result = self.run_backup()
         self.assert_success(result)
         backup = next(self.destination.glob("bot-*.sqlite.zst"))
@@ -704,8 +710,9 @@ class BackupTests(unittest.TestCase):
         self.assert_success(result)
         self.assert_rows(target)
 
-    @unittest.skipUnless(shutil.which("zstd"), "zstd is not installed")
+    @unittest.skipUnless(shutil.which("zstd") or os.environ.get("CI") == "true", "zstd is not installed")
     def test_restore_accepts_zstd_backup(self):
+        self.assertIsNotNone(shutil.which("zstd"), "CI requires zstd")
         result = self.run_backup()
         self.assert_success(result)
         backup = next(self.destination.glob("*.zst"))
@@ -765,7 +772,7 @@ class BackupTests(unittest.TestCase):
                 self.assertIn("DUELING_DEPLOY_BACKUP_KEEP", output.getvalue())
         self.assertFalse(self.destination.exists())
 
-    def test_daily_and_deploy_runs_share_the_backup_root_lock(self):
+    def test_daily_fails_fast_but_deploy_kinds_wait_for_the_root_lock(self):
         self.destination.mkdir()
         root = self.destination
         fd = os.open(str(root), os.O_RDONLY | os.O_DIRECTORY)
@@ -774,9 +781,19 @@ class BackupTests(unittest.TestCase):
             for kind in (None, "online", "drained"):
                 with self.subTest(kind=kind):
                     self.destination = root if kind is None else root / "pr2-20261011-000000Z" / kind
-                    result = self.run_backup()
+                    environment = self.environment()
+                    environment["DUELING_BACKUP_LOCK_WAIT_SECONDS"] = "1"
+                    started = time.monotonic()
+                    result = subprocess.run([sys.executable, str(BACKUP_SCRIPT)], env=environment,
+                                            capture_output=True, text=True, timeout=5)
+                    elapsed = time.monotonic() - started
                     self.assertEqual(result.returncode, 1)
-                    self.assertIn("another backup is already running", result.stderr)
+                    if kind is None:
+                        self.assertIn("another backup is already running", result.stderr)
+                        self.assertLess(elapsed, 1)
+                    else:
+                        self.assertIn("timed out", result.stderr)
+                        self.assertGreaterEqual(elapsed, 1)
                     self.assertEqual(list(root.rglob("*.sqlite*")), [])
         finally:
             os.close(fd)
@@ -882,20 +899,32 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), b"concurrent writer's file")
         self.assertEqual(list(self.root.glob(".*.tmp")), [])
 
-    def test_deploy_workflow_rejects_multiline_and_quoted_backup_settings(self):
+    def test_deploy_and_daily_service_use_the_same_vm_backup_config(self):
         workflow = KIT_DIR.parents[1] / ".github/workflows/deploy.yml"
-        validation = workflow.read_text().split("# Validate before these values are put in the remote shell command.", 1)[1]
-        validation = validation.split("bundle_tar=", 1)[0]
+        text = workflow.read_text()
+        self.assertIn('. /etc/default/dueling-backup', text)
+        self.assertNotIn('vars.DUELING_DEPLOY_BACKUP_KEEP', text)
+        self.assertNotIn('vars.DUELING_BACKUP_MIN_FREE_BYTES', text)
+        self.assertIn('EnvironmentFile=-/etc/default/dueling-backup',
+                      (KIT_DIR / 'dueling-backup.service').read_text())
+
+    def test_deploy_stop_hook_refuses_new_activity_after_the_lock_wait(self):
+        text = (KIT_DIR.parents[1] / ".github/workflows/deploy.yml").read_text()
+        hook = text.split("--before-backup sh -eu -c '", 1)[1].split("\n               '", 1)[0]
+        guard = self.root / "refuse-activity.py"
+        guard.write_text("raise SystemExit(1)\n")
+        marker = self.root / "stopped-services"
+        docker = self.root / "docker"
+        docker.write_text('#!/bin/sh\nprintf stopped > "' + str(marker) + '"\n')
+        docker.chmod(0o700)
         environment = self.environment()
-        environment.update(DUELING_DEPLOY_BACKUP_KEEP="3", DUELING_BACKUP_MIN_FREE_BYTES="1073741824")
-        valid = subprocess.run(["sh", "-eu", "-c", validation], env=environment, capture_output=True, timeout=30)
-        self.assertEqual(valid.returncode, 0, valid.stderr)
-        for name in ("DUELING_DEPLOY_BACKUP_KEEP", "DUELING_BACKUP_MIN_FREE_BYTES"):
-            for value in ("3\nbad", "3\n'; exit 0; #", "3 4", "-1", "1.5", "", "3\n"):
-                with self.subTest(name=name, value=value):
-                    result = subprocess.run(["sh", "-eu", "-c", validation],
-                                            env={**environment, name: value}, capture_output=True, timeout=30)
-                    self.assertNotEqual(result.returncode, 0, result.stderr)
+        environment.update(DEPLOY_GUARD=str(guard), DEPLOY_FORCE="false", RETIRED_BOT_IDS="example-bot",
+                           PATH=str(self.root) + os.pathsep + environment["PATH"])
+        result = subprocess.run(["sh", "-eu", "-c", hook], env=environment,
+                                capture_output=True, text=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Do not run compose up", result.stderr)
+        self.assertFalse(marker.exists())
 
     def test_missing_zstd_keeps_unverifiable_deploy_copies(self):
         releases = [self.recent_release(hours) for hours in range(1, 5)]
@@ -914,6 +943,249 @@ class BackupTests(unittest.TestCase):
         for release in releases:
             self.assertTrue((release / "drained/bot-20000101-000000Z.sqlite.zst").exists())
             self.assertEqual(list(release.rglob(".*.tmp")), [])
+
+    def test_deploy_backups_succeed_when_the_root_lock_is_released(self):
+        root = self.destination
+        root.mkdir()
+        for kind, delay in (("online", 0.2), ("drained", 2)):
+            with self.subTest(kind=kind):
+                fd = os.open(str(root), os.O_RDONLY | os.O_DIRECTORY)
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                release = threading.Timer(delay, fcntl.flock, args=(fd, fcntl.LOCK_UN))
+                release.start()
+                try:
+                    self.destination = root / "pr2-20261011-000000Z" / kind
+                    result = self.run_backup()
+                    self.assert_success(result)
+                    self.assert_rows(next(path for path in self.destination.glob("bot-*.sqlite.*")
+                                          if path.suffix != ".sha256"))
+                finally:
+                    release.cancel()
+                    release.join()
+                    os.close(fd)
+
+    def test_invalid_lock_wait_fails_before_the_stop_command(self):
+        self.destination = self.destination / "pr2-20261011-000000Z/drained"
+        namespace = self.namespace()
+        for value in ("-1", "bad", "1.5", ""):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"DUELING_BACKUP_LOCK_WAIT_SECONDS": value}):
+                with mock.patch.object(namespace["subprocess"], "run") as stop:
+                    with contextlib.redirect_stderr(io.StringIO()) as output:
+                        self.assertEqual(namespace["main"](["--before-backup", "stop-fixture"]), 1)
+                    stop.assert_not_called()
+                    self.assertIn("DUELING_BACKUP_LOCK_WAIT_SECONDS", output.getvalue())
+
+    def test_lock_timeout_never_calls_the_stop_command(self):
+        root = self.destination
+        root.mkdir()
+        fd = os.open(str(root), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.destination = root / "pr2-20261011-000000Z/drained"
+            namespace = self.namespace()
+            with mock.patch.dict(os.environ, {"DUELING_BACKUP_LOCK_WAIT_SECONDS": "0"}):
+                with mock.patch.object(namespace["subprocess"], "run") as stop:
+                    with contextlib.redirect_stderr(io.StringIO()) as output:
+                        self.assertEqual(namespace["main"](["--before-backup", "stop-fixture"]), 1)
+                    stop.assert_not_called()
+                    self.assertIn("timed out", output.getvalue())
+        finally:
+            os.close(fd)
+
+    def test_drained_stop_hook_runs_after_preflight_under_the_same_lock(self):
+        root = self.destination
+        self.destination = root / "pr2-20261011-000000Z/drained"
+        namespace = self.namespace()
+
+        def stop_services(command, **kwargs):
+            self.assertEqual(command, ["stop-fixture"])
+            self.assertTrue(kwargs["check"])
+            self.assertEqual(list(self.destination.iterdir()), [])
+            fd = os.open(str(root), os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                os.close(fd)
+            return SimpleNamespace(returncode=0)
+
+        with mock.patch.object(namespace["shutil"], "which", return_value=None):
+            with mock.patch.object(namespace["shutil"], "disk_usage", return_value=SimpleNamespace(free=10**12)) as space:
+                with mock.patch.object(namespace["subprocess"], "run", side_effect=stop_services) as stop:
+                    backup, *_ = namespace["create_backup"](before_backup=["stop-fixture"])
+                stop.assert_called_once()
+                space.assert_called_once()
+        self.assert_rows(backup)
+
+    def test_low_space_after_online_backup_stops_before_service_shutdown(self):
+        root = self.destination
+        self.destination = root / "pr2-20261011-000000Z/online"
+        namespace = self.namespace()
+        with mock.patch.object(namespace["shutil"], "disk_usage", return_value=SimpleNamespace(free=10**12)):
+            online, *_ = namespace["create_backup"]()
+        self.destination = root / "pr2-20261011-000000Z/drained"
+        namespace = self.namespace()
+        with mock.patch.object(namespace["shutil"], "disk_usage", return_value=SimpleNamespace(free=0)):
+            with mock.patch.object(namespace["subprocess"], "run") as stop:
+                with contextlib.redirect_stderr(io.StringIO()) as output:
+                    status = namespace["main"](["--before-backup", "stop-fixture"])
+                stop.assert_not_called()
+        self.assertEqual(status, 1)
+        self.assertIn("SKIPPED", output.getvalue())
+        self.assert_rows(online)
+        self.assertEqual(list(self.destination.iterdir()), [])
+
+    def test_space_only_mode_creates_no_snapshot_and_does_not_prune(self):
+        self.destination.mkdir()
+        old, _ = write_pair(self.destination, automatic_name(30), self.snapshot_bytes())
+        namespace = self.namespace()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(namespace["main"](["--check-space"]), 0)
+        self.assertEqual(set(self.destination.iterdir()), {old, Path(str(old) + ".sha256")})
+
+    def test_drained_backup_never_prunes_or_rechecks_the_online_copy(self):
+        release = self.recent_release(1)
+        self.destination = release / "drained"
+        namespace = self.namespace()
+        prune = mock.Mock(side_effect=AssertionError("drained pruning"))
+        verify = mock.Mock(side_effect=AssertionError("online recheck"))
+        with mock.patch.dict(namespace["create_backup"].__globals__,
+                             {"prune_releases": prune, "verify_backup": verify}):
+            backup, *_ = namespace["create_backup"]()
+        prune.assert_not_called()
+        verify.assert_not_called()
+        self.assert_rows(backup)
+        self.assertTrue((release / "online/bot-20000101-000000Z.sqlite").exists())
+
+    def test_daily_run_does_not_reverify_deploy_copies_within_retention_limits(self):
+        self.recent_release(1)
+        self.recent_release(2)
+        namespace = self.namespace()
+        verify = mock.Mock(side_effect=AssertionError("unneeded deploy verification"))
+        with mock.patch.dict(namespace["create_backup"].__globals__, {"verify_backup": verify}):
+            namespace["create_backup"]()
+        verify.assert_not_called()
+
+    def test_signal_during_compression_removes_all_temporary_files(self):
+        root = self.destination
+        code = '''
+import runpy, sys, time
+kit = runpy.run_path(sys.argv[1])
+def slow_compress(snapshot, archive, compression):
+    archive.write_bytes(b"partial archive")
+    print("compressing", flush=True)
+    time.sleep(60)
+kit["create_backup"].__globals__["compress_snapshot"] = slow_compress
+sys.exit(kit["main"]())
+'''
+        for signum in (signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=signum):
+                self.destination = root / str(signum)
+                process = subprocess.Popen([sys.executable, "-u", "-c", code, str(BACKUP_SCRIPT)],
+                                           env=self.environment(), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           text=True)
+                try:
+                    ready, _, _ = select.select([process.stdout], [], [], 5)
+                    self.assertTrue(ready, "compressor did not start")
+                    self.assertEqual(process.stdout.readline().strip(), "compressing")
+                    process.send_signal(signum)
+                    process.communicate(timeout=5)
+                    self.assertEqual(process.returncode, 128 + signum)
+                    self.assertEqual(list(self.destination.iterdir()), [])
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.communicate(timeout=5)
+
+    def test_stale_sweep_removes_old_temps_journals_and_orphan_sidecars_under_lock(self):
+        root = self.destination
+        release = self.recent_release(1)
+        old = time.time() - 7 * 3600
+        stale = []
+        recent = []
+        for directory in (root, release / "online", release / "drained"):
+            for prefix in ("backup", "compressed", "verify", "sha256"):
+                for suffix in ("", "-journal", "-wal", "-shm"):
+                    path = directory / (".dueling-" + prefix + "-stale.tmp" + suffix)
+                    path.write_bytes(b"old incomplete data")
+                    os.utime(path, (old, old))
+                    stale.append(path)
+            orphan = directory / (automatic_name(2) + ".gz.sha256")
+            orphan.write_bytes(b"old orphan sidecar")
+            os.utime(orphan, (old, old))
+            stale.append(orphan)
+            fresh = directory / ".dueling-backup-recent.tmp"
+            fresh.write_bytes(b"recent incomplete data")
+            recent.append(fresh)
+        protected = root / ".dueling-unmanaged-stale.tmp"
+        protected.write_bytes(b"keep")
+        os.utime(protected, (old, old))
+        result = self.run_backup()
+        self.assert_success(result)
+        self.assertTrue(all(not path.exists() for path in stale))
+        self.assertTrue(all(path.exists() for path in recent))
+        self.assertEqual(protected.read_bytes(), b"keep")
+
+    def test_stale_sweep_never_follows_symlinks_or_unmanaged_release_directories(self):
+        self.destination.mkdir()
+        outside = self.root / "outside.tmp"
+        outside.write_bytes(b"keep")
+        old = time.time() - 7 * 3600
+        os.utime(outside, (old, old))
+        link = self.destination / ".dueling-backup-linked.tmp"
+        link.symlink_to(outside)
+        unmanaged = self.destination / "manual-release"
+        unmanaged.mkdir()
+        nested = unmanaged / ".dueling-backup-stale.tmp"
+        nested.write_bytes(b"keep")
+        os.utime(nested, (old, old))
+        self.assert_success(self.run_backup())
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(outside.read_bytes(), b"keep")
+        self.assertEqual(nested.read_bytes(), b"keep")
+
+    def test_failed_root_lock_does_not_sweep_stale_files(self):
+        self.destination.mkdir()
+        stale = self.destination / ".dueling-backup-stale.tmp"
+        stale.write_bytes(b"keep until locked")
+        old = time.time() - 7 * 3600
+        os.utime(stale, (old, old))
+        fd = os.open(str(self.destination), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertEqual(self.run_backup().returncode, 1)
+            self.assertTrue(stale.exists())
+        finally:
+            os.close(fd)
+
+    def test_archive_is_published_after_the_sidecar_even_if_publication_is_interrupted(self):
+        self.destination.mkdir()
+        namespace = self.namespace()
+        rename = namespace["os"].rename
+        targets = []
+
+        def interrupted_rename(source, target):
+            targets.append(target)
+            if len(targets) == 2:
+                raise SystemExit(143)
+            return rename(source, target)
+
+        with mock.patch.object(namespace["os"], "rename", side_effect=interrupted_rename):
+            with self.assertRaises(SystemExit):
+                namespace["create_backup"]()
+        self.assertTrue(str(targets[0]).endswith(".sha256"))
+        self.assertFalse(str(targets[1]).endswith(".sha256"))
+        self.assertEqual(list(self.destination.iterdir()), [])
+
+    def test_gzip_fallback_uses_fast_compression(self):
+        namespace = self.namespace()
+        gzip_open = gzip.open
+        with mock.patch.object(namespace["shutil"], "which", return_value=None):
+            with mock.patch.object(namespace["gzip"], "open", wraps=gzip_open) as compressed:
+                namespace["create_backup"]()
+        writes = [call for call in compressed.call_args_list if call.args[1] == "wb"]
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(writes[0].kwargs["compresslevel"], 1)
 
 
 if __name__ == "__main__":

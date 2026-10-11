@@ -9,10 +9,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
@@ -23,6 +25,9 @@ KEEP_ENV = "DUELING_BACKUP_KEEP"
 DEPLOY_KEEP_ENV = "DUELING_DEPLOY_BACKUP_KEEP"
 MIN_FREE_ENV = "DUELING_BACKUP_MIN_FREE_BYTES"
 RELEASE_KEEP_ENV = "DUELING_RELEASE_KEEP_DAYS"
+LOCK_WAIT_ENV = "DUELING_BACKUP_LOCK_WAIT_SECONDS"
+DEFAULT_LOCK_WAIT_SECONDS = 900
+STALE_SECONDS = 6 * 60 * 60
 DEFAULT_MIN_FREE_BYTES = 1024 * 1024 * 1024
 MAX_BACKUP_DAYS = 14
 # The timer runs once a day, so expire copies a day early to keep the 14-day promise.
@@ -33,6 +38,7 @@ UTC = timezone.utc
 AUTOMATIC_NAME = re.compile(r"^bot-(\d{8}-\d{6})Z\.sqlite(?:\.(?:gz|zst))?$")
 RELEASE_NAME = re.compile(r"^pr2-([0-9]{8}-[0-9]{6})Z$")
 DEPLOY_KINDS = ("online", "drained")
+TEMPORARY_NAME = re.compile(r"^\.dueling-(?:backup|compressed|verify|sha256)-.+\.tmp(?:-(?:journal|wal|shm))?$")
 
 
 class BackupSkipped(RuntimeError):
@@ -112,6 +118,70 @@ def clean_temporary(path):
             pass
 
 
+def clean_stale_files(root):
+    directories = [root]
+    for release in root.iterdir():
+        match = RELEASE_NAME.fullmatch(release.name)
+        if not match or release.is_symlink() or not release.is_dir():
+            continue
+        try:
+            datetime.strptime(match.group(1), "%Y%m%d-%H%M%S")
+        except ValueError:
+            continue
+        for kind in DEPLOY_KINDS:
+            directory = release / kind
+            if not directory.is_symlink() and directory.is_dir():
+                directories.append(safe_path(directory, root))
+    cutoff = time.time() - STALE_SECONDS
+    for directory in directories:
+        for path in directory.iterdir():
+            if path.is_symlink() or not path.is_file() or path.stat().st_mtime >= cutoff:
+                continue
+            orphan_sidecar = (path.name.endswith(".sha256")
+                              and AUTOMATIC_NAME.fullmatch(path.name[:-7])
+                              and not os.path.lexists(str(path)[:-7]))
+            if TEMPORARY_NAME.fullmatch(path.name) or orphan_sidecar:
+                safe_path(path, root).unlink()
+
+
+def acquire_backup_lock(directory_fd, root, kind):
+    wait = integer_setting(LOCK_WAIT_ENV, DEFAULT_LOCK_WAIT_SECONDS, 0) if kind else 0
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fcntl.flock(directory_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if kind is None:
+                raise RuntimeError("another backup is already running for " + str(root)) from None
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("timed out after {} seconds waiting for backup lock: {}".format(wait, root)) from None
+            time.sleep(min(0.1, remaining))
+
+
+def check_free_space(source, destination, reserve):
+    source_size = source.stat().st_size
+    try:
+        wal_size = Path(str(source) + "-wal").stat().st_size
+    except FileNotFoundError:
+        wal_size = 0
+    required = reserve + SPACE_MULTIPLIER * (source_size + wal_size)
+    free = shutil.disk_usage(destination).free
+    if free < required:
+        raise BackupSkipped("insufficient free space: need {} bytes (including {} reserve), have {} in {}".format(
+            required, reserve, free, destination))
+
+
+def exit_on_signal(signum, frame):
+    # SystemExit runs the snapshot, compressor and verification finally blocks.
+    raise SystemExit(128 + signum)
+
+
+def install_signal_handlers():
+    return {signum: signal.signal(signum, exit_on_signal) for signum in (signal.SIGTERM, signal.SIGHUP)}
+
+
 def compress_snapshot(snapshot, archive, compression):
     if compression == "zst":
         # One thread and the default window keep memory use small on the shared ARM VM.
@@ -119,7 +189,7 @@ def compress_snapshot(snapshot, archive, compression):
             subprocess.run(["zstd", "-q", "-3", "-T1", "-c", "--", str(snapshot)],
                            stdout=output, check=True)
     else:
-        with snapshot.open("rb") as source, gzip.open(archive, "wb", compresslevel=6) as output:
+        with snapshot.open("rb") as source, gzip.open(archive, "wb", compresslevel=1) as output:
             shutil.copyfileobj(source, output, length=1024 * 1024)
 
 
@@ -219,6 +289,9 @@ def automatic_backups(directory, release_stamp=None):
 def retained_backups(backups, keep, cutoff, verified=None):
     if not backups:
         return set()
+    if len(backups) <= keep and all(stamp >= cutoff for stamp, _ in backups):
+        # No deletion is possible, so no last-good verification is needed.
+        return {path for _, path in backups}
     good = None
     for _, path in backups:
         try:
@@ -343,7 +416,7 @@ def prune_backups(keep, verified=None):
     return len(retained), sum(path.stat().st_size for path in retained)
 
 
-def create_backup():
+def create_backup(check_space_only=False, before_backup=None):
     keep = integer_setting(KEEP_ENV, 7, 1)
     integer_setting(DEPLOY_KEEP_ENV, 3, 1)
     reserve = integer_setting(MIN_FREE_ENV, DEFAULT_MIN_FREE_BYTES, 0)
@@ -351,26 +424,21 @@ def create_backup():
     destination = safe_path(DEST_DIR)
     destination.mkdir(mode=0o700, parents=True, exist_ok=True)
     root, kind = backup_context(destination)
+    if before_backup and kind != "drained":
+        raise ValueError("--before-backup requires a drained deploy destination")
     temporary_paths = []
     directory_fd = os.open(str(root), os.O_RDONLY | os.O_DIRECTORY)
     try:
-        # Lock the directory itself, avoiding an extra lock file or overlapping runs.
-        try:
-            fcntl.flock(directory_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise RuntimeError("another backup is already running for " + str(root))
-
+        # Hold one root lock across preflight, service shutdown and the drained snapshot.
+        acquire_backup_lock(directory_fd, root, kind)
+        clean_stale_files(root)
         source = SRC.absolute()
-        source_size = source.stat().st_size
-        try:
-            wal_size = Path(str(source) + "-wal").stat().st_size
-        except FileNotFoundError:
-            wal_size = 0
-        required = reserve + SPACE_MULTIPLIER * (source_size + wal_size)
-        free = shutil.disk_usage(destination).free
-        if free < required:
-            raise BackupSkipped("insufficient free space: need {} bytes (including {} reserve), have {} in {}".format(
-                required, reserve, free, destination))
+        check_free_space(source, destination, reserve)
+        if check_space_only:
+            return
+        if before_backup:
+            # All lock and space failures happen while the old services are still running.
+            subprocess.run(before_backup, check=True)
 
         fd, temporary_name = tempfile.mkstemp(prefix=".dueling-backup-", suffix=".tmp", dir=str(destination))
         temporary = Path(temporary_name)
@@ -416,17 +484,17 @@ def create_backup():
             output.flush()
             os.fsync(output.fileno())
 
-        os.rename(archive, final)
+        # Track both names before renaming so a signal immediately after a rename cleans up.
+        temporary_paths.append(sidecar)
         temporary_paths.append(final)
         os.rename(checksum_temporary, sidecar)
-        temporary_paths.append(sidecar)
+        os.rename(archive, final)
         snapshot_directory_fd = os.open(str(destination), os.O_RDONLY | os.O_DIRECTORY)
         try:
             os.fsync(snapshot_directory_fd)
         finally:
             os.close(snapshot_directory_fd)
-        temporary_paths.remove(final)
-        temporary_paths.remove(sidecar)
+        temporary_paths = [path for path in temporary_paths if path not in (final, sidecar)]
         if kind is None:
             try:
                 kept, total_bytes = prune_backups(keep, verified=final)
@@ -436,13 +504,16 @@ def create_backup():
                     prune_releases(root)
                 except Exception as error:
                     warn_release_pruning(error)
-        else:
+        elif kind == "online":
             kept, total_bytes = 1, size
             try:
                 stats = prune_releases(root, verified=final)
                 kept, total_bytes = stats[kind]
             except Exception as error:
                 warn_release_pruning(error)
+        else:
+            # Traffic is stopped: leave deploy retention to the next daily/online run.
+            kept, total_bytes = 1, size
         os.fsync(directory_fd)
         return final, size, checksum, kept, total_bytes
     finally:
@@ -454,9 +525,20 @@ def create_backup():
             os.close(directory_fd)
 
 
-def main():
+def main(argv=None):
+    handlers = install_signal_handlers()
     try:
-        path, size, checksum, kept, total_bytes = create_backup()
+        argv = argv or []
+        if argv == ["--check-space"]:
+            create_backup(check_space_only=True)
+            print("Free-space check passed")
+            return 0
+        before_backup = None
+        if argv:
+            if argv[0] != "--before-backup" or len(argv) < 2:
+                raise ValueError("usage: dueling-backup [--check-space | --before-backup <command> [args...]]")
+            before_backup = argv[1:]
+        path, size, checksum, kept, total_bytes = create_backup(before_backup=before_backup)
         print("{} {} {} kept={} total_bytes={}".format(path, size, checksum, kept, total_bytes))
         return 0
     except (Exception, KeyboardInterrupt) as error:
@@ -464,7 +546,10 @@ def main():
         label = "SKIPPED" if isinstance(error, BackupSkipped) else "ERROR"
         print(label + ": dueling-backup: " + message, file=sys.stderr)
         return 1
+    finally:
+        for signum, handler in handlers.items():
+            signal.signal(signum, handler)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

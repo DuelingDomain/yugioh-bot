@@ -40,8 +40,6 @@ jobs:
       VM_PORT: ${{ secrets.VM_PORT || '22' }}
       DEPLOY_FORCE: ${{ inputs.force && 'true' || 'false' }}
       DEPLOY_ROLLBACK: ${{ inputs.rollback && 'true' || 'false' }}
-      DUELING_DEPLOY_BACKUP_KEEP: ${{ vars.DUELING_DEPLOY_BACKUP_KEEP || '3' }}
-      DUELING_BACKUP_MIN_FREE_BYTES: ${{ vars.DUELING_BACKUP_MIN_FREE_BYTES || '1073741824' }}
       # Public production key only. The secret remains in the protected VM runtime env.
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
@@ -57,7 +55,10 @@ jobs:
       # Keep the activity guard from the workflow revision, even when deploying an older main SHA.
       - name: Save deployment activity guard
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
-        run: cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/check-prod-activity.py"
+        run: |
+          cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/check-prod-activity.py"
+          # Use this workflow revision's backup safety checks even on first rollout or rollback.
+          cp scripts/backup/dueling-backup "$RUNNER_TEMP/dueling-backup.py"
 
       - name: Checkout deploy ref
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -232,16 +233,10 @@ jobs:
             *) echo "Set the production NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY repository variable." >&2; exit 1 ;;
           esac
           printf '%s' "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" | grep -Eq '^pk_live_[A-Za-z0-9_-]+$' || exit 1
-          # Validate before these values are put in the remote shell command.
-          case "$DUELING_DEPLOY_BACKUP_KEEP" in
-            ''|0*|*[!0-9]*) echo "DUELING_DEPLOY_BACKUP_KEEP must be a positive integer." >&2; exit 1 ;;
-          esac
-          case "$DUELING_BACKUP_MIN_FREE_BYTES" in
-            ''|*[!0-9]*) echo "DUELING_BACKUP_MIN_FREE_BYTES must be a nonnegative integer." >&2; exit 1 ;;
-          esac
           bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
           remote_bundle=
           remote_guard=
+          remote_backup=
           cleanup_transfer() {
             rm -f "$bundle_tar"
             if [ -n "$remote_bundle" ]; then
@@ -252,6 +247,10 @@ jobs:
               ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_guard'" || true
             fi
+            if [ -n "$remote_backup" ]; then
+              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_backup'" || true
+            fi
           }
           trap cleanup_transfer EXIT
           remote_bundle=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
@@ -260,8 +259,13 @@ jobs:
           remote_guard=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
             'mktemp /tmp/yugidraft-activity-guard.XXXXXX.py')
           printf '%s' "$remote_guard" | grep -Eq '^/tmp/yugidraft-activity-guard\.[A-Za-z0-9]{6}\.py$' || exit 1
+          remote_backup=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            'mktemp /tmp/yugidraft-backup.XXXXXX.py')
+          printf '%s' "$remote_backup" | grep -Eq '^/tmp/yugidraft-backup\.[A-Za-z0-9]{6}\.py$' || exit 1
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$RUNNER_TEMP/check-prod-activity.py" "$VM_USER@$VM_HOST:$remote_guard"
+          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+            "$RUNNER_TEMP/dueling-backup.py" "$VM_USER@$VM_HOST:$remote_backup"
           tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$bundle_tar" \
@@ -269,13 +273,13 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DUELING_DEPLOY_BACKUP_KEEP='$DUELING_DEPLOY_BACKUP_KEEP' DUELING_BACKUP_MIN_FREE_BYTES='$DUELING_BACKUP_MIN_FREE_BYTES' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_BACKUP='$remote_backup' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
              context_ready=0
              cleanup() {
-               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD"
+               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "$DEPLOY_BACKUP"
                if [ -n "$installer" ]; then rm -f "$installer"; fi
                if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
                if [ "$context_ready" = 1 ]; then rm -rf /opt/yugioh-bot/.deploy-duel-engine; fi
@@ -295,6 +299,10 @@ jobs:
              fi
              python3 "$DEPLOY_GUARD" /opt/yugioh-bot/data/bot.sqlite --force "$DEPLOY_FORCE"
              cd /opt/yugioh-bot
+             # Root-owned settings are shared with the daily systemd service.
+             set -a
+             if [ -f /etc/default/dueling-backup ]; then . /etc/default/dueling-backup; fi
+             set +a
              git fetch origin "$DEPLOY_COMMIT"
              git fetch origin main && git merge-base --is-ancestor "$DEPLOY_COMMIT" FETCH_HEAD || exit 1
              if [ "$DEPLOY_ROLLBACK" != "true" ] && ! git merge-base --is-ancestor HEAD "$DEPLOY_COMMIT"; then
@@ -339,9 +347,8 @@ jobs:
                  ;;
                esac
              done
-             # Compressed, verified copies; retention runs across the parent root per kind.
-             # A low-disk skip returns nonzero, so set -e stops this deploy.
-             DUELING_BACKUP_DIR="$release_dir/online" python3 scripts/backup/dueling-backup
+             # Wait for daily backups while production runs. Keep online work at low priority.
+             DUELING_BACKUP_DIR="$release_dir/online" nice -n 10 ionice -c3 python3 "$DEPLOY_BACKUP"
              git reset --hard "$DEPLOY_COMMIT"
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
              # The image carries the same verified bundle as the data volume.
@@ -359,12 +366,20 @@ jobs:
              # Retire the bot container from the previous release before migration.
              project=$(docker compose -f docker-compose.yml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')
              retired_ids=$(docker ps -q --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=bot)
-             if [ -n "$retired_ids" ]; then docker stop $retired_ids; fi
-             docker compose -f docker-compose.yml stop web duel worker ws
-             # Once schema work can begin, failure must leave traffic stopped. Never restart old binaries.
-             trap cleanup EXIT
-             # Keep the drained restore point separate from the online count.
-             DUELING_BACKUP_DIR="$release_dir/drained" python3 scripts/backup/dueling-backup
+             # Acquire the root lock and check space BEFORE stopping any production service.
+             # Keep that lock through the stop command and snapshot; no second space/lock check.
+             # A timeout or SKIPPED status leaves production running. Drained runs never prune.
+             DUELING_BACKUP_DIR="$release_dir/drained" RETIRED_BOT_IDS="$retired_ids" \
+               python3 "$DEPLOY_BACKUP" --before-backup sh -eu -c '
+                 # A game may have started while the backup waited for the lock.
+                 if ! python3 "$DEPLOY_GUARD" /opt/yugioh-bot/data/bot.sqlite --force "$DEPLOY_FORCE"; then
+                   echo "Do not run compose up. Run Deploy again." >&2
+                   exit 1
+                 fi
+                 if [ -n "$RETIRED_BOT_IDS" ]; then docker stop $RETIRED_BOT_IDS; fi
+                 docker compose -f docker-compose.yml stop web duel worker ws
+               '
+             # Schema work can now begin: later failures must leave traffic stopped.
              if ! DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
                exit 1

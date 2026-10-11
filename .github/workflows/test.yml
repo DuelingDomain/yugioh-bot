@@ -529,6 +529,12 @@ jobs:
           python3 -B scripts/ci/parallel_emxx_test.py
           python3 -B -m unittest discover -s scripts/deployment -p test_deploy_safety.py
 
+      - name: Test database backups and restore
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zstd
+          python3 -B scripts/backup/test_dueling_backup.py
+
       - name: Select changed test files
         id: selection
         if: needs.changes.outputs.tests_only == 'true'

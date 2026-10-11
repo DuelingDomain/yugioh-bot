@@ -4,9 +4,11 @@ Description=Compressed and verified SQLite backup for the Dueling System
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/python3 /opt/yugioh-bot/scripts/backup/dueling-backup
-# Use a service drop-in to change DUELING_BACKUP_KEEP (7),
-# DUELING_DEPLOY_BACKUP_KEEP (3), or DUELING_BACKUP_MIN_FREE_BYTES (1073741824).
+# Share count, age, space and lock settings with deployment runs.
+EnvironmentFile=-/etc/default/dueling-backup
 Nice=10
+CPUWeight=20
+IOWeight=10
 IOSchedulingClass=idle
 UMask=0077
 NoNewPrivileges=yes
