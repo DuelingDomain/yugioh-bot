@@ -5,7 +5,7 @@ import {
   type OwnerPlayerActor, type ResolvedOwnerActor,
 } from "../access/owner-access.js";
 import {
-  isDuelKindSetup, isEngineIdentity, isReplayForkRequest, isReplayForkSetup, isReplaySeed, seatCountFor,
+  isDuelKindSetup, isReplayFork, isEngineIdentity, isReplayForkRequest, isReplayForkSetup, isReplaySeed, seatCountFor,
   REPLAY_SOURCE_SLUG_MAX_LENGTH,
   type DuelSession, type ForkOrigin, type ReplayForkSetup, type ReplayJournalEntry, type ReplaySource,
 } from "../duels/index.js";
@@ -73,6 +73,10 @@ function invalid(message: string): never {
   throw new ReplayForkStorageError(message, "INVALID_CURSOR");
 }
 
+function mismatch(message: string): never {
+  throw new ReplayForkStorageError(message, "REPLAY_MISMATCH");
+}
+
 function validateRetry(input: ReplayForkRetryInput): void {
   if (!isReplayForkRequest({ requestId: input.requestId, sourceVersion: input.sourceVersion, cursor: "internal" })
     || typeof input.sourceSlug !== "string" || !input.sourceSlug || input.sourceSlug.length > REPLAY_SOURCE_SLUG_MAX_LENGTH
@@ -108,7 +112,7 @@ function forkSetup(source: ReplaySource, replayFork: ReplayForkSetup): DuelSetup
   const { engineIdentity: _identity, replayFork: _fork, botPolicies: _bots, presetId: _preset, scenarioId: _scenario,
     surrenderedSeats: _losses, ...rules } = (source.setup ?? {}) as DuelSetup;
   const checked = validateSetup(rules);
-  if (source.engineIdentity !== null && !isEngineIdentity(source.engineIdentity)) invalid("Invalid source engine identity");
+  if (source.engineIdentity !== null && !isEngineIdentity(source.engineIdentity)) mismatch("Invalid source engine identity");
   return { ...checked, ...(source.engineIdentity ? { engineIdentity: source.engineIdentity } : {}), replayFork };
 }
 
@@ -119,18 +123,19 @@ function validateSource(source: ReplaySource, replayFork: ReplayForkSetup, actor
   if (session.status !== "completed" && session.status !== "interrupted") {
     throw new ReplayForkStorageError("Only completed or interrupted sources can be forked", "NOT_PLAYABLE");
   }
-  if (!isReplaySeed(source.seed) || typeof source.bundleVersion !== "string" || !source.bundleVersion.trim()) invalid("Invalid saved engine input");
+  if (!isReplaySeed(source.seed) || typeof source.bundleVersion !== "string" || !source.bundleVersion.trim()) mismatch("Invalid saved engine input");
   const count = seatCountFor(session.format);
   if (source.decks.length !== count || session.seats.length !== count || session.seats.some((seat, index) => seat.seat !== index)
-    || !sameJson(origin.sourceSeats, session.seats.map(seat => ({ seat: seat.seat, displayName: seat.displayName })))) invalid("Invalid saved seat order");
-  if (!Array.isArray(source.commands) || origin.prefixCount > source.commands.length) invalid("Invalid journal prefix count");
+    || !sameJson(origin.sourceSeats, session.seats.map(seat => ({ seat: seat.seat, displayName: seat.displayName })))) mismatch("Invalid saved seat order");
+  if (!Array.isArray(source.commands)) mismatch("Invalid saved journal");
+  if (origin.prefixCount > source.commands.length) invalid("Invalid journal prefix count");
   let previous = 0;
   for (const entry of source.commands.slice(0, origin.prefixCount)) {
     if (!Number.isSafeInteger(entry.storedSeq) || entry.storedSeq <= previous
       || !Number.isInteger(entry.seat) || entry.seat < 0 || entry.seat >= count
       || !entry.command || typeof entry.command.promptId !== "string" || !entry.command.promptId
       || !Number.isSafeInteger(entry.command.revision) || entry.command.revision < 0
-      || !entry.command.answer || typeof entry.command.answer !== "object" || Array.isArray(entry.command.answer)) invalid("Invalid saved journal command");
+      || !entry.command.answer || typeof entry.command.answer !== "object" || Array.isArray(entry.command.answer)) mismatch("Invalid saved journal command");
     previous = entry.storedSeq;
   }
   if (hashReplayForkPrefix(source.commands.slice(0, origin.prefixCount)) !== origin.prefixHash) {
@@ -172,13 +177,18 @@ export function createReplayForkService(db: Database.Database): ReplayForkServic
     if (saved) return saved;
 
     // Access and the snapshot are checked under the same write lock as the insert. The source is read-only.
-    assertOwnerReplaySourceAccess(db, input.origin.sourceSlug, owner);
-    const current = duels.privateState(input.origin.sourceSlug, owner.guildId);
+    const sourceAccess = assertOwnerReplaySourceAccess(db, input.origin.sourceSlug, owner);
+    if (isReplayFork(sourceAccess)) throw new ReplayForkStorageError("A replay fork cannot be forked", "NOT_PLAYABLE");
+    let current: DuelPrivateState;
+    try { current = duels.privateState(input.origin.sourceSlug, owner.guildId); }
+    catch (error) {
+      if (error instanceof SyntaxError || (error instanceof DuelServiceError && error.status === 500)) {
+        mismatch("Invalid saved source data");
+      }
+      throw error;
+    }
     if (!sourceMatches(current, input.source)) throw new ReplayForkStorageError("The source changed after checkpoint validation", "SOURCE_CHANGED");
     const replayFork: ReplayForkSetup = { ownerUserId: owner.userId, control: "all-manual", origin: input.origin };
-    const previousFork = current.setup?.replayFork;
-    const manualBoundary = previousFork?.manualLossAnswersAfter ?? previousFork?.origin.prefixCount;
-    if (manualBoundary !== undefined && manualBoundary < input.origin.prefixCount) replayFork.manualLossAnswersAfter = manualBoundary;
     validateSource(input.source, replayFork, owner);
     const setup = forkSetup(input.source, replayFork), source = input.source;
     // Retain recorded engine rules in settings. A null clock disables live timers; no opening or invite is created.

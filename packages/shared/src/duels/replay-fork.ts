@@ -21,8 +21,6 @@ export interface ReplayForkSetup {
   ownerUserId: number;
   control: "all-manual";
   origin: ForkOrigin;
-  /** Private server-owned control boundary inherited when copying a fork. Default: origin.prefixCount. */
-  manualLossAnswersAfter?: number;
 }
 
 export interface ReplayForkRequest {
@@ -94,8 +92,7 @@ export function isReplayForkRequest(value: unknown): value is ReplayForkRequest 
 
 /** Shape only. Storage must also check the format's seat count and preserve creator/origin on each setup write. */
 export function isReplayForkSetup(value: unknown): value is ReplayForkSetup {
-  if (!isRecord(value) || !hasExactKeys(value, ["ownerUserId", "control", "origin",
-    ...(Object.hasOwn(value, "manualLossAnswersAfter") ? ["manualLossAnswersAfter"] : [])])
+  if (!isRecord(value) || !hasExactKeys(value, ["ownerUserId", "control", "origin"])
     || !Number.isSafeInteger(value.ownerUserId) || (value.ownerUserId as number) <= 0
     || value.control !== "all-manual" || !isRecord(value.origin)) return false;
   const origin = value.origin;
@@ -105,8 +102,6 @@ export function isReplayForkSetup(value: unknown): value is ReplayForkSetup {
     && boundedToken(origin.frameId, REPLAY_FRAME_ID_MAX_LENGTH)
     && Number.isSafeInteger(origin.step) && (origin.step as number) >= 0
     && Number.isSafeInteger(origin.prefixCount) && (origin.prefixCount as number) >= 0
-    && (!Object.hasOwn(value, "manualLossAnswersAfter") || (Number.isSafeInteger(value.manualLossAnswersAfter)
-      && (value.manualLossAnswersAfter as number) >= 0 && (value.manualLossAnswersAfter as number) <= (origin.prefixCount as number)))
     && typeof origin.prefixHash === "string" && /^[a-f0-9]{64}$/.test(origin.prefixHash)
     && Array.isArray(origin.sourceSeats) && origin.sourceSeats.length >= 2 && origin.sourceSeats.length <= 4
     && Array.from(origin.sourceSeats).every((entry, index) => isRecord(entry) && entry.seat === index
@@ -118,7 +113,6 @@ export function isReplayForkSetup(value: unknown): value is ReplayForkSetup {
 export function sameReplayForkSetup(left: ReplayForkSetup, right: ReplayForkSetup): boolean {
   const a = left.origin, b = right.origin;
   return left.ownerUserId === right.ownerUserId && left.control === right.control
-    && left.manualLossAnswersAfter === right.manualLossAnswersAfter
     && a.sourceSlug === b.sourceSlug && a.sourceVersion === b.sourceVersion && a.frameId === b.frameId
     && a.step === b.step && a.prefixCount === b.prefixCount && a.prefixHash === b.prefixHash
     && a.sourceSeats.length === b.sourceSeats.length

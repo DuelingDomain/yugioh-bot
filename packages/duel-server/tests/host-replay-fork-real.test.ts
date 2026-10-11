@@ -273,19 +273,13 @@ describeWithCores("V1 host fork acceptance", [needs.cards(DATA), needs.scripts(D
     await app.restartHost();
     expect((await app.post<DuelRoom>({ op: "view", slug: result.slug, as: answered.fork!.actingSeat })).engine).toEqual(answered.engine);
     checkIsolation(app, before, result.slug);
-    // A new fork can copy a prior fork's explicitly answered loss prompt.
-    // Its own prefix ends later, so recovery must retain the earlier Manual boundary.
-    app.duels.interrupt(result.slug, app.owner.guildId, "Nested fork fixture");
-    const nestedReplay = await app.post<DuelReplayV2>({ op: "owner-replay", slug: result.slug });
-    const nested = await app.post<ReplayForkResult>({ op: "replay-fork", slug: result.slug,
-      sourceVersion: nestedReplay.sourceVersion, cursor: nestedReplay.frames.at(-2)!.cursor, requestId: "v1-nested-request" });
-    const nestedSetup = app.forks.privateState(nested.slug, app.owner).setup!;
-    expect(nestedSetup.replayFork!.manualLossAnswersAfter).toBe(5);
-    expect(JSON.stringify(nested)).not.toContain("manualLossAnswersAfter");
-    expect(() => app.duels.setSetup(nested.slug, app.owner.guildId, { ...nestedSetup,
-      replayFork: { ...nestedSetup.replayFork!, manualLossAnswersAfter: 6 } })).toThrow();
-    await app.restartHost();
-    expect((await app.post<DuelRoom>({ op: "view", slug: nested.slug, as: nested.initialSeat })).engine).toEqual(nested.room.engine);
+    // Owner replay must preserve the Manual boundary for the explicitly answered loss prompt.
+    app.duels.interrupt(result.slug, app.owner.guildId, "Owner replay fixture");
+    const forkReplay = await app.post<DuelReplayV2>({ op: "owner-replay", slug: result.slug });
+    expect(forkReplay.frames.at(-2)!.view).toEqual(answered.engine);
+    expect(forkReplay.frames.at(-1)).toMatchObject({ kind: "result", cursor: null,
+      view: { result: { reason: "Owner replay fixture" } } });
+    expect(JSON.stringify(forkReplay)).not.toContain("manualLossAnswersAfter");
     expect(protectedRows(app.db)).toEqual(before); expect(app.leaked).not.toHaveBeenCalled(); expect(app.network).not.toHaveBeenCalled();
   }, 60_000);
 });

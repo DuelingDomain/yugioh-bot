@@ -66,7 +66,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
     const work = async () => {
       const source = options.sourceOf(state);
       const result: JournalRunResult = await runJournalPrefix({ source, resources: options.resourcesOf(state), prefixCount, target,
-        manualLossAnswersAfter: Math.min(prefixCount, state.setup?.replayFork?.manualLossAnswersAfter ?? state.setup?.replayFork?.origin.prefixCount ?? prefixCount),
+        manualLossAnswersAfter: prefixCount,
         createWorker: () => (worker = options.createWorker(() => recorderId)) });
       check();
       if (result.views.public.result || !result.views.public.seats.some(s => !s.eliminated)) {

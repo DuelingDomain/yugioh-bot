@@ -1371,15 +1371,25 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         lastActivityAt: row.last_activity_at ?? row.created_at,
         series: row.series_id === null ? null : series.summaryById(row.series_id),
       });
+      const tolerantItem = (row: DuelListItemRow): DuelListItem[] => {
+        try { return [toItem(row)]; }
+        catch (error) {
+          if (!(error instanceof DuelServiceError && error.status === 500 && error.message === "Duel setup record is invalid")) {
+            throw error;
+          }
+          console.warn(`[duels] Skipping invalid list row ${row.id}`, error);
+          return [];
+        }
+      };
       if (options?.archived) {
         const scope: DuelHistoryScope = options.scope ?? "mine";
-        return listHistory.all({ guild: guildId, viewer: playerId, all: scope === "all" ? 1 : 0 }).map(toItem);
+        return listHistory.all({ guild: guildId, viewer: playerId, all: scope === "all" ? 1 : 0 }).flatMap(tolerantItem);
       }
       const idleMs = options?.idleAfterMs ?? DUEL_LIVE_IDLE_AFTER_MS;
       const idleSeconds = Math.max(0, Math.ceil(idleMs / 1000));
       return listLive
         .all({ guild: guildId, viewer: playerId, idle: `-${idleSeconds} seconds` })
-        .map(toItem);
+        .flatMap(tolerantItem);
     },
 
     get(slug, guildId) {

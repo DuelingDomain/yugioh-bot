@@ -68,7 +68,7 @@ export function isDuelInviteReference(value: unknown): value is DuelInviteRefere
     || typeof ref.guildId !== "string" || !ref.guildId || typeof ref.url !== "string") return false;
   try {
     const url = new URL(ref.url);
-    return (url.protocol === "https:" || url.protocol === "http:") && url.pathname === `/duels/${ref.slug}`
+    return (url.protocol === "https:" || url.protocol === "http:") && url.pathname.endsWith(`/duels/${ref.slug}`)
       && !url.search && !url.hash && !url.username && !url.password;
   } catch { return false; }
 }

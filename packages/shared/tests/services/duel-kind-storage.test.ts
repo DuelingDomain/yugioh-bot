@@ -1,8 +1,8 @@
 import Database from "better-sqlite3";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
 import type { ReplayForkSetup } from "../../src/duels/index.js";
-import { createDuelService } from "../../src/services/duels.js";
+import { createDuelService, DuelServiceError } from "../../src/services/duels.js";
 import { seedIdentity } from "../helpers/identity.js";
 
 const databases: Database.Database[] = [];
@@ -32,6 +32,47 @@ describe("persisted duel kind and setup", () => {
     db.prepare("update duels set setup_json = ? where id = ?").run(JSON.stringify({ replayFork }), session.id);
     expect(() => duels.get(session.slug, "g")).toThrow(/invalid/);
     expect(() => duels.privateState(session.slug, "g")).toThrow(/invalid/);
+  });
+
+  it.each(["not JSON", "[]", JSON.stringify({ replayFork }), JSON.stringify({ engineIdentity: {} })])
+    ("keeps live and history lists usable with a corrupt setup: %s", raw => {
+      const { db, duels, owner } = fixture();
+      const good = duels.create({ guildId: "g", organizerPlayerId: owner.playerId, name: "Good", mode: "normal" });
+      db.prepare("update duels set setup_json=? where web_slug='fixture'").run(raw);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(duels.list("g", owner.playerId).map(row => row.slug)).toEqual([good.slug]);
+        db.exec("update duels set archived_at=datetime('now'),status='completed'");
+        expect(duels.list("g", owner.playerId, { archived: true }).map(row => row.slug)).toEqual([good.slug]);
+        expect(() => duels.privateState("fixture", "g")).toThrow(/invalid/);
+        expect(warn).toHaveBeenCalled();
+      } finally { warn.mockRestore(); }
+    });
+
+  it.each([
+    new Database.SqliteError("disk I/O error", "SQLITE_IOERR"),
+    new DuelServiceError("Saved duel deck is corrupt", 500),
+    new Error("Duel setup record is invalid"),
+    new DuelServiceError("Duel setup record is invalid", 400),
+  ])("rethrows unrelated row errors in live and history lists: %s", error => {
+    const { db, owner } = fixture();
+    const prepare = db.prepare.bind(db);
+    const prepareSpy = vi.spyOn(db, "prepare").mockImplementation(sql => {
+      const statement = prepare(sql);
+      if (sql.includes("select s.seat, s.player_id")) {
+        vi.spyOn(statement, "all").mockImplementation(() => { throw error; });
+      }
+      return statement;
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const duels = createDuelService(db);
+      prepareSpy.mockRestore();
+      expect(() => duels.list("g", owner.playerId)).toThrow(error);
+      db.exec("update duels set archived_at=datetime('now'),status='completed'");
+      expect(() => duels.list("g", owner.playerId, { archived: true, scope: "all" })).toThrow(error);
+      expect(warn).not.toHaveBeenCalled();
+    } finally { vi.restoreAllMocks(); }
   });
 
   it("projects the stored kind without publishing private metadata", () => {
