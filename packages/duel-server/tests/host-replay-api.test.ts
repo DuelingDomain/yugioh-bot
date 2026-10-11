@@ -111,7 +111,7 @@ it("binds no-op cursor prefixes and invalidates cached source versions after a s
   expect(a.body).toEqual(b.body); expect(workers).toHaveLength(1);
   const codec = createReplayCursorCodec(secret);
   expect(a.body.frames.map(f => f.cursor && codec.open(f.cursor).prefixCount)).toEqual([0, 1, 3, null]);
-  db.prepare("update duels set name = 'Changed source' where web_slug = ?").run(slug);
+  db.prepare("update duels set master_rule = 4 where web_slug = ?").run(slug);
   const changed = await post({ version: 2 }); expect(changed.body.sourceVersion).not.toBe(a.body.sourceVersion);
   expect(workers).toHaveLength(2);
 });

@@ -149,7 +149,7 @@ it("deduplicates concurrent launch retries", async () => {
 it("rejects bad cursor, changed source/version, active source and terminal engine", async () => {
   expect((await post({ op: "replay-fork", ...request(), cursor: "bad" })).body.code).toBe("INVALID_CURSOR");
   expect((await post({ op: "replay-fork", ...request(), sourceVersion: "other" })).body.code).toBe("SOURCE_CHANGED");
-  const old = request(); db.prepare("update duels set name = 'Changed' where web_slug = ?").run(slug);
+  const old = request(); db.prepare("update duels set master_rule = 4 where web_slug = ?").run(slug);
   expect((await post({ op: "replay-fork", ...old })).body.code).toBe("SOURCE_CHANGED");
   db.prepare("update duels set status = 'active' where web_slug = ?").run(slug);
   expect((await post({ op: "replay-fork", ...request() })).body.code).toBe("NOT_PLAYABLE");
@@ -239,7 +239,7 @@ it("refuses a changed source or revoked owner during the detached run", async ()
   const before = sourceRows(), input = request();
   makeWorker = () => {
     const w = new ForkWorker(), create = w.create.bind(w);
-    w.create = async options => { await create(options); db.prepare("update duels set name = 'Changed' where web_slug = ?").run(slug); };
+    w.create = async options => { await create(options); db.prepare("update duels set master_rule = 4 where web_slug = ?").run(slug); };
     return w;
   };
   expect((await post({ op: "replay-fork", ...input })).body.code).toBe("SOURCE_CHANGED");
@@ -361,4 +361,11 @@ it("recovers a committed fork without the detached launch time limit", async () 
   };
   const view = await post({ op: "view", slug: launch.body.slug });
   expect(view.response.status).toBe(200); expect(view.body.engine.revision).toBe(2);
+});
+
+it("launches an open cursor after the source is archived and players are renamed", async () => {
+  const input = request();
+  db.prepare("update duels set archived_at = datetime('now'), name = 'New name' where web_slug = ?").run(slug);
+  db.prepare("update players set display_name = 'Renamed' where id = 64").run();
+  expect((await post({ op: "replay-fork", ...input })).response.status).toBe(200);
 });

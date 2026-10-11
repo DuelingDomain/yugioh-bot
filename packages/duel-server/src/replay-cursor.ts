@@ -22,7 +22,21 @@ function digest(value: unknown): string {
 }
 
 /** Internal trusted source only. Includes original decks, rules, identity and ordered stored sequence IDs. */
-export function replaySourceVersion(source: ReplaySource): string { return digest(source); }
+export function replaySourceVersion(source: ReplaySource): string {
+  const { session, setup } = source, settings = session.settings;
+  return digest({
+    session: { id: session.id, slug: session.slug, guildId: session.guildId, kind: session.kind,
+      status: session.status, mode: session.mode, format: session.format, masterRule: session.masterRule,
+      seats: session.seats.map(({ seat, playerId }) => ({ seat, playerId })),
+      settings: { startingLP: settings.startingLP, startingHand: settings.startingHand, drawPerTurn: settings.drawPerTurn,
+        shuffleDeck: settings.shuffleDeck, stopAtEveryWindow: settings.stopAtEveryWindow },
+      winnerSeat: session.winnerSeat, resultReason: session.resultReason },
+    setup: setup ? { engine: setup.engine, firstTurnDraw: setup.firstTurnDraw, scriptErrorMode: setup.scriptErrorMode,
+      startupScripts: setup.startupScripts, surrenderedSeats: setup.surrenderedSeats } : undefined,
+    decks: source.decks, seed: source.seed, bundleVersion: source.bundleVersion,
+    engineIdentity: source.engineIdentity, commands: source.commands,
+  });
+}
 
 /** Hash ordered accepted inputs. Database sequence IDs are not copied into the new duel. */
 export function replayPrefixHash(source: ReplaySource, prefixCount: number): string {

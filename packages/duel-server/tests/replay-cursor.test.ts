@@ -25,6 +25,24 @@ describe("sealed replay cursors", () => {
     }
     expect(() => createReplayCursorCodec("other-secret").open(cursor)).toThrowError(expect.objectContaining({ code: "INVALID_CURSOR" }));
   });
+  it("keeps cursors stable across archival, names, ready flags and display timestamps", () => {
+    const source = replaySource(), before = replaySourceVersion(source);
+    const display = structuredClone(source);
+    display.session.name = "Renamed"; display.session.archivedAt = "2026-10-10T00:10:00Z";
+    display.session.endedAt = "2026-10-10T00:01:00Z";
+    display.session.seats[0]!.displayName = "New name"; display.session.seats[0]!.ready = false;
+    expect(replaySourceVersion(display)).toBe(before);
+    for (const change of [
+      (value: typeof source) => { value.session.settings.startingLP++; },
+      (value: typeof source) => { value.session.status = "completed"; },
+      (value: typeof source) => { value.decks[0]!.main[0]++; },
+      (value: typeof source) => { value.setup!.firstTurnDraw = true; },
+      (value: typeof source) => { value.session.seats[0]!.seat = 1; },
+    ]) {
+      const changed = structuredClone(source); change(changed);
+      expect(replaySourceVersion(changed)).not.toBe(before);
+    }
+  });
   it("binds the source, rules, sequence IDs and journal; it grants no access", () => {
     const source = replaySource();
     const cursor = codec.seal({ sourceId: 1, sourceSlug: source.session.slug, guildId: source.session.guildId,
