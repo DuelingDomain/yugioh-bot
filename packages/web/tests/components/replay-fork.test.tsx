@@ -359,6 +359,25 @@ describe("Jump in on the replay viewer", () => {
     expect(body.requestId.length).toBeLessThanOrEqual(128);
   });
 
+  it("makes one fork per click: Jump in stays shut after success while the page navigates", async () => {
+    server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
+      ? json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: forkRoom() })
+      : json(ownerReplay()));
+    await open(true);
+    fireEvent.click(screen.getByRole("button", { name: "Next move" }));
+    const jump = screen.getByRole("button", { name: /Jump in/ }) as HTMLButtonElement;
+    fireEvent.click(jump);
+    await waitFor(() => expect(nav.push).toHaveBeenCalledTimes(1));
+    // The router has not left the page yet: the button is shut and a second click or a double-click does nothing.
+    const shut = screen.getByRole("button", { name: /Starting/ }) as HTMLButtonElement;
+    expect(shut.disabled).toBe(true);
+    fireEvent.click(shut);
+    fireEvent.click(shut);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(calls.filter((call) => call.init?.method === "POST")).toHaveLength(1);
+    expect(nav.push).toHaveBeenCalledTimes(1);
+  });
+
   it("disables Jump in on the final result frame", async () => {
     server(() => json(ownerReplay()));
     await open(true);
