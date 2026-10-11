@@ -3,7 +3,7 @@
 import { useCallback, useMemo } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Pause, Play, SkipBack, SkipForward } from "lucide-react";
-import type { DuelEngineView, DuelSession, ReplayFrameV2, ReplayVisibility } from "@yugidraft/shared/duels";
+import { seatCountFor, type DuelEngineView, type DuelSession, type ReplayFrameV2, type ReplayVisibility } from "@yugidraft/shared/duels";
 import { isEliminated } from "./multi-seat";
 import type { DuelPreferences } from "./preferences";
 import {
@@ -177,7 +177,8 @@ export function ReplayFfa({
 }: ReplayFfaProps) {
   const { index, last, epoch, camera } = controller;
   const session = model.session;
-  const seatCount = session.seats.length;
+  // The format fixes the seat list, so a short or padded session row cannot change the number of fields.
+  const seatCount = seatCountFor(session.format);
   const atEnd = index >= last;
   const frame = frames[index];
   // One function per seat list, so the table's memos hold while a frame plays.

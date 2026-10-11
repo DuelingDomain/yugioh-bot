@@ -197,6 +197,19 @@ describe("FFA replay: every field, every camera seat", () => {
   });
 });
 
+describe("FFA replay: the seat list comes from the format", () => {
+  it("offers every seat of the format in the camera list when the session row lists fewer", async () => {
+    stubServer((visibility) => {
+      const raw = replayOf("ffa4", [ffaFrame("ffa4", 0), ffaFrame("ffa4", 1)])(visibility);
+      return { ...raw, session: { ...raw.session, seats: raw.session.seats.slice(0, 2) } };
+    });
+    await open();
+    const options = [...(screen.getByLabelText("View from seat") as HTMLSelectElement).options].map((option) => option.value);
+    expect(options).toEqual(["0", "1", "2", "3"]);
+    expect(fieldSeats()).toEqual([0, 1, 2, 3]);
+  });
+});
+
 describe("FFA replay: the Extra Monster Zones come from the engine", () => {
   const zoneKeys = (seat: number) =>
     [...document.querySelector(`[data-seat-field="${seat}"]`)!.querySelectorAll("[data-zones]")].map((node) => node.getAttribute("data-zones") ?? "");
