@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { SWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
-import type { DuelListEntry } from "../../src/components/duel/api";
+import type { DuelListItem } from "@yugidraft/shared/duels";
 import { EMPTY_HISTORY_FILTERS, toLocalInput } from "../../src/components/duel/history-filters";
 import { makeSeriesRoom } from "../helpers/duel-series";
 
@@ -13,18 +13,21 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: 
 
 import { DuelLobby } from "../../src/components/duel/lobby";
 
-function entry(slug: string, extra: Partial<DuelListEntry> = {}): DuelListEntry {
+function entry(slug: string, extra: Partial<DuelListItem> = {}): DuelListItem {
   const session = makeSeriesRoom({ slug, series: null, mySeat: null }).session;
   return {
     ...session, name: `Duel ${slug}`, settings: defaultDuelSettings("normal"), seriesId: null, status: "completed",
-    format: "1v1", createdAt: "2026-10-10 21:00:00", endedAt: "2026-10-10 21:42:00", mySeat: null, lastActivityAt: "",
-    series: null, ...extra,
-  } as DuelListEntry;
+    format: "1v1", createdAt: "2026-10-10T21:00:00.000Z", startedAt: null, endedAt: "2026-10-10T21:42:00.000Z",
+    durationMs: null, turnCount: null, engine: null, private: false, mySeat: null, lastActivityAt: "",
+    series: null,
+    seats: session.seats.map((seat) => ({ ...seat, team: null, result: null })),
+    ...extra,
+  } as DuelListItem;
 }
 
 const fetchMock = vi.fn();
-function respond(page: { duels: DuelListEntry[]; nextCursor?: string | null; canSeeAll?: boolean }) {
-  fetchMock.mockImplementationOnce(async () => Response.json({ nextCursor: null, canSeeAll: false, ...page }));
+function respond(page: { duels: DuelListItem[]; nextCursor?: string | null; canSeeAll?: boolean }) {
+  fetchMock.mockImplementationOnce(async () => Response.json({ nextCursor: null, canSeeAll: true, ...page }));
 }
 function urls(): URL[] {
   return fetchMock.mock.calls.map((call) => new URL(String(call[0]), "http://localhost"));
@@ -70,17 +73,34 @@ describe("Match history rows", () => {
     expect(screen.queryByText(/Admin: all duels/)).toBeNull();
   });
 
+  it("shows only the end time and no duration for an older duel without a start time", async () => {
+    respond({ duels: [entry("old", { durationMs: null, startedAt: null })] });
+    renderHistory();
+    const row = (await screen.findByText("Duel old")).closest("li")!;
+    expect(within(row).getByText(/^Ended /)).toBeInTheDocument();
+    expect(within(row).queryByText(/ to /)).toBeNull();
+    expect(within(row).queryByText(/\d+m \d+s|\d+h \d+m|^\d+s$/)).toBeNull();
+  });
+
+  it("shows interrupted duels without a seat result", async () => {
+    respond({ duels: [entry("cut", { status: "interrupted", winnerSeat: null })] });
+    renderHistory();
+    const row = (await screen.findByText("Duel cut")).closest("li")!;
+    const players = within(within(row).getByRole("list", { name: "Players" })).getAllByRole("listitem").map((item) => item.textContent);
+    expect(players).toEqual(["Seat 1 Sulman", "Seat 2 Imran"]);
+  });
+
   it("shows start to end time, length, turns, engine, players and a copyable id", async () => {
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     respond({
       duels: [entry("tag-1", {
-        format: "tag", winnerSeat: 0, startedAt: "2026-10-10T21:00:00Z", durationMs: 2_520_000, turnCount: 14, engine: "multi",
+        format: "tag", winnerSeat: 0, startedAt: "2026-10-10T21:00:00.000Z", durationMs: 2_520_000, turnCount: 14, engine: "multi",
         seats: [
-          { seat: 0, playerId: 1, displayName: "Sulman", ready: true, isBot: false },
-          { seat: 1, playerId: 2, displayName: "Imran", ready: true, isBot: false },
-          { seat: 2, playerId: 3, displayName: "Ali", ready: true, isBot: false, result: "Won" },
-          { seat: 3, playerId: null, displayName: "Practice bot", ready: true, isBot: true },
+          { seat: 0, playerId: 1, displayName: "Sulman", ready: true, isBot: false, team: 0, result: "win" },
+          { seat: 1, playerId: 2, displayName: "Imran", ready: true, isBot: false, team: 1, result: "loss" },
+          { seat: 2, playerId: 3, displayName: "Ali", ready: true, isBot: false, team: 0, result: "win" },
+          { seat: 3, playerId: null, displayName: "Practice bot", ready: true, isBot: true, team: 1, result: "loss" },
         ],
       })],
       canSeeAll: true,
@@ -110,6 +130,7 @@ describe("Match history filters", () => {
     renderHistory({ initialScope: "all" });
     await screen.findByText("Duel a");
     expect(urls()[0].search).toBe("?archived=1&scope=all");
+    await screen.findByLabelText("Card");
 
     respond({ duels: [entry("b")] });
     fireEvent.change(screen.getByLabelText("Format"), { target: { value: "ffa4" } });
@@ -140,6 +161,8 @@ describe("Match history filters", () => {
     const query = urls()[0].searchParams;
     expect(query.get("from")).toBe(new Date("2026-10-10T00:00").toISOString());
     expect(query.get("to")).toBe(new Date(new Date("2026-10-10T23:59").getTime() + 59_999).toISOString());
+    expect(query.get("from")).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
+    expect(query.get("to")).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
     expect(query.get("q")).toBe("Imran");
     expect(screen.getByLabelText("From")).toHaveValue("2026-10-10T00:00");
     expect(screen.getByLabelText("Player or duel name")).toHaveValue("Imran");
@@ -173,6 +196,18 @@ describe("Match history filters", () => {
     await screen.findByText("Duel a");
     expect(urls().at(-1)!.search).toBe("?archived=1&scope=mine");
     expect(screen.getByLabelText("Card")).toHaveValue("");
+    expect(window.location.search).toBe("?view=history");
+  });
+
+  it("hides the status and card filters for a member and drops bookmarked values", async () => {
+    respond({ duels: [entry("a")], canSeeAll: false });
+    renderHistory({ initialFilters: { ...EMPTY_HISTORY_FILTERS, card: "Nothing", status: "cancelled" } });
+    await screen.findByText("Duel a");
+    respond({ duels: [entry("a")], canSeeAll: false });
+    await waitFor(() => expect(urls().at(-1)!.search).toBe("?archived=1&scope=mine"));
+    expect(screen.queryByLabelText("Card")).toBeNull();
+    expect(screen.queryByLabelText("Status")).toBeNull();
+    expect(screen.getByLabelText("Format")).toBeInTheDocument();
     expect(window.location.search).toBe("?view=history");
   });
 

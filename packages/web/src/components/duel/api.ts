@@ -7,6 +7,7 @@ import type {
   DuelFirstChoice,
   DuelDeckValidation,
   DuelFormat,
+  DuelHistoryPage,
   DuelHistoryScope,
   DuelListItem,
   DuelReplay,
@@ -99,26 +100,9 @@ export function duelRoomKey(slug: string, spectate = false, fork: ForkViewContro
   return `/api/duels/${slug}${text ? `?${text}` : ""}`;
 }
 
-/** A history seat. `team` (0-based, Tag only) and `result` come from the history API. */
-export type DuelListSeat = DuelListItem["seats"][number] & { team?: number | null; result?: string | null };
-
-/**
- * A list row. The fields after `private` come from the history API; older servers omit them and the
- * row shows only what it has. `engine` is the core family, or an object that holds it.
- */
-export type DuelListEntry = Omit<DuelListItem, "seats"> & {
-  seats: DuelListSeat[];
-  private?: boolean;
-  startedAt?: string | null;
-  durationMs?: number | null;
-  turnCount?: number | null;
-  engine?: string | { coreFamily?: string | null } | null;
-};
-
-export interface DuelListPage {
-  duels: DuelListEntry[];
-  nextCursor?: string | null;
-  canSeeAll?: boolean;
+/** Live lists answer `{ duels }` only; history pages add the cursor and the admin flag. */
+export interface DuelListPage extends Partial<Omit<DuelHistoryPage, "duels">> {
+  duels: DuelListItem[];
 }
 
 export function duelHistoryKey(
