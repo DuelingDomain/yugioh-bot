@@ -444,7 +444,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
                     ))}
                   </div>
                 ) : null}
-                {ownerTools}
+                {ownerTools ? <span style={{ display: "contents" }} data-replay-tools-low>{ownerTools}</span> : null}
               </div>
               {notice ? <p role="alert" className={replayStyles.note}>{notice}</p> : null}
               {model.mySeat == null || model.visibility === "public"
