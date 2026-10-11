@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   opponentSeatsOf,
   seatCountFor,
@@ -369,8 +370,11 @@ export function useReplayController({ slug, frames, seatCount, mySeat }: {
   seatCount: number;
   mySeat: number | null;
 }): ReplayController {
+  // The router's own params, not window.location: on a client-side move (End fork, Open the source replay) the address bar
+  // still holds the old page while this first render runs, so only the router knows the frame the link asked for.
+  const routed = useSearchParams();
   const [selection, setSelection] = useState<Selection>(() => ({
-    frameId: typeof window === "undefined" ? null : readFrameParam(window.location.search),
+    frameId: routed ? readFrameParam(routed.toString()) : typeof window === "undefined" ? null : readFrameParam(window.location.search),
     index: 0,
   }));
   const [playing, setPlaying] = useState(false);
