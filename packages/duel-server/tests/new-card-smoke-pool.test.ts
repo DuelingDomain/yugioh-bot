@@ -40,6 +40,8 @@ it("reports missing activations as WARN and script errors as FAIL, with replay s
   expect(summarizeCard(card, [{ ...test, offered: ["effect"] }]).status).toBe("WARN");
   expect(summarizeCard(card, [{ ...test, offered: ["effect"], activated: ["effect"] }]).status).toBe("PASS");
   expect(summarizeCard(card, [{ ...test, failure: "Lua script error" }]).status).toBe("FAIL");
+  expect(summarizeCard(card, [test]).coverage).toEqual({ resolved: 0, total: 1 });
+  expect(summarizeCard(card, [{ ...test, activated: ["effect"], failure: "Lua script error" }]).coverage).toEqual({ resolved: 1, total: 1 });
   expect(renderSmokeMarkdown({ cards: [summarizeCard(card, [test])], durationMs: 12, jobs: 2, bundleVersion: "pin" })).toContain("Needs \\| conditions");
   expect(renderSmokeMarkdown({ cards: [summarizeCard(card, [test])], durationMs: 12, jobs: 2, bundleVersion: "pin" })).toContain("7");
 });

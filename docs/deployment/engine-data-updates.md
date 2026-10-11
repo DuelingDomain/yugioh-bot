@@ -103,7 +103,7 @@ Before publishing, the job inspects `origin/<base>..origin/chore/engine-data-upd
 
 Preparation also compares the candidate's loaded data with the open PR's pins; identical data skips the push and CI dispatch only if the fetched PR head still matches the compared head, after the human-commit check.
 
-Enable **Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests**. No personal token is required. With `GITHUB_TOKEN`, publication explicitly dispatches `test.yml` with `nightly=false`, running normal CI without the four nightly fuzz legs; the native job still checks the committed golden rows. **CI on the bot PR fails at “nduel golden hashes (--check)” until a reviewer re-records and commits `golden.tsv` for the candidate inputs.** Manual test dispatch defaults `nightly` to true; scheduled nightly runs remain enabled. An optional `ENGINE_DATA_PR_TOKEN` personal/app token needs repository contents and pull-request writes; with it, normal pull-request CI runs and explicit dispatch is skipped. Write permissions exist only in `publish`.
+Enable **Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests**. No personal token is required. With `GITHUB_TOKEN`, publication explicitly dispatches `test.yml` on `chore/engine-data-update` with `nightly=false` and `new_card_smoke=true`. This runs normal CI and the four new-card smoke shards without the nightly fuzz legs; the native job still checks the committed golden rows. **CI on the bot PR fails at “nduel golden hashes (--check)” until a reviewer re-records and commits `golden.tsv` for the candidate inputs.** Manual test dispatch defaults `nightly` to true; scheduled nightly runs remain enabled. An optional `ENGINE_DATA_PR_TOKEN` personal/app token needs repository contents and pull-request writes; with it, normal pull-request CI runs and explicit dispatch is skipped. Updater write permissions exist only in `publish`. In `test.yml`, only `new-card-smoke-report` has pull-request write permission for its sticky report comment.
 
 The PR receives the `engine-data` label if it exists. Its body is capped at 60,000 UTF-8 bytes, retaining the first-line counts, deployment warning and golden-hash review instructions, with links to the run summary and artifact. The complete report is saved in the `engine-data-update-report` artifact for 14 days and included in the run summary when it fits. Summaries exceeding 1,000,000 bytes are truncated with an artifact link, below GitHub's 1 MiB limit.
 
@@ -616,28 +616,122 @@ loss warnings for bundle updates still apply; admission auto blocks do not alter
 
 ## New card engine smoke hook
 
-After candidate preparation and pinned-core assembly, the weekly data PR should run the new card engine smoke test. The prepare-time preview check loads `initial_effect`; this command also plays short duels and resolves offered effects. Add this hook after `npm run duel:prepare` and the Standard/Domain core builds, before the PR report is published. The workflow file is maintained separately.
+The Monday/Thursday card-data PR runs the `new-card-smoke` job in
+`.github/workflows/test.yml` after the existing `cores` job prepares and verifies
+the engine bundle. The updater keeps its read-only `prepare` / write `publish`
+split. Its prepare-time preview check loads `initial_effect`; this CI hook also
+plays short real-engine duels and resolves offered effects.
 
-Use Node 22 and the candidate job's `DUEL_DATA_DIR`. Keep the previous and candidate bundles in separate job-local directories. Compare both installed bundles when available:
+The hook runs only for the same-repository PR whose head branch is
+`chore/engine-data-update`. Pull-request open, reopen and synchronize events run
+it, including human overlay fixes pushed to that branch. When publication uses
+`GITHUB_TOKEN`, it dispatches `test.yml` on that branch with `nightly=false` and
+`new_card_smoke=true`, because bot pushes do not start normal PR workflows. A
+manual dispatch must use that branch and set `new_card_smoke=true`; the hook
+resolves the open PR at the exact dispatched head SHA. Other PRs, forks, main
+pushes and scheduled nightly runs do not run this hook or receive its comment.
+
+The job passes `--from-pin <PR base SHA> --to-pin <PR head SHA>`. The runner reads
+the three immutable data pins from `packages/duel-server/scripts/prepare-data.ts`
+at each ref. The candidate pins must match the restored bundle manifest. The
+runner downloads the old pinned rows and scripts into a temporary comparison
+directory, then deletes them. Selection includes new rows, changed text/stats
+and changed resolved Lua scripts. A shared helper change adds its fixed sample
+of up to 150 unchanged cards across card types (seed 20261010). Tokens are
+excluded. Removed cards have no candidate engine path. Alternate artworks and
+retained previews are included. CI does not implement a second selection rule.
+
+Four matrix shards (`1/4`, `2/4`, `3/4`, `4/4`) use the verified cache from the
+existing core-build/assembly jobs. The shared
+`.github/actions/restore-engine-bundle` action restores that exact cache, installs
+Node 22 dependencies and builds shared code for smoke and engine tests. About
+150 changed cards plus the 150-card helper sample average 75 cards per shard,
+leaving headroom below the target of about 90 cards per shard and the runner's
+540-second budget. Each passcode belongs to one shard by a stable SHA-256 hash.
+For larger updates, increase the matrix, runner's shard denominator and report count together to about
+`ceil(card_count / 90)`, with headroom for hash distribution.
+
+The final `new-card-smoke-report` job runs even if PR context resolution or a
+smoke/core job fails. Its event guard does not depend on successful resolver
+outputs. It merges all shard JSON, writes PASS/WARN/FAIL counts and every FAIL/WARN row to
+the job summary, and saves the full Markdown/JSON report for 14 days. Each row
+shows the card name, passcode, minimum resolved effects/branches **k of n** across
+tested cores/formats, and reason. Zero of zero means no activated inventory was
+recorded; read the reason. Missing shards, mismatched bundles and failed
+infrastructure produce an ERROR and a failed check. Each shard retains its JSON
+and Markdown artifact even when the runner fails.
+
+Only this report job has `pull-requests: write`. It posts or edits one bot-owned
+comment marked `<!-- new-card-smoke-report -->`. Report jobs for one PR are
+serialized. Before posting, the helper checks that the PR is still open, still
+on the bot branch in this repository, and still at the tested head SHA. An old
+run cannot replace the comment for a newer head. A large comment keeps complete
+rows within GitHub's limit and links to the full job summary and artifacts.
+
+GitHub does not evaluate `workflow_dispatch` job checks for required PR checks
+in a branch ruleset. The two status-bridge jobs therefore publish an explicit
+commit status named **New card engine smoke report** on the tested head SHA.
+The first holds it pending before smoke starts; the second sets success only
+when the aggregate report job succeeds. FAIL, input/infrastructure errors,
+skipped reports and cancelled reports produce a failing status. These jobs have
+`statuses: write` and contents-read for their helper, which uses Node builtins; they have no
+pull-request write permission and install no dependencies. The bridge also runs
+on normal bot PR events so a new run replaces its previous status. Bot PR and
+dispatch workflows for one head SHA share a concurrency group and run in serial;
+an older PASS cannot overwrite a newer pending/failed result. Different head
+SHAs keep separate groups. See
+[GitHub's required-check trigger rules](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#checks-from-some-workflow-jobs-are-not-evaluated)
+and [commit statuses](https://docs.github.com/en/rest/commits/statuses).
+
+Require **New card engine smoke report** in the branch protection rule/ruleset
+for the merge target, with the required check's source set to **any source**.
+The same context is used by the aggregate job and the commit status. It fails
+for a real FAIL or input/download/infrastructure error; it passes for
+incomplete-only results with a warning. Normal PRs outside the card-data bot
+branch pass this requirement because the report job is skipped, and GitHub
+treats its skipped check as passing. On bot PR runs, the existing
+**Engine tests (cores required)** aggregate also requires the smoke report to
+succeed. A failed job alone does not prevent merging on an unprotected branch.
+Keep the existing golden-hash review/check before merging.
+
+After the repository owner adds the rule, open one docs-only PR. Confirm the
+**New card engine smoke report** context shows **skipped** and GitHub allows
+the PR to merge.
+
+| Runner exit | Meaning | CI result |
+| --- | --- | --- |
+| 0 | PASS or coverage WARN | Pass; read WARN rows |
+| 1 | At least one real FAIL, even if incomplete | Fail; block merge |
+| 2 | Input, download or infrastructure error | Fail with an error annotation; block merge |
+| 3 | Time budget incomplete, with no FAIL | Pass with a warning annotation |
+
+Read the sticky comment or aggregate job summary before merging. A WARN means
+a registered effect or declared branch did not resolve in every tested
+core/format, or the effect inventory was unavailable. Inspect **k of n** and the
+reason; do not treat WARN as proof that all mechanics work. Check the JSON for
+case IDs, seeds and core hashes. Add an exact ruling scenario when needed.
+Incomplete results list unfinished passcodes and cannot certify those cards.
+Re-run a shard or test the missing cases locally when that coverage matters.
+Passive effects and card rulings need separate scenario tests.
+
+To run one CI shard locally, use Node 22, install dependencies, build shared,
+and prepare/build or restore the candidate Standard/Domain cores in your own
+worktree. Set `DUEL_DATA_DIR` to that candidate bundle and use the exact PR refs:
 
 ```bash
-prlimit --core=0 -- npx tsx packages/duel-server/scripts/new-card-smoke.ts \
-  --from-bundle "$PREVIOUS_DUEL_DATA_DIR" --to-bundle "$DUEL_DATA_DIR" \
-  --jobs 4 --shard "$SMOKE_SHARD" --output ".status/new-card-smoke-${SMOKE_SHARD%/*}"
+# Use Node 22 and install with npm ci before running this command.
+export DUEL_DATA_DIR="$PWD/data/duel-engine-next"
+prlimit --core=0 -- node --import tsx packages/duel-server/scripts/new-card-smoke.ts \
+  --from-pin origin/main --to-pin HEAD --jobs 4 --shard 1/4 \
+  --output .status/new-card-smoke-1
 ```
 
-Use a CI matrix with `SMOKE_SHARD=1/4`, `2/4`, `3/4`, and `4/4` for a normal update of about 150 changed cards plus the 150-card helper sample. Four shards average 75 cards each, leaving headroom around the target of 90 cards per shard. For larger selections, increase the matrix count to approximately `ceil(card_count / 90)` and allow for hash distribution. Each passcode belongs to exactly one shard by a stable SHA-256 hash; every shard must use the same selection and shard count. Publish every shard report and aggregate its counts.
-
-The default card list includes new rows, changed card text or stats, and changed resolved Lua scripts. A shared helper change adds a fixed sample of up to 150 unchanged cards across card types (seed 20261010). Tokens are excluded from the comparison. Removed cards have no candidate engine path and are not tested. Alternate artwork passcodes and retained previews are included.
-
-If the previous bundle is unavailable, use repository Git refs that contain the old and candidate data pins:
-
-```bash
-prlimit --core=0 -- npx tsx packages/duel-server/scripts/new-card-smoke.ts \
-  --from-pin origin/main --to-pin HEAD --jobs 4 --shard "$SMOKE_SHARD" --output ".status/new-card-smoke-${SMOKE_SHARD%/*}"
-```
-
-`--from-pin` and `--to-pin` also accept JSON pin files with `scripts`, `database`, and `strings` fields, or bundle manifests with those fields in `sources`. The candidate pins must match the prepared bundle. The command downloads the old pinned rows and scripts into a temporary system comparison directory, then deletes them. With no card-selection flags, it compares `origin/main` pins to the prepared bundle's pins. No changed cards produces an empty report.
+Replace `origin/main` and `HEAD` with the PR base/head SHAs to repeat the CI
+selection exactly. Run `2/4`, `3/4` and `4/4` with separate output prefixes for
+full coverage. `--from-pin` and `--to-pin` also accept JSON pin files with
+`scripts`, `database` and `strings`, or manifests with those fields in `sources`.
+For a prepared old/new bundle comparison, use `--from-bundle OLD --to-bundle NEW`.
+No changed cards produces an empty report.
 
 For an explicit set or card list (run both `1/2` and `2/2` for the full BETB set, with distinct output prefixes):
 
@@ -654,6 +748,6 @@ The runner uses `compileBoard`, deterministic scripted choices, and the pinned e
 
 The default pool has four processes (maximum eight), a 30-second case watchdog, a 60-second card budget per requested format, and a nine-minute suite limit shared with card selection. The answer limit is 120 per seat (240 for 1v1); the turn limit is one full table rotation plus one turn. A timed-out case is stopped and queued until all ordinary workers have exited. Retry that exact setup and seed once alone before reporting FAIL; a successful confirmation resumes the remaining setups without rerunning completed cases. The confirmation shares the suite deadline and gets a fresh card budget. If a time budget prevents the confirmation from completing, retain the case as FAIL with "case timeout not confirmed" and exit 1. Coverage retries never repeat a completed setup/seed pair. A synchronous Lua/core stall is stopped by its process watchdog; the next card starts in a fresh process. The optional `--multi-cards` or `--multi-angelechy` flags add FFA3 and FFA4 in Standard and Domain for only those cards. Install `ocgcore.multi.wasm`, `ocgcore.multi-domain.wasm`, and the prepared multiplayer overlay first. The Angelechy Castellan FFA4 side-opponent geometry ruling remains open; a smoke PASS does not close that case.
 
-Publish both `.status/new-card-smoke-<i>.json` and `.status/new-card-smoke-<i>.md` for every one-based shard index `<i>` as PR artifacts and include the Markdown counts/table in the weekly report. JSON retains every case, seed, core hash, offered/attempted effects, failure reason, execution limits, and CLI arguments. Replay an exact case with `--cards PASSCODE --case CASE_ID --seed CASE_SEED`, using its case ID and seed from JSON and the same bundle and limits. FFA case IDs automatically select the multiplayer cores. Exit `1` means at least one FAIL, even if the report is also incomplete; exit `2` means an input, download, or infrastructure error; exit `3` means an incomplete time budget with no FAIL; PASS/WARN exits `0`. The hook should block a candidate on exits `1` and `2`, report exit `3` without blocking, and retain its report even on a nonzero exit. WARN means a registered effect or declared operation branch has not resolved in every requested core/format; review it and add an exact ruling scenario when needed. The tool does not update manual blocks or production telemetry. A PASS requires all registered activated effects and declared selection branches to finish on a resolved chain in each requested core/format. Passive effects and rulings require separate tests.
+CI publishes both `.status/new-card-smoke-<i>.json` and `.status/new-card-smoke-<i>.md` for every one-based shard index `<i>`, plus the merged `new-card-smoke-report` artifact and sticky comment. JSON retains every case, seed, core hash, offered/attempted effects, failure reason, execution limits, and CLI arguments. Replay an exact case with `--cards PASSCODE --case CASE_ID --seed CASE_SEED`, using its case ID and seed from JSON and the same bundle and limits. FFA case IDs automatically select the multiplayer cores. Exit `1` means at least one FAIL, even if the report is also incomplete; exit `2` means an input, download, or infrastructure error; exit `3` means an incomplete time budget with no FAIL; PASS/WARN exits `0`. The hook should block a candidate on exits `1` and `2`, report exit `3` without blocking, and retain its report even on a nonzero exit. WARN means a registered effect or declared operation branch has not resolved in every requested core/format; review it and add an exact ruling scenario when needed. The tool does not update manual blocks or production telemetry. A PASS requires all registered activated effects and declared selection branches to finish on a resolved chain in each requested core/format. Passive effects and rulings require separate tests.
 
 Case watchdog failures, unconfirmed case timeouts, and engine errors exit 1. Aggregate card/suite deadlines list unfinished passcodes and exit 3 only when there is no FAIL or unconfirmed case timeout; untested cards are never labeled FAIL.

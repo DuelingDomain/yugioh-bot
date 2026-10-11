@@ -10,7 +10,7 @@ import { smokeEffectCoverage, smokeExpectedEffects } from "./new-card-smoke-effe
 export { smokeIsSetCard } from "./new-card-smoke-companions.js";
 import { runSmokeCase, type SmokeCaseResult, type SmokeLimits } from "./new-card-smoke-runner.js";
 
-export interface SmokeCardResult extends SmokeCard { name: string; status: "PASS" | "WARN" | "FAIL"; reason: string; seed: number; cases: SmokeCaseResult[] }
+export interface SmokeCardResult extends SmokeCard { name: string; status: "PASS" | "WARN" | "FAIL"; reason: string; seed: number; cases: SmokeCaseResult[]; coverage: { resolved: number; total: number } }
 export interface SmokeReport { cards: SmokeCardResult[]; durationMs: number; jobs: number; peakWorkers?: number; timeoutRetries?: number; bundleVersion: string; sources?: unknown; incomplete?: boolean; incompleteCodes?: number[];
   configuration?: { caseTimeoutMs: number; cardTimeoutMsPerFormat: number; suiteTimeoutMs: number; baseSeed?: number; caseId?: string; multiCards: number[];
     formats: Array<{ format: DuelFormat; maxSteps: number; maxTurns: number }>; invocation?: string[]; shard?: { index: number; count: number } } }
@@ -56,7 +56,8 @@ export function summarizeCard(card: SmokeCard, cases: SmokeCaseResult[], seed = 
   const never = coverage.flatMap(c => c.never.map(e => `${c.group}: ${e.label} [${e.id}]`));
   const unknown = effectText && !expected.size;
   const status = !cases.length || failures.length ? "FAIL" : unknown || never.length || missing.length || printedWarnings.length ? "WARN" : "PASS";
-  const progress = `${Math.min(...coverage.map(c => c.count), expected.size)} of ${expected.size} effects ran in every core/format`;
+  const resolved = Math.min(...coverage.map(c => c.count), expected.size);
+  const progress = `${resolved} of ${expected.size} effects ran in every core/format`;
   const reason = !cases.length ? "No engine cases completed" : failures.length ? failures.map(c => `${c.id} [seed ${c.seed}]: ${c.failure}`).join("; ")
     : never.length ? `${progress}; effects that never ran: ${never.join(", ")}`
       : unknown ? "Effect inventory unavailable; cannot certify all effects ran"
@@ -64,7 +65,8 @@ export function summarizeCard(card: SmokeCard, cases: SmokeCaseResult[], seed = 
       : printedWarnings.length ? progress
       : `${progress}; ${cases.length} engine cases checked; ${cases.filter(c => c.replayed).length} replay checks`;
   return { ...card, name: card.name ?? String(card.code), status,
-    reason: !failures.length && cases.length && printedWarnings.length ? `${reason}; ${printedWarnings.join("; ")}` : reason, seed, cases };
+    reason: !failures.length && cases.length && printedWarnings.length ? `${reason}; ${printedWarnings.join("; ")}` : reason, seed, cases,
+    coverage: { resolved, total: expected.size } };
 }
 
 const cell = (value: unknown) => String(value).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ").replace(/</g, "&lt;").replace(/>/g, "&gt;");

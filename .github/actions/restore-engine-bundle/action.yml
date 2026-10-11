@@ -1,0 +1,28 @@
+name: Restore engine test bundle
+description: Restore the verified CI bundle and install/build the Node engine test dependencies
+inputs:
+  key:
+    description: Exact bundle cache key from the cores job
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Restore engine bundle
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          data/duel-engine-next
+          packages/duel-server/domain-core/dist
+        key: ${{ inputs.key }}
+        fail-on-cache-miss: true
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+        cache: npm
+    - name: Install
+      shell: bash
+      run: prlimit --core=0 -- npm ci
+    - name: Build shared
+      shell: bash
+      run: prlimit --core=0 -- npm run build --workspace=@yugidraft/shared

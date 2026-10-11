@@ -180,7 +180,7 @@ describe("engine data publication", () => {
     expect(f.git("log", "-1", "--format=%an <%ae>|%cn <%ce>")).toBe(`${bot.name} <${bot.email}>|${bot.name} <${bot.email}>`);
     expect(f.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").split("\n").sort()).toEqual([prepare, ...coreFiles].sort());
     for (const file of coreFiles) expect(f.git("show", `HEAD:${file}`)).toBe(coreSource(next.scripts).trim());
-    expect(dispatched(f)[0].args).toEqual(["workflow", "run", "test.yml", "--repo", "test/repo", "--ref", "chore/engine-data-update", "-f", "nightly=false"]);
+    expect(dispatched(f)[0].args).toEqual(["workflow", "run", "test.yml", "--repo", "test/repo", "--ref", "chore/engine-data-update", "-f", "nightly=false", "-f", "new_card_smoke=true"]);
     // Newly created URL is used directly; a second PR listing could race eventual consistency.
     expect(f.calls.filter((c) => c.command === "gh" && c.args[0] === "pr" && c.args[1] === "list")).toHaveLength(1);
     expect(f.calls.some((c) => c.command === "gh" && c.args.includes(createdUrl) && c.args.includes("--add-label"))).toBe(true);
