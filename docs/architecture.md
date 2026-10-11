@@ -156,3 +156,44 @@ flowchart LR
 The duel server owns selectable artwork identity: only passcodes in its `cards.cdb` artwork alias family may enter a deck picker. The authenticated web artwork route merges that family with `card_artworks` API metadata and the existing image cache, returning only local cached-image route URLs (nullable when availability is unknown). Search stays one result per card and includes `altArtCount`. Deck storage preserves selected engine passcodes; draft-pool checks canonicalize both sides without rewriting the art choice. Explicit cube rows can swap same-family artwork while retaining copy counts.
 
 See [the picker backend contract](specs/alt-art-picker.md) for exact routes, types, alias edge cases, and the resumable `npm run backfill:artworks --workspace=packages/shared -- --database … --dump … --state …` maintenance command. The backfill downloads one full metadata dump, syncs existing catalog families, and does not fetch images. It must be run explicitly; no production backfill is part of this implementation.
+
+## Stored duel boards
+
+Terminal duels keep the public final board and each seat's own final board. All server readers use `services/stored-duel-snapshots.ts`. Each snapshot column can hold old JSON TEXT or gzip BLOB bytes. SQLite permits BLOB values in the existing TEXT-affinity columns. The codec accepts both forms. No board, event, or log data is removed. Finished-room history and last-damage displays still read `events`; bug context uses only the public board's last log lines.
+
+New writes use JSON. A complete `snapshot_seats_json` list supersedes the two legacy seat columns for FFA3, FFA4, and Tag. Those new rows leave `snapshot_seat0_json` and `snapshot_seat1_json` null. Incomplete lists retain legacy seat columns. Two-seat final writes retain their existing three columns. The nullable `turn_count` column records the final turn. History reads this column without parsing saved boards. Old counts can remain unknown until backfill reaches them.
+
+The duel host runs snapshot retention separately from its frequent archive sweep. Its first pass starts after one minute. Later passes use these settings, also passed to the duel container by Compose:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `DUEL_SNAPSHOT_RETENTION_ENABLED` | `1` | `0` or `false` disables snapshot work and cancelled-fork deletion. Checked between rows and before writes. |
+| `DUEL_SNAPSHOT_RETENTION_DAYS` | `30` | Compress terminal boards after this many days from `ended_at`. Nonnegative integer. |
+| `DUEL_SNAPSHOT_RETENTION_INTERVAL_MS` | `21600000` | Time between passes (6 hours). Minimum 60000; maximum 2147483647. |
+
+A pass prepares gzip data outside its write transactions. It yields between rows, caps an update batch at 50 rows and 4 MiB of input bytes (one larger row can proceed alone), and waits 100 ms between batches. A pass processes at most 20 update batches. Maintenance writes use zero busy timeout; a held lock defers work to the next pass. The connection's normal timeout is restored in `finally`. Conditional updates check the original board bytes and terminal metadata to protect concurrent changes.
+
+`snapshot_compacted_at` marks processed rows, including rows with unreadable values. The job preserves unreadable bytes and can derive turns from other saved views or the old clock. This stamp makes each pass resumable and avoids repeated work. After an operator repairs a stored value, clear its stamp to process it again. Migration adds columns and indexes; it does not backfill counts, compress boards, or remove duplicate values during service startup.
+
+For old multiplayer rows, a complete valid seat list supersedes the legacy seat copies, even if those copies differ. All readers already select the list first. Only then does the job null the copies. Gzip preserves the original JSON bytes. Replay cache keys hash stored bytes with encoding tags: compression, deduplication, or a board change invalidates the cache. Room, admin reveal, replay result, saved-board fallback (413 or unavailable source engine), and bug-context reads all use the same codec.
+
+Each pass can delete at most 50 replay forks that are cancelled and ended more than 7 days ago. Deletion requires enabled foreign keys and no series link; the final DELETE rechecks these row guards. Each fork gets a separate transaction and a yield. Commands, seats, invite grants, and retry records cascade through indexed foreign keys. Fork source references are copied metadata or strings; the source is preserved. Active, completed, and interrupted forks are kept. Restart clears the count and compaction stamp. The host permits one pass at a time and waits for it at shutdown.
+
+Compression frees SQLite pages for reuse. It does not shrink the database file. See the [manual VACUUM procedure](deployment/vm-runbook.md#manual-duel-storage-vacuum) to return space to the file system. During a rolling deployment, disable retention until all snapshot-reading services use the new codec, then enable it and recreate the duel container.
+
+To repeat the synthetic measurement with Node 22 and dependencies installed:
+
+```bash
+prlimit --core=0 node --import tsx scripts/measure-duel-storage.ts
+```
+
+The fixture uses 40 synthetic card definitions, final public and own-seat projections, and bounded event/log histories. It contains no production data. Its repeating text compresses well; these figures are test measurements, not production estimates. Before means all old snapshot columns; after means deduplication plus gzip. Bytes exclude SQLite page and journal overhead.
+
+| Format | Before bytes | After dedup bytes | After gzip bytes | Saved | Public-board events | Public-board log |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1v1 | 305609 | 305609 | 14222 | 95.35% | 65.81% | 16.85% |
+| FFA3 | 1093385 | 727715 | 30086 | 97.25% | 73.10% | 12.50% |
+| FFA4 | 1947937 | 1390353 | 50884 | 97.39% | 79.37% | 8.14% |
+| Tag | 1030265 | 734873 | 31839 | 96.91% | 60.60% | 15.55% |
+
+Gzip bytes are 4.65%, 4.13%, 3.66%, and 4.33% of deduped JSON bytes, respectively. Keep events: the final-board UI uses them. The measurement script is separate from retention and never opens the database.

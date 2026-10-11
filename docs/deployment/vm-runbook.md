@@ -626,3 +626,29 @@ systemctl start "$unit.timer"
 - [ ] [Deployment verification passes](#verify)
 - [ ] [Clerk instance, callback, DNS/email and production keys configured](#clerk-configuration)
 - [ ] `duel` container logs show the private server listening
+
+## Manual duel storage VACUUM
+
+Snapshot retention only makes SQLite pages reusable. It never runs VACUUM. Schedule a drain window to shrink the database file after a large compaction pass.
+
+1. Stop new duel admissions and let active duels finish. Stop all processes that read or write the shared SQLite file: web, bot, worker, ws, and duel. Keep them stopped until verification ends.
+2. Set `DUEL_DB_FILE` to the database file and `DUEL_DB_BACKUP` to a new backup file. Use operator-selected paths. Confirm the file names before you run the commands.
+3. Take a consistent backup first. Keep it outside the application data cleanup path. Check that it opens and passes `PRAGMA integrity_check`. Never replace an existing backup.
+4. After the backup exists, confirm free disk space on the database volume is at least the current database file size. VACUUM needs temporary space of approximately that size; leave extra room for WAL and file-system overhead. A backup on the same volume needs additional space.
+5. With all services stopped, use the SQLite CLI:
+
+```bash
+# Set both variables before you run this block.
+set -e
+test -f "$DUEL_DB_FILE" && test ! -e "$DUEL_DB_BACKUP"
+sqlite3 "$DUEL_DB_FILE" ".backup '$DUEL_DB_BACKUP'"
+sqlite3 "$DUEL_DB_BACKUP" 'PRAGMA integrity_check;'
+df -h "$(dirname "$DUEL_DB_FILE")"
+ls -lh "$DUEL_DB_FILE" "$DUEL_DB_BACKUP"
+# Proceed only if the backup check returned ok and sufficient space is available.
+sqlite3 "$DUEL_DB_FILE" 'PRAGMA wal_checkpoint(TRUNCATE); VACUUM; PRAGMA integrity_check; PRAGMA foreign_key_check;'
+```
+
+The database integrity check must return `ok`; the foreign-key check must return no rows. If a check fails, keep services stopped and investigate with the backup preserved. Compare file sizes, then restart the services and check a finished room, history count, and public/own-seat replay. Keep the backup under the operator's backup policy. Do not add VACUUM to startup or periodic jobs.
+
+For the first codec deployment, set `DUEL_SNAPSHOT_RETENTION_ENABLED=0` until all services that read final boards have the new code. Then enable it and recreate the duel service. The default policy compresses final boards after 30 days and deletes only cancelled replay forks after 7 days. See [stored duel boards](../architecture.md#stored-duel-boards) for limits and settings.
