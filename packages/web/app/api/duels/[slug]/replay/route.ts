@@ -42,7 +42,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     ...query.input,
   });
   if (!result.ok) {
-    if (result.response.status === 413) {
+    if (result.response.status === 413 || result.response.status === 409) {
       try {
         assertDuelForkAccess(slug, actor);
         const room = actor.duels.room(slug, actor.guildId, actor.playerId);

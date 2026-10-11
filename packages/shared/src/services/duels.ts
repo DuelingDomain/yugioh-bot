@@ -1200,7 +1200,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         `
           update duels
           set status = ?, ended_at = datetime('now'), archived_at = coalesce(archived_at, datetime('now')), winner_player_id = ?, winner_seat = ?, result_reason = ?,
-              snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ?, snapshot_seats_json = ?, turn_count = ?, clock_json = null
+              snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ?, snapshot_seats_json = ?, turn_count = ?, snapshot_compacted_at = null, clock_json = null
           where id = ? and status = 'active'
         `,
       ).run(

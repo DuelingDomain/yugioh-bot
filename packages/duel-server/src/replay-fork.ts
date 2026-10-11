@@ -249,7 +249,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
           (select seq from duel_commands where duel_id = ? order by seq limit ?)`).run(state.session.id, state.session.id, count);
         db.prepare(`update duels set status = 'active', ended_at = null, archived_at = null, winner_player_id = null,
           winner_seat = null, result_reason = null, snapshot_public_json = null, snapshot_seat0_json = null,
-          snapshot_seat1_json = null, snapshot_seats_json = null, clock_json = null, opening_json = null,
+          snapshot_seat1_json = null, snapshot_seats_json = null, turn_count = null, snapshot_compacted_at = null, clock_json = null, opening_json = null,
           last_activity_at = datetime('now') where id = ? and kind = 'replay-fork'`).run(state.session.id);
         for (const { seat, command } of defaults) duels.recordCommand(slug, actor.guildId, seat, command, null);
         return { session: duels.get(slug, actor.guildId), reused: false };

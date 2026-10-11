@@ -74,3 +74,4 @@ export { createTournamentVisibilityService, TournamentVisibilityServiceError, is
 export * from "./duel-access.js";
 
 export * from "./stored-duel-snapshots.js";
+export * from "./duel-snapshot-retention.js";

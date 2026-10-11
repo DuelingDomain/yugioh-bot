@@ -154,3 +154,11 @@ it("opens the stored result when source engine resources are unavailable", async
   expect(fallback?.status).toBe(200);
   expect((await fallback!.json()).replayError.code).toBe("ENGINE_UNAVAILABLE_FOR_SOURCE");
 });
+
+it.each([false, true])("opens unavailable-engine final boards through the actual route (owner=%s)", async owner => {
+  const input = await routeFixture();
+  routeState.fetch.mockImplementation(async () => NextResponse.json({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE", error: "Historical engine unavailable", finalBoard: "available" }, { status: 409 }));
+  const response = await routeGet(owner, input.session.slug, "version=2&visibility=public");
+  expect(response.status).toBe(200);
+  expect((await response.json()).replayError.code).toBe("ENGINE_UNAVAILABLE_FOR_SOURCE");
+});

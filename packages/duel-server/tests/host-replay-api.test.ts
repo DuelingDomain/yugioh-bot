@@ -316,3 +316,31 @@ it.each(["plain", "gzip", "deduped"])("reads %s final boards for result, admin r
   expect(workers).toHaveLength(count + 1);
   expect(changed.body.frames.at(-1)?.view.turn).toBe(13);
 });
+
+it("schedules one retention sweep at a time and waits for it during shutdown", async () => {
+  const jobs = await import("@yugidraft/shared/services");
+  await host.close();
+  vi.useFakeTimers();
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_INTERVAL_MS", "60000");
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const job = vi.spyOn(jobs, "runDuelSnapshotRetention").mockImplementation(async (_db, options) => {
+    await gate;
+    expect(options?.stopped?.()).toBe(true);
+    return { compacted: 0, deletedForks: 0, busy: false };
+  });
+  try {
+    host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(job).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(job).toHaveBeenCalledTimes(1);
+    let closed = false;
+    const closing = host.close().then(() => { closed = true; });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    release(); await closing;
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(job).toHaveBeenCalledTimes(1);
+  } finally { release(); job.mockRestore(); vi.useRealTimers(); }
+});

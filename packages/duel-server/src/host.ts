@@ -1,4 +1,4 @@
-import { readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, type StoredDuelBoards } from "@yugidraft/shared/services";
+import { readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, type StoredDuelBoards } from "@yugidraft/shared/services";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
@@ -2994,6 +2994,20 @@ export function createDuelHost(options: {
   const stallTimer = stallMs > 0 ? setInterval(() => void checkStalls(), Math.max(10, Math.min(5000, Math.floor(stallMs / 4)))) : null;
   stallTimer?.unref();
 
+  let retentionSweep: Promise<unknown> | null = null;
+  const sweepRetention = () => {
+    if (stopped || retentionSweep || !duelSnapshotRetentionConfig().enabled) return;
+    retentionSweep = runDuelSnapshotRetention(options.db, { now: now(), stopped: () => stopped })
+      .catch(error => console.warn("[duel] snapshot retention sweep failed", error))
+      .finally(() => { retentionSweep = null; });
+  };
+  const retentionInterval = duelSnapshotRetentionConfig().intervalMs;
+  const retentionTimer = setInterval(sweepRetention, retentionInterval);
+  retentionTimer.unref();
+  // Allow startup migrations and live recovery to settle before the first bounded pass.
+  const retentionStartup = setTimeout(sweepRetention, Math.min(60_000, retentionInterval));
+  retentionStartup.unref();
+
   return {
     async handle(request: Request): Promise<Response> {
       if (request.method !== "POST" || new URL(request.url).pathname !== "/internal/duel") return new Response("Not found", { status: 404 });
@@ -3062,6 +3076,9 @@ export function createDuelHost(options: {
     async close(): Promise<void> {
       stopped = true;
       clearInterval(timer);
+      clearInterval(retentionTimer);
+      clearTimeout(retentionStartup);
+      await retentionSweep;
       if (stallTimer) clearInterval(stallTimer);
       for (const seriesId of [...advanceTimers.keys()]) clearAdvanceTimer(seriesId);
       for (const slug of [...openingTimers.keys()]) clearOpeningTimer(slug);

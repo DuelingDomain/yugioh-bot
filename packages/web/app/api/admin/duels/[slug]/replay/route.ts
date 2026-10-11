@@ -15,7 +15,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   if (!query.ok) return query.response;
   const result = await callDuelHost({ op: "owner-replay", slug, guildId: actor.guildId,
     playerId: actor.playerId, userId: actor.userId, ...query.input });
-  if (!result.ok && result.response.status !== 413) return noStore(result.response);
+  if (!result.ok && result.response.status !== 413 && result.response.status !== 409) return noStore(result.response);
   // A long engine build must not return private cards after access is revoked.
   const current = await requireOwnerReplaySource(slug);
   if (!current.ok) return current.response;
