@@ -42,9 +42,10 @@ on:
         default: "100"
 
 concurrency:
-  # The event name is in the group: a long nightly run must not hold back (or cancel) the push runs on main.
-  group: test-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Bot PR/dispatch runs for one head share a serial group so an older PASS cannot
+  # overwrite a newer FAIL. Different heads and ordinary nightly/main runs stay independent.
+  group: test-${{ github.workflow }}-${{ ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/engine-data-update' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.new_card_smoke && github.ref == 'refs/heads/chore/engine-data-update')) && format('card-data-{0}', github.event.pull_request.head.sha || github.sha) || format('{0}-{1}', github.event_name, github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.ref != 'chore/engine-data-update' || github.event.pull_request.head.repo.full_name != github.repository) }}
 
 permissions:
   contents: read

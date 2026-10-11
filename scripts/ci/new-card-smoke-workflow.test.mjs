@@ -6,6 +6,29 @@ import { parse } from "yaml";
 import { changedLayers } from "./changed-layers.mjs";
 
 const workflow = parse(readFileSync(new URL("../../.github/workflows/test.yml", import.meta.url), "utf8"));
+test("overlapping same-head bot PR/dispatch runs share a serial gate; other runs keep their groups", () => {
+  const head = "a".repeat(40), next = "b".repeat(40);
+  const bot = sha => ({ head: { sha, ref: "chore/engine-data-update", repo: { full_name: "owner/repo" } } });
+  const evaluate = (template, github, inputs) => {
+    const expression = value => Function("github", "inputs", "format", `return (${value})`)(github, inputs,
+      (pattern, ...args) => pattern.replace(/\{(\d+)\}/g, (_match, index) => args[Number(index)]));
+    if (template.startsWith("${{") && template.endsWith("}}")) return expression(template.slice(3, -2));
+    return template.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, value) => expression(value));
+  };
+  const fixture = [
+    { event_name: "pull_request", event: { pull_request: bot(head) }, sha: "merge", ref: "refs/pull/7/merge" },
+    // GitHub expression contexts return null for absent PR fields on dispatch.
+    { event_name: "workflow_dispatch", event: { pull_request: { head: {} } }, sha: head, ref: "refs/heads/chore/engine-data-update" },
+  ].map(event => ({ ...event, workflow: "Test", repository: "owner/repo" }));
+  const groups = fixture.map(event => evaluate(workflow.concurrency.group, event, { new_card_smoke: true }));
+  assert.equal(groups[0], groups[1], "same-head PR/dispatch cannot race their final commit-status writes");
+  for (const event of fixture) assert.equal(evaluate(workflow.concurrency["cancel-in-progress"], event, { new_card_smoke: true }), false);
+  assert.notEqual(evaluate(workflow.concurrency.group, { ...fixture[0], event: { pull_request: bot(next) } }, {}), groups[0]);
+  const main = { ...fixture[1], event_name: "push", ref: "refs/heads/main" };
+  const nightly = { ...main, event_name: "schedule" };
+  assert.notEqual(evaluate(workflow.concurrency.group, main, {}), evaluate(workflow.concurrency.group, nightly, {}));
+  assert.equal(evaluate(workflow.concurrency["cancel-in-progress"], { ...fixture[0], event: { pull_request: { head: { ref: "feature" } } } }, {}), true);
+});
 test("changes to the shared engine setup action run engine checks", () => {
   for (const event of ["pull_request", "push"]) {
     assert.equal(changedLayers([".github/actions/restore-engine-bundle/action.yml"], event).engine, true);
