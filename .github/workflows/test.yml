@@ -14,7 +14,8 @@ name: Test
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
 #
 # Pull requests and pushes to main always run unit. They run cores, engine, engine-legacy, native and rule-coverage
-# only when changes sets engine=true. A manual run runs every job, including nduel-nightly unless nightly=false.
+# only when changes sets engine=true (the bot smoke also requests cores). A manual run runs all regular jobs,
+# including nduel-nightly unless nightly=false; bot smoke also needs its branch and new_card_smoke input.
 # The schedule runs cores and nduel-nightly only.
 
 on:
