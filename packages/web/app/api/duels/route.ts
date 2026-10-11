@@ -95,8 +95,11 @@ export async function POST(request: NextRequest) {
 
   try {
     if (opponentPlayerId !== null) {
-      assertDuelInviteUrl(actor.guildId, request);
-      const { series, duel } = createDuelSeriesService(getDb()).createChallenge({
+      const db = getDb();
+      const opponentDiscordUserId = env.discordBotEnabled
+        ? playerIdentity(db, opponentPlayerId as number)?.discordUserId : null;
+      if (opponentDiscordUserId) assertDuelInviteUrl(actor.guildId, request);
+      const { series, duel } = createDuelSeriesService(db).createChallenge({
         guildId: actor.guildId,
         challengerPlayerId: actor.playerId,
         opponentPlayerId: opponentPlayerId as number,
@@ -108,26 +111,22 @@ export async function POST(request: NextRequest) {
         name: name || undefined,
       });
       await notifyDuelChange(duel.slug, actor.guildId).catch(() => undefined);
-      if (env.discordBotEnabled) {
+      if (env.discordBotEnabled && opponentDiscordUserId) {
         try {
-          const db = getDb();
-          const opponent = playerIdentity(db, opponentPlayerId as number);
           const challenger = playerIdentity(db, actor.playerId);
-          if (opponent?.discordUserId) {
-            await sendDuelInvite(
-              {
-                slug: duel.slug,
-                guildId: actor.guildId,
-                opponentDiscordUserId: opponent.discordUserId,
-                challengerName: challenger?.displayName ?? "A player",
-                duelName: duel.name,
-                bestOf: series.bestOf,
-                ranked: series.ranked,
-                tournamentName: null,
-              },
-              request,
-            );
-          }
+          await sendDuelInvite(
+            {
+              slug: duel.slug,
+              guildId: actor.guildId,
+              opponentDiscordUserId,
+              challengerName: challenger?.displayName ?? "A player",
+              duelName: duel.name,
+              bestOf: series.bestOf,
+              ranked: series.ranked,
+              tournamentName: null,
+            },
+            request,
+          );
         } catch (error) {
           console.warn("[api/duels] duel invite failed", error);
         }
