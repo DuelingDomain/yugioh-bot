@@ -93,6 +93,8 @@ containers' memory limits, CPU shares or OOM score. The workflow applies these c
    It then stops the old staging containers. If it detects another build outside the lock, it skips.
 3. It skips below 1100 MB of available memory or 6000 MB of free disk before the build.
    After the build, it skips below 2500 MB of free disk. Worker startup/cron owns image-cache eviction.
+   These are build guards, not disk alerts. Use the [backup disk checklist](vm-runbook.md#backup-disk-budget-and-checks)
+   and configure an alert at 70% disk use for this shared VM.
 4. It skips below 1900 MB of available memory before it starts staging.
 5. After a healthy start, it removes only old staging image IDs. Docker refuses to remove an image still used by a container.
 
@@ -114,6 +116,8 @@ free -m
 cd /opt/yugioh-bot-staging
 docker stats --no-stream $(sh scripts/staging/compose.sh ps -q)
 sh scripts/staging/check-resources.sh now 1000 3000 /opt
+df -h /opt /var/backups/yugioh-bot
+du -sh /var/backups/yugioh-bot /opt/yugioh-bot/data /opt/yugioh-bot-staging/data-staging
 ```
 
 ## One-time steps for the owner
@@ -453,6 +457,10 @@ WHERE web_slug = '<verified-local-duel-slug>'
 - **Refresh the database from production.** Run the workflow with `refresh_db` on. Staging duels and anything
   else that was only in staging are lost. Active duels in the copy are set to `interrupted`.
   The old staging database stays as `data-staging/bot.sqlite.before-copy` (one older copy).
+  Both staging files are uncompressed working copies. The staging workflow creates no `online/` or `drained/`
+  production backups. Production backups use zstd when installed, or gzip otherwise; their limits are
+  7 daily copies and 3 copies per deploy kind, with a 14-day age cap and a last-good-copy safeguard.
+  Include the staging working file and its one older copy in the shared VM disk budget.
 - **Stop staging.** Run the workflow with `action` = `stop`. This removes the staging containers and the staging network.
   The data folder stays. The four images that staging built are removed. It does not touch production.
 - **Start it again.** Run `deploy` again.

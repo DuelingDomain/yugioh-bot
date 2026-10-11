@@ -33,6 +33,12 @@
 - Review logs after each deploy: `docker compose -f docker-compose.yml logs --tail=50`
 - Back up `./data/bot.sqlite` daily. The deploy job never overwrites it; engine files live only under `data/duel-engine`.
 - Keep backups on the VM and remove any previously configured workstation pulls and retained local copies per the [backup runbook](vm-runbook.md#backups).
+- Confirm the 07:30 UTC timer and review `journalctl -u dueling-backup.service --no-pager -n 30`. New copies use `.sqlite.zst` when zstd is installed, or `.sqlite.gz` otherwise, with SHA-256 sidecars. Check `SKIPPED` and retention warnings.
+- Keep 7 daily copies and 3 copies per deploy kind (`online/`, `drained/`), with a 14-day age cap. Keep the last verified copy of each kind until a replacement exists. Set count and disk-reserve overrides as described in the runbook.
+- Budget about `13 × compressed size` for automatic backups, down from about `16 × raw size`. At a compressed/raw ratio of 0.5, backup use falls from `16B` to `6.5B` (about 59% less). Allow separate space for production, staging, WAL files, Docker images and temporary snapshots.
+- Check `df -h /opt /var/backups/yugioh-bot` and `du -sh /var/backups/yugioh-bot /opt/yugioh-bot/data /opt/yugioh-bot-staging/data-staging /var/lib/docker` after each deploy and at least weekly. Confirm actual disk capacity; do not assume 40 GB.
+- Configure a disk alert at **70% used** on the filesystem that holds production, staging and backups. No disk alert hook exists in this repo. The staging resource checks stop builds on low free space; they do not send alerts.
+- Rehearse [restore](vm-runbook.md#backups) with a new compressed copy and an old `.sqlite` copy. Verify checksums and SQLite integrity before replacement; stop all writers and preserve the current DB/WAL/SHM.
 - Keep the host OS patched: `apt update && apt upgrade -y`
 - Rotate secrets if ever exposed.
 - Do not run multiple bot replicas against the same SQLite file.

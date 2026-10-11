@@ -2,11 +2,14 @@
 """Offline tests; all fixtures live under this kit's directory. No SSH is run."""
 
 import contextlib
+import fcntl
+import gzip
 import hashlib
 import io
 import os
 from pathlib import Path
 import runpy
+import shutil
 import sqlite3
 import stat
 import subprocess
@@ -20,6 +23,7 @@ from unittest import mock
 
 KIT_DIR = Path(__file__).resolve().parent
 BACKUP_SCRIPT = KIT_DIR / "dueling-backup"
+RESTORE_SCRIPT = KIT_DIR / "dueling-restore"
 UTC = timezone.utc
 MANUAL_NAME = "bot-20261001-224200-manual.sqlite"
 
@@ -60,10 +64,12 @@ class BackupTests(unittest.TestCase):
         environment = os.environ.copy()
         environment.pop("DUELING_BACKUP_KEEP", None)
         environment.pop("DUELING_RELEASE_KEEP_DAYS", None)
+        environment.pop("DUELING_DEPLOY_BACKUP_KEEP", None)
         environment.update(
             DUELING_BACKUP_SRC=str(source or self.source),
             DUELING_BACKUP_DIR=str(self.destination),
             PYTHONDONTWRITEBYTECODE="1",
+            DUELING_BACKUP_MIN_FREE_BYTES="0",
         )
         if keep is not None:
             environment["DUELING_BACKUP_KEEP"] = str(keep)
@@ -89,7 +95,7 @@ class BackupTests(unittest.TestCase):
         for name in ("online", "drained"):
             directory = release / name
             directory.mkdir()
-            write_pair(directory, "bot-20000101-000000Z.sqlite")
+            write_pair(directory, "bot-20000101-000000Z.sqlite", self.snapshot_bytes())
         write_pair(release, "extra.sqlite")
         (release / "extra.sqlite-wal").write_bytes(b"WAL fixture")
         (release / "extra.sqlite-shm").write_bytes(b"SHM fixture")
@@ -97,6 +103,34 @@ class BackupTests(unittest.TestCase):
         nested.mkdir()
         (nested / "history.sqlite.gz").write_bytes(b"compressed fixture")
         return release
+
+    def snapshot_bytes(self):
+        path = self.root / "fixture.sqlite"
+        with contextlib.closing(sqlite3.connect(path)) as copy:
+            self.writer.backup(copy)
+            copy.execute("PRAGMA journal_mode=DELETE")
+        content = path.read_bytes()
+        path.unlink()
+        return content
+
+    def read_backup(self, path):
+        if path.suffix == ".gz":
+            return gzip.decompress(path.read_bytes())
+        if path.suffix == ".zst":
+            return subprocess.run(["zstd", "-q", "-d", "-c", str(path)], check=True,
+                                  capture_output=True, timeout=30).stdout
+        return path.read_bytes()
+
+    def assert_rows(self, path):
+        raw = self.root / "checked.sqlite"
+        raw.write_bytes(self.read_backup(path))
+        try:
+            with contextlib.closing(sqlite3.connect(raw.as_uri() + "?mode=ro", uri=True)) as copy:
+                self.assertEqual(copy.execute("SELECT * FROM messages ORDER BY id").fetchall(), self.rows)
+                self.assertEqual(copy.execute("PRAGMA integrity_check").fetchall(), [("ok",)])
+                self.assertEqual(copy.execute("PRAGMA journal_mode").fetchone()[0], "delete")
+        finally:
+            raw.unlink()
 
     def assert_success(self, result):
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -115,14 +149,12 @@ class BackupTests(unittest.TestCase):
 
         result = self.run_backup()
         self.assert_success(result)
-        backups = list(self.destination.glob("bot-*.sqlite"))
+        backups = [p for p in self.destination.glob("bot-*.sqlite.*") if p.suffix != ".sha256"]
         self.assertEqual(len(backups), 1)
         backup = backups[0]
-        self.assertRegex(backup.name, r"^bot-\d{8}-\d{6}Z\.sqlite$")
-        with contextlib.closing(sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True)) as copy:
-            self.assertEqual(copy.execute("SELECT * FROM messages ORDER BY id").fetchall(), self.rows)
-            self.assertEqual(copy.execute("PRAGMA integrity_check").fetchall(), [("ok",)])
-            self.assertEqual(copy.execute("PRAGMA journal_mode").fetchone()[0], "delete")
+        self.assertRegex(backup.name, r"^bot-\d{8}-\d{6}Z\.sqlite\.(gz|zst)$")
+        self.assert_rows(backup)
+        self.assertLess(backup.stat().st_size, len(self.read_backup(backup)))
         for suffix in ("-wal", "-shm", "-journal"):
             self.assertFalse(Path(str(backup) + suffix).exists())
         self.assertEqual(stat.S_IMODE(backup.stat().st_mode), 0o600)
@@ -162,7 +194,7 @@ class BackupTests(unittest.TestCase):
             # Today's snapshot plus six fixtures; the eighth-newest pair is removed.
             self.assert_pair_exists(name, age <= 6)
         self.assert_protected(protected)
-        fresh = next(path for path in self.destination.glob("bot-*.sqlite")
+        fresh = next(path for path in self.destination.glob("bot-*.sqlite.*") if path.suffix != ".sha256"
                      if path.name not in names.values() and path.name not in protected)
         total_bytes = fresh.stat().st_size + 6 * len(b"retention fixture")
         self.assertTrue(result.stdout.strip().endswith("kept=7 total_bytes={}".format(total_bytes)), result.stdout)
@@ -190,14 +222,15 @@ class BackupTests(unittest.TestCase):
         self.destination.mkdir()
         newest = "bot-20000201-120000Z.sqlite"
         oldest = "bot-20000101-120000Z.sqlite"
-        write_pair(self.destination, newest)
-        write_pair(self.destination, oldest)
+        content = self.snapshot_bytes()
+        write_pair(self.destination, newest, content)
+        write_pair(self.destination, oldest, content)
         namespace = self.namespace()
         kept, total_bytes = namespace["prune_backups"](7)
         self.assert_pair_exists(newest, True)
         self.assert_pair_exists(oldest, False)
         self.assertEqual(kept, 1)
-        self.assertEqual(total_bytes, len(b"retention fixture"))
+        self.assertEqual(total_bytes, len(content))
 
     def test_daily_age_cap_uses_exact_utc_boundary(self):
         self.destination.mkdir()
@@ -205,7 +238,7 @@ class BackupTests(unittest.TestCase):
         boundary = "bot-20260925-120000Z.sqlite"
         expired = "bot-20260925-115959Z.sqlite"
         for name in (newest, boundary, expired):
-            write_pair(self.destination, name)
+            write_pair(self.destination, name, self.snapshot_bytes())
 
         class FixedDateTime(datetime):
             @classmethod
@@ -262,7 +295,7 @@ class BackupTests(unittest.TestCase):
         self.assertTrue((recent / "online" / "bot-20000101-000000Z.sqlite").exists())
         self.assertTrue((recent / "drained" / "bot-20000101-000000Z.sqlite").exists())
 
-    def test_newest_expired_release_keeps_metadata_but_loses_all_database_copies(self):
+    def test_newest_expired_release_keeps_metadata_and_last_good_copy_per_kind(self):
         older = self.seed_release("pr2-20000101-000000Z")
         newest = self.seed_release("pr2-20000201-000000Z")
         os.utime(older, (2000000000, 2000000000))
@@ -272,9 +305,10 @@ class BackupTests(unittest.TestCase):
         self.assertFalse(older.exists())
         for name in ("checkout-commit", "deploy-commit", "images.jsonl", "runtime.env"):
             self.assertEqual((newest / name).read_bytes(), b"protected metadata fixture")
-        self.assertFalse((newest / "online").exists())
-        self.assertFalse((newest / "drained").exists())
-        self.assertEqual(list(newest.rglob("*.sqlite*")), [])
+        for kind in ("online", "drained"):
+            self.assert_rows(newest / kind / "bot-20000101-000000Z.sqlite")
+        self.assertFalse((newest / "extra.sqlite").exists())
+        self.assertFalse((newest / "nested/history.sqlite.gz").exists())
         # Idempotent even when only empty non-database directories remain.
         self.namespace()["prune_releases"]()
         self.assertTrue((newest / "runtime.env").exists())
@@ -352,7 +386,7 @@ class BackupTests(unittest.TestCase):
                 self.assertEqual(status, 0, output.getvalue())
                 self.assertIn("WARNING", output.getvalue())
                 self.assertIn("DUELING_RELEASE_KEEP_DAYS", output.getvalue())
-                self.assertFalse((release / "online").exists())
+                self.assertTrue((release / "online").exists())
                 self.assertIn(" kept=", success.getvalue())
 
     def test_release_pruning_refuses_symlinks_and_continues_with_safe_releases(self):
@@ -401,9 +435,8 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(len(output.getvalue().splitlines()), 1)
         self.assertTrue(expired.exists())
         self.assertIn(" kept=1 total_bytes=", success.getvalue())
-        backup = next(self.destination.glob("bot-*.sqlite"))
-        with contextlib.closing(sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True)) as copy:
-            self.assertEqual(copy.execute("SELECT * FROM messages ORDER BY id").fetchall(), self.rows)
+        backup = next(p for p in self.destination.glob("bot-*.sqlite.*") if p.suffix != ".sha256")
+        self.assert_rows(backup)
 
     def test_invalid_retention_fails_cleanly_before_backup_or_pruning(self):
         names, protected = self.seed_retention(range(1, 10))
@@ -497,6 +530,390 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(backup.read_bytes(), b"existing backup")
         self.assertEqual(sidecar.read_bytes(), original_sidecar)
         self.assertEqual(list(self.destination.glob("*.tmp")), [])
+
+    def test_gzip_fallback_produces_a_verified_compressed_pair(self):
+        namespace = self.namespace()
+        with mock.patch.object(namespace["shutil"], "which", return_value=None):
+            backup, _, _, _, _ = namespace["create_backup"]()
+        self.assertEqual(backup.suffix, ".gz")
+        self.assert_rows(backup)
+        self.assertEqual(list(self.destination.glob(".*.tmp")), [])
+
+    @unittest.skipUnless(shutil.which("zstd"), "zstd is not installed")
+    def test_zstd_produces_a_verified_compressed_pair(self):
+        result = self.run_backup()
+        self.assert_success(result)
+        backup = next(self.destination.glob("bot-*.sqlite.zst"))
+        self.assert_rows(backup)
+        self.assertEqual(list(self.destination.glob(".*.tmp")), [])
+
+    def test_corrupted_compression_is_rejected_before_publication(self):
+        namespace = self.namespace()
+
+        def corrupt(snapshot, archive, compression):
+            archive.write_bytes(gzip.compress(b"not a SQLite file"))
+
+        with mock.patch.dict(namespace["create_backup"].__globals__, {"compress_snapshot": corrupt}):
+            with mock.patch.object(namespace["shutil"], "which", return_value=None):
+                with contextlib.redirect_stderr(io.StringIO()) as output:
+                    status = namespace["main"]()
+        self.assertEqual(status, 1)
+        self.assertIn("ERROR", output.getvalue())
+        self.assertEqual(list(self.destination.iterdir()), [])
+
+    def test_truncated_compression_is_rejected_and_temp_files_are_removed(self):
+        namespace = self.namespace()
+
+        def truncate(snapshot, archive, compression):
+            archive.write_bytes(gzip.compress(snapshot.read_bytes())[:-8])
+
+        with mock.patch.dict(namespace["create_backup"].__globals__, {"compress_snapshot": truncate}):
+            with mock.patch.object(namespace["shutil"], "which", return_value=None):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    status = namespace["main"]()
+        self.assertEqual(status, 1)
+        self.assertEqual(list(self.destination.iterdir()), [])
+
+    def test_daily_retention_counts_old_raw_and_compressed_copies_together(self):
+        self.destination.mkdir()
+        raw = automatic_name(2)
+        compressed = automatic_name(1) + ".gz"
+        write_pair(self.destination, raw, self.snapshot_bytes())
+        write_pair(self.destination, compressed, gzip.compress(self.snapshot_bytes()))
+        result = self.run_backup(keep=2)
+        self.assert_success(result)
+        self.assert_pair_exists(raw, False)
+        self.assert_pair_exists(compressed, True)
+
+    def test_pruning_keeps_last_good_daily_copy_when_newer_copy_is_corrupt(self):
+        self.destination.mkdir()
+        good = automatic_name(30)
+        bad = automatic_name(1) + ".gz"
+        write_pair(self.destination, good, self.snapshot_bytes())
+        write_pair(self.destination, bad, gzip.compress(b"corrupt SQLite file"))
+        namespace = self.namespace()
+        with contextlib.redirect_stderr(io.StringIO()):
+            namespace["prune_backups"](1)
+        self.assert_pair_exists(good, True)
+        self.assert_rows(self.destination / good)
+
+    def recent_release(self, hours):
+        stamp = datetime.now(UTC) - timedelta(hours=hours)
+        return self.seed_release(stamp.strftime("pr2-%Y%m%d-%H%M%SZ"))
+
+    def test_deploy_retention_keeps_three_copies_for_each_kind(self):
+        releases = [self.recent_release(hours) for hours in range(1, 7)]
+        # An incomplete deployment must not consume a drained copy's slot.
+        shutil.rmtree(releases[0] / "drained")
+        result = self.run_backup()
+        self.assert_success(result)
+        for index, release in enumerate(releases):
+            with self.subTest(index=index):
+                self.assertEqual(bool(list((release / "online").glob("*.sqlite*"))), index < 3)
+                self.assertEqual(bool(list((release / "drained").glob("*.sqlite*"))), 1 <= index < 4)
+                self.assertTrue((release / "runtime.env").exists())
+
+    def test_deploy_count_is_configurable_and_counts_compressed_copies(self):
+        releases = [self.recent_release(hours) for hours in range(1, 5)]
+        for release in releases:
+            for kind in ("online", "drained"):
+                directory = release / kind
+                raw = directory / "bot-20000101-000000Z.sqlite"
+                compressed = raw.name + ".gz"
+                write_pair(directory, compressed, gzip.compress(raw.read_bytes()))
+                raw.unlink()
+                Path(str(raw) + ".sha256").unlink()
+        namespace = self.namespace()
+        with mock.patch.dict(os.environ, {"DUELING_DEPLOY_BACKUP_KEEP": "2"}):
+            namespace["prune_releases"]()
+        for index, release in enumerate(releases):
+            for kind in ("online", "drained"):
+                pair = release / kind / "bot-20000101-000000Z.sqlite.gz"
+                self.assertEqual(pair.exists(), index < 2)
+                self.assertEqual(Path(str(pair) + ".sha256").exists(), index < 2)
+
+    def test_deploy_run_prunes_across_the_parent_backup_root(self):
+        root = self.destination
+        releases = [self.recent_release(hours) for hours in range(1, 6)]
+        fresh = root / datetime.now(UTC).strftime("pr2-%Y%m%d-%H%M%SZ")
+        self.destination = fresh / "online"
+        result = self.run_backup()
+        self.assert_success(result)
+        self.assertEqual(len(list(root.glob("pr2-*/online/*.sqlite*"))), 6)  # Three pairs.
+        self.assertEqual(len(list(root.glob("pr2-*/drained/*.sqlite*"))), 6)
+        self.assertTrue((releases[0] / "runtime.env").exists())
+
+    def test_last_good_deploy_copy_survives_corrupt_newer_release_and_age_cap(self):
+        good = self.seed_release("pr2-20000101-000000Z")
+        bad = self.recent_release(1)
+        for kind in ("online", "drained"):
+            write_pair(bad / kind, "bot-20000101-000000Z.sqlite", b"bad database")
+        namespace = self.namespace()
+        with mock.patch.dict(os.environ, {"DUELING_DEPLOY_BACKUP_KEEP": "1"}):
+            with contextlib.redirect_stderr(io.StringIO()):
+                namespace["prune_releases"]()
+        for kind in ("online", "drained"):
+            self.assert_rows(good / kind / "bot-20000101-000000Z.sqlite")
+        self.assertTrue((good / "runtime.env").exists())
+
+    def test_disk_reserve_skips_without_pruning_the_last_good_backup(self):
+        self.destination.mkdir()
+        old = automatic_name(30)
+        write_pair(self.destination, old, self.snapshot_bytes())
+        namespace = self.namespace()
+        output = io.StringIO()
+        required = 3 * (self.source.stat().st_size + Path(str(self.source) + "-wal").stat().st_size)
+        with mock.patch.dict(os.environ, {"DUELING_BACKUP_MIN_FREE_BYTES": "1048576"}):
+            with mock.patch.object(namespace["shutil"], "disk_usage", return_value=SimpleNamespace(free=required + 1048575)):
+                with contextlib.redirect_stderr(output):
+                    status = namespace["main"]()
+        self.assertEqual(status, 1)
+        self.assertIn("SKIPPED", output.getvalue())
+        self.assertIn("insufficient free space", output.getvalue())
+        self.assert_pair_exists(old, True)
+        self.assertEqual(list(self.destination.glob(".*.tmp")), [])
+
+    def test_invalid_disk_reserve_fails_before_creating_or_pruning_files(self):
+        namespace = self.namespace()
+        for value in ("-1", "bad", "1.5", ""):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"DUELING_BACKUP_MIN_FREE_BYTES": value}):
+                with contextlib.redirect_stderr(io.StringIO()) as output:
+                    self.assertEqual(namespace["main"](), 1)
+                self.assertIn("DUELING_BACKUP_MIN_FREE_BYTES", output.getvalue())
+        self.assertFalse(self.destination.exists())
+
+    def run_restore(self, backup, target):
+        return subprocess.run([sys.executable, str(RESTORE_SCRIPT), str(backup), str(target)],
+                              env=self.environment(), capture_output=True, text=True, timeout=30)
+
+    def test_restore_accepts_old_uncompressed_backup(self):
+        self.destination.mkdir()
+        backup, _ = write_pair(self.destination, automatic_name(1), self.snapshot_bytes())
+        target = self.root / "restored db?#.sqlite"
+        result = self.run_restore(backup, target)
+        self.assert_success(result)
+        self.assert_rows(target)
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
+        self.assertEqual(list(self.root.glob(".*.tmp")), [])
+
+    def test_restore_accepts_gzip_backup(self):
+        self.destination.mkdir()
+        backup, _ = write_pair(self.destination, automatic_name(1) + ".gz", gzip.compress(self.snapshot_bytes()))
+        target = self.root / "restored.sqlite"
+        result = self.run_restore(backup, target)
+        self.assert_success(result)
+        self.assert_rows(target)
+
+    @unittest.skipUnless(shutil.which("zstd"), "zstd is not installed")
+    def test_restore_accepts_zstd_backup(self):
+        result = self.run_backup()
+        self.assert_success(result)
+        backup = next(self.destination.glob("*.zst"))
+        target = self.root / "restored.sqlite"
+        result = self.run_restore(backup, target)
+        self.assert_success(result)
+        self.assert_rows(target)
+
+    def test_restore_rejects_checksum_mismatch_without_output(self):
+        self.destination.mkdir()
+        backup, _ = write_pair(self.destination, automatic_name(1) + ".gz", gzip.compress(self.snapshot_bytes()))
+        backup.write_bytes(backup.read_bytes() + b"changed")
+        target = self.root / "restored.sqlite"
+        result = self.run_restore(backup, target)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("checksum", result.stderr.lower())
+        self.assertFalse(target.exists())
+        self.assertEqual(list(self.root.glob(".*.tmp")), [])
+
+    def test_restore_rejects_corrupt_sqlite_after_decompression(self):
+        self.destination.mkdir()
+        backup, _ = write_pair(self.destination, automatic_name(1) + ".gz", gzip.compress(b"not SQLite"))
+        target = self.root / "restored.sqlite"
+        result = self.run_restore(backup, target)
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(target.exists())
+        self.assertEqual(list(self.root.glob(".*.tmp")), [])
+
+    def test_restore_refuses_existing_target_or_wal(self):
+        self.destination.mkdir()
+        backup, _ = write_pair(self.destination, automatic_name(1), self.snapshot_bytes())
+        target = self.root / "restored.sqlite"
+        for suffix in ("", "-wal", "-shm"):
+            with self.subTest(suffix=suffix):
+                protected = Path(str(target) + suffix)
+                protected.write_bytes(b"preserve live files")
+                result = self.run_restore(backup, target)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(protected.read_bytes(), b"preserve live files")
+                protected.unlink()
+
+    def test_restore_rejects_missing_sidecar(self):
+        self.destination.mkdir()
+        backup, sidecar = write_pair(self.destination, automatic_name(1), self.snapshot_bytes())
+        sidecar.unlink()
+        target = self.root / "restored.sqlite"
+        result = self.run_restore(backup, target)
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(target.exists())
+
+    def test_deploy_count_rejects_invalid_settings_before_any_backup(self):
+        namespace = self.namespace()
+        for value in ("0", "-1", "bad", "1.5", ""):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"DUELING_DEPLOY_BACKUP_KEEP": value}):
+                with contextlib.redirect_stderr(io.StringIO()) as output:
+                    self.assertEqual(namespace["main"](), 1)
+                self.assertIn("DUELING_DEPLOY_BACKUP_KEEP", output.getvalue())
+        self.assertFalse(self.destination.exists())
+
+    def test_daily_and_deploy_runs_share_the_backup_root_lock(self):
+        self.destination.mkdir()
+        root = self.destination
+        fd = os.open(str(root), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            for kind in (None, "online", "drained"):
+                with self.subTest(kind=kind):
+                    self.destination = root if kind is None else root / "pr2-20261011-000000Z" / kind
+                    result = self.run_backup()
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("another backup is already running", result.stderr)
+                    self.assertEqual(list(root.rglob("*.sqlite*")), [])
+        finally:
+            os.close(fd)
+
+    def test_failed_compressor_preserves_old_backup_and_removes_temporary_files(self):
+        self.destination.mkdir()
+        name = automatic_name(1)
+        write_pair(self.destination, name, self.snapshot_bytes())
+        namespace = self.namespace()
+        with mock.patch.dict(namespace["create_backup"].__globals__,
+                             {"compress_snapshot": mock.Mock(side_effect=OSError("compressor failed"))}):
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(namespace["main"](), 1)
+        self.assert_pair_exists(name, True)
+        self.assert_rows(self.destination / name)
+        self.assertEqual(list(self.destination.glob(".*.tmp")), [])
+
+    def test_sidecar_rename_failure_removes_partial_publication_and_keeps_old_copy(self):
+        self.destination.mkdir()
+        name = automatic_name(1)
+        write_pair(self.destination, name, self.snapshot_bytes())
+        namespace = self.namespace()
+        rename = namespace["os"].rename
+
+        def fail_sidecar(source, target):
+            if str(target).endswith(".sha256"):
+                raise OSError("sidecar rename failed")
+            return rename(source, target)
+
+        with mock.patch.object(namespace["os"], "rename", side_effect=fail_sidecar):
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(namespace["main"](), 1)
+        self.assert_pair_exists(name, True)
+        self.assertEqual(set(p.name for p in self.destination.iterdir()), {name, name + ".sha256"})
+
+    def test_unverifiable_deploy_kind_is_not_pruned(self):
+        releases = [self.recent_release(hours) for hours in range(1, 5)]
+        for release in releases:
+            raw = release / "drained/bot-20000101-000000Z.sqlite"
+            write_pair(raw.parent, raw.name, b"bad database")
+        namespace = self.namespace()
+        with contextlib.redirect_stderr(io.StringIO()) as output:
+            namespace["prune_releases"]()
+        self.assertIn("cannot verify", output.getvalue())
+        self.assertEqual(sum((release / "online/bot-20000101-000000Z.sqlite").exists() for release in releases), 3)
+        for release in releases:
+            self.assertTrue((release / "drained/bot-20000101-000000Z.sqlite").exists())
+
+    def test_restore_verify_only_removes_its_temporary_file(self):
+        self.destination.mkdir()
+        backup, _ = write_pair(self.destination, automatic_name(1) + ".gz", gzip.compress(self.snapshot_bytes()))
+        result = subprocess.run([sys.executable, str(RESTORE_SCRIPT), "--verify", str(backup)],
+                                env=self.environment(), capture_output=True, text=True, timeout=30)
+        self.assert_success(result)
+        self.assertIn("Verified", result.stdout)
+        self.assertEqual(list(self.destination.glob(".*.tmp")), [])
+
+    def test_restore_refuses_symlinked_backup_sidecar_and_target_parent(self):
+        self.destination.mkdir()
+        backup, sidecar = write_pair(self.destination, automatic_name(1), self.snapshot_bytes())
+        alias = self.root / "alias.sqlite"
+        alias.symlink_to(backup)
+        target = self.root / "restored.sqlite"
+        result = self.run_restore(alias, target)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("symlink", result.stderr)
+        original_checksum = self.root / "checksum.txt"
+        sidecar.rename(original_checksum)
+        sidecar.symlink_to(original_checksum)
+        result = self.run_restore(backup, target)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("symlink", result.stderr)
+        sidecar.unlink()
+        original_checksum.rename(sidecar)
+        parent = self.root / "linked-parent"
+        parent.symlink_to(self.destination, target_is_directory=True)
+        result = self.run_restore(backup, parent / "restored.sqlite")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("symlink", result.stderr)
+        self.assertFalse(target.exists())
+        self.assertEqual(list(self.destination.glob(".*.tmp")), [])
+
+    def test_restore_cannot_overwrite_a_target_created_during_publication(self):
+        self.destination.mkdir()
+        backup, _ = write_pair(self.destination, automatic_name(1), self.snapshot_bytes())
+        target = self.root / "restored.sqlite"
+        namespace = self.namespace()
+        lexists = namespace["os"].path.lexists
+        checks = 0
+
+        def concurrent_writer(path):
+            nonlocal checks
+            exists = lexists(path)
+            if str(path) == str(target) + "-journal":
+                checks += 1
+                if checks == 2:
+                    target.write_bytes(b"concurrent writer's file")
+            return exists
+
+        with mock.patch.object(namespace["os"].path, "lexists", side_effect=concurrent_writer):
+            with self.assertRaises(FileExistsError):
+                namespace["restore_backup"](backup, target)
+        self.assertEqual(target.read_bytes(), b"concurrent writer's file")
+        self.assertEqual(list(self.root.glob(".*.tmp")), [])
+
+    def test_deploy_workflow_rejects_multiline_and_quoted_backup_settings(self):
+        workflow = KIT_DIR.parents[1] / ".github/workflows/deploy.yml"
+        validation = workflow.read_text().split("# Validate before these values are put in the remote shell command.", 1)[1]
+        validation = validation.split("bundle_tar=", 1)[0]
+        environment = self.environment()
+        environment.update(DUELING_DEPLOY_BACKUP_KEEP="3", DUELING_BACKUP_MIN_FREE_BYTES="1073741824")
+        valid = subprocess.run(["sh", "-eu", "-c", validation], env=environment, capture_output=True, timeout=30)
+        self.assertEqual(valid.returncode, 0, valid.stderr)
+        for name in ("DUELING_DEPLOY_BACKUP_KEEP", "DUELING_BACKUP_MIN_FREE_BYTES"):
+            for value in ("3\nbad", "3\n'; exit 0; #", "3 4", "-1", "1.5", "", "3\n"):
+                with self.subTest(name=name, value=value):
+                    result = subprocess.run(["sh", "-eu", "-c", validation],
+                                            env={**environment, name: value}, capture_output=True, timeout=30)
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_zstd_keeps_unverifiable_deploy_copies(self):
+        releases = [self.recent_release(hours) for hours in range(1, 5)]
+        for release in releases:
+            directory = release / "drained"
+            raw = directory / "bot-20000101-000000Z.sqlite"
+            # The command is missing, so decoding must fail before these bytes matter.
+            write_pair(directory, raw.name + ".zst", b"unavailable codec fixture")
+            raw.unlink()
+            Path(str(raw) + ".sha256").unlink()
+        namespace = self.namespace()
+        with mock.patch.object(namespace["subprocess"], "run", side_effect=FileNotFoundError("zstd missing")):
+            with contextlib.redirect_stderr(io.StringIO()) as output:
+                namespace["prune_releases"]()
+        self.assertIn("zstd missing", output.getvalue())
+        for release in releases:
+            self.assertTrue((release / "drained/bot-20000101-000000Z.sqlite.zst").exists())
+            self.assertEqual(list(release.rglob(".*.tmp")), [])
 
 
 if __name__ == "__main__":

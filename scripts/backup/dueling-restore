@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Verify or restore .sqlite, .sqlite.gz and .sqlite.zst backups."""
+
+from pathlib import Path
+import runpy
+import sys
+
+
+def main():
+    try:
+        if len(sys.argv) != 3:
+            raise ValueError("usage: dueling-restore <backup> <new.sqlite> | --verify <backup>")
+        kit = runpy.run_path(str(Path(__file__).with_name("dueling-backup")))
+        if sys.argv[1] == "--verify":
+            backup = kit["safe_path"](Path(sys.argv[2]))
+            kit["verify_backup"](backup)
+            print("Verified " + str(backup))
+        else:
+            backup, target = (Path(arg).absolute() for arg in sys.argv[1:])
+            kit["restore_backup"](backup, target)
+            print("Restored " + str(target))
+        return 0
+    except (Exception, KeyboardInterrupt) as error:
+        message = " ".join(str(error).split()) or type(error).__name__
+        print("ERROR: dueling-restore: " + message, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

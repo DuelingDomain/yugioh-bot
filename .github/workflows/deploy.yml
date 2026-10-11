@@ -40,6 +40,8 @@ jobs:
       VM_PORT: ${{ secrets.VM_PORT || '22' }}
       DEPLOY_FORCE: ${{ inputs.force && 'true' || 'false' }}
       DEPLOY_ROLLBACK: ${{ inputs.rollback && 'true' || 'false' }}
+      DUELING_DEPLOY_BACKUP_KEEP: ${{ vars.DUELING_DEPLOY_BACKUP_KEEP || '3' }}
+      DUELING_BACKUP_MIN_FREE_BYTES: ${{ vars.DUELING_BACKUP_MIN_FREE_BYTES || '1073741824' }}
       # Public production key only. The secret remains in the protected VM runtime env.
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
@@ -230,6 +232,13 @@ jobs:
             *) echo "Set the production NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY repository variable." >&2; exit 1 ;;
           esac
           printf '%s' "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" | grep -Eq '^pk_live_[A-Za-z0-9_-]+$' || exit 1
+          # Validate before these values are put in the remote shell command.
+          case "$DUELING_DEPLOY_BACKUP_KEEP" in
+            ''|0*|*[!0-9]*) echo "DUELING_DEPLOY_BACKUP_KEEP must be a positive integer." >&2; exit 1 ;;
+          esac
+          case "$DUELING_BACKUP_MIN_FREE_BYTES" in
+            ''|*[!0-9]*) echo "DUELING_BACKUP_MIN_FREE_BYTES must be a nonnegative integer." >&2; exit 1 ;;
+          esac
           bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
           remote_bundle=
           remote_guard=
@@ -260,7 +269,7 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DUELING_DEPLOY_BACKUP_KEEP='$DUELING_DEPLOY_BACKUP_KEEP' DUELING_BACKUP_MIN_FREE_BYTES='$DUELING_BACKUP_MIN_FREE_BYTES' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
@@ -330,6 +339,8 @@ jobs:
                  ;;
                esac
              done
+             # Compressed, verified copies; retention runs across the parent root per kind.
+             # A low-disk skip returns nonzero, so set -e stops this deploy.
              DUELING_BACKUP_DIR="$release_dir/online" python3 scripts/backup/dueling-backup
              git reset --hard "$DEPLOY_COMMIT"
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
@@ -352,6 +363,7 @@ jobs:
              docker compose -f docker-compose.yml stop web duel worker ws
              # Once schema work can begin, failure must leave traffic stopped. Never restart old binaries.
              trap cleanup EXIT
+             # Keep the drained restore point separate from the online count.
              DUELING_BACKUP_DIR="$release_dir/drained" python3 scripts/backup/dueling-backup
              if ! DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
                sh packages/duel-server/scripts/install-engine-bundle.sh; then

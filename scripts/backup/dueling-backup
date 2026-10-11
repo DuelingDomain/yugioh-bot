@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Create a verified SQLite snapshot without stopping the live WAL writers."""
+"""Create a compressed, verified SQLite snapshot without stopping WAL writers."""
 
 import fcntl
+import ctypes
+import gzip
 import hashlib
 import os
 from pathlib import Path
 import re
 import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 from contextlib import closing
@@ -17,15 +20,33 @@ from datetime import datetime, timedelta, timezone
 SRC = Path(os.environ.get("DUELING_BACKUP_SRC", "/opt/yugioh-bot/data/bot.sqlite"))
 DEST_DIR = Path(os.environ.get("DUELING_BACKUP_DIR", "/var/backups/yugioh-bot"))
 KEEP_ENV = "DUELING_BACKUP_KEEP"
+DEPLOY_KEEP_ENV = "DUELING_DEPLOY_BACKUP_KEEP"
+MIN_FREE_ENV = "DUELING_BACKUP_MIN_FREE_BYTES"
 RELEASE_KEEP_ENV = "DUELING_RELEASE_KEEP_DAYS"
+DEFAULT_MIN_FREE_BYTES = 1024 * 1024 * 1024
 MAX_BACKUP_DAYS = 14
 # The timer runs once a day, so expire copies a day early to keep the 14-day promise.
 RUN_INTERVAL = timedelta(days=1)
 SPACE_MULTIPLIER = 3
 CONNECT_TIMEOUT = 30
 UTC = timezone.utc
-AUTOMATIC_NAME = re.compile(r"^bot-(\d{8}-\d{6})Z\.sqlite$")
+AUTOMATIC_NAME = re.compile(r"^bot-(\d{8}-\d{6})Z\.sqlite(?:\.(?:gz|zst))?$")
 RELEASE_NAME = re.compile(r"^pr2-([0-9]{8}-[0-9]{6})Z$")
+DEPLOY_KINDS = ("online", "drained")
+
+
+class BackupSkipped(RuntimeError):
+    pass
+
+
+def integer_setting(name, default, minimum):
+    try:
+        value = int(os.environ.get(name, str(default)))
+        if value < minimum:
+            raise ValueError
+        return value
+    except ValueError:
+        raise ValueError("{} must be an integer >= {}".format(name, minimum)) from None
 
 
 def safe_path(path, root=None):
@@ -61,8 +82,181 @@ def warn_release_pruning(error):
     print("WARNING: dueling-backup: release pruning: " + message, file=sys.stderr)
 
 
-def prune_releases():
-    root = safe_path(DEST_DIR)
+def checksum_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as data:
+        for chunk in iter(lambda: data.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def check_checksum(path):
+    sidecar = safe_path(Path(str(path) + ".sha256"))
+    expected = sidecar.read_text(encoding="ascii")
+    actual = checksum_file(path) + "  " + path.name + "\n"
+    if expected != actual:
+        raise RuntimeError("backup checksum mismatch: " + str(path))
+
+
+def temporary_file(directory, prefix):
+    fd, name = tempfile.mkstemp(prefix=prefix, suffix=".tmp", dir=str(directory))
+    os.close(fd)
+    return Path(name)
+
+
+def clean_temporary(path):
+    for suffix in ("", "-wal", "-shm", "-journal"):
+        try:
+            Path(str(path) + suffix).unlink()
+        except FileNotFoundError:
+            pass
+
+
+def compress_snapshot(snapshot, archive, compression):
+    if compression == "zst":
+        # One thread and the default window keep memory use small on the shared ARM VM.
+        with archive.open("wb") as output:
+            subprocess.run(["zstd", "-q", "-3", "-T1", "-c", "--", str(snapshot)],
+                           stdout=output, check=True)
+    else:
+        with snapshot.open("rb") as source, gzip.open(archive, "wb", compresslevel=6) as output:
+            shutil.copyfileobj(source, output, length=1024 * 1024)
+
+
+def decompress_snapshot(archive, snapshot, compression):
+    if compression == "zst":
+        with snapshot.open("wb") as output:
+            subprocess.run(["zstd", "-q", "-d", "-c", "--", str(archive)], stdout=output, check=True)
+    else:
+        opener = gzip.open if compression == "gz" else open
+        with opener(archive, "rb") as source, snapshot.open("wb") as output:
+            shutil.copyfileobj(source, output, length=1024 * 1024)
+
+
+def verify_sqlite(path):
+    # This file is a closed snapshot, so immutable avoids making WAL/SHM sidecars.
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True,
+                                timeout=CONNECT_TIMEOUT)) as copy:
+        integrity = copy.execute("PRAGMA integrity_check").fetchall()
+        if integrity != [("ok",)]:
+            raise RuntimeError("backup integrity_check failed: " + repr(integrity))
+
+
+def extract_verified(archive, snapshot):
+    archive = safe_path(archive)
+    if archive.name.endswith(".sqlite.zst"):
+        compression = "zst"
+    elif archive.name.endswith(".sqlite.gz"):
+        compression = "gz"
+    elif archive.name.endswith(".sqlite"):
+        compression = None
+    else:
+        raise ValueError("unsupported backup format: " + str(archive))
+    check_checksum(archive)
+    decompress_snapshot(archive, snapshot, compression)
+    verify_sqlite(snapshot)
+
+
+def verify_backup(archive):
+    temporary = temporary_file(archive.parent, ".dueling-verify-")
+    try:
+        extract_verified(archive, temporary)
+    finally:
+        clean_temporary(temporary)
+
+
+def rename_new(source, target):
+    # Ubuntu's renameat2 provides an atomic rename that cannot replace an existing file.
+    libc = ctypes.CDLL(None, use_errno=True)
+    rename = libc.renameat2
+    rename.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+    rename.restype = ctypes.c_int
+    # AT_FDCWD=-100; RENAME_NOREPLACE=1. Both paths are absolute.
+    if rename(-100, os.fsencode(source), -100, os.fsencode(target), 1) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(target))
+
+
+def restore_backup(archive, target):
+    target = safe_path(target)
+
+    def require_absent():
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            if os.path.lexists(str(target) + suffix):
+                raise RuntimeError("restore target or journal already exists: " + str(target) + suffix)
+
+    require_absent()
+    temporary = temporary_file(target.parent, ".dueling-restore-")
+    try:
+        extract_verified(archive, temporary)
+        with temporary.open("rb") as data:
+            os.fsync(data.fileno())
+        require_absent()
+        rename_new(temporary, target)
+        directory_fd = os.open(str(target.parent), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        clean_temporary(temporary)
+
+
+def automatic_backups(directory, release_stamp=None):
+    backups = []
+    for path in directory.iterdir():
+        match = AUTOMATIC_NAME.fullmatch(path.name)
+        if not match or path.is_symlink() or not path.is_file():
+            continue
+        try:
+            stamp = datetime.strptime(match.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=UTC)
+        except ValueError:
+            continue
+        backups.append((release_stamp or stamp, safe_path(path, directory)))
+    return sorted(backups, key=lambda entry: (entry[0], entry[1].name), reverse=True)
+
+
+def retained_backups(backups, keep, cutoff, verified=None):
+    if not backups:
+        return set()
+    good = None
+    for _, path in backups:
+        try:
+            if path != verified:
+                verify_backup(path)
+            good = path
+            break
+        except Exception as error:
+            print("WARNING: dueling-backup: cannot verify {}: {}".format(path, " ".join(str(error).split())),
+                  file=sys.stderr)
+    if good is None:
+        # Disk or codec errors must never turn an unverified retention run into data loss.
+        return {path for _, path in backups}
+    retained = [path for stamp, path in backups[:keep] if stamp >= cutoff]
+    if good not in retained:
+        retained = retained[:keep - 1] + [good]
+    return set(retained)
+
+
+def remove_backup(path, root):
+    safe_path(path, root).unlink()
+    sidecar = Path(str(path) + ".sha256")
+    if not sidecar.is_symlink():
+        try:
+            safe_path(sidecar, root).unlink()
+        except FileNotFoundError:
+            pass
+
+
+def backup_context(destination):
+    if destination.name in DEPLOY_KINDS and RELEASE_NAME.fullmatch(destination.parent.name):
+        return safe_path(destination.parent.parent), destination.name
+    return destination, None
+
+
+def prune_releases(root=None, verified=None):
+    root = safe_path(root or DEST_DIR)
+    keep = integer_setting(DEPLOY_KEEP_ENV, 3, 1)
     try:
         keep_days = int(os.environ.get(RELEASE_KEEP_ENV, str(MAX_BACKUP_DAYS)))
         if not 1 <= keep_days <= MAX_BACKUP_DAYS:
@@ -83,7 +277,7 @@ def prune_releases():
         try:
             path = safe_path(path, root)
             if path.is_dir():
-                releases.append((stamp, path))
+                releases.append((stamp, path, release_tree(path, root)))
         except Exception as error:
             warn_release_pruning(error)
 
@@ -92,18 +286,41 @@ def prune_releases():
     # Never shorter than one day, so a run during a deploy cannot delete the copy being written.
     database_cutoff = now - max(timedelta(days=keep_days) - RUN_INTERVAL, RUN_INTERVAL)
     directory_cutoff = now - timedelta(days=MAX_BACKUP_DAYS) + RUN_INTERVAL
-    for index, (stamp, path) in enumerate(releases):
-        if stamp >= database_cutoff:
-            continue
+    copies = {kind: [] for kind in DEPLOY_KINDS}
+    for stamp, path, _ in releases:
+        for kind in DEPLOY_KINDS:
+            directory = path / kind
+            if directory.is_dir():
+                copies[kind].extend(automatic_backups(directory, stamp))
+    retained = set()
+    stats = {}
+    for kind, backups in copies.items():
+        backups.sort(key=lambda entry: (entry[0], entry[1].name), reverse=True)
+        selected = retained_backups(backups, keep, database_cutoff, verified)
+        retained.update(selected)
+        stats[kind] = (len(selected), sum(path.stat().st_size for path in selected))
+
+    for index, (stamp, path, paths) in enumerate(releases):
         try:
-            paths = release_tree(path, root)
-            if index > 0 and stamp < directory_cutoff:
+            if index > 0 and stamp < directory_cutoff and not any(path in p.parents for p in retained):
                 remove_release_path(path, root)
                 continue
-            # Preserve rollback metadata, including protected runtime.env, but no DB copies.
+            for kind in DEPLOY_KINDS:
+                for _, copy in copies[kind]:
+                    if path in copy.parents and copy not in retained:
+                        remove_backup(copy, root)
+            if stamp >= database_cutoff:
+                continue
+            # Keep rollback metadata and the last verified copy of each kind.
             removed_dirs = []
             for child in paths[1:]:
                 if any(parent in removed_dirs for parent in child.parents):
+                    continue
+                if child in retained or any(child in p.parents for p in retained):
+                    continue
+                if not child.exists():
+                    continue
+                if child.name.endswith(".sha256") and Path(str(child)[:-7]) in retained:
                     continue
                 if child == path / "online" or child == path / "drained" or ".sqlite" in child.name:
                     is_directory = child.is_dir()
@@ -112,59 +329,36 @@ def prune_releases():
                         removed_dirs.append(child)
         except Exception as error:
             warn_release_pruning(error)
+    return stats
 
 
-def prune_backups(keep):
+def prune_backups(keep, verified=None):
     root = safe_path(DEST_DIR)
     cutoff = datetime.now(UTC) - timedelta(days=MAX_BACKUP_DAYS) + RUN_INTERVAL
-    backups = []
-    for path in root.iterdir():
-        match = AUTOMATIC_NAME.fullmatch(path.name)
-        if not match or path.is_symlink() or not path.is_file():
-            continue
-        try:
-            stamp = datetime.strptime(match.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=UTC)
-        except ValueError:
-            continue
-        path = safe_path(path, root)
-        backups.append((stamp, path))
-    backups.sort(key=lambda entry: entry[0], reverse=True)
-    retained = []
-    for index, (stamp, path) in enumerate(backups):
-        # Always keep the newest snapshot, even when pruning stale files in isolation.
-        if index == 0 or (index < keep and stamp >= cutoff):
-            retained.append((stamp, path))
-            continue
-        path = safe_path(path, root)
-        path.unlink()
-        sidecar = Path(str(path) + ".sha256")
-        if sidecar.is_symlink():
-            continue
-        try:
-            safe_path(sidecar, root).unlink()
-        except FileNotFoundError:
-            pass
-    return len(retained), sum(path.stat().st_size for _, path in retained)
+    backups = automatic_backups(root)
+    retained = retained_backups(backups, keep, cutoff, verified)
+    for _, path in backups:
+        if path not in retained:
+            remove_backup(path, root)
+    return len(retained), sum(path.stat().st_size for path in retained)
 
 
 def create_backup():
-    try:
-        keep = int(os.environ.get(KEEP_ENV, "7"))
-        if keep < 1:
-            raise ValueError
-    except ValueError:
-        raise ValueError(KEEP_ENV + " must be an integer >= 1") from None
+    keep = integer_setting(KEEP_ENV, 7, 1)
+    integer_setting(DEPLOY_KEEP_ENV, 3, 1)
+    reserve = integer_setting(MIN_FREE_ENV, DEFAULT_MIN_FREE_BYTES, 0)
 
     destination = safe_path(DEST_DIR)
     destination.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root, kind = backup_context(destination)
     temporary_paths = []
-    directory_fd = os.open(str(destination), os.O_RDONLY | os.O_DIRECTORY)
+    directory_fd = os.open(str(root), os.O_RDONLY | os.O_DIRECTORY)
     try:
         # Lock the directory itself, avoiding an extra lock file or overlapping runs.
         try:
             fcntl.flock(directory_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise RuntimeError("another backup is already running for " + str(destination))
+            raise RuntimeError("another backup is already running for " + str(root))
 
         source = SRC.absolute()
         source_size = source.stat().st_size
@@ -172,17 +366,11 @@ def create_backup():
             wal_size = Path(str(source) + "-wal").stat().st_size
         except FileNotFoundError:
             wal_size = 0
-        required = SPACE_MULTIPLIER * (source_size + wal_size)
+        required = reserve + SPACE_MULTIPLIER * (source_size + wal_size)
         free = shutil.disk_usage(destination).free
         if free < required:
-            # Expired release copies may be what filled the disk; free them before giving up.
-            try:
-                prune_releases()
-            except Exception as error:
-                warn_release_pruning(error)
-            free = shutil.disk_usage(destination).free
-        if free < required:
-            raise RuntimeError("insufficient free space: need {} bytes, have {} in {}".format(required, free, destination))
+            raise BackupSkipped("insufficient free space: need {} bytes (including {} reserve), have {} in {}".format(
+                required, reserve, free, destination))
 
         fd, temporary_name = tempfile.mkstemp(prefix=".dueling-backup-", suffix=".tmp", dir=str(destination))
         temporary = Path(temporary_name)
@@ -197,23 +385,27 @@ def create_backup():
                 journal = copy.execute("PRAGMA journal_mode=DELETE").fetchone()
                 if journal != ("delete",):
                     raise RuntimeError("could not switch backup to journal_mode=DELETE")
-                integrity = copy.execute("PRAGMA integrity_check").fetchall()
-                if integrity != [("ok",)]:
-                    raise RuntimeError("backup integrity_check failed: " + repr(integrity))
-
-        temporary.chmod(0o600)
-        digest = hashlib.sha256()
-        with temporary.open("rb") as data:
+        compression = "zst" if shutil.which("zstd") else "gz"
+        archive = temporary_file(destination, ".dueling-compressed-")
+        temporary_paths.append(archive)
+        compress_snapshot(temporary, archive, compression)
+        # Reuse the raw snapshot's space for the decompressed verification file.
+        temporary.unlink()
+        decompress_snapshot(archive, temporary, compression)
+        verify_sqlite(temporary)
+        temporary.unlink()
+        with archive.open("rb") as data:
             os.fsync(data.fileno())
-            for chunk in iter(lambda: data.read(1024 * 1024), b""):
-                digest.update(chunk)
-        checksum = digest.hexdigest()
-        size = temporary.stat().st_size
+        checksum = checksum_file(archive)
+        size = archive.stat().st_size
         now = datetime.now(UTC)
-        final = destination / now.strftime("bot-%Y%m%d-%H%M%SZ.sqlite")
+        stem = destination / now.strftime("bot-%Y%m%d-%H%M%SZ.sqlite")
+        final = Path(str(stem) + "." + compression)
         sidecar = Path(str(final) + ".sha256")
-        if os.path.lexists(final) or os.path.lexists(sidecar):
-            raise RuntimeError("backup name already exists; retry in the next second: " + str(final))
+        for suffix in ("", ".gz", ".zst"):
+            candidate = Path(str(stem) + suffix)
+            if os.path.lexists(candidate) or os.path.lexists(str(candidate) + ".sha256"):
+                raise RuntimeError("backup name already exists; retry in the next second: " + str(candidate))
 
         fd, checksum_name = tempfile.mkstemp(prefix=".dueling-sha256-", suffix=".tmp", dir=str(destination))
         checksum_temporary = Path(checksum_name)
@@ -224,15 +416,31 @@ def create_backup():
             output.flush()
             os.fsync(output.fileno())
 
-        os.rename(temporary, final)
+        os.rename(archive, final)
+        temporary_paths.append(final)
         os.rename(checksum_temporary, sidecar)
-        os.fsync(directory_fd)
+        temporary_paths.append(sidecar)
+        snapshot_directory_fd = os.open(str(destination), os.O_RDONLY | os.O_DIRECTORY)
         try:
-            kept, total_bytes = prune_backups(keep)
+            os.fsync(snapshot_directory_fd)
         finally:
-            # A failed daily prune must not keep expired release copies too.
+            os.close(snapshot_directory_fd)
+        temporary_paths.remove(final)
+        temporary_paths.remove(sidecar)
+        if kind is None:
             try:
-                prune_releases()
+                kept, total_bytes = prune_backups(keep, verified=final)
+            finally:
+                # A failed daily prune must not prevent deploy retention.
+                try:
+                    prune_releases(root)
+                except Exception as error:
+                    warn_release_pruning(error)
+        else:
+            kept, total_bytes = 1, size
+            try:
+                stats = prune_releases(root, verified=final)
+                kept, total_bytes = stats[kind]
             except Exception as error:
                 warn_release_pruning(error)
         os.fsync(directory_fd)
@@ -241,11 +449,7 @@ def create_backup():
         try:
             # Remove only our own temporary files and SQLite's associated journals.
             for temporary in temporary_paths:
-                for suffix in ("", "-wal", "-shm", "-journal"):
-                    try:
-                        Path(str(temporary) + suffix).unlink()
-                    except FileNotFoundError:
-                        pass
+                clean_temporary(temporary)
         finally:
             os.close(directory_fd)
 
@@ -257,7 +461,8 @@ def main():
         return 0
     except (Exception, KeyboardInterrupt) as error:
         message = " ".join(str(error).split()) or type(error).__name__
-        print("ERROR: dueling-backup: " + message, file=sys.stderr)
+        label = "SKIPPED" if isinstance(error, BackupSkipped) else "ERROR"
+        print(label + ": dueling-backup: " + message, file=sys.stderr)
         return 1
 
 

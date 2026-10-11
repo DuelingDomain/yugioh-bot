@@ -266,7 +266,7 @@ sqlite3 -readonly /opt/yugioh-bot/data/bot.sqlite "select guild_id, name, count(
 
 Resolve these duplicates, or restore the matched DB backup using the restore procedure below, before starting older code; preserve new activity for reconciliation.
 
-Check the [backup retention policy](#backups) before choosing a release. Database rollback further than **14 days** is not possible from release directories: the daily timer removes their database copies even when no deployments occur. After that window, only the newest release retains checkout/deploy commits, image IDs and protected runtime env for code-only rollback against a compatible current database. Older release directories are deleted; the retained metadata is not a database restore point.
+Check the [backup retention policy](#backups) before choosing a release. Only the newest **3 copies per deploy kind** are kept by default, so frequent deploys can remove a restore point before 14 days. The daily timer enforces the **14-day age cap** even without new deploys. The last verified copy of each kind remains until a replacement exists, including its matching release metadata; it can exceed the age cap. Other expired release directories are deleted, except the newest release's small rollback metadata. Metadata alone is not a database restore point. Check database and code compatibility before rollback.
 
 ### PR 1 migration rollback (historical)
 
@@ -520,13 +520,59 @@ docker compose -f docker-compose.yml down
 
 ## Backups
 
-The root systemd service runs the repo's `scripts/backup/dueling-backup` to back up `/opt/yugioh-bot/data/bot.sqlite` with Python's SQLite backup API, including committed WAL writes without stopping the app or requiring the SQLite CLI. The timer runs daily at **07:30 UTC**, with up to ten minutes of random delay and catch-up after downtime. Snapshots are integrity checked, mode 0600, and paired with SHA-256 sidecars in `/var/backups/yugioh-bot` (directory mode 0700). `DUELING_BACKUP_SRC` and `DUELING_BACKUP_DIR` override the source and destination. Deploys update the script used by the service; re-copy the units if their configuration changes.
+The root systemd service runs `scripts/backup/dueling-backup` to back up `/opt/yugioh-bot/data/bot.sqlite`. Python's SQLite backup API takes a consistent snapshot of committed WAL writes without stopping the app or requiring the SQLite CLI. The script then compresses the closed snapshot with **zstd** if the host has it, or **gzip** otherwise. The documented Ubuntu VM setup installs Docker and Git; it does not install zstd. Gzip uses Python's standard library. Zstd uses one thread at level 3 to limit memory use on the 4 GB ARM VM. No package install is required for gzip; `apt install -y zstd` is optional. Keep zstd available to restore any `.zst` copies.
 
-After a successful backup, the server keeps up to **7** automatic `bot-YYYYmmdd-HHMMSSZ.sqlite` files by UTC filename and deletes older ones with their sidecars. `DUELING_BACKUP_KEEP` changes that count and must be an integer >= 1; set it in a systemd service drop-in on the VM. A separate **14-day age cap** (applied from 13 days, because the timer runs once a day) removes expired automatic files even when fewer than the configured count exist: missed timers and manual runs make count-only retention insufficient. At least the newest automatic snapshot is retained. A successful run creates a fresh snapshot before pruning, so that safeguard does not retain an expired snapshot during normal operation. Completion lines include `kept` and `total_bytes` for retained automatic SQLite files, excluding sidecars and manual files.
+The script decompresses the archive to a temporary SQLite file, runs `PRAGMA integrity_check`, and deletes the temporary file. Only a verified archive and its SHA-256 sidecar are published, with atomic renames. The checksum covers the compressed bytes. Snapshots and sidecars have mode 0600; the backup root has mode 0700. Failure removes the script's temporary files. A lock on the backup root prevents daily and deploy runs from pruning each other's in-progress copies.
 
-The same daily service then prunes release directories in its backup root, without requiring another deployment. Only exact `pr2-YYYYmmdd-HHMMSSZ` directory names with valid UTC timestamps qualify; age and newest-release selection use the name, not filesystem mtime. Database copies expire after **14 days** (removed by the first daily run after they turn 13 days old, so none outlives 14 days), including entire `online/` and `drained/` trees and any `*.sqlite*` entries elsewhere within the release. `DUELING_RELEASE_KEEP_DAYS` can shorten this database window to an integer from 1 to 14; invalid values warn and fall back to 14 days. Whole release directories older than 14 days are deleted except the newest release overall. That newest release keeps its small `checkout-commit`, `deploy-commit`, `images.jsonl` and `runtime.env` metadata for code-only rollback, but its database copies still expire. `runtime.env` contains secrets and remains protected; do not publish or print it. Database rollback further than 14 days is not possible from release directories.
+The timer runs daily at **07:30 UTC**, with up to ten minutes of random delay and catch-up after downtime. The layout is:
 
-Pruning resolves paths inside the backup root and refuses symlinks. Release-pruning failures emit `WARNING: dueling-backup: release pruning:` in the service journal without failing the verified daily backup, and pruning continues with other safe releases. Review these warnings and correct the affected paths or permissions so expired copies do not persist. If free space is short, release pruning runs before the space check fails, and it also runs when the daily prune fails. Expiry is evaluated on each daily run, including catch-up after downtime; an inactive timer or failed backup delays cleanup. The deploy workflow's `online/` and `drained/` invocations use their own backup destinations and do not prune the parent backup root.
+```text
+/var/backups/yugioh-bot/
+  bot-YYYYmmdd-HHMMSSZ.sqlite.gz          # Daily copy; .zst when zstd is installed
+  bot-YYYYmmdd-HHMMSSZ.sqlite.gz.sha256
+  pr2-YYYYmmdd-HHMMSSZ/
+    checkout-commit, deploy-commit, images.jsonl, runtime.env
+    online/bot-YYYYmmdd-HHMMSSZ.sqlite.gz
+    online/bot-YYYYmmdd-HHMMSSZ.sqlite.gz.sha256
+    drained/bot-YYYYmmdd-HHMMSSZ.sqlite.gz
+    drained/bot-YYYYmmdd-HHMMSSZ.sqlite.gz.sha256
+```
+
+Old `.sqlite` files remain valid restore sources and count toward the same limits. The first online backup during rollout can still use the previous checkout's script. Old copies are not recompressed in place; retention replaces them with new compressed copies over time. `DUELING_BACKUP_SRC` and `DUELING_BACKUP_DIR` override the source and destination. Deploys update the script used by the daily service; re-copy the units if their configuration changes.
+
+After a successful backup, keep **7 daily copies** by default. Set `DUELING_BACKUP_KEEP` to an integer >= 1 to change this count. Keep **3 deploy copies per kind** across all release directories by default; set `DUELING_DEPLOY_BACKUP_KEEP` to an integer >= 1 to change this count. Online and drained copies have separate limits, so an incomplete deploy does not displace a drained restore point. Both the daily run and each deploy backup prune the parent root when the destination is `pr2-<timestamp>/online` or `pr2-<timestamp>/drained`. Completion lines include `kept` and `total_bytes` for the daily copies or the current deploy kind, excluding sidecars and manual files.
+
+Keep the **14-day age cap** for automatic copies. The daily timer applies expiry at 13 days to allow for its next run. Deploy age comes from the release directory's UTC name; daily age comes from the snapshot's UTC name. Filesystem mtime does not control retention. `DUELING_RELEASE_KEEP_DAYS` can shorten the deploy database window to an integer from 1 to 14; invalid values warn and use 14. Count limits can remove copies sooner. **Never delete the last verified copy of a kind:** keep the newest copy that passes its checksum and SQLite checks, even if it exceeds the age cap. Keep its release metadata too. A fresh verified replacement permits expiry of the old copy. If no copy can be verified, pruning leaves that kind untouched and logs warnings.
+
+Whole expired release directories are deleted unless they hold a retained copy or are the newest release overall. The newest release keeps its small `checkout-commit`, `deploy-commit`, `images.jsonl` and `runtime.env` metadata for code rollback. `runtime.env` contains secrets; do not publish or print it. Expired extra SQLite copies within managed release directories are also removed. Only exact `pr2-YYYYmmdd-HHMMSSZ` names with valid timestamps are managed.
+
+Before making a snapshot, require free space of **1 GiB plus 3 times the source DB and WAL sizes**. Set `DUELING_BACKUP_MIN_FREE_BYTES` to a nonnegative integer to change the reserve. If free space is lower, log `SKIPPED: dueling-backup: insufficient free space` with required and available bytes, create no snapshot, and return status 1. Deployment stops on this status. Skipped or failed backups do not prune old restore points to make space; check disk use and resolve the cause first.
+
+Pruning stays inside the backup root and refuses symlinks. Release-pruning failures log `WARNING: dueling-backup: release pruning:` without failing a verified backup. Fix affected paths, codecs or permissions so retention can run. An inactive timer or failed backup delays expiry. Review skipped backups and warnings in the service journal.
+
+### Backup disk budget and checks
+
+Let `B` be the raw database size and `r` be the measured compressed/raw size ratio. The previous backup estimate was about `16B`. The new default limit is `7 + 3 + 3 = 13` copies, or about **`13rB`** after old raw copies expire. Estimated saving is **`100 × (1 - 13r/16)%`**. This estimate assumes similar snapshot sizes and excludes manual copies, sidecars, release metadata and temporary files.
+
+| Compressed/raw ratio | Backup use for a 1 GiB DB | Saving from 16 GiB |
+| --- | --- | --- |
+| 1.0 | 13 GiB | 18.8% |
+| 0.5 | 6.5 GiB | 59.4% |
+| 0.3 | 3.9 GiB | 75.6% |
+
+These ratios are examples, not measurements of production data. Measure a new copy and the raw DB before making a capacity plan. The VM disk is thought to be about 40 GB; confirm its actual size. Production and staging share it. Add the live DB, WAL files, staging's working DB and its one `bot.sqlite.before-copy`, Docker images/cache, engine data, logs, and the snapshot/verification headroom. Compression does not reduce the live DB or staging's working copies.
+
+Check after each deploy and at least weekly:
+
+```bash
+df -h /opt /var/backups/yugioh-bot
+du -sh /var/backups/yugioh-bot /opt/yugioh-bot/data \
+  /opt/yugioh-bot-staging/data-staging /var/lib/docker
+systemctl list-timers dueling-backup.timer
+journalctl -u dueling-backup.service --no-pager -n 30
+```
+
+Configure an alert at **70% used** on each filesystem that holds application data or backups. No disk alert hook exists in this repo. Add a filesystem-use alert to the owner's monitoring service, with a five-minute check interval and an owner notification. Staging's `scripts/staging/check-resources.sh` stops builds below its free-space limits; it sends no alerts. The backup free-space guard is also not an alert service.
 
 Other names are unmanaged and untouched by automated retention, including `wipe.sql` and `run-wipe.py`. The owner-kept pre-alpha database exceptions are exactly the following files, which contain no email addresses:
 
@@ -549,6 +595,17 @@ sudo systemctl start "$unit.service"
 sudo journalctl -u "$unit.service" --no-pager -n 30
 ```
 
+Defaults work without an environment change. To change counts or the reserve, run `sudo systemctl edit dueling-backup.service` and add, for example:
+
+```ini
+[Service]
+Environment=DUELING_BACKUP_KEEP=7
+Environment=DUELING_DEPLOY_BACKUP_KEEP=3
+Environment=DUELING_BACKUP_MIN_FREE_BYTES=1073741824
+```
+
+Run `sudo systemctl daemon-reload` after saving. For deploy backups, set GitHub repository variables `DUELING_DEPLOY_BACKUP_KEEP` and `DUELING_BACKUP_MIN_FREE_BYTES` to the same values; the workflow validates and sends them to the VM. A systemd drop-in affects only the daily service. Leave the production `.env` unchanged.
+
 **Workstation migration** — backups now stay on the VM. If you used the previous workstation setup, deleting the repo's pull tooling does not remove the installed script or Windows scheduled task. Run these commands in **Windows PowerShell**, as the Windows user who registered the task (use your configured task name if changed):
 
 ```powershell
@@ -566,7 +623,9 @@ rm -rf -- /home/imran/backups/dueling-system
 
 Also delete retained SQLite backups and SHA-256 sidecars from any configured `MIRROR_DIR` and other workstation copies.
 
-**RESTORE** — run as root on the VM, choose an existing backup below, and stop on any failed command. Pause the timer and take a fresh snapshot before verifying the chosen backup. Keep the original database and WAL/SHM together in the dated folder; only remove these live files after every writer and WS stop. The commands below restore a backup compatible with the current release. For pre-PR1 rollback, also restore the matching code/images/env, remove worker from the service list before restarting, and keep it stopped while the old bot owns timers.
+**RESTORE** — run as root on the VM and stop on any failed command. `scripts/backup/dueling-restore` accepts `.sqlite`, `.sqlite.gz` and `.sqlite.zst`, checks the SHA-256 sidecar, decompresses when necessary, and checks SQLite integrity before an atomic rename. It refuses an existing target or WAL/SHM/journal. Use `python3 scripts/backup/dueling-restore --verify "$backup"` for a verification-only check. Install zstd first if the selected copy ends in `.zst` and the command is absent.
+
+Choose a copy compatible with the current release. Pause the timer and extract the chosen copy to a new candidate file before taking a fresh safety backup; the safety backup can prune the selected source. Stop every writer and WS, including any separately run bot. Preserve the current DB and WAL/SHM in the dated folder, then move the verified candidate into place with its original owner and mode. For pre-PR1 rollback, restore matching code/images/env, remove worker from the service list, and keep it stopped while the old bot owns timers. Resume the timer only after a successful restore. If a command fails, keep writers stopped and inspect the preserved files.
 
 ```bash
 sudo -i
@@ -577,29 +636,24 @@ db=data/bot.sqlite
 compose=(docker compose -f docker-compose.yml)
 services=(web duel worker ws)
 systemctl stop "$unit.timer"
+backup=/var/backups/yugioh-bot/bot-YYYYmmdd-HHMMSSZ.sqlite.gz
+# A deploy source can be pr2-<timestamp>/drained/<file>; old .sqlite copies also work.
+candidate="data/restore-candidate-$(date -u +%Y%m%d-%H%M%SZ).sqlite"
+python3 scripts/backup/dueling-restore "$backup" "$candidate"
+trap 'rm -f -- "$candidate"' EXIT
 systemctl start "$unit.service"
-backup=/var/backups/yugioh-bot/bot-YYYYmmdd-HHMMSSZ.sqlite
-(cd "$(dirname "$backup")" && sha256sum -c "$(basename "$backup").sha256")
-python3 - "$backup" <<'PY'
-import sqlite3, sys
-from contextlib import closing
-from pathlib import Path
-with closing(sqlite3.connect(Path(sys.argv[1]).as_uri() + '?mode=ro', uri=True)) as db:
-    result = db.execute('PRAGMA integrity_check').fetchall()
-    if result != [('ok',)]:
-        raise SystemExit('Backup integrity check failed: ' + repr(result))
-PY
 "${compose[@]}" stop "${services[@]}"
 db_owner=$(stat -c '%u:%g' "$db")
 db_mode=$(stat -c '%a' "$db")
 aside="data/pre-restore-$(date -u +%Y%m%d-%H%M%SZ)"
 mkdir -m 0700 "$aside"
-for suffix in '' -wal -shm; do
+for suffix in '' -wal -shm -journal; do
     if [[ -e "$db$suffix" ]]; then mv -- "$db$suffix" "$aside/"; fi
 done
-cp -- "$backup" "$db"
-chown "$db_owner" "$db"
-chmod "$db_mode" "$db"
+chown "$db_owner" "$candidate"
+chmod "$db_mode" "$candidate"
+mv -T -- "$candidate" "$db"
+trap - EXIT
 "${compose[@]}" start "${services[@]}"
 systemctl start "$unit.timer"
 ```
