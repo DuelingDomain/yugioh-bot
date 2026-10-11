@@ -479,8 +479,6 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
   const endNote = useRef<HTMLParagraphElement | null>(null);
   const focusEnd = useRef(false);
   const listKey = history ? duelHistoryKey(scope, filters) : DUEL_LIST_KEY;
-  const activeListKey = useRef(listKey);
-  activeListKey.current = listKey;
   // A range that ends before it starts would only get a 400 from the server, so no request goes out.
   const rangeError = history && filters.from !== "" && filters.to !== ""
     && new Date(filters.from).getTime() > new Date(filters.to).getTime();
@@ -494,25 +492,9 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
 
   // Remembered between queries so the admin-only boxes do not blink while a new page loads.
   const [canSeeAll, setCanSeeAll] = useState(false);
-  const returnToMine = useCallback(() => {
-    setCanSeeAll(false);
-    setScope("mine");
-    setMore(null);
-    setFilters(current => ({ ...current, status: "", card: "" }));
-    setCardText("");
-  }, []);
   useEffect(() => {
     if (history && typeof data?.canSeeAll === "boolean") setCanSeeAll(data.canSeeAll);
   }, [history, data?.canSeeAll]);
-
-  // A member or a removed owner can open an old All bookmark. Return to Mine
-  // and remove the saved owner page when the server refuses that scope.
-  useEffect(() => {
-    if (!history || scope !== "all") return;
-    if (data?.canSeeAll === false || (error && typeof error === "object" && "status" in error && error.status === 403)) {
-      returnToMine();
-    }
-  }, [history, scope, data?.canSeeAll, error, returnToMine]);
 
   // The server ignores status and card for members, so a bookmarked value is dropped instead of shown as active.
   useEffect(() => {
@@ -588,11 +570,6 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
         ? { key, items: [...current.items, ...page.duels], cursor: page.nextCursor ?? null, loading: false, error: null }
         : current);
     } catch (err) {
-      if (activeListKey.current === key && scope === "all"
-        && err && typeof err === "object" && "status" in err && err.status === 403) {
-        returnToMine();
-        return;
-      }
       const message = err instanceof Error ? err.message : "Could not load more duels.";
       setMore((current) => current?.key === key ? { ...current, loading: false, error: message } : current);
     }
@@ -652,8 +629,7 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
               <>
                 {showStatus ? <span className={styles.adminHint}>Admin: all duels, private included</span> : null}
                 <SheetSegmented label="History scope" hideLabel value={scope}
-                  choices={canSeeAll ? [{ value: "mine", label: "Mine" }, { value: "all", label: "All" }] as const
-                    : [{ value: "mine", label: "Mine" }] as const}
+                  choices={[{ value: "mine", label: "Mine" }, { value: "all", label: "All" }] as const}
                   onChange={setScope} />
               </>
             ) : null}

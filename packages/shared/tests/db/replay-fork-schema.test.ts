@@ -28,6 +28,7 @@ describe("replay fork schema", () => {
     const { db, owner } = database();
     const old = createDuelService(db).create({ guildId: "g", organizerPlayerId: owner.playerId, name: "Old", mode: "normal" });
     db.exec("drop trigger if exists duels_kind_immutable");
+    db.exec("drop index if exists duels_play_history_idx");
     const columns = db.pragma("table_info(duels)") as Array<{ name: string }>;
     if (columns.some(column => column.name === "kind")) db.exec("alter table duels drop column kind");
     migrate(db);
@@ -83,12 +84,14 @@ describe("replay fork schema", () => {
     migrate(copied);
     expect(copied.serialize()).toEqual(once);
     const after = snapshot(copied);
-    after.duels = (after.duels as Array<Record<string, unknown>>).map(({ kind, ...row }) => {
+    after.duels = (after.duels as Array<Record<string, unknown>>).map(({ kind, started_at, ...row }) => {
       expect(kind).toBe("play");
+      expect(started_at).toBeNull();
       const { sandbox: _sandbox, ...beforeRow } = row;
       return beforeRow;
     });
     expect(after).toEqual(before);
+    expect(copied.pragma("index_list(duels)")).toContainEqual(expect.objectContaining({ name: "duels_play_history_idx" }));
     expect(copied.prepare("select count(*) as n from replay_fork_requests").get()).toEqual({ n: 0 });
     expect(copied.pragma("foreign_key_check")).toEqual([]);
     expect(copied.pragma("integrity_check")).toEqual([{ integrity_check: "ok" }]);

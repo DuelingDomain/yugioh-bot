@@ -58,7 +58,9 @@ it("returns and accepts an opaque cursor", async () => {
 it("keeps member visibility and mine/live behavior", async () => {
   expect((await (await get("archived=1")).json()).duels).toEqual([]);
   state.auth.mockResolvedValue({ user: { id: "103", name: "Member" } });
-  expect((await get()).status).toBe(403);
+  const response = await get();
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ duels: [], canSeeAll: false, nextCursor: null });
   expect(await (await get("archived=1&scope=mine")).json()).toEqual({ duels: [], canSeeAll: false, nextCursor: null });
   expect(await (await get("")).json()).toEqual({ duels: [] });
 });
@@ -67,8 +69,8 @@ it("does not expose a private duel through a member's name search", async () => 
   for (const q of ["Black Luster trials", "Player 102"]) {
     const query = new URLSearchParams({ archived: "1", scope: "all", q });
     const response = await get(query.toString());
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: expect.any(String) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ duels: [], canSeeAll: false, nextCursor: null });
   }
 });
 it.each(["q", "card"])("rejects overlong %s for both owners and members", async field => {
@@ -90,17 +92,21 @@ it("ignores member card filters so hidden opponent decks cannot be probed", asyn
   state.auth.mockResolvedValue({ user: { id: "103", name: "Member" } });
   state.db!.prepare("update duels set settings_json=json_set(settings_json,'$.visibility','public') where web_slug=?").run(privateSlug);
   state.db!.prepare("insert into duel_seats(duel_id,seat,player_id) select id,1,3 from duels where web_slug=?").run(privateSlug);
-  const baseline = await (await get("archived=1&scope=mine")).json();
+  const baseline = await (await get("archived=1&scope=all")).json();
+  expect(baseline).toMatchObject({ duels: [{ slug: privateSlug }], canSeeAll: false });
   for (const card of ["Black Luster", "not in any deck"]) {
-    expect(await (await get(`archived=1&scope=mine&card=${encodeURIComponent(card)}`)).json()).toEqual(baseline);
+    expect(await (await get(`archived=1&scope=all&card=${encodeURIComponent(card)}`)).json()).toEqual(baseline);
   }
 });
-it.each([undefined, "", "103"])("refuses All history when the session owner does not match %s", async owners => {
+it.each([undefined, "", "103"])("lists public All history without an owner grant when OWNER_USER_IDS is %s", async owners => {
   vi.stubEnv("OWNER_USER_IDS", owners);
-  state.db!.prepare("update duels set settings_json=json_set(settings_json,'$.visibility','public') where web_slug=?").run(privateSlug);
+  const publicDuel = createDuelService(state.db!).create({ guildId: "history-test", organizerPlayerId: 2, name: "Public duel", mode: "normal" });
+  state.db!.prepare("update duels set status='completed', ended_at='2026-10-11 12:00:00' where id=?").run(publicDuel.id);
   const response = await get("archived=1&scope=all&isOwner=true");
-  expect(response.status).toBe(403);
-  expect(await response.json()).toEqual({ error: expect.any(String) });
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body).toMatchObject({ canSeeAll: false, nextCursor: null });
+  expect(body.duels.map((duel: { slug: string }) => duel.slug)).toEqual([publicDuel.slug]);
   expect((await get("archived=1&scope=mine")).status).toBe(200);
 });
 it.each([

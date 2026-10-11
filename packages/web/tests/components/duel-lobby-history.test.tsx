@@ -313,7 +313,7 @@ describe("Match history filters", () => {
     await waitFor(() => expect(urls().at(-1)!.search).toBe("?archived=1&scope=mine"));
     expect(screen.queryByLabelText("Card")).toBeNull();
     expect(screen.queryByLabelText("Status")).toBeNull();
-    expect(screen.queryByRole("radio", { name: "All" })).toBeNull();
+    expect(screen.getByRole("radio", { name: "All" })).toBeInTheDocument();
     expect(screen.getByLabelText("Format")).toBeInTheDocument();
     expect(window.location.search).toBe("?view=history");
   });
@@ -325,13 +325,15 @@ describe("Match history filters", () => {
   });
 });
 
-it("returns a member's All bookmark to Mine after an owner refusal", async () => {
-  fetchMock.mockImplementationOnce(async () => Response.json({ error: "Owner access required" }, { status: 403 }));
-  respond({ duels: [entry("mine")], canSeeAll: false });
+it("keeps a member's All bookmark on the public history list", async () => {
+  respond({ duels: [entry("public")], canSeeAll: false });
   renderHistory({ initialScope: "all" });
-  await screen.findByText("Duel mine");
-  expect(urls().at(-1)!.search).toBe("?archived=1&scope=mine");
-  expect(screen.queryByRole("radio", { name: "All" })).toBeNull();
+  await screen.findByText("Duel public");
+  expect(screen.getByRole("radio", { name: "All" })).toBeChecked();
+  expect(urls().at(-1)!.search).toBe("?archived=1&scope=all");
+  expect(window.location.search).toBe("?view=history&scope=all");
+  expect(screen.queryByLabelText("Card")).toBeNull();
+  expect(screen.queryByLabelText("Status")).toBeNull();
 });
 
 describe("Match history page URL", () => {
@@ -422,18 +424,18 @@ describe("Match history scope", () => {
 });
 
 describe("Load more", () => {
-  it("clears owner pages and returns to Mine when Load more loses owner access", async () => {
-    respond({ duels: [entry("private")], nextCursor: "cur-1", canSeeAll: true });
+  it("loads more public All history for a member", async () => {
+    respond({ duels: [entry("public-a")], nextCursor: "cur-1", canSeeAll: false });
     renderHistory({ initialScope: "all" });
-    await screen.findByText("Duel private");
-    fetchMock.mockImplementationOnce(async () => Response.json({ error: "Owner access required" }, { status: 403 }));
-    respond({ duels: [entry("mine")], canSeeAll: false });
+    await screen.findByText("Duel public-a");
+    respond({ duels: [entry("public-b")], canSeeAll: false });
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
-    await screen.findByText("Duel mine");
-    expect(screen.queryByText("Duel private")).toBeNull();
-    expect(screen.queryByRole("radio", { name: "All" })).toBeNull();
+    await screen.findByText("Duel public-b");
+    expect(screen.getByText("Duel public-a")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "All" })).toBeChecked();
     expect(screen.queryByLabelText("Card")).toBeNull();
-    expect(urls().at(-1)!.searchParams.get("scope")).toBe("mine");
+    expect(urls().at(-1)!.searchParams.get("scope")).toBe("all");
+    expect(urls().at(-1)!.searchParams.get("cursor")).toBe("cur-1");
   });
 
   it("appends the next page with the cursor and hides the button at the end", async () => {

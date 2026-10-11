@@ -95,7 +95,13 @@ it("keeps a creator's sandbox replay readable without fork capability or cursors
 it("lets an owner read a private bug-report source without a seat or invite; defaults to public", async () => {
   db.prepare("update duels set settings_json = json_set(settings_json, '$.visibility', 'private') where web_slug = ?").run(slug);
   const before = rows();
-  const denied = await post({ playerId: owner.playerId, version: 2 }); expect(denied.response.status).toBe(403);
+  const ordinary = await post({ playerId: owner.playerId, version: 2 });
+  expect(ordinary.response.status).toBe(200);
+  expect(ordinary.body).toMatchObject({ version: 2, mySeat: null, dataSeat: null, role: "spectator" });
+  expect(ordinary.body.frames.length).toBeGreaterThan(0);
+  expect(ordinary.body.frames.every(frame => frame.view.seats.every(seat => seat.hand.every(card => card.code === undefined)))).toBe(true);
+  const denied = await post({ playerId: 63, version: 2 });
+  expect(denied.response.status).toBe(403);
   const result = await post({ op: "owner-replay", ...owner });
   expect(result.response.status).toBe(200);
   expect(result.body).toMatchObject({ version: 2, visibility: "mine", mySeat: null, dataSeat: null, role: "spectator",

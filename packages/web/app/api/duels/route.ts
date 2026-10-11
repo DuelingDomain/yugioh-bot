@@ -6,7 +6,6 @@ import { getDb } from "@/lib/db";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
 import { playerIdentity } from "@/lib/player-lookup";
-import { isOwnerUser } from "@/lib/owner-access";
 
 export const runtime = "nodejs";
 
@@ -26,9 +25,6 @@ export async function GET(request: NextRequest) {
     const scope = param("scope") ?? "mine";
     if (scope !== "mine" && scope !== "all") {
       return NextResponse.json({ error: "Scope must be mine or all" }, { status: 400 });
-    }
-    if (scope === "all" && !isOwnerUser(actor.userId)) {
-      throw new DuelServiceError("Owner access required", 403);
     }
     const format = param("format");
     if (format !== undefined && !isDuelFormat(format)) {
