@@ -107,21 +107,21 @@ export function ReplayTableTransport({
           <button type="button" className={icon} aria-label="Last move"
             disabled={atEnd} onClick={() => controller.seek(last)}><SkipForward size={16} aria-hidden /></button>
         </div>
-        <div className={styles.meta}>
-          <span>Move {index} / {last}</span>
-          <label>
-            <span className="sr-only">Playback speed</span>
-            <select className={`${replayStyles.select} ${styles.speed}`} value={speed} aria-label="Playback speed"
-              onChange={(event) => controller.setSpeed(Number(event.target.value))}>
-              {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
-            </select>
-          </label>
-        </div>
+        <label className={styles.speedField}>
+          <span className="sr-only">Playback speed</span>
+          <select className={`${replayStyles.select} ${styles.speed}`} value={speed} aria-label="Playback speed"
+            onChange={(event) => controller.setSpeed(Number(event.target.value))}>
+            {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
+          </select>
+        </label>
       </div>
-      <input type="range" className={`${replayStyles.slider} ${styles.slider}`} aria-label="Replay position"
-        min={0} max={last} step={1} value={index}
-        aria-valuetext={`Move ${index} of ${last}`}
-        onChange={(event) => controller.seek(Number(event.target.value))} />
+      <div className={styles.scrub}>
+        <input type="range" className={`${replayStyles.slider} ${styles.slider}`} aria-label="Replay position"
+          min={0} max={last} step={1} value={index}
+          aria-valuetext={`Move ${index} of ${last}`}
+          onChange={(event) => controller.seek(Number(event.target.value))} />
+        <span className={styles.count}>Move {index} / {last}</span>
+      </div>
       <div className={styles.view} role="group" aria-label="Replay view">
         <label>
           <span>View from</span>
