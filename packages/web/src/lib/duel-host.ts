@@ -114,8 +114,9 @@ function hostErrorBody(text: string, status: number): { error: string; code?: st
         && "forksUrl" in parsed && parsed.forksUrl === "/api/admin/duels/forks"
         ? { limit: parsed.limit, forksUrl: parsed.forksUrl } : {};
       return { error: parsed.error, ...("code" in parsed && typeof parsed.code === "string" ? { code: parsed.code } : {}),
-        ...(status === 409 && "code" in parsed && typeof parsed.code === "string"
-          && ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE"].includes(parsed.code)
+        ...("code" in parsed && typeof parsed.code === "string"
+          && ((status === 409 && ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE"].includes(parsed.code))
+            || (status === 413 && parsed.code === "REPLAY_TOO_LARGE"))
           && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery };
     }
   } catch {

@@ -331,8 +331,9 @@ describe("DuelReplayView failures", () => {
     expect((screen.getByRole("link", { name: "Final board" }) as HTMLAnchorElement).getAttribute("href")).toBe("/duels/game-1");
   });
 
-  it("hides the final board link when the server has none", async () => {
-    failing("1v1", { code: "NOT_PLAYABLE", error: "nope", finalBoard: "none" });
+  it.each([{ status: 409, code: "NOT_PLAYABLE" }, { status: 413, code: "REPLAY_TOO_LARGE" }])
+  ("hides the final board link when the server has none ($status/$code)", async ({ status, code }) => {
+    failing("1v1", { code, error: "nope", finalBoard: "none" }, status);
     render(<DuelReplayView slug="game-1" />);
     await screen.findByRole("alert");
     expect(screen.queryByRole("link", { name: "Final board" })).toBeNull();

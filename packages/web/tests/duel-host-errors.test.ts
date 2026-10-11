@@ -94,13 +94,16 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "Invalid answer" });
   });
 
-  it.each(["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE"].flatMap(code =>
-    ["available", "none"].map(finalBoard => ({ code, finalBoard }))))("keeps finalBoard for a permitted 409: $code/$finalBoard", async body => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Cannot replay", ...body }, { status: 409 })));
+  it.each([
+    ...["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE"].map(code => ({ status: 409, code })),
+    { status: 413, code: "REPLAY_TOO_LARGE" },
+  ].flatMap(error => ["available", "none"].map(finalBoard => ({ ...error, finalBoard }))))
+  ("keeps finalBoard for a permitted $status: $code/$finalBoard", async ({ status, ...body }) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Cannot replay", ...body }, { status })));
     const { callDuelHost } = await loadHost();
     const result = await callDuelHost({ ...call, op: "owner-replay" });
     if (result.ok) throw new Error("expected failure");
-    expect(result.response.status).toBe(409);
+    expect(result.response.status).toBe(status);
     expect(await result.response.json()).toEqual({ error: "Cannot replay", ...body });
   });
 
@@ -110,6 +113,8 @@ describe("callDuelHost error messages", () => {
     { status: 503, code: "ENGINE_BUSY" }, { status: 409, code: "ENGINE_BUSY" },
     { status: 403, code: "NOT_PLAYABLE" }, { status: 500, code: "REPLAY_MISMATCH" },
     { status: 409, code: undefined },
+    { status: 409, code: "REPLAY_TOO_LARGE" }, { status: 413, code: "ACCESS_DENIED" },
+    { status: 413, code: "NOT_PLAYABLE" },
   ])("drops finalBoard on $status/$code", async ({ status, code }) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Cannot replay", code, finalBoard: "available" }, { status })));
     const { callDuelHost } = await loadHost();

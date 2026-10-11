@@ -83,6 +83,16 @@ it("forwards typed host errors with finalBoard and no-store", async () => {
   const response = await get(false, "version=2"); expect(response.status).toBe(409);
   expect(await response.json()).toEqual(body); expect(response.headers.get("cache-control")).toBe("private, no-store");
 });
+it.each([false, true].flatMap(admin => ["available", "none"].map(finalBoard => ({ admin, finalBoard }))))
+("preserves oversized replay board availability after access checks (owner=$admin, board=$finalBoard)", async ({ admin, finalBoard }) => {
+  if (admin) signIn(101);
+  const body = { error: "Replay too large", code: "REPLAY_TOO_LARGE", finalBoard };
+  state.fetch.mockResolvedValue(Response.json(body, { status: 413 }));
+  const response = await get(admin, "version=2");
+  expect(response.status).toBe(413);
+  expect(await response.json()).toEqual(body);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
 it.each([false, true])("returns ENGINE_BUSY if the replay host is down (owner=%s)", async admin => {
   if (admin) signIn(101);
   state.fetch.mockRejectedValue(new TypeError("fetch failed"));
