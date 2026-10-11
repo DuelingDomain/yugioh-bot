@@ -10,12 +10,11 @@ import type { DuelGameWorker } from "./worker-client.js";
 export const REPLAY_MAX_BUILD_BYTES = 16 * 1024 * 1024;
 export const REPLAY_BUILD_TIMEOUT_MS = 25_000;
 
-/** Fixtures contain short prefixes. The 1,500-command FFA4 test measured about 190 MiB
- * with large decks and growing graveyards; its replay took about 5.5 seconds.
- * Allow 100 ms and 64 KiB per seat per accepted command above the startup allowance.
+/** Keep build time below the host request deadline (28s) and web transport (30s).
+ * Allow 64 KiB per seat per accepted command above the startup byte allowance.
  */
 export function replayBuildLimits(commandCount: number, seatCount: number) {
-  return { timeoutMs: REPLAY_BUILD_TIMEOUT_MS + commandCount * 100,
+  return { timeoutMs: REPLAY_BUILD_TIMEOUT_MS,
     maxBytes: REPLAY_MAX_BUILD_BYTES + commandCount * seatCount * 64 * 1024 };
 }
 
@@ -50,6 +49,7 @@ export interface ReplayBuildOptions {
   createWorker: () => DuelGameWorker;
   maxBytes?: number;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 /** An old host-only loss has no safe location in the prefix. Never apply final setup loss flags to early views. */
@@ -83,6 +83,7 @@ export async function buildReplayFrames(options: ReplayBuildOptions): Promise<Re
 /** Detached read-only re-run. Each call has its own projection delta positions and closes its worker. */
 export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">): Promise<ReplayFrameData[]> {
   const { source, sourceVersion, dataSeat } = options;
+  options.signal?.throwIfAborted();
   if (source.session.status !== "completed" && source.session.status !== "interrupted") {
     throw new ReplayBuildError("Replays are available after the duel ends", "NOT_PLAYABLE");
   }
@@ -113,10 +114,13 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
     if (bytes > maxBytes) throw new ReplayBuildError("Replay exceeds the response size limit.", "ENGINE_BUSY");
     frames.push(frame);
   };
+  const check = () => { options.signal?.throwIfAborted(); };
   const work = async () => {
+    check();
     const result = await runJournalPrefix({ source, resources: options.resources, prefixCount: source.commands.length,
       createWorker: () => (worker = options.createWorker()), checkpointSeat: dataSeat,
       onCheckpoint: async ({ view, input, actorSeat, beforeRevision, prefixCount }) => {
+        check();
         if (expired) throw new ReplayBuildError("Replay timed out.", "ENGINE_BUSY");
         if (input && chainModeOf(input.command.promptId) !== null && view.revision === beforeRevision) return;
         if (options.reveal) {
@@ -140,13 +144,18 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
     }
     return frames;
   };
+  let onAbort: (() => void) | undefined;
   try {
     return await Promise.race([work(), new Promise<never>((_, reject) => {
-      timer = setTimeout(() => { expired = true; reject(new ReplayBuildError("Replay timed out.", "ENGINE_BUSY")); }, options.timeoutMs ?? limits.timeoutMs);
+      onAbort = () => reject(options.signal!.reason);
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+    }), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { expired = true; reject(new ReplayBuildError("Replay timed out.", "ENGINE_BUSY")); }, Math.min(REPLAY_BUILD_TIMEOUT_MS, options.timeoutMs ?? limits.timeoutMs));
     })]);
   } catch (error) { throw replayBuildError(error); }
   finally {
     clearTimeout(timer);
+    if (onAbort) options.signal?.removeEventListener("abort", onAbort);
     if (worker?.running) { try { await worker.close(); } catch { /* The detached worker may already have exited. */ } }
   }
 }

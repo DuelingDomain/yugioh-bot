@@ -13,7 +13,7 @@ import type { DuelGameWorker } from "./worker-client.js";
 
 export const REPLAY_FORK_TIMEOUT_MS = 20_000;
 /** Launch/restart re-run a trusted stored prefix; account for its length. */
-export const replayForkTimeoutMs = (prefixCount: number): number => REPLAY_FORK_TIMEOUT_MS + prefixCount * 100;
+export const replayForkTimeoutMs = (prefixCount: number): number => Math.min(25_000, REPLAY_FORK_TIMEOUT_MS + prefixCount * 100);
 export const REPLAY_FORK_ACTIVE_LIMIT = 4;
 const MAX_DETACHED_FORKS = 2;
 
@@ -88,11 +88,13 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
 
   async function detached(actor: OwnerPlayerActor, state: DuelPrivateState, prefixCount: number,
     target: { revision: number } | undefined, save: (defaults: Array<{ seat: number; command: DuelCommand }>) => { session: DuelSession; reused: boolean },
-    enforceActive: boolean, restore?: () => void): Promise<DuelRoom> {
+    enforceActive: boolean, restore?: () => void, signal?: AbortSignal): Promise<DuelRoom> {
+    signal?.throwIfAborted();
     const release = reserve(actor, enforceActive);
     let worker: DuelGameWorker | undefined, committed: DuelSession | undefined, recorderId: number | undefined;
     let expired = false, handedOff = false, timer: ReturnType<typeof setTimeout> | undefined;
     const check = () => {
+      signal?.throwIfAborted();
       if (options.isStopped?.()) throw new ReplayForkLaunchError("The duel host is shutting down. Retry the fork request.", "ENGINE_BUSY");
       if (expired) throw new ReplayForkLaunchError("Replay fork engine timed out.", "ENGINE_BUSY");
     };
@@ -130,10 +132,14 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
       handedOff = true;
       return room;
     };
+    let onAbort: (() => void) | undefined;
     try {
       return await Promise.race([work(), new Promise<never>((_, reject) => {
+        onAbort = () => reject(signal!.reason);
+        signal?.addEventListener("abort", onAbort, { once: true });
+      }), new Promise<never>((_, reject) => {
         timer = setTimeout(() => { expired = true; reject(new ReplayForkLaunchError("Replay fork engine timed out.", "ENGINE_BUSY")); },
-          options.timeoutMs ?? replayForkTimeoutMs(prefixCount));
+          Math.min(25_000, options.timeoutMs ?? replayForkTimeoutMs(prefixCount)));
       })]);
     } catch (error) {
       if (error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError
@@ -145,6 +151,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
       throw new ReplayForkLaunchError(failure.message, failure.code);
     } finally {
       clearTimeout(timer);
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
       if (!handedOff) {
         if (worker) { try { await worker.close(); } catch { /* Worker already exited. */ } }
         if (committed) {
@@ -163,7 +170,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
   }
 
   return {
-    async launch(slug: string, actor: OwnerPlayerActor, request: ReplayForkRequest): Promise<ReplayForkResult> {
+    async launch(slug: string, actor: OwnerPlayerActor, request: ReplayForkRequest, signal?: AbortSignal): Promise<ReplayForkResult> {
       if (!resolveOwnerPlayer(db, actor)) throw new ReplayAccessError();
       if (!isReplayForkRequest(request)) throw new ReplayForkLaunchError("Invalid replay fork request.", "INVALID_CURSOR");
       const cursorDigest = createHash("sha256").update(request.cursor).digest("hex");
@@ -198,10 +205,10 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
         const saved = store.create({ actor, requestId: request.requestId, cursorDigest, source, origin });
         if (!saved.reused) for (const { seat, command } of defaults) duels.recordCommand(saved.session.slug, actor.guildId, seat, command, null);
         return saved;
-      }).immediate(), true);
+      }).immediate(), true, undefined, signal);
       return { slug: room.session.slug, sourceFrameId: claims.frameId, initialSeat: room.fork!.actingSeat, room };
     },
-    async restart(slug: string, actor: OwnerPlayerActor): Promise<DuelRoom> {
+    async restart(slug: string, actor: OwnerPlayerActor, signal?: AbortSignal): Promise<DuelRoom> {
       assertReplayForkAccess(db, slug, actor);
       const state = store.privateState(slug, actor), sourceVersion = replaySourceVersion(options.sourceOf(state));
       const count = state.setup!.replayFork!.origin.prefixCount;
@@ -235,7 +242,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
           last_activity_at = datetime('now') where id = ? and kind = 'replay-fork'`).run(state.session.id);
         for (const { seat, command } of defaults) duels.recordCommand(slug, actor.guildId, seat, command, null);
         return { session: duels.get(slug, actor.guildId), reused: false };
-      }).immediate(), state.session.status !== "active", () => undo?.());
+      }).immediate(), state.session.status !== "active", () => undo?.(), signal);
     },
   };
 }

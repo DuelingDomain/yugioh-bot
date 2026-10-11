@@ -268,6 +268,45 @@ it("bounds a stuck detached worker and leaves no stored fork", async () => {
   expect(result.response.status).toBe(503); expect(result.body.code).toBe("ENGINE_BUSY");
   expect(workers[0]!.running).toBe(false); expect(db.prepare("select * from replay_fork_requests").all()).toEqual([]);
 });
+it("closes an expired launch and prevents a late fork commit", async () => {
+  await host.close(); startHost({ replayRequestTimeoutMs: 20 });
+  let release!: () => void;
+  makeWorker = () => {
+    const worker = new ForkWorker();
+    worker.create = async () => new Promise<void>(resolve => { release = resolve; });
+    return worker;
+  };
+  const result = await post({ op: "replay-fork", ...request() });
+  expect(result.response.status).toBe(503); expect(result.body.code).toBe("ENGINE_BUSY");
+  await new Promise<void>(resolve => setImmediate(resolve));
+  expect(workers[0]!.running).toBe(false);
+  release(); await new Promise<void>(resolve => setImmediate(resolve));
+  expect(db.prepare("select * from replay_fork_requests").all()).toEqual([]);
+  expect(db.prepare("select * from duels where kind = 'replay-fork'").all()).toEqual([]);
+});
+it.each(["fork-restart", "fork-cancel"])("expires queued %s before the web deadline and never mutates it later", async op => {
+  await host.close(); startHost({ replayRequestTimeoutMs: 20 });
+  const launch = await post({ op: "replay-fork", ...request() });
+  expect(launch.response.status).toBe(200);
+  const worker = workers[0]!, answer = worker.answer.bind(worker);
+  let release!: () => void, started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  worker.answer = async (...args) => {
+    started(); await new Promise<void>(resolve => { release = resolve; }); await answer(...args);
+  };
+  const responding = post({ op: "respond", slug: launch.body.slug,
+    command: { promptId: "p2", revision: 2, answer: { choice: "next" } } });
+  await ready;
+  try {
+    const result = await Promise.race([post({ op, slug: launch.body.slug }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${op} missed its request deadline`)), 500))]);
+    expect(result.response.status).toBe(503); expect(result.body.code).toBe("ENGINE_BUSY");
+  } finally { release(); await responding; }
+  await new Promise<void>(resolve => setImmediate(resolve));
+  expect(workers).toHaveLength(1);
+  expect((await post({ op: "view", slug: launch.body.slug })).body.engine.revision).toBe(3);
+  expect(createDuelService(db).get(launch.body.slug, owner.guildId).status).toBe("active");
+});
 it.each([0, 1, 2, 3])("binds views, answers and announcement search to acting seat %s", async seat => {
   source("ffa4"); const launch = await post({ op: "replay-fork", ...request() }); expect(launch.response.status).toBe(200);
   const forkSlug = launch.body.slug, worker = workers[0]!; worker.promptSeat = seat; worker.announce = true; worker.pending = seat;

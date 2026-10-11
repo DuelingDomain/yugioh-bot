@@ -320,7 +320,9 @@ export function createDuelHost(options: {
    * `DUEL_SCENARIOS=1`, else 0 (off: a room read waits for the queue). A `report` needs `DUEL_SCENARIOS=1` anyway.
    */
   queueBlockedMs?: number;
-  /** Total detached fork run and handoff limit. Production defaults to 20 seconds. */
+  /** Total replay/fork request deadline, including queue/resources. Capped at 28s, below web transport (30s). */
+  replayRequestTimeoutMs?: number;
+  /** Detached fork run and handoff limit. Production defaults to 20s, capped at 25s. */
   forkTimeoutMs?: number;
   /** Known problems per preset id, for the dev presets page (`list-presets` answers them as `issues`). Default: none. */
   presetIssues?: (presetId: string) => PresetIssue[];
@@ -1543,7 +1545,7 @@ export function createDuelHost(options: {
   }
 
   async function replay(slug: string, guildId: string, room: DuelRoom,
-    projection: ReplayProjection = { version: 1, visibility: "mine", dataSeat: room.mySeat }): Promise<DuelReplay | DuelReplayV2> {
+    projection: ReplayProjection = { version: 1, visibility: "mine", dataSeat: room.mySeat }, signal?: AbortSignal): Promise<DuelReplay | DuelReplayV2> {
     let finalView = savedReplayBoard(slug, guildId, projection.dataSeat);
     const finalBoard = finalView ? "available" : "none";
     if (room.session.status !== "completed" && room.session.status !== "interrupted") {
@@ -1561,7 +1563,7 @@ export function createDuelHost(options: {
       const key = createHash("sha256").update(JSON.stringify([guildId, slug, sourceVersion, resources?.identity ?? null, resources?.bundleVersion ?? pinnedVersionFor(state.session.format), projection.visibility, projection.dataSeat, projection.reveal, finalView])).digest("hex");
       const frames = await replayCache.getOrBuild(key, () => buildReplayData({ source, sourceVersion,
         resources: journalResourcesOf(resources), dataSeat: projection.dataSeat,
-        reveal: projection.reveal, finalView, createWorker: () => spawn() }));
+        reveal: projection.reveal, finalView, signal, createWorker: () => spawn() }));
       if (sourceVersion !== replaySourceVersion(journalSourceOf(service.privateState(slug, guildId)))) {
         throw new RequestError("The source changed. Refresh the replay.", 409, "SOURCE_CHANGED");
       }
@@ -1587,7 +1589,7 @@ export function createDuelHost(options: {
     }
   }
 
-  async function replayRequest(body: Record<string, unknown>, slug: string, guildId: string, actor: number): Promise<DuelReplay | DuelReplayV2> {
+  async function replayRequest(body: Record<string, unknown>, slug: string, guildId: string, actor: number, signal?: AbortSignal): Promise<DuelReplay | DuelReplayV2> {
     const privileged = body.op === "owner-replay";
     const accessActor = { guildId, playerId: actor, ...(body.userId !== undefined ? { userId: body.userId as number } : {}) };
     // A signed web request is not owner authority. Check the database mapping and current list first.
@@ -1625,7 +1627,7 @@ export function createDuelHost(options: {
     const owner = resolveOwnerPlayer(options.db, accessActor);
     const result = await replay(slug, guildId, room, { version, visibility, dataSeat,
       ...(privileged && body.reveal !== undefined ? { reveal: body.reveal as boolean } : {}),
-      ...(owner ? { ownerUserId: owner.userId } : {}) });
+      ...(owner ? { ownerUserId: owner.userId } : {}) }, signal);
     // Access can be revoked while a detached worker is building a private projection.
     if (privileged) assertOwnerReplaySourceAccess(options.db, slug, accessActor);
     else {
@@ -2407,7 +2409,8 @@ export function createDuelHost(options: {
     return step.next;
   }
 
-  async function operate(body: Record<string, unknown>, ctl?: { abandoned: boolean }): Promise<unknown> {
+  async function operate(body: Record<string, unknown>, ctl?: { abandoned: boolean; signal?: AbortSignal }): Promise<unknown> {
+    ctl?.signal?.throwIfAborted();
     const { op, guildId, playerId } = body;
     if (typeof guildId !== "string" || !guildId || !Number.isSafeInteger(playerId) || (playerId as number) <= 0) {
       throw new RequestError("Authenticated guild and player are required", 400);
@@ -2419,7 +2422,7 @@ export function createDuelHost(options: {
       if (typeof body.slug !== "string" || !body.slug) throw new RequestError("Duel slug is required", 400, "INVALID_CURSOR");
       if (body.as !== undefined || body.reveal !== undefined) throw new RequestError("Invalid replay fork request", 400, "INVALID_CURSOR");
       const result = await forkLauncher.launch(body.slug, accessActor, { cursor: body.cursor, sourceVersion: body.sourceVersion,
-        requestId: body.requestId } as import("@yugidraft/shared/duels").ReplayForkRequest);
+        requestId: body.requestId } as import("@yugidraft/shared/duels").ReplayForkRequest, ctl?.signal);
       await emitChange(result.slug, guildId);
       assertReplayForkAccess(options.db, result.slug, accessActor);
       return result;
@@ -2439,7 +2442,7 @@ export function createDuelHost(options: {
       if (typeof body.slug !== "string" || !body.slug) throw new ReplayAccessError();
       assertReplayForkAccess(options.db, body.slug, accessActor);
       if (op === "fork-restart") {
-        const room = await forkLauncher.restart(body.slug, accessActor);
+        const room = await forkLauncher.restart(body.slug, accessActor, ctl?.signal);
         await emitChange(body.slug, guildId);
         assertReplayForkAccess(options.db, body.slug, accessActor);
         return room;
@@ -2566,7 +2569,7 @@ export function createDuelHost(options: {
     }
     if (typeof body.slug !== "string" || !body.slug || body.slug.length > 128) throw new RequestError("Duel slug is required", 400);
     const slug = body.slug;
-    if (op === "replay" || op === "owner-replay") return replayRequest(body, slug, guildId, actor);
+    if (op === "replay" || op === "owner-replay") return replayRequest(body, slug, guildId, actor, ctl?.signal);
     const room = service.room(slug, guildId, actor);
     if (isReplayFork(room.session) && ["start", "ready", "unready", "deck", "validate-deck", "add-bot", "opening-pick", "opening-choose",
       "series-first", "series-side", "series-ready", "series-unready"].includes(String(op))) {
@@ -2992,6 +2995,7 @@ export function createDuelHost(options: {
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
       let requestOp: string | undefined;
+      let replayDeadline: ReturnType<typeof setTimeout> | undefined;
       try {
         let body: Record<string, unknown>;
         try { body = JSON.parse(raw); } catch { throw new RequestError("Invalid JSON", 400); }
@@ -3002,9 +3006,17 @@ export function createDuelHost(options: {
             .get(body.slug, body.guildId)?.kind === "replay-fork";
         const key = body.op === "replay-fork" ? `fork-owner:${body.guildId}:${body.playerId}` : typeof body.slug === "string" ? body.slug : "catalog";
         // Diagnostics skip the queue; GitHub status reads must not block card editor requests.
-        const ctl = { abandoned: false };
-        const queued = (body.op === "debug-trace" || body.op === "bug-context" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body) : enqueue(key, () => operate(body, ctl)));
-        const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
+        const bounded = ["replay", "owner-replay", "replay-fork", "fork-restart", "fork-cancel", "fork-list"].includes(String(body.op));
+        const deadline = new AbortController();
+        const ctl = { abandoned: false, ...(bounded ? { signal: deadline.signal } : {}) };
+        const queued = (body.op === "debug-trace" || body.op === "bug-context" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
+        const pending = bounded ? Promise.race([queued, new Promise<never>((_, reject) => {
+          replayDeadline = setTimeout(() => {
+            const error = new RequestError("Replay or fork request timed out. Try again shortly.", 503, "ENGINE_BUSY");
+            deadline.abort(error); reject(error);
+          }, Math.min(28_000, options.replayRequestTimeoutMs ?? 28_000));
+        })]) : queued;
+        const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await pending;
         if (fork) assertReplayForkAccess(options.db, body.slug as string, { guildId: body.guildId as string,
           playerId: body.playerId as number, ...(body.userId !== undefined ? { userId: body.userId as number } : {}) });
         return Response.json(answer, { headers: { "cache-control": "no-store" } });
@@ -3027,7 +3039,7 @@ export function createDuelHost(options: {
           ...((error instanceof RequestError || error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError || error instanceof ReplayForkStorageError) && error.code ? { code: error.code } : {}),
           ...(error instanceof ReplayForkLaunchError ? error.recovery : {}),
           ...(error instanceof RequestError && error.finalBoard ? { finalBoard: error.finalBoard } : {}) }, { status: unexpected ? 500 : status });
-      }
+      } finally { clearTimeout(replayDeadline); }
     },
     async close(): Promise<void> {
       stopped = true;

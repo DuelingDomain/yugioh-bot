@@ -6,6 +6,7 @@ import { buildReplayFrames, replayBuildLimits, ReplayBuildCache } from "../src/r
 import { createReplayCursorCodec, replaySourceVersion } from "../src/replay-cursor.js";
 import { multiScriptsFolderHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
+import { replayForkTimeoutMs } from "../src/replay-fork.js";
 
 const codec = createReplayCursorCodec("builder-test-secret");
 const dirs: string[] = [];
@@ -120,7 +121,8 @@ describe("bounded replay cache", () => {
   });
   it("scales replay budgets with commands and seats and serves values too large to cache", async () => {
     const limits = replayBuildLimits(1500, 4);
-    expect(limits.timeoutMs).toBeGreaterThan(25_000);
+    expect(limits.timeoutMs).toBeLessThanOrEqual(25_000);
+    expect(replayForkTimeoutMs(1500)).toBeLessThanOrEqual(25_000);
     expect(limits.maxBytes).toBeGreaterThan(16 * 1024 * 1024);
     const cache = new ReplayBuildCache<string>({ maxBytes: 20, maxEntries: 2, maxConcurrent: 1 });
     expect(await cache.getOrBuild("large", async () => "x".repeat(21))).toHaveLength(21);
