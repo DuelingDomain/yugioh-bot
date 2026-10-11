@@ -114,6 +114,10 @@ const wsInternal = `http://127.0.0.1:${ports.wsInternal}`;
 // The ws and duel servers call dotenv. dotenv never overrides a variable that is set, but it adds every
 // other variable from the repo .env. The ws server reads DOTENV_CONFIG_PATH, so it gets a file that does
 // not exist. The duel host reads the repo .env by a fixed path, so each variable it reads is set here.
+// OWNER_USER_IDS (application users.id values, comma separated) turns on owner-only replay features for those users.
+// Empty by default: every fixture player is an ordinary alpha user. E2E_OWNER_USER_IDS=101 makes p1 the owner.
+// web, ws and the duel host each read it at authorization time, so all three get the same value.
+const ownerUserIds = process.env.E2E_OWNER_USER_IDS ?? "";
 const base = {
   PATH: process.env.PATH,
   HOME: process.env.HOME,
@@ -121,6 +125,7 @@ const base = {
   DATABASE_PATH: dbPath,
   DOTENV_CONFIG_PATH: resolve(stackDir, "none.env"),
   DOTENV_CONFIG_QUIET: "true",
+  OWNER_USER_IDS: ownerUserIds,
 };
 const serviceDirectory = (name) => {
   if (e2eSlot === undefined) return repoRoot;
