@@ -29,11 +29,7 @@ The remaining choices are in section 12. These engine limits apply:
 - A point is a stable engine state after saved input. The current API cannot stop inside an engine process call or an animation.
 - Old journals need their exact engine resources and runtime rules. A new viewer alone cannot restore them.
 
-Backend work: Codex. UI work: Sonnet. Integration review: the owner's Opus worker. The task list is for later implementation. This revision changes only this design file.
-
 ## 2. Source and evidence rules
-
-The first investigation completed `git fetch -q origin`. Its source reads used `git show` or `git grep` on remote refs. No worktree or branch was created. No server was started. No port or process was changed.
 
 These are the source commits:
 
@@ -635,121 +631,121 @@ Runtime cost is roughly proportional to journal length. Private views can add se
 
 ## 11. (e) Task list: main only
 
-All tasks start from main. There is no D0 branch-integration task. Codex owns backend code and tests. Sonnet owns UI code and tests. The owner's Opus worker reviews contracts and integration. These are future assignments. No implementation worker has started.
+All tasks start from main. There is no D0 branch-integration task.
 
 Paths are relative to the repo. “New” marks a proposed file. P0 owns shared types first. B0 owns access policy. B3 owns storage/schema. B6 owns result/list guards. B7 owns messages/ws. Reserve `host.ts`, `services/duels.ts`, `duel-host.ts` and `api.ts` edits to one task at a time. Use new modules for independent preparation.
 
-### P0 — Backend (Codex): shared contracts
+### P0 — Backend: shared contracts
 
 - Files: `packages/shared/src/duels/index.ts`; new `duels/replay.ts`, `duels/replay-fork.ts`, `duels/duel-kind.ts`; service type changes in `packages/shared/src/services/duels.ts`; new shared contract tests.
-- Dependencies: none. Review with Sonnet and Opus before dependent integration.
+- Dependencies: none. Review contracts before dependent integration.
 - Contract: `DuelReplayV2`, `ReplayFrameV2`, `ReplaySource`, `EngineIdentity`, opaque cursors, owner capabilities, `DuelSession.kind`, private fork setup/origin, `ReplayForkControl` with separate identity/acting seats, stable errors. Source reads expose ordered sequence IDs internally.
 - P0 review fixes: exact fork metadata keys and bounds; validated setup reads; shared identity/seed validators and identity comparison; ordinary view sanitizer; `storedSeq`; request visibility/reveal echo; creator-safe origin/reveal/mode fields; access-unavailable, retry-conflict and saved-final-board error fields. B2/B4/U5 use these final shapes from section 7.4/7.5. B3/B5 keep server setup writes separate from normal setup validation. B3/B6 keep private fork origin out of reports.
 - Tests: two/three/four seats; v1 compatibility; ordinary output has no private counts/options; kind/setup validation; creator uses application user ID.
 
-### B0 — Backend (Codex): main owner access
+### B0 — Backend: main owner access
 
 - Files: `packages/web/src/lib/owner-access.ts`, `duel-host.ts`; new `packages/shared/src/access/owner-access.ts`; new `packages/web/src/lib/replay-fork-access.ts`; shared exports; existing admin access tests and new fork access tests.
 - Dependencies: P0. Complete before any private API or control is exposed.
 - Contract: preserve `isOwnerUser()` and `OWNER_USER_IDS`; web actor includes trusted `userId`; host/service resolve the same user; owner source lookup is guild-bound; fork access requires current allowlist plus creator.
 - Tests: owner and approved developer allowed; alpha, unset/empty list and malformed IDs denied; player/Discord IDs cannot substitute for user ID; removed ID denied; private bug-report source allowed without source seat or invite; no source grants or messages; other guild and other fork creator denied; forged actor denied.
 
-### B1 — Backend (Codex): engine-only prefix runner
+### B1 — Backend: engine-only prefix runner
 
 - Files: new `packages/duel-server/src/journal-runner.ts`; `src/journal-command.ts`, `src/host.ts`; `src/worker-protocol.ts` if needed; new runner tests.
 - Dependencies: P0.
 - Contract: validated source/options, exact resources and prefix count; asynchronous command dispatch; return paused worker and target views. Callers own persistence and cleanup. No bots, clocks, DB changes or messages.
 - Tests: count 0, middle, last and invalid; prompt/revision mismatch; no-op chain modes; loss commands; exact draw/error policy; close on failure. Cover legacy, pinned and both multi cores.
 
-### B2 — Backend (Codex): main replay API and cursor mapping
+### B2 — Backend: main replay API and cursor mapping
 
 - Files: `packages/duel-server/src/host.ts`; new `src/replay-builder.ts`, `src/replay-cursor.ts`; `packages/web/app/api/duels/[slug]/replay/route.ts`; new `app/api/admin/duels/[slug]/replay/route.ts`; `packages/web/src/lib/duel-host.ts`; new route/cache tests.
 - Dependencies: P0, B0, B1. Reserve host integration apart from B4.
 - Contract: v1 plus v2 normal GET; current room access with public/mine data; separate owner GET for private prod sources; same frame IDs, independent deltas, sealed cursors and typed errors. Privileged GET without a seat defaults to source-own/public projection. Synthetic results have no cursor.
 - Tests: all formats/modes; source access; alpha cannot call private GET or use `seat/reveal/as`; empty allowlist; owner capability is server-set; no-op cursor mapping; no recorder or source mutation; perspective/auth cache separation; private no-store; concurrent build deduplication and byte limit.
 
-### B3 — Backend (Codex): fork mark and atomic storage
+### B3 — Backend: fork mark and atomic storage
 
 - Files: `packages/shared/src/db/schema.ts`, `services/duels.ts`; new `services/replay-forks.ts`; `duels/replay-fork.ts`, `duels/duel-kind.ts`; shared exports; new migration/persistence tests.
 - Dependencies: P0, B0. Coordinate service edits with B6.
 - Contract: G1/G2/G20; durable immutable kind; creator-only private metadata; exact decks/rules/seed; copied prefix; one owner row and Manual storage seats; no clock, opening, invite, series or match link; unique `(owner_user_id, request_id)` row in `replay_fork_requests`; dedicated activation transaction.
 - Tests: old rows default to `play`; mark cannot be cleared; invalid setup rejected; atomic rollback; concurrent retry creates one fork; key/payload conflict; source deletion permits recovery; all seat formats; no source IDs/grants; no unmarked staging row; copied game-2 side decks and seat order.
 
-### B6 — Backend (Codex): isolate forks from real play
+### B6 — Backend: isolate forks from real play
 
 - Files: `packages/shared/src/services/duels.ts`, `duel-series.ts`, `matches.ts`, `tournament-duels.ts`, `live-now.ts`; `open-now.ts` only if needed; `packages/duel-server/src/host.ts`, `script-error-store.ts`, `prod-script-errors.ts`, `script-error-autoblock.ts`; new `packages/shared/tests/services/replay-fork-isolation.test.ts` and host isolation tests.
 - Dependencies: P0, B0, B3. Complete before fork launch is enabled.
 - Contract: implement G3–G12, G14, G19/G20. Result APIs check persisted source kind. Ordinary selectors exclude forks. No match/stat/score/Elo, series/tournament change or matchmaking eligibility. Fork diagnostics stay outside production counters/blocking.
 - Tests: finish, surrender, interrupt, cancel, retry and restart; best-of-one still creates no series; invalid series/tournament links fail; no next-game timers; no live/history/profile/dashboard/count entry; no clock/opening/bot sweep; pending-loss prompt remains answerable; stats/scores/tournament tables stay equal; normal `play` result paths still work.
 
-### B7 — Backend (Codex): prevent invites and restrict ws
+### B7 — Backend: prevent invites and restrict ws
 
 - Files: `packages/web/app/api/duels/route.ts`, `app/api/tournaments/[slug]/matches/[tmId]/duel/route.ts`, `app/api/duels/[slug]/connection/route.ts`; `packages/web/src/lib/announce-bot.ts`, `notify-duel.ts`; `packages/bot/src/announce/server.ts`, `announce/handlers.ts`, `lib/notify-duel.ts`; `packages/shared/src/notify/announce-payload.ts`, `ws/duel-token.ts`; new `services/duel-access.ts`; `packages/ws/src/duel-events.ts`, `internal-http.ts`, `server.ts`; `packages/duel-server/src/host.ts`, `server.ts`; new sender, bot and ws tests.
 - Dependencies: P0, B0, B3. Complete before fork launch is enabled. Serialize host/route edits with B6/B4.
 - Contract: G13/G15–G18. Senders and bot sinks check stored kind. Signed duel references identify invite targets. Fork tokens and change/presence messages use only creator and fork slug. DB access reader checks persisted kind/creator and current allowlist; prune revoked subscriptions before broadcast. Never notify or invite source players.
 - Tests: zero Discord calls on create, result, restart, failure and retry; direct marked-fork invite refused at sender and bot sink; alpha token/join denied; copied source token cannot join fork; creator identity stays seat 0 while acting seat changes; revoked owner loses subscription; source and guild sockets receive no fork event; ordinary duel tokens/invites still work.
 
-### B4 — Backend (Codex): main fork launch and control APIs
+### B4 — Backend: main fork launch and control APIs
 
 - Files: new `packages/duel-server/src/replay-fork.ts`, `src/replay-fork-seats.ts`; `src/host.ts`; new `packages/web/app/api/admin/duels/[slug]/replay/fork/route.ts`, `app/api/duels/[slug]/fork/restart/route.ts`, `fork/cancel/route.ts`; current routes in G13/G14, including `app/api/duels/cards/route.ts` GET; `packages/web/src/lib/duel-host.ts`, `replay-fork-access.ts`; new launch/route tests.
 - Dependencies: B1, B2, B3, B6, B7. Access and isolation are release gates.
 - Contract: owner fork POST; sealed source cursor/version; bounded detached run; atomic store then worker handoff; all-seat Manual views/actions/chain-mode/card announcement search; creator-only restart/cancel; recovery uses copied prefix. No dependency on `src/sandbox.ts` or the dev branch.
 - Tests: valid/invalid cursor; source change; owner can fork real private prod source; alpha/private-route/host forgery denied; legacy stays legacy; no phase scripts, RPS or new draw; no bots at handoff/recover; stale and pending-loss prompts; card announcement search for seats 0–3, wrong seat/prompt/revision and alpha access; cleanup on timeout/register failure; no source mutation; all normal routes reject fork admission/series changes and `as` on real play.
 
-### U1 — UI (Sonnet): replay timeline and controller
+### U1 — UI: replay timeline and controller
 
 - Files: `packages/web/src/components/duel/replay.tsx`, `replay-timeline.ts`, `replay.module.css`, `api.ts`; new `replay-controller.ts`; existing and new replay component tests.
 - Dependencies: P0. Use typed fixtures while B2 proceeds. Integrate after B2.
 - Contract: v2 frames; camera separate from card visibility; read-only `TableController`; stable selected frame after reload; normal viewer has no live action calls.
 - Tests: transport controls; autoplay/toss waits; seek resets events; late-view race; same frame after seat switch; public camera keeps cards hidden; keyboard/dialog behavior.
 
-### U2 — UI (Sonnet): shared shell replay mode
+### U2 — UI: shared shell replay mode
 
 - Files: `packages/web/src/components/duel/table/types.ts`, `table/table-shell.tsx`, `tag/tag-shell.tsx`; shared shell props; new shell tests.
 - Dependencies: P0 and U1 controller contract. Own these shared files before U3/U4.
 - Contract: explicit replay mode and transport slot; read-only controller; no live result, series, clock or connection overlay; seek reset key; keep inspection/camera.
 - Tests: shell cannot answer; no surrender/next-game action; rewind clears loss/camera history; forward play still shows events.
 
-### U3 — UI (Sonnet): Tag replay
+### U3 — UI: Tag replay
 
 - Files: new `packages/web/src/components/duel/replay-tag.tsx`; `tag/tag-stage.tsx`, `tag/tag-header.tsx`, `tag/tag-logic.ts` only if needed; new Tag replay tests.
 - Dependencies: U1, U2. Avoid U2's files during independent work.
 - Contract: Rooftop with four seats; teams 0+2/1+3; team LP once; correct result/shared EMZ; camera and cards independent.
 - Tests: every camera seat; team names/LP; partner visibility and private Extra Deck; narrow screens; rewind from result.
 
-### U4 — UI (Sonnet): FFA replay
+### U4 — UI: FFA replay
 
 - Files: new `packages/web/src/components/duel/replay-ffa.tsx`; `table/table-stage.tsx`, `table/grid-stage.tsx`, `table/grid-layout.ts` only if needed; new FFA replay tests.
 - Dependencies: U1, U2. Can prepare independently of U3.
 - Contract: FFA3 plaza and FFA4 grid; engine EMZ metadata is authoritative; losses come from selected frame.
 - Tests: every camera seat and all fields visible; facing-pair EMZ; pending loss/order; rewind restores seats; 4-to-3-to-2 states; narrow screens; read-only interactions.
 
-### U5 — UI (Sonnet): Jump in and all-seat fork play on main
+### U5 — UI: Jump in and all-seat fork play on main
 
 - Files: `packages/web/src/components/duel/replay.tsx`, `api.ts`, `room.tsx`; new `replay-fork-button.tsx`, `replay-fork-bar.tsx`; `packages/web/app/(app)/duels/[slug]/replay/page.tsx` and existing `/api/admin/access` hint; new `packages/web/tests/components/replay-fork.test.tsx`.
 - Dependencies: P0, B0, U1/U2; use mocked results during B4 work. Integrate after B4/B6/B7. Check all layouts after U3/U4.
 - Contract: server page resolves owner access before fetching a source; owner uses privileged GET on first load, including a private source with no seat/grant. Owner capability hides/shows Jump in and private views; ordinary alpha gets neither. Send selected cursor/retry key to main. Open marked private fork; display origin; all seats Manual; field/prompt controllers use `fork.actingSeat` while identity stays seat 0; `as`, Reveal hands, Follow prompt, explicit response-window commands and prefix restart. Port ideas only; no sandbox imports.
 - Tests: alpha sees no controls; owner/dev sees controls; owner capability loading fails closed; direct owner entry to private bug-report replay with no normal access; revoked access clears private state; terminal frame disabled; one click/retry gives one fork; all formats; announce-card search for each seat; late search after seat/prompt change; seat/follow races and stale answers; manual switching; reconnect/restart; no share/invite/rank/series/clock/bot UI; explicit response-window changes only.
 
-### B5 — Backend (Codex): engine identity and historical resources
+### B5 — Backend: engine identity and historical resources
 
 - Files: `packages/shared/src/services/duels.ts` setup; `packages/duel-server/src/engine-bundle.ts`, `multi-scripts.ts`, `worker-protocol.ts`, `worker.ts`; new `engine-resource-resolver.ts`; deployment bundle scripts/docs if retention is approved.
 - Dependencies: P0. Identity recording can proceed beside B1/UI, after shared setup edits are reserved. Archived resolution needs the owner's retention decision and B1/B2 contracts.
 - Contract: immutable server-owned identity at start; safe current-bundle fallback for old records; verified archive selection. Never force legacy to pinned.
 - Tests: wrong core/hash/script/wrapper; legacy and multi Domain choice; mismatch/missing archive; decoder/rule mismatch; no unsafe fallback.
 
-### V1 — Backend (Codex): engine and isolation acceptance
+### V1 — Backend: engine and isolation acceptance
 
 - Files: new `packages/duel-server/tests/replay-prefix-real.test.ts`, `host-replay-fork-real.test.ts`; shared fork isolation tests; existing engine-switch/replay suites.
 - Dependencies: B1–B4, B6/B7; B5 where archive use is enabled.
 - Contract: fixed source journals and expected public/seat views at stable steps. Fork with a different answer, then recover it after worker restart. Record before/after rows and notification calls.
 - Tests: Normal/Domain for 1v1 legacy/pinned, Tag, FFA3 and FFA4; RNG, chains, Deck Master recall, EMZ, pending losses, synthetic finals, game-2 side decks/swaps; G1–G20 isolation paths; source and real-play tables unchanged; no Discord or source/guild ws events.
 
-### V2 — UI (Sonnet): browser access and play acceptance
+### V2 — UI: browser access and play acceptance
 
 - Files: new replay/fork specs in `packages/e2e/tests/`; existing journal/leak helpers; web component tests.
 - Dependencies: B2, B4, B6/B7, U1–U5.
-- Contract: use the isolated e2e stack when implementation starts. Do not use the owner's ports 3000, 3001 or 4003. Test main production access rules.
+- Contract: use the isolated e2e stack. Do not use the owner's ports 3000, 3001 or 4003. Test main production access rules.
 - Tests: all layouts/camera seats; alpha public payload/DOM leak scan; direct private/fork/action/token calls denied; owner with no source seat can fork a private bug-report duel; answer every offered seat prompt, including card announcement on nonzero seats; Follow prompt on/off; mobile/keyboard; restart/reconnect; no source updates or player messages.
 
 Retain existing main evidence: `packages/duel-server/tests/host.test.ts`, `host-engine-switch.test.ts`, `replay-chain-mode-surrender.test.ts`, `host-report-replay.test.ts`; web replay tests under `packages/web/tests/components/`; `admin-access-route.test.ts`, card-data access tests, `duels-actions-route.test.ts`, challenge/invite and ws tests. Sandbox tests are references only. Main tests must run without that branch.
@@ -758,32 +754,32 @@ Retain existing main evidence: `packages/duel-server/tests/host.test.ts`, `host-
 
 ```mermaid
 flowchart TD
-  P0[Codex: contracts] --> B0[Codex: main owner access]
-  P0 --> B1[Codex: prefix runner]
-  P0 --> U1[Sonnet: timeline/controller]
-  P0 --> B5[Codex: engine identity]
-  B0 --> B2[Codex: replay/private source APIs]
+  P0[contracts] --> B0[main owner access]
+  P0 --> B1[prefix runner]
+  P0 --> U1[timeline/controller]
+  P0 --> B5[engine identity]
+  B0 --> B2[replay/private source APIs]
   B1 --> B2
-  B0 --> B3[Codex: fork storage]
-  B3 --> B6[Codex: real-play isolation]
-  B3 --> B7[Codex: messages/ws]
-  B2 --> B4[Codex: fork launch/control]
+  B0 --> B3[fork storage]
+  B3 --> B6[real-play isolation]
+  B3 --> B7[messages/ws]
+  B2 --> B4[fork launch/control]
   B6 --> B4
   B7 --> B4
-  U1 --> U2[Sonnet: shell mode]
-  U2 --> U3[Sonnet: Tag]
-  U2 --> U4[Sonnet: FFA]
-  U2 --> U5[Sonnet: main fork UI]
+  U1 --> U2[shell mode]
+  U2 --> U3[Tag]
+  U2 --> U4[FFA]
+  U2 --> U5[main fork UI]
   B4 --> U5
-  B4 --> V1[Codex: engine/isolation acceptance]
-  U3 --> V2[Sonnet: browser acceptance]
+  B4 --> V1[engine/isolation acceptance]
+  U3 --> V2[browser acceptance]
   U4 --> V2
   U5 --> V2
-  V1 --> REVIEW[Opus: main release review]
+  V1 --> REVIEW[main release review]
   V2 --> REVIEW
 ```
 
-Opus reviews P0/B0 before dependent integration. Review cursor semantics, private source authority, kind guards, source immutability and engine choice. B6/B7 guards must pass before enabling B4/U5. Current-resource forks do not wait for optional archive retention. Review V1/V2 evidence before main release. The review role is a later handoff to the owner's selected worker.
+Review P0/B0 before dependent integration. Review cursor semantics, private source authority, kind guards, source immutability and engine choice. B6/B7 guards must pass before enabling B4/U5. Current-resource forks do not wait for optional archive retention. Review V1/V2 evidence before main release.
 
 ## 12. Owner decisions
 
