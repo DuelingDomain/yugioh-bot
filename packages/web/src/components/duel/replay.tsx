@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Pause, Play, PlayCircle, SkipBack, SkipForward } from "lucide-react";
 import { isCustomDomain, seatCountFor, type DuelCard, type DuelMasterRule, type ReplayVisibility } from "@yugidraft/shared/duels";
@@ -100,6 +100,21 @@ function ReplayBoard({ table, masterRule, camera, focusSeat, mySeat, playerName 
 }
 
 /**
+ * While another card view loads, the table stays mounted (the camera, zoom and open panels belong to it) but is
+ * hidden and inert: the old card view is never on screen, and nothing on it can be used.
+ */
+function ReplayBusy({ busy, children }: { busy: boolean; children: ReactNode }) {
+  return (
+    <>
+      <div className={replayStyles.busyScope} data-replay-busy={busy ? "true" : undefined} aria-busy={busy || undefined} inert={busy}>
+        {children}
+      </div>
+      {busy ? <div className={replayStyles.busyNote} role="status">Loading replay…</div> : null}
+    </>
+  );
+}
+
+/**
  * `canInspectSource` comes from the server page (the owner check). It only asks for the private replay and the
  * owner controls; the routes check the owner list again and the answer must carry capabilities before any control shows.
  */
@@ -179,7 +194,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   }
 
   const awaiting = model != null && !settled && (model.visibility !== visibility || canInspectSource);
-  if ((!model || awaiting) && !error) return <div className="p-6 text-sm text-text-secondary" aria-busy="true">Loading replay…</div>;
+  if (!model && !error) return <div className="p-6 text-sm text-text-secondary" aria-busy="true">Loading replay…</div>;
   if (error && !model) {
     const failure = replayFailure(error);
     return (
@@ -212,8 +227,12 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   ) : null;
   // Tag draws the Rooftop table (four seats, team LP, shared Extra Monster zones) in its own page.
   if (session.format === "tag") {
-    return <ReplayTag slug={slug} model={model} timeline={timeline} engine={engine} controller={controller}
-      visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} />;
+    return (
+      <ReplayBusy busy={awaiting}>
+        <ReplayTag slug={slug} model={model} timeline={timeline} engine={engine} controller={controller}
+          visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} />
+      </ReplayBusy>
+    );
   }
   const frame = timeline.frame(index);
   const domain = session.mode === "domain";
@@ -234,9 +253,11 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   // 3-way and 4-way free-for-all tables draw every field in the shared table shell (replay mode).
   if (isFfaFormat(session.format)) {
     return (
-      <ReplayFfa slug={slug} model={model} frames={model.frames} engine={engine} controller={controller} preferences={preferences}
-        visibility={visibility} canSwitchCards={canSwitchCards} onVisibility={changeVisibility} notice={notice}
-        newLines={newLines} onCamera={() => { setInspect(null); setHover(null); }} tools={ownerTools} />
+      <ReplayBusy busy={awaiting}>
+        <ReplayFfa slug={slug} model={model} frames={model.frames} engine={engine} controller={controller} preferences={preferences}
+          visibility={visibility} canSwitchCards={canSwitchCards} onVisibility={changeVisibility} notice={notice}
+          newLines={newLines} onCamera={() => { setInspect(null); setHover(null); }} tools={ownerTools} />
+      </ReplayBusy>
     );
   }
 
@@ -289,6 +310,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   const seats = Array.from({ length: seatCount }, (_, seat) => seat);
 
   return (
+    <ReplayBusy busy={awaiting}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`} data-domain={domain}
       data-replay-frame={controller.frameId ?? undefined} data-replay-visibility={model.visibility}>
       <header className={styles.header}>
@@ -427,5 +449,6 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
         {sideContent}
       </Sheet>
     </div>
+    </ReplayBusy>
   );
 }

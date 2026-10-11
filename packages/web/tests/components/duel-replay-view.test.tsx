@@ -232,7 +232,7 @@ describe("DuelReplayView camera and card visibility", () => {
     expect(screen.getByTestId("bottom-hand").textContent).toBe("100,101");
   });
 
-  it("never shows the old card view while the public one loads", async () => {
+  it("keeps the table mounted but hidden and inert while the public view loads", async () => {
     let release: (() => void) | null = null;
     calls = [];
     vi.stubGlobal("fetch", vi.fn((input: string) => new Promise<Response>((resolve) => {
@@ -243,11 +243,19 @@ describe("DuelReplayView camera and card visibility", () => {
     })));
     await open();
     expect(screen.getByTestId("bottom-hand").textContent).toBe("100,101");
+    const field = screen.getByTestId("field");
     fireEvent.click(screen.getByRole("button", { name: "Public" }));
-    expect(screen.queryByTestId("field")).toBeNull();
+    // The table keeps its place (so a camera or panel choice survives), but the old cards are hidden and cannot be used.
+    const scope = document.querySelector("[data-replay-busy='true']") as HTMLElement;
+    expect(scope).not.toBeNull();
+    expect(scope.contains(field)).toBe(true);
+    expect(scope.hasAttribute("inert")).toBe(true);
+    expect(scope.getAttribute("aria-busy")).toBe("true");
     expect(screen.getByText("Loading replay…")).toBeTruthy();
     await act(async () => { release?.(); });
-    await screen.findByTestId("field");
+    await waitFor(() => expect(document.querySelector("[data-replay-busy]")).toBeNull());
+    expect(screen.queryByText("Loading replay…")).toBeNull();
+    expect(screen.getByTestId("field")).toBe(field);
     expect(screen.getByText("Move 0 / 3")).toBeTruthy();
   });
 
