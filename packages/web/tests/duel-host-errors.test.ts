@@ -94,6 +94,31 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "Invalid answer" });
   });
 
+  it.each(["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE"].flatMap(code =>
+    ["available", "none"].map(finalBoard => ({ code, finalBoard }))))("keeps finalBoard for a permitted 409: $code/$finalBoard", async body => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Cannot replay", ...body }, { status: 409 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "owner-replay" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(409);
+    expect(await result.response.json()).toEqual({ error: "Cannot replay", ...body });
+  });
+
+  it.each([
+    { status: 403, code: "ACCESS_DENIED" }, { status: 404, code: "ACCESS_DENIED" },
+    { status: 409, code: "ACCESS_DENIED" }, { status: 400, code: "INVALID_CURSOR" },
+    { status: 503, code: "ENGINE_BUSY" }, { status: 409, code: "ENGINE_BUSY" },
+    { status: 403, code: "NOT_PLAYABLE" }, { status: 500, code: "REPLAY_MISMATCH" },
+    { status: 409, code: undefined },
+  ])("drops finalBoard on $status/$code", async ({ status, code }) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Cannot replay", code, finalBoard: "available" }, { status })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "owner-replay" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(status >= 500 ? 503 : status);
+    expect(await result.response.json()).not.toHaveProperty("finalBoard");
+  });
+
   it("preserves a restart as a retryable 503 for duel answers", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "restarting" }, { status: 503 })));
     const { callDuelHost } = await loadHost();

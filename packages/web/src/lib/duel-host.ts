@@ -97,12 +97,14 @@ export function redactDuelResult<T>(data: T, guildId: string, playerId: number):
   return redactDuelTournamentMetadata(getDb, data, guildId, playerId);
 }
 
-function hostErrorBody(text: string): { error: string; code?: string; finalBoard?: "available" | "none" } {
+function hostErrorBody(text: string, status: number): { error: string; code?: string; finalBoard?: "available" | "none" } {
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") {
       return { error: parsed.error, ...("code" in parsed && typeof parsed.code === "string" ? { code: parsed.code } : {}),
-        ...("finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}) };
+        ...(status === 409 && "code" in parsed && typeof parsed.code === "string"
+          && ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE"].includes(parsed.code)
+          && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}) };
     }
   } catch {
     // Host may return a plain-text error body.
@@ -231,7 +233,7 @@ export async function callDuelHost(input: {
     }
     return {
       ok: false,
-      response: failure(hostErrorBody(result.text), result.status),
+      response: failure(hostErrorBody(result.text, result.status), result.status),
     };
   }
   if (!result.text) {
