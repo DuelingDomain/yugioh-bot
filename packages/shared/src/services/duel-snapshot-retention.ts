@@ -25,6 +25,8 @@ export interface DuelSnapshotRetentionOptions {
   batchSize?: number;
   maxBatches?: number;
   stopped?: () => boolean;
+  /** The host reserves queued fork operations before they begin asynchronous preparation. */
+  isForkBusy?: (slug: string) => boolean;
   /** Yield between rows and transactions; callers can also coordinate shutdown here. */
   pause?: (milliseconds: number) => Promise<void>;
 }
@@ -56,12 +58,14 @@ export async function runDuelSnapshotRetention(db: Database.Database, options: D
     // Each fork is a separate transaction. All child FKs have duel-leading indexes.
     // Keep the final DELETE guarded: a creator can restart after the selection.
     if (Number(db.pragma("foreign_keys", { simple: true })) === 1) {
-      const forks = db.prepare<[string, number], { id: number }>(`select id from duels where ${forkGuard} order by julianday(ended_at),id limit ?`)
+      const forks = db.prepare<[string, number], { id: number; slug: string }>(`select id,web_slug as slug from duels where ${forkGuard} order by julianday(ended_at),id limit ?`)
         .all(forkCutoff, size);
       const remove = db.prepare<[number, string]>(`delete from duels where id=? and ${forkGuard}`);
       for (const fork of forks) {
         await pause(0);
         if (stop()) return stats;
+        if (options.isForkBusy?.(fork.slug)) continue;
+        if (Number(db.pragma("foreign_keys", { simple: true })) !== 1) return stats;
         stats.deletedForks += withoutBusyWait(db, () => db.transaction(() => remove.run(fork.id, forkCutoff).changes).immediate());
         await pause(100);
       }

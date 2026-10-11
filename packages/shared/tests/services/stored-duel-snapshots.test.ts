@@ -14,7 +14,7 @@ it("reads old JSON and round trips gzip without changing events, logs, or bytes"
   expect(decodeStoredSnapshot(compressed)).toEqual(board);
   expect(await compressStoredSnapshot(compressed)).toBe(compressed);
 });
-it.each([null, "broken", gzipSync("broken"), Buffer.from([1, 2, 3]), "42"])("rejects unreadable boards (%s)", raw => {
+it.each([null, "broken", gzipSync("broken"), Buffer.from([1, 2, 3]), "42", '{"seats":[null]}'])("rejects unreadable boards (%s)", raw => {
   expect(readStoredBoard({ snapshot_public_json: raw }, null)).toBeNull();
 });
 it.each([false, true])("prefers the seat list and preserves projection privacy (gzip=%s)", compressed => {

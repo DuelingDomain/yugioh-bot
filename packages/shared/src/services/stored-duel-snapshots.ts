@@ -33,6 +33,7 @@ export async function compressStoredSnapshot(raw: StoredSnapshot): Promise<Store
 
 function board(value: unknown): DuelEngineView | null {
   if (!value || typeof value !== "object" || !Array.isArray((value as DuelEngineView).seats)) return null;
+  if (!(value as DuelEngineView).seats.every(seat => seat !== null && typeof seat === "object" && Number.isSafeInteger(seat.seat))) return null;
   return { ...value as DuelEngineView, prompt: null, prioritySeat: null };
 }
 

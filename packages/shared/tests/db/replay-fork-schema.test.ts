@@ -29,6 +29,7 @@ describe("replay fork schema", () => {
     const old = createDuelService(db).create({ guildId: "g", organizerPlayerId: owner.playerId, name: "Old", mode: "normal" });
     db.exec("drop trigger if exists duels_kind_immutable");
     db.exec("drop index if exists duels_play_history_idx");
+    db.exec("drop index if exists duels_cancelled_fork_retention_idx");
     const columns = db.pragma("table_info(duels)") as Array<{ name: string }>;
     if (columns.some(column => column.name === "kind")) db.exec("alter table duels drop column kind");
     migrate(db);
@@ -85,9 +86,11 @@ describe("replay fork schema", () => {
     migrate(copied);
     expect(copied.serialize()).toEqual(once);
     const after = snapshot(copied);
-    after.duels = (after.duels as Array<Record<string, unknown>>).map(({ kind, started_at, ...row }) => {
+    after.duels = (after.duels as Array<Record<string, unknown>>).map(({ kind, started_at, turn_count, snapshot_compacted_at, ...row }) => {
       expect(kind).toBe("play");
       expect(started_at).toBeNull();
+      expect(turn_count).toBeNull();
+      expect(snapshot_compacted_at).toBeNull();
       return row;
     });
     expect(after).toEqual(before);

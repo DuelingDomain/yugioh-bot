@@ -647,3 +647,36 @@ it("preserves a committed fork when shutdown interrupts its restart", async () =
   makeWorker = () => new ForkWorker(); startHost();
   expect((await post({ op: "view", slug: forkSlug })).response.status).toBe(200);
 });
+
+it("keeps an expired cancelled fork while its restart prepares the engine", async () => {
+  const launched = await post({ op: "replay-fork", ...request() });
+  const forkSlug = launched.body.slug;
+  expect((await post({ op: "fork-cancel", slug: forkSlug })).response.status).toBe(200);
+  db.prepare("update duels set ended_at=datetime('now','-8 days'),turn_count=12,snapshot_compacted_at='2026-10-01' where web_slug=?").run(forkSlug);
+  await host.close();
+  vi.useFakeTimers();
+  startHost();
+  await vi.advanceTimersByTimeAsync(59_000);
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  makeWorker = () => {
+    const worker = new ForkWorker(), create = worker.create.bind(worker);
+    worker.create = async options => { await create(options); started(); await gate; };
+    return worker;
+  };
+  const restarting = post({ op: "fork-restart", slug: forkSlug });
+  try {
+    await ready;
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(db.prepare("select status from duels where web_slug=?").get(forkSlug)).toEqual({ status: "cancelled" });
+    expect(db.prepare("select * from replay_fork_requests where fork_duel_id=(select id from duels where web_slug=?)").all(forkSlug)).toHaveLength(1);
+    release();
+    expect((await restarting).response.status).toBe(200);
+    expect(createDuelService(db).get(forkSlug, owner.guildId).status).toBe("active");
+    expect(db.prepare("select turn_count,snapshot_compacted_at from duels where web_slug=?").get(forkSlug))
+      .toEqual({ turn_count: null, snapshot_compacted_at: null });
+  } finally {
+    release(); await restarting; await host.close(); vi.useRealTimers();
+  }
+});

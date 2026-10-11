@@ -2997,7 +2997,7 @@ export function createDuelHost(options: {
   let retentionSweep: Promise<unknown> | null = null;
   const sweepRetention = () => {
     if (stopped || retentionSweep || !duelSnapshotRetentionConfig().enabled) return;
-    retentionSweep = runDuelSnapshotRetention(options.db, { now: now(), stopped: () => stopped })
+    retentionSweep = runDuelSnapshotRetention(options.db, { now: now(), stopped: () => stopped, isForkBusy: slug => queues.has(slug) })
       .catch(error => console.warn("[duel] snapshot retention sweep failed", error))
       .finally(() => { retentionSweep = null; });
   };

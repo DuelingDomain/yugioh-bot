@@ -1,4 +1,4 @@
-import { readStoredBoard, freezeStoredBoard, encodeStoredSnapshot, type StoredSnapshot } from "./stored-duel-snapshots.js";
+import { readStoredBoard, freezeStoredBoard, encodeStoredSnapshot, storedTurnCount, type StoredSnapshot } from "./stored-duel-snapshots.js";
 import type { DuelScriptErrorMode } from "../duels/index.js";
 import type Database from "better-sqlite3";
 import { generateWebSlug } from "../util/web-slug.js";
@@ -1257,14 +1257,14 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       throw new DuelServiceError("Only a lobby or an active unranked duel can be cancelled", 409);
     }
 
-    db.prepare<[number]>(
+    db.prepare<[number | null, number]>(
       `
         update duels
         set status = 'cancelled', ended_at = datetime('now'), archived_at = coalesce(archived_at, datetime('now')), winner_player_id = null, winner_seat = null,
-            result_reason = 'Cancelled', clock_json = null
+            result_reason = 'Cancelled', turn_count = coalesce(turn_count, ?), clock_json = null
         where id = ? and status in ('lobby', 'active')
       `,
-    ).run(row.id);
+    ).run(storedTurnCount(row), row.id);
     const updated = selectDuelById.get(row.id);
     if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
     return mapSession(updated);

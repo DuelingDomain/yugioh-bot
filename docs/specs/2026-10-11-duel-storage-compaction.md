@@ -25,3 +25,5 @@ VACUUM is manual. Drain all writers, take a SQLite backup, reserve free disk at 
 ## Review constraints applied
 
 Cap each update transaction at 50 rows and 4 MiB of original snapshot bytes; one larger row can proceed alone. Gzip runs asynchronously before the transaction. Delete one fork per transaction, with at most 50 fork deletes per sweep. Index `replay_fork_requests.fork_duel_id` to bound cascade lookup work. Restore the connection timeout in `finally`. The final DELETE rechecks kind, cancelled status, end age, and absent series link. The host runs one sweep at a time, checks stop between work units, and awaits it at shutdown. Only a complete list with every expected seat board can supersede both legacy columns. Stamp unreadable rows but preserve their bytes.
+
+Code review added nested seat validation, turn preservation on active cancellation, and exclusion of queued fork work before deletion. Foreign-key enforcement is rechecked after each yield before deletion. Regression tests cover each case.

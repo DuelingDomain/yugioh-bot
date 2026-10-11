@@ -741,6 +741,7 @@ describe("duel snapshots archive and cancel", () => {
     expect(cancelled.endedAt).toBeTruthy();
     expect(cancelled.archivedAt).toBeTruthy();
     expect(app.duels.room(session.slug, "g1", app.p1).clock).toBeNull();
+    expect(app.db.prepare("select turn_count from duels where id=?").get(session.id)).toEqual({ turn_count: 5 });
     expect(app.duels.cancel(session.slug, "g1", app.p1)).toEqual(cancelled);
     app.db.close();
   });

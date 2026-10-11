@@ -147,3 +147,23 @@ it("keeps incorrectly series-linked forks and bounds fork deletes per sweep", as
   expect(forks.filter(id => saved(db, id))).toHaveLength(1);
   expect((await runDuelSnapshotRetention(db, { now, batchSize: 2, maxBatches: 1 })).deletedForks).toBe(1);
 });
+
+it("preserves malformed nested seat data, stamps the row, and continues past it", async () => {
+  const { db } = fixture(); const malformed = row(db), next = row(db);
+  const raw = JSON.stringify(Array.from({ length: 4 }, () => ({ seats: [null], turn: 12 })));
+  db.prepare("update duels set snapshot_seats_json=? where id=?").run(raw, malformed);
+  const result = await runDuelSnapshotRetention(db, { now, batchSize: 1, maxBatches: 2 });
+  expect(result.compacted).toBe(2);
+  expect(saved(db, malformed).snapshot_compacted_at).not.toBeNull();
+  expect(saved(db, malformed).snapshot_seat0_json).not.toBeNull();
+  expect(saved(db, next).snapshot_compacted_at).not.toBeNull();
+  const { decodeStoredSnapshot } = await import("../../src/services/stored-duel-snapshots.js");
+  expect(decodeStoredSnapshot(saved(db, malformed).snapshot_seats_json)).toEqual(JSON.parse(raw));
+});
+
+it("rechecks foreign keys after yielding before a fork delete", async () => {
+  const { db } = fixture(); const id = row(db, "ffa4", "cancelled", "replay-fork");
+  await runDuelSnapshotRetention(db, { now, pause: async () => { db.pragma("foreign_keys=off"); } });
+  expect(saved(db, id)).toBeDefined();
+  expect(db.prepare("select * from duel_seats where duel_id=?").all(id)).toHaveLength(1);
+});
