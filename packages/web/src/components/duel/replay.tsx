@@ -233,7 +233,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
         <p role="alert" className="text-accent-cta">{ownerTools && model?.forkSteps
           ? "Move views exceed the size limit. Choose a move to Jump in."
           : model ? "This replay has no recorded moves." : "Could not load this replay."}</p>
-        {ownerTools}
+        {ownerTools ? <div data-replay-tools-wrap>{ownerTools}</div> : null}
         <div className={replayStyles.stateLinks}>
           <Link href={`/duels/${slug}`} className="text-sm text-text-secondary underline">Final board</Link>
           <Link href="/duels?view=history" className="text-sm text-text-secondary underline">Match history</Link>
@@ -444,7 +444,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
                     ))}
                   </div>
                 ) : null}
-                {ownerTools ? <span style={{ display: "contents" }} data-replay-tools-low>{ownerTools}</span> : null}
+                {ownerTools}
               </div>
               {notice ? <p role="alert" className={replayStyles.note}>{notice}</p> : null}
               {model.mySeat == null || model.visibility === "public"

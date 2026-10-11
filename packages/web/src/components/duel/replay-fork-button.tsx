@@ -161,12 +161,15 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, f
       </button>
       {reason && !pending ? <span id={`fork-reason-${slug}`} className="sr-only">{reason}</span> : null}
       {failure ? (
-        <span role="alert" className={styles.alert} data-fork-failure>
-          {failure.message}{" "}
-          {failure.code === "SOURCE_CHANGED" && onReload ? (
-            <button type="button" className={styles.btn} onClick={() => { fork.clearFailure(); onReload(); }}>Reload replay</button>
-          ) : null}
-        </span>
+        // Through the body: the HUD pill has a backdrop-filter, which would trap a fixed box inside the pill.
+        <BodyPortal>
+          <span role="alert" className={styles.failureBox} data-fork-failure>
+            {failure.message}{" "}
+            {failure.code === "SOURCE_CHANGED" && onReload ? (
+              <button type="button" className={styles.btn} onClick={() => { fork.clearFailure(); onReload(); }}>Reload replay</button>
+            ) : null}
+          </span>
+        </BodyPortal>
       ) : null}
       {openForks ? (
         <OpenForksSheet open={limitOpen} onClose={() => fork.setLimitOpen(false)} state={openForks} currentSlug={slug} limitHit retryBusy={disabled}
@@ -269,7 +272,7 @@ export function ReplayOwnerTools({ model, frame, busy, view, onViewChange, onRel
     <span className={styles.group} data-replay-owner-tools>
       {steps ? <>
         <span className={styles.note}>{model.frames.length ? "Final board preview." : "No board preview."} Choose a move to Jump in.</span>
-        <select className={styles.btn} aria-label="Jump in at move" disabled={busy} value={checkpoint?.frameId ?? ""}
+        <select className={styles.btn} aria-label="Jump in at move" title="Choose a move to Jump in" disabled={busy} value={checkpoint?.frameId ?? ""}
           onChange={event => onSelectStep(event.target.value)}>
           {steps.map(step => <option key={step.frameId} value={step.frameId} disabled={step.cursor === null}>
             Move {step.step}{step.actorSeat === null ? "" : ` · Seat ${step.actorSeat + 1}`}
