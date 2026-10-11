@@ -26,7 +26,7 @@ interface ForkLaunchOptions {
   db: Database.Database;
   codec: ReplayCursorCodec;
   sourceOf: (state: DuelPrivateState) => ReplaySource;
-  resourcesOf: (state: DuelPrivateState) => JournalResources;
+  resourcesOf: (state: DuelPrivateState) => JournalResources | Promise<JournalResources>;
   /** Recorder is disabled until persistence. The closure supplies the new fork ID after commit. */
   createWorker: (duelId: () => number | undefined) => DuelGameWorker;
   /** All engine reads finish before commit. Handoff has no asynchronous failure window. */
@@ -65,7 +65,8 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
     const check = () => { if (expired) throw new ReplayForkLaunchError("Replay fork engine timed out.", "ENGINE_BUSY"); };
     const work = async () => {
       const source = options.sourceOf(state);
-      const result: JournalRunResult = await runJournalPrefix({ source, resources: options.resourcesOf(state), prefixCount, target,
+      const resources = await options.resourcesOf(state); check();
+      const result: JournalRunResult = await runJournalPrefix({ source, resources, prefixCount, target,
         createWorker: () => (worker = options.createWorker(() => recorderId)) });
       check();
       if (result.views.public.result || !result.views.public.seats.some(s => !s.eliminated)) {

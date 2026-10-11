@@ -2,6 +2,7 @@ import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
@@ -352,4 +353,24 @@ describe("server-recorded engine identity", () => {
     expect(t.workers).toHaveLength(0);
     expect(t.duels.get(t.session.slug, "g1").status).toBe("interrupted");
   });
+});
+
+it("keeps host p99 lag below 20 ms for ten parallel replay requests and a new start", async () => {
+  const t = await table("1v1"), current = getCurrentEngineResources(DATA, { mode: "normal", engine: "legacy" });
+  t.duels.activateRecorded(t.session.slug, "g1", t.player, ["1", "2", "3", "4"], current.bundleVersion, null,
+    { engine: "legacy", firstTurnDraw: false, scriptErrorMode: "tolerant" }, current.identity);
+  t.duels.interrupt(t.session.slug, "g1", "Performance fixture");
+  const next = t.duels.create({ guildId: "g1", organizerPlayerId: t.player, name: "Concurrent start", mode: "normal" });
+  const deck = buildPracticeBotDeck("normal", DATA);
+  t.duels.setDeck(next.slug, "g1", t.player, rotated(deck, 1));
+  t.duels.addPracticeBot(next.slug, "g1", t.player, deck);
+  const delay = monitorEventLoopDelay({ resolution: 1 }); delay.enable();
+  try {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const results = await Promise.all([...Array.from({ length: 10 }, () => post(t.host, { op: "replay", version: 2, visibility: "public", ...t.organizer })),
+      post(t.host, { op: "start", guildId: "g1", playerId: t.player, slug: next.slug })]);
+    expect(results.map(result => result.status)).toEqual(Array(11).fill(200));
+    process.stdout.write(`REPLAY_HOST_LAG p99=${(delay.percentile(99) / 1e6).toFixed(2)}ms max=${(delay.max / 1e6).toFixed(2)}ms\n`);
+    expect(delay.percentile(99) / 1e6).toBeLessThan(20);
+  } finally { delay.disable(); }
 });

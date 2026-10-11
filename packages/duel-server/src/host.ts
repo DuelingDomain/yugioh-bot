@@ -51,12 +51,13 @@ import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards, deckCardUnavailableReason } from "./card-search.js";
 import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from "./multi-scripts.js";
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
+import { EngineResourceCache } from "./engine-resource-cache.js";
 import { buildReplayFrames, replayBuildError, replayHasUnsequencedLoss, revealReplayHands, ReplayBuildCache } from "./replay-builder.js";
 import { createReplayCursorCodec, replaySourceVersion, ReplayCursorError } from "./replay-cursor.js";
 import { createReplayForkLauncher, ReplayForkLaunchError, REPLAY_FORK_TIMEOUT_MS } from "./replay-fork.js";
 import { initialForkSeat, resolveReplayForkSeat, replayForkRoom } from "./replay-fork-seats.js";
 import { JournalRunnerError, runJournalPrefix, type JournalResources } from "./journal-runner.js";
-import { EngineResourceUnavailableError, getCurrentEngineResources, resolveEngineResourcesForSource, type EngineResources } from "./engine-resource-resolver.js";
+import { EngineResourceUnavailableError, resolveEngineResourcesForSource, type EngineResources } from "./engine-resource-resolver.js";
 import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
 import {
   freezeContinueClock,
@@ -345,6 +346,7 @@ export function createDuelHost(options: {
     pinnedEngineVersion(manifest.bundleVersion, seatCountFor(format), seatCountFor(format) > 2 ? activeMultiScriptsHash(options.dataDirectory) : null);
   const games = new Map<string, LiveGame>();
   const replayCache = new ReplayBuildCache<ReplayFrameV2[]>();
+  const engineResourceCache = new EngineResourceCache();
   const replayCursorCodec = createReplayCursorCodec(options.secret);
   const queues = new Map<string, Promise<unknown>>();
   const remaps = existsSync(join(options.dataDirectory, "card-remaps.json"))
@@ -506,14 +508,16 @@ export function createDuelHost(options: {
       setup, engineIdentity: engineIdentity ?? null, commands: state.commands };
   }
 
-  function resourcesOfSource(state: DuelPrivateState): EngineResources | undefined {
+  async function resourcesOfSource(state: DuelPrivateState): Promise<EngineResources | undefined> {
     // Old records use current resources under the runner's bundle gate. Never invent an identity.
     if (state.setup?.engineIdentity == null) return undefined;
     try {
+      const current = await engineResourceCache.get(options.dataDirectory, { mode: state.session.mode, format: state.session.format,
+        engine: state.setup.engine ?? (state.setup.startupScripts?.length ? "pinned" : "legacy") });
       return resolveEngineResourcesForSource(options.dataDirectory, {
         session: state.session, setup: state.setup, bundleVersion: state.bundleVersion ?? "",
         engineIdentity: state.setup?.engineIdentity ?? null,
-      });
+      }, current);
     } catch (error) {
       if (error instanceof EngineResourceUnavailableError) throw new RequestError(error.message, error.status, error.code);
       throw error;
@@ -1202,7 +1206,7 @@ export function createDuelHost(options: {
     let resources: EngineResources | undefined;
     if (state.setup?.engineIdentity) {
       try {
-        resources = resourcesOfSource(state);
+        resources = await resourcesOfSource(state);
       } catch (error) {
         service.interrupt(slug, guildId, "The recorded engine resources or runtime rules changed; this duel cannot be recovered safely.");
         await emitChange(slug, guildId);
@@ -1256,7 +1260,7 @@ export function createDuelHost(options: {
   }
 
   const forkLauncher = createReplayForkLauncher({ db: options.db, codec: replayCursorCodec,
-    sourceOf: journalSourceOf, resourcesOf: state => journalResourcesOf(resourcesOfSource(state)),
+    sourceOf: journalSourceOf, resourcesOf: async state => journalResourcesOf(await resourcesOfSource(state)),
     createWorker: duelId => spawn(duelId), timeoutMs: options.forkTimeoutMs,
     remove: async (slug, game) => { if (games.get(slug)?.game === game) await disposeGame(slug); },
     register: (session, game, views) => {
@@ -1544,7 +1548,7 @@ export function createDuelHost(options: {
       const state = service.privateState(slug, guildId);
       const source = journalSourceOf(state);
       const sourceVersion = replaySourceVersion(source);
-      const resources = resourcesOfSource(state);
+      const resources = await resourcesOfSource(state);
       if (projection.reveal && finalView) {
         const ownViews = source.session.seats.map(seat => savedReplayBoard(slug, guildId, seat.seat));
         if (ownViews.every((view): view is DuelEngineView => view !== null)) finalView = revealReplayHands(finalView, ownViews);
@@ -1685,7 +1689,7 @@ export function createDuelHost(options: {
       const engine = engineForNewTable(preset.format, copts.mode, true);
       const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, preset.format);
       const scriptErrorMode = scriptErrorModeFromEnv();
-      const resources = getCurrentEngineResources(options.dataDirectory, { mode: state.session.mode, format: preset.format, engine });
+      const resources = await engineResourceCache.get(options.dataDirectory, { mode: state.session.mode, format: preset.format, engine });
       const botPolicies: Record<string, string> = {};
       for (let seat = 1; seat < seatCount; seat += 1) botPolicies[String(seat)] = SCRIPTED_POLICY;
       game = spawn(state.session.id);
@@ -2186,7 +2190,7 @@ export function createDuelHost(options: {
     const engine = engineForNewTable(state.session.format, state.session.mode);
     const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, state.session.format);
     const scriptErrorMode = scriptErrorModeFromEnv();
-    const resources = getCurrentEngineResources(options.dataDirectory, { mode: state.session.mode, format: state.session.format, engine });
+    const resources = await engineResourceCache.get(options.dataDirectory, { mode: state.session.mode, format: state.session.format, engine });
     const game = spawn(state.session.id);
     try {
       await game.create(workerCreateOptions(
@@ -3033,6 +3037,7 @@ export function createDuelHost(options: {
       games.clear();
       await replayCache.settle();
       replayCache.clear();
+      await engineResourceCache.close();
     },
   };
 }

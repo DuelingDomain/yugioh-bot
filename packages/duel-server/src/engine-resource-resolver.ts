@@ -30,7 +30,7 @@ export interface EngineResources {
   multiScriptsDirectory?: string;
 }
 
-interface ResourceOptions {
+export interface ResourceOptions {
   mode: DuelMode;
   format?: DuelFormat;
   engine?: DuelEngineChoice;
@@ -42,7 +42,7 @@ function hashFile(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-/** Hash actual files, not manifest claims. This release has no archive lookup or resource cache. */
+/** Hash actual files, not manifest claims. Used uncached by the worker as the exact creation gate. */
 export function getCurrentEngineResources(dataDirectory: string, options: ResourceOptions): EngineResources {
   try {
     const directory = resolve(dataDirectory);
@@ -89,6 +89,7 @@ export function getCurrentEngineResources(dataDirectory: string, options: Resour
 export function resolveEngineResourcesForSource(
   dataDirectory: string,
   source: Pick<ReplaySource, "session" | "bundleVersion" | "setup" | "engineIdentity">,
+  current?: EngineResources,
 ): EngineResources {
   if (!isEngineIdentity(source.engineIdentity)) throw new EngineResourceUnavailableError("this game has no verified recorded engine identity");
   if (typeof source.setup?.firstTurnDraw !== "boolean"
@@ -96,7 +97,7 @@ export function resolveEngineResourcesForSource(
     throw new EngineResourceUnavailableError("the recorded engine rules are incomplete");
   }
   const engine = source.setup.engine ?? (source.setup.startupScripts?.length ? "pinned" : "legacy");
-  const resources = getCurrentEngineResources(dataDirectory, { mode: source.session.mode, format: source.session.format, engine });
+  const resources = current ?? getCurrentEngineResources(dataDirectory, { mode: source.session.mode, format: source.session.format, engine });
   if (source.bundleVersion !== resources.bundleVersion || !sameEngineIdentity(source.engineIdentity, resources.identity)) {
     throw new EngineResourceUnavailableError("the engine changed or its recorded resources and runtime rules do not match");
   }
