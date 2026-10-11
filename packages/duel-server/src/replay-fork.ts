@@ -76,13 +76,11 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
   const { db } = options, store = createReplayForkService(db), duels = createDuelService(db);
   let pending = 0;
   const owners = new Set<number>();
-  const activeCount = (actor: OwnerPlayerActor, userId: number) => db.prepare<[string, number], { count: number }>(`select count(*) as count from duels
-    where guild_id = ? and kind = 'replay-fork' and status = 'active'
-    and json_extract(setup_json, '$.replayFork.ownerUserId') = ?`).get(actor.guildId, userId)!.count;
+  const activeCount = (actor: OwnerPlayerActor) => listActiveReplayForks(db, actor).length;
   const reserve = (actor: OwnerPlayerActor, enforceActive: boolean) => {
     const owner = resolveOwnerPlayer(db, actor);
     if (!owner) throw new ReplayAccessError();
-    const count = activeCount(owner, owner.userId);
+    const count = activeCount(owner);
     if (owners.has(owner.userId)) {
       throw new ReplayForkLaunchError("A replay fork is still launching. Try again shortly.", "ENGINE_BUSY");
     }
@@ -207,7 +205,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
           throw new ReplayCursorError("SOURCE_CHANGED");
         }
         const owner = resolveOwnerPlayer(db, actor)!;
-        if (activeCount(owner, owner.userId) >= REPLAY_FORK_ACTIVE_LIMIT) {
+        if (activeCount(owner) >= REPLAY_FORK_ACTIVE_LIMIT) {
           throw new ReplayForkLaunchError("Replay fork limit reached. Cancel a fork and try again.", "FORK_LIMIT");
         }
         const saved = store.create({ actor, requestId: request.requestId, cursorDigest, source, origin });
@@ -225,7 +223,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
         const current = store.privateState(slug, actor);
         if (sourceVersion !== replaySourceVersion(options.sourceOf(current))) throw new ReplayCursorError("SOURCE_CHANGED");
         const owner = resolveOwnerPlayer(db, actor)!;
-        if (current.session.status !== "active" && activeCount(owner, owner.userId) >= REPLAY_FORK_ACTIVE_LIMIT) {
+        if (current.session.status !== "active" && activeCount(owner) >= REPLAY_FORK_ACTIVE_LIMIT) {
           throw new ReplayForkLaunchError("Replay fork limit reached. Cancel a fork and try again.", "FORK_LIMIT");
         }
         // Keep the previous branch and final board if the replacement worker cannot be registered.

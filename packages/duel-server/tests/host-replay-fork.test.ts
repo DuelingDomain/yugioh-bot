@@ -411,6 +411,32 @@ it("limits active forks, permits exact retries at the limit, and allows a new fo
   const active = db.prepare("select web_slug as slug from duels where kind = 'replay-fork' and status = 'active' limit 1").get() as { slug: string };
   expect((await post({ op: "fork-restart", slug: active.slug })).response.status).toBe(200);
 });
+it.each(["invalid creator metadata", "malformed JSON"])("excludes %s from the launch and restart quota", async damage => {
+  const input = request(), before = sourceRows();
+  for (let i = 0; i < 3; i++) {
+    expect((await post({ op: "replay-fork", ...input, requestId: `healthy-${i}` })).response.status).toBe(200);
+  }
+  const bad = await post({ op: "replay-fork", ...input, requestId: "bad-quota",
+    ...(damage === "malformed JSON" ? { playerId: 62, userId: 102 } : {}) });
+  expect(bad.response.status).toBe(200);
+  if (damage === "malformed JSON") db.prepare("update duels set setup_json = '{invalid' where web_slug = ?").run(bad.body.slug);
+  else db.prepare("update duels set setup_json = json_set(setup_json, '$.replayFork.control', 'invalid') where web_slug = ?").run(bad.body.slug);
+  const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect((await post({ op: "fork-list", slug: undefined })).body.forks).toHaveLength(3);
+    expect((await post({ op: "fork-cancel", slug: bad.body.slug })).response.status).toBe(404);
+    const launched = await post({ op: "replay-fork", ...input, requestId: "healthy-fourth" });
+    expect(launched.response.status).toBe(200);
+    expect((await post({ op: "fork-list", slug: undefined })).body.forks).toHaveLength(4);
+    const limited = await post({ op: "replay-fork", ...input, requestId: "healthy-fifth" });
+    expect(limited.response.status).toBe(429); expect(limited.body).toEqual(forkLimitBody);
+    expect((await post({ op: "fork-restart", slug: launched.body.slug })).response.status).toBe(200);
+    expect((await post({ op: "fork-cancel", slug: launched.body.slug })).response.status).toBe(200);
+    expect((await post({ op: "fork-restart", slug: launched.body.slug })).response.status).toBe(200);
+    expect((await post({ op: "fork-list", slug: undefined })).body.forks).toHaveLength(4);
+    expect(sourceRows()).toEqual(before);
+  } finally { warnings.mockRestore(); }
+});
 it.each(["replay-fork", "fork-restart"])("returns fork recovery data when the quota fills during detached %s", async op => {
   const input = request(); let first: string | undefined;
   for (let i = 0; i < 4; i++) {
