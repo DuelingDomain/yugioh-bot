@@ -148,7 +148,7 @@ export function ReplayForkBar({
 }
 
 /** What replaces the live result screen: the fork has no stats or rematch, only a way back. */
-export function ReplayForkResult({ headline, reason, sourceHref, disabled, onRestart, onClose, onLeave }: {
+export function ReplayForkResult({ headline, reason, sourceHref, disabled, onRestart, onClose, onLeave, ended = false }: {
   headline: string;
   reason: string | null;
   sourceHref: string;
@@ -156,6 +156,8 @@ export function ReplayForkResult({ headline, reason, sourceHref, disabled, onRes
   onRestart: () => void;
   onClose: () => void;
   onLeave?: () => void;
+  /** The fork is already closed: "Back to replay" is a plain link, with nothing to confirm. */
+  ended?: boolean;
 }) {
   // A plain click on "Back to replay" asks first: it closes the fork when it is still open. A click for a new tab does not.
   const [confirming, setConfirming] = useState(false);
@@ -173,7 +175,7 @@ export function ReplayForkResult({ headline, reason, sourceHref, disabled, onRes
           </>
         ) : (
           <Link href={sourceHref} className={styles.btn}
-            onClick={(event) => { if (isPlainClick(event)) { event.preventDefault(); setConfirming(true); } }}>Back to replay</Link>
+            onClick={(event) => { if (!ended && isPlainClick(event)) { event.preventDefault(); setConfirming(true); } }}>Back to replay</Link>
         )}
         <button type="button" className={styles.btn} onClick={onClose}>Show board</button>
       </span>

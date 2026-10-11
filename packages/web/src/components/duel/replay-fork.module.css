@@ -97,7 +97,7 @@
   left: 50%;
   bottom: 24px;
   transform: translateX(-50%);
-  z-index: 40;
+  z-index: var(--duel-z-prompt-front);
   display: grid;
   gap: 8px;
   justify-items: center;

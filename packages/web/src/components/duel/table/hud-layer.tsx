@@ -26,6 +26,8 @@ export interface HudPaneState {
   toggle: (pane: HudPane) => void;
   /** Closes the open flyout and the pinned peek. */
   close: () => void;
+  /** Closes only what is private to one view: the pinned card and the Card flyout. Log, Settings and Camera stay open. */
+  closePrivate: () => void;
   /** Opens the Card flyout: Inspect on a plate or a log row. A click on a board card pins it instead (`pinCard`). */
   openCard: () => void;
   /** The board card pinned in the left peek, or `null`. It never shows together with a flyout. */
@@ -80,6 +82,12 @@ export function useHudPane({ camera = false, log = true, initialPane = null }: {
     setPaneState(null);
     setPin(null);
   }, []);
+  // The pinned card and the Card flyout belong to the view they were opened in. Log, Settings and Camera stay open.
+  const closePrivate = useCallback(() => {
+    epochRef.current += 1;
+    setPaneState((current) => (current === "card" ? null : current));
+    setPin(null);
+  }, []);
   const openCard = useCallback(() => setPane("card"), [setPane]);
   const pinCard = useCallback((card: DuelCard | null, anchor: HTMLElement | null = null) => {
     epochRef.current += 1;
@@ -131,7 +139,7 @@ export function useHudPane({ camera = false, log = true, initialPane = null }: {
   const pinAnchor = pin?.anchor ?? null;
   const dock = useMemo<readonly DockPane[]>(() => (camera ? DOCK_PANES_CAMERA : DOCK_PANES).filter((id) => log || id !== "log"), [camera, log]);
   const tabs: readonly HudPane[] = pane === "card" ? ["card", ...dock] : dock;
-  return { pane, setPane, toggle, close, openCard, pinned, pinAnchor, pinCard, syncPin, epoch, tabs, dock };
+  return { pane, setPane, toggle, close, closePrivate, openCard, pinned, pinAnchor, pinCard, syncPin, epoch, tabs, dock };
 }
 
 /**

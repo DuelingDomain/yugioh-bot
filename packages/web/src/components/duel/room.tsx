@@ -205,18 +205,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // A fork changes its key when the creator picks a seat; the old view stays up until the new one arrives (and answers wait for it).
     // Never after access was lost: SWR would hand the private view of the old key back.
     { revalidateOnFocus: false, revalidateOnReconnect: false,
-      keepPreviousData: forkSeenFor.current === slug && !(accessLostAt != null && accessLostAt.slug === slug) },
+      keepPreviousData: forkSeenFor.current === slug && !(accessLostAt != null && accessLostAt.slug === slug),
+      // A fork view is asked for with a new key, and the purge above stamps a newer mutation time on it: SWR throws away a
+      // request that started before that stamp. A finished request that is still shared (the default is 2 s) would be reused
+      // for the same view asked for again and then discarded, and the table would stay on "catching up". So a finished
+      // request is never reused (one still in flight is). This is also the only request a view change makes.
+      dedupingInterval: 0 },
   );
-  // A new fork view must always start its own request. The purge above stamps a newer mutation time on the key, and SWR
-  // throws away a request that started before it: a view fetched less than `dedupingInterval` ago would never be
-  // read again and the table would stay on "catching up". A bound `mutate()` drops the shared request first.
-  const roomKey = duelRoomKey(slug, spectate, forkView.view);
-  const roomKeySeen = useRef(roomKey);
-  useEffect(() => {
-    if (roomKeySeen.current === roomKey) return;
-    roomKeySeen.current = roomKey;
-    if (forkSeenFor.current === slug) void mutate();
-  }, [roomKey, slug, mutate]);
   const refreshRoom = useCallback(
     () => mutate(() => getDuelRoom(slug, spectate, forkView.view), { revalidate: false }),
     [mutate, slug, spectate, forkView.view],
@@ -474,6 +469,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const hud = !narrow && data?.engine != null && !isMultiSeat(data.engine) && !liveTable && view.mode !== "3d";
   const hudState = useHudPane();
   const closeHud = hudState.close;
+  const closePrivateHud = hudState.closePrivate;
   useHudEscape(hudState, hud, Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen);
   usePinSync(hudState, data?.engine?.seats);
   // A new prompt for this seat lets the pinned peek go: it must not cover the cards the prompt asks for.
@@ -587,7 +583,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   useEffect(() => {
     if (!watchingOnly && !forkAccessLost) return;
     setInspect(null);
-    closeHud();
+    closePrivateHud();
     setPile(null);
     setMobileInspect(false);
     setMenu(null);
@@ -613,7 +609,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     setPendingAttack(null);
     setActionPreview(null);
     setAimHoverKey(null);
-  }, [forkDraftKey, closeHud]);
+  }, [forkDraftKey, closePrivateHud]);
 
   // A fork reply is projected for the seat that acted, with every hand shown. When the creator chose another seat or
   // hid the hands, the reply is not the view on screen: it is dropped and the current view is read again. It never
@@ -1195,7 +1191,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       headline={engine?.result ? (forkWinner ? `${forkWinner} won` : "The duel is a draw") : "The fork has ended"}
       reason={engine?.result?.reason ?? data.session.resultReason ?? null}
       sourceHref={sourceReplayHref(forkControl.origin)} disabled={forkBusy}
-      onRestart={restartFork} onClose={() => setHideResult(true)} onLeave={leaveFork}
+      onRestart={restartFork} onClose={() => setHideResult(true)} onLeave={leaveFork} ended={terminal}
     />
   ) : null;
   if (ownWindowGate) {

@@ -175,12 +175,14 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
   const resetSeen = useRef(resetKey);
   const resetUi = ui.reset;
+  const closePrivateHud = hudState.closePrivate;
   useEffect(() => {
     if (resetSeen.current === resetKey) return;
     resetSeen.current = resetKey;
     resetUi();
-    closeHud();
-  }, [resetKey, resetUi, closeHud]);
+    // Only what is private to the old view closes; an open Log, Settings or Camera flyout stays.
+    closePrivateHud();
+  }, [resetKey, resetUi, closePrivateHud]);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const [hideResult, setHideResult] = useState(false);

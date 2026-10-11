@@ -258,12 +258,14 @@ function TableShellBody({
   useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
   const resetSeen = useRef(resetKey);
   const resetUi = ui.reset;
+  const closePrivateHud = hudState.closePrivate;
   useEffect(() => {
     if (resetSeen.current === resetKey) return;
     resetSeen.current = resetKey;
     resetUi();
-    closeHud();
-  }, [resetKey, resetUi, closeHud]);
+    // Only what is private to the old view closes; an open Log, Settings or Camera flyout stays.
+    closePrivateHud();
+  }, [resetKey, resetUi, closePrivateHud]);
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, cameraSeat, nameOf, prompt } = base;
@@ -430,7 +432,7 @@ function TableShellBody({
       onHoverCard={controller.onHoverCard}
       onInspect={controller.onInspect}
       rivals={[]}
-      selfTitle={spectator ? `${nameOf(layout.anchorSeat)}'s Master` : undefined}
+      selfTitle={spectator ? `${nameOf(layout.anchorSeat)}'s Master` : forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)}'s Master` : undefined}
     />
   ) : null;
 

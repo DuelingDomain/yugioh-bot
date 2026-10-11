@@ -135,6 +135,22 @@ describe("a fork view that is asked for again within the dedupe window", () => {
     expect(chip(/Ada/).getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("sends one room request for each view change", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", fetchBySeat(urls));
+    render(
+      <SWRConfig value={{ provider: () => new Map() }}>
+        <DuelRoomView slug="fork-1" />
+      </SWRConfig>,
+    );
+    await screen.findByTestId("field");
+    await waitFor(() => expect((chip(/Bo/) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(chip(/Bo/));
+    await waitFor(() => expect((chip(/Bo/) as HTMLButtonElement).getAttribute("aria-pressed")).toBe("true"));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(urls.filter((url) => url === "/api/duels/fork-1?as=1")).toHaveLength(1);
+  });
+
   it("does not flash the no-access screen on later seat switches once access is back", async () => {
     let refuse = false;
     let calls = 0;

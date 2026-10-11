@@ -822,6 +822,18 @@ describe("the live room of a fork", () => {
     expect(onLeave).toHaveBeenCalledTimes(1);
   });
 
+  it("does not ask before Back to replay once the fork has ended", () => {
+    const onLeave = vi.fn();
+    render(<ReplayForkResult headline="Seat 1 wins" reason={null} sourceHref="/duels/game-1/replay?frame=f2" disabled={false}
+      onRestart={vi.fn()} onClose={vi.fn()} onLeave={onLeave} ended />);
+    const link = screen.getByRole("link", { name: "Back to replay" });
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
+    expect(screen.queryByText("This closes the fork and opens the source replay.")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Close fork and open the source replay" })).toBeNull();
+  });
+
   it("fails closed on a fork row without its seat control", async () => {
     const unusable = forkRoom({}, null);
     unusable.engine!.chainMode = "auto";
