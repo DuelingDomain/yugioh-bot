@@ -7,6 +7,12 @@ import { changedLayers } from "./changed-layers.mjs";
 import { smokeCommitStatus } from "./new-card-smoke-status.mjs";
 
 const workflow = parse(readFileSync(new URL("../../.github/workflows/test.yml", import.meta.url), "utf8"));
+const evaluate = (template, github, inputs = {}, needs = {}) => {
+  const expression = value => Function("github", "inputs", "needs", "format", `return (${value})`)(github, inputs, needs,
+    (pattern, ...args) => pattern.replace(/\{(\d+)\}/g, (_match, index) => args[Number(index)]));
+  if (template.startsWith("${{") && template.endsWith("}}")) return expression(template.slice(3, -2));
+  return template.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, value) => expression(value));
+};
 test("the required smoke status context matches the report job name exactly", () => {
   assert.equal(smokeCommitStatus("final", "success", "https://github.com/owner/repo/actions/runs/1").context,
     workflow.jobs["new-card-smoke-report"].name);
@@ -14,12 +20,6 @@ test("the required smoke status context matches the report job name exactly", ()
 test("overlapping same-head bot PR/dispatch runs share a serial gate; other runs keep their groups", () => {
   const head = "a".repeat(40), next = "b".repeat(40);
   const bot = sha => ({ head: { sha, ref: "chore/engine-data-update", repo: { full_name: "owner/repo" } } });
-  const evaluate = (template, github, inputs) => {
-    const expression = value => Function("github", "inputs", "format", `return (${value})`)(github, inputs,
-      (pattern, ...args) => pattern.replace(/\{(\d+)\}/g, (_match, index) => args[Number(index)]));
-    if (template.startsWith("${{") && template.endsWith("}}")) return expression(template.slice(3, -2));
-    return template.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, value) => expression(value));
-  };
   const fixture = [
     { event_name: "pull_request", event: { pull_request: bot(head) }, sha: "merge", ref: "refs/pull/7/merge" },
     // GitHub expression contexts return null for absent PR fields on dispatch.
@@ -33,6 +33,23 @@ test("overlapping same-head bot PR/dispatch runs share a serial gate; other runs
   const nightly = { ...main, event_name: "schedule" };
   assert.notEqual(evaluate(workflow.concurrency.group, main, {}), evaluate(workflow.concurrency.group, nightly, {}));
   assert.equal(evaluate(workflow.concurrency["cancel-in-progress"], { ...fixture[0], event: { pull_request: { head: { ref: "feature" } } } }, {}), true);
+});
+test("reports serialize one PR head and keep newer heads in separate concurrency groups", () => {
+  const head = "a".repeat(40), next = "b".repeat(40);
+  const group = workflow.jobs["new-card-smoke-report"].concurrency.group;
+  const groups = sha => [
+    // Resolved dispatch context, PR fallback and dispatch SHA fallback target the same head.
+    { outputs: { smoke_pr: "7", smoke_head: sha }, pull: { head: {} }, sha: "unused" },
+    { outputs: {}, pull: { number: 7, head: { sha } }, sha: "merge-sha" },
+    { outputs: { smoke_pr: "7" }, pull: { head: {} }, sha },
+  ].map(fixture => evaluate(group, { repository: "owner/repo", ref: "refs/heads/chore/engine-data-update",
+    event: { pull_request: fixture.pull }, sha: fixture.sha }, {}, { changes: { outputs: fixture.outputs } }));
+  const current = groups(head), newer = groups(next);
+  for (let index = 0; index < current.length; index++) {
+    assert.equal(current[index], current[0], "same-head reports serialize across PR/dispatch runs");
+    assert.equal(newer[index], newer[0]);
+    assert.notEqual(current[index], newer[index], "a queued newer head cannot cancel an older head's pending report");
+  }
 });
 test("changes to the shared engine setup action run engine checks", () => {
   for (const event of ["pull_request", "push"]) {

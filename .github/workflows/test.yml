@@ -399,9 +399,9 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    # Serialize comment creation across PR and dispatch runs for the same PR.
+    # Serialize comment creation across PR and dispatch runs for the same PR head.
     concurrency:
-      group: new-card-smoke-report-${{ github.repository }}-${{ needs.changes.outputs.smoke_pr || github.event.pull_request.number || github.ref }}
+      group: new-card-smoke-report-${{ github.repository }}-${{ needs.changes.outputs.smoke_pr || github.event.pull_request.number || github.ref }}-${{ needs.changes.outputs.smoke_head || github.event.pull_request.head.sha || github.sha }}
       cancel-in-progress: false
     env:
       SMOKE_PR: ${{ needs.changes.outputs.smoke_pr || github.event.pull_request.number }}
