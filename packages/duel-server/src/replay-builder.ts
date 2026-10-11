@@ -127,20 +127,30 @@ export async function buildReplayFrames(options: ReplayBuildOptions): Promise<Re
   }
 }
 
-/** Keys must include source version, verified resources, auth scope, projection and reveal. Recheck access before every call. */
+/** Keys must include source version, verified resources, projection and reveal. Recheck access before every call. */
 export class ReplayBuildCache<T = unknown> {
   private readonly entries = new Map<string, { value: T; bytes: number }>();
   private readonly pending = new Map<string, Promise<T>>();
   private totalBytes = 0;
-  constructor(private readonly limits = { maxBytes: 64 * 1024 * 1024, maxEntries: 16, maxConcurrent: 2 }) {}
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+  constructor(private readonly limits: { maxBytes: number; maxEntries: number; maxConcurrent: number; maxWaiting?: number }
+    = { maxBytes: 64 * 1024 * 1024, maxEntries: 16, maxConcurrent: 2, maxWaiting: 8 }) {}
   get size() { return this.entries.size; }
   get bytes() { return this.totalBytes; }
   async getOrBuild(key: string, build: () => Promise<T>): Promise<T> {
     const cached = this.entries.get(key);
     if (cached) { this.entries.delete(key); this.entries.set(key, cached); return cached.value; }
     const pending = this.pending.get(key); if (pending) return pending;
-    if (this.pending.size >= this.limits.maxConcurrent) throw new ReplayBuildError("Replay workers are busy. Try again shortly.", "ENGINE_BUSY");
-    const job = Promise.resolve().then(build).then(value => {
+    let ready: Promise<void>;
+    if (this.active < this.limits.maxConcurrent) { this.active++; ready = Promise.resolve(); }
+    else {
+      if (this.waiting.length >= (this.limits.maxWaiting ?? 8)) {
+        throw new ReplayBuildError("Replay workers are busy. Try again shortly.", "ENGINE_BUSY");
+      }
+      ready = new Promise(resolve => this.waiting.push(resolve));
+    }
+    const job = ready.then(build).then(value => {
       const bytes = Buffer.byteLength(JSON.stringify(value));
       if (bytes > this.limits.maxBytes) throw new ReplayBuildError("Replay exceeds the cache size limit.", "ENGINE_BUSY");
       if (this.limits.maxEntries > 0) {
@@ -150,7 +160,11 @@ export class ReplayBuildCache<T = unknown> {
         this.entries.set(key, { value, bytes }); this.totalBytes += bytes;
       }
       return value;
-    }).finally(() => { this.pending.delete(key); });
+    }).finally(() => {
+      this.pending.delete(key);
+      const next = this.waiting.shift();
+      if (next) next(); else this.active--;
+    });
     this.pending.set(key, job); return job;
   }
   async settle(): Promise<void> { await Promise.allSettled(this.pending.values()); }

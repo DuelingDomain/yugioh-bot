@@ -1533,8 +1533,6 @@ export function createDuelHost(options: {
     dataSeat: number | null;
     reveal?: boolean;
     ownerUserId?: number;
-    actorPlayerId?: number;
-    privileged?: boolean;
   }
 
   async function replay(slug: string, guildId: string, room: DuelRoom,
@@ -1553,9 +1551,7 @@ export function createDuelHost(options: {
         const ownViews = source.session.seats.map(seat => savedReplayBoard(slug, guildId, seat.seat));
         if (ownViews.every((view): view is DuelEngineView => view !== null)) finalView = revealReplayHands(finalView, ownViews);
       }
-      const key = createHash("sha256").update(JSON.stringify([guildId, slug, sourceVersion, resources?.identity ?? null, resources?.bundleVersion ?? pinnedVersionFor(state.session.format), projection.version,
-        projection.visibility, projection.dataSeat, projection.reveal, projection.actorPlayerId,
-        projection.ownerUserId, projection.privileged, finalView])).digest("hex");
+      const key = createHash("sha256").update(JSON.stringify([guildId, slug, sourceVersion, resources?.identity ?? null, resources?.bundleVersion ?? pinnedVersionFor(state.session.format), projection.visibility, projection.dataSeat, projection.reveal, finalView])).digest("hex");
       const frames = await replayCache.getOrBuild(key, () => buildReplayFrames({ source, sourceVersion,
         resources: journalResourcesOf(resources), codec: replayCursorCodec, dataSeat: projection.dataSeat,
         reveal: projection.reveal, finalView, createWorker: () => spawn() }));
@@ -1621,7 +1617,7 @@ export function createDuelHost(options: {
     const owner = resolveOwnerPlayer(options.db, accessActor);
     const result = await replay(slug, guildId, room, { version, visibility, dataSeat,
       ...(privileged && body.reveal !== undefined ? { reveal: body.reveal as boolean } : {}),
-      actorPlayerId: actor, ...(owner ? { ownerUserId: owner.userId } : {}), privileged });
+      ...(owner ? { ownerUserId: owner.userId } : {}) });
     // Access can be revoked while a detached worker is building a private projection.
     if (privileged) assertOwnerReplaySourceAccess(options.db, slug, accessActor);
     else {

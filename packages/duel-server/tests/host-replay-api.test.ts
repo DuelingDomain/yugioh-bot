@@ -172,3 +172,31 @@ it("returns typed resource/mismatch errors and final board availability without 
   expect(workers.every(w => !w.running)).toBe(true);
   expect(rows()[0]).toEqual(before[0]);
 });
+
+it("shares public builds across spectators, players and owners, then projects each viewer", async () => {
+  const results = await Promise.all([post({ version: 2, visibility: "public", playerId: 63 }),
+    post({ version: 2, visibility: "public", playerId: 64 }), post({ version: 2, visibility: "public", playerId: 65 }),
+    post({ op: "owner-replay", ...owner, visibility: "public" })]);
+  expect(results.map(result => result.response.status)).toEqual([200, 200, 200, 200]);
+  expect(workers).toHaveLength(1);
+  expect(results.map(result => result.body.mySeat)).toEqual([null, 0, 1, null]);
+  expect(results[0]!.body).not.toHaveProperty("capabilities");
+  expect(results[3]!.body.capabilities?.canFork).toBe(true);
+});
+it("serves four different concurrent replays with at most two workers", async () => {
+  const duels = createDuelService(db), fixture = replaySource(), slugs = [slug];
+  for (let index = 0; index < 3; index++) {
+    const session = duels.create({ guildId: owner.guildId, organizerPlayerId: 64, name: `Replay ${index}`, mode: "normal" });
+    duels.takeSeat(session.slug, owner.guildId, 65, 1); slugs.push(session.slug);
+    db.prepare("update duel_seats set deck_json = ?, ready = 1 where duel_id = ?").run(JSON.stringify(fixture.decks[0]), session.id);
+    db.prepare("update duels set status = 'interrupted', seed_json = ?, bundle_version = ?, setup_json = ? where id = ?")
+      .run(JSON.stringify(fixture.seed), fixture.bundleVersion, JSON.stringify(fixture.setup), session.id);
+    for (const input of fixture.commands) db.prepare("insert into duel_commands(duel_id,seq,seat,command_json) values(?,?,?,?)")
+      .run(session.id, input.storedSeq, input.seat, JSON.stringify(input.command));
+  }
+  let peak = 0;
+  beforeCreate = () => { peak = Math.max(peak, 1 + workers.filter(worker => worker.running).length); };
+  const results = await Promise.all(slugs.map(slug => post({ slug, version: 2, visibility: "public" })));
+  expect(results.map(result => result.response.status)).toEqual([200, 200, 200, 200]);
+  expect(workers).toHaveLength(4); expect(peak).toBe(2); expect(workers.every(worker => !worker.running)).toBe(true);
+});

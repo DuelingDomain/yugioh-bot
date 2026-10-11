@@ -90,8 +90,36 @@ describe("bounded replay cache", () => {
     await expect(cache.getOrBuild("failure", async () => { throw new Error("failed"); })).rejects.toThrow("failed");
     expect(await cache.getOrBuild("failure", async () => ["ok"])).toEqual(["ok"]);
   });
+  it("queues four builds with at most two workers and shares waiting keys", async () => {
+    const cache = new ReplayBuildCache<string>();
+    let active = 0, peak = 0;
+    const releases: Array<() => void> = [];
+    const build = (value: string) => async () => {
+      active++; peak = Math.max(peak, active);
+      await new Promise<void>(resolve => releases.push(resolve));
+      active--; return value;
+    };
+    const jobs = ["a", "b", "c", "d"].map(key => cache.getOrBuild(key, build(key)));
+    const same = cache.getOrBuild("c", build("wrong"));
+    await Promise.resolve(); expect(active).toBe(2);
+    releases.splice(0).forEach(release => release());
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(active).toBe(2); releases.splice(0).forEach(release => release());
+    expect(await Promise.all(jobs)).toEqual(["a", "b", "c", "d"]);
+    expect(await same).toBe("c"); expect(peak).toBe(2);
+    await cache.settle();
+  });
+  it("bounds the wait queue and releases a slot after a build failure", async () => {
+    const cache = new ReplayBuildCache<string>({ maxBytes: 100, maxEntries: 2, maxConcurrent: 1, maxWaiting: 1 });
+    let release!: () => void;
+    const first = cache.getOrBuild("a", async () => { await new Promise<void>(resolve => { release = resolve; }); throw new Error("failed"); });
+    const failure = expect(first).rejects.toThrow("failed");
+    const waiting = cache.getOrBuild("b", async () => "ok");
+    await expect(cache.getOrBuild("c", async () => "overflow")).rejects.toMatchObject({ code: "ENGINE_BUSY" });
+    await Promise.resolve(); release(); await failure; expect(await waiting).toBe("ok");
+  });
   it("evicts by bytes and entries, refuses oversized values and caps detached jobs", async () => {
-    const cache = new ReplayBuildCache({ maxBytes: 20, maxEntries: 2, maxConcurrent: 1 });
+    const cache = new ReplayBuildCache({ maxBytes: 20, maxEntries: 2, maxConcurrent: 1, maxWaiting: 0 });
     await cache.getOrBuild("a", async () => "12345678"); await cache.getOrBuild("b", async () => "123456789");
     expect(cache.size).toBe(1); expect(cache.bytes).toBeLessThanOrEqual(20);
     await expect(cache.getOrBuild("huge", async () => "x".repeat(21))).rejects.toMatchObject({ code: "ENGINE_BUSY" });
