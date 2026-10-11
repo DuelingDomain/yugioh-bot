@@ -27,7 +27,7 @@ const ASK_COPY: Record<AskState, string> = {
  * each behind a second click.
  */
 export function ReplayForkBar({
-  fork, seatName, living, waitingSeat, follow, reveal, disabled, onPickSeat, onFollow, onReveal, onAskAll, onRestart, onEnd, ended = false, onLeave,
+  fork, seatName, living, waitingSeat, follow, reveal, disabled, onPickSeat, onFollow, onReveal, onAskAll, onRestart, onEnd, ended = false, onLeave, held = false, onShowResult,
 }: {
   fork: ReplayForkControl;
   seatName: (seat: number) => string;
@@ -49,6 +49,10 @@ export function ReplayForkBar({
   ended?: boolean;
   /** The creator goes to the source replay by a link. An open fork is closed then, so it does not fill the fork limit. */
   onLeave?: () => void;
+  /** The seat on screen was picked by hand (or Follow prompt is off), so it stays when another seat must answer. */
+  held?: boolean;
+  /** Opens the result panel again after "Show board". Only the live Tag and FFA shells need it: they have no button of their own. */
+  onShowResult?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState<"restart" | "end" | null>(null);
@@ -70,6 +74,13 @@ export function ReplayForkBar({
           </button>
         ))}
       </span>
+      {held && waitingSeat != null && waitingSeat !== fork.actingSeat && living.includes(waitingSeat) && !ended ? (
+        <span className={styles.group} role="status" data-replay-fork-waiting>
+          <span className={styles.note}>{seatName(waitingSeat)} must answer</span>
+          <button type="button" className={styles.btn} disabled={disabled} onClick={() => onPickSeat(waitingSeat)}>Switch</button>
+        </span>
+      ) : null}
+      {onShowResult ? <button type="button" className={styles.btn} onClick={onShowResult}>Show result</button> : null}
       <button type="button" className={styles.btn} title="Fork controls" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
         <SlidersHorizontal size={14} aria-hidden /><span className={styles.wide} aria-hidden="true">Fork controls</span>
         <span className="sr-only">Fork controls</span>
