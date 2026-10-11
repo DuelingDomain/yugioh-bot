@@ -4,6 +4,7 @@ import { isDuelKind, isDuelKindSetup, isReplayFork, isDuelFormat, type DuelKind,
 import { parseStoredDuelSettings } from "../duels/settings.js";
 import type { DuelConnectionTokenClaims } from "../ws/duel-token.js";
 import { isDuelInviteReference } from "../notify/announce-payload.js";
+import { DuelServiceError } from "./duels.js";
 import { resolveDraftDatabasePath } from "./draft-access.js";
 
 export interface DuelEventTarget {
@@ -56,11 +57,20 @@ export function canReadDuel(db: Database.Database, claims: Pick<DuelConnectionTo
   } catch { return false; }
 }
 
+/** A policy refusal, mapped by invite senders and sinks to HTTP 409. */
+export class DuelInviteRefusalError extends DuelServiceError {
+  readonly code = "DUEL_INVITE_REFUSED";
+  constructor(message = "Duel invites are unavailable") {
+    super(message, 409);
+    this.name = "DuelInviteRefusalError";
+  }
+}
+
 /** Both invite senders and the bot sink bind the signed reference to one ordinary stored duel. */
 export function assertDuelInviteTarget(db: Database.Database, reference: unknown): DuelEventTarget {
-  if (!isDuelInviteReference(reference)) throw new Error("Invalid duel invite reference");
+  if (!isDuelInviteReference(reference)) throw new DuelInviteRefusalError("Invalid duel invite reference");
   const target = findDuelEventTarget(db, reference.slug, reference.guildId);
-  if (!target || target.id !== reference.duelId || isReplayFork(target)) throw new Error("Duel invites are unavailable");
+  if (!target || target.id !== reference.duelId || isReplayFork(target)) throw new DuelInviteRefusalError();
   return target;
 }
 

@@ -74,3 +74,18 @@ it("keeps public socket access for legacy play rows with null settings", () => {
   expect(access.canReadDuel(app.db, claims(app.source.slug, app.sourcePlayer))).toBe(true);
   expect(access.canReadDuel(app.db, claims(app.source.slug, app.alpha, null))).toBe(true);
 });
+
+it("accepts an invite link under the web base path", () => {
+  const invite = { duelId: app.source.id, slug: app.source.slug, guildId: app.guildId,
+    url: `https://duel.example/app/duels/${app.source.slug}` };
+  expect(access.assertDuelInviteTarget(app.db, invite).kind).toBe("play");
+  for (const path of [`/app/not-duels/${app.source.slug}`, `/app/duels/${app.source.slug}/extra`,
+    `/app/duels/${app.forkSlug}`, `/app/duels/${app.source.slug}?fork=1`]) {
+    expect(() => access.assertDuelInviteTarget(app.db, { ...invite, url: `https://duel.example${path}` })).toThrow();
+  }
+});
+it("reports a fork invite refusal as a typed conflict", () => {
+  expect(() => access.assertDuelInviteTarget(app.db, { duelId: app.forkId, slug: app.forkSlug,
+    guildId: app.guildId, url: `https://duel.example/duels/${app.forkSlug}` }))
+    .toThrowError(expect.objectContaining({ name: "DuelInviteRefusalError", code: "DUEL_INVITE_REFUSED", status: 409 }));
+});

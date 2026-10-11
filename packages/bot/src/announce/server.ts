@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { isDuelInviteReference, type AnnouncePayload } from "@yugidraft/shared/notify";
+import { DuelInviteRefusalError } from "@yugidraft/shared/services";
 import { verifyAnnounceSignature } from "./auth.js";
 
 export type { AnnouncePayload };
@@ -56,6 +57,10 @@ export function createAnnounceServer(opts: {
       await routes[url.pathname](parsed);
       return new Response(null, { status: 204 });
     } catch (err) {
+      if (err instanceof DuelInviteRefusalError) {
+        console.warn(`[announce] refused invite for ${url.pathname}:`, err.message);
+        return Response.json({ error: err.message, code: err.code }, { status: err.status });
+      }
       console.error(`[announce] handler failed for ${url.pathname}:`, err);
       return new Response("Handler error", { status: 500 });
     }

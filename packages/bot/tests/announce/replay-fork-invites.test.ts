@@ -46,3 +46,20 @@ it("refuses bot-origin fork changes and keeps ordinary changes", async () => {
   await notify(app.forkSlug, app.guildId); expect(post).not.toHaveBeenCalled();
   await notify(app.source.slug, app.guildId); expect(post).toHaveBeenCalledTimes(1);
 });
+
+it("returns 409 for a signed fork invite refused by the real handler", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const server = createAnnounceServer({ secret: "test", handlers: handlers() });
+    const body = JSON.stringify(invite());
+    const signature = "sha256=" + createHmac("sha256", "test").update(body).digest("hex");
+    const response = await server.handle(new Request("http://test/internal/announce/duel-invite", { method: "POST", body,
+      headers: { "x-announce-signature": signature } }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "DUEL_INVITE_REFUSED" });
+    expect(warn).toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  } finally { warn.mockRestore(); error.mockRestore(); }
+});
