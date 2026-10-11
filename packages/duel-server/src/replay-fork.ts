@@ -30,13 +30,21 @@ export function listActiveReplayForks(db: Database.Database, actor: OwnerPlayerA
   const owner = resolveOwnerPlayer(db, actor);
   if (!owner) throw new ReplayAccessError();
   const forks = db.prepare<[string, number], ActiveReplayFork>(`select web_slug as slug,
-    json_extract(setup_json, '$.replayFork.origin.sourceSlug') as sourceSlug, format,
+    case when json_valid(setup_json) then json_extract(setup_json, '$.replayFork.origin.sourceSlug') end as sourceSlug, format,
     created_at as createdAt, coalesce(last_activity_at, created_at) as lastActivityAt
     from duels where guild_id = ? and kind = 'replay-fork' and status = 'active'
-    and json_extract(setup_json, '$.replayFork.ownerUserId') = ?
+    and (coalesce(json_valid(setup_json), 0) = 0
+      or case when json_valid(setup_json) then json_extract(setup_json, '$.replayFork.ownerUserId') end = ?)
     order by datetime(created_at) desc, id desc`).all(owner.guildId, owner.userId);
-  for (const fork of forks) assertReplayForkAccess(db, fork.slug, owner);
-  return forks;
+  return forks.filter(fork => {
+    try { assertReplayForkAccess(db, fork.slug, owner); return true; }
+    catch (error) {
+      if (!(error instanceof ReplayAccessError) || error.status !== 404) throw error;
+      // No payload or error stack: a damaged row must not hide healthy forks or leak private metadata.
+      console.warn("[replay-fork] Skipping invalid active fork", { slug: fork.slug, code: error.code });
+      return false;
+    }
+  });
 }
 
 export class ReplayForkLaunchError extends Error {
