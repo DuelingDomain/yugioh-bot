@@ -27,7 +27,32 @@ test("explicit bot dispatch resolves the open PR at the dispatched commit", asyn
   const event = { ref: "refs/heads/chore/engine-data-update", inputs: { new_card_smoke: "true" } };
   assert.deepEqual(await selectSmokePull(event, "workflow_dispatch", repository, headSha, async () => [pull]),
     { repository, number: 7, baseSha, headSha });
-  await assert.rejects(selectSmokePull(event, "workflow_dispatch", repository, "c".repeat(40), async () => [pull]), /open.*PR.*commit/i);
+});
+test("dispatch retries a lagging PR head every ten seconds and accepts the sixth response", async () => {
+  const event = { ref: "refs/heads/chore/engine-data-update", inputs: { new_card_smoke: "true" } };
+  const stale = { ...pull, head: { ...pull.head, sha: "c".repeat(40) } };
+  const calls = [];
+  let attempts = 0;
+  const getPulls = async () => { calls.push("api"); return [++attempts === 6 ? pull : stale]; };
+  const wait = async ms => { calls.push(ms); };
+  assert.deepEqual(await selectSmokePull(event, "workflow_dispatch", repository, headSha, getPulls, wait),
+    { repository, number: 7, baseSha, headSha });
+  assert.deepEqual(calls, ["api", 10000, "api", 10000, "api", 10000, "api", 10000, "api", 10000, "api"]);
+});
+test("dispatch fails closed after six mismatched responses without a final wait", async () => {
+  const event = { ref: "refs/heads/chore/engine-data-update", inputs: { new_card_smoke: "true" } };
+  const calls = [];
+  const getPulls = async () => { calls.push("api"); return [pull]; };
+  const wait = async ms => { calls.push(ms); };
+  await assert.rejects(selectSmokePull(event, "workflow_dispatch", repository, "c".repeat(40), getPulls, wait), /open.*PR.*commit/i);
+  assert.deepEqual(calls, ["api", 10000, "api", 10000, "api", 10000, "api", 10000, "api", 10000, "api"]);
+});
+test("dispatch stops retrying immediately when the head matches", async () => {
+  const event = { ref: "refs/heads/chore/engine-data-update", inputs: { new_card_smoke: "true" } };
+  let attempts = 0;
+  assert.deepEqual(await selectSmokePull(event, "workflow_dispatch", repository, headSha,
+    async () => { attempts++; return [pull]; }, noLookup), { repository, number: 7, baseSha, headSha });
+  assert.equal(attempts, 1);
 });
 test("invalid PR metadata fails before any Git ref is used", async () => {
   await assert.rejects(selectSmokePull({ pull_request: { ...pull, base: { ...pull.base, sha: "bad" } } },
