@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
 import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
@@ -166,6 +166,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // and the room key then stays the plain one.
   const forkView = useForkViewState();
   const forkSeenFor = useRef<string | null>(null);
+  // Set while a fork view is refused (access lost). It holds until a room that arrived after the refusal is on screen, so a
+  // cached or laggy view never comes back by itself.
+  const [accessLostAt, setAccessLostAt] = useState<{ slug: string; at: number } | null>(null);
+  const { mutate: purgeCache } = useSWRConfig();
   const { data: rawData, error, isLoading, mutate } = useSWR(
     slug ? duelRoomKey(slug, spectate, forkView.view) : null,
     async () => {
@@ -190,7 +194,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       }
     },
     // A fork changes its key when the creator picks a seat; the old view stays up until the new one arrives (and answers wait for it).
-    { revalidateOnFocus: false, revalidateOnReconnect: false, keepPreviousData: forkSeenFor.current === slug },
+    // Never after access was lost: SWR would hand the private view of the old key back.
+    { revalidateOnFocus: false, revalidateOnReconnect: false,
+      keepPreviousData: forkSeenFor.current === slug && !(accessLostAt != null && accessLostAt.slug === slug) },
   );
   const refreshRoom = useCallback(
     () => mutate(() => getDuelRoom(slug, spectate, forkView.view), { revalidate: false }),
@@ -198,11 +204,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   );
   // A replay fork keeps the creator's identity at seat 0 (the websocket, the token) and plays every seat. The table below
   // reads `data.mySeat` as the seat that acts, so it gets the acting seat; only the websocket keeps the stored one.
-  const forkAccessLost = rawData?.session.kind === "replay-fork" && isDuelAccessError(error);
+  const forkRefused = isDuelAccessError(error) && (rawData?.session.kind === "replay-fork" || forkSeenFor.current === slug);
+  const forkAccessLost = forkRefused
+    || (accessLostAt != null && accessLostAt.slug === slug && !(rawData != null && rawData.receivedAt > accessLostAt.at));
   const visibleRoom = forkAccessLost ? undefined : rawData;
   useEffect(() => {
-    if (forkAccessLost) void mutate(undefined, { revalidate: false });
-  }, [forkAccessLost, mutate]);
+    if (!forkRefused) return;
+    setAccessLostAt((current) => (current?.slug === slug ? current : { slug, at: performance.now() }));
+    // Every cached view of this table goes (each seat and Reveal choice has its own key), not only the one on screen.
+    const own = `/api/duels/${slug}`;
+    void purgeCache((key) => typeof key === "string" && (key === own || key.startsWith(`${own}?`)), undefined, { revalidate: false });
+    void mutate(undefined, { revalidate: false });
+  }, [forkRefused, slug, purgeCache, mutate]);
   const roomState = forkRoomState(visibleRoom);
   const forkControl = roomState.kind === "fork" ? roomState.control : null;
   const forkMode = forkControl != null;
@@ -928,6 +941,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   };
 
   useBugReportRoom(forkMode ? null : data ?? null);
+  // Access to a fork was lost: nothing private stays on screen. The viewer may ask again (a newer room is the only way back).
+  if (forkAccessLost) {
+    return (
+      <div className="space-y-3 p-6" data-replay-fork-access-lost>
+        <p className="text-sm text-accent-cta">You can no longer open this replay fork.</p>
+        <Button type="button" size="sm" variant="secondary" onClick={() => void mutate()}>Retry</Button>
+        <Link href="/duels" className="ml-3 text-sm text-text-secondary">Back to tables</Link>
+      </div>
+    );
+  }
   if (isLoading && !data) return <div className="p-6 text-sm text-text-secondary">Loading table…</div>;
   if (error && !data) {
     const message = error instanceof Error ? error.message : "Could not load this table.";

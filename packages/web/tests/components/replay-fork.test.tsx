@@ -20,6 +20,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => nav, usePathname: () => "/"
 const swr = vi.hoisted(() => ({ data: null as unknown, error: undefined as unknown, keys: [] as unknown[], mutate: vi.fn() }));
 vi.mock("swr", () => ({
   default: (key: unknown) => { swr.keys.push(key); return { data: swr.data, error: swr.error, isLoading: false, mutate: swr.mutate }; },
+  useSWRConfig: () => ({ mutate: swr.mutate }),
 }));
 const ws = vi.hoisted(() => ({ seats: [] as unknown[] }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({
