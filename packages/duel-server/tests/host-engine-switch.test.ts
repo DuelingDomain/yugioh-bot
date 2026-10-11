@@ -300,18 +300,30 @@ describe("server-recorded engine identity", () => {
     expect(t.duels.privateState(t.session.slug, "g1").bundleVersion).toBe(current.bundleVersion);
   });
 
-  it("refuses an old replay source and keeps its saved final board", async () => {
+  it("replays an old source with current resources and keeps its saved final board", async () => {
     const t = await table("1v1");
     t.duels.activate(t.session.slug, "g1", t.player, ["1", "2", "3", "4"], MANIFEST.bundleVersion, null, { engine: "legacy" });
     const board = await new FakeWorker().view(null);
     t.duels.interrupt(t.session.slug, "g1", "Saved end", { public: board, seats: [board, board] });
     const before = t.db.prepare("select * from duels where id = ?").get(t.session.id);
-    const replay = await post(t.host, { op: "replay", ...t.organizer });
-    expect(replay).toMatchObject({ status: 409, data: { code: "ENGINE_UNAVAILABLE_FOR_SOURCE" } });
-    expect(t.workers).toHaveLength(0);
+    const replay = await post(t.host, { op: "replay", version: 2, ...t.organizer });
+    expect(replay.status).toBe(200);
+    expect(replay.data.frames[0].cursor).toBeTypeOf("string");
+    expect(t.workers).toHaveLength(1);
+    expect(t.workers[0]!.created?.engineIdentity).toBeUndefined();
     expect(t.db.prepare("select * from duels where id = ?").get(t.session.id)).toEqual(before);
     expect(setupOf(t.duels, t.session.slug)?.engineIdentity).toBeUndefined();
     expect(t.duels.room(t.session.slug, "g1", t.player).engine).toMatchObject({ revision: board.revision, seats: board.seats });
+  });
+
+  it("refuses an old source with a different bundle and keeps its final board", async () => {
+    const t = await table("1v1");
+    t.duels.activate(t.session.slug, "g1", t.player, ["1", "2", "3", "4"], "old-bundle", null);
+    const board = await new FakeWorker().view(null);
+    t.duels.interrupt(t.session.slug, "g1", "Saved end", { public: board, seats: [board, board] });
+    expect(await post(t.host, { op: "replay", ...t.organizer })).toMatchObject({ status: 409,
+      data: { code: "ENGINE_UNAVAILABLE_FOR_SOURCE", finalBoard: "available" } });
+    expect(t.workers).toHaveLength(0);
   });
 
   it("checks recorded identity before returning a cached replay", async () => {

@@ -8,7 +8,6 @@ import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelReplayV2 } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
-import { EngineResourceUnavailableError } from "../src/engine-resource-resolver.js";
 import { createReplayCursorCodec } from "../src/replay-cursor.js";
 import { seedIdentity } from "./helpers/identity.js";
 import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
@@ -20,6 +19,7 @@ vi.mock("../src/engine-resource-resolver.js", async original => ({
 const secret = "host-replay-test-secret";
 let db: Database.Database; let dir: string; let host: DuelHost; let slug: string;
 let workers: ReplayWorker[]; let onChange: ReturnType<typeof vi.fn<(slug: string, guildId: string) => void>>;
+let beforeCreate = () => {};
 const owner = { guildId: "test-guild", playerId: 61, userId: 101 };
 beforeEach(() => {
   vi.stubEnv("OWNER_USER_IDS", "101,102");
@@ -39,9 +39,9 @@ beforeEach(() => {
     .run(JSON.stringify(source.seed), source.bundleVersion, JSON.stringify(source.setup), session.id);
   for (const entry of source.commands) db.prepare("insert into duel_commands(duel_id, seq, seat, command_json) values(?,?,?,?)")
     .run(session.id, entry.storedSeq, entry.seat, JSON.stringify(entry.command));
-  workers = []; onChange = vi.fn();
+  workers = []; onChange = vi.fn(); beforeCreate = () => {};
   host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000, onChange,
-    createWorker: () => { const worker = new ReplayWorker(); workers.push(worker); return worker; } });
+    createWorker: () => { beforeCreate(); const worker = new ReplayWorker(); workers.push(worker); return worker; } });
 });
 afterEach(async () => { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs(); });
 async function post(input: Record<string, unknown>, signed = true) {
@@ -132,9 +132,7 @@ it("keeps public, own-seat, private-seat and reveal cache entries separate", asy
   expect(alphaAgain.body.frames[0]!.view.seats[1]!.hand[0]!.code).toBeUndefined();
 });
 it("fails closed when owner access is revoked during a detached build", async () => {
-  resourceRead.mockImplementationOnce(() => {
-    vi.stubEnv("OWNER_USER_IDS", ""); return { dataDirectory: dir, bundleVersion: "test-bundle" };
-  });
+  beforeCreate = () => { vi.stubEnv("OWNER_USER_IDS", ""); };
   const result = await post({ op: "owner-replay", ...owner, seat: 1 });
   expect(result.response.status).toBe(404); expect(result.body.code).toBe("ACCESS_DENIED");
   expect(result.body).not.toHaveProperty("frames"); expect(workers.every(w => !w.running)).toBe(true);
@@ -155,7 +153,7 @@ it("guards a known fork slug for both normal and privileged replay reads", async
 it("reports a saved final board on resource failure and on an unplayable source", async () => {
   const viewWorker = new ReplayWorker(); await viewWorker.create({ mode: "normal", decks: replaySource().decks, seed: replaySource().seed, dataDirectory: dir });
   db.prepare("update duels set snapshot_public_json = ? where web_slug = ?").run(JSON.stringify(await viewWorker.view(null)), slug);
-  resourceRead.mockImplementationOnce(() => { throw new EngineResourceUnavailableError("test resource mismatch"); });
+  db.prepare("update duels set bundle_version = ? where web_slug = ?").run("old-bundle", slug);
   const unavailable = await post({ version: 2, visibility: "public" });
   expect(unavailable.body).toMatchObject({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE", finalBoard: "available" });
   db.prepare("update duels set status = 'active' where web_slug = ?").run(slug);
@@ -164,9 +162,10 @@ it("reports a saved final board on resource failure and on an unplayable source"
 });
 it("returns typed resource/mismatch errors and final board availability without source writes", async () => {
   const before = rows();
-  resourceRead.mockImplementationOnce(() => { throw new EngineResourceUnavailableError("test identity mismatch"); });
+  db.prepare("update duels set bundle_version = ? where web_slug = ?").run("old-bundle", slug);
   const unavailable = await post({ version: 2 }); expect(unavailable.response.status).toBe(409);
   expect(unavailable.body).toMatchObject({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE", finalBoard: "none" });
+  db.prepare("update duels set bundle_version = ? where web_slug = ?").run("test-bundle", slug);
   db.prepare("update duel_commands set command_json = json_set(command_json, '$.revision', 99) where seq = 2").run();
   const mismatch = await post({ version: 2 }); expect(mismatch.response.status).toBe(409);
   expect(mismatch.body).toMatchObject({ code: "REPLAY_MISMATCH", finalBoard: "none" });

@@ -506,7 +506,9 @@ export function createDuelHost(options: {
       setup, engineIdentity: engineIdentity ?? null, commands: state.commands };
   }
 
-  function resourcesOfSource(state: DuelPrivateState): EngineResources {
+  function resourcesOfSource(state: DuelPrivateState): EngineResources | undefined {
+    // Old records use current resources under the runner's bundle gate. Never invent an identity.
+    if (state.setup?.engineIdentity == null) return undefined;
     try {
       return resolveEngineResourcesForSource(options.dataDirectory, {
         session: state.session, setup: state.setup, bundleVersion: state.bundleVersion ?? "",
@@ -1542,12 +1544,12 @@ export function createDuelHost(options: {
       const state = service.privateState(slug, guildId);
       const source = journalSourceOf(state);
       const sourceVersion = replaySourceVersion(source);
-      const resources = resourcesOfSource(state); // Reverify actual files before cache reads too.
+      const resources = resourcesOfSource(state);
       if (projection.reveal && finalView) {
         const ownViews = source.session.seats.map(seat => savedReplayBoard(slug, guildId, seat.seat));
         if (ownViews.every((view): view is DuelEngineView => view !== null)) finalView = revealReplayHands(finalView, ownViews);
       }
-      const key = createHash("sha256").update(JSON.stringify([guildId, slug, sourceVersion, resources.identity, projection.version,
+      const key = createHash("sha256").update(JSON.stringify([guildId, slug, sourceVersion, resources?.identity ?? null, resources?.bundleVersion ?? pinnedVersionFor(state.session.format), projection.version,
         projection.visibility, projection.dataSeat, projection.reveal, projection.actorPlayerId,
         projection.ownerUserId, projection.privileged, finalView])).digest("hex");
       const frames = await replayCache.getOrBuild(key, () => buildReplayFrames({ source, sourceVersion,

@@ -10,7 +10,6 @@ import { seatCountFor, type DuelEngineView, type DuelFormat, type ReplaySource }
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createReplayCursorCodec, replayFrameId, replayPrefixHash, replaySourceVersion } from "../src/replay-cursor.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
-import { EngineResourceUnavailableError } from "../src/engine-resource-resolver.js";
 import { seedIdentity } from "./helpers/identity.js";
 import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
 
@@ -169,8 +168,9 @@ it("denies alpha, host forgery, wrong guild, revoked owner and unsigned launch b
   expect(workers).toHaveLength(0);
 });
 it("cleans up on resource, target, transaction and registration failures", async () => {
-  resourceRead.mockImplementationOnce(() => { throw new EngineResourceUnavailableError("Mismatch"); });
+  db.prepare("update duels set bundle_version = ? where web_slug = ?").run("old-bundle", slug);
   expect((await post({ op: "replay-fork", ...request() })).body.code).toBe("ENGINE_UNAVAILABLE_FOR_SOURCE");
+  db.prepare("update duels set bundle_version = ? where web_slug = ?").run("test-bundle", slug);
   makeWorker = () => { const w = new ForkWorker(); w.revision = 90; return w; };
   expect((await post({ op: "replay-fork", ...request(0) })).body.code).toBe("REPLAY_MISMATCH");
   makeWorker = () => new ForkWorker();
