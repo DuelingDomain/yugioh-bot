@@ -11,6 +11,9 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+// The replay view holds the Jump in request, so it asks for the router even when no fork control shows.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), usePathname: () => "/", useSearchParams: () => new URLSearchParams() }));
+
 import { DuelReplayView } from "@/components/duel/replay";
 import { isFfaFormat, lossOrderAt } from "@/components/duel/replay-ffa";
 
