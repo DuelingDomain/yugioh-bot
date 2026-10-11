@@ -50,7 +50,10 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
     const owner = resolveOwnerPlayer(db, actor);
     if (!owner) throw new ReplayAccessError();
     const count = activeCount(owner, owner.userId);
-    if (owners.has(owner.userId) || (enforceActive && count >= REPLAY_FORK_ACTIVE_LIMIT)) {
+    if (owners.has(owner.userId)) {
+      throw new ReplayForkLaunchError("A replay fork is still launching. Try again shortly.", "ENGINE_BUSY");
+    }
+    if (enforceActive && count >= REPLAY_FORK_ACTIVE_LIMIT) {
       throw new ReplayForkLaunchError("Replay fork limit reached. Cancel a fork and try again.", "FORK_LIMIT");
     }
     if (pending >= MAX_DETACHED_FORKS) throw new ReplayForkLaunchError("Replay fork workers are busy.", "ENGINE_BUSY");

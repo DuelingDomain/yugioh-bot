@@ -376,3 +376,18 @@ it("serializes launch retry recovery with a normal view and keeps one fork worke
   expect(results.map(result => result.response.status)).toEqual([200, 200]);
   expect(workers).toHaveLength(2); expect(workers.filter(worker => worker.running)).toHaveLength(1);
 });
+it("reports ENGINE_BUSY when restart overlaps the same owner's detached launch", async () => {
+  const first = await post({ op: "replay-fork", ...request() }); expect(first.response.status).toBe(200);
+  let release!: () => void, started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  makeWorker = () => {
+    const worker = new ForkWorker(), create = worker.create.bind(worker);
+    worker.create = async options => { started(); await new Promise<void>(resolve => { release = resolve; }); await create(options); };
+    return worker;
+  };
+  const launch = post({ op: "replay-fork", ...request(), requestId: "second-launch" }); await ready;
+  try {
+    const restart = await post({ op: "fork-restart", slug: first.body.slug });
+    expect(restart.response.status).toBe(503); expect(restart.body.code).toBe("ENGINE_BUSY");
+  } finally { release(); await launch; }
+});
