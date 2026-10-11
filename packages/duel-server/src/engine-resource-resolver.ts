@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -10,8 +10,29 @@ import { multiScriptsFolderHash, pinnedEngineVersion, resolveMultiScriptsDirecto
 import { readCoreCapabilities } from "./core-capabilities.js";
 import { ENGINE_PROTOCOL_VERSION } from "./worker-protocol.js";
 
-/** Bump when engine decoding, journal dispatch or view projection changes. */
-export const ENGINE_HOST_RULE_VERSION = "duel-rules-1";
+/** Runtime files that determine decoding, commands, script compatibility and board projection. */
+export const ENGINE_HOST_RULE_FILES = [
+  "engine", "views", "prompts", "worker", "worker-protocol", "journal-command", "journal-runner", "first-turn-draw",
+  "legacy/engine", "legacy/views", "legacy/prompts", "legacy/script-compat", "cards", "domain-core", "core-capabilities",
+  "multi-scripts", "chain-mode", "chain-options", "script-errors", "script-load-scope", "sort-response", "hand-identities", "log-lines", "text",
+  "raw-messages", "attack-target-pick", "wasm-sync-export", "card-script-source", "card-script-hash", "practice-bot",
+  "engine-loop-error", "engine-resource-resolver", "legacy/index", "prompt-trace",
+] as const;
+
+/** Changed runtime bytes refuse recorded games at recovery after deployment. Old records retain their bundle fallback.
+ * Hash the actual TS development modules or deployed JS modules; no manual version bump can be forgotten.
+ */
+export function engineHostRuleVersion(directory = dirname(fileURLToPath(import.meta.url)), extension = fileURLToPath(import.meta.url).endsWith(".ts") ? ".ts" : ".js"): string {
+  const hash = createHash("sha256");
+  for (const file of ENGINE_HOST_RULE_FILES) hash.update(`${file}\0`).update(readFileSync(join(directory, `${file}${extension}`)));
+  const shared = dirname(fileURLToPath(import.meta.resolve("@yugidraft/shared/duels")));
+  // Include helpers re-exported by shared/duels, such as canonicalCardCode and seat/team rules.
+  for (const file of readdirSync(shared).filter(name => name.endsWith(".js")).sort()) {
+    hash.update(`shared/${file}\0`).update(readFileSync(join(shared, file)));
+  }
+  return `duel-rules-${hash.digest("hex")}`;
+}
+export const ENGINE_HOST_RULE_VERSION = engineHostRuleVersion();
 
 export class EngineResourceUnavailableError extends Error {
   readonly code = "ENGINE_UNAVAILABLE_FOR_SOURCE";

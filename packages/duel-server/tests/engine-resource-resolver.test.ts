@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isEngineIdentity, type EngineIdentity, type ReplaySource } from "@yugidraft/shared/duels";
-import { getCurrentEngineResources, resolveEngineResourcesForSource, verifyWorkerEngineIdentity } from "../src/engine-resource-resolver.js";
+import { engineHostRuleVersion, ENGINE_HOST_RULE_FILES, getCurrentEngineResources, resolveEngineResourcesForSource, verifyWorkerEngineIdentity } from "../src/engine-resource-resolver.js";
 
 const directories: string[] = [];
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -43,6 +45,42 @@ function source(directory: string, mode: "normal" | "domain" = "normal", format:
 }
 
 describe("current engine identity", () => {
+  it("covers every local runtime dependency of the engines, journal runner and worker", () => {
+    const directory = fileURLToPath(new URL("../src/", import.meta.url));
+    const covered = new Set<string>(ENGINE_HOST_RULE_FILES);
+    const seen = new Set<string>();
+    const visit = (name: string) => {
+      if (seen.has(name)) return;
+      seen.add(name);
+      expect(covered.has(name), `host-rule identity must include ${name}`).toBe(true);
+      const path = join(directory, `${name}.ts`);
+      const ast = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest);
+      for (const node of ast.statements) {
+        if (!ts.isImportDeclaration(node) && !ts.isExportDeclaration(node)) continue;
+        if (ts.isImportDeclaration(node)) {
+          const clause = node.importClause;
+          if (clause?.isTypeOnly || (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)
+            && !clause.name && clause.namedBindings.elements.every(element => element.isTypeOnly))) continue;
+        } else if (node.isTypeOnly) continue;
+        const specifier = node.moduleSpecifier;
+        if (!specifier || !ts.isStringLiteral(specifier) || !specifier.text.startsWith(".")) continue;
+        visit(resolve(dirname(path), specifier.text).slice(directory.length).replace(/\.js$/, ""));
+      }
+    };
+    for (const name of ["engine", "legacy/index", "worker", "journal-runner"]) visit(name);
+  });
+
+  it.each(["views", "legacy/script-compat", "journal-command", "prompts", "worker-protocol", "raw-messages", "attack-target-pick"])("derives host rules from changed %s runtime bytes", file => {
+    const directory = bundle();
+    for (const name of ENGINE_HOST_RULE_FILES) {
+      mkdirSync(join(directory, name, ".."), { recursive: true });
+      writeFileSync(join(directory, `${name}.ts`), `runtime:${name}`);
+    }
+    const before = engineHostRuleVersion(directory, ".ts");
+    writeFileSync(join(directory, `${file}.ts`), "changed runtime rules");
+    expect(engineHostRuleVersion(directory, ".ts")).not.toBe(before);
+  });
+
   it.each([
     ["normal", "1v1", "pinned", "standard", null],
     ["domain", "1v1", "pinned", "domain", "domain-script"],
