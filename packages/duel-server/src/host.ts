@@ -54,7 +54,7 @@ import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { EngineResourceCache } from "./engine-resource-cache.js";
 import { buildReplayFrames, replayBuildError, replayHasUnsequencedLoss, revealReplayHands, ReplayBuildCache } from "./replay-builder.js";
 import { createReplayCursorCodec, replaySourceVersion, ReplayCursorError } from "./replay-cursor.js";
-import { createReplayForkLauncher, ReplayForkLaunchError, REPLAY_FORK_TIMEOUT_MS } from "./replay-fork.js";
+import { createReplayForkLauncher, ReplayForkLaunchError } from "./replay-fork.js";
 import { initialForkSeat, resolveReplayForkSeat, replayForkRoom } from "./replay-fork-seats.js";
 import { JournalRunnerError, runJournalPrefix, type JournalResources } from "./journal-runner.js";
 import { EngineResourceUnavailableError, resolveEngineResourcesForSource, type EngineResources } from "./engine-resource-resolver.js";
@@ -1230,7 +1230,9 @@ export function createDuelHost(options: {
         prefixCount: state.commands.length,
         createWorker: () => (game = spawn(state.session.id, () => recordRecoveryErrors)),
       });
-      const result = fork ? await withTimeout(replayRun, options.forkTimeoutMs ?? REPLAY_FORK_TIMEOUT_MS, "Fork recovery") : await replayRun;
+      // Recover committed forks under their slug queue, like ordinary duels.
+      // Worker process limits still apply; journal length is not a recovery deadline.
+      const result = await replayRun;
       game = result.worker;
     } catch (error) {
       if (fork && game) await safeClose(game);

@@ -12,6 +12,8 @@ import { replayFrameId, replaySourceVersion, resolveReplayCursor, ReplayCursorEr
 import type { DuelGameWorker } from "./worker-client.js";
 
 export const REPLAY_FORK_TIMEOUT_MS = 20_000;
+/** Launch/restart re-run a trusted stored prefix; account for its length. */
+export const replayForkTimeoutMs = (prefixCount: number): number => REPLAY_FORK_TIMEOUT_MS + prefixCount * 100;
 export const REPLAY_FORK_ACTIVE_LIMIT = 4;
 const MAX_DETACHED_FORKS = 2;
 
@@ -100,7 +102,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
     try {
       return await Promise.race([work(), new Promise<never>((_, reject) => {
         timer = setTimeout(() => { expired = true; reject(new ReplayForkLaunchError("Replay fork engine timed out.", "ENGINE_BUSY")); },
-          options.timeoutMs ?? REPLAY_FORK_TIMEOUT_MS);
+          options.timeoutMs ?? replayForkTimeoutMs(prefixCount));
       })]);
     } catch (error) {
       if (error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError

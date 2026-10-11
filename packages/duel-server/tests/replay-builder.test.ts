@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildReplayFrames, ReplayBuildCache } from "../src/replay-builder.js";
+import { buildReplayFrames, replayBuildLimits, ReplayBuildCache } from "../src/replay-builder.js";
 import { createReplayCursorCodec, replaySourceVersion } from "../src/replay-cursor.js";
 import { multiScriptsFolderHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
@@ -118,11 +118,19 @@ describe("bounded replay cache", () => {
     await expect(cache.getOrBuild("c", async () => "overflow")).rejects.toMatchObject({ code: "ENGINE_BUSY" });
     await Promise.resolve(); release(); await failure; expect(await waiting).toBe("ok");
   });
+  it("scales replay budgets with commands and seats and serves values too large to cache", async () => {
+    const limits = replayBuildLimits(1500, 4);
+    expect(limits.timeoutMs).toBeGreaterThan(25_000);
+    expect(limits.maxBytes).toBeGreaterThan(16 * 1024 * 1024);
+    const cache = new ReplayBuildCache<string>({ maxBytes: 20, maxEntries: 2, maxConcurrent: 1 });
+    expect(await cache.getOrBuild("large", async () => "x".repeat(21))).toHaveLength(21);
+    expect(cache.size).toBe(0);
+  });
   it("evicts by bytes and entries, refuses oversized values and caps detached jobs", async () => {
     const cache = new ReplayBuildCache({ maxBytes: 20, maxEntries: 2, maxConcurrent: 1, maxWaiting: 0 });
     await cache.getOrBuild("a", async () => "12345678"); await cache.getOrBuild("b", async () => "123456789");
     expect(cache.size).toBe(1); expect(cache.bytes).toBeLessThanOrEqual(20);
-    await expect(cache.getOrBuild("huge", async () => "x".repeat(21))).rejects.toMatchObject({ code: "ENGINE_BUSY" });
+    expect(await cache.getOrBuild("huge", async () => "x".repeat(21))).toHaveLength(21);
     let release!: () => void;
     const pending = cache.getOrBuild("slow", () => new Promise<string>(resolve => { release = () => resolve("ok"); }));
     await Promise.resolve();

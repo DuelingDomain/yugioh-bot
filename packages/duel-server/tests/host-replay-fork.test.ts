@@ -350,3 +350,15 @@ it("keeps acting-seat controls and creator checks in a blocked queue fallback", 
     expect(forged.response.status).toBe(404); expect(forged.body).not.toHaveProperty("engine");
   } finally { complete(); await waiting; }
 });
+
+it("recovers a committed fork without the detached launch time limit", async () => {
+  const launch = await post({ op: "replay-fork", ...request() }); expect(launch.response.status).toBe(200);
+  await host.close(); startHost({ forkTimeoutMs: 10 });
+  makeWorker = () => {
+    const worker = new ForkWorker(), answer = worker.answer.bind(worker);
+    worker.answer = async (...args) => { await new Promise(resolve => setTimeout(resolve, 30)); await answer(...args); };
+    return worker;
+  };
+  const view = await post({ op: "view", slug: launch.body.slug });
+  expect(view.response.status).toBe(200); expect(view.body.engine.revision).toBe(2);
+});

@@ -10,6 +10,15 @@ import type { DuelGameWorker } from "./worker-client.js";
 export const REPLAY_MAX_BUILD_BYTES = 16 * 1024 * 1024;
 export const REPLAY_BUILD_TIMEOUT_MS = 25_000;
 
+/** Fixtures contain short prefixes. The 1,500-command FFA4 test measured about 190 MiB
+ * with large decks and growing graveyards; its replay took about 5.5 seconds.
+ * Allow 100 ms and 64 KiB per seat per accepted command above the startup allowance.
+ */
+export function replayBuildLimits(commandCount: number, seatCount: number) {
+  return { timeoutMs: REPLAY_BUILD_TIMEOUT_MS + commandCount * 100,
+    maxBytes: REPLAY_MAX_BUILD_BYTES + commandCount * seatCount * 64 * 1024 };
+}
+
 export class ReplayBuildError extends Error {
   readonly status: number;
   constructor(message: string, readonly code: ReplayErrorCode) {
@@ -65,7 +74,8 @@ export async function buildReplayFrames(options: ReplayBuildOptions): Promise<Re
   }
   const frames: ReplayFrameV2[] = [];
   const seen = { log: 0, events: 0 };
-  const maxBytes = options.maxBytes ?? REPLAY_MAX_BUILD_BYTES;
+  const limits = replayBuildLimits(source.commands.length, source.decks.length);
+  const maxBytes = options.maxBytes ?? limits.maxBytes;
   let bytes = 2;
   let worker: DuelGameWorker | undefined;
   let expired = false;
@@ -118,7 +128,7 @@ export async function buildReplayFrames(options: ReplayBuildOptions): Promise<Re
   };
   try {
     return await Promise.race([work(), new Promise<never>((_, reject) => {
-      timer = setTimeout(() => { expired = true; reject(new ReplayBuildError("Replay timed out.", "ENGINE_BUSY")); }, options.timeoutMs ?? REPLAY_BUILD_TIMEOUT_MS);
+      timer = setTimeout(() => { expired = true; reject(new ReplayBuildError("Replay timed out.", "ENGINE_BUSY")); }, options.timeoutMs ?? limits.timeoutMs);
     })]);
   } catch (error) { throw replayBuildError(error); }
   finally {
@@ -152,7 +162,8 @@ export class ReplayBuildCache<T = unknown> {
     }
     const job = ready.then(build).then(value => {
       const bytes = Buffer.byteLength(JSON.stringify(value));
-      if (bytes > this.limits.maxBytes) throw new ReplayBuildError("Replay exceeds the cache size limit.", "ENGINE_BUSY");
+      // Serving a long replay must not depend on whether it fits the memory cache.
+      if (bytes > this.limits.maxBytes) return value;
       if (this.limits.maxEntries > 0) {
         while (this.entries.size && (this.entries.size >= this.limits.maxEntries || this.totalBytes + bytes > this.limits.maxBytes)) {
           const oldest = this.entries.keys().next().value!; this.totalBytes -= this.entries.get(oldest)!.bytes; this.entries.delete(oldest);
