@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -19,20 +19,12 @@ export const ENGINE_HOST_RULE_FILES = [
   "engine-loop-error", "engine-resource-resolver", "legacy/index", "prompt-trace",
 ] as const;
 
-/** Changed runtime bytes refuse recorded games at recovery after deployment. Old records retain their bundle fallback.
- * Hash the actual TS development modules or deployed JS modules; no manual version bump can be forgotten.
+/** Replay/fork compatibility version. Bump for engine/journal behavior changes; the CI
+ * fingerprint guard in engine-resource-resolver.test.ts requires a matching baseline.
+ * Comments and other behavior-neutral edits may refresh that baseline with a stated reason.
+ * Live play recovery deliberately does not gate on this version.
  */
-export function engineHostRuleVersion(directory = dirname(fileURLToPath(import.meta.url)), extension = fileURLToPath(import.meta.url).endsWith(".ts") ? ".ts" : ".js"): string {
-  const hash = createHash("sha256");
-  for (const file of ENGINE_HOST_RULE_FILES) hash.update(`${file}\0`).update(readFileSync(join(directory, `${file}${extension}`)));
-  const shared = dirname(fileURLToPath(import.meta.resolve("@yugidraft/shared/duels")));
-  // Include helpers re-exported by shared/duels, such as canonicalCardCode and seat/team rules.
-  for (const file of readdirSync(shared).filter(name => name.endsWith(".js")).sort()) {
-    hash.update(`shared/${file}\0`).update(readFileSync(join(shared, file)));
-  }
-  return `duel-rules-${hash.digest("hex")}`;
-}
-export const ENGINE_HOST_RULE_VERSION = engineHostRuleVersion();
+export const ENGINE_HOST_RULE_VERSION = "duel-rules-1";
 
 export class EngineResourceUnavailableError extends Error {
   readonly code = "ENGINE_UNAVAILABLE_FOR_SOURCE";
@@ -111,6 +103,7 @@ export function resolveEngineResourcesForSource(
   dataDirectory: string,
   source: Pick<ReplaySource, "session" | "bundleVersion" | "setup" | "engineIdentity">,
   current?: EngineResources,
+  purpose: "replay" | "live-recovery" = "replay",
 ): EngineResources {
   if (!isEngineIdentity(source.engineIdentity)) throw new EngineResourceUnavailableError("this game has no verified recorded engine identity");
   if (typeof source.setup?.firstTurnDraw !== "boolean"
@@ -119,7 +112,9 @@ export function resolveEngineResourcesForSource(
   }
   const engine = source.setup.engine ?? (source.setup.startupScripts?.length ? "pinned" : "legacy");
   const resources = current ?? getCurrentEngineResources(dataDirectory, { mode: source.session.mode, format: source.session.format, engine });
-  if (source.bundleVersion !== resources.bundleVersion || !sameEngineIdentity(source.engineIdentity, resources.identity)) {
+  const recorded = purpose === "live-recovery"
+    ? { ...source.engineIdentity, hostRuleVersion: resources.identity.hostRuleVersion } : source.engineIdentity;
+  if (source.bundleVersion !== resources.bundleVersion || !sameEngineIdentity(recorded, resources.identity)) {
     throw new EngineResourceUnavailableError("the engine changed or its recorded resources and runtime rules do not match");
   }
   return resources;

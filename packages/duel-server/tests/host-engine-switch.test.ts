@@ -288,6 +288,18 @@ describe("a saved 1v1 table keeps its engine", () => {
 });
 
 describe("server-recorded engine identity", () => {
+  it("recovers a live play duel after a source-only host-rule change", async () => {
+    const t = await table("1v1");
+    const current = getCurrentEngineResources(DATA, { mode: "normal", engine: "legacy" });
+    const recorded = { ...current.identity, hostRuleVersion: "previous-source-rules" };
+    t.duels.activateRecorded(t.session.slug, "g1", t.player, ["1", "2", "3", "4"], current.bundleVersion, null,
+      { engine: "legacy", firstTurnDraw: false, scriptErrorMode: "tolerant" }, recorded);
+    expect(await post(t.host, { op: "view", ...t.organizer })).toMatchObject({ status: 200 });
+    expect(t.duels.get(t.session.slug, "g1").status).toBe("active");
+    expect(t.workers[0]!.created?.engineIdentity).toEqual(current.identity);
+    expect(setupOf(t.duels, t.session.slug)?.engineIdentity).toEqual(recorded);
+  });
+
   it.each((["normal", "domain"] as const).flatMap(mode =>
     (["1v1", "tag", "ffa3", "ffa4"] as const).map(format => ({ mode, format })),
   ))("records exact $mode $format resources at start", async ({ mode, format }) => {

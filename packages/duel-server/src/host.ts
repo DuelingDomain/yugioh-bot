@@ -508,7 +508,7 @@ export function createDuelHost(options: {
       setup, engineIdentity: engineIdentity ?? null, commands: state.commands };
   }
 
-  async function resourcesOfSource(state: DuelPrivateState): Promise<EngineResources | undefined> {
+  async function resourcesOfSource(state: DuelPrivateState, purpose: "replay" | "live-recovery" = "replay"): Promise<EngineResources | undefined> {
     // Old records use current resources under the runner's bundle gate. Never invent an identity.
     if (state.setup?.engineIdentity == null) return undefined;
     try {
@@ -517,7 +517,7 @@ export function createDuelHost(options: {
       return resolveEngineResourcesForSource(options.dataDirectory, {
         session: state.session, setup: state.setup, bundleVersion: state.bundleVersion ?? "",
         engineIdentity: state.setup?.engineIdentity ?? null,
-      }, current);
+      }, current, purpose);
     } catch (error) {
       if (error instanceof EngineResourceUnavailableError) throw new RequestError(error.message, error.status, error.code);
       throw error;
@@ -1206,7 +1206,7 @@ export function createDuelHost(options: {
     let resources: EngineResources | undefined;
     if (state.setup?.engineIdentity) {
       try {
-        resources = await resourcesOfSource(state);
+        resources = await resourcesOfSource(state, fork ? "replay" : "live-recovery");
       } catch (error) {
         service.interrupt(slug, guildId, "The recorded engine resources or runtime rules changed; this duel cannot be recovered safely.");
         await emitChange(slug, guildId);
@@ -1224,8 +1224,13 @@ export function createDuelHost(options: {
     let game: DuelGameWorker | undefined;
     let recordRecoveryErrors = !fork;
     try {
+      const recoverySource = journalSourceOf(state);
+      // Pin today's worker rules for live play without rewriting the durable replay identity.
+      if (!fork && recoverySource.engineIdentity && resources) {
+        recoverySource.engineIdentity = { ...recoverySource.engineIdentity, hostRuleVersion: resources.identity.hostRuleVersion };
+      }
       const replayRun = runJournalPrefix({
-        source: journalSourceOf(state),
+        source: recoverySource,
         resources: journalResourcesOf(resources),
         prefixCount: state.commands.length,
         createWorker: () => (game = spawn(state.session.id, () => recordRecoveryErrors)),
