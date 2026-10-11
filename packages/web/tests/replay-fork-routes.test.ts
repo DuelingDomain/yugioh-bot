@@ -162,3 +162,20 @@ it("drops fork room data if access is revoked during the host wait", async () =>
   const response = await GET(new Request(`http://localhost/api/duels/${fork}?as=1`), params(fork));
   expect(response.status).toBe(404); expect(await response.json()).not.toHaveProperty("engine");
 });
+
+it.each(["view", "actions", "seat"] as const)("gives the same 404 for missing and hidden fork slugs on %s", async operation => {
+  signIn(103);
+  const route = operation === "view" ? await import("../app/api/duels/[slug]/route")
+    : operation === "actions" ? await import("../app/api/duels/[slug]/actions/route")
+    : await import("../app/api/duels/[slug]/seat/route");
+  const responses = [];
+  for (const target of [fork, "missing-duel"]) {
+    const request = new NextRequest(`http://localhost/api/duels/${target}`, operation === "view" ? {}
+      : { method: "POST", body: JSON.stringify({ seat: 1 }) });
+    const response = "GET" in route ? await route.GET(request, params(target)) : await route.POST(request, params(target));
+    responses.push({ status: response.status, body: await response.json(), cache: response.headers.get("cache-control") });
+  }
+  expect(responses[1]).toEqual(responses[0]);
+  expect(responses[0]).toEqual({ status: 404, body: { error: "Not found", code: "ACCESS_DENIED" }, cache: "private, no-store" });
+  expect(state.fetch).not.toHaveBeenCalled();
+});

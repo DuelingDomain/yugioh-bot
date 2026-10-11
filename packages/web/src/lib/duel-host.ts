@@ -74,6 +74,8 @@ export async function requireDuelActor(): Promise<DuelActor> {
 }
 
 export function duelErrorResponse(error: unknown) {
+  // Missing slugs and hidden replay forks must have the same response.
+  if (error instanceof DuelServiceError && error.status === 404) error = new ReplayAccessError(404);
   if (error instanceof ReplayAccessError) {
     return NextResponse.json({ error: error.message, code: error.code }, {
       status: error.status, headers: { "cache-control": "private, no-store" },
