@@ -27,6 +27,7 @@ MIN_FREE_ENV = "DUELING_BACKUP_MIN_FREE_BYTES"
 RELEASE_KEEP_ENV = "DUELING_RELEASE_KEEP_DAYS"
 LOCK_WAIT_ENV = "DUELING_BACKUP_LOCK_WAIT_SECONDS"
 DEFAULT_LOCK_WAIT_SECONDS = 900
+DEFAULT_DAILY_LOCK_WAIT_SECONDS = 1800
 STALE_SECONDS = 6 * 60 * 60
 DEFAULT_MIN_FREE_BYTES = 1024 * 1024 * 1024
 MAX_BACKUP_DAYS = 14
@@ -145,15 +146,14 @@ def clean_stale_files(root):
 
 
 def acquire_backup_lock(directory_fd, root, kind):
-    wait = integer_setting(LOCK_WAIT_ENV, DEFAULT_LOCK_WAIT_SECONDS, 0) if kind else 0
+    default_wait = DEFAULT_LOCK_WAIT_SECONDS if kind else DEFAULT_DAILY_LOCK_WAIT_SECONDS
+    wait = integer_setting(LOCK_WAIT_ENV, default_wait, 0)
     deadline = time.monotonic() + wait
     while True:
         try:
             fcntl.flock(directory_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return
         except BlockingIOError:
-            if kind is None:
-                raise RuntimeError("another backup is already running for " + str(root)) from None
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise RuntimeError("timed out after {} seconds waiting for backup lock: {}".format(wait, root)) from None
@@ -417,11 +417,18 @@ def prune_backups(keep, verified=None):
 
 
 def create_backup(check_space_only=False, before_backup=None):
+    reserve = integer_setting(MIN_FREE_ENV, DEFAULT_MIN_FREE_BYTES, 0)
+    destination = safe_path(DEST_DIR)
+    if check_space_only:
+        # Check the same filesystem without creating directories, locking, or deleting files.
+        space_directory = destination
+        while not space_directory.exists():
+            space_directory = space_directory.parent
+        check_free_space(SRC.absolute(), space_directory, reserve)
+        return
     keep = integer_setting(KEEP_ENV, 7, 1)
     integer_setting(DEPLOY_KEEP_ENV, 3, 1)
-    reserve = integer_setting(MIN_FREE_ENV, DEFAULT_MIN_FREE_BYTES, 0)
 
-    destination = safe_path(DEST_DIR)
     destination.mkdir(mode=0o700, parents=True, exist_ok=True)
     root, kind = backup_context(destination)
     if before_backup and kind != "drained":
@@ -431,11 +438,13 @@ def create_backup(check_space_only=False, before_backup=None):
     try:
         # Hold one root lock across preflight, service shutdown and the drained snapshot.
         acquire_backup_lock(directory_fd, root, kind)
-        clean_stale_files(root)
+        try:
+            clean_stale_files(root)
+        except Exception as error:
+            message = " ".join(str(error).split()) or type(error).__name__
+            print("WARNING: dueling-backup: stale cleanup: " + message, file=sys.stderr)
         source = SRC.absolute()
         check_free_space(source, destination, reserve)
-        if check_space_only:
-            return
         if before_backup:
             # All lock and space failures happen while the old services are still running.
             subprocess.run(before_backup, check=True)

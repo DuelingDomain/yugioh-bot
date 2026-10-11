@@ -194,6 +194,86 @@ test("second production guard refusal stops the deploy and gives recovery instru
   assert.doesNotMatch(result.stdout, /reached-service-stop/);
 });
 
+test("a drained snapshot failure starts the old services and stops the deploy", t => {
+  const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
+  const start = remote.indexOf("# Acquire the root lock");
+  const end = remote.indexOf("# Schema work can now begin", start);
+  assert.ok(start > 0 && end > start);
+  const dir = mkdtempSync(join(tmpdir(), "drained-failure-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const log = join(dir, "commands.log");
+  const stubs = {
+    python3: `#!/bin/sh
+if [ "$1" = "$DEPLOY_GUARD" ]; then exit 0; fi
+printf 'backup wait=%s\\n' "$DUELING_BACKUP_LOCK_WAIT_SECONDS" >> "$TEST_LOG"
+shift 2
+"$@" || exit 1
+if [ "$TEST_SNAPSHOT_FAILURE" != exit ]; then kill "-$TEST_SNAPSHOT_FAILURE" "$PPID"; fi
+exit 1
+`,
+    docker: `#!/bin/sh
+printf '%s\\n' "$*" >> "$TEST_LOG"
+case "$*" in *' start '*) exit "\${TEST_START_STATUS:-0}" ;; esac
+`,
+  };
+  for (const [name, content] of Object.entries(stubs)) {
+    writeFileSync(join(dir, name), content);
+    chmodSync(join(dir, name), 0o755);
+  }
+  for (const [failure, restartStatus] of [["exit", "0"], ["exit", "1"], ["HUP", "0"], ["TERM", "0"]]) {
+    const result = spawnSync("sh", ["-eu", "-c", `${remote.slice(start, end)}\necho reached-schema-work`], {
+      encoding: "utf8", timeout: 5000, env: { ...process.env,
+        PATH: `${dir}:${process.env.PATH}`, TEST_LOG: log, TEST_START_STATUS: restartStatus,
+        TEST_SNAPSHOT_FAILURE: failure,
+        DEPLOY_BACKUP: "backup-fixture", DEPLOY_GUARD: "guard-fixture", DEPLOY_FORCE: "false",
+        DUELING_BACKUP_LOCK_WAIT_SECONDS: "900", RETIRED_BOT_IDS: "", retired_ids: "",
+        release_dir: join(dir, "release"),
+      },
+    });
+    assert.equal(result.status, 1, result.stderr);
+    const commands = readFileSync(log, "utf8").trim().split("\n");
+    assert.deepEqual(commands.slice(1), [
+      "compose -f docker-compose.yml stop web duel worker ws",
+      "compose -f docker-compose.yml start web duel worker ws",
+    ]);
+    assert.equal(commands[0], "backup wait=300");
+    assert.doesNotMatch(result.stdout, /reached-schema-work/);
+    rmSync(log);
+  }
+});
+
+test("online deploy backup uses a systemd scope when available and otherwise runs directly", t => {
+  const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
+  const start = remote.indexOf("# Wait for daily backups");
+  const end = remote.indexOf('git reset --hard "$DEPLOY_COMMIT"', start);
+  assert.ok(start > 0 && end > start);
+  const dir = mkdtempSync(join(tmpdir(), "online-scope-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const log = join(dir, "commands.log");
+  for (const [name, content] of Object.entries({
+    "systemd-run": '#!/bin/sh\nprintf "scope %s\\n" "$*" >> "$TEST_LOG"\nwhile [ "$1" != python3 ]; do shift; done\nexec "$@"\n',
+    python3: '#!/bin/sh\nprintf "backup %s %s\\n" "$DUELING_BACKUP_DIR" "$*" >> "$TEST_LOG"\nexit "${TEST_BACKUP_STATUS:-0}"\n',
+  })) {
+    writeFileSync(join(dir, name), content);
+    chmodSync(join(dir, name), 0o755);
+  }
+  for (const available of [true, false]) {
+    for (const backupStatus of ["0", "1"]) {
+      const availability = available ? "" : 'command() { if [ "$1" = -v ] && [ "$2" = systemd-run ]; then return 1; fi; builtin command "$@"; }\n';
+      const result = spawnSync("bash", ["-eu", "-c", `${availability}${remote.slice(start, end)}`], {
+        encoding: "utf8", timeout: 5000, env: { ...process.env, PATH: `${dir}:${process.env.PATH}`,
+          TEST_LOG: log, TEST_BACKUP_STATUS: backupStatus, DEPLOY_BACKUP: "backup-fixture", release_dir: dir },
+      });
+      assert.equal(result.status, Number(backupStatus), result.stderr);
+      const commands = readFileSync(log, "utf8").trim().split("\n");
+      assert.equal(commands.length, available ? 2 : 1);
+      if (available) assert.match(commands[0], /scope .*--scope .*CPUWeight=20/);
+      assert.equal(commands.at(-1), `backup ${dir}/online backup-fixture`);
+      rmSync(log);
+    }
+  }
+});
+
 test("staging warnings reach the step summary even when the VM step fails", t => {
   const steps = workflow("deploy-staging.yml").jobs.staging.steps;
   const transfer = steps.find(step => step.name === "Run on the VM");

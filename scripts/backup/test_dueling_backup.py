@@ -772,7 +772,7 @@ class BackupTests(unittest.TestCase):
                 self.assertIn("DUELING_DEPLOY_BACKUP_KEEP", output.getvalue())
         self.assertFalse(self.destination.exists())
 
-    def test_daily_fails_fast_but_deploy_kinds_wait_for_the_root_lock(self):
+    def test_daily_and_deploy_kinds_wait_until_the_root_lock_timeout(self):
         self.destination.mkdir()
         root = self.destination
         fd = os.open(str(root), os.O_RDONLY | os.O_DIRECTORY)
@@ -788,12 +788,8 @@ class BackupTests(unittest.TestCase):
                                             capture_output=True, text=True, timeout=5)
                     elapsed = time.monotonic() - started
                     self.assertEqual(result.returncode, 1)
-                    if kind is None:
-                        self.assertIn("another backup is already running", result.stderr)
-                        self.assertLess(elapsed, 1)
-                    else:
-                        self.assertIn("timed out", result.stderr)
-                        self.assertGreaterEqual(elapsed, 1)
+                    self.assertIn("timed out", result.stderr)
+                    self.assertGreaterEqual(elapsed, 1)
                     self.assertEqual(list(root.rglob("*.sqlite*")), [])
         finally:
             os.close(fd)
@@ -910,7 +906,7 @@ class BackupTests(unittest.TestCase):
 
     def test_deploy_stop_hook_refuses_new_activity_after_the_lock_wait(self):
         text = (KIT_DIR.parents[1] / ".github/workflows/deploy.yml").read_text()
-        hook = text.split("--before-backup sh -eu -c '", 1)[1].split("\n               '", 1)[0]
+        hook = text.split("--before-backup sh -eu -c '", 1)[1].split("\n               '; then", 1)[0]
         guard = self.root / "refuse-activity.py"
         guard.write_text("raise SystemExit(1)\n")
         marker = self.root / "stopped-services"
@@ -944,17 +940,17 @@ class BackupTests(unittest.TestCase):
             self.assertTrue((release / "drained/bot-20000101-000000Z.sqlite.zst").exists())
             self.assertEqual(list(release.rglob(".*.tmp")), [])
 
-    def test_deploy_backups_succeed_when_the_root_lock_is_released(self):
+    def test_daily_and_deploy_backups_succeed_when_the_root_lock_is_released(self):
         root = self.destination
         root.mkdir()
-        for kind, delay in (("online", 0.2), ("drained", 2)):
+        for kind, delay in ((None, 1), ("online", 0.2), ("drained", 2)):
             with self.subTest(kind=kind):
                 fd = os.open(str(root), os.O_RDONLY | os.O_DIRECTORY)
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 release = threading.Timer(delay, fcntl.flock, args=(fd, fcntl.LOCK_UN))
                 release.start()
                 try:
-                    self.destination = root / "pr2-20261011-000000Z" / kind
+                    self.destination = root if kind is None else root / "pr2-20261011-000000Z" / kind
                     result = self.run_backup()
                     self.assert_success(result)
                     self.assert_rows(next(path for path in self.destination.glob("bot-*.sqlite.*")
@@ -1042,6 +1038,28 @@ class BackupTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(namespace["main"](["--check-space"]), 0)
         self.assertEqual(set(self.destination.iterdir()), {old, Path(str(old) + ".sha256")})
+
+    def test_space_only_mode_leaves_stale_files_unchanged(self):
+        self.destination.mkdir()
+        stale = self.destination / ".dueling-backup-stale.tmp"
+        stale.write_bytes(b"keep during space check")
+        old = time.time() - 7 * 3600
+        os.utime(stale, (old, old))
+        namespace = self.namespace()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(namespace["main"](["--check-space"]), 0)
+        self.assertTrue(stale.exists(), "a space check must not remove stale files")
+        self.assertEqual(stale.read_bytes(), b"keep during space check")
+        self.assertEqual(stale.stat().st_mtime, old)
+
+    def test_space_only_mode_checks_existing_ancestor_without_creating_directories(self):
+        self.destination = self.root / "missing" / "backups"
+        namespace = self.namespace()
+        with mock.patch.object(namespace["shutil"], "disk_usage", return_value=SimpleNamespace(free=10**12)) as space:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(namespace["main"](["--check-space"]), 0)
+        space.assert_called_once_with(self.root)
+        self.assertFalse(self.destination.parent.exists())
 
     def test_drained_backup_never_prunes_or_rechecks_the_online_copy(self):
         release = self.recent_release(1)
@@ -1144,6 +1162,27 @@ sys.exit(kit["main"]())
         self.assertEqual(outside.read_bytes(), b"keep")
         self.assertEqual(nested.read_bytes(), b"keep")
 
+    def test_stale_scan_failure_warns_and_publishes_a_verified_backup(self):
+        self.destination.mkdir()
+        namespace = self.namespace()
+        iterdir = Path.iterdir
+        failed = False
+
+        def fail_first_scan(path):
+            nonlocal failed
+            if path == self.destination and not failed:
+                failed = True
+                raise PermissionError("stale scan denied")
+            return iterdir(path)
+
+        with mock.patch.object(Path, "iterdir", fail_first_scan):
+            with contextlib.redirect_stderr(io.StringIO()) as warning, contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(namespace["main"](), 0)
+        self.assertIn("WARNING: dueling-backup: stale cleanup: stale scan denied", warning.getvalue())
+        backup = next(path for path in self.destination.glob("bot-*.sqlite.*") if path.suffix != ".sha256")
+        namespace["check_checksum"](backup)
+        self.assert_rows(backup)
+
     def test_failed_root_lock_does_not_sweep_stale_files(self):
         self.destination.mkdir()
         stale = self.destination / ".dueling-backup-stale.tmp"
@@ -1153,7 +1192,10 @@ sys.exit(kit["main"]())
         fd = os.open(str(self.destination), os.O_RDONLY | os.O_DIRECTORY)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            self.assertEqual(self.run_backup().returncode, 1)
+            with mock.patch.dict(os.environ, {"DUELING_BACKUP_LOCK_WAIT_SECONDS": "0"}):
+                namespace = self.namespace()
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(namespace["main"](), 1)
             self.assertTrue(stale.exists())
         finally:
             os.close(fd)

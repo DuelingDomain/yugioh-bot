@@ -531,8 +531,10 @@ jobs:
 
       - name: Test database backups and restore
         run: |
-          sudo apt-get update
-          sudo apt-get install -y zstd
+          if ! command -v zstd >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y zstd
+          fi
           python3 -B scripts/backup/test_dueling_backup.py
 
       - name: Select changed test files

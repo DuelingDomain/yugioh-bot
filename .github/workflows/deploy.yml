@@ -348,7 +348,13 @@ jobs:
                esac
              done
              # Wait for daily backups while production runs. Keep online work at low priority.
-             DUELING_BACKUP_DIR="$release_dir/online" nice -n 10 ionice -c3 python3 "$DEPLOY_BACKUP"
+             if command -v systemd-run >/dev/null 2>&1; then
+               DUELING_BACKUP_DIR="$release_dir/online" \
+                 systemd-run --scope --quiet -p CPUWeight=20 -p IOWeight=10 \
+                 nice -n 10 ionice -c3 python3 "$DEPLOY_BACKUP"
+             else
+               DUELING_BACKUP_DIR="$release_dir/online" python3 "$DEPLOY_BACKUP"
+             fi
              git reset --hard "$DEPLOY_COMMIT"
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
              # The image carries the same verified bundle as the data volume.
@@ -369,7 +375,11 @@ jobs:
              # Acquire the root lock and check space BEFORE stopping any production service.
              # Keep that lock through the stop command and snapshot; no second space/lock check.
              # A timeout or SKIPPED status leaves production running. Drained runs never prune.
-             DUELING_BACKUP_DIR="$release_dir/drained" RETIRED_BOT_IDS="$retired_ids" \
+             # Bound the final lock wait to five minutes within the 90-minute job limit.
+             # Until schema work begins, failure or cancellation can start the old containers.
+             trap 'docker compose -f docker-compose.yml start web duel worker ws || true; exit 1' HUP INT TERM
+             if ! DUELING_BACKUP_DIR="$release_dir/drained" RETIRED_BOT_IDS="$retired_ids" \
+               DUELING_BACKUP_LOCK_WAIT_SECONDS=300 \
                python3 "$DEPLOY_BACKUP" --before-backup sh -eu -c '
                  # A game may have started while the backup waited for the lock.
                  if ! python3 "$DEPLOY_GUARD" /opt/yugioh-bot/data/bot.sqlite --force "$DEPLOY_FORCE"; then
@@ -378,7 +388,11 @@ jobs:
                  fi
                  if [ -n "$RETIRED_BOT_IDS" ]; then docker stop $RETIRED_BOT_IDS; fi
                  docker compose -f docker-compose.yml stop web duel worker ws
-               '
+               '; then
+               docker compose -f docker-compose.yml start web duel worker ws || true
+               exit 1
+             fi
+             trap 'exit 1' HUP INT TERM
              # Schema work can now begin: later failures must leave traffic stopped.
              if ! DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
