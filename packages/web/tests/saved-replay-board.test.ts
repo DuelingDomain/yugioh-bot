@@ -3,9 +3,9 @@ import { createDuelService } from "@yugidraft/shared/services";
 import { migrate } from "@yugidraft/shared/db";
 import { NextResponse } from "next/server";
 import { afterEach, expect, it, vi } from "vitest";
-import { seedIdentity } from "../../../shared/tests/helpers/identity";
-import { ReplayWorker, replaySource } from "../../../duel-server/tests/support/replay-fixtures";
-import { savedReplayBoardResponse } from "./saved-replay-board";
+import { seedIdentity } from "../../shared/tests/helpers/identity";
+import { ReplayWorker, replaySource } from "../../duel-server/tests/support/replay-fixtures";
+import { savedReplayBoardResponse } from "../src/lib/saved-replay-board";
 
 const databases: Database.Database[] = [];
 const routeState = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), fetch: vi.fn() }));
@@ -69,8 +69,8 @@ async function routeFixture() {
   return input;
 }
 async function routeGet(owner: boolean, slug: string, query: string) {
-  const route = owner ? await import("../../app/api/admin/duels/[slug]/replay/route")
-    : await import("../../app/api/duels/[slug]/replay/route");
+  const route = owner ? await import("../app/api/admin/duels/[slug]/replay/route")
+    : await import("../app/api/duels/[slug]/replay/route");
   return route.GET(new Request(`http://localhost/replay?${query}`), { params: Promise.resolve({ slug }) });
 }
 it.each([false, true])("opens the saved result through the actual replay route (owner=%s)", async owner => {
@@ -119,7 +119,7 @@ it.each(["completed", "interrupted", "cancelled"])("opens another player's priva
   vi.stubEnv("OWNER_USER_IDS", "103");
   routeState.auth.mockResolvedValue({ user: { id: "103", name: "Admin" } });
   input.db.prepare("update duels set status=?,settings_json=json_set(settings_json,'$.visibility','private') where id=?").run(status, input.session.id);
-  const { GET } = await import("../../app/api/duels/[slug]/route");
+  const { GET } = await import("../app/api/duels/[slug]/route");
   const response = await GET(new Request("http://localhost/duel"), { params: Promise.resolve({ slug: input.session.slug }) });
   expect(response.status).toBe(200);
   const body = await response.json();
@@ -130,7 +130,7 @@ it.each(["completed", "interrupted", "cancelled"])("opens another player's priva
 
 it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("reads plain and gzip production-shaped %s fallback boards and all-seat reveal", async format => {
   const { gzipSync } = await import("node:zlib");
-  const { storedBoardFixture } = await import("../../../shared/tests/helpers/stored-board");
+  const { storedBoardFixture } = await import("../../shared/tests/helpers/stored-board");
   const input = await fixture();
   const publicBoard = storedBoardFixture(format);
   const seats = publicBoard.seats.map(s => storedBoardFixture(format, s.seat));
