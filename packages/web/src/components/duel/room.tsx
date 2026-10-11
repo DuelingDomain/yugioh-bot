@@ -926,9 +926,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     forkView.pickSeat(null);
     void run(() => restartReplayFork(slug));
   };
+  // The creator follows a link to the source replay: an open fork is closed on the way (best effort), so forks that
+  // were left behind do not fill the limit of open forks.
+  const leaveFork = () => {
+    if (!forkControl || latestRoom.current?.session.status !== "active") return;
+    leavingRoom.current = true;
+    void cancelReplayFork(slug).catch(() => {});
+  };
   const endFork = () => {
     if (!forkControl || inFlight.current) return;
     const target = sourceReplayHref(forkControl.origin);
+    // A finished fork has nothing to cancel (the host refuses it): go back to the replay.
+    if (latestRoom.current?.session.status !== "active") { leavingRoom.current = true; router.replace(target); return; }
     inFlight.current = true;
     mutationSeq.current += 1;
     setBusy(true);
@@ -1116,6 +1125,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       onFollow={(next) => forkView.setFollow(next, forkControl.actingSeat)}
       onReveal={forkView.setReveal}
       onAskAll={askAllForks} onRestart={restartFork} onEnd={endFork}
+      ended={terminal} onLeave={leaveFork}
     />
   ) : null;
   const forkWinner = engine?.result ? winnerLabel(engine, playerName) : null;
@@ -1124,7 +1134,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       headline={engine?.result ? (forkWinner ? `${forkWinner} won` : "The duel is a draw") : "The fork has ended"}
       reason={engine?.result?.reason ?? data.session.resultReason ?? null}
       sourceHref={sourceReplayHref(forkControl.origin)} disabled={forkBusy}
-      onRestart={restartFork} onClose={() => setHideResult(true)}
+      onRestart={restartFork} onClose={() => setHideResult(true)} onLeave={leaveFork}
     />
   ) : null;
   if (ownWindowGate) {

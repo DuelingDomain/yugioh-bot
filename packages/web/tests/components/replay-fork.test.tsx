@@ -549,6 +549,41 @@ describe("the live room of a fork", () => {
     expect(seat).not.toBeDisabled();
   });
 
+  it("leaves a finished fork without a cancel call, and shows no End fork", async () => {
+    const done = forkRoom({ session: session("1v1", { slug: "fork-1", kind: "replay-fork", status: "completed", endedAt: "2026-10-10T10:00:00Z" }) });
+    done.engine = { ...done.engine!, result: { winnerSeat: 0, reason: "Life points" } as never, prompt: null };
+    swr.data = done;
+    const fetch = vi.fn(async () => json({}));
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    expect(screen.queryByRole("button", { name: "End fork" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Exit duel" }));
+    expect(nav.replace).toHaveBeenCalledWith(sourceReplayHref(control().origin));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("ends an open fork when the creator goes back to the source replay by a link", async () => {
+    swr.data = forkRoom();
+    const fetch = vi.fn(async () => json({ session: forkRoom().session }));
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    await act(async () => { fireEvent.click(screen.getByRole("link", { name: "Open the source replay" })); });
+    expect(fetch).toHaveBeenCalledWith("/api/duels/fork-1/fork/cancel", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("does not cancel a fork that is already over when the creator uses the source replay link", async () => {
+    const done = forkRoom({ session: session("1v1", { slug: "fork-1", kind: "replay-fork", status: "completed", endedAt: "2026-10-10T10:00:00Z" }) });
+    swr.data = done;
+    const fetch = vi.fn(async () => json({}));
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    await act(async () => { fireEvent.click(screen.getByRole("link", { name: "Open the source replay" })); });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("fails closed on a fork row without its seat control", async () => {
     const unusable = forkRoom({}, null);
     unusable.engine!.chainMode = "auto";

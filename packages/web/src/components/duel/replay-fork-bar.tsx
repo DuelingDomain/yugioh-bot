@@ -27,7 +27,7 @@ const ASK_COPY: Record<AskState, string> = {
  * each behind a second click.
  */
 export function ReplayForkBar({
-  fork, seatName, living, waitingSeat, follow, reveal, disabled, onPickSeat, onFollow, onReveal, onAskAll, onRestart, onEnd,
+  fork, seatName, living, waitingSeat, follow, reveal, disabled, onPickSeat, onFollow, onReveal, onAskAll, onRestart, onEnd, ended = false, onLeave,
 }: {
   fork: ReplayForkControl;
   seatName: (seat: number) => string;
@@ -45,6 +45,10 @@ export function ReplayForkBar({
   onAskAll: () => void;
   onRestart: () => void;
   onEnd: () => void;
+  /** The fork is over (a result or a closed session). There is nothing to cancel: only the way back stays. */
+  ended?: boolean;
+  /** The creator goes to the source replay by a link. An open fork is closed then, so it does not fill the fork limit. */
+  onLeave?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState<"restart" | "end" | null>(null);
@@ -67,7 +71,7 @@ export function ReplayForkBar({
         ))}
       </span>
       <button type="button" className={styles.btn} title="Fork controls" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
-        <SlidersHorizontal size={14} aria-hidden /><span className={styles.wide}>Fork controls</span>
+        <SlidersHorizontal size={14} aria-hidden /><span className={styles.wide} aria-hidden="true">Fork controls</span>
         <span className="sr-only">Fork controls</span>
       </button>
       <Sheet open={open} onClose={close} title="Fork controls">
@@ -89,12 +93,12 @@ export function ReplayForkBar({
           </div>
           <p className={styles.hint}>
             Copied from the replay at move {fork.origin.sourceStep}.{" "}
-            <Link href={sourceReplayHref(fork.origin)} className="underline">Open the source replay</Link>
+            <Link href={sourceReplayHref(fork.origin)} className="underline" onClick={onLeave}>Open the source replay</Link>
           </p>
           {confirm === null ? (
             <div className={styles.group}>
               <button type="button" className={styles.action} disabled={disabled} onClick={() => setConfirm("restart")}>Restart from start point</button>
-              <button type="button" className={`${styles.action} ${styles.danger}`} disabled={disabled} onClick={() => setConfirm("end")}>End fork</button>
+              {ended ? null : <button type="button" className={`${styles.action} ${styles.danger}`} disabled={disabled} onClick={() => setConfirm("end")}>End fork</button>}
             </div>
           ) : (
             <div className={styles.group} role="group" aria-label="Confirm">
@@ -115,13 +119,14 @@ export function ReplayForkBar({
 }
 
 /** What replaces the live result screen: the fork has no stats or rematch, only a way back. */
-export function ReplayForkResult({ headline, reason, sourceHref, disabled, onRestart, onClose }: {
+export function ReplayForkResult({ headline, reason, sourceHref, disabled, onRestart, onClose, onLeave }: {
   headline: string;
   reason: string | null;
   sourceHref: string;
   disabled: boolean;
   onRestart: () => void;
   onClose: () => void;
+  onLeave?: () => void;
 }) {
   return (
     <div className={styles.result} role="status" data-replay-fork-result>
@@ -129,7 +134,7 @@ export function ReplayForkResult({ headline, reason, sourceHref, disabled, onRes
       {reason ? <span>{reason}</span> : null}
       <span className={styles.group}>
         <button type="button" className={styles.btn} disabled={disabled} onClick={onRestart}>Restart from start point</button>
-        <Link href={sourceHref} className={styles.btn}>Back to replay</Link>
+        <Link href={sourceHref} className={styles.btn} onClick={onLeave}>Back to replay</Link>
         <button type="button" className={styles.btn} onClick={onClose}>Show board</button>
       </span>
     </div>
