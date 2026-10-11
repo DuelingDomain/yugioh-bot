@@ -98,3 +98,77 @@ describe("a fork view that loses access", () => {
     expect(document.querySelector("[data-replay-fork-bar]")).not.toBeNull();
   });
 });
+
+// The default dedupingInterval (2 s) is kept on purpose: it is what the app runs with.
+describe("a fork view that is asked for again within the dedupe window", () => {
+  const fetchBySeat = (urls: string[]) => vi.fn(async (input: string) => {
+    urls.push(input);
+    const as = new URL(input, "http://x").searchParams.get("as");
+    return json(forkRoom(control({ actingSeat: as === "1" ? 1 : 0 })));
+  });
+  const chip = (name: RegExp) => within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name });
+
+  it("settles: plain -> as=1 -> plain within 2 s is not left on catching up", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", fetchBySeat(urls));
+    render(
+      <SWRConfig value={{ provider: () => new Map() }}>
+        <DuelRoomView slug="fork-1" />
+      </SWRConfig>,
+    );
+    await screen.findByTestId("field");
+    await waitFor(() => expect((chip(/Bo/) as HTMLButtonElement).disabled).toBe(false));
+    const plainFetches = () => urls.filter((url) => url === "/api/duels/fork-1").length;
+    const before = plainFetches();
+
+    fireEvent.click(chip(/Bo/));
+    await waitFor(() => expect(urls).toContain("/api/duels/fork-1?as=1"));
+    await waitFor(() => expect((chip(/Bo/) as HTMLButtonElement).getAttribute("aria-pressed")).toBe("true"));
+    // Back to Follow within the dedupe window: the plain view was fetched less than 2 s ago.
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    // Follow is on; turning it off holds seat 1 (same view), turning it on again returns to the plain view.
+    fireEvent.click(within(screen.getByRole("dialog")).getByLabelText("Follow prompt"));
+    fireEvent.click(within(screen.getByRole("dialog")).getByLabelText("Follow prompt"));
+    await waitFor(() => expect(plainFetches()).toBeGreaterThan(before));
+    // The table is not stuck: seat chips work again and the plain view is on screen.
+    await waitFor(() => expect((chip(/Ada/) as HTMLButtonElement).disabled).toBe(false), { timeout: 1500 });
+    expect(chip(/Ada/).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("does not flash the no-access screen on later seat switches once access is back", async () => {
+    let refuse = false;
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      calls += 1;
+      if (refuse) return json({ error: "No access", code: "ACCESS_DENIED" }, 404);
+      const as = new URL(input, "http://x").searchParams.get("as");
+      return json(forkRoom(control({ actingSeat: as === "1" ? 1 : 0 })));
+    }));
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <DuelRoomView slug="fork-1" />
+      </SWRConfig>,
+    );
+    await screen.findByTestId("field");
+    refuse = true;
+    fireEvent.click(chip(/Bo/));
+    await waitFor(() => expect(screen.queryByTestId("field")).toBeNull());
+    refuse = false;
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    await screen.findByTestId("field");
+    // Watch every frame of the next switches: the refusal screen must not come back, even for one render.
+    let flashed = false;
+    const watch = new MutationObserver(() => { if (screen.queryByRole("button", { name: "Retry" })) flashed = true; });
+    watch.observe(document.body, { childList: true, subtree: true });
+    const before = calls;
+    // The refused pick (seat 1) is the view that came back; the next switches go to seat 0 and back.
+    fireEvent.click(chip(/Ada/));
+    await waitFor(() => expect(calls).toBeGreaterThan(before));
+    await waitFor(() => expect(chip(/Ada/).getAttribute("aria-pressed")).toBe("true"));
+    fireEvent.click(chip(/Bo/));
+    await waitFor(() => expect(chip(/Bo/).getAttribute("aria-pressed")).toBe("true"));
+    watch.disconnect();
+    expect(flashed).toBe(false);
+  });
+});
+

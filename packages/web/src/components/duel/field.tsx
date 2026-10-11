@@ -44,6 +44,7 @@ import type { InspectTarget } from "./inspector";
 import { RivalHand } from "./table/rival-hand";
 import { hexToRgbTriplet, isStraight, labelTurnDeg, normalizeDeg, textScale } from "./table/seat-angle";
 import { SEAT_TONE_HEX, type SeatFieldProps } from "./table/types";
+import { useForkLabels } from "./table/fork-labels";
 import { useDuelFieldModel, type DuelFieldProps } from "./field-model";
 import {
   anyLegal,
@@ -1036,7 +1037,9 @@ export const SeatField = memo(function SeatField({
   const angle = normalizeDeg(angleDeg);
   const straight = isStraight(angle, upright);
   const label = name ?? `Player ${seat + 1}`;
-  const owner = viewerSeat === seat ? "Your" : label;
+  // A fork names every seat: the one that answers is not the camera seat, so neither is "Your".
+  const forkLabels = useForkLabels();
+  const owner = viewerSeat === seat && !forkLabels ? "Your" : label;
   const battle = isBattlePhase(engine.phase);
   const eliminated = view?.eliminated === true;
   const turn = engine.turnSeat === seat && !eliminated;

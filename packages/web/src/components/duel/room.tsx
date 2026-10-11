@@ -207,6 +207,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     { revalidateOnFocus: false, revalidateOnReconnect: false,
       keepPreviousData: forkSeenFor.current === slug && !(accessLostAt != null && accessLostAt.slug === slug) },
   );
+  // A new fork view must always start its own request. The purge above stamps a newer mutation time on the key, and SWR
+  // throws away a request that started before it: a view fetched less than `dedupingInterval` ago would never be
+  // read again and the table would stay on "catching up". A bound `mutate()` drops the shared request first.
+  const roomKey = duelRoomKey(slug, spectate, forkView.view);
+  const roomKeySeen = useRef(roomKey);
+  useEffect(() => {
+    if (roomKeySeen.current === roomKey) return;
+    roomKeySeen.current = roomKey;
+    if (forkSeenFor.current === slug) void mutate();
+  }, [roomKey, slug, mutate]);
   const refreshRoom = useCallback(
     () => mutate(() => getDuelRoom(slug, spectate, forkView.view), { revalidate: false }),
     [mutate, slug, spectate, forkView.view],
@@ -224,6 +234,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     void purgeForkViews();
     void mutate(undefined, { revalidate: false });
   }, [forkRefused, slug, purgeForkViews, mutate]);
+  // Access is back: a room that arrived after the refusal is on screen, so a later view change must not flash the
+  // "no access" screen again while the next room loads.
+  useEffect(() => {
+    if (accessLostAt == null || forkRefused || rawData == null || rawData.receivedAt <= accessLostAt.at) return;
+    setAccessLostAt(null);
+  }, [accessLostAt, forkRefused, rawData]);
   const roomState = forkRoomState(visibleRoom);
   const forkControl = roomState.kind === "fork" ? roomState.control : null;
   const forkMode = forkControl != null;
@@ -950,7 +966,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         if (reply.engine) revision = reply.engine.revision;
         last = reply;
       }
-      return last ?? undefined;
+      // The last reply belongs to the acting seat only when that seat took part. With the acting seat out, it is
+      // another seat's view: it never goes on screen, and the room is read again instead.
+      return last && last.fork?.actingSeat === acting ? last : undefined;
     });
   };
   const restartFork = () => {
@@ -967,6 +985,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   };
   // The creator follows a link to the source replay: an open fork is closed on the way (best effort), so forks that
   // were left behind do not fill the limit of open forks.
+  // It runs only after the creator confirms, and never for a click that opens a new tab (see `ForkSourceLink`).
   const leaveFork = () => {
     if (!forkControl || latestRoom.current?.session.status !== "active") return;
     leavingRoom.current = true;

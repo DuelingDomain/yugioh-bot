@@ -31,8 +31,8 @@ vi.mock("@/lib/hooks/use-duel-websocket", () => ({
 }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
 vi.mock("@/components/duel/field", () => ({
-  DuelField: (props: { mySeat: number | null; bottomSeat?: number | null; onInspect?: (target: { type: "pile"; title: string; cards: [] }) => void }) => (
-    <div data-testid="field" data-my-seat={props.mySeat ?? ""} data-bottom-seat={props.bottomSeat ?? ""}>
+  DuelField: (props: { mySeat: number | null; bottomSeat?: number | null; named?: boolean; onInspect?: (target: { type: "pile"; title: string; cards: [] }) => void }) => (
+    <div data-testid="field" data-my-seat={props.mySeat ?? ""} data-bottom-seat={props.bottomSeat ?? ""} data-named={props.named ? "true" : "false"}>
       <button type="button" onClick={() => props.onInspect?.({ type: "pile", title: "Private hand", cards: [] })}>Inspect fixture hand</button>
     </div>
   ),
@@ -677,6 +677,45 @@ describe("the live room of a fork", () => {
       .toEqual(["/api/duels/fork-1/chain-mode?as=0", "/api/duels/fork-1/chain-mode?as=2"]);
   });
 
+  it("applies an ask-all reply only when it belongs to the seat on screen, and reads the room again when the acting seat is out", async () => {
+    // Seat 1 is on screen but out; the last seat asked is seat 2, so its view is not the one on screen.
+    const initial = ffa3Fork(1, [1]);
+    swr.data = initial;
+    const fetch = vi.fn(async (input: string) => {
+      const as = Number(new URL(input, "http://x").searchParams.get("as"));
+      const reply = ffa3Fork(as, [1]);
+      return json(reply);
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    swr.mutate.mockClear();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ask at all response windows" })); });
+    const written = swr.mutate.mock.calls.filter(([value]) => value != null && typeof value === "object").map(([value]) => value as DuelRoom);
+    expect(written.map((room) => room.fork?.actingSeat)).not.toContain(2);
+    // A plain read followed instead of the reply.
+    expect(swr.mutate.mock.calls.some((call) => call.length === 0)).toBe(true);
+  });
+
+  it("applies the ask-all reply of the acting seat itself", async () => {
+    const initial = ffa3Fork(0, [2]);
+    swr.data = initial;
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => json(ffa3Fork(Number(new URL(input, "http://x").searchParams.get("as")), [2]))));
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    swr.mutate.mockClear();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ask at all response windows" })); });
+    const written = swr.mutate.mock.calls.filter(([value]) => value != null && typeof value === "object").map(([value]) => value as DuelRoom);
+    expect(written.map((room) => room.fork?.actingSeat)).toEqual([0]);
+  });
+
+  it("labels the 1v1 halves by seat name in a fork, so the camera seat is not called Your", () => {
+    swr.data = forkRoom({}, control({ actingSeat: 1 }));
+    render(<DuelRoomView slug="fork-1" />);
+    expect(screen.getByTestId("field").getAttribute("data-named")).toBe("true");
+    expect(document.body.textContent).not.toMatch(/Your turn|Your move|Your Master/);
+  });
+
   it("keeps the seat of the restart as a hold when Follow prompt is off", async () => {
     swr.data = forkRoom();
     const restarted = forkRoom({}, control({ actingSeat: 1 }));
@@ -802,5 +841,21 @@ describe("the live room of a fork", () => {
     render(<DuelRoomView slug="game-1" />);
     expect(document.querySelector("[data-replay-fork-bar]")).toBeNull();
     expect(screen.getByTestId("field").getAttribute("data-my-seat")).toBe("0");
+  });
+});
+
+describe("useDuelFieldModel in a fork", () => {
+  it("labels both halves and the tally by name when named, whoever answers", async () => {
+    const { renderHook } = await import("@testing-library/react");
+    const { useDuelFieldModel } = await import("@/components/duel/field-model");
+    const engine = { ...frame({ step: 2 }).view, prioritySeat: 1 };
+    const base = {
+      engine, mySeat: 1, masterRule: 5 as const, reducedMotion: true, legalKeys: new Set<string>(), selectedKeys: new Set<string>(),
+      onActivate: vi.fn(), onInspect: vi.fn(), bottomSeat: 0, bottomName: "Ada", topName: "Bo", boardRef: { current: null },
+    };
+    const live = renderHook(() => useDuelFieldModel(base)).result.current;
+    expect([live.bottomLabel, live.topLabel, live.priorityLabel(1, "Bo")]).toEqual(["Your", "Opponent", "Your move"]);
+    const named = renderHook(() => useDuelFieldModel({ ...base, named: true })).result.current;
+    expect([named.bottomLabel, named.topLabel, named.priorityLabel(1, "Bo")]).toEqual(["Ada", "Bo", "Bo to act"]);
   });
 });
