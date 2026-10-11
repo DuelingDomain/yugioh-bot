@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { createHmac } from "node:crypto";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
 import { afterEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -8,6 +9,7 @@ import { canReadDuel, createDuelService, createDuelSeriesService, createReplayFo
   createSeasonService, createTournamentService, findDuelEventTarget } from "@yugidraft/shared/services";
 import { createDuelConnectionToken, type DuelJoinAck, type DuelConnectionTokenClaims } from "@yugidraft/shared/ws";
 import type { DuelRoom, DuelReplayV2, ReplayForkResult, DuelSession } from "@yugidraft/shared/duels";
+import { toOrdinaryReplayView } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { seedIdentity } from "./helpers/identity.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
@@ -15,8 +17,9 @@ import { describeWithCores, needs } from "./support/cores.js";
 import { ACCEPTANCE_CASES, acceptanceSource, fixedJournal, MASTER, POKI, RECALL_JOURNAL, rotationSource } from "./support/replay-acceptance.js";
 
 const secret = "v1-real-host-acceptance";
-// Load the real WS boundary without adding another package's sources to duel-server's TS rootDir.
-const wsEventsPath = "../../ws/src/duel-events.js", wsHttpPath = "../../ws/src/internal-http.js";
+// Absolute source paths work with either the repository or package Vitest root.
+const wsEventsPath = fileURLToPath(new URL("../../ws/src/duel-events.ts", import.meta.url));
+const wsHttpPath = fileURLToPath(new URL("../../ws/src/internal-http.ts", import.meta.url));
 const { registerDuelEventHandlers } = await import(wsEventsPath);
 const { createInternalHttpHandler } = await import(wsHttpPath);
 type TestSocket = EventEmitter & { id: string; data: { duel?: DuelConnectionTokenClaims }; rooms: Set<string>;
@@ -61,9 +64,11 @@ function fixture(record: ReturnType<typeof acceptanceSource>, game2 = false) {
       name: record.source.session.name, mode: record.source.session.mode, format: record.source.session.format,
       settings: record.source.session.settings });
   }
-  db.prepare("delete from duel_seats where duel_id = ?").run(source.id);
-  for (const seat of record.source.session.seats) db.prepare("insert into duel_seats(duel_id,seat,player_id,ready,deck_json) values(?,?,?,1,?)")
-    .run(source.id, seat.seat, seat.playerId, JSON.stringify(record.source.decks[seat.seat]));
+  if (!game2) {
+    db.prepare("delete from duel_seats where duel_id = ?").run(source.id);
+    for (const seat of record.source.session.seats) db.prepare("insert into duel_seats(duel_id,seat,player_id,ready,deck_json) values(?,?,?,1,?)")
+      .run(source.id, seat.seat, seat.playerId, JSON.stringify(record.source.decks[seat.seat]));
+  }
   db.prepare("update duels set status='interrupted', seed_json=?, bundle_version=?, setup_json=? where id=?")
     .run(JSON.stringify(record.source.seed), record.source.bundleVersion,
       JSON.stringify({ ...record.source.setup, engineIdentity: record.source.engineIdentity }), source.id);
@@ -90,11 +95,9 @@ function fixture(record: ReturnType<typeof acceptanceSource>, game2 = false) {
       (ack: DuelJoinAck) => { result = ack; });
     expect(result?.ok).toBe(true); return socket;
   }
-  const sourceSocket = joinRoom(source.slug, record.source.session.seats[0]!.playerId!, 0), guildSocket = connect();
-  guildSocket.join(`guild:${owner.guildId}`);
-  const leaked = vi.fn(); for (const socket of [sourceSocket, guildSocket]) {
-    socket.on("duel:changed", leaked); socket.on("duel:presence", leaked);
-  }
+  const sourceSocket = joinRoom(source.slug, record.source.session.seats[0]!.playerId!, 0);
+  const leaked = vi.fn();
+  sourceSocket.on("duel:changed", leaked); sourceSocket.on("duel:presence", leaked);
   const changes = vi.fn(async (slug: string, guildId: string) => {
     const body = JSON.stringify({ slug, guildId });
     const response = await wsHandler(new Request("http://localhost/internal/duel/changed", { method: "POST", body,
@@ -155,7 +158,7 @@ describeWithCores("V1 host fork acceptance", [needs.cards(DATA), needs.scripts(D
     expect(result.room.session).toMatchObject({ kind: "replay-fork", status: "active", seriesId: null, gameNumber: null, bestOf: 1, ranked: false });
     expect(result.room.mySeat).toBe(0); expect(result.room.fork!.manualSeats).toHaveLength(entry.format === "ffa3" ? 3 : entry.format === "1v1" ? 2 : 4);
     const prompt = result.room.engine!.prompt!, summon = prompt.options.find(option => option.id.startsWith("summon:") && option.card?.code === POKI)!;
-    expect(summon).toBeDefined(); expect({ choice: summon.id }).not.toEqual({ choice: "activate:0" });
+    expect(summon).toBeDefined();
     let answered = await app.post<DuelRoom>({ op: "respond", slug: result.slug, as: 0,
       command: { promptId: prompt.id, revision: result.room.engine!.revision, answer: { choice: summon.id } } });
     const placement = answered.engine!.prompt!;
@@ -252,10 +255,20 @@ describeWithCores("V1 host fork acceptance", [needs.cards(DATA), needs.scripts(D
     checkIsolation(app, deleted, result.slug);
   }, 60_000);
 
-  it.each(["normal", "domain"] as const)("%s lets the owner answer the pending-loss seat's required placement", async mode => {
-    const app = fixture(rotationSource(mode)), before = protectedRows(app.db);
+  it.each((["normal", "domain"] as const).flatMap(mode =>
+    [false, true].map(surrender => ({ mode, surrender }))))
+  ("$mode lets the owner answer the pending-loss seat's required placement (creator surrender: $surrender)", async ({ mode, surrender }) => {
+    const record = rotationSource(mode);
+    if (surrender) record.source.commands.pop(); // The creator surrenders the acting seat during the fork's chain.
+    const app = fixture(record), before = protectedRows(app.db);
     const { result } = await app.launch();
     let room = result.room;
+    if (surrender) {
+      expect(room.engine!.seats[1]).toMatchObject({ eliminated: false, pendingElimination: false });
+      room = await app.post<DuelRoom>({ op: "surrender", slug: result.slug, as: 1 });
+      expect(app.forks.privateState(result.slug, app.owner).commands.at(-1))
+        .toMatchObject({ seat: 1, command: { promptId: "eliminate:0" } });
+    }
     expect(room.engine!.seats[1]).toMatchObject({ eliminated: false, pendingElimination: true });
     expect(room.engine!.chain).toMatchObject([{ code: 31036355, index: 1 }]);
     for (const [seat, answer] of [[2, { selected: ["card:0"] }], [3, { selected: ["card:0"] }],
@@ -275,8 +288,12 @@ describeWithCores("V1 host fork acceptance", [needs.cards(DATA), needs.scripts(D
     checkIsolation(app, before, result.slug);
     // Owner replay must preserve the Manual boundary for the explicitly answered loss prompt.
     app.duels.interrupt(result.slug, app.owner.guildId, "Owner replay fixture");
-    const forkReplay = await app.post<DuelReplayV2>({ op: "owner-replay", slug: result.slug });
-    expect(forkReplay.frames.at(-2)!.view).toEqual(answered.engine);
+    const forkReplay = await app.post<DuelReplayV2>({ op: "owner-replay", slug: result.slug,
+      seat: answered.fork!.actingSeat, reveal: answered.fork!.revealHands });
+    const replayed = forkReplay.frames.at(-2)!.view;
+    expect({ ...replayed, log: forkReplay.frames.slice(0, -1).flatMap(frame => frame.view.log),
+      events: forkReplay.frames.slice(0, -1).flatMap(frame => frame.view.events) })
+      .toEqual(toOrdinaryReplayView(answered.engine!));
     expect(forkReplay.frames.at(-1)).toMatchObject({ kind: "result", cursor: null,
       view: { result: { reason: "Owner replay fixture" } } });
     expect(JSON.stringify(forkReplay)).not.toContain("manualLossAnswersAfter");

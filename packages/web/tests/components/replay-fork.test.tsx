@@ -443,6 +443,20 @@ describe("Jump in on the replay viewer", () => {
 });
 
 describe("the live room of a fork", () => {
+  it("keeps the Controls sheet open when a missing room temporarily unmounts the bar", () => {
+    const room = forkRoom();
+    swr.data = room;
+    const view = render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    swr.data = undefined;
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    swr.data = room;
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
   it.each([
     ["ACCESS_DENIED", 404], ["ACCESS_UNAVAILABLE", 503], [undefined, 401], [undefined, 403],
   ] as const)("clears a cached private fork on %s (HTTP %s)", (code, status) => {

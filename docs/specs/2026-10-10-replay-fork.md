@@ -679,7 +679,8 @@ Paths are relative to the repo. “New” marks a proposed file. P0 owns shared 
 
 ### V2 — UI (Sonnet): browser access and play acceptance
 
-- Files: new replay/fork specs in `packages/e2e/tests/`; existing journal/leak helpers; web component tests.
+- Browser acceptance is manual for now. The owner shelved the repository e2e framework on 2026-10-07; V2 added no replay/fork browser spec to the repository. Keep the isolated owner environment hook for later use.
+- Files: web component tests and existing journal/leak helpers; repository replay/fork browser specs are deferred.
 - Dependencies: B2, B4, B6/B7, U1–U5.
 - Contract: use the isolated e2e stack when implementation starts. Do not use the owner's ports 3000, 3001 or 4003. Test main production access rules.
 - Tests: all layouts/camera seats; alpha public payload/DOM leak scan; direct private/fork/action/token calls denied; owner with no source seat can fork a private bug-report duel; answer every offered seat prompt, including card announcement on nonzero seats; Follow prompt on/off; mobile/keyboard; restart/reconnect; no source updates or player messages.
