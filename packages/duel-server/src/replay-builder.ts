@@ -4,7 +4,7 @@ import { EngineLoopError } from "./engine-loop-error.js";
 import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
 import { eliminationCodeOf } from "./engine.js";
 import { JournalRunnerError, runJournalPrefix, type JournalResources } from "./journal-runner.js";
-import { replayFrameId, replayPrefixHashes, type ReplayCursorCodec } from "./replay-cursor.js";
+import { replayFrameId, replayPrefixHashes, type ReplayCursorCodec, type ReplayCursorClaims } from "./replay-cursor.js";
 import type { DuelGameWorker } from "./worker-client.js";
 
 export const REPLAY_MAX_BUILD_BYTES = 16 * 1024 * 1024;
@@ -66,13 +66,27 @@ export function revealReplayHands(view: DuelEngineView, ownViews: DuelEngineView
   }) };
 }
 
-/** Detached read-only re-run. Each call has its own projection delta positions and closes its worker. */
+/** Internal cache data. Prefix claims are projected to sealed cursors only for owner-capable viewers. */
+export type ReplayFrameData = Omit<ReplayFrameV2, "cursor" | "kind">
+  & ({ kind: "result"; cursor: null } | { kind: "opening" | "engine"; cursor: ReplayCursorClaims | null });
+
+export function projectReplayFrames(frames: ReplayFrameData[], codec: ReplayCursorCodec, canFork: boolean): ReplayFrameV2[] {
+  return frames.map(frame => frame.kind === "result" ? { ...frame, cursor: null }
+    : { ...frame, cursor: canFork && frame.cursor ? codec.seal(frame.cursor) : null });
+}
+
+/** Standalone builder used by engine tools/tests; the host projects its shared cache per viewer. */
 export async function buildReplayFrames(options: ReplayBuildOptions): Promise<ReplayFrameV2[]> {
+  return projectReplayFrames(await buildReplayData(options), options.codec, true);
+}
+
+/** Detached read-only re-run. Each call has its own projection delta positions and closes its worker. */
+export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">): Promise<ReplayFrameData[]> {
   const { source, sourceVersion, dataSeat } = options;
   if (source.session.status !== "completed" && source.session.status !== "interrupted") {
     throw new ReplayBuildError("Replays are available after the duel ends", "NOT_PLAYABLE");
   }
-  const frames: ReplayFrameV2[] = [];
+  const frames: ReplayFrameData[] = [];
   const seen = { log: 0, events: 0 };
   const limits = replayBuildLimits(source.commands.length, source.decks.length);
   const maxBytes = options.maxBytes ?? limits.maxBytes;
@@ -89,12 +103,12 @@ export async function buildReplayFrames(options: ReplayBuildOptions): Promise<Re
     for (const entry of events) seen.events = Math.max(seen.events, entry.id);
     const step = frames.length; const frameId = replayFrameId(sourceVersion, step);
     const result = view.result?.reason === "Surrendered" ? { ...view.result, reason: "Surrender" } : view.result;
-    const frame: ReplayFrameV2 = { step, frameId, kind, actorSeat,
-      cursor: kind !== "result" && playable ? options.codec.seal({
+    const frame: ReplayFrameData = { step, frameId, kind, actorSeat,
+      cursor: kind !== "result" && playable ? {
         sourceId: source.session.id, sourceSlug: source.session.slug, guildId: source.session.guildId,
         sourceVersion, frameId, step, prefixCount, prefixHash: prefixHashes[prefixCount]!, revision: view.revision,
-      }) : null,
-      view: toOrdinaryReplayView({ ...view, log, events, result }) } as ReplayFrameV2;
+      } : null,
+      view: toOrdinaryReplayView({ ...view, log, events, result }) } as ReplayFrameData;
     bytes += Buffer.byteLength(JSON.stringify(frame)) + 1;
     if (bytes > maxBytes) throw new ReplayBuildError("Replay exceeds the response size limit.", "ENGINE_BUSY");
     frames.push(frame);

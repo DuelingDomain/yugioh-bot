@@ -52,7 +52,7 @@ import { cardFacets, queryCards, deckCardUnavailableReason } from "./card-search
 import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from "./multi-scripts.js";
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { EngineResourceCache } from "./engine-resource-cache.js";
-import { buildReplayFrames, replayBuildError, replayHasUnsequencedLoss, revealReplayHands, ReplayBuildCache } from "./replay-builder.js";
+import { buildReplayData, projectReplayFrames, type ReplayFrameData, replayBuildError, replayHasUnsequencedLoss, revealReplayHands, ReplayBuildCache } from "./replay-builder.js";
 import { createReplayCursorCodec, replaySourceVersion, ReplayCursorError } from "./replay-cursor.js";
 import { createReplayForkLauncher, ReplayForkLaunchError } from "./replay-fork.js";
 import { initialForkSeat, resolveReplayForkSeat, replayForkRoom } from "./replay-fork-seats.js";
@@ -345,7 +345,7 @@ export function createDuelHost(options: {
   const pinnedVersionFor = (format: DuelFormat): string =>
     pinnedEngineVersion(manifest.bundleVersion, seatCountFor(format), seatCountFor(format) > 2 ? activeMultiScriptsHash(options.dataDirectory) : null);
   const games = new Map<string, LiveGame>();
-  const replayCache = new ReplayBuildCache<ReplayFrameV2[]>();
+  const replayCache = new ReplayBuildCache<ReplayFrameData[]>();
   const engineResourceCache = new EngineResourceCache();
   const replayCursorCodec = createReplayCursorCodec(options.secret);
   const queues = new Map<string, Promise<unknown>>();
@@ -1554,8 +1554,8 @@ export function createDuelHost(options: {
         if (ownViews.every((view): view is DuelEngineView => view !== null)) finalView = revealReplayHands(finalView, ownViews);
       }
       const key = createHash("sha256").update(JSON.stringify([guildId, slug, sourceVersion, resources?.identity ?? null, resources?.bundleVersion ?? pinnedVersionFor(state.session.format), projection.visibility, projection.dataSeat, projection.reveal, finalView])).digest("hex");
-      const frames = await replayCache.getOrBuild(key, () => buildReplayFrames({ source, sourceVersion,
-        resources: journalResourcesOf(resources), codec: replayCursorCodec, dataSeat: projection.dataSeat,
+      const frames = await replayCache.getOrBuild(key, () => buildReplayData({ source, sourceVersion,
+        resources: journalResourcesOf(resources), dataSeat: projection.dataSeat,
         reveal: projection.reveal, finalView, createWorker: () => spawn() }));
       if (sourceVersion !== replaySourceVersion(journalSourceOf(service.privateState(slug, guildId)))) {
         throw new RequestError("The source changed. Refresh the replay.", 409, "SOURCE_CHANGED");
@@ -1564,7 +1564,8 @@ export function createDuelHost(options: {
         frames: frames.map(({ step, actorSeat, view }) => ({ step, actorSeat, view })) };
       return { version: 2, sourceVersion, visibility: projection.visibility,
         ...(projection.reveal !== undefined ? { reveal: projection.reveal } : {}),
-        session: room.session, role: room.role, mySeat: room.mySeat, dataSeat: projection.dataSeat, frames,
+        session: room.session, role: room.role, mySeat: room.mySeat, dataSeat: projection.dataSeat,
+        frames: projectReplayFrames(frames, replayCursorCodec, projection.ownerUserId !== undefined),
         ...(projection.ownerUserId !== undefined ? { capabilities: {
           canFork: !replayHasUnsequencedLoss(source) && frames.some(frame => frame.cursor !== null),
           privateSeats: room.session.seats.map(seat => seat.seat),

@@ -59,6 +59,7 @@ it("keeps v1 and provides public/mine v2 without private counts or owner flags",
   const mine = await post({ version: 2 }); expect(mine.response.status).toBe(200);
   expect(mine.body).toMatchObject({ version: 2, visibility: "mine", mySeat: 0, dataSeat: 0 });
   expect(mine.body).not.toHaveProperty("capabilities");
+  expect(mine.body.frames.every(frame => frame.cursor === null)).toBe(true);
   const publicView = await post({ version: 2, visibility: "public" });
   expect(publicView.body).toMatchObject({ visibility: "public", mySeat: 0, dataSeat: null });
   expect(publicView.body.frames[0]!.view.seats[0]!.hand[0]!.code).toBeUndefined();
@@ -107,8 +108,10 @@ it("rejects alpha, forged mapping, wrong guild and unsigned internal calls", asy
   expect(workers).toHaveLength(0); expect(resourceRead).not.toHaveBeenCalled();
 });
 it("binds no-op cursor prefixes and invalidates cached source versions after a source edit", async () => {
+  vi.stubEnv("OWNER_USER_IDS", "201");
   const a = await post({ version: 2 }); const b = await post({ version: 2 });
-  expect(a.body).toEqual(b.body); expect(workers).toHaveLength(1);
+  expect(a.body.frames.map(({ cursor: _cursor, ...frame }) => frame)).toEqual(b.body.frames.map(({ cursor: _cursor, ...frame }) => frame));
+  expect(workers).toHaveLength(1);
   const codec = createReplayCursorCodec(secret);
   expect(a.body.frames.map(f => f.cursor && codec.open(f.cursor).prefixCount)).toEqual([0, 1, 3, null]);
   db.prepare("update duels set master_rule = 4 where web_slug = ?").run(slug);
@@ -182,6 +185,8 @@ it("shares public builds across spectators, players and owners, then projects ea
   expect(results.map(result => result.body.mySeat)).toEqual([null, 0, 1, null]);
   expect(results[0]!.body).not.toHaveProperty("capabilities");
   expect(results[3]!.body.capabilities?.canFork).toBe(true);
+  expect(results.slice(0, 3).every(result => result.body.frames.every(frame => frame.cursor === null))).toBe(true);
+  expect(results[3]!.body.frames[0]!.cursor).toBeTypeOf("string");
 });
 it("serves four different concurrent replays with at most two workers", async () => {
   const duels = createDuelService(db), fixture = replaySource(), slugs = [slug];

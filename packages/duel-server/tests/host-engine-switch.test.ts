@@ -309,7 +309,7 @@ describe("server-recorded engine identity", () => {
     const before = t.db.prepare("select * from duels where id = ?").get(t.session.id);
     const replay = await post(t.host, { op: "replay", version: 2, ...t.organizer });
     expect(replay.status).toBe(200);
-    expect(replay.data.frames[0].cursor).toBeTypeOf("string");
+    expect(replay.data.frames[0].cursor).toBeNull();
     expect(t.workers).toHaveLength(1);
     expect(t.workers[0]!.created?.engineIdentity).toBeUndefined();
     expect(t.db.prepare("select * from duels where id = ?").get(t.session.id)).toEqual(before);
