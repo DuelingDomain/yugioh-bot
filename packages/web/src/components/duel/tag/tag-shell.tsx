@@ -226,18 +226,18 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
 
   // The FX lock follows engine events newer than the last one handled. With reduced motion, or while the connection is
   // down (the FX replay nothing), no lock starts but the cursor still moves, so old events never lock the camera later.
-  // A replay fork never locks either: the camera never moves or zooms by itself there (live Tag keeps its lock).
+  // A replay and a replay fork never lock: the camera never moves or zooms by itself there (live Tag keeps its lock).
   const lastEvent = useRef<number>(lastEventId(engine.events, 0));
   const fork = room.session.kind === "replay-fork";
   useEffect(() => {
-    const lock = fxActive && !fork ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
+    const lock = fxActive && !replay && !fork ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
     if (!lock) {
       lastEvent.current = lastEventId(engine.events, lastEvent.current);
       return;
     }
     lastEvent.current = lock.lastId;
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
-  }, [engine.events, fxActive, fork, controller.reducedMotion]);
+  }, [engine.events, fxActive, replay, fork, controller.reducedMotion]);
 
   // An aim holds the camera where it is: a close-up goes back to the overview, and no click zooms in until the aim ends.
   useEffect(() => {
@@ -343,7 +343,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
     />
   );
   const cameraDock = (
-    <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} />
+    <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} replay={replay != null} />
   );
   const side = (
     <TagSide
@@ -508,7 +508,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
         </section>
         {narrow || hud ? null : (
           <aside className={styles.right} aria-label="Camera">
-            <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} />
+            <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} replay={replay != null} />
           </aside>
         )}
       </div>

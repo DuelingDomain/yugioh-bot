@@ -330,7 +330,7 @@ const exitPose = (seat: number, spot: GridCellRect, rotateDeg: 0 | 180): SeatPos
 });
 
 /** The 4-way table as two columns of facing fields that share an Extra Monster row (see grid-layout.ts). */
-export function GridStage({ controller, layout, camera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, grid, placeLabels, gridFinale = null, gridHub, hubPlace = "band" }: TableStageViewProps) {
+export function GridStage({ controller, layout, camera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, grid, placeLabels, gridFinale = null, gridHub, hubPlace = "band", replay = false }: TableStageViewProps) {
   const forkLabels = useForkLabels();
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -805,7 +805,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 data-focus={focus.seat === cell.seat ? "true" : undefined}
                 data-partner={cell.home ? cell.partner : undefined}
                 role="group"
-                aria-label={`${nameOf(cell.seat)}${self ? (forkLabels ? " (acting)" : " (you)") : ""}, field${focus.seat === cell.seat ? ", in focus" : ""}${out ? ", out of the duel" : ""}`}
+                aria-label={`${nameOf(cell.seat)}${self && !replay ? (forkLabels ? " (acting)" : " (you)") : ""}, field${focus.seat === cell.seat ? ", in focus" : ""}${out ? ", out of the duel" : ""}`}
               >
                 {out ? null : (
                   <RivalField
@@ -884,6 +884,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   clockMs={room.clock?.remainingMs[cell.seat] ?? null}
                   status={holoStatus(engine, cell.seat, promptSeat)}
                   me={slot.relation === "self"}
+                  replay={replay}
                   x={0}
                   y={0}
                   fit={lpFit(lp)}

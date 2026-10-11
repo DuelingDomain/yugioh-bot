@@ -20,6 +20,8 @@ export interface CameraControlsProps {
   dispatch: (action: CameraAction) => void;
   /** Seats that are out: no button for them. */
   out?: readonly number[];
+  /** A replay has no player: the anchor seat is a camera seat, so it reads as a name, not "You". */
+  replay?: boolean;
   /**
    * `float` (default): everything floats over the board. `panel`: only the View panel, in the flow of its parent (a
    * side column). `stage`: the chip, the target hint and the look banner, without the View panel. A table that
@@ -96,7 +98,7 @@ function ViewButton({ action, label, icon, seatStyle, hotkey, pressed, disabled,
  * and the upright switch), the camera chip with its preview lock mark, the target hint and the look-from-seat
  * banner. It only dispatches camera actions that the viewer asked for. While the preview lock is on the buttons are off.
  */
-export function CameraControls({ layout, camera, locked, hint = null, nameOf, dispatch, out = [], variant = "float", view }: CameraControlsProps) {
+export function CameraControls({ layout, camera, locked, hint = null, nameOf, dispatch, out = [], replay = false, variant = "float", view }: CameraControlsProps) {
   const named = useForkLabels();
   const [ownOpen, setOpen] = useState(false);
   const open = view ? view.open : ownOpen;
@@ -105,7 +107,7 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
   const faceOff = isFaceOff(layout, out);
   const flyOn = camera.mode === "fly";
   const flyReady = camera.flyIn !== false;
-  const label = cameraLabel(camera, nameOf, layout.anchorSeat, named);
+  const label = cameraLabel(camera, nameOf, layout.anchorSeat, replay || named);
   const plaza = layout.format === "ffa3" && !faceOff;
   // In a face-off the one view that can be on is your own field enlarged (an elimination does not end it).
   const enlarged = layout.format === "ffa3" && camera.mode === "focus";
@@ -189,7 +191,7 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
                     <ViewButton
                       key={`fly-${slot.seat}`}
                       action={`fly:${slot.seat}`}
-                      label={slot.seat === layout.anchorSeat && !named ? "You" : nameOf(slot.seat)}
+                      label={slot.seat === layout.anchorSeat && !replay && !named ? "You" : nameOf(slot.seat)}
                       seatStyle={toneVars(layout, slot.seat)}
                       hotkey={String(index + 1)}
                       pressed={camera.fly.targetSeat === slot.seat}

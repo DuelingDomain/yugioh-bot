@@ -235,6 +235,34 @@ describe.each(CASES.filter(([, , kind]) => kind === "table"))("%s loss history",
   });
 });
 
+describe.each(CASES)("%s first-person words", (_name, set, kind) => {
+  it("never calls the camera seat \"you\", even when that seat is out", () => {
+    const stateId = kind === "table" ? "elimination" : "main";
+    const state = set.states[stateId as keyof typeof set.states];
+    const outSeat = state.room.engine!.seats.find((seat) => seat.eliminated)?.seat ?? 1;
+    const view = render(<View set={set} kind={kind} id={stateId} tweak={(controller) => ({ ...controller, viewerSeat: outSeat })} />);
+    const text = view.container.textContent ?? "";
+    expect(text).not.toMatch(/You are|Your Master|Your turn|\(you\)|· you\b/);
+    expect(view.container.querySelector("[data-testid='seat-strip'] [data-relation='self']")?.textContent ?? "").not.toMatch(/You/);
+    expect(view.container.querySelector("[data-testid='self-eliminated'], [data-testid='spectating-chip']")).toBeNull();
+    expect(view.container.querySelector("[data-you='true']")).toBeNull();
+    expect(view.container.querySelector("[role='status']")?.textContent ?? "").not.toMatch(/You are/);
+    // The camera buttons name every seat, the anchor one too.
+    const names = [...view.container.querySelectorAll("button, [data-seat-btn] span, [data-camera-name]")].map((node) => (node.textContent ?? "").replace(/^\d/, "").trim());
+    expect(names.some((label) => /^You(?![a-z])/.test(label))).toBe(false);
+    if (kind === "tag") expect(view.container.querySelectorAll("[data-seat-btn]").length).toBe(4);
+  });
+
+  it("names the player whose turn it is, never \"You\", when the camera sits on that seat", () => {
+    const state = set.states.main;
+    const turnSeat = state.room.engine!.turnSeat ?? 0;
+    const view = render(<View set={set} kind={kind} id="main" tweak={(controller) => ({ ...controller, viewerSeat: turnSeat })} />);
+    // The turn label of the phase hub (a span with data-me), not the styling flag of a seat plate.
+    expect(view.container.querySelector("span[data-me='true']")).toBeNull();
+    expect(view.container.textContent ?? "").not.toMatch(/Your turn/);
+  });
+});
+
 describe("FFA3 camera across a seek", () => {
   it("keeps the camera the viewer chose and never moves it by itself", () => {
     const [, set, kind] = CASES[0];
@@ -250,22 +278,25 @@ describe("FFA3 camera across a seek", () => {
   });
 });
 
-describe("Tag camera lock", () => {
+describe("Tag camera in a replay", () => {
   const [, set, kind] = CASES[2];
   const attack = (id: number): DuelEvent => ({ id, kind: "attack", seat: 0, text: "attack", target: { seat: 1 } } as unknown as DuelEvent);
-  const locked = (container: HTMLElement) => container.querySelector("[data-camera-dock]")?.getAttribute("data-locked");
+  const dock = (container: HTMLElement) => container.querySelector("[data-camera-dock]");
   const seatPressed = (container: HTMLElement, seat: number) => container.querySelector(`[data-seat-btn='${seat}']`)?.getAttribute("aria-pressed");
 
-  it("locks for a new event in forward play and clears the lock history on a seek", () => {
+  it("never locks or moves by itself, in forward play or after a seek", () => {
     const view = render(<View set={set} kind={kind} reducedMotion={false} resetKey={1} />);
-    expect(locked(view.container)).toBe("false");
+    expect(dock(view.container)?.getAttribute("data-locked")).toBe("false");
     press("4");
     expect(seatPressed(view.container, 3)).toBe("true");
+    // Forward play: an attack event does not send the camera to the overview.
     view.rerender(<View set={set} kind={kind} reducedMotion={false} resetKey={1} more={[attack(900)]} />);
-    expect(locked(view.container)).toBe("true");
-    // The seek keeps the frame's events but starts clean: no lock for them, and the chosen seat is still the camera.
+    expect(dock(view.container)?.getAttribute("data-locked")).toBe("false");
+    expect(dock(view.container)?.getAttribute("data-cam")).toBe("focus");
+    expect(seatPressed(view.container, 3)).toBe("true");
+    // A seek keeps the frame's events: still no lock, and the chosen seat is still the camera.
     view.rerender(<View set={set} kind={kind} reducedMotion={false} resetKey={2} more={[attack(900)]} />);
-    expect(locked(view.container)).toBe("false");
+    expect(dock(view.container)?.getAttribute("data-locked")).toBe("false");
     expect(seatPressed(view.container, 3)).toBe("true");
   });
 });

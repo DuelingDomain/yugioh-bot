@@ -14,6 +14,8 @@ export interface CameraDockProps {
   nameOf: (seat: number) => string;
   turnSeat: number | null;
   outSeats: readonly number[];
+  /** A replay has no player: the anchor seat reads as a name, not "You". */
+  replay?: boolean;
 }
 
 /** Map scale: 1 map unit = 10 world units. The map keeps the roof's own proportions. */
@@ -43,7 +45,7 @@ function keyPress(run: () => void) {
  * orbit and zoom. The map shows the camera cone and the lock state. All actions go through the roof reducer, which
  * ignores them while the FX lock runs, so the buttons are disabled then.
  */
-export function CameraDock({ camera, layout, dispatch, nameOf, turnSeat, outSeats }: CameraDockProps) {
+export function CameraDock({ camera, layout, dispatch, nameOf, turnSeat, outSeats, replay = false }: CameraDockProps) {
   // A fork has no "you": the anchor is the camera seat, and the seat that answers is another one.
   const named = useForkLabels();
   const slots = roofSlots(camera.anchor);
@@ -61,7 +63,7 @@ export function CameraDock({ camera, layout, dispatch, nameOf, turnSeat, outSeat
     <section className={styles.dock} aria-label="Camera" data-camera-dock data-locked={locked ? "true" : "false"} data-cam={camera.mode}>
       <header className={styles.dockHead}>
         <span>Camera</span>
-        <b data-camera-name>{locked && lockReason ? `Locked · ${lockLabel(lockReason)}` : cameraLabel(camera, nameOf, named)}</b>
+        <b data-camera-name>{locked && lockReason ? `Locked · ${lockLabel(lockReason)}` : cameraLabel(camera, nameOf, replay || named)}</b>
       </header>
       <svg className={styles.map} viewBox={`0 0 ${MAP_W} ${MAP_H}`} role="group" aria-label="Roof map" data-roof-map>
         <rect className={styles.mapRoof} x={2} y={2} width={MAP_W - 4} height={MAP_H - 4} rx={3} />
@@ -128,7 +130,7 @@ export function CameraDock({ camera, layout, dispatch, nameOf, turnSeat, outSeat
               onClick={() => dispatch({ type: "focus", seat: slot.seat })}
             >
               <kbd>{slot.turnOrder + 1}</kbd>
-              <span>{slot.seat === layout.viewerSeat && !named ? "You" : nameOf(slot.seat).split(" ")[0]}</span>
+              <span>{slot.seat === layout.viewerSeat && !replay && !named ? "You" : nameOf(slot.seat).split(" ")[0]}</span>
               <i>{slot.code}</i>
             </button>
           );

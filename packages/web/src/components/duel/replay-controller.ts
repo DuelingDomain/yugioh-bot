@@ -77,6 +77,12 @@ export function isReplayV2(raw: unknown): raw is DuelReplayV2 {
     && raw.frames.every((frame) => isRecord(frame) && typeof frame.frameId === "string" && isRecord(frame.view));
 }
 
+/** A v2 answer whose session or seat list is missing would crash the table; it is a bad answer, not a replay. */
+function hasSessionShape(raw: DuelReplayV2): boolean {
+  const session: unknown = raw.session;
+  return isRecord(session) && Array.isArray(session.seats) && typeof session.format === "string";
+}
+
 /** Stable frame ID of a v1 frame. The step is the same for every viewer, so it also holds across a visibility switch. */
 export function legacyFrameId(step: number): string {
   return `step-${step}`;
@@ -90,6 +96,7 @@ export function normalizeReplay(
   requestKey: string = requested,
 ): ReplayModel {
   if (isReplayV2(raw)) {
+    if (!hasSessionShape(raw)) throw new DuelRequestError("The server returned an invalid replay.", 502);
     const frames = raw.frames.map((frame) => ({ ...frame, view: toOrdinaryReplayView(frame.view) }));
     return {
       version: 2,
@@ -207,14 +214,30 @@ export function useReplayData(
   const [failure, setFailure] = useState<{ slug: string; key: string; error: unknown } | null>(null);
   const [nonce, setNonce] = useState(0);
   const generation = useRef(0);
+  // The answer on screen and the last reload that was handled: a revert to a view we still hold needs no new request.
+  const held = useRef<ReplayModel | null>(null);
+  const handledNonce = useRef(0);
+  held.current = model;
   const ownerOn = owner?.enabled === true;
   const seat = ownerOn ? owner.seat : null;
   const reveal = ownerOn ? owner.reveal : false;
   const requestKey = replayRequestKey({ visibility, seat, reveal }, ownerOn);
 
+  // A new request starts clean: an old failure of the same view must not answer for it.
+  const requestId = `${slug}|${requestKey}`;
+  const [seenRequest, setSeenRequest] = useState(requestId);
+  if (seenRequest !== requestId) {
+    setSeenRequest(requestId);
+    setFailure(null);
+  }
+
   useEffect(() => {
     if (!slug) return;
     const mine = ++generation.current;
+    const reloaded = nonce !== handledNonce.current;
+    handledNonce.current = nonce;
+    // After a failed switch the page goes back to the view it still holds; that answer is already in state.
+    if (!reloaded && held.current && held.current.slug === slug && held.current.requestKey === requestKey) return;
     const abort = new AbortController();
     const view: ReplayRequestView = { visibility, seat, reveal };
     const load = ownerOn
@@ -286,6 +309,14 @@ export function resolveFocusSeat(session: Pick<DuelSession, "format">, camera: n
   return opponentSeatsOf(session.format, camera)[0] ?? (camera === 0 ? 1 : 0);
 }
 
+/**
+ * Props for a step button at the end of the replay. It stays focusable (a `disabled` button drops keyboard focus
+ * to the page) and does nothing; the styles key on aria-disabled.
+ */
+export function stepButtonProps(disabled: boolean, onClick: () => void) {
+  return { "aria-disabled": disabled || undefined, onClick: disabled ? undefined : onClick } as const;
+}
+
 export type ReplayKeyAction = "toggle" | "next" | "previous" | "first" | "last";
 
 /** The keyboard map of the replay. Fields, dialogs and focused buttons keep their own keys. */
@@ -296,6 +327,8 @@ export function replayKeyAction(event: KeyboardEvent, doc: Pick<Document, "query
   if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || target?.isContentEditable) return null;
   // A dialog owns the keyboard, whether focus is inside it or still on the page behind it.
   if (target?.closest("[role='dialog']") || doc.querySelector("[role='dialog'][aria-modal='true']:not([inert])")) return null;
+  // The log and the table panels scroll with these keys; they are not the transport.
+  if (target?.closest("[data-table-chrome], [role='region'], [aria-label='Duel log']")) return null;
   switch (event.key) {
     case " ":
     case "Spacebar":
@@ -363,11 +396,13 @@ interface Selection {
  * Selection is kept by frame ID, so the same frame stays selected when the frames are replaced (another card
  * visibility) or the page is reloaded (`?frame=`). The index is only the fallback when the ID is gone.
  */
-export function useReplayController({ slug, frames, seatCount, mySeat }: {
+export function useReplayController({ slug, frames, seatCount, mySeat, enabled = true }: {
   slug: string;
   frames: readonly Pick<ReplayFrameV2, "frameId">[] | null;
   seatCount: number;
   mySeat: number | null;
+  /** False while the table is hidden (another card view loads): the keys do nothing and autoplay waits. */
+  enabled?: boolean;
 }): ReplayController {
   const [selection, setSelection] = useState<Selection>(() => ({
     frameId: typeof window === "undefined" ? null : readFrameParam(window.location.search),
@@ -440,7 +475,7 @@ export function useReplayController({ slug, frames, seatCount, mySeat }: {
   }, []);
   const resetEffects = useCallback(() => setEpoch((value) => value + 1), []);
 
-  useReplayAutoplay({ playing, index, last, speed, setIndex: setIndexByUpdate, setPlaying });
+  useReplayAutoplay({ playing: playing && enabled, index, last, speed, setIndex: setIndexByUpdate, setPlaying });
 
   // Keep the selected frame in the address so a reload comes back to it. Debounced: browsers cap history writes.
   useEffect(() => {
@@ -455,7 +490,7 @@ export function useReplayController({ slug, frames, seatCount, mySeat }: {
   }, [frameId]);
 
   useEffect(() => {
-    if (!frames) return;
+    if (!frames || !enabled) return;
     const onKey = (event: KeyboardEvent) => {
       const action = replayKeyAction(event);
       if (!action) return;
@@ -468,7 +503,7 @@ export function useReplayController({ slug, frames, seatCount, mySeat }: {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [frames, togglePlay, stepForward, stepBack, seek]);
+  }, [frames, enabled, togglePlay, stepForward, stepBack, seek]);
 
   return {
     index,

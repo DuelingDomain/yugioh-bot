@@ -25,6 +25,8 @@ export interface HoloLpProps {
   me: boolean;
   /** In a fork: the seat that answers (default: `me`). The camera seat keeps `me` for its size and place, but is not "you". */
   acting?: boolean;
+  /** A replay has no player: the name stands alone, without "(you)". */
+  replay?: boolean;
   /** Top-left of the panel in stage px. */
   x: number;
   y: number;
@@ -118,6 +120,7 @@ export function HoloLp({
   status,
   me,
   acting,
+  replay = false,
   x,
   y,
   width,
@@ -160,7 +163,7 @@ export function HoloLp({
     <>
       <div className={styles.top} data-holo-text="true">
         <i aria-hidden="true" />
-        <b>{forkLabels ? ((acting ?? me) ? `${name} (acting)` : name) : me ? `${name} (you)` : name}</b>
+        <b>{forkLabels ? ((acting ?? me) ? `${name} (acting)` : name) : me && !replay ? `${name} (you)` : name}</b>
         {turn ? <span className={styles.turnChip}>Turn</span> : null}
       </div>
       <div className={styles.main} data-lp-seat={seat} data-holo-text="true">

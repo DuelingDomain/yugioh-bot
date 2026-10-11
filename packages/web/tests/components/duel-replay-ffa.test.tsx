@@ -197,6 +197,19 @@ describe("FFA replay: every field, every camera seat", () => {
   });
 });
 
+describe("FFA replay: the seat list comes from the format", () => {
+  it("offers every seat of the format in the camera list when the session row lists fewer", async () => {
+    stubServer((visibility) => {
+      const raw = replayOf("ffa4", [ffaFrame("ffa4", 0), ffaFrame("ffa4", 1)])(visibility);
+      return { ...raw, session: { ...raw.session, seats: raw.session.seats.slice(0, 2) } };
+    });
+    await open();
+    const options = [...(screen.getByLabelText("View from seat") as HTMLSelectElement).options].map((option) => option.value);
+    expect(options).toEqual(["0", "1", "2", "3"]);
+    expect(fieldSeats()).toEqual([0, 1, 2, 3]);
+  });
+});
+
 describe("FFA replay: the Extra Monster Zones come from the engine", () => {
   const zoneKeys = (seat: number) =>
     [...document.querySelector(`[data-seat-field="${seat}"]`)!.querySelectorAll("[data-zones]")].map((node) => node.getAttribute("data-zones") ?? "");
@@ -367,6 +380,35 @@ describe("FFA replay: read only", () => {
       expect((call.init?.method ?? "GET").toUpperCase()).toBe("GET");
     }
     expect(calls.map((call) => call.url.searchParams.get("visibility"))).toEqual(["mine", "public"]);
+  });
+
+  it("takes no replay key and no camera key while the table is hidden for another card view", async () => {
+    let release: (() => void) | null = null;
+    const server = replayOf("ffa3", FOUR_TO_TWO("ffa3"), 0);
+    vi.stubGlobal("fetch", vi.fn((input: string) => new Promise<Response>((resolve) => {
+      const url = new URL(input, "http://localhost");
+      if (!url.pathname.endsWith("/replay")) return resolve(json({ cards: [] }));
+      const visibility = url.searchParams.get("visibility") === "public" ? "public" : "mine";
+      const respond = () => resolve(json(server(visibility)));
+      if (visibility === "public") release = respond; else respond();
+    })));
+    await open();
+    const shown = () => document.querySelector("[data-replay-frame]")?.getAttribute("data-replay-frame");
+    const overview = () => document.querySelector("[data-cam='overview']")?.getAttribute("aria-pressed");
+    go("Next move");
+    const frameBefore = shown();
+    const overviewBefore = overview();
+    fireEvent.click(screen.getByRole("button", { name: "Public" }));
+    expect(document.querySelector("[data-replay-busy='true']")).not.toBeNull();
+    for (const key of ["ArrowRight", "ArrowRight", "End", " ", "o", "1"]) fireEvent.keyDown(window, { key });
+    await act(async () => { release?.(); });
+    await waitFor(() => expect(document.querySelector("[data-replay-busy]")).toBeNull());
+    expect(shown()).toBe(frameBefore);
+    expect(overview()).toBe(overviewBefore);
+    expect(screen.getByText("Move 1 / 4")).toBeTruthy();
+    // Back on screen, the same keys work again.
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.getByText("Move 2 / 4")).toBeTruthy();
   });
 
   it("offers no live control: no surrender, no clock, no prompt answer, nothing legal to click", async () => {
