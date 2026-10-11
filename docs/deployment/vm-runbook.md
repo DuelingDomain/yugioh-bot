@@ -634,7 +634,7 @@ systemctl start "$unit.timer"
 
 ## Manual duel storage VACUUM
 
-Snapshot retention only makes SQLite pages reusable. It never runs VACUUM. Schedule a drain window after compaction. The host logs pass counts, busy deferrals, and `backlogDone`, including turn-backfill progress while retention is off. `backlogDone` covers the enabled phases; unreadable turns stay null and are retried on the next cursor scan.
+Snapshot retention only makes SQLite pages reusable. It never runs VACUUM. Schedule a drain window after compaction. The host logs pass counts, busy deferrals, and `backlogDone`, including turn-backfill progress while retention is off. `backlogDone` covers the enabled phases; unreadable turns stay null and are retried on the next cursor scan. After a scan wraps to the start, the host waits at least one hour before a new full turn scan. Compaction and fork cleanup continue during this delay.
 
 As root, first set `DUEL_DB_FILE` to the existing database, `DUEL_DB_BACKUP` to a new backup file outside application cleanup, and `DUEL_SQLITE_TMPDIR` to a writable temporary directory on the database volume. Use operator-selected paths. The backup directory must already exist. Never overwrite a backup. Check the remaining eligible rows with the same configured age (30 days below); queued or failing forks leave the backlog unfinished:
 
@@ -642,6 +642,8 @@ As root, first set `DUEL_DB_FILE` to the existing database, `DUEL_DB_BACKUP` to 
 : "${DUEL_DB_FILE:?Set DUEL_DB_FILE to the existing database path}"
 sqlite3 -readonly "$DUEL_DB_FILE" "select count(*) as turns_pending from duels where turn_count is null and status in ('completed','interrupted','cancelled') and (clock_json is not null or snapshot_public_json is not null or snapshot_seat0_json is not null or snapshot_seat1_json is not null or snapshot_seats_json is not null); select count(*) as boards_pending from duels where snapshot_compacted_at is null and status in ('completed','interrupted','cancelled') and julianday(ended_at)<julianday('now','-30 days'); select count(*) as forks_pending from duels where status='cancelled' and kind='replay-fork' and series_id is null and julianday(ended_at)<julianday('now','-7 days');"
 ```
+
+`turns_pending` is an upper bound. It includes rows whose stored values have no readable turn. These rows stay null after a scan completes.
 
 1. Stop new duel admissions, let active duels finish, and verify the count is zero with the [active-duel drain check](#before-a-deploy-that-changes-the-engine-bundle). Pause `dueling-backup.timer`, wait for any running `dueling-backup.service` to finish, then stop web, bot (if separately running), worker, ws, and duel. Keep all database readers and writers stopped through verification.
 2. Run the guarded subshell below. It verifies the live DB and backup, requires at least **2x the database file size in free space after backup**, and places SQLite's temporary copy on that same volume via `SQLITE_TMPDIR`. This accounts for the temporary database and WAL copy-back; leave additional room for filesystem overhead. If using a different temp volume instead, independently reserve 2x the file size there and on the database volume and change the same-volume guard only after checking both.

@@ -6,6 +6,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_BATCH_ROWS = 50;
 const MAX_BATCH_BYTES = 4 * 1024 * 1024;
 const MAX_SWEEP_BATCHES = 20;
+const TURN_SCAN_DELAY_MS = 60 * 60 * 1000;
 const enabled = () => ["1", "true"].includes((process.env.DUEL_SNAPSHOT_RETENTION_ENABLED ?? "0").trim().toLowerCase());
 const turnBackfillEnabled = () => ["1", "true"].includes((process.env.DUEL_TURN_BACKFILL_ENABLED ?? "1").trim().toLowerCase());
 function integerEnv(name: string, fallback: number, minimum: number): number {
@@ -23,11 +24,13 @@ interface RetentionRow extends StoredDuelBoards {
 }
 type Phase = "turn-backfill" | "fork-delete" | "compaction";
 export interface DuelSnapshotRetentionOptions {
-  now?: number;
+  now?: number | (() => number);
   batchSize?: number;
   maxBatches?: number;
   /** Last handled turn row from the prior pass. Reset only after an empty select. */
   turnCursor?: number;
+  /** Earliest time for a new scan after the previous scan wrapped. */
+  turnBackfillResumeAt?: number;
   stopped?: () => boolean;
   /** Include the creator queue used by launch retries, as well as slug operations. */
   isForkBusy?: (slug: string, guildId: string, creatorPlayerId: number) => boolean;
@@ -52,14 +55,17 @@ const bytesOf = (row: RetentionRow) => originalsOf(row).reduce<number>((sum, raw
 
 /** Bounded, resumable sweep. Turn-only backfill runs even while compression is disabled. */
 export async function runDuelSnapshotRetention(db: Database.Database, options: DuelSnapshotRetentionOptions = {}) {
+  const timeSource = options.now;
+  const currentTime = typeof timeSource === "function" ? timeSource : () => timeSource ?? Date.now();
+  const time = currentTime();
   const stats = { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false,
-    turnCursor: options.turnCursor ?? 0, turnBackfillDone: !turnBackfillEnabled() };
+    turnCursor: options.turnCursor ?? 0, turnBackfillResumeAt: options.turnBackfillResumeAt ?? 0,
+    turnBackfillDone: !turnBackfillEnabled() || time < (options.turnBackfillResumeAt ?? 0) };
   const stopped = () => options.stopped?.() === true;
   const stopRetention = () => stopped() || !enabled();
-  const stopBackfill = () => stopped() || !turnBackfillEnabled();
+  const stopBackfill = () => stopped() || !turnBackfillEnabled() || time < stats.turnBackfillResumeAt;
   if (stopped()) return stats;
   const config = duelSnapshotRetentionConfig();
-  const time = options.now ?? Date.now();
   const cutoff = new Date(time - config.days * DAY_MS).toISOString();
   const forkCutoff = new Date(time - 7 * DAY_MS).toISOString();
   const stamp = new Date(time).toISOString();
@@ -70,42 +76,48 @@ export async function runDuelSnapshotRetention(db: Database.Database, options: D
     if (isBusy(error)) stats.busy = true;
     else if (options.onError) options.onError(phase, error);
     else console.warn("[duel] storage maintenance error", { phase, code: (error as { code?: string })?.code ?? "unknown",
-      message: error instanceof Error ? error.message : String(error) });
+      name: error instanceof Error ? error.name : "Unknown" });
   };
   const fetch = db.prepare<[number], RetentionRow>(`select id,format,status,kind,ended_at,clock_json,${STORED_BOARD_COLUMNS} from duels where id=?`);
 
   // The host retains the ID cursor across passes, including unreadable turns. No age or
   // compaction guard: deployment must preserve recent history and repaired old rows.
-  try {
-    const select = db.prepare<[number, number], { id: number }>(`select id from duels where turn_count is null and ${terminalGuard}
-      and (clock_json is not null or snapshot_public_json is not null or snapshot_seat0_json is not null
-        or snapshot_seat1_json is not null or snapshot_seats_json is not null) and id>? order by id limit ?`);
-    const update = db.prepare(`update duels set turn_count=? where id=? and turn_count is null and status=?
-      and ended_at is ? and clock_json is ? and snapshot_public_json is ? and snapshot_seat0_json is ? and snapshot_seat1_json is ? and snapshot_seats_json is ?`);
-    for (let batch = 0; batch < batches && !stopBackfill(); batch++) {
-      const ids = select.all(stats.turnCursor, size);
-      if (!ids.length) { stats.turnCursor = 0; stats.turnBackfillDone = true; break; }
-      let bytes = 0;
-      for (const { id } of ids) {
-        if (stopBackfill() || bytes >= MAX_BATCH_BYTES) break;
-        const row = fetch.get(id);
-        if (!row) { stats.turnCursor = id; continue; }
-        const rowBytes = bytesOf(row);
-        if (bytes && bytes + rowBytes > MAX_BATCH_BYTES) break;
-        bytes += rowBytes;
-        try {
-          const turn = storedTurnCount(row);
-          await pause(0);
-          if (stopBackfill()) break;
-          if (turn !== null) stats.backfilled += withoutBusyWait(db, () => db.transaction(() =>
-            update.run(turn, row.id, row.status, row.ended_at, row.clock_json, ...originalsOf(row)).changes).immediate());
-        } catch (error) { report("turn-backfill", error); if (isBusy(error)) break; }
-        stats.turnCursor = id;
+  if (!stopBackfill()) {
+    try {
+      const select = db.prepare<[number, number], { id: number }>(`select id from duels where turn_count is null and ${terminalGuard}
+        and (clock_json is not null or snapshot_public_json is not null or snapshot_seat0_json is not null
+          or snapshot_seat1_json is not null or snapshot_seats_json is not null) and id>? order by id limit ?`);
+      const update = db.prepare(`update duels set turn_count=? where id=? and turn_count is null and status=?
+        and ended_at is ? and clock_json is ? and snapshot_public_json is ? and snapshot_seat0_json is ? and snapshot_seat1_json is ? and snapshot_seats_json is ?`);
+      for (let batch = 0; batch < batches && !stopBackfill(); batch++) {
+        const ids = select.all(stats.turnCursor, size);
+        if (!ids.length) {
+          stats.turnCursor = 0; stats.turnBackfillDone = true;
+          stats.turnBackfillResumeAt = currentTime() + TURN_SCAN_DELAY_MS;
+          break;
+        }
+        let bytes = 0;
+        for (const { id } of ids) {
+          if (stopBackfill() || bytes >= MAX_BATCH_BYTES) break;
+          try {
+            const row = fetch.get(id);
+            if (!row) { stats.turnCursor = id; continue; }
+            const rowBytes = bytesOf(row);
+            if (bytes && bytes + rowBytes > MAX_BATCH_BYTES) break;
+            bytes += rowBytes;
+            const turn = storedTurnCount(row);
+            await pause(0);
+            if (stopBackfill()) break;
+            if (turn !== null) stats.backfilled += withoutBusyWait(db, () => db.transaction(() =>
+              update.run(turn, row.id, row.status, row.ended_at, row.clock_json, ...originalsOf(row)).changes).immediate());
+          } catch (error) { report("turn-backfill", error); if (isBusy(error)) break; }
+          stats.turnCursor = id;
+        }
+        if (stats.busy) break;
+        await pause(100);
       }
-      if (stats.busy) break;
-      await pause(100);
-    }
-  } catch (error) { report("turn-backfill", error); }
+    } catch (error) { report("turn-backfill", error); }
+  }
   if (stopRetention()) {
     stats.backlogDone = !stopped() && !stats.busy && stats.turnBackfillDone;
     return stats;

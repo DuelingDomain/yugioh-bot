@@ -150,7 +150,7 @@ describe("POST /api/duels/[slug]/seat with MULTIPLAYER_TABLES", () => {
       const response = await join(session.slug);
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({ error: "Duel is invite-only" });
-      expect(room).toHaveBeenCalledWith(session.slug, "g1", playerId);
+      expect(room).toHaveBeenCalledWith(session.slug, "g1", playerId, { includeStoredBoard: false });
     }
     expect(get).not.toHaveBeenCalled();
     expect(joinSpy).not.toHaveBeenCalled();

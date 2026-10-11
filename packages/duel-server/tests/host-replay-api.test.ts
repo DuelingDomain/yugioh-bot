@@ -334,7 +334,7 @@ it("schedules one retention sweep at a time and waits for it during shutdown", a
   const job = vi.spyOn(jobs, "runDuelSnapshotRetention").mockImplementation(async (_db, options) => {
     await gate;
     stoppedAtRelease = options?.stopped?.();
-    return { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false, turnCursor: 0, turnBackfillDone: false };
+    return { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false, turnCursor: 0, turnBackfillDone: false, turnBackfillResumeAt: 0 };
   });
   try {
     host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
@@ -391,23 +391,39 @@ it("backfills history while retention is disabled and logs pass progress", async
   } finally { await host.close(); log.mockRestore(); vi.useRealTimers(); }
 });
 
-it("passes the turn cursor to later host sweeps and logs non-SQLite error messages", async () => {
+it("passes turn scan state to later host sweeps and logs only error names and codes", async () => {
   const jobs = await import("@yugidraft/shared/services");
   await host.close(); vi.useFakeTimers(); vi.stubEnv("DUEL_SNAPSHOT_RETENTION_INTERVAL_MS", "120000");
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const job = vi.spyOn(jobs, "runDuelSnapshotRetention").mockImplementation(async (_db, options) => {
-    options?.onError?.("turn-backfill", new TypeError("Synthetic worker failure"));
-    return { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false, turnCursor: 7, turnBackfillDone: false };
+    options?.onError?.("turn-backfill", Object.assign(new TypeError("Synthetic private payload"), { code: "SYNTHETIC_FAILURE" }));
+    return { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false, turnCursor: 7, turnBackfillDone: false, turnBackfillResumeAt: 3_600_000 };
   });
   try {
     host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
     await vi.advanceTimersByTimeAsync(120_000);
     expect(job).toHaveBeenCalledTimes(2);
-    expect(job.mock.calls[0]![1]).toMatchObject({ turnCursor: 0 });
-    expect(job.mock.calls[1]![1]).toMatchObject({ turnCursor: 7 });
-    expect(warn).toHaveBeenCalledWith("[duel] storage maintenance error", expect.objectContaining({
-      phase: "turn-backfill", code: "unknown", message: "Synthetic worker failure",
-    }));
+    expect(job.mock.calls[0]![1]).toMatchObject({ now: expect.any(Function), turnCursor: 0, turnBackfillResumeAt: 0 });
+    expect(job.mock.calls[1]![1]).toMatchObject({ turnCursor: 7, turnBackfillResumeAt: 3_600_000 });
+    expect(warn).toHaveBeenCalledWith("[duel] storage maintenance error", {
+      phase: "turn-backfill", code: "SYNTHETIC_FAILURE", name: "TypeError",
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("Synthetic private payload");
+  } finally { await host.close(); job.mockRestore(); warn.mockRestore(); vi.useRealTimers(); }
+});
+
+it("logs only the name and code when the retention job rejects", async () => {
+  const jobs = await import("@yugidraft/shared/services");
+  await host.close(); vi.useFakeTimers();
+  const error = Object.assign(new TypeError("Synthetic private payload"), { code: "SYNTHETIC_FAILURE" });
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const job = vi.spyOn(jobs, "runDuelSnapshotRetention").mockRejectedValue(error);
+  try {
+    host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(job).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("[duel] snapshot retention sweep failed", { name: "TypeError", code: "SYNTHETIC_FAILURE" });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(error.message);
   } finally { await host.close(); job.mockRestore(); warn.mockRestore(); vi.useRealTimers(); }
 });
 

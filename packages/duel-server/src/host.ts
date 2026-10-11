@@ -3005,20 +3005,23 @@ export function createDuelHost(options: {
   let retentionSweep: Promise<unknown> | null = null;
   let retentionBacklogDone = false;
   let turnBackfillCursor = 0;
+  let turnBackfillResumeAt = 0;
   const sweepRetention = () => {
     if (stopped || retentionSweep) return;
-    retentionSweep = runDuelSnapshotRetention(options.db, { now: now(), stopped: () => stopped, turnCursor: turnBackfillCursor,
+    retentionSweep = runDuelSnapshotRetention(options.db, { now, stopped: () => stopped, turnCursor: turnBackfillCursor, turnBackfillResumeAt,
       isForkBusy: (slug, guildId, creatorPlayerId) => queues.has(slug) || queues.has(`fork-owner:${guildId}:${creatorPlayerId}`),
       onError: (phase, error) => console.warn("[duel] storage maintenance error", { phase,
-        code: (error as { code?: string })?.code ?? "unknown", message: error instanceof Error ? error.message : String(error) }),
+        code: (error as { code?: string })?.code ?? "unknown", name: error instanceof Error ? error.name : "Unknown" }),
     }).then(stats => {
       turnBackfillCursor = stats.turnCursor;
+      turnBackfillResumeAt = stats.turnBackfillResumeAt;
       if (stats.backfilled || stats.compacted || stats.deletedForks || stats.busy || (stats.backlogDone && !retentionBacklogDone)) {
         console.info("[duel] snapshot retention pass", stats);
       }
       retentionBacklogDone = stats.backlogDone;
     })
-      .catch(error => console.warn("[duel] snapshot retention sweep failed", error))
+      .catch(error => console.warn("[duel] snapshot retention sweep failed", {
+        name: error instanceof Error ? error.name : "Unknown", code: (error as { code?: string })?.code ?? "unknown" }))
       .finally(() => { retentionSweep = null; });
   };
   const retentionInterval = duelSnapshotRetentionConfig().intervalMs;
