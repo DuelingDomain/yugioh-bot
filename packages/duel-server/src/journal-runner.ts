@@ -45,6 +45,8 @@ export interface JournalCheckpoint {
 }
 
 export interface JournalRunOptions {
+  /** Fork control boundary. The host reads existing boundaries from immutable private setup. */
+  manualLossAnswersAfter?: number;
   source: ReplaySource;
   resources: JournalResources;
   /** Ordered entry count; neither a stored sequence ID, revision, nor visible frame number. */
@@ -70,11 +72,15 @@ function mismatch(message: string): never {
 }
 
 /** Resolve original creation rules without deck admission checks or any live-table setup. */
-function creationOptions({ source, resources, prefixCount, checkpointSeat, target }: JournalRunOptions): GameOptions {
+function creationOptions({ source, resources, prefixCount, checkpointSeat, target, manualLossAnswersAfter }: JournalRunOptions): GameOptions {
   if (!Number.isSafeInteger(prefixCount) || prefixCount < 0 || prefixCount > source.commands.length) {
     throw new JournalRunnerError("Journal prefix count is outside the recorded input", "INVALID_CURSOR");
   }
   const { session, setup } = source;
+  const manualBoundary = manualLossAnswersAfter;
+  if (manualBoundary !== undefined && (!Number.isSafeInteger(manualBoundary) || manualBoundary < 0 || manualBoundary > source.commands.length)) {
+    mismatch("Invalid fork control boundary");
+  }
   if (!["1v1", "tag", "ffa3", "ffa4"].includes(session.format) || !["normal", "domain"].includes(session.mode)) mismatch("Invalid saved duel format or mode");
   const count = seatCountFor(session.format);
   if (!isReplaySeed(source.seed)) mismatch("Saved seed must contain four nonzero decimal uint64 words");
@@ -132,6 +138,7 @@ function creationOptions({ source, resources, prefixCount, checkpointSeat, targe
     throw new JournalRunnerError("The exact recorded engine identity is not available", "ENGINE_UNAVAILABLE_FOR_SOURCE");
   }
   return {
+    ...(manualBoundary !== undefined ? { manualLossAnswersAfter: manualBoundary } : {}),
     mode: session.mode, decks: structuredClone(source.decks), seed: [...source.seed], dataDirectory: resources.dataDirectory,
     masterRule: session.masterRule, settings: structuredClone(session.settings), firstTurnDraw, scriptErrorMode,
     ...(resources.engineIdentity ? { engineIdentity: resources.engineIdentity } : {}),

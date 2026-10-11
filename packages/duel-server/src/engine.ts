@@ -232,6 +232,8 @@ export interface EngineGame {
    * same points gives the same duel, so every call must be journaled by the caller.
    */
   setChainMode(seat: number, mode: DuelChainMode): boolean;
+  /** Fork control after its copied prefix. Required choices from pending-loss seats stay Manual. */
+  setManualLossAnswers?(enabled: boolean): void;
   /** The last entries (oldest first) of the triage ring buffer. For the host report only, never for a view. */
   diagnostics(): EngineDiagnostic[];
   /** Core identity (wasm sha and file) and the counters since the last prompt. For reports and triage only. */
@@ -1089,6 +1091,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
 
   /** Bound automatic answers while the current chain or cut-short turn finishes. */
   const LEAVING_ANSWER_LIMIT = 200;
+  let manualLossAnswers = false;
 
   const mustCloseResponseWindow = () => pending?.seat === closedResponseSeat
     && (pending?.message.type === OcgMessageType.SELECT_EFFECTYN
@@ -1102,6 +1105,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const answerForLeavingSeats = () => {
     for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow()); step += 1) {
       const current = pending;
+      // A fork's creator must answer required choices while the core finishes the loss.
+      // The core's signal to close an optional response window still needs to be consumed.
+      if (manualLossAnswers && !eliminated.has(current.seat) && !mustCloseResponseWindow()) break;
       closedResponseSeat = null;
       if (step >= LEAVING_ANSWER_LIMIT) {
         throw new Error(`Seat ${current.seat} is still in the duel after ${LEAVING_ANSWER_LIMIT} automatic answers (open prompt ${current.id}, ${current.prompt.kind})`);
@@ -1131,6 +1137,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   }
 
   const game: EngineGame = {
+    setManualLossAnswers(enabled) { manualLossAnswers = enabled; },
     view(seat) {
       if (closed) throw new Error("Engine is closed");
       if (seat != null && !(Number.isInteger(seat) && seat >= 0 && seat < seatCount)) throw new Error("Invalid seat");

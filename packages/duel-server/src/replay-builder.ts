@@ -30,6 +30,8 @@ export function replayBuildError(error: unknown): ReplayBuildError {
 }
 
 export interface ReplayBuildOptions {
+  /** Persisted fork control boundary supplied by the host. Absent for real-play source journals. */
+  manualLossAnswersAfter?: number;
   source: ReplaySource;
   sourceVersion: string;
   resources: JournalResources;
@@ -91,6 +93,7 @@ export async function buildReplayFrames(options: ReplayBuildOptions): Promise<Re
   };
   const work = async () => {
     const result = await runJournalPrefix({ source, resources: options.resources, prefixCount: source.commands.length,
+      manualLossAnswersAfter: options.manualLossAnswersAfter,
       createWorker: () => (worker = options.createWorker()), checkpointSeat: dataSeat,
       onCheckpoint: async ({ view, input, actorSeat, beforeRevision, prefixCount }) => {
         if (expired) throw new ReplayBuildError("Replay timed out.", "ENGINE_BUSY");

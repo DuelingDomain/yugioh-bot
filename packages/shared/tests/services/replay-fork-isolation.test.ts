@@ -39,7 +39,8 @@ function fixture(format: DuelFormat = "1v1") {
   const fork = forks.create(input).session;
   return { db, guildId, owner, dev, actors, actor, duels, series, source, fork, forks, input };
 }
-const protectedTables = ["duel_series", "matches", "point_awards", "player_ratings", "season_standings", "tournaments", "tournament_matches"];
+const protectedTables = ["users", "players", "duel_invite_grants", "duel_series", "matches", "point_awards",
+  "player_ratings", "season_standings", "tournaments", "tournament_participants", "tournament_matches"];
 function protectedRows(db: Database.Database) {
   return Object.fromEntries(protectedTables.map(table => [table, db.prepare(`select * from ${table} order by rowid`).all()]));
 }
@@ -53,6 +54,26 @@ function attachBadSeries(app: ReturnType<typeof fixture>) {
 }
 
 describe("replay fork real-play isolation", () => {
+  it.each(["complete", "interrupt", "cancel"] as const)("preserves existing stats, scores, Elo and bracket rows on %s and retry", operation => {
+    const app = fixture(), matches = createMatchService(app.db), tournaments = createTournamentService(app.db);
+    const recorded = matches.recordConfirmedResult({ guildId: app.guildId, playerOneId: app.actors[0]!.playerId,
+      playerTwoId: app.actors[1]!.playerId, winnerId: app.actors[0]!.playerId, source: "casual", sourceDuelId: app.source.session.id });
+    expect(recorded.status).toBe("approved");
+    const tournament = tournaments.create(app.guildId, "Existing bracket", "single_elim", app.owner.userId);
+    for (const actor of app.actors) tournaments.join(tournament.id, actor.playerId);
+    tournaments.start(tournament.id);
+    const before = protectedRows(app.db), source = sourceRows(app), stats = app.actors.map(actor => matches.stats(actor.playerId));
+    expect(before.matches).toHaveLength(1); expect(before.point_awards.length).toBeGreaterThan(0);
+    expect(before.player_ratings.length).toBeGreaterThan(0); expect(before.tournament_matches.length).toBeGreaterThan(0);
+    const run = () => operation === "complete" ? app.duels.complete(app.fork.slug, app.guildId, 0, "Private diagnostic result")
+      : operation === "interrupt" ? app.duels.interrupt(app.fork.slug, app.guildId, "Private engine failure")
+      : app.duels.cancel(app.fork.slug, app.guildId, app.owner.playerId);
+    const result = run(); expect(run()).toEqual(result);
+    expect(app.forks.create(app.input)).toEqual({ session: result, reused: true });
+    expect(protectedRows(app.db)).toEqual(before); expect(sourceRows(app)).toEqual(source);
+    expect(app.actors.map(actor => matches.stats(actor.playerId))).toEqual(stats);
+  });
+
   it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("keeps %s results local and preserves real-play data", format => {
     const app = fixture(format), before = protectedRows(app.db), source = sourceRows(app);
     const board: DuelEngineView = { revision: 7, turn: 2, turnSeat: 0, phase: "main1", seats: app.fork.seats.map(({ seat }) => ({

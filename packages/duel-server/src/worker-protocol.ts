@@ -4,9 +4,11 @@ import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelErrorCode, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode, EngineIdentity } from "@yugidraft/shared/duels";
 
 /** Bump when worker transport, command decoding or prompt semantics change. */
-export const ENGINE_PROTOCOL_VERSION = "duel-worker-1";
+export const ENGINE_PROTOCOL_VERSION = "duel-worker-2";
 
 export interface DuelWorkerCreateOptions {
+  /** Server-owned fork prefix count; never taken from an ordinary create request. */
+  manualLossAnswersAfter?: number;
   engineIdentity?: EngineIdentity;
   scriptErrorMode?: DuelScriptErrorMode;
   mode: DuelMode;
