@@ -29,3 +29,18 @@ it("serializes a large view in a worker and streams reusable JSON without serial
     await expect(expired.arrayBuffer()).rejects.toThrow("Replay response timed out");
   } finally { spy.mockRestore(); await encoder.close(); }
 });
+
+it("streams metadata-only checkpoints without stringifying the entire step list on the host", async () => {
+  const source = replaySource();
+  const forkSteps = Array.from({ length: 1500 }, (_, step) => ({ step, frameId: `frame-${step}`, actorSeat: 0,
+    kind: "engine" as const, cursor: `sealed-${step}` }));
+  const replay = { version: 2 as const, sourceVersion: "version", visibility: "public" as const, session: source.session,
+    role: "spectator" as const, mySeat: null, dataSeat: null, frames: [], forkSteps };
+  const stringify = JSON.stringify;
+  const spy = vi.spyOn(JSON, "stringify").mockImplementation((value, ...args) => {
+    if (value === forkSteps || value?.forkSteps === forkSteps) throw new Error("Entire checkpoint list serialized on host");
+    return stringify(value, ...args);
+  });
+  try { expect(await replayJsonResponse({ replay, viewJson: [] }).json()).toEqual(replay); }
+  finally { spy.mockRestore(); }
+});

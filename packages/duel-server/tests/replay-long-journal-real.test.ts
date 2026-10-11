@@ -9,7 +9,7 @@ import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelEngineView, DuelReplayV2, DuelRoom, ReplayForkResult, ReplayJournalEntry } from "@yugidraft/shared/duels";
 import { createEngineGame } from "../src/engine.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
-import { createReplayCursorCodec, replayFrameId, replayPrefixHashes, replaySourceVersion } from "../src/replay-cursor.js";
+import { createReplayCursorCodec, replaySourceVersion } from "../src/replay-cursor.js";
 import { multiScriptsFolderHash, pinnedEngineVersion, repoMultiScriptsDirectory } from "../src/multi-scripts.js";
 import { chooseSurrenderedAnswer } from "../src/practice-bot.js";
 import { GameWorker } from "../src/worker-client.js";
@@ -55,7 +55,7 @@ describeWithCores("long stored journals", [needs.cards(DATA), needs.scripts(DATA
       try {
         await new Promise(resolve => setTimeout(resolve, 20));
         const at = performance.now();
-        const result = await request<T>({ op: "replay", version: 2, visibility: "public", slug });
+        const result = await request<T>({ op: "replay", version: 2, visibility: "public", slug, ...(status === 413 ? { playerId: 1, userId: 201 } : {}) });
         metrics[`${label}Ms`] = performance.now() - at; metrics[`${label}Bytes`] = result.bytes;
         await new Promise(resolve => setTimeout(resolve, 20));
         metrics[`${label}P99Ms`] = delay.percentile(99) / 1e6;
@@ -133,10 +133,16 @@ describeWithCores("long stored journals", [needs.cards(DATA), needs.scripts(DATA
       expect(saved.engine?.seats).toEqual(boards.public.seats);
       expect(db.prepare("select * from duels where id = ?").get(session.id)).toEqual(before);
       expect(db.prepare("select * from duel_commands where duel_id = ? order by seq").all(session.id)).toEqual(beforeCommands);
-      // The oversized replay still has a valid trusted checkpoint; fork budgets/recovery handle the full prefix.
-      const prefixCount = source.commands.length, frameId = replayFrameId(sourceVersion, prefixCount);
-      const cursor = codec.seal({ sourceId: session.id, sourceSlug: session.slug, guildId: owner.guildId, sourceVersion,
-        frameId, step: prefixCount, prefixCount, prefixHash: replayPrefixHashes(source)[prefixCount]!, revision: boards.public.revision });
+      // Use the owner's actual HTTP checkpoint response; no hand-sealed cursor can bypass the UI contract.
+      const ownerReplay = await post<DuelReplayV2>({ op: "owner-replay", slug: session.slug, visibility: "public" });
+      expect(ownerReplay.capabilities?.canFork).toBe(true);
+      expect(ownerReplay.frames).toHaveLength(1);
+      expect(ownerReplay.forkSteps).toHaveLength(source.commands.length + 2);
+      const checkpoint = ownerReplay.forkSteps!.filter(step => step.cursor !== null).at(-1)!;
+      const cursor = checkpoint.cursor!;
+      expect(codec.open(cursor).prefixCount).toBe(source.commands.length);
+      expect(ownerReplay.sourceVersion).toBe(sourceVersion);
+      metrics.ownerSteps = ownerReplay.forkSteps!.length;
       at = performance.now();
       const launch = await post<ReplayForkResult>({ op: "replay-fork", slug: session.slug, cursor, sourceVersion, requestId: "long-fixture" });
       metrics.launchMs = performance.now() - at; expect(metrics.launchMs).toBeLessThan(28_000);

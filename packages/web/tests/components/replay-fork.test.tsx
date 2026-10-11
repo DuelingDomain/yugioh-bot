@@ -400,6 +400,47 @@ describe("Jump in on the replay viewer", () => {
     expect(nav.push).toHaveBeenCalledTimes(1);
   });
 
+  it("selects a metadata-only checkpoint and jumps in while the saved final board stays visible", async () => {
+    const full = ownerReplay();
+    const forkSteps = full.frames.map(({ view: _view, ...step }) => step);
+    const oversized = { ...full, frames: [full.frames.at(-1)!], forkSteps,
+      replayError: { code: "REPLAY_TOO_LARGE", error: "Move views exceed the size limit." } };
+    server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
+      ? json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: forkRoom() }) : json(oversized));
+    await open(true);
+    fireEvent.change(screen.getByRole("combobox", { name: "Jump in at move" }), { target: { value: "f1" } });
+    expect(screen.getByText(/Final board preview/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/duels/fork-9"));
+    const posted = JSON.parse(String(calls.find(call => call.init?.method === "POST")!.init!.body));
+    expect(posted).toMatchObject({ cursor: "c1", sourceVersion: "src-1" });
+  });
+  it("keeps the chosen oversized checkpoint across private projection switches", async () => {
+    const full = ownerReplay();
+    const forkSteps = full.frames.map(({ view: _view, ...step }) => step);
+    server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
+      ? json({ slug: "fork-9", sourceFrameId: "f2", initialSeat: 0, room: forkRoom() })
+      : json({ ...full, frames: [full.frames.at(-1)!], forkSteps, reveal: url.searchParams.get("reveal") === "1" }));
+    await open(true);
+    fireEvent.change(screen.getByRole("combobox", { name: "Jump in at move" }), { target: { value: "f2" } });
+    fireEvent.click(screen.getByRole("button", { name: /Private view/ }));
+    fireEvent.click(screen.getByLabelText("Reveal all hands"));
+    await waitFor(() => expect(calls.some(call => call.url.searchParams.get("reveal") === "1")).toBe(true));
+    expect((await screen.findByRole("combobox", { name: "Jump in at move" }) as HTMLSelectElement).value).toBe("f2");
+    fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/duels/fork-9"));
+    expect(JSON.parse(String(calls.find(call => call.init?.method === "POST")!.init!.body)).cursor).toBe("c2");
+  });
+  it("offers Jump in when even the final board cannot fit", async () => {
+    const full = ownerReplay();
+    const forkSteps = full.frames.map(({ view: _view, ...step }) => step);
+    server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
+      ? json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: forkRoom() }) : json({ ...full, frames: [], forkSteps }));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Jump in at move" }), { target: { value: "f1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/duels/fork-9"));
+  });
   it("disables Jump in on the final result frame", async () => {
     server(() => json(ownerReplay()));
     await open(true);

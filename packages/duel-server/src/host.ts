@@ -53,7 +53,7 @@ import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { EngineResourceCache } from "./engine-resource-cache.js";
 import { ReplayJsonEncoder, replayJsonResponse, type ReplayHttpResult } from "./replay-json.js";
-import { buildReplayData, projectReplayFrames, type ReplayBuildData, type ReplayBuildErrorCode, replayBuildError, replayHasUnsequencedLoss, revealReplayHands, ReplayBuildCache } from "./replay-builder.js";
+import { buildReplayData, projectReplayFrames, projectReplaySteps, type ReplayBuildData, type ReplayBuildErrorCode, replayBuildError, replayHasUnsequencedLoss, revealReplayHands, ReplayBuildCache } from "./replay-builder.js";
 import { createReplayCursorCodec, replaySourceVersion, ReplayCursorError } from "./replay-cursor.js";
 import { createReplayForkLauncher, listActiveReplayForks, REPLAY_FORK_ACTIVE_LIMIT, ReplayForkLaunchError } from "./replay-fork.js";
 import { initialForkSeat, resolveReplayForkSeat, replayForkRoom } from "./replay-fork-seats.js";
@@ -348,7 +348,7 @@ export function createDuelHost(options: {
   const pinnedVersionFor = (format: DuelFormat): string =>
     pinnedEngineVersion(manifest.bundleVersion, seatCountFor(format), seatCountFor(format) > 2 ? activeMultiScriptsHash(options.dataDirectory) : null);
   const games = new Map<string, LiveGame>();
-  const replayCache = new ReplayBuildCache<ReplayBuildData>(value => value.bytes);
+  const replayCache = new ReplayBuildCache<ReplayBuildData>(value => value.cacheBytes);
   const replayJsonEncoder = new ReplayJsonEncoder();
   const engineResourceCache = new EngineResourceCache();
   const replayCursorCodec = createReplayCursorCodec(options.secret);
@@ -1581,9 +1581,12 @@ export function createDuelHost(options: {
       const built = await replayCache.getOrBuild(key, () => buildReplayData({ source, sourceVersion,
         ...(isReplayFork(state.session) ? { manualLossAnswersAfter: state.setup!.replayFork!.origin.prefixCount } : {}),
         resources: journalResourcesOf(resources), dataSeat: projection.dataSeat,
-        reveal: projection.reveal, finalView, signal, encodeView: view => replayJsonEncoder.encode(view), createWorker: () => spawn() }));
+        reveal: projection.reveal, retainStepsOnOverflow: true, finalView, signal, encodeView: view => replayJsonEncoder.encode(view), createWorker: () => spawn() }));
       if (sourceVersion !== replaySourceVersion(journalSourceOf(service.privateState(slug, guildId)))) {
         throw new RequestError("The source changed. Refresh the replay.", 409, "SOURCE_CHANGED");
+      }
+      if (built.oversized && (projection.version !== 2 || projection.ownerUserId === undefined)) {
+        throw new RequestError("Replay is too large to load safely (16 MiB limit). Open the saved final board.", 413, "REPLAY_TOO_LARGE", finalBoard);
       }
       const { frames, viewJson } = built;
       if (projection.version === 1) return { viewJson, replay: { session: room.session, role: room.role, mySeat: room.mySeat,
@@ -1592,8 +1595,10 @@ export function createDuelHost(options: {
         ...(projection.reveal !== undefined ? { reveal: projection.reveal } : {}),
         session: room.session, role: room.role, mySeat: room.mySeat, dataSeat: projection.dataSeat,
         frames: projectReplayFrames(frames, replayCursorCodec, projection.ownerUserId !== undefined),
+        ...(built.oversized ? { forkSteps: projectReplaySteps(built.steps, replayCursorCodec),
+          replayError: { code: "REPLAY_TOO_LARGE" as const, error: "Move views exceed the size limit. Showing the final board; choose a move to Jump in." } } : {}),
         ...(projection.ownerUserId !== undefined ? { capabilities: {
-          canFork: !replayHasUnsequencedLoss(source) && frames.some(frame => frame.cursor !== null),
+          canFork: !replayHasUnsequencedLoss(source) && built.steps.some(step => step.cursor !== null),
           privateSeats: room.session.seats.map(seat => seat.seat),
         } } : {}),
       } };

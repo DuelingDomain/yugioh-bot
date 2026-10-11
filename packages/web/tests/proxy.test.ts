@@ -16,11 +16,13 @@ it("opens only POST to the exact waitlist route", async () => {
     const res = await proxy(request(path), {} as never); expect(res?.status).toBe(401); expect(await res?.json()).toEqual({ error: "unauthorized" });
   }
 });
-it.each(["Clerk", "E2E"])("keeps anonymous fork-list proxy rejections private and uncached in %s mode", async mode => {
+it.each(["Clerk", "E2E"])("keeps all anonymous API proxy rejections private and uncached in %s mode", async mode => {
   if (mode === "E2E") { vi.stubEnv("E2E_AUTH", "1"); vi.stubEnv("E2E_AUTH_SECRET", "x".repeat(32)); }
-  const response = await proxy(request("/api/admin/duels/forks"), {} as never);
-  expect(response?.status).toBe(401); expect(await response?.json()).toEqual({ error: "unauthorized" });
-  expect(response?.headers.get("cache-control")).toBe("private, no-store");
+  for (const path of ["/api/admin/duels/forks", "/api/drafts", "/api/duels/game-1/replay", "/api/admin/status"]) {
+    const response = await proxy(request(path), {} as never);
+    expect(response?.status).toBe(401); expect(await response?.json()).toEqual({ error: "unauthorized" });
+    expect(response?.headers.get("cache-control")).toBe("private, no-store");
+  }
 });
 it("allows only the exact anonymous recovery routes and their methods", async () => {
   for (const [path, method] of [["/welcome-back", "GET"], ["/api/auth/existing-player/start", "GET"], ["/api/auth/callback/discord", "GET"], ["/api/auth/existing-player/complete", "POST"], ["/api/auth/existing-player/ticket", "POST"]]) {

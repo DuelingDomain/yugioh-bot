@@ -45,6 +45,21 @@ function source(directory: string, mode: "normal" | "domain" = "normal", format:
   return { value, resources };
 }
 
+function fingerprintSource(source: string): string {
+  const emitted = ts.transpileModule(source, { compilerOptions: {
+    target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, removeComments: true,
+  } }).outputText;
+  const ast = ts.createSourceFile("rules.js", emitted, ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
+  const tokens: Array<[number, string]> = [];
+  const visit = (node: ts.Node) => {
+    const children = node.getChildren(ast);
+    if (children.length) children.forEach(visit);
+    else tokens.push([node.kind, node.getText(ast)]);
+  };
+  visit(ast);
+  return JSON.stringify(tokens);
+}
+
 describe("current engine identity", () => {
   it("uses a manual host-rule version rather than source bytes", () => {
     expect(ENGINE_HOST_RULE_VERSION).toMatch(/^duel-rules-\d+$/);
@@ -74,16 +89,23 @@ describe("current engine identity", () => {
     for (const name of ["engine", "legacy/index", "worker", "journal-runner"]) visit(name);
   });
 
+  it("ignores comments and formatting in fingerprints while retaining runtime changes and literal text", () => {
+    const before = fingerprintSource('export function add(value: number) { return value + 1; }');
+    expect(fingerprintSource('/* explanation */\nexport function add ( value : number ) {\n  // same rule\n  return value + 1;\n}')).toBe(before);
+    expect(fingerprintSource('export function add(value: number) { return value + 2; }')).not.toBe(before);
+    expect(fingerprintSource('export const pattern = /a b/;')).not.toBe(fingerprintSource('export const pattern = /ab/;'));
+    expect(fingerprintSource('export const label = "// keep spaces";')).not.toBe(fingerprintSource('export const label = "//keepspaces";'));
+  });
   it("guards the manual version with the engine/journal source fingerprint", () => {
     const hash = createHash("sha256");
     const directory = fileURLToPath(new URL("../src/", import.meta.url));
-    for (const name of ENGINE_HOST_RULE_FILES) hash.update(`${name}\0`).update(readFileSync(join(directory, `${name}.ts`)));
+    for (const name of ENGINE_HOST_RULE_FILES) hash.update(`${name}\0`).update(fingerprintSource(readFileSync(join(directory, `${name}.ts`), "utf8")));
     // These are the shared runtime helpers imported by the engine/journal path, not all of shared/dist/duels.
     for (const name of ["index", "settings", "banlist-options", "pool", "replay"]) {
-      hash.update(`shared/${name}\0`).update(readFileSync(new URL(`../../shared/src/duels/${name}.ts`, import.meta.url)));
+      hash.update(`shared/${name}\0`).update(fingerprintSource(readFileSync(new URL(`../../shared/src/duels/${name}.ts`, import.meta.url), "utf8")));
     }
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
-    expect(hash.digest("hex"), "Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
+    expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 
   it("keeps the deployed host-rule identity stable after a comment-only source edit", () => {

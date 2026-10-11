@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GitFork, Eye } from "lucide-react";
-import type { ReplayFrameV2 } from "@yugidraft/shared/duels";
+import type { ReplayFrameV2, ReplayForkStep } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
 import { isDuelAccessError, postReplayFork } from "./api";
 import { replayFailure, type ReplayModel } from "./replay-controller";
@@ -42,7 +42,7 @@ export function forkDisabledReason(frame: Pick<ReplayFrameV2, "cursor" | "kind">
 export function ReplayForkButton({ slug, model, frame, busy = false, onReload, onPause }: {
   slug: string;
   model: ReplayModel;
-  frame: ReplayFrameV2 | undefined;
+  frame: ReplayForkStep | undefined;
   /** True while the replay answer is not for the current view. */
   busy?: boolean;
   onReload?: () => void;
@@ -184,21 +184,34 @@ export function ReplayOwnerView({ model, view, busy = false, onChange }: {
 }
 
 /** The owner cluster for every replay layout: private view, then Jump in. */
-export function ReplayOwnerTools({ model, frame, busy, view, onViewChange, onReload, onPause, slug }: {
+export function ReplayOwnerTools({ model, frame, busy, view, onViewChange, onReload, onPause, slug, selectedStep, onSelectStep }: {
   slug: string;
   model: ReplayModel;
   frame: ReplayFrameV2 | undefined;
   busy?: boolean;
   view: OwnerViewState;
   onViewChange: (next: OwnerViewState) => void;
+  selectedStep: string | null;
+  onSelectStep: (frameId: string) => void;
   onReload?: () => void;
   onPause?: () => void;
 }) {
+  const steps = model.forkSteps;
+  const checkpoint = steps?.find(step => step.frameId === selectedStep) ?? steps?.find(step => step.cursor !== null);
   if (model.version !== 2 || !model.capabilities) return null;
   return (
     <span className={styles.group} data-replay-owner-tools>
+      {steps ? <>
+        <span className={styles.note}>{model.frames.length ? "Final board preview." : "No board preview."} Choose a move to Jump in.</span>
+        <select className={styles.btn} aria-label="Jump in at move" disabled={busy} value={checkpoint?.frameId ?? ""}
+          onChange={event => onSelectStep(event.target.value)}>
+          {steps.map(step => <option key={step.frameId} value={step.frameId} disabled={step.cursor === null}>
+            Move {step.step}{step.actorSeat === null ? "" : ` · Seat ${step.actorSeat + 1}`}
+          </option>)}
+        </select>
+      </> : null}
       <ReplayOwnerView model={model} view={view} busy={busy} onChange={onViewChange} />
-      <ReplayForkButton slug={slug} model={model} frame={frame} busy={busy} onReload={onReload} onPause={onPause} />
+      <ReplayForkButton slug={slug} model={model} frame={steps ? checkpoint : frame} busy={busy} onReload={onReload} onPause={onPause} />
     </span>
   );
 }

@@ -1,5 +1,5 @@
 import { chainModeOf, toOrdinaryReplayView, teamOfSeat,
-  type DuelEngineView, type ReplayErrorCode, type ReplayFrameV2, type ReplaySource } from "@yugidraft/shared/duels";
+  type DuelEngineView, type ReplayErrorCode, type ReplayFrameV2, type ReplayForkStep, type ReplaySource } from "@yugidraft/shared/duels";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
 import { eliminationCodeOf } from "./engine.js";
@@ -8,6 +8,7 @@ import { replayFrameId, replayPrefixHashes, type ReplayCursorCodec, type ReplayC
 import { ReplayJsonEncoder, type SerializedReplayView } from "./replay-json.js";
 import type { DuelGameWorker } from "./worker-client.js";
 
+// More than three times the largest measured real projection; numeric measurements live in the replay-fork spec.
 export const REPLAY_MAX_BUILD_BYTES = 16 * 1024 * 1024;
 export const REPLAY_BUILD_TIMEOUT_MS = 25_000;
 
@@ -53,6 +54,8 @@ export interface ReplayBuildOptions {
   maxBytes?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Owner-only fallback: finish validating the journal and keep checkpoints after dropping move views. */
+  retainStepsOnOverflow?: boolean;
   encodeView?: (view: DuelEngineView) => Promise<SerializedReplayView>;
 }
 
@@ -79,6 +82,11 @@ export function projectReplayFrames(frames: ReplayFrameData[], codec: ReplayCurs
     : { ...frame, cursor: canFork && frame.cursor ? codec.seal(frame.cursor) : null });
 }
 
+export type ReplayStepData = Pick<ReplayFrameData, "step" | "frameId" | "actorSeat" | "kind" | "cursor">;
+export function projectReplaySteps(steps: ReplayStepData[], codec: ReplayCursorCodec): ReplayForkStep[] {
+  return steps.map(step => ({ ...step, cursor: step.cursor ? codec.seal(step.cursor) : null }));
+}
+
 /** Standalone builder used by engine tools/tests; the host projects its shared cache per viewer. */
 export async function buildReplayFrames(options: ReplayBuildOptions): Promise<ReplayFrameV2[]> {
   return projectReplayFrames((await buildReplayData(options)).frames, options.codec, true);
@@ -87,8 +95,12 @@ export async function buildReplayFrames(options: ReplayBuildOptions): Promise<Re
 export interface ReplayBuildData {
   frames: ReplayFrameData[];
   viewJson: string[];
-  /** Conservative wire/cache size including sealed cursor growth, serialized views and envelope. */
+  /** Conservative wire size: each view once, sealed cursor growth and envelope. */
   bytes: number;
+  /** Separate conservative cache accounting for view objects and reusable JSON strings. */
+  cacheBytes: number;
+  steps: ReplayStepData[];
+  oversized: boolean;
 }
 
 /** Detached read-only re-run. Each call has its own projection delta positions and closes its worker. */
@@ -100,6 +112,10 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
   }
   const frames: ReplayFrameData[] = [];
   const viewJson: string[] = [];
+  const steps: ReplayStepData[] = [];
+  let oversized = false;
+  let lastFrame: ReplayFrameData | undefined;
+  let stepBytes = 64 * 1024;
   const encoder = options.encodeView ? undefined : new ReplayJsonEncoder();
   const encodeView = options.encodeView ?? (view => encoder!.encode(view));
   const seen = { log: 0, events: 0 };
@@ -116,7 +132,7 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
     const events = view.events.filter(entry => entry.id > seen.events);
     for (const entry of log) seen.log = Math.max(seen.log, entry.id);
     for (const entry of events) seen.events = Math.max(seen.events, entry.id);
-    const step = frames.length; const frameId = replayFrameId(sourceVersion, step);
+    const step = steps.length; const frameId = replayFrameId(sourceVersion, step);
     const result = view.result?.reason === "Surrendered" ? { ...view.result, reason: "Surrender" } : view.result;
     const frame: ReplayFrameData = { step, frameId, kind, actorSeat,
       cursor: kind !== "result" && playable ? {
@@ -124,12 +140,24 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
         sourceVersion, frameId, step, prefixCount, prefixHash: prefixHashes[prefixCount]!, revision: view.revision,
       } : null,
       view: toOrdinaryReplayView({ ...view, log, events, result }) } as ReplayFrameData;
-    const serialized = await encodeView(frame.view);
     const { view: _view, ...metadata } = frame;
     // Twice the small claims JSON plus 128 bytes bounds the base64url encrypted cursor.
-    // Cache accounting also includes both the view object and its reusable JSON string.
-    bytes += serialized.bytes * 2 + Buffer.byteLength(JSON.stringify(metadata)) * 2 + 128;
-    if (bytes > maxBytes) throw new ReplayBuildError("Replay is too large to load safely (16 MiB limit). Open the saved final board.", "REPLAY_TOO_LARGE");
+    const metadataBytes = Buffer.byteLength(JSON.stringify(metadata)) * 2 + 128;
+    stepBytes += metadataBytes;
+    steps.push(metadata); lastFrame = frame;
+    if (oversized) {
+      if (stepBytes > maxBytes) throw new ReplayBuildError("Replay checkpoints exceed the size limit.", "REPLAY_TOO_LARGE");
+      return;
+    }
+    const serialized = await encodeView(frame.view);
+    bytes += serialized.bytes + metadataBytes;
+    if (bytes > maxBytes) {
+      if (!options.retainStepsOnOverflow || stepBytes > maxBytes) {
+        throw new ReplayBuildError("Replay is too large to load safely (16 MiB limit). Open the saved final board.", "REPLAY_TOO_LARGE");
+      }
+      oversized = true; frames.length = 0; viewJson.length = 0;
+      return;
+    }
     frames.push(frame); viewJson.push(serialized.json);
   };
   const check = () => { options.signal?.throwIfAborted(); };
@@ -161,7 +189,16 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
       if (options.reveal && !options.finalView) final = revealReplayHands(final, result.views.seats);
       await append(final, "result", null, source.commands.length);
     }
-    return { frames, viewJson, bytes };
+    if (oversized) {
+      // Keep one final board; the separate step list never pretends to display earlier boards.
+      const frame: ReplayFrameData = { ...lastFrame!, kind: "result", cursor: null };
+      const serialized = await encodeView(frame.view);
+      bytes = stepBytes;
+      if (bytes + serialized.bytes <= maxBytes) {
+        bytes += serialized.bytes; frames.push(frame); viewJson.push(serialized.json);
+      }
+    }
+    return { frames, viewJson, bytes, cacheBytes: bytes * 2, steps, oversized };
   };
   let onAbort: (() => void) | undefined;
   try {

@@ -30,13 +30,21 @@ export function listActiveReplayForks(db: Database.Database, actor: OwnerPlayerA
   const owner = resolveOwnerPlayer(db, actor);
   if (!owner) throw new ReplayAccessError();
   const forks = db.prepare<[string, number], ActiveReplayFork>(`select web_slug as slug,
-    json_extract(setup_json, '$.replayFork.origin.sourceSlug') as sourceSlug, format,
+    case when json_valid(setup_json) then json_extract(setup_json, '$.replayFork.origin.sourceSlug') end as sourceSlug, format,
     created_at as createdAt, coalesce(last_activity_at, created_at) as lastActivityAt
     from duels where guild_id = ? and kind = 'replay-fork' and status = 'active'
-    and json_extract(setup_json, '$.replayFork.ownerUserId') = ?
+    and (coalesce(json_valid(setup_json), 0) = 0
+      or case when json_valid(setup_json) then json_extract(setup_json, '$.replayFork.ownerUserId') end = ?)
     order by datetime(created_at) desc, id desc`).all(owner.guildId, owner.userId);
-  for (const fork of forks) assertReplayForkAccess(db, fork.slug, owner);
-  return forks;
+  return forks.filter(fork => {
+    try { assertReplayForkAccess(db, fork.slug, owner); return true; }
+    catch (error) {
+      if (!(error instanceof ReplayAccessError) || error.status !== 404) throw error;
+      // No payload or error stack: a damaged row must not hide healthy forks or leak private metadata.
+      console.warn("[replay-fork] Skipping invalid active fork", { slug: fork.slug, code: error.code });
+      return false;
+    }
+  });
 }
 
 export class ReplayForkLaunchError extends Error {
@@ -68,13 +76,11 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
   const { db } = options, store = createReplayForkService(db), duels = createDuelService(db);
   let pending = 0;
   const owners = new Set<number>();
-  const activeCount = (actor: OwnerPlayerActor, userId: number) => db.prepare<[string, number], { count: number }>(`select count(*) as count from duels
-    where guild_id = ? and kind = 'replay-fork' and status = 'active'
-    and json_extract(setup_json, '$.replayFork.ownerUserId') = ?`).get(actor.guildId, userId)!.count;
+  const activeCount = (actor: OwnerPlayerActor) => listActiveReplayForks(db, actor).length;
   const reserve = (actor: OwnerPlayerActor, enforceActive: boolean) => {
     const owner = resolveOwnerPlayer(db, actor);
     if (!owner) throw new ReplayAccessError();
-    const count = activeCount(owner, owner.userId);
+    const count = activeCount(owner);
     if (owners.has(owner.userId)) {
       throw new ReplayForkLaunchError("A replay fork is still launching. Try again shortly.", "ENGINE_BUSY");
     }
@@ -200,7 +206,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
           throw new ReplayCursorError("SOURCE_CHANGED");
         }
         const owner = resolveOwnerPlayer(db, actor)!;
-        if (activeCount(owner, owner.userId) >= REPLAY_FORK_ACTIVE_LIMIT) {
+        if (activeCount(owner) >= REPLAY_FORK_ACTIVE_LIMIT) {
           throw new ReplayForkLaunchError("Replay fork limit reached. Cancel a fork and try again.", "FORK_LIMIT");
         }
         const saved = store.create({ actor, requestId: request.requestId, cursorDigest, source, origin });
@@ -218,7 +224,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
         const current = store.privateState(slug, actor);
         if (sourceVersion !== replaySourceVersion(options.sourceOf(current))) throw new ReplayCursorError("SOURCE_CHANGED");
         const owner = resolveOwnerPlayer(db, actor)!;
-        if (current.session.status !== "active" && activeCount(owner, owner.userId) >= REPLAY_FORK_ACTIVE_LIMIT) {
+        if (current.session.status !== "active" && activeCount(owner) >= REPLAY_FORK_ACTIVE_LIMIT) {
           throw new ReplayForkLaunchError("Replay fork limit reached. Cancel a fork and try again.", "FORK_LIMIT");
         }
         // Keep the previous branch and final board if the replacement worker cannot be registered.

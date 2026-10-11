@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildReplayFrames, replayBuildLimits, REPLAY_MAX_BUILD_BYTES, ReplayBuildCache } from "../src/replay-builder.js";
+import { buildReplayData, buildReplayFrames, replayBuildLimits, REPLAY_MAX_BUILD_BYTES, ReplayBuildCache } from "../src/replay-builder.js";
 import { createReplayCursorCodec, replaySourceVersion } from "../src/replay-cursor.js";
 import { multiScriptsFolderHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
@@ -65,6 +65,34 @@ describe("replay frame builder", () => {
     const frames = await buildReplayFrames({ ...options, dataSeat: null, createWorker: () => new ReplayWorker() });
     expect(frames.every(f => f.cursor === null)).toBe(true);
     expect(frames[0]!.view.seats[1]!.eliminated).toBeUndefined();
+  });
+  it("counts each view once against the wire limit and accounts cache memory separately", async () => {
+    const options = input();
+    const worker = () => {
+      const value = new ReplayWorker(), view = value.view.bind(value);
+      value.view = async seat => { const board = await view(seat); return { ...board, log: [{ id: board.revision + 1, text: "x".repeat(30_000) }] }; };
+      return value;
+    };
+    const measured = await buildReplayData({ ...options, dataSeat: null, createWorker: worker });
+    const viewBytes = measured.viewJson.reduce((sum, json) => sum + Buffer.byteLength(json), 0);
+    const bounded = await buildReplayData({ ...options, dataSeat: null, createWorker: worker, maxBytes: 64 * 1024 + viewBytes + 10_000 });
+    expect(bounded.frames).toHaveLength(4);
+    expect(bounded.bytes).toBeLessThan(64 * 1024 + viewBytes + 10_000);
+    expect(bounded.cacheBytes).toBeGreaterThanOrEqual(viewBytes * 2);
+  });
+  it("retains every exact checkpoint without move views when an owner replay exceeds the cap", async () => {
+    const options = input();
+    const worker = new ReplayWorker(), view = worker.view.bind(worker);
+    worker.view = async seat => { const board = await view(seat); return board.revision === 1
+      ? { ...board, log: [{ id: 1, text: "x".repeat(100_000) }] } : board; };
+    const data = await buildReplayData({ ...options, dataSeat: null, createWorker: () => worker,
+      maxBytes: 80_000, retainStepsOnOverflow: true });
+    expect(data.oversized).toBe(true);
+    expect(data.frames).toHaveLength(1); expect(data.frames[0]).toMatchObject({ kind: "result", cursor: null });
+    expect(data.steps.map(step => step.cursor?.prefixCount ?? null)).toEqual([0, 1, 3, null]);
+    expect(data.steps.every(step => !("view" in step))).toBe(true);
+    expect(data.bytes).toBeLessThanOrEqual(80_000);
+    expect(worker.closed).toBe(1);
   });
   it("closes on mismatch, byte limit and bounded timeout", async () => {
     for (const failure of ["mismatch", "bytes", "timeout"]) {

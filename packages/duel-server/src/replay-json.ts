@@ -48,19 +48,25 @@ export interface ReplayHttpResult {
  * Pull one frame at a time and yield, so the HTTP response cannot monopolize live-table work.
  */
 export function replayJsonResponse({ replay, viewJson }: ReplayHttpResult, signal?: AbortSignal): Response {
-  const { frames, ...envelope } = replay;
+  const { frames, ...metadata } = replay;
+  const { forkSteps, ...envelope } = metadata as typeof metadata & Pick<DuelReplayV2, "forkSteps">;
   const encoder = new TextEncoder();
   let index = -1;
+  let section: "frames" | "steps" = "frames";
   return new Response(new ReadableStream<Uint8Array>({
     async pull(controller) {
       await new Promise<void>(resolve => setImmediate(resolve));
       signal?.throwIfAborted();
       if (index < 0) {
         controller.enqueue(encoder.encode(JSON.stringify(envelope).slice(0, -1) + ',"frames":[')); index = 0;
-      } else if (index < frames.length) {
+      } else if (section === "frames" && index < frames.length) {
         const { view: _view, ...metadata } = frames[index]!;
         controller.enqueue(encoder.encode((index ? "," : "") + JSON.stringify(metadata).slice(0, -1)
           + ',"view":' + viewJson[index] + "}")); index++;
+      } else if (section === "frames" && forkSteps) {
+        controller.enqueue(encoder.encode('],"forkSteps":[')); section = "steps"; index = 0;
+      } else if (section === "steps" && index < forkSteps!.length) {
+        controller.enqueue(encoder.encode((index ? "," : "") + JSON.stringify(forkSteps![index]))); index++;
       } else { controller.enqueue(encoder.encode("]}")); controller.close(); }
     },
   }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
