@@ -16,12 +16,12 @@ export interface DuelEventTarget {
 }
 
 type AccessRow = { id: number; web_slug: string; guild_id: string; kind: unknown; setup_json: string | null;
-  format: unknown; settings_json: string | null; organizer_player_id: number };
+  format: unknown; settings_json: string | null; organizer_player_id: number; status: string };
 
 function prepareAccessStatements(db: Database.Database) {
   return {
     target: db.prepare<[string, string], AccessRow>(
-      "select id,web_slug,guild_id,kind,setup_json,format,settings_json,organizer_player_id from duels where web_slug=? and guild_id=?"),
+      "select id,web_slug,guild_id,kind,setup_json,format,settings_json,organizer_player_id,status from duels where web_slug=? and guild_id=?"),
     player: db.prepare<[number, string], { user_id: number }>(
       "select p.user_id from players p join users u on u.id=p.user_id where p.id=? and p.guild_id=?"),
     seat: db.prepare<[number, number], { seat: number }>(
@@ -73,7 +73,8 @@ export function canReadDuel(db: Database.Database, claims: Pick<DuelConnectionTo
     if (claims.seat !== null && seat === undefined) return false;
     const settings = parseStoredDuelSettings(row.settings_json);
     if (settings.visibility === "public") return true;
-    return row.organizer_player_id === claims.playerId || seat !== undefined
+    return (isOwnerUser(player.user_id) && ["completed", "interrupted", "cancelled"].includes(row.status))
+      || row.organizer_player_id === claims.playerId || seat !== undefined
       || !!queries.grant.get(row.id, claims.playerId);
   } catch { return false; }
 }

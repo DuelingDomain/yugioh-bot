@@ -56,6 +56,20 @@ async function launch(body: unknown = input) {
   const { POST } = await import("../app/api/admin/duels/[slug]/replay/fork/route");
   return POST(new Request("http://localhost/api/admin/duels/source/replay/fork", { method: "POST", body: JSON.stringify(body) }), params(slug));
 }
+it.each([101, 102])("lets admin %s discover a private replay and use the existing owner-only Jump in route", async userId => {
+  signIn(userId);
+  state.db!.prepare("update duels set status='completed' where web_slug=?").run(fork);
+  const { GET: historyGet } = await import("../app/api/duels/route");
+  const history = await historyGet(new NextRequest("http://localhost/api/duels?archived=1&scope=all"));
+  expect(history.status).toBe(200);
+  expect(await history.json()).toMatchObject({ canSeeAll: true, duels: [{ slug, private: true }], nextCursor: null });
+  const { GET: replayGet } = await import("../app/api/admin/duels/[slug]/replay/route");
+  expect((await replayGet(new Request("http://localhost/replay?version=2"), params(slug))).status).toBe(200);
+  expect(payload()).toMatchObject({ op: "owner-replay", slug, userId });
+  expect((await launch()).status).toBe(200);
+  expect(payload()).toMatchObject({ op: "replay-fork", slug, userId, ...input });
+  expect(state.db!.prepare("select * from duel_invite_grants").all()).toEqual([]);
+});
 it.each([
   { status: "active", viewer: "player" }, { status: "completed", viewer: "player" },
   { status: "active", viewer: "spectator" }, { status: "completed", viewer: "spectator" },

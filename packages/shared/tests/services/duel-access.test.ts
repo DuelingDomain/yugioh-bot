@@ -35,6 +35,29 @@ it("keeps ordinary public and private duel access and validates current seats", 
   app.duels.admit(privateDuel.slug, app.guildId, app.alpha.playerId, code);
   expect(access.canReadDuel(app.db, claims(privateDuel.slug, app.alpha, null))).toBe(true);
 });
+it.each(["completed", "interrupted", "cancelled"])("lets current owners read private %s play replays and saved public boards without grants", status => {
+  const session = app.duels.create({ guildId: app.guildId, organizerPlayerId: app.sourcePlayer.playerId,
+    name: "Private replay", mode: "normal", settings: { visibility: "private" } });
+  const publicBoard = { revision: 1, turn: 0, turnSeat: 0, phase: "end", seats: [], chain: [], events: [], log: [], result: null };
+  app.db.prepare("update duels set status=?, snapshot_public_json=? where id=?").run(status, JSON.stringify(publicBoard), session.id);
+  expect(access.canReadDuel(app.db, claims(session.slug, app.owner, null))).toBe(true);
+  expect(app.duels.room(session.slug, app.guildId, app.owner.playerId)).toMatchObject({ role: "spectator", myDeck: null, engine: publicBoard });
+  expect(access.canReadDuel(app.db, claims(session.slug, app.owner, 1))).toBe(false);
+  expect(access.canReadDuel(app.db, claims(session.slug, app.alpha, null))).toBe(false);
+  expect(() => app.duels.room(session.slug, app.guildId, app.alpha.playerId)).toThrow(/invite-only/);
+  expect(app.db.prepare("select * from duel_invite_grants").all()).toEqual([]);
+  expect(() => app.duels.takeSeat(session.slug, app.guildId, app.owner.playerId)).toThrow();
+  vi.stubEnv("OWNER_USER_IDS", "102");
+  expect(access.canReadDuel(app.db, claims(session.slug, app.owner, null))).toBe(false);
+  expect(() => app.duels.room(session.slug, app.guildId, app.owner.playerId)).toThrow(/invite-only/);
+});
+it.each(["lobby", "active"])("does not turn private %s tables into owner spectator rooms", status => {
+  const session = app.duels.create({ guildId: app.guildId, organizerPlayerId: app.sourcePlayer.playerId,
+    name: "Private live table", mode: "normal", settings: { visibility: "private" } });
+  app.db.prepare("update duels set status=? where id=?").run(status, session.id);
+  expect(access.canReadDuel(app.db, claims(session.slug, app.owner, null))).toBe(false);
+  expect(() => app.duels.room(session.slug, app.guildId, app.owner.playerId)).toThrow(/invite-only/);
+});
 it("binds an invite to its stored id, guild, slug and URL", () => {
   const invite = { duelId: app.source.id, slug: app.source.slug, guildId: app.guildId, url: `https://duel.example/duels/${app.source.slug}` };
   expect(access.assertDuelInviteTarget(app.db, invite).kind).toBe("play");

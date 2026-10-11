@@ -780,8 +780,10 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     return !!selectGrant.get(row.id, playerId);
   };
 
-  const assertRoomAccess = (row: DuelRow, playerId: number) => {
-    if (!hasPrivateAccess(row, playerId)) {
+  const assertRoomAccess = (row: DuelRow, playerId: number, ownerRead = false) => {
+    if (!hasPrivateAccess(row, playerId)
+      && !(ownerRead && row.kind === "play" && isTerminalStatus(row.status)
+        && resolveOwnerPlayer(db, { guildId: row.guild_id, playerId }))) {
       throw new DuelServiceError("Duel is invite-only", 403);
     }
   };
@@ -1435,7 +1437,9 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     room(slug, guildId, playerId): DuelRoom {
       const row = loadDuelRow(slug, guildId);
       assertPlayerGuild(playerId, guildId);
-      assertRoomAccess(row, playerId);
+      // Read-only owner inspection grants no seat, deck, invite or mutation authority.
+      // hasPrivateAccess still enforces the fork creator check before any override.
+      assertRoomAccess(row, playerId, true);
       const session = mapSession(row);
       const seated = session.seats.find((seat) => seat.playerId === playerId);
       const role: DuelActorRole = seated ? "player" : "spectator";
