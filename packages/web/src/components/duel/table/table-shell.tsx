@@ -49,7 +49,7 @@ import type { ChainModeControl } from "../use-chain-mode";
 import roomStyles from "../room.module.css";
 import { CameraControls } from "./camera-controls";
 import { isFaceOff } from "./camera-model";
-import { tableLayout } from "./geometry";
+import { controllerLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
 import { CAPTION_TEXT, useGridFinale } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
@@ -137,6 +137,11 @@ export interface TableShellProps {
    * restarts the table clean; the chosen camera and the open panel stay. Do not switch this prop on a mounted shell.
    */
   replay?: ReplayShellMode;
+  /**
+   * A live room that remounts the shell (a replay fork on a new view) keeps its camera and open panel here. The shell writes
+   * the camera it shows into it and starts from it. Ignored in replay mode, which owns its own.
+   */
+  replayCarry?: ReplayCarryRef;
 }
 
 /** No legal zones: a hidden panel prompt lights nothing on the field. */
@@ -246,16 +251,16 @@ function TableShellBody({
   useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
-  const { engine, room, viewerSeat, nameOf, prompt } = base;
+  const { engine, room, viewerSeat, cameraSeat, nameOf, prompt } = base;
   const namedChain = useMemo(() => projectChainNames(engine.chain, engine.seats), [engine.chain, engine.seats]);
   const format = engineFormat(engine);
   // A table of 3 or 4 draws its phases on the board, beside the turn ring. Tag keeps them in the bar.
   const hubOn = format === "ffa3" || format === "ffa4";
   const layout = useMemo(
-    () => tableLayout(format as TableFormat, engine, viewerSeat),
+    () => controllerLayout(format as TableFormat, engine, { viewerSeat, cameraSeat }),
     // The layout depends on who sits where, never on a card: the seat list is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [format, engine.seats.length, viewerSeat],
+    [format, engine.seats.length, viewerSeat, cameraSeat],
   );
   const Stage = grid ? GridStage : TableStage;
   const rootRef = useRef<HTMLDivElement>(null);

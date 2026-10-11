@@ -146,6 +146,11 @@ export interface TableController {
   room: DuelRoom;
   engine: DuelEngineView;
   viewerSeat: number | null;
+  /**
+   * The seat the table is drawn from, when it is not `viewerSeat` (a replay fork: the camera stays put while the seat that
+   * acts changes). Absent: the table is drawn from `viewerSeat`.
+   */
+  cameraSeat?: number | null;
   nameOf: (seat: number) => string;
   prompt: DuelPrompt | null;
   promptSeat: number | null;

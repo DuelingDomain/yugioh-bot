@@ -56,6 +56,7 @@ import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
 import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
 import { TableShell, type TableShellProps } from "./table/table-shell";
+import type { ReplayCarry } from "./table/replay-mode";
 import { TagShell } from "./tag/tag-shell";
 import { fieldWaitsForReveal } from "./field-gate";
 import { defaultTeamNames } from "./tag/live-tag";
@@ -206,6 +207,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const forkControl = roomState.kind === "fork" ? roomState.control : null;
   const forkMode = forkControl != null;
   if (forkMode) forkSeenFor.current = slug;
+  // The seat the board is drawn from. A fork keeps it at the stored seat whoever acts: the camera never moves by itself,
+  // so a seat switch (by hand or by Follow prompt) changes who answers, not which way the board faces.
+  const cameraSeat = forkControl ? forkControl.identitySeat : null;
+  // What a remounted shell starts from, so a new fork view keeps the camera and the open panel.
+  const forkCarry = useRef<ReplayCarry>({});
   const data = useMemo(
     () => (visibleRoom && forkControl ? { ...visibleRoom, mySeat: forkControl.actingSeat } : visibleRoom),
     [visibleRoom, forkControl],
@@ -805,7 +811,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }
 
   const liveController = useLiveTableController({
-    room: data, nameOf: playerName, prompt, canAct: promptMine, busy, error, catchingUp, revealed,
+    room: data, cameraSeat, nameOf: playerName, prompt, canAct: promptMine, busy, error, catchingUp, revealed,
     draft, legalKeys, selectedKeys, aim: null, reducedMotion: preferences.reducedMotion,
     onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onInspect: showInspector,
   });
@@ -997,7 +1003,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }
 
   const engine = data.engine;
-  const localSeat = data.mySeat ?? 0;
+  // The acting seat (`data.mySeat`) owns prompts and answers; the camera seat decides which side of the board is the bottom.
+  const localSeat = cameraSeat ?? data.mySeat ?? 0;
   const bottom = engine?.seats.find((seat) => seat.seat === localSeat);
   const multi = isMultiSeat(engine);
   const format = engineFormat(engine);
@@ -1130,7 +1137,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       initialOutOrder: eliminationOrder(liveController.engine),
       connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
       actions: { onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame },
-      ...(forkMode ? { noResultScreen: true } : {}),
+      ...(forkMode ? { noResultScreen: true, replayCarry: forkCarry } : {}),
       headerTools: <>
         {forkBar}
         {forkMode ? null : <BugReportHeaderButton room={data} />}
@@ -1481,7 +1488,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     />
   ) : null;
   const fieldProps = engine ? {
-    engine, mySeat: data.mySeat, masterRule: data.session.masterRule,
+    engine, mySeat: data.mySeat, bottomSeat: cameraSeat, masterRule: data.session.masterRule,
     reducedMotion: preferences.reducedMotion,
     priorityLive: !busy && !error && !realtime.recovering && !catchingUp &&
       (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed),
@@ -1606,7 +1613,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           view={view}
           preferences={preferences}
           engine={engine ?? null}
-          mySeat={data.mySeat}
+          mySeat={cameraSeat ?? data.mySeat}
           playerName={playerName}
           format={formatText}
           turnText={turnText}

@@ -18,7 +18,7 @@ import { HistoryStrip } from "../table/history-strip";
 import { HudLayer, type HudPaneState } from "../table/hud-layer";
 import { hudPreview } from "../table/hud-preview";
 import { hudMasterProps } from "../table/hud-shared";
-import { tableLayout } from "../table/geometry";
+import { controllerLayout } from "../table/geometry";
 import { TablePhonePanes } from "../table/table-phone-panes";
 import { TableSettings } from "../table/table-settings";
 import { toneBySeat } from "../table/seat-state";
@@ -36,12 +36,12 @@ const tagTeamOf = (seat: number) => teamOfSeat("tag", seat);
 
 /** Seat tones of the Rooftop (the layout's tone per seat), shared by the strip, the log and the pile viewer. */
 function useSeatTones(controller: TableController) {
-  const { engine, viewerSeat } = controller;
+  const { engine, viewerSeat, cameraSeat } = controller;
   const layout = useMemo(
-    () => tableLayout("tag", engine, viewerSeat),
+    () => controllerLayout("tag", engine, { viewerSeat, cameraSeat }),
     // The layout depends on who sits where, never on a card: the seat list is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [engine.seats.length, viewerSeat],
+    [engine.seats.length, viewerSeat, cameraSeat],
   );
   return useMemo(() => {
     const tones = toneBySeat(layout);

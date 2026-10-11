@@ -30,12 +30,20 @@ vi.mock("@/lib/hooks/use-duel-websocket", () => ({
 }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
 vi.mock("@/components/duel/field", () => ({
-  DuelField: (props: { mySeat: number | null; onInspect?: (target: { type: "pile"; title: string; cards: [] }) => void }) => (
-    <div data-testid="field" data-my-seat={props.mySeat ?? ""}>
+  DuelField: (props: { mySeat: number | null; bottomSeat?: number | null; onInspect?: (target: { type: "pile"; title: string; cards: [] }) => void }) => (
+    <div data-testid="field" data-my-seat={props.mySeat ?? ""} data-bottom-seat={props.bottomSeat ?? ""}>
       <button type="button" onClick={() => props.onInspect?.({ type: "pile", title: "Private hand", cards: [] })}>Inspect fixture hand</button>
     </div>
   ),
   DeckMasterRail: () => null,
+}));
+// The live shells of Tag and the FFA tables: the room test reads what the room hands them.
+const shells = vi.hoisted(() => ({ props: [] as Array<{ kind: "table" | "tag"; props: Record<string, any> }> }));
+vi.mock("@/components/duel/table/table-shell", () => ({
+  TableShell: (props: Record<string, any>) => { shells.props.push({ kind: "table", props }); return <div data-testid="table-shell" />; },
+}));
+vi.mock("@/components/duel/tag/tag-shell", () => ({
+  TagShell: (props: Record<string, any>) => { shells.props.push({ kind: "tag", props }); return <div data-testid="tag-shell" />; },
 }));
 vi.mock("@/components/duel/feedback", () => ({ DuelFeedback: () => null }));
 vi.mock("@/components/duel/summon-fx", () => ({ SummonFx: () => null }));
@@ -84,6 +92,7 @@ beforeEach(() => {
   swr.keys = [];
   swr.error = undefined;
   swr.mutate.mockClear();
+  shells.props = [];
   ws.seats = [];
   window.localStorage.clear();
   window.history.replaceState(null, "", "/duels/game-1/replay");
@@ -405,13 +414,55 @@ describe("the live room of a fork", () => {
     expect(swr.mutate).toHaveBeenCalledWith(undefined, { revalidate: false });
   });
 
-  it("keeps the websocket identity at seat 0 and draws the table for the acting seat", () => {
+  it("keeps the websocket identity and the camera at seat 0 while seat 1 acts", () => {
     swr.data = forkRoom({}, control({ actingSeat: 1 }));
     render(<DuelRoomView slug="fork-1" />);
+    // Seat 1 answers; the board still faces seat 0, so a seat switch never turns the table.
     expect(screen.getByTestId("field").getAttribute("data-my-seat")).toBe("1");
+    expect(screen.getByTestId("field").getAttribute("data-bottom-seat")).toBe("0");
     expect(new Set(ws.seats)).toEqual(new Set([0]));
     expect(swr.keys.at(-1)).toBe("/api/duels/fork-1");
   });
+
+  it("does not turn the 1v1 board when the creator picks another seat", () => {
+    swr.data = forkRoom();
+    const view = render(<DuelRoomView slug="fork-1" />);
+    expect(screen.getByTestId("field").getAttribute("data-bottom-seat")).toBe("0");
+    fireEvent.click(within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name: /Bo/ }));
+    swr.data = forkRoom({}, control({ actingSeat: 1 }));
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    expect(screen.getByTestId("field").getAttribute("data-bottom-seat")).toBe("0");
+    expect(screen.getByTestId("field").getAttribute("data-my-seat")).toBe("1");
+  });
+
+  it.each([["ffa3", "table", 3], ["ffa4", "table", 4], ["tag", "tag", 4]] as const)(
+    "gives the %s shell a fixed camera seat and a carried camera while the acting seat changes",
+    (format, kind, count) => {
+      const manualSeats = Array.from({ length: count }, (_, seat) => seat);
+      const multi = (acting: number) => {
+        const room = forkRoom({
+          session: session(format, { slug: "fork-1", kind: "replay-fork", status: "active", endedAt: null }),
+          engine: frame({ step: 2, format }).view,
+        }, control({ actingSeat: acting, manualSeats }));
+        return room;
+      };
+      swr.data = multi(0);
+      const view = render(<DuelRoomView slug="fork-1" />);
+      expect(screen.getByTestId(kind === "tag" ? "tag-shell" : "table-shell")).toBeTruthy();
+      const first = shells.props.at(-1)!.props;
+      expect(first.controller.viewerSeat).toBe(0);
+      expect(first.controller.cameraSeat).toBe(0);
+      expect(first.replayCarry).toBeTruthy();
+      swr.data = multi(1);
+      view.rerender(<DuelRoomView slug="fork-1" />);
+      const next = shells.props.at(-1)!.props;
+      // Seat 1 answers and owns its hand; the camera stays on seat 0 and the carry (camera, open panel) is the same object.
+      expect(next.controller.viewerSeat).toBe(1);
+      expect(next.controller.cameraSeat).toBe(0);
+      expect(next.replayCarry).toBe(first.replayCarry);
+      expect(next.controller.room.mySeat).toBe(1);
+    },
+  );
 
   it("shows the fork bar and leaves out Surrender, Cancel, Report bug, Pop out and invites", () => {
     swr.data = forkRoom();

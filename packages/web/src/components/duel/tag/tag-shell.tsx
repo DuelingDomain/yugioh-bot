@@ -27,7 +27,7 @@ import { clockStrip, hudClockBank, stationTrackProps } from "../table/hud-shared
 import { tagSeatCode } from "../table-format";
 import { OpponentBar } from "../table/opponent-bar";
 import { attackLockAt, toneBySeat } from "../table/seat-state";
-import { tableLayout } from "../table/geometry";
+import { controllerLayout } from "../table/geometry";
 import hudStyles from "../table/grid-hud.module.css";
 import { AimArrow } from "../table/aim-arrow";
 import { useAimFlow } from "../table/use-aim-flow";
@@ -151,12 +151,12 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
-  const { engine, room, viewerSeat, nameOf, prompt } = base;
+  const { engine, room, viewerSeat, cameraSeat, nameOf, prompt } = base;
   const layout = useMemo(
-    () => tableLayout("tag", engine, viewerSeat),
+    () => controllerLayout("tag", engine, { viewerSeat, cameraSeat }),
     // The layout depends on who sits where, never on a card: the seat list is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [engine.seats.length, viewerSeat],
+    [engine.seats.length, viewerSeat, cameraSeat],
   );
   const rootRef = useRef<HTMLDivElement>(null);
   const textSize = useCardTextSize();

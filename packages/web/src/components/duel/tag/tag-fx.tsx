@@ -15,7 +15,7 @@ import { PositionFx } from "../position-fx";
 import type { PrioritySlot } from "../priority-chips";
 import type { DuelPreferences } from "../preferences";
 import { SummonFx } from "../summon-fx";
-import { tableLayout } from "../table/geometry";
+import { controllerLayout } from "../table/geometry";
 import { toneBySeat } from "../table/seat-state";
 import { SEAT_TONE_HEX, type TableController } from "../table/types";
 import { tagResponseOrder } from "./live-tag";
@@ -23,7 +23,7 @@ import { chainDecidingSeat } from "./use-chain-passes";
 import { withDestroyCards } from "../destroy-cards";
 
 /** The part of the live controller the effects read. `TableController` fits, so the shell passes its own. */
-export type TagFxController = Pick<TableController, "engine" | "room" | "viewerSeat" | "nameOf" | "prompt" | "reducedMotion">;
+export type TagFxController = Pick<TableController, "engine" | "room" | "viewerSeat" | "cameraSeat" | "nameOf" | "prompt" | "reducedMotion">;
 
 export interface TagFxProps {
   controller: TagFxController;
@@ -70,13 +70,13 @@ export function tagPriority(engine: DuelEngineView, passed: readonly number[], c
  * board overlay slot. The chain chips use the Tag response order instead of the seat order.
  */
 export function TagFx({ controller, preferences, fxActive = true, passedSeats = [] }: TagFxProps) {
-  const { engine, room, viewerSeat, nameOf, prompt, reducedMotion } = controller;
+  const { engine, room, viewerSeat, cameraSeat, nameOf, prompt, reducedMotion } = controller;
   const events = useMemo(() => dedupeTeamDamage(engine.events), [engine.events]);
   const layout = useMemo(
-    () => tableLayout("tag", engine, viewerSeat),
+    () => controllerLayout("tag", engine, { viewerSeat, cameraSeat }),
     // The layout depends on who sits where, never on a card: the seat list is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [engine.seats.length, viewerSeat],
+    [engine.seats.length, viewerSeat, cameraSeat],
   );
   const seatTones = useMemo(() => new Map([...toneBySeat(layout)].map(([seat, tone]) => [seat, SEAT_TONE_HEX[tone]])), [layout]);
   const choosing = chainDecidingSeat(engine, prompt);
