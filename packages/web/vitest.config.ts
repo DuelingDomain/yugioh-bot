@@ -1,4 +1,3 @@
-import { sharedSourceAliases } from "../shared/tests/helpers/source-aliases.js";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
@@ -20,13 +19,11 @@ export default defineConfig({
     exclude: [".next/**", "node_modules/**"],
   },
   resolve: {
-    conditions: ["source", "node"],
     // Dedupe ensures a single React instance across vitest + @testing-library.
     // The local packages/web/node_modules/react has been removed so only the
     // workspace-root copy (node_modules/react) exists.
     dedupe: ["react", "react-dom"],
     alias: {
-      ...sharedSourceAliases,
       "@": resolve(__dirname, "./src"),
     },
   },
