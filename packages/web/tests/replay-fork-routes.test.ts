@@ -87,6 +87,68 @@ it.each([
     expect(state.fetch).not.toHaveBeenCalled();
   }
 });
+async function listForks(query = "") {
+  const { GET } = await import("../app/api/admin/duels/forks/route");
+  return GET(new Request(`http://localhost/api/admin/duels/forks${query}`));
+}
+it("lists active forks through the owner host operation and lets a returned slug use the cancel route", async () => {
+  const body = { limit: 4, forks: [{ slug: fork, sourceSlug: slug, format: "1v1",
+    createdAt: "2020-01-01 00:00:00", lastActivityAt: "2020-01-02 00:00:00" }] };
+  state.fetch.mockResolvedValueOnce(Response.json(body));
+  const response = await listForks(); expect(response.status).toBe(200);
+  const listed = await response.json(); expect(listed).toEqual(body);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(payload()).toEqual({ op: "fork-list", guildId: "test-guild", playerId: 61, userId: 101 });
+  const { POST } = await import("../app/api/duels/[slug]/fork/cancel/route");
+  const cancel = await POST(new Request(`http://localhost/api/duels/${listed.forks[0].slug}/fork/cancel`, { method: "POST" }), params(listed.forks[0].slug));
+  expect(cancel.status).toBe(200); expect(payload()).toMatchObject({ op: "fork-cancel", slug: fork, userId: 101 });
+});
+it("returns an empty fork list without requiring a source", async () => {
+  state.db!.prepare("delete from duels where web_slug = ?").run(slug);
+  state.fetch.mockResolvedValueOnce(Response.json({ forks: [], limit: 4 }));
+  const result = await listForks(); expect(result.status).toBe(200); expect(await result.json()).toEqual({ forks: [], limit: 4 });
+});
+it.each([null, 103, 201])("denies fork listing for caller %s before contacting the host", async userId => {
+  if (userId === null) state.auth.mockResolvedValue(null); else signIn(userId);
+  const response = await listForks(); expect(response.status).toBe(userId === null ? 401 : 404);
+  expect(await response.json()).toMatchObject({ code: "ACCESS_DENIED" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store"); expect(state.fetch).not.toHaveBeenCalled();
+});
+it("returns a private access-unavailable response when fork list authentication fails", async () => {
+  state.auth.mockRejectedValue(new Error("Unavailable"));
+  const response = await listForks(); expect(response.status).toBe(503);
+  expect(await response.json()).toEqual({ error: "Replay access is unavailable", code: "ACCESS_UNAVAILABLE" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store"); expect(state.fetch).not.toHaveBeenCalled();
+});
+it.each(["?userId=102", "?guildId=other-guild", "?as=1", "?limit=100"])("rejects fork list query filters %s", async query => {
+  const response = await listForks(query); expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({ error: "Invalid fork list request", code: "INVALID_CURSOR" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store"); expect(state.fetch).not.toHaveBeenCalled();
+});
+it.each([404, 503])("preserves host fork-list error %s with private no-store", async status => {
+  const body = status === 404 ? { error: "Not found", code: "ACCESS_DENIED" } : { error: "Engine unavailable", code: "ENGINE_BUSY" };
+  state.fetch.mockResolvedValueOnce(Response.json(body, { status }));
+  const response = await listForks(); expect(response.status).toBe(status); expect(await response.json()).toEqual(body);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
+it.each(["revoked", "session-changed"])("drops a fork list if access is %s during the host wait", async change => {
+  state.fetch.mockImplementation(async () => {
+    if (change === "revoked") vi.stubEnv("OWNER_USER_IDS", "102"); else signIn(102);
+    return Response.json({ forks: [{ slug: fork, sourceSlug: slug, private: "fixture" }], limit: 4 });
+  });
+  const response = await listForks(); expect(response.status).toBe(404);
+  expect(await response.json()).toMatchObject({ code: "ACCESS_DENIED" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
+it.each(["launch", "restart"])("preserves the fork-limit recovery route for %s", async operation => {
+  const body = { error: "Replay fork limit reached. Cancel a fork and try again.", code: "FORK_LIMIT",
+    limit: 4, forksUrl: "/api/admin/duels/forks" };
+  state.fetch.mockResolvedValueOnce(Response.json(body, { status: 429 }));
+  const response = operation === "launch" ? await launch() : await (await import("../app/api/duels/[slug]/fork/restart/route"))
+    .POST(new Request(`http://localhost/api/duels/${fork}/fork/restart`, { method: "POST" }), params(fork));
+  expect(response.status).toBe(429); expect(await response.json()).toEqual(body);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
 it.each([101, 102])("allows owner %s to launch from a private production source without a source grant", async id => {
   signIn(id);
   // This route does not use normal room access. The host checks source and retry access.

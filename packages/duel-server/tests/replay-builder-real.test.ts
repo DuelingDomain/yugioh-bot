@@ -5,7 +5,7 @@ import { defaultDuelSettings, seatCountFor, toOrdinaryReplayView,
   type DuelEngineChoice, type DuelEngineView, type DuelFormat, type DuelMode, type ReplaySource } from "@yugidraft/shared/duels";
 import { createEngineGame } from "../src/engine.js";
 import { createLegacyEngineGame } from "../src/legacy/index.js";
-import { buildReplayFrames } from "../src/replay-builder.js";
+import { buildReplayData, projectReplayFrames } from "../src/replay-builder.js";
 import { createReplayCursorCodec, replaySourceVersion, resolveReplayCursor } from "../src/replay-cursor.js";
 import { multiScriptsFolderHash, pinnedEngineVersion, repoMultiScriptsDirectory } from "../src/multi-scripts.js";
 import { buildPracticeBotDeck, chooseSurrenderedAnswer } from "../src/practice-bot.js";
@@ -63,8 +63,12 @@ describeWithCores("real replay frame projections", [needs.cards(DATA), needs.scr
       let frameIds: string[] | undefined;
       for (const dataSeat of [null, ...source.session.seats.map(seat => seat.seat)]) {
         const workers: GameWorker[] = [];
-        const frames = await buildReplayFrames({ source, sourceVersion, resources, codec, dataSeat, finalView: null,
+        const data = await buildReplayData({ source, sourceVersion, resources, dataSeat, finalView: null,
           createWorker: () => { const worker = new GameWorker(); workers.push(worker); return worker; } });
+        const frames = projectReplayFrames(data.frames, codec, true);
+        const ordinary = projectReplayFrames(data.frames, codec, false);
+        expect(ordinary.every(frame => frame.cursor === null)).toBe(true);
+        expect(ordinary.map(frame => frame.view)).toEqual(frames.map(frame => frame.view));
         expect(workers.every(worker => !worker.running)).toBe(true);
         expect(frames).toHaveLength(history.length + 1);
         const ids = frames.map(frame => frame.frameId); if (frameIds) expect(ids).toEqual(frameIds); else frameIds = ids;

@@ -27,7 +27,7 @@ describeWithCores("real fork launch and copied-prefix restart", [needs.cards(DAT
   needs.installedMulti(DATA), needs.file("Domain multi core", join(DATA, "ocgcore.multi-domain.wasm")),
   needs.file("legacy Domain core", join(DATA, "ocgcore.domain.legacy.wasm")),
   needs.file("legacy Domain script", join(DATA, "card-scripts/domain.legacy.lua"))], () => {
-  it.each(cases)("launches, answers, recovers and restarts $mode $format $engine", async ({ mode, format, engine }) => {
+  it.each(cases.flatMap(test => [true, false].map(recordIdentity => ({ ...test, recordIdentity }))))("launches, answers, recovers and restarts $mode $format $engine (identity=$recordIdentity)", async ({ mode, format, engine, recordIdentity }) => {
     vi.stubEnv("OWNER_USER_IDS", "101"); vi.stubEnv("MULTIPLAYER_TABLES", "1");
     const db = new Database(":memory:"); migrate(db);
     const owner = { guildId: "real-fork-test", playerId: 61, userId: 101 };
@@ -40,7 +40,7 @@ describeWithCores("real fork launch and copied-prefix restart", [needs.cards(DAT
       settings: { visibility: "private", validateDeck: false } });
     const decks = Array.from({ length: count }, () => structuredClone(buildPracticeBotDeck(mode, DATA)));
     const seed = ["123", "456", "789", "1011"] as [string, string, string, string];
-    const setup = { engine, engineIdentity: resources.identity, firstTurnDraw: mode === "domain" && count > 2, scriptErrorMode: "strict" as const };
+    const setup = { engine, ...(recordIdentity ? { engineIdentity: resources.identity } : {}), firstTurnDraw: mode === "domain" && count > 2, scriptErrorMode: "strict" as const };
     const sourceWorker = new GameWorker(); let host: DuelHost | undefined;
     const changes: string[] = [];
     const startHost = () => host = createDuelHost({ db, dataDirectory: DATA, secret, searchCards: () => [],
@@ -75,7 +75,7 @@ describeWithCores("real fork launch and copied-prefix restart", [needs.cards(DAT
       await sourceWorker.setChainMode(1, "off");
       const state = duels.privateState(session.slug, owner.guildId);
       const source: ReplaySource = { session: state.session, setup: { engine, firstTurnDraw: setup.firstTurnDraw, scriptErrorMode: "strict" },
-        engineIdentity: resources.identity, decks, seed, bundleVersion: state.bundleVersion!, commands: state.commands };
+        engineIdentity: setup.engineIdentity ?? null, decks, seed, bundleVersion: state.bundleVersion!, commands: state.commands };
       const sourceVersion = replaySourceVersion(source), revision = (await sourceWorker.view(null)).revision;
       const cursor = createReplayCursorCodec(secret).seal({ sourceId: session.id, sourceSlug: session.slug, guildId: owner.guildId,
         sourceVersion, frameId: replayFrameId(sourceVersion, 3), step: 3, prefixCount: 4, prefixHash: replayPrefixHash(source, 4), revision });

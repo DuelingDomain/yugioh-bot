@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { callDuelHost, duelErrorResponse, readReplayQuery, requireDuelActor } from "@/lib/duel-host";
 import { assertDuelForkAccess } from "@/lib/replay-fork-access";
+import { getDb } from "@/lib/db";
+import { savedReplayBoardResponse } from "@/lib/saved-replay-board";
 
 export const runtime = "nodejs";
 
@@ -39,7 +41,22 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     userId: actor.userId,
     ...query.input,
   });
-  if (!result.ok) return noStore(result.response);
+  if (!result.ok) {
+    if (result.response.status === 413) {
+      try {
+        assertDuelForkAccess(slug, actor);
+        const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+        const fallback = await savedReplayBoardResponse(result.response, {
+          db: getDb(), session: room.session, playerId: actor.playerId, owner: false, ...query.input,
+        });
+        if (fallback) {
+          assertDuelForkAccess(slug, actor); actor.duels.room(slug, actor.guildId, actor.playerId);
+          return fallback;
+        }
+      } catch (error) { return accessError(error); }
+    }
+    return noStore(result.response);
+  }
   // Recheck after the host wait, including allowlist changes for a marked fork.
   try { assertDuelForkAccess(slug, actor); actor.duels.room(slug, actor.guildId, actor.playerId); }
   catch (error) { return accessError(error); }

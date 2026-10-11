@@ -2,13 +2,15 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildReplayFrames, ReplayBuildCache } from "../src/replay-builder.js";
+import { buildReplayFrames, replayBuildLimits, REPLAY_MAX_BUILD_BYTES, ReplayBuildCache } from "../src/replay-builder.js";
 import { createReplayCursorCodec, replaySourceVersion } from "../src/replay-cursor.js";
 import { multiScriptsFolderHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
+import { replayForkTimeoutMs } from "../src/replay-fork.js";
 
 const codec = createReplayCursorCodec("builder-test-secret");
 const dirs: string[] = [];
+const sizeOf = (value: string | string[]) => typeof value === "string" ? Buffer.byteLength(value) + 2 : 5;
 afterEach(() => { dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); });
 function input(format: "1v1" | "tag" | "ffa3" | "ffa4" = "1v1") {
   const source = replaySource(format);
@@ -70,16 +72,23 @@ describe("replay frame builder", () => {
       if (failure === "mismatch") options.source.commands[0]!.command.revision = 9;
       if (failure === "timeout") worker.create = () => new Promise(() => {});
       await expect(buildReplayFrames({ ...options, dataSeat: null, createWorker: () => worker,
-        maxBytes: failure === "bytes" ? 20 : undefined, timeoutMs: 20 })).rejects.toMatchObject({
-          code: failure === "mismatch" ? "REPLAY_MISMATCH" : "ENGINE_BUSY" });
+        maxBytes: failure === "bytes" ? 20 : undefined, timeoutMs: failure === "timeout" ? 20 : undefined })).rejects.toMatchObject({
+          code: failure === "mismatch" ? "REPLAY_MISMATCH" : failure === "bytes" ? "REPLAY_TOO_LARGE" : "ENGINE_BUSY" });
       expect(worker.closed).toBe(1);
     }
   });
 });
 
 describe("bounded replay cache", () => {
+  it("accounts measured bytes without serializing the cache value", async () => {
+    const serialize = vi.fn(() => { throw new Error("Host stringify must not run"); });
+    const value = { toJSON: serialize };
+    const cache = new ReplayBuildCache<typeof value>(() => 7);
+    expect(await cache.getOrBuild("measured", async () => value)).toBe(value);
+    expect(cache.bytes).toBe(7); expect(serialize).not.toHaveBeenCalled();
+  });
   it("deduplicates concurrent builds, retries failures and keeps auth/perspective keys apart", async () => {
-    const cache = new ReplayBuildCache({ maxBytes: 100, maxEntries: 2, maxConcurrent: 2 });
+    const cache = new ReplayBuildCache(sizeOf, { maxBytes: 100, maxEntries: 2, maxConcurrent: 2 });
     let release!: () => void; const wait = new Promise<void>(resolve => { release = resolve; });
     const build = vi.fn(async () => { await wait; return ["a"]; });
     const a = cache.getOrBuild("owner:seat0", build); const b = cache.getOrBuild("owner:seat0", build);
@@ -90,11 +99,51 @@ describe("bounded replay cache", () => {
     await expect(cache.getOrBuild("failure", async () => { throw new Error("failed"); })).rejects.toThrow("failed");
     expect(await cache.getOrBuild("failure", async () => ["ok"])).toEqual(["ok"]);
   });
+  it("queues four builds with at most two workers and shares waiting keys", async () => {
+    const cache = new ReplayBuildCache<string>(sizeOf);
+    let active = 0, peak = 0;
+    const releases: Array<() => void> = [];
+    const build = (value: string) => async () => {
+      active++; peak = Math.max(peak, active);
+      await new Promise<void>(resolve => releases.push(resolve));
+      active--; return value;
+    };
+    const jobs = ["a", "b", "c", "d"].map(key => cache.getOrBuild(key, build(key)));
+    const same = cache.getOrBuild("c", build("wrong"));
+    await Promise.resolve(); expect(active).toBe(2);
+    releases.splice(0).forEach(release => release());
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(active).toBe(2); releases.splice(0).forEach(release => release());
+    expect(await Promise.all(jobs)).toEqual(["a", "b", "c", "d"]);
+    expect(await same).toBe("c"); expect(peak).toBe(2);
+    await cache.settle();
+  });
+  it("bounds the wait queue and releases a slot after a build failure", async () => {
+    const cache = new ReplayBuildCache<string>(sizeOf, { maxBytes: 100, maxEntries: 2, maxConcurrent: 1, maxWaiting: 1 });
+    let release!: () => void;
+    const first = cache.getOrBuild("a", async () => { await new Promise<void>(resolve => { release = resolve; }); throw new Error("failed"); });
+    const failure = expect(first).rejects.toThrow("failed");
+    const waiting = cache.getOrBuild("b", async () => "ok");
+    await expect(cache.getOrBuild("c", async () => "overflow")).rejects.toMatchObject({ code: "ENGINE_BUSY" });
+    await Promise.resolve(); release(); await failure; expect(await waiting).toBe("ok");
+  });
+  it("caps long replay budgets and remembers deterministic size failures", async () => {
+    const limits = replayBuildLimits(1500, 4);
+    expect(limits.timeoutMs).toBeLessThanOrEqual(25_000);
+    expect(replayForkTimeoutMs(1500)).toBeLessThanOrEqual(25_000);
+    expect(limits.maxBytes).toBe(REPLAY_MAX_BUILD_BYTES);
+    const cache = new ReplayBuildCache<string>(sizeOf, { maxBytes: 20, maxEntries: 2, maxConcurrent: 1 });
+    const build = vi.fn(async () => "x".repeat(21));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(cache.getOrBuild("large", build)).rejects.toMatchObject({ code: "REPLAY_TOO_LARGE", status: 413 });
+    }
+    expect(build).toHaveBeenCalledTimes(1);
+  });
   it("evicts by bytes and entries, refuses oversized values and caps detached jobs", async () => {
-    const cache = new ReplayBuildCache({ maxBytes: 20, maxEntries: 2, maxConcurrent: 1 });
+    const cache = new ReplayBuildCache(sizeOf, { maxBytes: 20, maxEntries: 2, maxConcurrent: 1, maxWaiting: 0 });
     await cache.getOrBuild("a", async () => "12345678"); await cache.getOrBuild("b", async () => "123456789");
     expect(cache.size).toBe(1); expect(cache.bytes).toBeLessThanOrEqual(20);
-    await expect(cache.getOrBuild("huge", async () => "x".repeat(21))).rejects.toMatchObject({ code: "ENGINE_BUSY" });
+    await expect(cache.getOrBuild("huge", async () => "x".repeat(21))).rejects.toMatchObject({ code: "REPLAY_TOO_LARGE" });
     let release!: () => void;
     const pending = cache.getOrBuild("slow", () => new Promise<string>(resolve => { release = () => resolve("ok"); }));
     await Promise.resolve();

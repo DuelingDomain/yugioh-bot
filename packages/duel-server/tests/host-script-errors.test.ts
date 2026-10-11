@@ -29,14 +29,17 @@ async function request(host: DuelHost, body: Record<string, unknown>, expectedSt
   return data;
 }
 
-// This fixture callback fails twice in one engine command. The worker keeps
-// distinct ordinals; recovery and retry must not count either occurrence again.
+// Node 22 + built cores reproduce two callbacks at base 9c1fe2119 as well:
+// its six engine cases and strict retry fail the stale count: 1 expectation.
+// Both failures belong to one command, with distinct engine ordinals 1 and 2.
+// Recovery/replay/retry must preserve those exact occurrence keys.
 function expectRuntimeOccurrences(db: Database.Database, duelId: number) {
   const rows = db.prepare("select command_hash, error_index from card_script_error_occurrences where duel_id = ? and code = 3743515 order by error_index").all(duelId);
   expect(rows).toHaveLength(2);
   const [first] = rows as Array<{ command_hash: string; error_index: number }>;
   expect(first!.command_hash).toMatch(/^[a-f0-9]{64}$/);
   expect(rows).toEqual([1, 2].map(error_index => ({ command_hash: first!.command_hash, error_index })));
+  return rows;
 }
 
 describeWithCores("script errors through host, worker and journal", [needs.standard(DATA), needs.domain(DATA), needs.installedMulti(DATA)], () => {
@@ -141,7 +144,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
         await request(host, { ...base, op: "respond", playerId: players[seat], command: { promptId: view.prompt!.id, revision: view.revision, answer: attackAnswer(view.prompt!) } });
       }
       const live = await views();
-      expectRuntimeOccurrences(db, session.id);
+      const occurrences = expectRuntimeOccurrences(db, session.id);
       expect(live[0]!.events.some((event) => event.kind === "script-error")).toBe(true);
       expect(live[0]!.result).toBeNull();
       expect(duels.privateState(session.slug, "g").commands.length).toBeGreaterThan(0);
@@ -152,10 +155,12 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
       vi.stubEnv("DUEL_SCRIPT_ERRORS", "strict");
       host = makeHost();
       expect(await views()).toEqual(live);
+      expect(expectRuntimeOccurrences(db, session.id)).toEqual(occurrences);
       expect(topScriptErrors(db)[0]?.count).toBe(2);
       duels.complete(session.slug, "g", 0, "Test replay completion");
       const replay = await request(host, { ...base, op: "replay", playerId: players[0] });
       expect(JSON.stringify(replay)).toContain("Card script error:");
+      expect(expectRuntimeOccurrences(db, session.id)).toEqual(occurrences);
       expect(topScriptErrors(db)[0]?.count).toBe(2);
       expect(log.mock.calls.filter(([line]) => typeof line === "string" && line.includes('"event":"card_script_error"'))).toHaveLength(2);
     } finally {
