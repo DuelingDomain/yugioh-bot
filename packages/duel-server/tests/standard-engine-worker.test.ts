@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -20,9 +19,10 @@ describeWithCores("Standard-only switch on a real 1v1 worker", [needs.cards(DATA
       const deck = buildPracticeBotDeck(mode, DATA);
       await worker.create({ mode, engine, decks: [deck, deck], dataDirectory: DATA, seed: ["1", "2", "3", "4"],
         scriptErrorMode: "strict", firstTurnDraw: false });
-      const wasmFile = mode === "normal" ? "ocgcore.standard.wasm" : "ocgcore.domain.legacy.wasm";
-      const wasmSha = createHash("sha256").update(readFileSync(join(DATA, wasmFile))).digest("hex");
-      expect(worker.debugState()).toMatchObject({ wasmFile, wasmSha });
+      const manifest = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8"));
+      expect(worker.debugState()).toMatchObject(mode === "normal"
+        ? { wasmFile: "ocgcore.standard.wasm", wasmSha: manifest.integrity.standardWasm }
+        : { wasmFile: "ocgcore.domain.legacy.wasm", wasmSha: manifest.integrity.domainLegacyWasm });
       expect((await worker.view(0)).seats[0]!.hand).toHaveLength(5);
       expect(errors).toEqual([]);
     } finally { await worker.close(); }
