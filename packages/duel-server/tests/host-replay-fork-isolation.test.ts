@@ -1,8 +1,8 @@
 import { createHmac } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService, createDuelSeriesService, createReplayForkService, hashReplayForkPrefix } from "@yugidraft/shared/services";
 import { seatCountFor, type DuelAnswer, type DuelEngineView, type DuelFormat, type ReplaySource } from "@yugidraft/shared/duels";
@@ -12,7 +12,7 @@ import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-script
 import { EngineLoopError } from "../src/engine-loop-error.js";
 import type { DuelScriptError, DuelScriptFatalError } from "../src/script-errors.js";
 import { seedIdentity } from "./helpers/identity.js";
-import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 
 vi.mock("../src/worker-client.js", async original => ({
   ...await original<typeof import("../src/worker-client.js")>(),
@@ -21,6 +21,8 @@ vi.mock("../src/worker-client.js", async original => ({
   },
 }));
 const SECRET = "fork-isolation-fixture";
+const DATA = createHostDataFixture([1, 2, 3].map(code => ({ code, name: `Fixture ${code}` })));
+afterAll(() => rmSync(DATA, { recursive: true, force: true }));
 const MANIFEST = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")) as { bundleVersion: string };
 const workers: FakeWorker[] = [], hosts: DuelHost[] = [], dbs: Database.Database[] = [];
 afterEach(async () => {

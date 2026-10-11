@@ -6,13 +6,15 @@ import {
 import { eliminationAtTurnEnd } from "./engine.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { savedFirstTurnDraw } from "./first-turn-draw.js";
-import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
+import { EngineResourceUnavailableError, sourceEngineChoice } from "./engine-resource-resolver.js";
 import { applyWorkerJournalCommand, isPromptlessCommand } from "./journal-command.js";
 import { multiScriptsFolderHash, pinnedEngineVersion, resolveMultiScriptsDirectory } from "./multi-scripts.js";
 import type { DuelGameWorker, GameOptions } from "./worker-client.js";
 
 /** Trusted server selection. The caller verifies core/card/script files (B5), never the browser. */
 export interface JournalResources {
+  /** Host-authorized cross-version replay/fork only. Command and core-family checks remain mandatory. */
+  allowVersionMismatch?: boolean;
   dataDirectory: string;
   /** Manifest bundle version, before the format-specific multi overlay pin. */
   bundleVersion: string;
@@ -106,7 +108,7 @@ function creationOptions({ source, resources, prefixCount, checkpointSeat, targe
   if (!resources.dataDirectory || !resources.bundleVersion || !source.bundleVersion) {
     throw new JournalRunnerError("Source engine resources are not available", "ENGINE_UNAVAILABLE_FOR_SOURCE");
   }
-  const engine = session.format === "1v1" ? setup?.engine ?? (setup?.startupScripts?.length ? "pinned" : "legacy") : undefined;
+  const engine = session.format === "1v1" ? sourceEngineChoice(source) : undefined;
   if (engine !== undefined && engine !== "legacy" && engine !== "pinned") mismatch("Invalid saved 1v1 engine choice");
   if (setup?.startupScripts !== undefined && (!Array.isArray(setup.startupScripts) || setup.startupScripts.some(content => typeof content !== "string"))) mismatch("Invalid saved startup scripts");
   const scriptErrorMode = setup?.scriptErrorMode ?? "tolerant";
@@ -124,17 +126,17 @@ function creationOptions({ source, resources, prefixCount, checkpointSeat, targe
   } catch (error) {
     throw new JournalRunnerError(error instanceof Error ? error.message : "Source engine rules are not available", "ENGINE_UNAVAILABLE_FOR_SOURCE", error);
   }
-  if (source.bundleVersion !== pinnedEngineVersion(resources.bundleVersion, count, overlayHash)) {
+  if (!resources.allowVersionMismatch && source.bundleVersion !== pinnedEngineVersion(resources.bundleVersion, count, overlayHash)) {
     throw new JournalRunnerError("The engine resource version changed after this game was played", "ENGINE_UNAVAILABLE_FOR_SOURCE");
   }
   const coreFamily = count > 2 ? "multi" : engine;
-  for (const identity of [source.engineIdentity, resources.engineIdentity]) {
+  for (const identity of [resources.allowVersionMismatch ? null : source.engineIdentity, resources.engineIdentity]) {
     if (identity != null && (!isEngineIdentity(identity) || identity.coreFamily !== coreFamily || identity.mode !== session.mode
       || identity.multiOverlayHash !== overlayHash)) {
       throw new JournalRunnerError("The engine identity does not match the source rules or selected resources", "ENGINE_UNAVAILABLE_FOR_SOURCE");
     }
   }
-  if (source.engineIdentity !== null && (!resources.engineIdentity || !sameEngineIdentity(source.engineIdentity, resources.engineIdentity))) {
+  if (!resources.allowVersionMismatch && source.engineIdentity !== null && (!resources.engineIdentity || !sameEngineIdentity(source.engineIdentity, resources.engineIdentity))) {
     throw new JournalRunnerError("The exact recorded engine identity is not available", "ENGINE_UNAVAILABLE_FOR_SOURCE");
   }
   return {

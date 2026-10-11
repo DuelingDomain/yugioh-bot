@@ -10,6 +10,7 @@ import { runJournalPrefix, type JournalResources, type JournalRunResult } from "
 import { replayBuildError, replayHasUnsequencedLoss, type ReplayBuildErrorCode } from "./replay-builder.js";
 import { replayFrameId, replaySourceVersion, resolveReplayCursor, ReplayCursorError, type ReplayCursorCodec } from "./replay-cursor.js";
 import type { DuelGameWorker } from "./worker-client.js";
+import { pinnedEngineVersion } from "./multi-scripts.js";
 
 export const REPLAY_FORK_TIMEOUT_MS = 20_000;
 /** Launch/restart re-run a trusted stored prefix; account for its length. */
@@ -61,6 +62,8 @@ interface ForkLaunchOptions {
   codec: ReplayCursorCodec;
   sourceOf: (state: DuelPrivateState) => ReplaySource;
   resourcesOf: (state: DuelPrivateState) => JournalResources | Promise<JournalResources>;
+  /** Check the complete source, with the shared bounded replay build, before a prefix can be forked. */
+  authorizeSource?: (state: DuelPrivateState, actor: OwnerPlayerActor, unchecked: boolean, signal?: AbortSignal) => Promise<void>;
   /** Recorder is disabled until persistence. The closure supplies the new fork ID after commit. */
   createWorker: (duelId: () => number | undefined) => DuelGameWorker;
   /** All engine reads finish before commit. Handoff has no asynchronous failure window. */
@@ -93,7 +96,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
   };
 
   async function detached(actor: OwnerPlayerActor, state: DuelPrivateState, prefixCount: number,
-    target: { revision: number } | undefined, save: (defaults: Array<{ seat: number; command: DuelCommand }>) => { session: DuelSession; reused: boolean },
+    target: { revision: number } | undefined, save: (defaults: Array<{ seat: number; command: DuelCommand }>, resources: JournalResources) => { session: DuelSession; reused: boolean },
     enforceActive: boolean, restore?: () => void, signal?: AbortSignal): Promise<DuelRoom> {
     signal?.throwIfAborted();
     const release = reserve(actor, enforceActive);
@@ -127,7 +130,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
       }
       if (views.some(view => view.result)) throw new ReplayForkLaunchError("This checkpoint has no playable engine state.", "NOT_PLAYABLE");
       check();
-      const saved = save(defaults);
+      const saved = save(defaults, resources);
       if (saved.reused) {
         await worker!.close(); worker = undefined;
         check(); return options.room(saved.session.slug, actor);
@@ -199,10 +202,12 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
       const claims = resolveReplayCursor(options.codec, request.cursor, source);
       if (claims.sourceVersion !== request.sourceVersion) throw new ReplayCursorError("SOURCE_CHANGED");
       if (claims.frameId !== replayFrameId(claims.sourceVersion, claims.step)) throw new ReplayCursorError("INVALID_CURSOR");
+      await options.authorizeSource?.(state, actor, request.unchecked === true, signal);
+      signal?.throwIfAborted();
       const origin = { sourceSlug: slug, sourceVersion: claims.sourceVersion, frameId: claims.frameId, step: claims.step,
         prefixCount: claims.prefixCount, prefixHash: hashReplayForkPrefix(source.commands.slice(0, claims.prefixCount)),
         sourceSeats: source.session.seats.map(s => ({ seat: s.seat, displayName: s.displayName })) };
-      const room = await detached(actor, state, claims.prefixCount, { revision: claims.revision }, defaults => db.transaction(() => {
+      const room = await detached(actor, state, claims.prefixCount, { revision: claims.revision }, (defaults, resources) => db.transaction(() => {
         const savedRetry = store.retry({ actor, requestId: request.requestId, sourceSlug: slug, sourceVersion: request.sourceVersion, cursorDigest });
         if (savedRetry) return savedRetry;
         assertOwnerReplaySourceAccess(db, slug, actor);
@@ -213,7 +218,9 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
         if (activeCount(owner) >= REPLAY_FORK_ACTIVE_LIMIT) {
           throw new ReplayForkLaunchError("Replay fork limit reached. Cancel a fork and try again.", "FORK_LIMIT");
         }
-        const saved = store.create({ actor, requestId: request.requestId, cursorDigest, source, origin });
+        const saved = store.create({ actor, requestId: request.requestId, cursorDigest, source, origin,
+          ...(resources.engineIdentity ? { resources: { engineIdentity: resources.engineIdentity,
+            bundleVersion: pinnedEngineVersion(resources.bundleVersion, source.decks.length, resources.engineIdentity.multiOverlayHash) } } : {}) });
         if (!saved.reused) for (const { seat, command } of defaults) duels.recordCommand(saved.session.slug, actor.guildId, seat, command, null);
         return saved;
       }).immediate(), true, undefined, signal);

@@ -24,6 +24,7 @@ export interface ReplayForkSetup {
 }
 
 export interface ReplayForkRequest {
+  unchecked?: boolean;
   cursor: ReplayCursor;
   sourceVersion: string;
   requestId: string;
@@ -82,7 +83,8 @@ function boundedToken(value: unknown, maxLength: number): value is string {
 /** Syntax only. The host must check access, source version, cursor seal/binding and retry conflicts. */
 export function isReplayForkRequest(value: unknown): value is ReplayForkRequest {
   return isRecord(value)
-    && Object.keys(value).every((key) => key === "cursor" || key === "sourceVersion" || key === "requestId")
+    && Object.keys(value).every((key) => key === "cursor" || key === "sourceVersion" || key === "requestId" || key === "unchecked")
+    && (value.unchecked === undefined || typeof value.unchecked === "boolean")
     && boundedToken(value.cursor, REPLAY_CURSOR_MAX_LENGTH)
     && boundedToken(value.sourceVersion, REPLAY_SOURCE_VERSION_MAX_LENGTH)
     && typeof value.requestId === "string"

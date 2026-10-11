@@ -40,6 +40,8 @@ export interface EngineResources {
   identity: EngineIdentity;
   dataDirectory: string;
   bundleVersion: string;
+  /** Manifest version before the multi overlay pin. */
+  rawBundleVersion?: string;
   /** Server-selected current overlay. Never read a resource path from source data or a request. */
   multiScriptsDirectory?: string;
 }
@@ -90,7 +92,7 @@ export function getCurrentEngineResources(dataDirectory: string, options: Resour
       hostRuleVersion: `${ENGINE_HOST_RULE_VERSION}:${JSON.stringify(capabilities)}`,
     };
     if (!isEngineIdentity(identity)) throw new Error("invalid current engine identity");
-    return { identity, dataDirectory: directory,
+    return { identity, dataDirectory: directory, rawBundleVersion: manifest.bundleVersion,
       bundleVersion: pinnedEngineVersion(manifest.bundleVersion, seatCountFor(options.format ?? "1v1"), multiOverlayHash),
       ...(overlay ? { multiScriptsDirectory: resolve(overlay) } : {}) };
   } catch {
@@ -104,8 +106,17 @@ export function resolveEngineResourcesForSource(
   dataDirectory: string,
   source: Pick<ReplaySource, "session" | "bundleVersion" | "setup" | "engineIdentity">,
   current?: EngineResources,
-  purpose: "replay" | "live-recovery" = "replay",
+  purpose: "replay" | "live-recovery" | "replay-verification" = "replay",
 ): EngineResources {
+  if (purpose === "replay-verification") {
+    const engine = sourceEngineChoice(source);
+    const resources = current ?? getCurrentEngineResources(dataDirectory, { mode: source.session.mode, format: source.session.format, engine });
+    const family = seatCountFor(source.session.format) > 2 ? "multi" : engine;
+    if (resources.identity.coreFamily !== family || resources.identity.mode !== source.session.mode) {
+      throw new EngineResourceUnavailableError("the source engine family is not installed");
+    }
+    return resources;
+  }
   if (!isEngineIdentity(source.engineIdentity)) throw new EngineResourceUnavailableError("this game has no verified recorded engine identity");
   if (typeof source.setup?.firstTurnDraw !== "boolean"
     || (source.setup.scriptErrorMode !== "strict" && source.setup.scriptErrorMode !== "tolerant")) {
@@ -119,6 +130,12 @@ export function resolveEngineResourcesForSource(
     throw new EngineResourceUnavailableError("the engine changed or its recorded resources and runtime rules do not match");
   }
   return resources;
+}
+
+/** Saved identity names the original core; old records retain their saved choice or historical fallback. */
+export function sourceEngineChoice(source: Pick<ReplaySource, "setup" | "engineIdentity">): DuelEngineChoice {
+  if (isEngineIdentity(source.engineIdentity) && source.engineIdentity.coreFamily !== "multi") return source.engineIdentity.coreFamily;
+  return source.setup?.engine ?? (source.setup?.startupScripts?.length ? "pinned" : "legacy");
 }
 
 /** Repeat the check inside the worker, using the exact overlay passed by the server. */

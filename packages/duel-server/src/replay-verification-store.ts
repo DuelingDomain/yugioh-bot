@@ -1,6 +1,5 @@
 import type Database from "better-sqlite3";
-
-export type ReplayUnverifiedReason = "board_mismatch" | "command_mismatch" | "no_saved_board";
+import type { ReplayUnverifiedReason } from "@yugidraft/shared/duels";
 export interface ReplayVerificationKey {
   duelId: number;
   bundleVersion: string;

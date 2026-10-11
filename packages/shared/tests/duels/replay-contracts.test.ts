@@ -90,6 +90,7 @@ describe("replay and fork contracts", () => {
       },
     };
     const replay: DuelReplayV2 = {
+      verification: "exact",
       version: 2, sourceVersion: "source-v1", visibility: "public", session: sourceSession, role: "spectator",
       mySeat: null, dataSeat: null, frames: [opening],
     };
@@ -103,6 +104,7 @@ describe("replay and fork contracts", () => {
     expect(opening.view.prompt).toBeNull();
     expect(opening.view).not.toHaveProperty("chainMode");
     const legacy: DuelReplay = {
+      verification: "exact",
       session: sourceSession, role: "spectator", mySeat: null,
       frames: [{ step: opening.step, actorSeat: null, view: opening.view }],
     };
@@ -153,6 +155,7 @@ describe("replay and fork contracts", () => {
 
   it("echoes the privileged request for an owner with no source seat", () => {
     const replay: DuelReplayV2 = {
+      verification: "exact",
       version: 2, sourceVersion: "source-v1", visibility: "public", reveal: true,
       session: session("ffa4"), role: "spectator", mySeat: null, dataSeat: 3, frames: [],
       capabilities: { canFork: true, privateSeats: [0, 1, 2, 3] },
@@ -351,6 +354,9 @@ describe("fork request and stable error contracts", () => {
   it("accepts a bounded retry key without decoding the opaque cursor", () => {
     expect(isReplayForkRequest(request)).toBe(true);
     expect(isReplayForkRequest({ ...request, requestId: "a".repeat(REPLAY_FORK_REQUEST_ID_MAX_LENGTH) })).toBe(true);
+    expect(isReplayForkRequest({ ...request, unchecked: true })).toBe(true);
+    expect(isReplayForkRequest({ ...request, unchecked: false })).toBe(true);
+    for (const unchecked of [1, "true", null]) expect(isReplayForkRequest({ ...request, unchecked })).toBe(false);
   });
 
   it("rejects malformed requests and caller-supplied private authority", () => {
@@ -368,13 +374,13 @@ describe("fork request and stable error contracts", () => {
   it("exports every stable error and its allowed HTTP status", () => {
     expect(REPLAY_ERROR_CODES).toEqual([
       "ACCESS_DENIED", "ACCESS_UNAVAILABLE", "INVALID_CURSOR", "SOURCE_CHANGED", "REQUEST_CONFLICT", "ENGINE_UNAVAILABLE_FOR_SOURCE",
-      "REPLAY_MISMATCH", "NOT_PLAYABLE", "FORK_LIMIT", "ENGINE_BUSY",
+      "REPLAY_MISMATCH", "REPLAY_UNVERIFIED", "NOT_PLAYABLE", "FORK_LIMIT", "ENGINE_BUSY",
     ]);
     for (const code of REPLAY_ERROR_CODES) expect(isReplayErrorCode(code)).toBe(true);
     for (const value of [undefined, null, "INVALID", "invalid_cursor"]) expect(isReplayErrorCode(value)).toBe(false);
     expect(REPLAY_ERROR_HTTP_STATUSES).toEqual({
       ACCESS_DENIED: [401, 403, 404], ACCESS_UNAVAILABLE: [503], INVALID_CURSOR: [400], SOURCE_CHANGED: [409], REQUEST_CONFLICT: [409],
-      ENGINE_UNAVAILABLE_FOR_SOURCE: [409], REPLAY_MISMATCH: [409], NOT_PLAYABLE: [409],
+      ENGINE_UNAVAILABLE_FOR_SOURCE: [409], REPLAY_MISMATCH: [409], REPLAY_UNVERIFIED: [409], NOT_PLAYABLE: [409],
       FORK_LIMIT: [429], ENGINE_BUSY: [503],
     });
   });

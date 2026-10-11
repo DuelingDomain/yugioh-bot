@@ -105,8 +105,8 @@ describe("current engine identity", () => {
       hash.update(`shared/${name}\0`).update(fingerprintSource(readFileSync(new URL(`../../shared/src/duels/${name}.ts`, import.meta.url), "utf8")));
     }
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
-    // Main's optional smoke observers/pre-card scripts change this fingerprint;
-    // production omits those hooks, so the replay compatibility version stays 2.
+    // Cross-version verification adds an explicit resource authorization policy.
+    // Engine command application and Manual loss timing are unchanged, so duel-rules-2 stays intact.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 
@@ -190,6 +190,26 @@ describe("current engine identity", () => {
     const { value } = source(directory);
     value.bundleVersion = "old-bundle";
     expect(() => resolveEngineResourcesForSource(directory, value)).toThrowError(expect.objectContaining({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE" }));
+  });
+  it.each([
+    ["normal", "1v1", "legacy"], ["normal", "1v1", "pinned"],
+    ["domain", "1v1", "legacy"], ["domain", "1v1", "pinned"],
+    ["normal", "tag", "legacy"], ["domain", "ffa4", "pinned"],
+  ] as const)("selects the installed %s %s %s family for cross-version verification", (mode, format, engine) => {
+    const directory = bundle(), { value, resources } = source(directory, mode, format, engine);
+    value.bundleVersion = "older-bundle";
+    value.engineIdentity = { ...value.engineIdentity!, cardScriptsHash: "e".repeat(64) };
+    const before = structuredClone(value);
+    expect(resolveEngineResourcesForSource(directory, value, undefined, "replay-verification")).toEqual(resources);
+    expect(value).toEqual(before);
+    value.engineIdentity = null;
+    expect(resolveEngineResourcesForSource(directory, value, undefined, "replay-verification")).toEqual(resources);
+  });
+  it("refuses a missing pinned core during cross-version selection", () => {
+    const directory = bundle(), { value } = source(directory);
+    value.bundleVersion = "older-bundle"; rmSync(join(directory, "ocgcore.standard.wasm"));
+    expect(() => resolveEngineResourcesForSource(directory, value, undefined, "replay-verification"))
+      .toThrowError(expect.objectContaining({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE" }));
   });
 
   it("keeps saved legacy choice when the current switch selects pinned", () => {

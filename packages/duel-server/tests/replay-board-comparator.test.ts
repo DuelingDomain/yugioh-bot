@@ -42,6 +42,9 @@ const changes: Array<[string, (view: DuelEngineView) => void]> = [
   ["materials", v => { v.seats[0]!.monsters[0]!.materials![0]!.code!++; }],
   ["attack", v => { v.seats[0]!.monsters[0]!.attack!++; }],
   ["defense", v => { v.seats[0]!.monsters[0]!.defense!++; }],
+  ...(["level", "rank", "type", "attribute", "linkRating", "linkMarker"] as const).map(field =>
+    [field, (v: DuelEngineView) => { v.seats[0]!.monsters[0]![field] = 5; }] as [string, (v: DuelEngineView) => void]),
+  ["race", v => { v.seats[0]!.monsters[0]!.race = "8"; }],
   ["equipped zone", v => { v.seats[0]!.spells[0]!.equippedTo = { controller: 0, location: 4, sequence: 0 }; }],
   ["eliminated", v => { v.seats[0]!.eliminated = true; }],
   ["pending loss", v => { v.seats[0]!.pendingElimination = true; }],

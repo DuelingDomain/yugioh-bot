@@ -655,6 +655,7 @@ export interface DuelReplayFrame {
 }
 
 export interface DuelReplay {
+  verification: import("./replay.js").ReplayVerification;
   session: DuelSession;
   role: DuelActorRole;
   mySeat: number | null;
