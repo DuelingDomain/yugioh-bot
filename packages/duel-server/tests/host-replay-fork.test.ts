@@ -27,6 +27,7 @@ class ForkWorker extends ReplayWorker {
   announce = false;
   pending: number | null = null;
   eliminated: number | null = null;
+  async eliminate(seat: number) { this.eliminated = seat; this.revision++; }
   async view(viewer: number | null): Promise<DuelEngineView> {
     const view = await super.view(viewer);
     view.prioritySeat = this.result ? null : this.promptSeat;
@@ -230,7 +231,7 @@ it("rejects fork admission/series operations and rejects acting seats on real pl
   for (const op of ["start", "ready", "unready", "deck", "validate-deck", "add-bot", "opening-pick", "opening-choose", "series-first", "series-side", "series-ready", "series-unready"]) {
     expect((await post({ op, slug: launch.body.slug })).response.status).toBe(409);
   }
-  for (const op of ["view", "respond", "chain-mode", "cards"]) {
+  for (const op of ["view", "respond", "chain-mode", "cards", "surrender"]) {
     expect((await post({ op, slug, playerId: 64, userId: 201, as: 1 })).response.status).toBe(400);
   }
 });
@@ -390,4 +391,21 @@ it("reports ENGINE_BUSY when restart overlaps the same owner's detached launch",
     const restart = await post({ op: "fork-restart", slug: first.body.slug });
     expect(restart.response.status).toBe(503); expect(restart.body.code).toBe("ENGINE_BUSY");
   } finally { release(); await launch; }
+});
+
+it.each([0, 1, 2, 3])("surrenders acting seat %s in a fork with creator and seat checks", async seat => {
+  source("ffa4"); const launch = await post({ op: "replay-fork", ...request() });
+  expect(launch.response.status).toBe(200);
+  const forkSlug = launch.body.slug;
+  expect((await post({ op: "surrender", slug: forkSlug, as: 4 })).response.status).toBe(400);
+  expect((await post({ op: "surrender", slug: forkSlug, as: seat, playerId: 62, userId: 102 })).response.status).toBe(404);
+  const result = await post({ op: "surrender", slug: forkSlug, as: seat });
+  expect(result.response.status).toBe(200); expect(workers[0]!.eliminated).toBe(seat);
+  expect(result.body.fork.actingSeat).toBe(seat);
+  expect(createReplayForkService(db).privateState(forkSlug, owner).commands.at(-1)!.seat).toBe(seat);
+});
+it("surrenders seat one of a two-seat fork", async () => {
+  const launch = await post({ op: "replay-fork", ...request() });
+  const result = await post({ op: "surrender", slug: launch.body.slug, as: 1 });
+  expect(result.response.status).toBe(200); expect(result.body.session.winnerSeat).toBe(0);
 });

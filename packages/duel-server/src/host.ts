@@ -2423,7 +2423,7 @@ export function createDuelHost(options: {
       if (op !== "owner-replay") throw new RequestError("Reveal is only available in replay fork views", 400);
     }
     if (body.as !== undefined) {
-      if (!target || !isReplayFork(target) || !["view", "respond", "chain-mode", "cards"].includes(String(op))) {
+      if (!target || !isReplayFork(target) || !["view", "respond", "chain-mode", "cards", "surrender"].includes(String(op))) {
         throw new RequestError("Acting seats are only available in replay fork views and controls", 400);
       }
       try { resolveReplayForkSeat(service.get(target.slug, guildId), body.as); }
@@ -2735,7 +2735,7 @@ export function createDuelHost(options: {
       const current = await project(slug, guildId, actor, games.get(slug)?.game);
       if (current.session.status !== "active") return current;
       await forfeitSeat(slug, guildId, games.get(slug)?.game ?? game, seat, "Surrender");
-      return project(slug, guildId, actor, games.get(slug)?.game);
+      return project(slug, guildId, actor, games.get(slug)?.game, false, isReplayFork(room.session) ? { as: seat } : {});
     }
     if (op !== "respond") throw new RequestError("Unknown duel operation", 400);
     const command = body.command as DuelCommand | undefined;
