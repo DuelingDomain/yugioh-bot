@@ -254,6 +254,8 @@
   padding: var(--hud-top) 14px var(--hud-bottom) var(--hud-left);
 }
 .hudNotices { top: var(--hud-top); z-index: 29; }
+/* An unchecked replay adds one banner row (about 26px and a gap) to the transport: the board keeps clear of it too. */
+.shell[data-hud="true"]:has([data-replay-unchecked]) { --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px + 32px); }
 
 /* ---------- bottom bar (floating HUD) ----------
    The phases live on the helipad now, so the bar keeps the hint of the phase and the turn controls, together at the
