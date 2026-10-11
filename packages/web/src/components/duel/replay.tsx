@@ -111,7 +111,6 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
     slug, visibility, canInspectSource ? { enabled: true, ...ownerView } : null,
   );
   const preferences = useDuelPreferences();
-  const [focusChoice, setFocusChoice] = useState<number | null>(null);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [pane, setPane] = useState<"card" | "log">("card");
   const [mobileInspect, setMobileInspect] = useState(false);
@@ -128,7 +127,6 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
     setVisibility("mine");
     setOwnerView({ seat: null, reveal: false });
     setNotice(null);
-    setFocusChoice(null);
     setInspect(null);
     setHover(null);
   }, [slug]);
@@ -219,7 +217,8 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   }
   const frame = timeline.frame(index);
   const domain = session.mode === "domain";
-  const focusSeat = resolveFocusSeat(session, camera, focusChoice);
+  // This page draws the two-seat board; Tag and the free-for-all formats returned above.
+  const focusSeat = resolveFocusSeat(session, camera, null);
   const playerName = (seat: number) =>
     session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;
   const modeText = domain
@@ -230,7 +229,6 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   const newLines = timeline.newLogAt(index);
   const actor = frameCaption(frame, index, atEnd, playerName);
   const resultHeadline = replayResultHeadline(session, result, playerName);
-  const multiSeat = seatCount > 2;
   const canSwitchCards = model.version === 2 && model.mySeat != null;
 
   // 3-way and 4-way free-for-all tables draw every field in the shared table shell (replay mode).
@@ -238,7 +236,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
     return (
       <ReplayFfa slug={slug} model={model} frames={model.frames} engine={engine} controller={controller} preferences={preferences}
         visibility={visibility} canSwitchCards={canSwitchCards} onVisibility={changeVisibility} notice={notice}
-        newLines={newLines} onCamera={() => { setInspect(null); setHover(null); setFocusChoice(null); }} tools={ownerTools} />
+        newLines={newLines} onCamera={() => { setInspect(null); setHover(null); }} tools={ownerTools} />
     );
   }
 
@@ -390,21 +388,11 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
                     onChange={(event) => {
                       setInspect(null);
                       setHover(null);
-                      setFocusChoice(null);
                       controller.setCamera(Number(event.target.value));
                     }}>
                     {seats.map((seat) => <option key={seat} value={seat}>{playerName(seat)}</option>)}
                   </select>
                 </label>
-                {multiSeat ? (
-                  <label className={replayStyles.viewField}>
-                    <span>Across from</span>
-                    <select className={replayStyles.select} value={focusSeat} aria-label="Opposite seat"
-                      onChange={(event) => { setInspect(null); setHover(null); setFocusChoice(Number(event.target.value)); controller.resetEffects(); }}>
-                      {seats.filter((seat) => seat !== camera).map((seat) => <option key={seat} value={seat}>{playerName(seat)}</option>)}
-                    </select>
-                  </label>
-                ) : null}
                 {canSwitchCards ? (
                   <div className={replayStyles.segmented} role="group" aria-label="Card visibility">
                     {(["mine", "public"] as const).map((value) => (
@@ -420,7 +408,6 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
               {notice ? <p role="alert" className={replayStyles.note}>{notice}</p> : null}
               {model.mySeat == null || model.visibility === "public"
                 ? <p className={replayStyles.note}>Public view — hidden cards stay hidden</p> : null}
-              {multiSeat ? <p className={replayStyles.note}>Two seats are drawn at a time. Pick them with the view controls.</p> : null}
               <p className={replayStyles.note}>
                 <Link href={`/duels/${slug}`} className={replayStyles.link}>Final board</Link>
               </p>
