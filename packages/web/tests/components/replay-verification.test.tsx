@@ -371,6 +371,51 @@ describe("Jump in from an unchecked replay", () => {
   });
 });
 
+describe("Jump in after the server asked for a second try", () => {
+  const caps = { canFork: true, privateSeats: [0, 1] };
+  const retryBody = () => json({ error: "Replay source is verified. Retry Jump in to start the fork.", code: "REPLAY_VERIFIED_RETRY" }, 503);
+  const forkPosts = () => calls.filter((call) => call.init?.method === "POST");
+
+  async function open(answerFork: (post: number) => Response) {
+    let post = 0;
+    server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
+      ? answerFork(++post)
+      : json({ ...replayV2(), capabilities: caps, verification: "verified" }));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    await screen.findByRole("group", { name: "Replay controls" });
+    fireEvent.click(screen.getByRole("button", { name: "Next move" }));
+    fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
+  }
+
+  it("tries once more with the same request id and shows Checking replay while it waits", async () => {
+    await open((post) => post === 1 ? retryBody() : json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: {} }));
+    expect(await screen.findByText("Checking replay…")).toBeTruthy();
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/duels/fork-9"), { timeout: 3000 });
+    const bodies = forkPosts().map((call) => JSON.parse(String(call.init!.body)) as Record<string, unknown>);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]!.requestId).toBe(bodies[0]!.requestId);
+    expect(bodies[1]).toEqual(bodies[0]);
+    expect(screen.queryByText("Checking replay…")).toBeNull();
+    expect(document.querySelector("[data-fork-failure]")).toBeNull();
+  });
+
+  it("shows the normal error when the second try fails, after only two requests", async () => {
+    await open((post) => post === 1 ? retryBody() : json({ error: "Fork limit.", code: "ENGINE_BUSY" }, 503));
+    await waitFor(() => expect(document.querySelector("[data-fork-failure]")).toBeTruthy(), { timeout: 3000 });
+    expect(document.querySelector("[data-fork-failure]")!.textContent).toContain("The duel engine is busy.");
+    expect(forkPosts()).toHaveLength(2);
+    expect(nav.push).not.toHaveBeenCalled();
+    expect(screen.queryByText("Checking replay…")).toBeNull();
+  });
+
+  it("does not try a third time when the second answer is also the retry code", async () => {
+    await open(() => retryBody());
+    await waitFor(() => expect(document.querySelector("[data-fork-failure]")).toBeTruthy(), { timeout: 3000 });
+    expect(forkPosts()).toHaveLength(2);
+    expect(nav.push).not.toHaveBeenCalled();
+  });
+});
+
 describe("saved final board fallback", () => {
   /** What the web route sends when it cannot run the moves: one result frame, no cursor, "unverified" and a replayError. */
   function savedBoard(version: 1 | 2, over: Record<string, unknown> = {}) {
