@@ -409,3 +409,40 @@ it("surrenders seat one of a two-seat fork", async () => {
   const result = await post({ op: "surrender", slug: launch.body.slug, as: 1 });
   expect(result.response.status).toBe(200); expect(result.body.session.winnerSeat).toBe(0);
 });
+it("stops an in-flight launch before commit during shutdown and permits its retry", async () => {
+  const input = request();
+  let release!: () => void, started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  makeWorker = () => {
+    const worker = new ForkWorker(), create = worker.create.bind(worker);
+    worker.create = async options => { await create(options); started(); await new Promise<void>(resolve => { release = resolve; }); };
+    return worker;
+  };
+  const launch = post({ op: "replay-fork", ...input }); await ready;
+  const closing = host.close(); release();
+  const result = await launch; await closing;
+  expect(result.response.status).toBe(503); expect(result.body.code).toBe("ENGINE_BUSY");
+  expect(db.prepare("select * from duels where kind = 'replay-fork'").all()).toEqual([]);
+  expect(db.prepare("select * from replay_fork_requests").all()).toEqual([]);
+  expect(workers.every(worker => !worker.running)).toBe(true);
+  makeWorker = () => new ForkWorker(); startHost();
+  expect((await post({ op: "replay-fork", ...input })).response.status).toBe(200);
+});
+it("preserves a committed fork when shutdown interrupts its restart", async () => {
+  const launch = await post({ op: "replay-fork", ...request() }), forkSlug = launch.body.slug;
+  const before = createReplayForkService(db).privateState(forkSlug, owner);
+  let release!: () => void, started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  makeWorker = () => {
+    const worker = new ForkWorker(), create = worker.create.bind(worker);
+    worker.create = async options => { await create(options); started(); await new Promise<void>(resolve => { release = resolve; }); };
+    return worker;
+  };
+  const restart = post({ op: "fork-restart", slug: forkSlug }); await ready;
+  const closing = host.close(); release();
+  expect((await restart).response.status).toBe(503); await closing;
+  expect(createReplayForkService(db).privateState(forkSlug, owner)).toEqual(before);
+  expect(workers.every(worker => !worker.running)).toBe(true);
+  makeWorker = () => new ForkWorker(); startHost();
+  expect((await post({ op: "view", slug: forkSlug })).response.status).toBe(200);
+});

@@ -1263,7 +1263,7 @@ export function createDuelHost(options: {
 
   const forkLauncher = createReplayForkLauncher({ db: options.db, codec: replayCursorCodec,
     sourceOf: journalSourceOf, resourcesOf: async state => journalResourcesOf(await resourcesOfSource(state)),
-    createWorker: duelId => spawn(duelId), timeoutMs: options.forkTimeoutMs,
+    createWorker: duelId => spawn(duelId), timeoutMs: options.forkTimeoutMs, isStopped: () => stopped,
     remove: async (slug, game) => { if (games.get(slug)?.game === game) await disposeGame(slug); },
     register: (session, game, views) => {
       if (!game.running || stopped) throw new ReplayForkLaunchError("Fork worker cannot be registered.", "ENGINE_BUSY");

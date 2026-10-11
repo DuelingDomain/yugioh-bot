@@ -36,6 +36,7 @@ interface ForkLaunchOptions {
   remove: (slug: string, worker: DuelGameWorker) => Promise<void>;
   room: (slug: string, actor: OwnerPlayerActor) => Promise<DuelRoom>;
   timeoutMs?: number;
+  isStopped?: () => boolean;
 }
 
 /** Launch and restart own their detached worker until successful handoff. Source data is always read-only. */
@@ -67,7 +68,10 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
     const release = reserve(actor, enforceActive);
     let worker: DuelGameWorker | undefined, committed: DuelSession | undefined, recorderId: number | undefined;
     let expired = false, handedOff = false, timer: ReturnType<typeof setTimeout> | undefined;
-    const check = () => { if (expired) throw new ReplayForkLaunchError("Replay fork engine timed out.", "ENGINE_BUSY"); };
+    const check = () => {
+      if (options.isStopped?.()) throw new ReplayForkLaunchError("The duel host is shutting down. Retry the fork request.", "ENGINE_BUSY");
+      if (expired) throw new ReplayForkLaunchError("Replay fork engine timed out.", "ENGINE_BUSY");
+    };
     const work = async () => {
       const source = options.sourceOf(state);
       const resources = await options.resourcesOf(state); check();
