@@ -1589,16 +1589,18 @@ export function createDuelHost(options: {
         throw new RequestError("Replay is too large to load safely (16 MiB limit). Open the saved final board.", 413, "REPLAY_TOO_LARGE", finalBoard);
       }
       const { frames, viewJson } = built;
+      const canFork = projection.ownerUserId !== undefined && !isReplayFork(state.session)
+        && !replayHasUnsequencedLoss(source) && built.steps.some(step => step.cursor !== null);
       if (projection.version === 1) return { viewJson, replay: { session: room.session, role: room.role, mySeat: room.mySeat,
         frames: frames.map(({ step, actorSeat, view }) => ({ step, actorSeat, view })) } };
       return { viewJson, replay: { version: 2, sourceVersion, visibility: projection.visibility,
         ...(projection.reveal !== undefined ? { reveal: projection.reveal } : {}),
         session: room.session, role: room.role, mySeat: room.mySeat, dataSeat: projection.dataSeat,
-        frames: projectReplayFrames(frames, replayCursorCodec, projection.ownerUserId !== undefined),
-        ...(built.oversized ? { forkSteps: projectReplaySteps(built.steps, replayCursorCodec),
+        frames: projectReplayFrames(frames, replayCursorCodec, canFork),
+        ...(built.oversized ? { forkSteps: projectReplaySteps(built.steps, replayCursorCodec, canFork),
           replayError: { code: "REPLAY_TOO_LARGE" as const, error: "Move views exceed the size limit. Showing the final board; choose a move to Jump in." } } : {}),
         ...(projection.ownerUserId !== undefined ? { capabilities: {
-          canFork: !replayHasUnsequencedLoss(source) && built.steps.some(step => step.cursor !== null),
+          canFork,
           privateSeats: room.session.seats.map(seat => seat.seat),
         } } : {}),
       } };

@@ -290,6 +290,8 @@ describeWithCores("V1 host fork acceptance", [needs.cards(DATA), needs.scripts(D
     app.duels.interrupt(result.slug, app.owner.guildId, "Owner replay fixture");
     const forkReplay = await app.post<DuelReplayV2>({ op: "owner-replay", slug: result.slug,
       seat: answered.fork!.actingSeat, reveal: answered.fork!.revealHands });
+    expect(forkReplay.capabilities!.canFork).toBe(false);
+    expect(forkReplay.frames.every(frame => frame.cursor === null)).toBe(true);
     const replayed = forkReplay.frames.at(-2)!.view;
     expect({ ...replayed, log: forkReplay.frames.slice(0, -1).flatMap(frame => frame.view.log),
       events: forkReplay.frames.slice(0, -1).flatMap(frame => frame.view.events) })

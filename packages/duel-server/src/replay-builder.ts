@@ -83,8 +83,8 @@ export function projectReplayFrames(frames: ReplayFrameData[], codec: ReplayCurs
 }
 
 export type ReplayStepData = Pick<ReplayFrameData, "step" | "frameId" | "actorSeat" | "kind" | "cursor">;
-export function projectReplaySteps(steps: ReplayStepData[], codec: ReplayCursorCodec): ReplayForkStep[] {
-  return steps.map(step => ({ ...step, cursor: step.cursor ? codec.seal(step.cursor) : null }));
+export function projectReplaySteps(steps: ReplayStepData[], codec: ReplayCursorCodec, canFork = true): ReplayForkStep[] {
+  return steps.map(step => ({ ...step, cursor: canFork && step.cursor ? codec.seal(step.cursor) : null }));
 }
 
 /** Standalone builder used by engine tools/tests; the host projects its shared cache per viewer. */

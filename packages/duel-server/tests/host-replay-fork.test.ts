@@ -221,6 +221,39 @@ it("reuses a retry after source deletion and rejects a different cursor for the 
   const retry = await post({ op: "replay-fork", ...input }); expect(retry.response.status).toBe(200);
   expect(retry.body.slug).toBe(result.body.slug); expect(workers).toHaveLength(1);
 });
+it("does not offer checkpoints to fork a fork's owner replay", async () => {
+  const fork = await post({ op: "replay-fork", ...request() });
+  expect(fork.response.status).toBe(200);
+  createDuelService(db).interrupt(fork.body.slug, owner.guildId, "Owner replay fixture");
+  const replay = await post({ op: "owner-replay", slug: fork.body.slug });
+  expect(replay.response.status).toBe(200);
+  expect(replay.body.capabilities.canFork).toBe(false);
+  expect(replay.body.frames.length).toBeGreaterThan(0);
+  expect(replay.body.frames.every((frame: { cursor: string | null }) => frame.cursor === null)).toBe(true);
+});
+it.each([0, 4])("rejects a fork source before engine work or quota checks with %s active forks", async count => {
+  const sourceSlug = slug, input = request();
+  const sourceFork = await post({ op: "replay-fork", ...input, requestId: "source-fork" });
+  expect(sourceFork.response.status).toBe(200);
+  const forkSlug = sourceFork.body.slug;
+  createDuelService(db).interrupt(forkSlug, owner.guildId, "Fork source fixture");
+  for (let index = 0; index < count; index++) {
+    const fork = await post({ op: "replay-fork", ...input, requestId: `seed-fork-${index}` });
+    expect(fork.response.status).toBe(200);
+  }
+  slug = forkSlug;
+  const nested = { ...request(), requestId: "nested-fork" };
+  resourceRead.mockClear();
+  const result = await post({ op: "replay-fork", ...nested });
+  expect(result.response.status).toBe(409);
+  expect(result.body).toEqual({ error: "A replay fork cannot be forked", code: "NOT_PLAYABLE" });
+  expect(resourceRead).not.toHaveBeenCalled();
+  expect(workers).toHaveLength(count + 1);
+  if (count === 0) {
+    const valid = await post({ op: "replay-fork", slug: sourceSlug, ...input, requestId: "valid-after-refusal" });
+    expect(valid.response.status).toBe(200);
+  }
+});
 it("deduplicates concurrent launch retries", async () => {
   const input = request(); const results = await Promise.all([post({ op: "replay-fork", ...input }), post({ op: "replay-fork", ...input })]);
   expect(results.map(r => r.response.status)).toEqual([200, 200]); expect(results[0]!.body.slug).toBe(results[1]!.body.slug);

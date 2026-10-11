@@ -4,7 +4,7 @@ import { assertOwnerReplaySourceAccess, assertReplayForkAccess, resolveOwnerPlay
   type OwnerPlayerActor } from "@yugidraft/shared/access/owner-access";
 import { createDuelService, createReplayForkService, hashReplayForkPrefix, ReplayForkStorageError,
   type DuelPrivateState } from "@yugidraft/shared/services";
-import { isReplayForkRequest, type DuelCommand, type DuelEngineView, type DuelRoom, type DuelSession, type ReplayForkRequest,
+import { isReplayFork, isReplayForkRequest, type DuelCommand, type DuelEngineView, type DuelRoom, type DuelSession, type ReplayForkRequest,
   type ReplayForkResult, type ReplaySource } from "@yugidraft/shared/duels";
 import { runJournalPrefix, type JournalResources, type JournalRunResult } from "./journal-runner.js";
 import { replayBuildError, replayHasUnsequencedLoss, type ReplayBuildErrorCode } from "./replay-builder.js";
@@ -188,7 +188,11 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
         return { slug: room.session.slug, sourceFrameId: room.fork!.origin.sourceFrameId, initialSeat: room.fork!.actingSeat, room };
       }
       assertOwnerReplaySourceAccess(db, slug, actor);
-      const state = duels.privateState(slug, actor.guildId), source = options.sourceOf(state);
+      const state = duels.privateState(slug, actor.guildId);
+      if (isReplayFork(state.session)) {
+        throw new ReplayForkLaunchError("A replay fork cannot be forked", "NOT_PLAYABLE");
+      }
+      const source = options.sourceOf(state);
       if (!["completed", "interrupted"].includes(state.session.status) || replayHasUnsequencedLoss(source)) {
         throw new ReplayForkLaunchError("This source has no safe playable checkpoint.", "NOT_PLAYABLE");
       }
