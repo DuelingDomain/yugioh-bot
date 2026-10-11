@@ -33,6 +33,9 @@ export type ReplayFrameV2 = {
   | { kind: "result"; cursor: null }
 );
 
+/** Owner-only checkpoints when move views exceed the response cap. No board or journal counts. */
+export type ReplayForkStep = Pick<ReplayFrameV2, "frameId" | "step" | "actorSeat" | "kind" | "cursor">;
+
 /** Set only after the current main owner check. It does not replace authorization on later requests. */
 export interface ReplayOwnerCapabilities {
   canFork: boolean;
@@ -56,6 +59,9 @@ export interface DuelReplayV2 {
   frames: ReplayFrameV2[];
   /** Omit for ordinary viewers. */
   capabilities?: ReplayOwnerCapabilities;
+  /** Metadata-only owner fallback. frames contains at most the final board. */
+  forkSteps?: ReplayForkStep[];
+  replayError?: { code: "REPLAY_TOO_LARGE"; error: string };
 }
 
 /** SHA-256 hashes use 64 lowercase hex characters. No filesystem paths or archive requests cross this contract. */

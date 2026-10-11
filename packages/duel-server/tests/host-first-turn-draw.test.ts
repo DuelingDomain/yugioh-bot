@@ -7,7 +7,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
-import { isReplaySeed, seatCountFor, type DuelEngineView, type DuelFormat, type DuelMasterRule, type DuelMode, type DuelReplay, type DuelRoom } from "@yugidraft/shared/duels";
+import { seatCountFor, type DuelEngineView, type DuelFormat, type DuelMasterRule, type DuelMode, type DuelReplay, type DuelRoom } from "@yugidraft/shared/duels";
 import { afterEach, expect, it, vi } from "vitest";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import type { DuelHost } from "../src/host.js";
@@ -15,7 +15,6 @@ import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./s
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { GameWorker } from "../src/worker-client.js";
 import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
-import { runJournalPrefix } from "../src/journal-runner.js";
 import { loadSource, replaySource } from "../scripts/lib/replay-source.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
@@ -62,22 +61,6 @@ async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterR
   const pin = pinnedEngineVersion(bundle, count, count > 2 ? activeMultiScriptsHash(DATA) : null);
   const options = { mode, format, masterRule: session.masterRule, settings: session.settings, decks, seed, dataDirectory: DATA };
   return { db, duels, session, decks, options, count, players, post, pin, bundle, workers, changes };
-}
-
-/** Old active recovery keeps its draw fallback. Detached engine tests can check the same historical prefix. */
-async function journalFrames(t: Awaited<ReturnType<typeof table>>, viewer: number): Promise<DuelEngineView[]> {
-  const state = t.duels.privateState(t.session.slug, "g");
-  if (!isReplaySeed(state.seed)) throw new Error("Invalid test seed");
-  const { engineIdentity, replayFork: _fork, ...setup } = state.setup ?? {};
-  const frames: DuelEngineView[] = [];
-  const result = await runJournalPrefix({
-    source: { session: state.session, decks: state.decks, seed: state.seed, bundleVersion: state.bundleVersion!,
-      setup, engineIdentity: engineIdentity ?? null, commands: state.commands },
-    resources: { dataDirectory: DATA, bundleVersion: t.bundle }, prefixCount: state.commands.length,
-    createWorker: () => new GameWorker(), checkpointSeat: viewer,
-    onCheckpoint: ({ view }) => { frames.push(view); },
-  });
-  try { return frames; } finally { await result.worker.close(); }
 }
 
 function checkDraws(view: DuelEngineView, firstTurnDraw: boolean, actor: number) {
@@ -157,9 +140,8 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     t.duels.interrupt(t.session.slug, "g", "Test finished");
     for (let viewer = 0; viewer < t.count; viewer++) {
       const response = await t.post("replay", viewer);
-      if (saved) expect(response.status, response.data.error).toBe(200);
-      else expect(response).toMatchObject({ status: 409, data: { code: "ENGINE_UNAVAILABLE_FOR_SOURCE" } });
-      const frames = saved ? response.data.frames.map(frame => frame.view) : await journalFrames(t, viewer);
+      expect(response.status, response.data.error).toBe(200);
+      const frames = response.data.frames.map(frame => frame.view);
       for (let step = 0; step <= commands.length; step++) {
         const expected = history[step]![viewer]!;
         expect(frames[step]).toMatchObject({ turn: expected.turn, turnSeat: expected.turnSeat,
@@ -229,8 +211,8 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     t.duels.interrupt(t.session.slug, "g", "Test finished");
     for (let viewer = 0; viewer < t.count; viewer++) {
       const replay = await t.post("replay", viewer);
-      expect(replay).toMatchObject({ status: 409, data: { code: "ENGINE_UNAVAILABLE_FOR_SOURCE" } });
-      const frames = await journalFrames(t, viewer);
+      expect(replay.status, replay.data.error).toBe(200);
+      const frames = replay.data.frames.map(frame => frame.view);
       expect(frames[0]!.seats).toEqual(initial[viewer]!.seats);
       expect(frames[1]!.seats).toEqual(expected[viewer]!.seats);
     }

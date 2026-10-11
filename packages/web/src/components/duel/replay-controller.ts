@@ -13,6 +13,7 @@ import {
   type DuelRoom,
   type DuelSession,
   type ReplayFrameV2,
+  type ReplayForkStep,
   type ReplayOwnerCapabilities,
   type ReplayVisibility,
 } from "@yugidraft/shared/duels";
@@ -53,6 +54,7 @@ export interface ReplayModel {
   dataSeat: number | null;
   frames: ReplayFrameV2[];
   capabilities?: ReplayOwnerCapabilities;
+  forkSteps?: ReplayForkStep[];
 }
 
 /** The card view a request asks for. `seat` and `reveal` exist only in the owner request. */
@@ -113,6 +115,7 @@ export function normalizeReplay(
       dataSeat: raw.dataSeat,
       frames,
       capabilities: raw.capabilities,
+      forkSteps: raw.capabilities ? raw.forkSteps : undefined,
     };
   }
   const legacy = raw as DuelReplay;

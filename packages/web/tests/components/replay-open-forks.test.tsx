@@ -215,7 +215,7 @@ describe("owner gates of the controls and the list", () => {
     const model = normalizeReplay({ ...replayV2({ visibility: "mine" }), ...(capabilities ? { capabilities } : {}) }, "game-1", "mine");
     const openForks = useOpenForks(true);
     const fork = useForkStart({ slug: "game-1", model, frame: model.frames[1], openForks });
-    return <ReplayOwnerTools slug="game-1" model={model} frame={model.frames[1]} view={{ seat: null, reveal: false }} onViewChange={() => {}}
+    return <ReplayOwnerTools slug="game-1" model={model} frame={model.frames[1]} view={{ seat: null, reveal: false }} onViewChange={() => {}} selectedStep={null} onSelectStep={() => {}}
       openForks={openForks} fork={fork} />;
   }
 

@@ -10,7 +10,7 @@ Coordinator decisions
 These decisions replace the open recommendations in section 12.
 
 
-Date: 2026-10-10. Status: design revised for the owner decision of 2026-10-10. No code changes.
+Date: 2026-10-10. Status: design with implemented API contracts in section 7.6. Historical source evidence below refers to the saved revisions.
 
 ## 1. Scope and recommendation
 
@@ -440,7 +440,7 @@ Main's `requireDuelActor()` currently returns `playerId`, not `userId`. Add auth
 
 Keep `packages/web/src/lib/owner-access.ts` as the web entry point. Put its ID parser/predicate in a new shared server module and re-export it there. The host, services and ws access reader use the same policy. Set `OWNER_USER_IDS` consistently for these services. Read it at authorization time. Unset or empty means nobody. Do not add a second developer list or a production bypass.
 
-Call a signed internal `fork-replay` operation. The host resolves the application user from the trusted actor/player mapping. It verifies current owner access, guild, source version and cursor. Do not trust a request's `isOwner`, creator ID, decks, Lua, paths, prompt IDs or prefix count. Direct calls without the internal signature fail. A signature alone does not grant owner access.
+Call a signed internal `replay-fork` operation. The host resolves the application user from the trusted actor/player mapping. It verifies current owner access, guild, source version and cursor. Do not trust a request's `isOwner`, creator ID, decks, Lua, paths, prompt IDs or prefix count. Direct calls without the internal signature fail. A signature alone does not grant owner access.
 
 Existing `/api/duels/[forkSlug]` room, actions, chain-mode, replay, connection, debug/report and lifecycle routes must check `kind`. For a fork, require current owner access and the saved creator `ownerUserId`. Other allowed developers cannot open another creator's fork. A removed developer loses access. A normal user must fail on reads, writes, tokens and private cache reads, even with a known slug. Ordinary `play` duels reject acting-seat overrides, including those sent by the owner.
 
@@ -459,12 +459,80 @@ Seal cursors with authenticated encryption or use opaque server lookup IDs. Sign
 | 409 | `ENGINE_UNAVAILABLE_FOR_SOURCE` | Exact resources are absent |
 | 409 | `REPLAY_MISMATCH` | Saved input or target cannot be reproduced |
 | 409 | `NOT_PLAYABLE` | Engine result, synthetic final frame or unsafe old state |
+| 413 | `REPLAY_TOO_LARGE` | Ordinary move views exceed the response cap; authorized saved-board fallback remains available |
 | 429 | `FORK_LIMIT` | Per-owner resource limit |
 | 503 | `ENGINE_BUSY` | Worker failure or bounded timeout |
 
 All failures preserve the source status, result, journal and series. Show the saved final-board link when replay fails. Only completed or interrupted sources are in the first release. Active-source capture needs a separate, locked journal contract.
 
 `ReplayErrorResponse` is `{ code: ReplayErrorCode, error: string, finalBoard?: "available" | "none" }`. B2 sets `finalBoard` for `ENGINE_UNAVAILABLE_FOR_SOURCE`, `REPLAY_MISMATCH` and `NOT_PLAYABLE` after access checks. Availability refers to an authorized saved final board; do not disclose it on access failures. Include `sourceVersion`, `visibility`, requested `dataSeat` and reveal state in private cache and client response-generation keys. Ignore responses for an old request view.
+
+### 7.6 Implemented API contracts and limits
+
+The contracts in this section record the implemented behavior and take precedence over the earlier proposals.
+
+**Active fork recovery:** `GET /api/admin/duels/forks` calls the signed host operation `fork-list`. Success is HTTP 200 with this JSON shape:
+
+```ts
+{
+  forks: Array<{
+    slug: string;
+    sourceSlug: string;
+    format: "1v1" | "tag" | "ffa3" | "ffa4";
+    createdAt: string;
+    lastActivityAt: string;
+  }>;
+  limit: 4;
+}
+```
+
+An empty list is `{ forks: [], limit: 4 }`. Timestamps retain stored UTC format `YYYY-MM-DD HH:MM:SS`; null activity falls back to creation. Order is newest creation first, then descending ID. Only active replay forks in the actor's guild and owned by the resolved application user qualify. Recheck current allowlist, player-to-user mapping and creator access for every returned row. Skip and log damaged rows, including malformed setup JSON; access infrastructure failures still return an error. Listing reads metadata only and does not require the source, recover an engine or spawn a worker.
+
+Reject all query parameters with HTTP 400. Anonymous requests return 401; unauthorized owners return 404; unavailable access returns 503. Check the owner before the host call and check the same user, player and guild again after it. Every response has `Cache-Control: private, no-store`, including anonymous proxy rejections. The proxy applies that header to all of its `/api/` 401 responses.
+
+`POST /api/duels/[forkSlug]/fork/cancel` cancels a listed fork, removes it from the next list and frees its active slot. Forks have no automatic expiry or cancellation: a long pause during analysis is valid. Cancellation is explicit.
+
+**Fork quota:** launch and restart, including transaction quota checks, return HTTP 429 with:
+
+```ts
+{
+  error: string;
+  code: "FORK_LIMIT";
+  limit: 4;
+  forksUrl: "/api/admin/duels/forks";
+}
+```
+
+The transport preserves `limit` and `forksUrl` only for `FORK_LIMIT`, with the exact recovery route above. It does not put private fork metadata in the quota error. The active quota is per resolved owner in the configured guild.
+
+**Replay size:** the fixed wire budget is 16 MiB (16,777,216 bytes), with each serialized view counted once plus a conservative envelope and sealed-cursor allowance. This is more than three times the largest measured projection below. Cache memory is accounted separately, with a 64 MiB estimated budget, up to 16 entries, two concurrent builders and eight queued builds. Cache keys retain source/resource identity, projection and reveal; caller capabilities and sealed cursors are projected after authorization.
+
+When move views exceed the cap, ordinary viewers receive HTTP 413 with `REPLAY_TOO_LARGE` and authorized `finalBoard` availability. The web route can return the saved public or own-seat final board after rechecking access. A current owner receives HTTP 200 with the original `sourceVersion`, owner capabilities, `replayError: { code: "REPLAY_TOO_LARGE", error: string }` and a metadata-only `forkSteps` array:
+
+```ts
+type ReplayForkStep = Pick<ReplayFrameV2, "frameId" | "step" | "actorSeat" | "kind" | "cursor">;
+```
+
+Finish validating the full journal before returning these checkpoints. No board, prompt, private journal count or prefix hash appears in a step. Valid opening/engine steps carry sealed cursors; result and unsafe legacy-loss steps have null cursors. `frames` contains at most one final board; it is empty if that board cannot fit alongside the checkpoints. The metadata itself stays within the fixed budget. The owner can select a checkpoint and Jump in even with no board preview, and that selection survives private projection switches. Ordinary responses omit `forkSteps`. Full and metadata-only builds are cached, preventing repeat rebuilds for the same oversized projection. Stream frames and checkpoint metadata one record at a time with event-loop yields.
+
+Numeric measurements of the longest completed/interrupted local journals follow. Each journal was checked in public, every own-seat and revealed projections. Sizing used available local resources with the historical runtime and checked recorded revisions and prompts; it does not assert compatibility with the current resource gate. No source identifiers, player data, decks or journals are retained here.
+
+| Format | Commands | Frames | Public JSON bytes | Largest own-seat JSON bytes | Revealed JSON bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| FFA4 | 197 | 198 | 1859684 | 2786418 | 3381627 |
+| Tag | 9 | 11 | 68106 | 220760 | 243641 |
+| 1v1 | 359 | 360 | 4578799 | 5064645 | 5500397 |
+
+**Time limits:**
+
+| Operation | Limit |
+| --- | --- |
+| Replay build | 25,000 ms |
+| Fork launch/restart detached prefix replay | `min(25,000, 20,000 + prefixCount * 100)` ms |
+| Host replay, owner-replay, replay-fork, fork-list, fork-restart, fork-cancel HTTP handling | 28,000 ms, including queue wait and response assembly |
+| Web-to-host replay/fork transport | 30,000 ms |
+
+Configuration can lower the fixed caps. Deadline aborts reach queued operations, replay builds and fork launches; expired queued restart/cancel operations do not mutate later. Timeouts return HTTP 503 with `ENGINE_BUSY`. Commit and worker registration remain synchronous; an abort cannot split a commit. Launch retries remain idempotent by request ID.
 
 ## 8. Jump in and all-seat play on main
 

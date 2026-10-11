@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isEngineIdentity, type EngineIdentity, type ReplaySource } from "@yugidraft/shared/duels";
-import { getCurrentEngineResources, resolveEngineResourcesForSource, verifyWorkerEngineIdentity } from "../src/engine-resource-resolver.js";
+import { ENGINE_HOST_RULE_VERSION, ENGINE_HOST_RULE_FILES, getCurrentEngineResources, resolveEngineResourcesForSource, verifyWorkerEngineIdentity } from "../src/engine-resource-resolver.js";
 
 const directories: string[] = [];
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -42,7 +45,84 @@ function source(directory: string, mode: "normal" | "domain" = "normal", format:
   return { value, resources };
 }
 
+function fingerprintSource(source: string): string {
+  const emitted = ts.transpileModule(source, { compilerOptions: {
+    target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, removeComments: true,
+  } }).outputText;
+  const ast = ts.createSourceFile("rules.js", emitted, ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
+  const tokens: Array<[number, string]> = [];
+  const visit = (node: ts.Node) => {
+    const children = node.getChildren(ast);
+    if (children.length) children.forEach(visit);
+    else tokens.push([node.kind, node.getText(ast)]);
+  };
+  visit(ast);
+  return JSON.stringify(tokens);
+}
+
 describe("current engine identity", () => {
+  it("uses a manual host-rule version rather than source bytes", () => {
+    expect(ENGINE_HOST_RULE_VERSION).toMatch(/^duel-rules-\d+$/);
+  });
+  it("covers every local runtime dependency of the engines, journal runner and worker", () => {
+    const directory = fileURLToPath(new URL("../src/", import.meta.url));
+    const covered = new Set<string>(ENGINE_HOST_RULE_FILES);
+    const seen = new Set<string>();
+    const visit = (name: string) => {
+      if (seen.has(name)) return;
+      seen.add(name);
+      expect(covered.has(name), `host-rule identity must include ${name}`).toBe(true);
+      const path = join(directory, `${name}.ts`);
+      const ast = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest);
+      for (const node of ast.statements) {
+        if (!ts.isImportDeclaration(node) && !ts.isExportDeclaration(node)) continue;
+        if (ts.isImportDeclaration(node)) {
+          const clause = node.importClause;
+          if (clause?.isTypeOnly || (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)
+            && !clause.name && clause.namedBindings.elements.every(element => element.isTypeOnly))) continue;
+        } else if (node.isTypeOnly) continue;
+        const specifier = node.moduleSpecifier;
+        if (!specifier || !ts.isStringLiteral(specifier) || !specifier.text.startsWith(".")) continue;
+        visit(resolve(dirname(path), specifier.text).slice(directory.length).replace(/\.js$/, ""));
+      }
+    };
+    for (const name of ["engine", "legacy/index", "worker", "journal-runner"]) visit(name);
+  });
+
+  it("ignores comments and formatting in fingerprints while retaining runtime changes and literal text", () => {
+    const before = fingerprintSource('export function add(value: number) { return value + 1; }');
+    expect(fingerprintSource('/* explanation */\nexport function add ( value : number ) {\n  // same rule\n  return value + 1;\n}')).toBe(before);
+    expect(fingerprintSource('export function add(value: number) { return value + 2; }')).not.toBe(before);
+    expect(fingerprintSource('export const pattern = /a b/;')).not.toBe(fingerprintSource('export const pattern = /ab/;'));
+    expect(fingerprintSource('export const label = "// keep spaces";')).not.toBe(fingerprintSource('export const label = "//keepspaces";'));
+  });
+  it("guards the manual version with the engine/journal source fingerprint", () => {
+    const hash = createHash("sha256");
+    const directory = fileURLToPath(new URL("../src/", import.meta.url));
+    for (const name of ENGINE_HOST_RULE_FILES) hash.update(`${name}\0`).update(fingerprintSource(readFileSync(join(directory, `${name}.ts`), "utf8")));
+    // These are the shared runtime helpers imported by the engine/journal path, not all of shared/dist/duels.
+    for (const name of ["index", "settings", "banlist-options", "pool", "replay"]) {
+      hash.update(`shared/${name}\0`).update(fingerprintSource(readFileSync(new URL(`../../shared/src/duels/${name}.ts`, import.meta.url), "utf8")));
+    }
+    const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
+    expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
+  });
+
+  it("keeps the deployed host-rule identity stable after a comment-only source edit", () => {
+    const directory = mkdtempSync(fileURLToPath(new URL("../.host-rule-test-", import.meta.url)));
+    directories.push(directory);
+    for (const name of ENGINE_HOST_RULE_FILES) {
+      mkdirSync(join(directory, name, ".."), { recursive: true });
+      writeFileSync(join(directory, `${name}.ts`), readFileSync(new URL(`../src/${name}.ts`, import.meta.url)));
+    }
+    const deployedVersion = () => execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e",
+      `import { ENGINE_HOST_RULE_VERSION } from ${JSON.stringify(join(directory, "engine-resource-resolver.ts"))}; console.log(ENGINE_HOST_RULE_VERSION);`], { encoding: "utf8" }).trim();
+    const before = deployedVersion();
+    const view = join(directory, "views.ts");
+    writeFileSync(view, readFileSync(view, "utf8") + "\n// source-only deployment edit\n");
+    expect(deployedVersion()).toBe(before);
+  });
+
   it.each([
     ["normal", "1v1", "pinned", "standard", null],
     ["domain", "1v1", "pinned", "domain", "domain-script"],
@@ -92,7 +172,7 @@ describe("current engine identity", () => {
     const directory = bundle();
     const { value } = source(directory);
     rmSync(join(directory, "ocgcore.standard.wasm"));
-    expect(() => resolveEngineResourcesForSource(directory, value)).toThrowError(expect.objectContaining({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE" }));
+    expect(() => resolveEngineResourcesForSource(directory, value)).toThrowError(/^Engine resources are not available: the current engine resources are incomplete\.$/);
   });
 
   it("refuses an old source without assigning today's identity", () => {

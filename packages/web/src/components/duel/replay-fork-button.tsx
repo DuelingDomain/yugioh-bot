@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GitFork, Eye } from "lucide-react";
-import type { ReplayFrameV2 } from "@yugidraft/shared/duels";
+import type { ReplayFrameV2, ReplayForkStep } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
 import { isDuelAccessError, postReplayFork } from "./api";
 import { replayFailure, type ReplayModel } from "./replay-controller";
@@ -55,7 +55,8 @@ export interface ForkStartState {
 export function useForkStart({ slug, model, frame, onReload, onPause, openForks }: {
   slug: string;
   model: ReplayModel | null;
-  frame: ReplayFrameV2 | undefined;
+  /** The move to jump in at: the selected frame, or the chosen move when the saved views were over the size cap. */
+  frame: ReplayForkStep | undefined;
   onReload?: () => void;
   onPause?: () => void;
   /** The owner's open forks. When Jump in is refused for the limit, they are refreshed. */
@@ -136,7 +137,7 @@ export function useForkStart({ slug, model, frame, onReload, onPause, openForks 
 export function ReplayForkButton({ slug, model, frame, busy = false, onReload, fork, openForks }: {
   slug: string;
   model: ReplayModel;
-  frame: ReplayFrameV2 | undefined;
+  frame: ReplayForkStep | undefined;
   /** True while the replay answer is not for the current view. */
   busy?: boolean;
   onReload?: () => void;
@@ -235,26 +236,49 @@ export function isOwnerModel(model: ReplayModel | null | undefined): model is Re
 }
 
 /**
+ * The move Jump in starts from. Normally the selected frame. When the replay was over the size cap the server sends only
+ * step cursors (`forkSteps`): then it is the chosen step, or the first step that can start a fork.
+ */
+export function forkTarget(model: ReplayModel | null, frame: ReplayFrameV2 | undefined, selectedStep: string | null): ReplayForkStep | undefined {
+  const steps = model?.forkSteps;
+  if (!steps) return frame;
+  return steps.find((step) => step.frameId === selectedStep) ?? steps.find((step) => step.cursor !== null);
+}
+
+/**
  * The owner cluster for every replay layout: private view, open forks, then Jump in. The open forks list and the Jump in
  * request are passed in: this cluster is remounted by every seek in the table shells and holds no state that must last.
  */
-export function ReplayOwnerTools({ model, frame, busy, view, onViewChange, onReload, slug, openForks, fork }: {
+export function ReplayOwnerTools({ model, frame, busy, view, onViewChange, onReload, slug, selectedStep, onSelectStep, openForks, fork }: {
   slug: string;
   model: ReplayModel;
   frame: ReplayFrameV2 | undefined;
   busy?: boolean;
   view: OwnerViewState;
   onViewChange: (next: OwnerViewState) => void;
+  selectedStep: string | null;
+  onSelectStep: (frameId: string) => void;
   onReload?: () => void;
   openForks: OpenForksState;
   fork: ForkStartState;
 }) {
   if (!isOwnerModel(model)) return null;
+  const steps = model.forkSteps;
+  const checkpoint = forkTarget(model, frame, selectedStep);
   return (
     <span className={styles.group} data-replay-owner-tools>
+      {steps ? <>
+        <span className={styles.note}>{model.frames.length ? "Final board preview." : "No board preview."} Choose a move to Jump in.</span>
+        <select className={styles.btn} aria-label="Jump in at move" disabled={busy} value={checkpoint?.frameId ?? ""}
+          onChange={event => onSelectStep(event.target.value)}>
+          {steps.map(step => <option key={step.frameId} value={step.frameId} disabled={step.cursor === null}>
+            Move {step.step}{step.actorSeat === null ? "" : ` · Seat ${step.actorSeat + 1}`}
+          </option>)}
+        </select>
+      </> : null}
       <ReplayOwnerView model={model} view={view} busy={busy} onChange={onViewChange} />
       <OpenForksButton state={openForks} currentSlug={slug} />
-      <ReplayForkButton slug={slug} model={model} frame={frame} busy={busy} onReload={onReload} fork={fork} openForks={openForks} />
+      <ReplayForkButton slug={slug} model={model} frame={checkpoint} busy={busy} onReload={onReload} fork={fork} openForks={openForks} />
     </span>
   );
 }
