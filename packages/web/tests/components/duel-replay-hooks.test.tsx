@@ -191,6 +191,29 @@ describe("useReplayData", () => {
     expect((result.current.error as { code?: string }).code).toBe("NOT_PLAYABLE");
   });
 
+  it("does not refetch the view it holds after a failed switch, and a retry asks the server again", async () => {
+    const calls = stubFetch();
+    const { result, rerender } = renderHook(({ visibility }) => useReplayData("game-1", visibility), { initialProps: { visibility: "mine" as "mine" | "public" } });
+    await act(async () => { calls[0]!.reply.resolve(json(replayV2())); });
+    await waitFor(() => expect(result.current.settled).toBe(true));
+    rerender({ visibility: "public" });
+    expect(calls).toHaveLength(2);
+    await act(async () => { calls[1]!.reply.resolve(json({ error: "Busy", code: "ENGINE_BUSY" }, 503)); });
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    // The page reverts to the cards on screen: that answer is still in state, so no request goes out.
+    rerender({ visibility: "mine" });
+    expect(calls).toHaveLength(2);
+    expect(result.current.error).toBeNull();
+    expect(result.current.settled).toBe(true);
+    // Trying again is a fresh request and the old failure does not answer for it.
+    rerender({ visibility: "public" });
+    expect(calls).toHaveLength(3);
+    expect(result.current.error).toBeNull();
+    await act(async () => { calls[2]!.reply.resolve(json(replayV2({ visibility: "public" }))); });
+    await waitFor(() => expect(result.current.settled).toBe(true));
+    expect(result.current.model?.visibility).toBe("public");
+  });
+
   it("accepts the v1 answer of an older server", async () => {
     const calls = stubFetch();
     const { result } = renderHook(() => useReplayData("game-1", "mine"));

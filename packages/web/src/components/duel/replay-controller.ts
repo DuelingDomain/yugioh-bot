@@ -214,14 +214,30 @@ export function useReplayData(
   const [failure, setFailure] = useState<{ slug: string; key: string; error: unknown } | null>(null);
   const [nonce, setNonce] = useState(0);
   const generation = useRef(0);
+  // The answer on screen and the last reload that was handled: a revert to a view we still hold needs no new request.
+  const held = useRef<ReplayModel | null>(null);
+  const handledNonce = useRef(0);
+  held.current = model;
   const ownerOn = owner?.enabled === true;
   const seat = ownerOn ? owner.seat : null;
   const reveal = ownerOn ? owner.reveal : false;
   const requestKey = replayRequestKey({ visibility, seat, reveal }, ownerOn);
 
+  // A new request starts clean: an old failure of the same view must not answer for it.
+  const requestId = `${slug}|${requestKey}`;
+  const [seenRequest, setSeenRequest] = useState(requestId);
+  if (seenRequest !== requestId) {
+    setSeenRequest(requestId);
+    setFailure(null);
+  }
+
   useEffect(() => {
     if (!slug) return;
     const mine = ++generation.current;
+    const reloaded = nonce !== handledNonce.current;
+    handledNonce.current = nonce;
+    // After a failed switch the page goes back to the view it still holds; that answer is already in state.
+    if (!reloaded && held.current && held.current.slug === slug && held.current.requestKey === requestKey) return;
     const abort = new AbortController();
     const view: ReplayRequestView = { visibility, seat, reveal };
     const load = ownerOn
