@@ -252,6 +252,15 @@ describe.each(CASES)("%s first-person words", (_name, set, kind) => {
     expect(names.some((label) => /^You(?![a-z])/.test(label))).toBe(false);
     if (kind === "tag") expect(view.container.querySelectorAll("[data-seat-btn]").length).toBe(4);
   });
+
+  it("names the player whose turn it is, never \"You\", when the camera sits on that seat", () => {
+    const state = set.states.main;
+    const turnSeat = state.room.engine!.turnSeat ?? 0;
+    const view = render(<View set={set} kind={kind} id="main" tweak={(controller) => ({ ...controller, viewerSeat: turnSeat })} />);
+    // The turn label of the phase hub (a span with data-me), not the styling flag of a seat plate.
+    expect(view.container.querySelector("span[data-me='true']")).toBeNull();
+    expect(view.container.textContent ?? "").not.toMatch(/Your turn/);
+  });
 });
 
 describe("FFA3 camera across a seek", () => {

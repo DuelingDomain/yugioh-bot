@@ -724,7 +724,7 @@ function TableShellBody({
                     battleStep={battleStep}
                     turn={engine.turn}
                     turnSeat={engine.turnSeat}
-                    mySeat={viewerSeat}
+                    mySeat={replay ? null : viewerSeat}
                     playerName={nameOf}
                     tone={engine.turnSeat != null ? toneOf(engine.turnSeat) : null}
                     actionOptions={promptMine ? actionOptions : []}
@@ -744,7 +744,7 @@ function TableShellBody({
                     battleStep={battleStep}
                     turn={engine.turn}
                     turnSeat={engine.turnSeat}
-                    mySeat={viewerSeat}
+                    mySeat={replay ? null : viewerSeat}
                     playerName={nameOf}
                     tone={engine.turnSeat != null ? toneOf(engine.turnSeat) : null}
                     actionOptions={promptMine ? actionOptions : []}
