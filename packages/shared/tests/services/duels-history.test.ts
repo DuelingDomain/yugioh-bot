@@ -120,6 +120,54 @@ it("does not let member card filters reveal hidden opponent decks", () => {
   }
   expect(history({ card: "not in any deck" }).duels).toEqual([]);
 });
+it("matches catalog names once rather than once per saved deck entry", () => {
+  catalog(100, "Wanted card"); catalog(101, "Artwork fixture"); catalog(200, "Other card");
+  db.prepare("insert into card_artworks(card_id,artwork_id,image_url,image_url_small,is_main) values(100,101,'','',0)").run();
+  for (let i = 0; i < 10; i++) {
+    const duel = finished();
+    db.prepare("update duel_seats set deck_json=? where duel_id=?")
+      .run(JSON.stringify({ main: Array(40).fill(200), extra: [], side: [] }), duel.id);
+  }
+  const matches = vi.fn((value: string, query: string) => value.toLowerCase().includes(query.toLowerCase()) ? 1 : 0);
+  db.function("duel_history_contains", { deterministic: true }, matches);
+  expect(history({ card: "Wanted" }).duels).toEqual([]);
+  expect(matches.mock.calls.length).toBeLessThanOrEqual(3);
+  expect(matches).toHaveBeenCalledWith("Wanted card", "Wanted");
+});
+it("uses the canonical artwork name even when the artwork also has a catalog entry", () => {
+  catalog(100, "Canonical card"); catalog(101, "Alias catalog name");
+  db.prepare("insert into card_artworks(card_id,artwork_id,image_url,image_url_small,is_main) values(100,101,'','',0)").run();
+  const duel = finished();
+  db.prepare("update duel_seats set deck_json=? where duel_id=?")
+    .run(JSON.stringify({ main: [101], extra: [], side: [], metadata: [100] }), duel.id);
+  expect(history({ card: "Canonical" }).duels.map(d => d.id)).toEqual([duel.id]);
+  expect(history({ card: "Alias catalog" }).duels).toEqual([]);
+});
+it("does not let member name searches find hidden private duels or their players", () => {
+  finished({ private: true, name: "Hidden fixture" });
+  const visible = finished({ player: 3, name: "Visible fixture" });
+  for (const q of ["Hidden fixture", "Kaiba"]) expect(history({ q }, 3).duels).toEqual([]);
+  expect(history({ q: "Visible fixture" }, 3).duels.map(d => d.id)).toEqual([visible.id]);
+});
+it("does not redefine the search function while a database iterator is open", () => {
+  finished(); finished();
+  const rows = db.prepare("select id from duels").iterate();
+  try {
+    expect(rows.next().done).toBe(false);
+    expect(() => createDuelService(db)).not.toThrow();
+    expect(rows.next().done).toBe(false);
+  } finally { rows.return?.(); }
+});
+it.each(["q", "card"] as const)("limits %s to 100 characters and trims searches", field => {
+  expect(() => history({ [field]: "x".repeat(101) })).toThrowError(expect.objectContaining({ status: 400 }));
+  expect(() => history({ [field]: " ".repeat(101) }, 3)).toThrowError(expect.objectContaining({ status: 400 }));
+  expect(() => history({ [field]: "x".repeat(100) })).not.toThrow();
+  const duel = finished({ name: "Trimmed fixture" });
+  catalog(100, "Trimmed fixture");
+  db.prepare("update duel_seats set deck_json=? where duel_id=?")
+    .run(JSON.stringify({ main: [100], extra: [], side: [] }), duel.id);
+  expect(history({ [field]: "  Trimmed fixture  " }).duels.map(d => d.id)).toEqual([duel.id]);
+});
 
 it("pages every history row by timestamp and descending ID without duplicates", () => {
   const ids = Array.from({ length: 105 }, () => finished().id).reverse();
@@ -139,6 +187,20 @@ it("preserves fractional timestamp order and applies filters on later pages", ()
   const first = history({ limit: 1, format: "ffa4" });
   expect(first.duels.map(d => d.id)).toEqual([later.id]);
   expect(history({ limit: 1, format: "ffa4", cursor: first.nextCursor }).duels.map(d => d.id)).toEqual([earlier.id]);
+});
+it("sorts unreadable timestamps last and advances into and through them", () => {
+  const invalidEnded = finished({ time: "unreadable" });
+  const invalidCreated = finished({ time: null, created: "unreadable" });
+  const valid = finished();
+  const expected = [valid.id, invalidCreated.id, invalidEnded.id];
+  expect(history().duels.map(d => d.id)).toEqual(expected);
+  const pages = [history({ limit: 1 })];
+  while (pages.at(-1)!.nextCursor && pages.length < 5) {
+    pages.push(history({ limit: 1, cursor: pages.at(-1)!.nextCursor }));
+  }
+  expect(pages.flatMap(page => page.duels.map(d => d.id))).toEqual(expected);
+  expect(pages.at(-1)!.nextCursor).toBeNull();
+  expect(history({ from: "2026-10-01T00:00:00Z" }).duels.map(d => d.id)).toEqual([valid.id]);
 });
 it("excludes forks and live rows and other guilds even for owners", () => {
   const play = finished();
@@ -210,8 +272,31 @@ it("reads stored turn counts from old seat snapshots when the public board is ab
     .run(JSON.stringify([null, null, { seats: [], turn: 9 }]), duel.id);
   expect(history().duels[0].turnCount).toBe(9);
 });
-it("advances past invalid setup rows without stranding subsequent pages", () => {
-  const older = finished(); const invalid = finished(); const newest = finished();
+it("extracts only valid numeric turn counts without loading saved boards into list results", () => {
+  const duel = finished();
+  db.prepare(`update duels set snapshot_public_json=?, snapshot_seat0_json=?, snapshot_seat1_json=?,
+    clock_json=?, snapshot_seats_json=? where id=?`).run(
+    JSON.stringify({ turn: true, payload: "large board fixture".repeat(1000) }), JSON.stringify({ turn: "7" }),
+    JSON.stringify({ turn: -1 }), JSON.stringify({ turn: 1.5 }), JSON.stringify([null, { seats: [], turn: 9 }]), duel.id);
+  const query = duelHistoryQuery("history-test", 1, true, { scope: "all" });
+  const row = db.prepare(query.sql).get(query.params) as Record<string, unknown>;
+  expect(row).toMatchObject({ id: duel.id, turn_count: 9 });
+  for (const column of ["snapshot_public_json", "snapshot_seat0_json", "snapshot_seat1_json", "snapshot_seats_json", "seed_json", "clock_json"]) {
+    expect(row).not.toHaveProperty(column);
+  }
+  expect(history().duels[0].turnCount).toBe(9);
+  db.prepare("update duels set snapshot_public_json=json_set(snapshot_public_json,'$.turn',7.0) where id=?").run(duel.id);
+  expect(history().duels[0].turnCount).toBe(7);
+  db.prepare("update duels set status='active' where id=?").run(duel.id);
+  const parse = vi.spyOn(JSON, "parse");
+  try {
+    expect(duels.list("history-test", 2)[0].turnCount).toBe(7);
+    expect(parse.mock.calls.some(([raw]) => raw.includes("large board fixture"))).toBe(false);
+  } finally { parse.mockRestore(); }
+});
+it.each([false, true])("advances past invalid setup rows without stranding subsequent pages (unreadable time=%s)", unreadable => {
+  const time = unreadable ? "unreadable" : undefined;
+  const older = finished({ time }); const invalid = finished({ time }); const newest = finished();
   db.prepare("update duels set setup_json='broken' where id=?").run(invalid.id);
   const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
@@ -231,7 +316,10 @@ it.each([
   expect(() => history(options)).toThrowError(expect.objectContaining({ status: 400 }));
 });
 it("uses an idempotent history index for guild timestamp ordering", () => {
+  for (let i = 0; i < 200; i++) finished({ time: `2026-10-${String(1 + i % 10).padStart(2, "0")} 12:00:00` });
+  finished({ time: "unreadable" });
   migrate(db);
+  db.exec("analyze");
   const indexes = db.prepare("pragma index_list(duels)").all() as { name: string }[];
   expect(indexes.some(index => index.name === "duels_play_history_idx")).toBe(true);
   const plan = db.prepare(`explain query plan select id from duels where guild_id='history-test'
@@ -241,17 +329,31 @@ it("uses an idempotent history index for guild timestamp ordering", () => {
   expect(JSON.stringify(plan)).not.toContain("TEMP B-TREE");
   for (const query of [
     duelHistoryQuery("history-test", 1, true, { scope: "all", limit: 1 }),
-    duelHistoryQuery("history-test", 1, true, { scope: "all", status: "cancelled" }),
     duelHistoryQuery("history-test", 1, false, { scope: "all" }),
   ]) {
     const actualPlan = db.prepare(`explain query plan ${query.sql}`).all(query.params);
     expect(JSON.stringify(actualPlan)).toContain("duels_play_history_idx");
     expect(JSON.stringify(actualPlan)).not.toContain("TEMP B-TREE");
   }
+  // A selective status can use the status index instead of scanning ordered history.
+  const filtered = duelHistoryQuery("history-test", 1, true, { scope: "all", status: "cancelled" });
+  const filteredPlan = JSON.stringify(db.prepare(`explain query plan ${filtered.sql}`).all(filtered.params));
+  expect(filteredPlan).toMatch(/USING INDEX duels_(play_history|guild_status)_idx/);
   finished(); finished();
   const first = history({ limit: 1 });
   const query = duelHistoryQuery("history-test", 1, true, { scope: "all", cursor: first.nextCursor });
   const cursorPlan = JSON.stringify(db.prepare(`explain query plan ${query.sql}`).all(query.params));
   expect(cursorPlan).toContain("duels_play_history_idx");
   expect(cursorPlan).toMatch(/<expr>.*[<>]=?\?/);
+  const nullTimePlan = JSON.stringify(db.prepare(`explain query plan ${query.nullTimeSql}`).all(query.params));
+  expect(nullTimePlan).toContain("duels_play_history_idx");
+  expect(nullTimePlan).toContain("<expr>=?");
+  expect(nullTimePlan).not.toContain("TEMP B-TREE");
+  finished({ time: "unreadable", name: "No timestamp" }); finished({ time: "unreadable", name: "No timestamp" });
+  const nullPage = history({ q: "No timestamp", limit: 1 });
+  const nullQuery = duelHistoryQuery("history-test", 1, true, { scope: "all", q: "No timestamp", cursor: nullPage.nextCursor });
+  const nullCursorPlan = JSON.stringify(db.prepare(`explain query plan ${nullQuery.sql}`).all(nullQuery.params));
+  expect(nullCursorPlan).toContain("duels_play_history_idx");
+  expect(nullCursorPlan).toContain("<expr>=?");
+  expect(nullCursorPlan).not.toContain("TEMP B-TREE");
 });

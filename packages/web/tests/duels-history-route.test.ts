@@ -61,6 +61,30 @@ it("keeps member visibility and mine/live behavior", async () => {
   expect(await (await get()).json()).toEqual({ duels: [], canSeeAll: false, nextCursor: null });
   expect(await (await get("")).json()).toEqual({ duels: [] });
 });
+it("does not expose a private duel through a member's name search", async () => {
+  state.auth.mockResolvedValue({ user: { id: "103", name: "Member" } });
+  for (const q of ["Black Luster trials", "Player 102"]) {
+    const query = new URLSearchParams({ archived: "1", scope: "all", q });
+    const response = await get(query.toString());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ duels: [], canSeeAll: false, nextCursor: null });
+  }
+});
+it.each(["q", "card"])("rejects overlong %s for both owners and members", async field => {
+  for (const id of [101, 103]) {
+    state.auth.mockResolvedValue({ user: { id: String(id), name: "Test member" } });
+    const query = new URLSearchParams({ archived: "1", scope: "all", [field]: "x".repeat(101) });
+    const response = await get(query.toString());
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: expect.any(String) });
+    query.set(field, "x".repeat(100));
+    expect((await get(query.toString())).status).toBe(200);
+  }
+});
+it("trims name and card searches", async () => {
+  const query = new URLSearchParams({ archived: "1", scope: "all", q: "  Luster  ", card: "  Soldier  " });
+  expect((await (await get(query.toString())).json()).duels[0]?.slug).toBe(privateSlug);
+});
 it("ignores member card filters so hidden opponent decks cannot be probed", async () => {
   state.auth.mockResolvedValue({ user: { id: "103", name: "Member" } });
   state.db!.prepare("update duels set settings_json=json_set(settings_json,'$.visibility','public') where web_slug=?").run(privateSlug);

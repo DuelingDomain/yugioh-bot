@@ -41,7 +41,7 @@ import {
   parseStoredDuelSettings,
 } from "../duels/settings.js";
 import { assertReplayForkAccess, resolveOwnerPlayer } from "../access/owner-access.js";
-import { DUEL_LIST_ACCESS_SQL as LIST_ACCESS_SQL, duelHistoryQuery, historyCursor, historyTimestamp } from "./duel-history.js";
+import { DUEL_LIST_ACCESS_SQL as LIST_ACCESS_SQL, DUEL_LIST_COLUMNS, duelHistoryQuery, historyCursor, historyTimestamp, registerDuelHistoryFunctions } from "./duel-history.js";
 import { randomInt, randomBytes, timingSafeEqual } from "node:crypto";
 // duel-series.ts imports this module too; see the note there about the cycle.
 import { createSeriesStore } from "./duel-series.js";
@@ -289,7 +289,9 @@ type DuelRow = {
 };
 
 
-type DuelListItemRow = DuelRow & { my_seat: number | null };
+type DuelSessionRow = Omit<DuelRow, "seed_json" | "bundle_version" | "snapshot_public_json" | "snapshot_seat0_json"
+  | "snapshot_seat1_json" | "snapshot_seats_json" | "clock_json" | "invite_code" | "opening_json">;
+type DuelListItemRow = DuelSessionRow & { my_seat: number | null; turn_count: number | null; has_started: number };
 
 type SeatRow = {
   seat: number;
@@ -523,7 +525,7 @@ export function validateSetup(setup: unknown, recorded?: DuelSetup): DuelSetup {
   return out;
 }
 
-function rowFormat(row: DuelRow): DuelFormat {
+function rowFormat(row: Pick<DuelRow, "format">): DuelFormat {
   const value = row.format ?? DEFAULT_DUEL_FORMAT;
   if (!isDuelFormat(value)) throw new DuelServiceError("Duel record is invalid", 500);
   return value;
@@ -580,7 +582,7 @@ function serializeClock(clock: DuelClockState | null): string | null {
   return clock ? JSON.stringify(clock) : null;
 }
 
-function rowSettings(row: DuelRow): DuelSettings {
+function rowSettings(row: Pick<DuelRow, "settings_json">): DuelSettings {
   return wrapSettingsError(() => parseStoredDuelSettings(row.settings_json), 500);
 }
 
@@ -589,10 +591,7 @@ function rowClock(row: DuelRow): DuelClockState | null {
 }
 
 export function createDuelService(db: Database.Database, options: { rollDie?: () => number } = {}): DuelService {
-  // SQLite lower() folds only ASCII. Escaping preserves literal substrings while
-  // Unicode case matching also handles sigma and other simple case equivalents.
-  db.function("duel_history_contains", { deterministic: true }, (value: string | null, query: string) =>
-    value !== null && new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "iu").test(value) ? 1 : 0);
+  registerDuelHistoryFunctions(db);
   const rollDie = options.rollDie ?? (() => randomInt(1, 7));
   const selectDuelById = db.prepare<[number], DuelRow>("select * from duels where id = ?");
   const selectDuelBySlug = db.prepare<[string, string], DuelRow>("select * from duels where web_slug = ? and guild_id = ?");
@@ -647,7 +646,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
   const updateClock = db.prepare<[string | null, number]>("update duels set clock_json = ? where id = ?");
   const listLive = db.prepare<Record<string, string | number>, DuelListItemRow>(
     `
-      select duels.*,
+      select ${DUEL_LIST_COLUMNS},
         (select s.seat from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer) as my_seat
       from duels
       where guild_id = @guild
@@ -729,7 +728,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
 
   const seatRows = (duelId: number): SeatRow[] => selectSeats.all(duelId);
 
-  const mapSession = (row: DuelRow): DuelSession => {
+  const mapSession = (row: DuelSessionRow): DuelSession => {
     if (!isDuelKind(row.kind) || !isDuelMode(row.mode) || !isDuelStatus(row.status) || !isDuelMasterRule(row.master_rule)) {
       throw new DuelServiceError("Duel record is invalid", 500);
     }
@@ -1348,19 +1347,11 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     const setup = parseSetup(row.setup_json, row.kind, session.format);
     const startedAt = historyTimestamp(row.started_at);
     const endedAt = historyTimestamp(row.ended_at);
-    let turnCount: number | null = null;
-    const storedTurn = (view: unknown): number | null => view && typeof view === "object" && "turn" in view
-      && Number.isSafeInteger(view.turn) && (view.turn as number) >= 0 ? view.turn as number : null;
-    for (const raw of [row.snapshot_public_json, row.snapshot_seat0_json, row.snapshot_seat1_json, row.clock_json]) {
-      try { turnCount = storedTurn(JSON.parse(raw ?? "null")); }
-      catch { /* An absent or unreadable saved board has no known turn count. */ }
-      if (turnCount !== null) break;
-    }
-    if (turnCount === null) turnCount = parseSeatSnapshots(row.snapshot_seats_json).map(storedTurn).find(turn => turn !== null) ?? null;
+    const turnCount = row.turn_count;
     const duration = startedAt && endedAt ? Date.parse(endedAt) - Date.parse(startedAt) : null;
     const engine = setup?.engineIdentity?.coreFamily ?? (session.format !== "1v1"
-      ? (row.seed_json && row.bundle_version ? "multi" : null)
-      : setup?.engine ?? (row.seed_json && row.bundle_version ? (setup?.startupScripts?.length ? "pinned" : "legacy") : null));
+      ? (row.has_started ? "multi" : null)
+      : setup?.engine ?? (row.has_started ? (setup?.startupScripts?.length ? "pinned" : "legacy") : null));
     return {
       ...session, createdAt: historyTimestamp(row.created_at), startedAt, endedAt,
       durationMs: duration !== null && duration >= 0 ? duration : null, turnCount, engine,
@@ -1388,7 +1379,12 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     assertPlayerGuild(playerId, guildId);
     const canSeeAll = resolveOwnerPlayer(db, { guildId, playerId }) !== null;
     const query = duelHistoryQuery(guildId, playerId, canSeeAll, options);
-    const rows = db.prepare<Record<string, string | number>, DuelListItemRow & { history_time: number }>(query.sql).all(query.params);
+    type HistoryRow = DuelListItemRow & { history_time: number | null };
+    const rows = db.prepare<Record<string, string | number>, HistoryRow>(query.sql).all(query.params);
+    if (query.nullTimeSql && rows.length < query.limit + 1) {
+      rows.push(...db.prepare<Record<string, string | number>, HistoryRow>(query.nullTimeSql)
+        .all({ ...query.params, limit: query.limit + 1 - rows.length }));
+    }
     const page = rows.slice(0, query.limit);
     return { duels: page.flatMap(tolerantItem), canSeeAll,
       nextCursor: rows.length > query.limit ? historyCursor(page[page.length - 1]!) : null };
