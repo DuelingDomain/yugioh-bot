@@ -10,7 +10,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace }), useSearchParams: () => new URLSearchParams(window.location.search) }));
-vi.mock("swr", () => ({ default: () => ({ data: state.room, error: state.error, isLoading: !state.room, mutate: state.mutate }) }));
+vi.mock("swr", () => ({ useSWRConfig: () => ({ mutate: () => Promise.resolve() }), default: () => ({ data: state.room, error: state.error, isLoading: !state.room, mutate: state.mutate }) }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({ useDuelWebsocket: () => ({ connected: true, syncing: state.syncing, recovering: state.recovering, presence: null, resync: state.resync }) }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
 vi.mock("@/components/duel/prompt-reveal", async (original) => ({ ...await original<object>(), usePromptReveal: () => state.revealed, usePromptAnswerable: () => true }));

@@ -10,7 +10,7 @@ const { state, mutate } = vi.hoisted(() => ({
   state: { room: null as DuelRoom | null },
   mutate: vi.fn(async () => {}),
 }));
-vi.mock("swr", () => ({ default: () => ({ data: state.room, error: null, isLoading: false, mutate }) }));
+vi.mock("swr", () => ({ useSWRConfig: () => ({ mutate: () => Promise.resolve() }), default: () => ({ data: state.room, error: null, isLoading: false, mutate }) }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
