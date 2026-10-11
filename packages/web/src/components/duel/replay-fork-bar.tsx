@@ -5,6 +5,7 @@ import Link from "next/link";
 import { GitFork, SlidersHorizontal } from "lucide-react";
 import type { ReplayForkControl } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
+import { useBugReportHeaderHost } from "../bug-report/room-store";
 import { FRAME_PARAM } from "./replay-controller";
 import { askAllState, type AskState } from "./replay-fork-control";
 import styles from "./replay-fork.module.css";
@@ -50,6 +51,9 @@ export function ReplayForkBar({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
+  // A fork has no Report bug button of its own (the table owns every corner). Claiming the header slot keeps the floating one
+  // off the table, where it sat on the End turn and response buttons.
+  useBugReportHeaderHost();
   const [ownOpen, setOwnOpen] = useState(false);
   const open = controlledOpen ?? ownOpen;
   const setOpen = onOpenChange ?? setOwnOpen;

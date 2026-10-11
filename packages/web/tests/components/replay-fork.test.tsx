@@ -50,6 +50,7 @@ import {
   askAllState, followSeat, forkRoomState, forkViewSettled, livingSeats,
 } from "@/components/duel/replay-fork-control";
 import { ReplayForkBar, sourceReplayHref } from "@/components/duel/replay-fork-bar";
+import { useBugReportHeaderHosted } from "@/components/bug-report/room-store";
 import { canOfferFork, forkDisabledReason } from "@/components/duel/replay-fork-button";
 import {
   DuelRequestError, duelRoomKey, getDuelRoom, getOwnerReplayFrames, searchDuelCards, sendDuelAction, setChainResponseMode,
@@ -219,6 +220,14 @@ describe("ReplayForkBar", () => {
     expect((within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name: /Bo/ }) as HTMLButtonElement).disabled).toBe(true);
     rerender(<ReplayForkBar {...p} living={[0, 1]} disabled />);
     for (const button of within(screen.getByRole("group", { name: "Acting seat" })).getAllByRole("button")) expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps the floating Report bug button off the table while it is mounted", () => {
+    const Probe = () => <output data-testid="fab-hosted">{String(useBugReportHeaderHosted())}</output>;
+    const view = render(<><Probe /><ReplayForkBar {...props()} /></>);
+    expect(screen.getByTestId("fab-hosted").textContent).toBe("true");
+    view.rerender(<Probe />);
+    expect(screen.getByTestId("fab-hosted").textContent).toBe("false");
   });
 
   it("can be driven from outside, so the sheet survives a rebuilt table", () => {
