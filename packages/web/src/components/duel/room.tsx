@@ -165,6 +165,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // and the room key then stays the plain one.
   const forkView = useForkViewState();
   const forkSeenFor = useRef<string | null>(null);
+  const [forkSheetOpen, setForkSheetOpen] = useState(false);
   const { data: rawData, error, isLoading, mutate } = useSWR(
     slug ? duelRoomKey(slug, spectate, forkView.view) : null,
     async () => {
@@ -229,7 +230,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // Live tables: FFA mounts TableShell, Tag 2v2 mounts the Rooftop (TagShell). ?stage=legacy keeps MultiSeatStage for both.
   const liveTagTable = isMultiSeat(data?.engine) && liveFormat === "tag" && !legacyStage;
   const liveTable = (isMultiSeat(data?.engine) && (liveFormat === "ffa3" || liveFormat === "ffa4") && !legacyStage) || liveTagTable;
-  const playerName = seatNamer(data?.session.seats ?? []);
+  // A fork names its seats after the source duel's players, so the creator knows whose turn each seat plays (the fork's own seats are the creator and bots).
+  const playerName = seatNamer((data?.session.seats ?? []).map((entry) => ({
+    ...entry, displayName: forkControl?.origin.sourceSeats.find((source) => source.seat === entry.seat)?.displayName ?? entry.displayName,
+  })));
   useDuelLeaveGuard({
     slug,
     active: !forkMode && data?.session.status === "active" && !data.engine?.result &&
@@ -1082,6 +1086,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     <ReplayForkBar
       fork={forkControl} seatName={playerName} living={forkLiving} waitingSeat={engine?.prioritySeat ?? null}
       follow={forkView.follow} reveal={forkView.reveal} disabled={forkBusy}
+      open={forkSheetOpen} onOpenChange={setForkSheetOpen}
       onPickSeat={pickForkSeat}
       onFollow={(next) => forkView.setFollow(next, forkControl.actingSeat)}
       onReveal={forkView.setReveal}

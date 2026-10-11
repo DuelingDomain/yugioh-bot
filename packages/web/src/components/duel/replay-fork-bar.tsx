@@ -28,6 +28,7 @@ const ASK_COPY: Record<AskState, string> = {
  */
 export function ReplayForkBar({
   fork, seatName, living, waitingSeat, follow, reveal, disabled, onPickSeat, onFollow, onReveal, onAskAll, onRestart, onEnd,
+  open: controlledOpen, onOpenChange,
 }: {
   fork: ReplayForkControl;
   seatName: (seat: number) => string;
@@ -45,8 +46,13 @@ export function ReplayForkBar({
   onAskAll: () => void;
   onRestart: () => void;
   onEnd: () => void;
+  /** The room keeps the sheet open across its own remounts (a new seat or Reveal change rebuilds the table). Alone, the bar keeps its own. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = controlledOpen ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
   const [confirm, setConfirm] = useState<"restart" | "end" | null>(null);
   const ask = askAllState(fork.chainModes, living);
   const close = () => { setOpen(false); setConfirm(null); };
