@@ -1374,6 +1374,9 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       const tolerantItem = (row: DuelListItemRow): DuelListItem[] => {
         try { return [toItem(row)]; }
         catch (error) {
+          if (!(error instanceof DuelServiceError && error.status === 500 && error.message === "Duel setup record is invalid")) {
+            throw error;
+          }
           console.warn(`[duels] Skipping invalid list row ${row.id}`, error);
           return [];
         }
