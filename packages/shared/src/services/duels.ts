@@ -1233,14 +1233,16 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
           : null;
       const seat0Json = !seatsJson && seatViews[0] ? freezeSnapshot(seatViews[0], result) : null;
       const seat1Json = !seatsJson && seatViews[1] ? freezeSnapshot(seatViews[1], result) : null;
+      const turnCount = [snapshots?.public.turn, ...seatViews.map(view => view?.turn), parseStoredDuelClock(row.clock_json)?.turn]
+        .find(turn => typeof turn === "number" && Number.isSafeInteger(turn) && turn >= 0) ?? null;
 
       db.prepare<
-        ["completed" | "interrupted", number | null, number | null, string, string | null, string | null, string | null, string | null, number]
+        ["completed" | "interrupted", number | null, number | null, string, string | null, string | null, string | null, string | null, number | null, number]
       >(
         `
           update duels
           set status = ?, ended_at = datetime('now'), archived_at = coalesce(archived_at, datetime('now')), winner_player_id = ?, winner_seat = ?, result_reason = ?,
-              snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ?, snapshot_seats_json = ?, clock_json = null
+              snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ?, snapshot_seats_json = ?, turn_count = ?, clock_json = null
           where id = ? and status = 'active'
         `,
       ).run(
@@ -1252,6 +1254,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         seat0Json,
         seat1Json,
         seatsJson,
+        turnCount,
         row.id,
       );
       const updated = selectDuelById.get(row.id);

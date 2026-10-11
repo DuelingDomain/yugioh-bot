@@ -213,6 +213,7 @@ describe("final snapshots per seat", () => {
     for (let seat = 0; seat < count; seat++) duels.setDeck(session.slug, "g1", ids[seat]!, deck(100 * seat + 1));
     duels.activate(session.slug, "g1", ids[0]!, ["1"], "b", null);
     duels.complete(session.slug, "g1", 0, "done", { public: view(count, 10), seats: Array.from({ length: count }, (_, seat) => view(count, 20 + seat)) });
+    expect(db.prepare("select turn_count from duels where id=?").get(session.id)).toEqual({ turn_count: 1 });
     expect(db.prepare("select snapshot_seat0_json, snapshot_seat1_json from duels where id=?").get(session.id))
       .toEqual({ snapshot_seat0_json: null, snapshot_seat1_json: null });
     for (let seat = 0; seat < count; seat++) expect(duels.room(session.slug, "g1", ids[seat]!).engine?.revision).toBe(20 + seat);

@@ -232,7 +232,7 @@ it("returns UTC dates, recorded engine and turns, and every Tag seat's team and 
   for (const [seat, player] of [[1, 1], [2, 3]]) db.prepare("insert into duel_seats(duel_id,seat,player_id) values(?,?,?)").run(duel.id, seat, player);
   db.prepare("insert into duel_seats(duel_id,seat,is_bot) values(?,3,1)").run(duel.id);
   db.prepare("update duels set started_at='2026-10-10 11:59:00' where id=?").run(duel.id);
-  db.prepare("update duels set winner_seat=1, result_reason='win', seed_json='[\"1\"]', bundle_version='test', snapshot_public_json=? where id=?")
+  db.prepare("update duels set winner_seat=1, result_reason='win', seed_json='[\"1\"]', bundle_version='test', turn_count=7, snapshot_public_json=? where id=?")
     .run(JSON.stringify({ turn: 7 }), duel.id);
   expect(history().duels[0]).toMatchObject({ slug: duel.slug, private: true, status: "completed",
     createdAt: "2026-10-09T12:00:00.000Z", startedAt: "2026-10-10T11:59:00.000Z", endedAt: "2026-10-10T12:00:00.000Z",
@@ -264,33 +264,24 @@ it("records start time on activation without inventing start dates for older due
   expect(item.engine).toBe("pinned");
   expect(item.durationMs).toBe(Date.parse(item.endedAt!) - Date.parse(item.startedAt!));
 });
-it("reads stored turn counts from old seat snapshots when the public board is absent", () => {
+it("reads the stored column without parsing old or malformed boards", () => {
   const duel = finished();
-  db.prepare("update duels set snapshot_seat0_json=? where id=?").run(JSON.stringify({ seats: [], turn: 8 }), duel.id);
-  expect(history().duels[0].turnCount).toBe(8);
-  db.prepare("update duels set snapshot_seat0_json=null,snapshot_seats_json=? where id=?")
-    .run(JSON.stringify([null, null, { seats: [], turn: 9 }]), duel.id);
-  expect(history().duels[0].turnCount).toBe(9);
-});
-it("extracts only valid numeric turn counts without loading saved boards into list results", () => {
-  const duel = finished();
-  db.prepare(`update duels set snapshot_public_json=?, snapshot_seat0_json=?, snapshot_seat1_json=?,
-    clock_json=?, snapshot_seats_json=? where id=?`).run(
-    JSON.stringify({ turn: true, payload: "large board fixture".repeat(1000) }), JSON.stringify({ turn: "7" }),
-    JSON.stringify({ turn: -1 }), JSON.stringify({ turn: 1.5 }), JSON.stringify([null, { seats: [], turn: 9 }]), duel.id);
+  db.prepare("update duels set snapshot_public_json=?,snapshot_seats_json=? where id=?")
+    .run(JSON.stringify({ turn: 8, payload: "large board fixture".repeat(1000) }), "broken", duel.id);
+  expect(history().duels[0].turnCount).toBeNull();
+  db.prepare("update duels set turn_count=9 where id=?").run(duel.id);
   const query = duelHistoryQuery("history-test", 1, true, { scope: "all" });
+  expect(query.sql).not.toMatch(/json_(extract|valid|type)\(snapshot/);
   const row = db.prepare(query.sql).get(query.params) as Record<string, unknown>;
   expect(row).toMatchObject({ id: duel.id, turn_count: 9 });
   for (const column of ["snapshot_public_json", "snapshot_seat0_json", "snapshot_seat1_json", "snapshot_seats_json", "seed_json", "clock_json"]) {
     expect(row).not.toHaveProperty(column);
   }
   expect(history().duels[0].turnCount).toBe(9);
-  db.prepare("update duels set snapshot_public_json=json_set(snapshot_public_json,'$.turn',7.0) where id=?").run(duel.id);
-  expect(history().duels[0].turnCount).toBe(7);
   db.prepare("update duels set status='active' where id=?").run(duel.id);
   const parse = vi.spyOn(JSON, "parse");
   try {
-    expect(duels.list("history-test", 2)[0].turnCount).toBe(7);
+    expect(duels.list("history-test", 2)[0].turnCount).toBe(9);
     expect(parse.mock.calls.some(([raw]) => raw.includes("large board fixture"))).toBe(false);
   } finally { parse.mockRestore(); }
 });

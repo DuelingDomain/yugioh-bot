@@ -914,6 +914,7 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "invite_code", "text");
   addColumnIfMissing(db, "duels", "format", "text not null default '1v1'");
   addColumnIfMissing(db, "duels", "snapshot_seats_json", "text");
+  addColumnIfMissing(db, "duels", "turn_count", "integer");
   addColumnIfMissing(db, "duels", "setup_json", "text");
   addColumnIfMissing(db, "duels", "kind", "text not null default 'play' check (kind in ('play', 'replay-fork'))");
   db.exec(`

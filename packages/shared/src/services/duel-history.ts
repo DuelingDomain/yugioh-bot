@@ -48,16 +48,6 @@ export function registerDuelHistoryFunctions(db: Database.Database): void {
   registeredDatabases.add(db);
 }
 
-function storedTurn(column: string, path = "$.turn"): string {
-  const turn = `json_extract(${column}, '${path}')`;
-  const seats = column === "snapshot_seats_json" ? `and json_type(${column}, '${path.replace(/\.turn$/, ".seats")}') = 'array'` : "";
-  return `case when json_valid(${column}) then case
-    when json_type(${column}, '${path}') in ('integer', 'real')
-      and ${turn} between 0 and 9007199254740991 and ${turn} = cast(${turn} as integer)
-      ${seats}
-    then ${turn} end end`;
-}
-
 /** List metadata only: saved boards, seeds and private engine state stay in SQLite. */
 export const DUEL_LIST_COLUMNS = `duels.id, duels.kind, duels.guild_id, duels.web_slug, duels.name,
   duels.organizer_player_id, duels.mode, duels.master_rule, duels.status, duels.format, duels.setup_json,
@@ -65,10 +55,7 @@ export const DUEL_LIST_COLUMNS = `duels.id, duels.kind, duels.guild_id, duels.we
   duels.last_activity_at, duels.winner_player_id, duels.winner_seat, duels.result_reason,
   duels.series_id, duels.game_number, duels.best_of, duels.ranked,
   (seed_json is not null and seed_json != '' and bundle_version is not null and bundle_version != '') as has_started,
-  coalesce(${[
-    ...["snapshot_public_json", "snapshot_seat0_json", "snapshot_seat1_json", "clock_json"].map(column => storedTurn(column)),
-    ...[0, 1, 2, 3].map(seat => storedTurn("snapshot_seats_json", `$[${seat}].turn`)),
-  ].join(",")}) as turn_count`;
+  duels.turn_count`;
 
 function readCursor(value: string): HistoryCursor {
   try {
