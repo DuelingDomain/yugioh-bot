@@ -247,12 +247,27 @@ describe("DuelReplayView camera and card visibility", () => {
     expect(status().getAttribute("aria-live")).toBe("polite");
     expect(status().textContent).toBe("Move 0 of 3. Opening board");
     fireEvent.click(screen.getByRole("button", { name: "Next move" }));
-    expect(status().textContent).toMatch(/^Move 1 of 3\. /);
-    // While autoplay runs the line is empty, so it does not read out every move.
+    await waitFor(() => expect(status().textContent).toMatch(/^Move 1 of 3\. /));
+    // While autoplay runs the line is empty at once, so it does not read out every move.
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
     expect(status().textContent).toBe("");
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
-    expect(status().textContent).toMatch(/^Move \d of 3\. /);
+    await waitFor(() => expect(status().textContent).toMatch(/^Move \d of 3\. /));
+  });
+
+  it("reads out only the move a slider drag stops on, not every move it passes", async () => {
+    stubServer(() => json(replayV2()));
+    await open();
+    const status = () => document.querySelector("[data-replay-status]") as HTMLElement;
+    const lines: string[] = [];
+    const watcher = new MutationObserver(() => lines.push(status().textContent ?? ""));
+    watcher.observe(status(), { childList: true, characterData: true, subtree: true });
+    const slider = screen.getByRole("slider", { name: "Replay position" });
+    for (const value of ["1", "2", "3"]) fireEvent.change(slider, { target: { value } });
+    expect(status().textContent).toBe("Move 0 of 3. Opening board");
+    await waitFor(() => expect(status().textContent).toMatch(/^Move 3 of 3\. /));
+    watcher.disconnect();
+    expect(lines).toHaveLength(1);
   });
 
   it("keeps the table mounted but hidden and inert while the public view loads", async () => {
