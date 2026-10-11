@@ -248,6 +248,23 @@ describe("Tag replay result and rewind", () => {
     expect(screen.getByText("Opening board")).toBeTruthy();
   });
 
+  it("announces a seek: the status line outlives the rebuild of the table", async () => {
+    await open();
+    const status = () => document.querySelector("[data-replay-status]") as HTMLElement;
+    const line = status();
+    expect(document.querySelectorAll("[data-replay-status]")).toHaveLength(1);
+    click("Last move");
+    await waitFor(() => expect(status().textContent).toMatch(/^Move \d+ of \d+\. /));
+    const atEnd = status().textContent;
+    click("Previous move");
+    await waitFor(() => expect(status().textContent).not.toBe(atEnd));
+    click("First move");
+    await waitFor(() => expect(status().textContent).toMatch(/^Move 0 of /));
+    // Same node: a seek rebuilds the table (a new key), not the live region a screen reader is already watching.
+    expect(status()).toBe(line);
+    expect(document.querySelectorAll("[data-replay-status]")).toHaveLength(1);
+  });
+
   it("plays from the result again from the start", async () => {
     await open();
     click("Last move");

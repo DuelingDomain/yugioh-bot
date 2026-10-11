@@ -82,7 +82,6 @@ export function ReplayTableTransport({
   const icon = `${replayStyles.iconButton} ${styles.icon}`;
   return (
     <div className={styles.bar} data-replay-table-transport>
-      <ReplayStatus playing={playing} index={index} last={last} caption={caption} />
       <div className={styles.top}>
         {result ? (
           <div className={styles.result} role="status">
@@ -93,7 +92,8 @@ export function ReplayTableTransport({
         <span className={styles.say} aria-live="off" title={said ? `${caption}. ${said}` : caption}>
           <b>{caption}</b>{said ? <> · {said}</> : null}
         </span>
-        {hiddenNote ? <span className={styles.hidden}>Public view — hidden cards stay hidden</span> : null}
+        {hiddenNote ? <span className={styles.hidden} title="Public view — hidden cards stay hidden">Public view — hidden cards stay hidden</span> : null}
+        {notice ? <p role="alert" className={styles.note} title={notice}>{notice}</p> : null}
         <Link href={`/duels/${slug}`} className={replayStyles.link}>Final board</Link>
       </div>
       <div className={styles.row}>
@@ -145,7 +145,6 @@ export function ReplayTableTransport({
           </div>
         ) : null}
       </div>
-      {notice ? <p role="alert" className={styles.note}>{notice}</p> : null}
     </div>
   );
 }
@@ -205,13 +204,14 @@ export function ReplayFfa({
   // The table remounts on a new key. Losses are read from the frames, so a seek lands on the same order as playing there.
   const initialOutOrder = useMemo(() => lossOrderAt(frames, index), [frames, index]);
   const resetKey = `${slug}:${model.visibility}:${epoch}`;
+  const caption = frameCaption(frame, index, atEnd, playerName);
   const transport = (
     <ReplayTableTransport
       slug={slug}
       controller={controller}
       seatCount={seatCount}
       playerName={playerName}
-      caption={frameCaption(frame, index, atEnd, playerName)}
+      caption={caption}
       newLines={newLines}
       result={result ? { headline: replayResultHeadline(session, result, playerName), reason: result.reason } : null}
       visibility={visibility}
@@ -226,6 +226,8 @@ export function ReplayFfa({
   return (
     <div data-replay-frame={controller.frameId ?? undefined} data-replay-visibility={model.visibility} data-replay-format={session.format}
       className="-mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8">
+      {/* Outside the keyed shell: a seek rebuilds the shell, and a live region that is rebuilt is not read out. */}
+      <ReplayStatus playing={controller.playing} index={index} last={last} caption={caption} />
       <TableShell controller={table} replay={replay} preferences={preferences} initialOutOrder={initialOutOrder} fillViewport inputSuspended={inputSuspended} />
     </div>
   );

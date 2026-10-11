@@ -115,7 +115,6 @@ export function ReplayTag({ slug, model, timeline, engine, controller, visibilit
         )}
         {result ? <p className={styles.actor}>{actor}</p> : null}
       </div>
-      <ReplayStatus playing={playing} index={index} last={last} caption={actor} />
       <div className={styles.buttons} role="group" aria-label="Replay controls">
         <button type="button" className={styles.icon} aria-label="First move" {...stepButtonProps(index === 0, () => controller.seek(0))}><SkipBack size={16} aria-hidden /></button>
         <button type="button" className={styles.icon} aria-label="Previous move" {...stepButtonProps(index === 0, controller.stepBack)}><ChevronLeft size={18} aria-hidden /></button>
@@ -156,6 +155,8 @@ export function ReplayTag({ slug, model, timeline, engine, controller, visibilit
 
   return (
     <div data-replay-frame={controller.frameId ?? undefined} data-replay-visibility={model.visibility} data-replay-camera={camera}>
+      {/* Outside the keyed shell: a seek rebuilds the shell, and a live region that is rebuilt is not read out. */}
+      <ReplayStatus playing={playing} index={index} last={last} caption={actor} />
       <TagShell
         controller={table}
         teamNames={teamNames}
