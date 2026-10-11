@@ -605,7 +605,7 @@ cat /sys/block/*/queue/scheduler
 systemctl show dueling-backup.service -p CPUWeight -p IOWeight
 ```
 
-On cgroup v2, a listed `cpu` controller means cgroup weights control CPU share between the service and Docker containers. Confirm `CPUWeight=20` (the usual default is 100). Keep `Nice=10` too. The service sets `IOWeight=10` and idle I/O priority; their effect depends on the disk scheduler and cgroup I/O support. With `none` or `mq-deadline`, idle priority may have no effect. Online deploy backups use `systemd-run --scope --quiet -p CPUWeight=20 -p IOWeight=10` with `nice -n 10 ionice -c3`. If the `systemd-run` command is absent, they run Python directly. A backup failure in the scope aborts the deploy; it does not retry the backup outside the scope. During a staging deploy, read `/proc/<backup-pid>/cgroup` and confirm that the scope has the configured weights. The drained backup uses normal priority to limit downtime. Gzip fallback uses level 1; zstd uses level 3 and one thread.
+On cgroup v2, a listed `cpu` controller means cgroup weights control CPU share between the service and Docker containers. Confirm `CPUWeight=20` (the usual default is 100). Keep `Nice=10` too. The service sets `IOWeight=10` and idle I/O priority; their effect depends on the disk scheduler and cgroup I/O support. With `none` or `mq-deadline`, idle priority may have no effect. Online deploy backups use `systemd-run --scope --quiet -p CPUWeight=20 -p IOWeight=10` with `nice -n 10 ionice -c3`. If the `systemd-run` command is absent or its scope cannot start, they run Python directly. A backup failure in the scope aborts the deploy; it does not retry the backup outside the scope. During a staging deploy, read `/proc/<backup-pid>/cgroup` and confirm that the scope has the configured weights. The drained backup uses normal priority to limit downtime. Gzip fallback uses level 1; zstd uses level 3 and one thread.
 
 On staging, put a temporary failing `zstd` command first on `PATH` for the drained backup. Confirm that the deploy exits with status 1, starts the existing web/duel/worker/WS containers, and does not install the engine bundle or run migration. Delete the temporary command after the check.
 
@@ -651,7 +651,7 @@ DUELING_DEPLOY_BACKUP_KEEP=3
 DUELING_RELEASE_KEEP_DAYS=14
 DUELING_BACKUP_MIN_FREE_BYTES=1073741824
 # Optional shared override: without it, daily waits 1800 s and online waits 900 s.
-DUELING_BACKUP_LOCK_WAIT_SECONDS=900
+# DUELING_BACKUP_LOCK_WAIT_SECONDS=900
 ```
 
 The unit reads this file with `EnvironmentFile=`; the deploy shell sources and exports the same file. New runs pick up changed values. The drained deploy always uses its shorter 300-second lock limit. Remove backup-setting `Environment=` entries from old service drop-ins, and delete the old GitHub backup count/reserve variables after migration. Re-install the unit and run `sudo systemctl daemon-reload` when changing the unit or drop-ins. Leave the production `.env` unchanged. To check propagation, temporarily set a smaller deploy count and age in the file, then compare `kept=` in a daily run and an online deploy run with enough copies to trigger retention.

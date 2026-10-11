@@ -242,7 +242,7 @@ case "$*" in *' start '*) exit "\${TEST_START_STATUS:-0}" ;; esac
   }
 });
 
-test("online deploy backup uses a systemd scope when available and otherwise runs directly", t => {
+test("online deploy backup falls back only when its systemd scope cannot start", t => {
   const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
   const start = remote.indexOf("# Wait for daily backups");
   const end = remote.indexOf('git reset --hard "$DEPLOY_COMMIT"', start);
@@ -251,24 +251,26 @@ test("online deploy backup uses a systemd scope when available and otherwise run
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const log = join(dir, "commands.log");
   for (const [name, content] of Object.entries({
-    "systemd-run": '#!/bin/sh\nprintf "scope %s\\n" "$*" >> "$TEST_LOG"\nwhile [ "$1" != python3 ]; do shift; done\nexec "$@"\n',
+    "systemd-run": '#!/bin/sh\nprintf "scope %s\\n" "$*" >> "$TEST_LOG"\n[ "${TEST_SCOPE_STATUS:-0}" = 0 ] || exit "$TEST_SCOPE_STATUS"\nwhile [ "$1" != nice ] && [ "$1" != sh ]; do shift; done\nexec "$@"\n',
     python3: '#!/bin/sh\nprintf "backup %s %s\\n" "$DUELING_BACKUP_DIR" "$*" >> "$TEST_LOG"\nexit "${TEST_BACKUP_STATUS:-0}"\n',
   })) {
     writeFileSync(join(dir, name), content);
     chmodSync(join(dir, name), 0o755);
   }
-  for (const available of [true, false]) {
+  for (const [available, scopeStatus] of [[true, "0"], [true, "1"], [false, "0"]]) {
     for (const backupStatus of ["0", "1"]) {
       const availability = available ? "" : 'command() { if [ "$1" = -v ] && [ "$2" = systemd-run ]; then return 1; fi; builtin command "$@"; }\n';
       const result = spawnSync("bash", ["-eu", "-c", `${availability}${remote.slice(start, end)}`], {
         encoding: "utf8", timeout: 5000, env: { ...process.env, PATH: `${dir}:${process.env.PATH}`,
-          TEST_LOG: log, TEST_BACKUP_STATUS: backupStatus, DEPLOY_BACKUP: "backup-fixture", release_dir: dir },
+          TEST_LOG: log, TEST_SCOPE_STATUS: scopeStatus, TEST_BACKUP_STATUS: backupStatus,
+          DEPLOY_BACKUP: "backup-fixture", release_dir: dir },
       });
       assert.equal(result.status, Number(backupStatus), result.stderr);
       const commands = readFileSync(log, "utf8").trim().split("\n");
       assert.equal(commands.length, available ? 2 : 1);
       if (available) assert.match(commands[0], /scope .*--scope .*CPUWeight=20/);
       assert.equal(commands.at(-1), `backup ${dir}/online backup-fixture`);
+      assert.equal(existsSync(join(dir, ".online-scope-started")), false, "remove the scope startup marker");
       rmSync(log);
     }
   }
