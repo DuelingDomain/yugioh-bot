@@ -3,7 +3,8 @@
 .group[data-replay-owner-tools] { flex-wrap: nowrap; position: relative; }
 /* A refused Jump in: a small box drawn through the body (see ReplayForkButton), so it wraps and never widens the header. */
 .failureBox {
-  position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: var(--duel-z-menu);
+  /* Sheet uses z-50: keep the error below both the private-view and open-forks sheets. */
+  position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 49;
   display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
   width: max-content; max-width: min(52ch, calc(100vw - 24px)); padding: 6px 8px 6px 10px;
   border: 1px solid #8f4a4a; border-radius: 6px; background: rgb(10 14 24 / 0.96);
