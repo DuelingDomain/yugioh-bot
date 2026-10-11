@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
@@ -20,6 +21,7 @@ import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
 const SECRET = "first-draw-pin-test";
+const replayJournalCli = fileURLToPath(new URL("../scripts/replay-journal.ts", import.meta.url));
 const seed = ["1", "2", "3", "4"];
 const resources: Array<{ host: DuelHost; db: Database.Database }> = [];
 const dirs: string[] = [];
@@ -156,7 +158,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       bundleVersion: t.pin, ...(saved ? { setup: { firstTurnDraw } } : {}), commands }));
     const replayed = await replaySource(loadSource(file), DATA, commands.length);
     expect(replayed.seats).toEqual(history.at(-1));
-    const output = execFileSync("npx", ["tsx", "scripts/replay-journal.ts", file, "--data", DATA, "--json", "--views"],
+    const output = execFileSync("npx", ["tsx", replayJournalCli, file, "--data", DATA, "--json", "--views"],
       { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     const cli = JSON.parse(output);
     expect(cli).toMatchObject({ ok: true, replayed: commands.length, total: commands.length, seatCount: t.count });
@@ -238,7 +240,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       masterRule: t.session.masterRule, seed, decks: t.decks, commands: [] }));
     expect(() => loadSource(file)).toThrow("first-turn draw rule was not saved");
     try {
-      execFileSync("npx", ["tsx", "scripts/replay-journal.ts", file, "--data", DATA],
+      execFileSync("npx", ["tsx", replayJournalCli, file, "--data", DATA],
         { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
       expect.fail("The CLI must refuse an ambiguous journal");
     } catch (error) {
