@@ -130,6 +130,8 @@ export type StationTrackProps = {
   attackLockTestId?: string;
   /** The viewer's own chain response switch (Auto / Always / Off). Absent for spectators, replays and scenario tables. */
   chainMode?: ChainModeControl | null;
+  /** A replay has no one to wait for: the disabled "Waiting" turn button is left out. The caption and the attack-lock chip stay. */
+  replay?: boolean;
   /**
    * Where the phase steps live. "bar" (default): the six stations sit in this bar. "hub": the phase hub in the middle of
    * the board shows them, so on a desktop width the bar keeps only the caption, the clock and the buttons; on a phone
@@ -212,6 +214,7 @@ export function StationTrack({
   attackLock,
   attackLockTestId = "attack-lock",
   chainMode,
+  replay = false,
   phases = "bar",
   compact = false,
 }: StationTrackProps) {
@@ -417,7 +420,7 @@ export function StationTrack({
             <span className={styles.primaryLabel}>{PRIMARY_LABEL[primaryId]}</span>
             <ArrowRight strokeWidth={2} aria-hidden="true" />
           </button>
-        ) : (
+        ) : replay ? null : (
           <button type="button" className={styles.primary} disabled aria-disabled="true" data-wait="true">
             <span className={styles.primaryLabel} title={waitLabel}>{waitLabel}</span>
             <Hourglass strokeWidth={2} aria-hidden="true" />
