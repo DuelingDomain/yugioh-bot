@@ -101,13 +101,12 @@ describe("current engine identity", () => {
     const directory = fileURLToPath(new URL("../src/", import.meta.url));
     for (const name of ENGINE_HOST_RULE_FILES) hash.update(`${name}\0`).update(fingerprintSource(readFileSync(join(directory, `${name}.ts`), "utf8")));
     // These are the shared runtime helpers imported by the engine/journal path, not all of shared/dist/duels.
-    for (const name of ["index", "settings", "banlist-options", "pool", "replay"]) {
+    for (const name of ["index", "settings", "banlist-options", "pool", "replay", "source-engine-choice"]) {
       hash.update(`shared/${name}\0`).update(fingerprintSource(readFileSync(new URL(`../../shared/src/duels/${name}.ts`, import.meta.url), "utf8")));
     }
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
-    // Cross-version verification adds an explicit resource authorization policy.
-    // Resolved creation rules are returned as metadata for new fork storage. Engine command
-    // application and Manual loss timing are unchanged, so duel-rules-2 stays intact.
+    // The shared engine-choice rule keeps identical selection behavior. The retry code is
+    // transport metadata. Engine command application and Manual loss timing are unchanged.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 

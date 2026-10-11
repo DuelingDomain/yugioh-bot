@@ -63,7 +63,7 @@ interface ForkLaunchOptions {
   sourceOf: (state: DuelPrivateState) => ReplaySource;
   resourcesOf: (state: DuelPrivateState, purpose: "launch" | "restart") => JournalResources | Promise<JournalResources>;
   /** Check the complete source, with the shared bounded replay build, before a prefix can be forked. */
-  authorizeSource?: (state: DuelPrivateState, actor: OwnerPlayerActor, unchecked: boolean, signal?: AbortSignal) => Promise<JournalResources>;
+  authorizeSource: (state: DuelPrivateState, actor: OwnerPlayerActor, unchecked: boolean, signal?: AbortSignal) => Promise<JournalResources>;
   /** Recorder is disabled until persistence. The closure supplies the new fork ID after commit. */
   createWorker: (duelId: () => number | undefined) => DuelGameWorker;
   /** All engine reads finish before commit. Handoff has no asynchronous failure window. */
@@ -203,7 +203,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
       const claims = resolveReplayCursor(options.codec, request.cursor, source);
       if (claims.sourceVersion !== request.sourceVersion) throw new ReplayCursorError("SOURCE_CHANGED");
       if (claims.frameId !== replayFrameId(claims.sourceVersion, claims.step)) throw new ReplayCursorError("INVALID_CURSOR");
-      const resources = await options.authorizeSource?.(state, actor, request.unchecked === true, signal);
+      const resources = await options.authorizeSource(state, actor, request.unchecked === true, signal);
       signal?.throwIfAborted();
       const origin = { sourceSlug: slug, sourceVersion: claims.sourceVersion, frameId: claims.frameId, step: claims.step,
         prefixCount: claims.prefixCount, prefixHash: hashReplayForkPrefix(source.commands.slice(0, claims.prefixCount)),

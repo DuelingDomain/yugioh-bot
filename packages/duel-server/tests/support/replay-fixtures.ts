@@ -1,5 +1,6 @@
 import { defaultDuelSettings, seatCountFor, type DuelAnswer, type DuelChainMode, type DuelEngineView,
   type DuelFormat, type ReplaySource } from "@yugidraft/shared/duels";
+import { multiScriptsFolderHash, pinnedEngineVersion, repoMultiScriptsDirectory } from "../../src/multi-scripts.js";
 import type { DuelGameWorker, GameOptions } from "../../src/worker-client.js";
 
 export function replaySource(format: DuelFormat = "1v1"): ReplaySource {
@@ -23,26 +24,42 @@ export class ReplayWorker implements DuelGameWorker {
   revision = 1;
   created?: GameOptions;
   result: DuelEngineView["result"] = null;
+  resultAtRevision = 1;
+  pendingElimination: number | null = null;
+  includeLog = true;
   closed = 0;
   modes: Record<number, DuelChainMode> = {};
   async create(options: GameOptions) { this.created = options; }
   async view(viewer: number | null): Promise<DuelEngineView> {
+    const result = this.revision >= this.resultAtRevision ? this.result : null;
     return { revision: this.revision, turn: 1, turnSeat: 0, phase: "main1",
       seats: this.created!.decks.map((_, seat) => {
         const card = { controller: seat, location: 1, sequence: 0, position: 2,
           ...(viewer === seat ? { code: 900 + seat } : {}) };
-        return { seat, lp: 8000, hand: [card], extra: [{ ...card, location: 64 }], deckCount: 35, extraCount: 1,
+        return { seat, lp: 8000, ...(seat === this.pendingElimination ? { pendingElimination: true } : {}), hand: [card], extra: [{ ...card, location: 64 }], deckCount: 35, extraCount: 1,
           monsters: [{ ...card, location: 4 }], spells: [], graveyard: [], banished: [] };
       }),
-      prompt: viewer === 0 && !this.result ? { id: `p${this.revision}`, seat: 0, kind: "choice", title: "Next",
+      prompt: viewer === 0 && !result ? { id: `p${this.revision}`, seat: 0, kind: "choice", title: "Next",
         options: [{ id: "next", label: "Next" }] } : null,
-      prioritySeat: this.result ? null : 0, ...(viewer === null ? {} : { chainMode: this.modes[viewer] ?? "always" }),
-      chain: [], result: this.result,
-      log: Array.from({ length: this.revision }, (_, index) => ({ id: index + 1, kind: "message" as const,
+      prioritySeat: result ? null : 0, ...(viewer === null ? {} : { chainMode: this.modes[viewer] ?? "always" }),
+      chain: [], result,
+      log: Array.from({ length: this.includeLog ? this.revision : 0 }, (_, index) => ({ id: index + 1, kind: "message" as const,
         text: viewer === null ? `Public ${index}` : `Private ${viewer} ${index}` })), events: [] };
   }
   async answer(_seat: number, _promptId: string, _answer: DuelAnswer) { this.revision++; }
   async setChainMode(seat: number, mode: DuelChainMode) { this.modes[seat] = mode; return false; }
   async search() { return []; }
   async close() { this.closed++; this.running = false; }
+}
+
+/** Explicit exact identities keep transport/fork fixtures independent of verification tests. */
+export function replayFixtureResources(dataDirectory: string, format: DuelFormat = "1v1", mode: "normal" | "domain" = "normal") {
+  const overlay = format === "1v1" ? undefined : repoMultiScriptsDirectory();
+  const multiOverlayHash = overlay ? multiScriptsFolderHash(overlay) : null;
+  return { dataDirectory, bundleVersion: pinnedEngineVersion("test-bundle", seatCountFor(format), multiOverlayHash),
+    rawBundleVersion: "test-bundle", multiScriptsDirectory: overlay,
+    identity: { version: 1 as const, coreFamily: format === "1v1" ? "legacy" as const : "multi" as const, mode,
+      wasmHash: "a".repeat(64), wrapperHash: "b".repeat(64), wrapperVersion: "fixture", protocolVersion: "fixture",
+      hostRuleVersion: "duel-rules-2:null", cardDatabaseHash: "c".repeat(64), cardRemapsHash: null,
+      cardScriptsHash: "d".repeat(64), domainScriptHash: mode === "domain" ? "e".repeat(64) : null, multiOverlayHash } };
 }

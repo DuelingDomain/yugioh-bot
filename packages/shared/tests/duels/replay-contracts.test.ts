@@ -374,13 +374,13 @@ describe("fork request and stable error contracts", () => {
   it("exports every stable error and its allowed HTTP status", () => {
     expect(REPLAY_ERROR_CODES).toEqual([
       "ACCESS_DENIED", "ACCESS_UNAVAILABLE", "INVALID_CURSOR", "SOURCE_CHANGED", "REQUEST_CONFLICT", "ENGINE_UNAVAILABLE_FOR_SOURCE",
-      "REPLAY_MISMATCH", "REPLAY_UNVERIFIED", "NOT_PLAYABLE", "FORK_LIMIT", "ENGINE_BUSY",
+      "REPLAY_MISMATCH", "REPLAY_UNVERIFIED", "REPLAY_VERIFIED_RETRY", "NOT_PLAYABLE", "FORK_LIMIT", "ENGINE_BUSY",
     ]);
     for (const code of REPLAY_ERROR_CODES) expect(isReplayErrorCode(code)).toBe(true);
     for (const value of [undefined, null, "INVALID", "invalid_cursor"]) expect(isReplayErrorCode(value)).toBe(false);
     expect(REPLAY_ERROR_HTTP_STATUSES).toEqual({
       ACCESS_DENIED: [401, 403, 404], ACCESS_UNAVAILABLE: [503], INVALID_CURSOR: [400], SOURCE_CHANGED: [409], REQUEST_CONFLICT: [409],
-      ENGINE_UNAVAILABLE_FOR_SOURCE: [409], REPLAY_MISMATCH: [409], REPLAY_UNVERIFIED: [409], NOT_PLAYABLE: [409],
+      ENGINE_UNAVAILABLE_FOR_SOURCE: [409], REPLAY_MISMATCH: [409], REPLAY_UNVERIFIED: [409], REPLAY_VERIFIED_RETRY: [503], NOT_PLAYABLE: [409],
       FORK_LIMIT: [429], ENGINE_BUSY: [503],
     });
   });

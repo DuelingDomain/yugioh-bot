@@ -7,8 +7,9 @@ import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
-import { seatCountFor, type DuelEngineView, type EngineIdentity } from "@yugidraft/shared/duels";
+import { seatCountFor, type DuelEngineView, type EngineIdentity, type ReplaySource } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
+import { createReplayCursorCodec, replayFrameId, replayPrefixHash, replaySourceVersion } from "../src/replay-cursor.js";
 import { EngineResourceCache } from "../src/engine-resource-cache.js";
 import { EngineResourceUnavailableError } from "../src/engine-resource-resolver.js";
 import { multiScriptsFolderHash, pinnedEngineVersion, repoMultiScriptsDirectory } from "../src/multi-scripts.js";
@@ -23,9 +24,9 @@ const identity: EngineIdentity = { version: 1, coreFamily: "legacy", mode: "norm
 let db: Database.Database, dir: string, host: DuelHost, slug: string, duelId: number;
 let workers: ReplayWorker[], configure: (worker: ReplayWorker) => void;
 let currentBundleVersion: string;
-function start() {
+function start(extra: Partial<Parameters<typeof createDuelHost>[0]> = {}) {
   host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000,
-    createWorker: () => { const worker = new ReplayWorker(); configure(worker); workers.push(worker); return worker; } });
+    createWorker: () => { const worker = new ReplayWorker(); configure(worker); workers.push(worker); return worker; }, ...extra });
 }
 beforeEach(async () => {
   vi.stubEnv("OWNER_USER_IDS", "101");
@@ -40,7 +41,7 @@ beforeEach(async () => {
   const source = replaySource();
   db.prepare("update duel_seats set deck_json=?, ready=1 where duel_id=?").run(JSON.stringify(source.decks[0]), duelId);
   db.prepare("update duels set status='active',seed_json=?,bundle_version=?,setup_json=? where id=?")
-    .run(JSON.stringify(source.seed), source.bundleVersion, JSON.stringify(source.setup), duelId);
+    .run(JSON.stringify(source.seed), source.bundleVersion, JSON.stringify({ ...source.setup, engineIdentity: identity }), duelId);
   for (const entry of source.commands) db.prepare("insert into duel_commands(duel_id,seq,seat,command_json) values(?,?,?,?)")
     .run(duelId, entry.storedSeq, entry.seat, JSON.stringify(entry.command));
   const worker = new ReplayWorker(); await worker.create({ mode: "normal", decks: source.decks, seed: source.seed, dataDirectory: dir });
@@ -171,8 +172,14 @@ it("checks identity-only changes with the same bundle label", async () => {
 it.each([false, true])("forks a verified cross-version source (previous replay=%s) and pins current identity", async viewFirst => {
   cross();
   const replay = await post({ op: "owner-replay", ...owner, ...(viewFirst ? {} : { unchecked: true }) });
-  const result = await post({ op: "replay-fork", ...owner, cursor: replay.body.frames[1].cursor,
-    sourceVersion: replay.body.sourceVersion, requestId: "verified-fork" });
+  const input = { op: "replay-fork", ...owner, cursor: replay.body.frames[1].cursor,
+    sourceVersion: replay.body.sourceVersion, requestId: "verified-fork" };
+  if (!viewFirst) {
+    expect(await post(input)).toMatchObject({ status: 503, body: { code: "REPLAY_VERIFIED_RETRY" } });
+    expect(db.prepare("select * from replay_fork_requests").all()).toEqual([]);
+    expect(workers).toHaveLength(2);
+  }
+  const result = await post(input);
   expect(result.status).toBe(200);
   const state = createDuelService(db).privateState(result.body.slug, owner.guildId);
   expect(state.bundleVersion).toBe("test-bundle"); expect(state.setup?.engineIdentity).toEqual(identity);
@@ -261,4 +268,117 @@ it.each([
     ...(count > 2 ? { format } : { engine }) });
   expect(result.body.frames[0].view.seats[1].hand[0].code).toBeUndefined();
   expect(checks()[0]).toMatchObject({ result: "verified" });
+});
+
+it("checks a null identity at the same label and detects a changed saved board", async () => {
+  db.prepare("update duels set setup_json=json_remove(setup_json,'$.engineIdentity') where id=?").run(duelId);
+  expect(await post()).toMatchObject({ status: 200, body: { verification: "verified" } });
+  changeSaved(null, view => { view.seats[0]!.lp--; });
+  expect(await post()).toMatchObject({ status: 409, body: { code: "REPLAY_UNVERIFIED", reason: "board_mismatch" } });
+});
+it("ignores unchecked on an exact source and reuses its saved final frame", async () => {
+  const exact = await post({ op: "owner-replay", ...owner });
+  const unchecked = await post({ op: "owner-replay", ...owner, unchecked: true });
+  expect(unchecked.body.verification).toBe("exact");
+  expect(unchecked.body.frames.map((frame: any) => ({ ...frame, cursor: null })))
+    .toEqual(exact.body.frames.map((frame: any) => ({ ...frame, cursor: null })));
+  expect(unchecked.body.frames.at(-1).view.result).toEqual({ winnerSeat: 0, reason: "Finished" });
+  expect(workers).toHaveLength(1); expect(checks()).toEqual([]);
+});
+it("does not offer unchecked for an owner command mismatch, including fork authorization", async () => {
+  cross(); db.prepare("update duel_commands set command_json=json_set(command_json,'$.revision',99) where duel_id=? and seq=2").run(duelId);
+  expect(await post({ op: "owner-replay", ...owner })).toMatchObject({ status: 409, body: {
+    code: "REPLAY_UNVERIFIED", reason: "command_mismatch", canOpenUnchecked: false } });
+  const state = createDuelService(db).privateState(slug, owner.guildId);
+  const { engineIdentity, ...setup } = state.setup!;
+  const source: ReplaySource = { session: state.session, decks: state.decks, seed: state.seed as ReplaySource["seed"],
+    bundleVersion: state.bundleVersion!, engineIdentity: engineIdentity ?? null, setup, commands: state.commands };
+  const sourceVersion = replaySourceVersion(source);
+  const cursor = createReplayCursorCodec(secret).seal({ sourceId: duelId, sourceSlug: slug, guildId: owner.guildId,
+    sourceVersion, frameId: replayFrameId(sourceVersion, 0), step: 0, prefixCount: 0, prefixHash: replayPrefixHash(source, 0), revision: 1 });
+  expect(await post({ op: "replay-fork", ...owner, cursor, sourceVersion, requestId: "command-failure-fork" }))
+    .toMatchObject({ status: 409, body: { code: "REPLAY_UNVERIFIED", reason: "command_mismatch", canOpenUnchecked: false } });
+  expect(workers).toHaveLength(1);
+  expect(db.prepare("select * from replay_fork_requests").all()).toEqual([]);
+});
+it.each([false, true])("retains a stored check after snapshot compaction (failed=%s)", async failed => {
+  cross(); if (failed) changeSaved(null, view => { view.seats[0]!.lp--; });
+  const before = await post();
+  const row = db.prepare("select snapshot_public_json, snapshot_seat0_json, snapshot_seat1_json from duels where id=?").get(duelId) as any;
+  db.prepare("update duels set snapshot_public_json=?,snapshot_seats_json=?,snapshot_seat0_json=null,snapshot_seat1_json=null where id=?")
+    .run(gzipSync(row.snapshot_public_json), gzipSync(JSON.stringify([JSON.parse(row.snapshot_seat0_json), JSON.parse(row.snapshot_seat1_json)])), duelId);
+  expect(await post()).toEqual(before); expect(workers).toHaveLength(1); expect(checks()).toHaveLength(1);
+});
+it("writes no verification record when the request deadline aborts the build", async () => {
+  cross(); await host.close(); start({ replayRequestTimeoutMs: 30 });
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  configure = worker => { const create = worker.create.bind(worker); worker.create = async options => { await create(options); await held; }; };
+  const result = await post();
+  expect(result).toMatchObject({ status: 503, body: { code: "ENGINE_BUSY" } });
+  release(); await host.close();
+  expect(checks()).toEqual([]); expect(workers[0]!.running).toBe(false);
+});
+it("writes no verification record when checkpoints exceed the build cap before the check", async () => {
+  cross();
+  configure = worker => { worker.includeLog = false; };
+  const insert = db.prepare("insert into duel_commands(duel_id,seq,seat,command_json) values(?,?,?,?)");
+  db.transaction(() => {
+    for (let index = 0; index < 30_000; index++) insert.run(duelId, 20 + index, 0,
+      JSON.stringify({ revision: 3 + index, promptId: `p${3 + index}`, answer: { choice: "next" } }));
+  })();
+  expect(await post()).toMatchObject({ status: 413, body: { code: "REPLAY_TOO_LARGE" } });
+  expect(checks()).toEqual([]); expect(workers[0]!.running).toBe(false);
+});
+it.each([
+  ["1v1", 0, false, "Finished"], ["tag", 1, false, "Finished"],
+  ["ffa3", 2, false, "Finished"], ["ffa4", 3, true, "Finished"],
+  ["ffa3", 2, true, "Time limit"],
+] as const)("verifies a live engine %s win at seat %s (pending=%s, reason=%s)", async (format, winnerSeat, pending, reason) => {
+  const fixture = replaySource(format), count = seatCountFor(format);
+  for (const [playerId, userId] of [[66, 203], [67, 204]]) seedIdentity(db, { guildId: owner.guildId, playerId, userId });
+  db.prepare("delete from duel_seats where duel_id=?").run(duelId);
+  for (let seat = 0; seat < count; seat++) db.prepare("insert into duel_seats(duel_id,seat,player_id,is_bot,ready,deck_json) values(?,?,?,0,1,?)")
+    .run(duelId, seat, 64 + seat, JSON.stringify(fixture.decks[seat]));
+  const overlay = format === "1v1" ? undefined : repoMultiScriptsDirectory();
+  const selectedIdentity = { ...identity, coreFamily: format === "1v1" ? "legacy" as const : "multi" as const,
+    multiOverlayHash: overlay ? multiScriptsFolderHash(overlay) : null };
+  const bundle = pinnedEngineVersion("test-bundle", count, selectedIdentity.multiOverlayHash);
+  vi.mocked(EngineResourceCache.prototype.get).mockResolvedValue({ dataDirectory: dir,
+    bundleVersion: bundle, rawBundleVersion: "test-bundle", identity: selectedIdentity, multiScriptsDirectory: overlay });
+  db.prepare("update duels set status='active',format=?,bundle_version=?,setup_json=? where id=?")
+    .run(format, bundle, JSON.stringify({ ...fixture.setup, engineIdentity: selectedIdentity }), duelId);
+  configure = worker => {
+    worker.result = { winnerSeat, ...(format === "1v1" ? {} : { winnerTeam: format === "tag" ? winnerSeat % 2 : winnerSeat }),
+      reason: reason === "Time limit" ? "Time limit up" : reason };
+    worker.resultAtRevision = reason === "Time limit" ? 4 : 3;
+    if (reason === "Time limit") Object.assign(worker, { eliminate: async () => {
+      worker.revision++; worker.pendingElimination = 0;
+    } });
+    else if (pending) worker.pendingElimination = 0;
+  };
+  if (reason === "Time limit") db.prepare("update duels set clock_json=? where id=?")
+    .run(JSON.stringify({ turn: 1, remainingMs: [0, 100_000, 100_000], activeSeat: 0, startedAt: 0 }), duelId);
+  const finished = await post({ op: "view", playerId: 64 });
+  expect(finished).toMatchObject({ status: 200, body: { session: { status: "completed", winnerSeat } } });
+  expect(finished.body.engine.result.reason).toBe(reason);
+  expect(finished.body.engine.seats.every((seat: any) => !seat.pendingElimination)).toBe(true);
+  cross(); expect(await post()).toMatchObject({ status: 200, body: { verification: "verified" } });
+  await host.close(); start();
+  configure = worker => {
+    worker.result = { winnerSeat: winnerSeat === 0 ? 1 : 0, reason };
+    worker.resultAtRevision = reason === "Time limit" ? 4 : 3;
+    if (reason === "Time limit") Object.assign(worker, { eliminate: async () => { worker.revision++; } });
+  };
+  currentBundleVersion = "changed-bundle";
+  vi.mocked(EngineResourceCache.prototype.get).mockResolvedValue({ dataDirectory: dir,
+    bundleVersion: pinnedEngineVersion(currentBundleVersion, count, selectedIdentity.multiOverlayHash), rawBundleVersion: currentBundleVersion, identity: selectedIdentity, multiScriptsDirectory: overlay });
+  expect(await post()).toMatchObject({ status: 409, body: { reason: "board_mismatch" } });
+  if (format === "tag") {
+    await host.close(); start();
+    vi.mocked(EngineResourceCache.prototype.get).mockResolvedValue({ dataDirectory: dir,
+      bundleVersion: "wrong-team-bundle", rawBundleVersion: "wrong-team-bundle", identity: selectedIdentity, multiScriptsDirectory: overlay });
+    configure = worker => { worker.result = { winnerSeat, winnerTeam: 0, reason }; worker.resultAtRevision = 3; };
+    expect(await post()).toMatchObject({ status: 409, body: { reason: "board_mismatch" } });
+  }
 });

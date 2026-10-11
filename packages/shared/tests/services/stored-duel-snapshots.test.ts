@@ -27,11 +27,11 @@ it.each([false, true])("prefers the seat list and preserves projection privacy (
   expect(readStoredBoard(row, null)?.seats.every(seat => seat.hand.every(card => card.code === undefined))).toBe(true);
   expect(readStoredSeatBoards(row.snapshot_seats_json)).toEqual(seats);
 });
-it("invalidates stamps on compression, deduplication, and stored final-board changes", () => {
+it("keeps stamps through compression and invalidates decoded board changes", () => {
   const raw = JSON.stringify(storedBoardFixture());
   const row = { snapshot_public_json: raw, snapshot_seat0_json: raw, snapshot_seat1_json: null, snapshot_seats_json: null };
   expect(storedBoardStamp(row, null)).toBe(storedBoardStamp({ ...row }, null));
-  expect(storedBoardStamp({ ...row, snapshot_public_json: gzipSync(raw) }, null)).not.toBe(storedBoardStamp(row, null));
+  expect(storedBoardStamp({ ...row, snapshot_public_json: gzipSync(raw) }, null)).toBe(storedBoardStamp(row, null));
   expect(storedBoardStamp({ ...row, snapshot_seat0_json: null }, 0)).not.toBe(storedBoardStamp(row, 0));
   expect(storedBoardStamp({ ...row, snapshot_seat1_json: raw }, null, true)).not.toBe(storedBoardStamp(row, null, true));
 });
@@ -53,9 +53,18 @@ it("returns no other projection for seat 2+ without a seat list", () => {
   const raw = JSON.stringify(storedBoardFixture());
   for (const seat of [2, 3, 8]) expect(readStoredBoard({ snapshot_public_json: raw, snapshot_seat0_json: raw, snapshot_seat1_json: raw }, seat)).toBeNull();
 });
-it("invalidates higher-seat and reveal stamps after seat-list changes and dedup", () => {
+it("keeps higher-seat and reveal stamps through compression and dedup", () => {
   const raw = JSON.stringify(storedBoardFixture());
-  const row = { snapshot_seat0_json: raw, snapshot_seat1_json: raw, snapshot_seats_json: JSON.stringify([raw, raw, raw]) };
-  expect(storedBoardStamp({ ...row, snapshot_seats_json: gzipSync(row.snapshot_seats_json) }, 2)).not.toBe(storedBoardStamp(row, 2));
-  expect(storedBoardStamp({ ...row, snapshot_seat0_json: null, snapshot_seat1_json: null }, null, true)).not.toBe(storedBoardStamp(row, null, true));
+  const row = { snapshot_seat0_json: raw, snapshot_seat1_json: raw, snapshot_seats_json: JSON.stringify([storedBoardFixture(), storedBoardFixture(), storedBoardFixture()]) };
+  expect(storedBoardStamp({ ...row, snapshot_seats_json: gzipSync(row.snapshot_seats_json) }, 2)).toBe(storedBoardStamp(row, 2));
+  expect(storedBoardStamp({ ...row, snapshot_seat0_json: null, snapshot_seat1_json: null }, null, true)).toBe(storedBoardStamp(row, null, true));
+});
+
+it("keeps content stamps when JSON keys are reordered and detects changed game state", () => {
+  const view = storedBoardFixture();
+  const row = { snapshot_public_json: JSON.stringify(view) };
+  const reordered = Object.fromEntries(Object.entries(view).reverse());
+  expect(storedBoardStamp({ snapshot_public_json: JSON.stringify(reordered) }, null)).toBe(storedBoardStamp(row, null));
+  view.seats[0]!.lp--;
+  expect(storedBoardStamp({ snapshot_public_json: JSON.stringify(view) }, null)).not.toBe(storedBoardStamp(row, null));
 });

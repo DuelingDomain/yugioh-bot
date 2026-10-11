@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  isEngineIdentity, sameEngineIdentity, seatCountFor,
+  isEngineIdentity, sameEngineIdentity, seatCountFor, sourceEngineChoice,
   type DuelEngineChoice, type DuelFormat, type DuelMode, type EngineIdentity, type ReplaySource,
 } from "@yugidraft/shared/duels";
 import { multiScriptsFolderHash, pinnedEngineVersion, resolveMultiScriptsDirectory } from "./multi-scripts.js";
@@ -130,12 +130,6 @@ export function resolveEngineResourcesForSource(
     throw new EngineResourceUnavailableError("the engine changed or its recorded resources and runtime rules do not match");
   }
   return resources;
-}
-
-/** Saved identity names the original core; old records retain their saved choice or historical fallback. */
-export function sourceEngineChoice(source: Pick<ReplaySource, "setup" | "engineIdentity">): DuelEngineChoice {
-  if (isEngineIdentity(source.engineIdentity) && source.engineIdentity.coreFamily !== "multi") return source.engineIdentity.coreFamily;
-  return source.setup?.engine ?? (source.setup?.startupScripts?.length ? "pinned" : "legacy");
 }
 
 /** Repeat the check inside the worker, using the exact overlay passed by the server. */

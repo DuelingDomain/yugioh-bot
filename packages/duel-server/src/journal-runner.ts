@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import {
-  isEngineIdentity, isReplaySeed, sameEngineIdentity, seatCountFor,
+  isEngineIdentity, isReplaySeed, sameEngineIdentity, seatCountFor, sourceEngineChoice,
   type DuelEngineView, type EngineIdentity, type ReplayJournalEntry, type ReplaySource,
 } from "@yugidraft/shared/duels";
 import { eliminationAtTurnEnd } from "./engine.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { savedFirstTurnDraw } from "./first-turn-draw.js";
-import { EngineResourceUnavailableError, sourceEngineChoice } from "./engine-resource-resolver.js";
+import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
 import { applyWorkerJournalCommand, isPromptlessCommand } from "./journal-command.js";
 import { multiScriptsFolderHash, pinnedEngineVersion, resolveMultiScriptsDirectory } from "./multi-scripts.js";
 import type { DuelGameWorker, GameOptions } from "./worker-client.js";

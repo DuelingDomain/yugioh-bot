@@ -6,6 +6,7 @@ import type { ReplayForkControl } from "./replay-fork.js";
 export * from "./duel-kind.js";
 export * from "./replay.js";
 export * from "./replay-fork.js";
+export { sourceEngineChoice } from "./source-engine-choice.js";
 
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";
