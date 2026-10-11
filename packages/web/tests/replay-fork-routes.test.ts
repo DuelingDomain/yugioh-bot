@@ -236,3 +236,18 @@ it.each(["view", "actions", "seat"] as const)("gives the same 404 for missing an
   expect(responses[0]).toEqual({ status: 404, body: { error: "Not found", code: "ACCESS_DENIED" }, cache: "private, no-store" });
   expect(state.fetch).not.toHaveBeenCalled();
 });
+
+it.each([102, 103, 201].flatMap(userId => (Object.keys(duelRoutes) as Array<keyof typeof duelRoutes>)
+  .map(operation => ({ userId, operation }))))("denies user $userId on fork $operation before the engine call", async ({ userId, operation }) => {
+  signIn(userId);
+  const handler = await duelRoutes[operation]();
+  const request = new NextRequest(`http://localhost/api/duels/${fork}/${operation}`,
+    ["view", "debug-trace"].includes(operation) ? {} : { method: "POST", body: JSON.stringify({
+      mode: "always", revision: 2, note: "Test report", promptId: "p1", answer: { choice: "next" },
+    }) });
+  const response = await handler(request, params(fork));
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({ error: "Not found", code: "ACCESS_DENIED" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(state.fetch).not.toHaveBeenCalled();
+});
