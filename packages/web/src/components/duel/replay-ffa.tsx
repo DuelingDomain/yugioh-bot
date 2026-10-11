@@ -168,6 +168,8 @@ export interface ReplayFfaProps {
   newLines: ReplayLogEntry[];
   /** Extra header controls (for example Jump in). */
   tools?: ReplayShellMode["tools"];
+  /** The table is hidden (another card view loads): its own camera and sound keys must do nothing. */
+  inputSuspended?: boolean;
 }
 
 /**
@@ -176,7 +178,7 @@ export interface ReplayFfaProps {
  * The card visibility was fixed by the server; the camera seat only decides where each field is drawn.
  */
 export function ReplayFfa({
-  slug, model, frames, engine, controller, preferences, visibility, canSwitchCards, onVisibility, onCamera, notice, newLines, tools,
+  slug, model, frames, engine, controller, preferences, visibility, canSwitchCards, onVisibility, onCamera, notice, newLines, tools, inputSuspended = false,
 }: ReplayFfaProps) {
   const { index, last, epoch, camera } = controller;
   const session = model.session;
@@ -224,7 +226,7 @@ export function ReplayFfa({
   return (
     <div data-replay-frame={controller.frameId ?? undefined} data-replay-visibility={model.visibility} data-replay-format={session.format}
       className="-mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8">
-      <TableShell controller={table} replay={replay} preferences={preferences} initialOutOrder={initialOutOrder} fillViewport />
+      <TableShell controller={table} replay={replay} preferences={preferences} initialOutOrder={initialOutOrder} fillViewport inputSuspended={inputSuspended} />
     </div>
   );
 }

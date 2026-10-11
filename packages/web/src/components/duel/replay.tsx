@@ -136,7 +136,9 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
 
   const frames = model?.frames ?? null;
   const seatCount = model ? seatCountFor(model.session.format) : 2;
-  const controller = useReplayController({ slug, frames, seatCount, mySeat: model?.mySeat ?? null });
+  // While another card view loads, the table is hidden: no key may move it (see ReplayBusy).
+  const awaiting = model != null && !settled && (model.visibility !== visibility || canInspectSource);
+  const controller = useReplayController({ slug, frames, seatCount, mySeat: model?.mySeat ?? null, enabled: !awaiting });
   const { index, last, playing, speed, epoch, camera } = controller;
   const timeline = useMemo(() => (frames ? buildReplayTimeline(frames) : null), [frames]);
 
@@ -195,7 +197,6 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
     setOwnerView(next);
   }
 
-  const awaiting = model != null && !settled && (model.visibility !== visibility || canInspectSource);
   if (!model && !error) return <div className="p-6 text-sm text-text-secondary" aria-busy="true">Loading replay…</div>;
   if (error && !model) {
     const failure = replayFailure(error);
@@ -232,7 +233,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
     return (
       <ReplayBusy busy={awaiting}>
         <ReplayTag slug={slug} model={model} timeline={timeline} engine={engine} controller={controller}
-          visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} />
+          visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} inputSuspended={awaiting} />
       </ReplayBusy>
     );
   }
@@ -258,7 +259,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
       <ReplayBusy busy={awaiting}>
         <ReplayFfa slug={slug} model={model} frames={model.frames} engine={engine} controller={controller} preferences={preferences}
           visibility={visibility} canSwitchCards={canSwitchCards} onVisibility={changeVisibility} notice={notice}
-          newLines={newLines} onCamera={() => { setInspect(null); setHover(null); }} tools={ownerTools} />
+          newLines={newLines} onCamera={() => { setInspect(null); setHover(null); }} tools={ownerTools} inputSuspended={awaiting} />
       </ReplayBusy>
     );
   }

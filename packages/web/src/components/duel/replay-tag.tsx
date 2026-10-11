@@ -38,6 +38,8 @@ export interface ReplayTagProps {
   notice?: string | null;
   /** Extra header controls (for example Jump in, owner only). They sit before the view controls. */
   tools?: ReactNode;
+  /** The table is hidden (another card view loads): its own camera and sound keys must do nothing. */
+  inputSuspended?: boolean;
 }
 
 /**
@@ -46,7 +48,7 @@ export interface ReplayTagProps {
  * seat is drawn at home; the cards each seat shows were fixed by the server for the card view that was asked for,
  * so a camera change never reveals a card and never refetches.
  */
-export function ReplayTag({ slug, model, timeline, engine, controller, visibility, onVisibilityChange, notice, tools }: ReplayTagProps) {
+export function ReplayTag({ slug, model, timeline, engine, controller, visibility, onVisibilityChange, notice, tools, inputSuspended = false }: ReplayTagProps) {
   const preferences = useDuelPreferences();
   const narrow = useIsNarrow();
   const { session } = model;
@@ -159,6 +161,7 @@ export function ReplayTag({ slug, model, timeline, engine, controller, visibilit
         teamNames={teamNames}
         mode={session.mode}
         fillViewport
+        inputSuspended={inputSuspended}
         preferences={preferences}
         notices={notices}
         replay={{ transport, resetKey: controller.epoch, tools: headerTools }}

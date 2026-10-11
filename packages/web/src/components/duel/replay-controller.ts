@@ -396,11 +396,13 @@ interface Selection {
  * Selection is kept by frame ID, so the same frame stays selected when the frames are replaced (another card
  * visibility) or the page is reloaded (`?frame=`). The index is only the fallback when the ID is gone.
  */
-export function useReplayController({ slug, frames, seatCount, mySeat }: {
+export function useReplayController({ slug, frames, seatCount, mySeat, enabled = true }: {
   slug: string;
   frames: readonly Pick<ReplayFrameV2, "frameId">[] | null;
   seatCount: number;
   mySeat: number | null;
+  /** False while the table is hidden (another card view loads): the keys do nothing and autoplay waits. */
+  enabled?: boolean;
 }): ReplayController {
   const [selection, setSelection] = useState<Selection>(() => ({
     frameId: typeof window === "undefined" ? null : readFrameParam(window.location.search),
@@ -473,7 +475,7 @@ export function useReplayController({ slug, frames, seatCount, mySeat }: {
   }, []);
   const resetEffects = useCallback(() => setEpoch((value) => value + 1), []);
 
-  useReplayAutoplay({ playing, index, last, speed, setIndex: setIndexByUpdate, setPlaying });
+  useReplayAutoplay({ playing: playing && enabled, index, last, speed, setIndex: setIndexByUpdate, setPlaying });
 
   // Keep the selected frame in the address so a reload comes back to it. Debounced: browsers cap history writes.
   useEffect(() => {
@@ -488,7 +490,7 @@ export function useReplayController({ slug, frames, seatCount, mySeat }: {
   }, [frameId]);
 
   useEffect(() => {
-    if (!frames) return;
+    if (!frames || !enabled) return;
     const onKey = (event: KeyboardEvent) => {
       const action = replayKeyAction(event);
       if (!action) return;
@@ -501,7 +503,7 @@ export function useReplayController({ slug, frames, seatCount, mySeat }: {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [frames, togglePlay, stepForward, stepBack, seek]);
+  }, [frames, enabled, togglePlay, stepForward, stepBack, seek]);
 
   return {
     index,
