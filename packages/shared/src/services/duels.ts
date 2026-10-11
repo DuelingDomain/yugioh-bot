@@ -1227,12 +1227,12 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       for (let index = 0; index < seatCount; index += 1) {
         seatViews.push(snapshots?.seats?.[index] ?? (index === 0 ? snapshots?.seat0 : index === 1 ? snapshots?.seat1 : undefined));
       }
-      const seat0Json = seatViews[0] ? freezeSnapshot(seatViews[0], result) : null;
-      const seat1Json = seatViews[1] ? freezeSnapshot(seatViews[1], result) : null;
       const seatsJson =
         snapshots && seatCount > 2 && seatViews.every((view) => view)
           ? JSON.stringify(seatViews.map((view) => JSON.parse(freezeSnapshot(view as DuelEngineView, result)) as unknown))
           : null;
+      const seat0Json = !seatsJson && seatViews[0] ? freezeSnapshot(seatViews[0], result) : null;
+      const seat1Json = !seatsJson && seatViews[1] ? freezeSnapshot(seatViews[1], result) : null;
 
       db.prepare<
         ["completed" | "interrupted", number | null, number | null, string, string | null, string | null, string | null, string | null, number]
