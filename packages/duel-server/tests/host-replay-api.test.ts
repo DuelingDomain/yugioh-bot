@@ -153,7 +153,7 @@ it("rejects oversized replays once, keeps a clear size error and offers the save
   const before = rows();
   configureWorker = worker => {
     const view = worker.view.bind(worker);
-    worker.view = async seat => ({ ...await view(seat), log: [{ id: 1, kind: "message", text: "x".repeat(9 * 1024 * 1024) }] });
+    worker.view = async seat => { const board = await view(seat); return { ...board, log: [{ id: board.revision, kind: "message", text: "x".repeat(9 * 1024 * 1024) }] }; };
   };
   const results = await Promise.all([post({ version: 2, visibility: "public" }), post({ version: 2, visibility: "public" })]);
   results.push(await post({ version: 2, visibility: "public" }));
@@ -249,4 +249,43 @@ it("serves four different concurrent replays with at most two workers", async ()
   const results = await Promise.all(slugs.map(slug => post({ slug, version: 2, visibility: "public" })));
   expect(results.map(result => result.response.status)).toEqual([200, 200, 200, 200]);
   expect(workers).toHaveLength(4); expect(peak).toBe(2); expect(workers.every(worker => !worker.running)).toBe(true);
+});
+
+it("returns cached owner checkpoints on size overflow without exposing them to ordinary viewers", async () => {
+  const encode = vi.spyOn(replayJson.ReplayJsonEncoder.prototype, "encode").mockImplementation(async view => {
+    const json = JSON.stringify(view);
+    return { json, bytes: view.revision === 1 ? 17 * 1024 * 1024 : Buffer.byteLength(json) };
+  });
+  try {
+    const before = rows();
+    const result = await post({ op: "owner-replay", ...owner });
+    expect(result.response.status).toBe(200);
+    expect(result.body.capabilities?.canFork).toBe(true);
+    expect(result.body.frames).toHaveLength(1); expect(result.body.frames[0]?.kind).toBe("result");
+    const steps = (result.body as any).forkSteps;
+    expect(steps.map((step: any) => step.cursor && createReplayCursorCodec(secret).open(step.cursor).prefixCount)).toEqual([0, 1, 3, null]);
+    expect(steps.every((step: any) => !("view" in step))).toBe(true);
+    expect((result.body as any).replayError.code).toBe("REPLAY_TOO_LARGE");
+    const count = workers.length;
+    const cached = await post({ op: "owner-replay", ...owner });
+    expect(cached.body.frames).toEqual(result.body.frames);
+    expect((cached.body as DuelReplayV2).forkSteps?.map(step => step.frameId)).toEqual(steps.map((step: any) => step.frameId));
+    expect(workers).toHaveLength(count);
+    const ordinary = await post({ version: 2 });
+    expect(ordinary.response.status).toBe(413); expect(ordinary.body).not.toHaveProperty("forkSteps");
+    expect(rows()).toEqual(before);
+  } finally { encode.mockRestore(); }
+});
+
+it("keeps owner checkpoints even when a single final board exceeds the cap", async () => {
+  const encode = vi.spyOn(replayJson.ReplayJsonEncoder.prototype, "encode").mockImplementation(async view => ({
+    json: JSON.stringify(view), bytes: 17 * 1024 * 1024,
+  }));
+  try {
+    const result = await post({ op: "owner-replay", ...owner });
+    expect(result.response.status).toBe(200);
+    expect(result.body.frames).toEqual([]);
+    expect(result.body.capabilities?.canFork).toBe(true);
+    expect(result.body.forkSteps?.filter(step => step.cursor !== null)).toHaveLength(3);
+  } finally { encode.mockRestore(); }
 });

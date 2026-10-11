@@ -106,6 +106,7 @@ function ReplayBoard({ table, masterRule, camera, focusSeat, mySeat, playerName 
 export function DuelReplayView({ slug, canInspectSource = false }: { slug: string; canInspectSource?: boolean }) {
   const [visibility, setVisibility] = useState<ReplayVisibility>("mine");
   const [ownerView, setOwnerView] = useState<OwnerViewState>({ seat: null, reveal: false });
+  const [forkStepId, setForkStepId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const { model, settled, error, reload } = useReplayData(
     slug, visibility, canInspectSource ? { enabled: true, ...ownerView } : null,
@@ -128,6 +129,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
     setVisibility("mine");
     setOwnerView({ seat: null, reveal: false });
     setNotice(null);
+    setForkStepId(null);
     setFocusChoice(null);
     setInspect(null);
     setHover(null);
@@ -194,10 +196,19 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
       </div>
     );
   }
+  // Keep the checkpoint selection in this page across private projection loading/remounts.
+  const ownerTools = canInspectSource && model?.capabilities ? (
+    <ReplayOwnerTools slug={slug} model={model} frame={model.frames[index]} busy={!settled}
+      view={ownerView} onViewChange={changeOwnerView} onReload={reload} onPause={controller.pause}
+      selectedStep={forkStepId} onSelectStep={setForkStepId} />
+  ) : null;
   if (!model || !timeline || !engine || timeline.length === 0) {
     return (
       <div className={replayStyles.state}>
-        <p role="alert" className="text-accent-cta">{model ? "This replay has no recorded moves." : "Could not load this replay."}</p>
+        <p role="alert" className="text-accent-cta">{ownerTools && model?.forkSteps
+          ? "Move views exceed the size limit. Choose a move to Jump in."
+          : model ? "This replay has no recorded moves." : "Could not load this replay."}</p>
+        {ownerTools}
         <div className={replayStyles.stateLinks}>
           <Link href={`/duels/${slug}`} className="text-sm text-text-secondary underline">Final board</Link>
           <Link href="/duels?view=history" className="text-sm text-text-secondary underline">Match history</Link>
@@ -207,11 +218,6 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   }
 
   const session = model.session;
-  // Fail closed: the controls need both the page's owner hint and the capabilities the server put in this answer.
-  const ownerTools = canInspectSource && model.capabilities ? (
-    <ReplayOwnerTools slug={slug} model={model} frame={model.frames[index]} busy={!settled}
-      view={ownerView} onViewChange={changeOwnerView} onReload={reload} onPause={controller.pause} />
-  ) : null;
   // Tag draws the Rooftop table (four seats, team LP, shared Extra Monster zones) in its own page.
   if (session.format === "tag") {
     return <ReplayTag slug={slug} model={model} timeline={timeline} engine={engine} controller={controller}
