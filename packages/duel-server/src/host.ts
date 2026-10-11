@@ -1198,7 +1198,7 @@ export function createDuelHost(options: {
     if (state.session.status !== "active") throw new RequestError("This duel is not active", 409);
     if (!state.seed || !state.bundleVersion) throw new RequestError("Duel has not started", 409);
     if (state.bundleVersion !== pinnedVersionFor(state.session.format)) {
-      service.interrupt(slug, guildId, "The pinned engine resources changed; this duel cannot be replayed safely.");
+      service.interrupt(slug, guildId, "The pinned engine resources changed; this duel cannot be recovered safely.");
       await emitChange(slug, guildId);
       await afterGameEnded(slug, guildId);
       throw new RequestError("Duel interrupted: engine resource version changed", 409, "ENGINE_UNAVAILABLE_FOR_SOURCE");

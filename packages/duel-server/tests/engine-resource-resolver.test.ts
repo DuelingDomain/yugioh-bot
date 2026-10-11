@@ -92,7 +92,7 @@ describe("current engine identity", () => {
     const directory = bundle();
     const { value } = source(directory);
     rmSync(join(directory, "ocgcore.standard.wasm"));
-    expect(() => resolveEngineResourcesForSource(directory, value)).toThrowError(expect.objectContaining({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE" }));
+    expect(() => resolveEngineResourcesForSource(directory, value)).toThrowError(/^Engine resources are not available: the current engine resources are incomplete\.$/);
   });
 
   it("refuses an old source without assigning today's identity", () => {

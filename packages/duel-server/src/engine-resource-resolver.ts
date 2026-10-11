@@ -17,7 +17,7 @@ export class EngineResourceUnavailableError extends Error {
   readonly code = "ENGINE_UNAVAILABLE_FOR_SOURCE";
   readonly status = 409;
   constructor(reason: string) {
-    super(`Replay unavailable: ${reason}. The saved final board is still available if recorded.`);
+    super(`Engine resources are not available: ${reason}.`);
     this.name = "EngineResourceUnavailableError";
   }
 }
