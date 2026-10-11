@@ -27,7 +27,8 @@ import {
   useReplayController,
   useReplayData,
 } from "./replay-controller";
-import { ReplayOwnerTools, type OwnerViewState } from "./replay-fork-button";
+import { ReplayOwnerTools, isOwnerModel, useForkStart, type OwnerViewState } from "./replay-fork-button";
+import { useOpenForks } from "./replay-open-forks";
 import { ReplayTag } from "./replay-tag";
 import { ReplayFfa, isFfaFormat } from "./replay-ffa";
 import { ReplayStatus } from "./replay-status";
@@ -142,6 +143,13 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   const { index, last, playing, speed, epoch, camera } = controller;
   const timeline = useMemo(() => (frames ? buildReplayTimeline(frames) : null), [frames]);
 
+  // The owner's open forks and the Jump in request live here, not in the header: the table shells remount their header on
+  // every seek, and a remount must not ask the list again or lose a Jump in that is on its way.
+  // Fail closed: both the page's owner hint and the capabilities the server put in this answer are needed.
+  const ownerAnswer = canInspectSource && isOwnerModel(model);
+  const openForks = useOpenForks(ownerAnswer);
+  const fork = useForkStart({ slug, model, frame: model?.frames[index], onReload: reload, onPause: controller.pause, openForks });
+
   useEffect(() => {
     setVisibility("mine");
     setOwnerView({ seat: null, reveal: false });
@@ -224,9 +232,9 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
 
   const session = model.session;
   // Fail closed: the controls need both the page's owner hint and the capabilities the server put in this answer.
-  const ownerTools = canInspectSource && model.capabilities ? (
+  const ownerTools = ownerAnswer ? (
     <ReplayOwnerTools slug={slug} model={model} frame={model.frames[index]} busy={!settled}
-      view={ownerView} onViewChange={changeOwnerView} onReload={reload} onPause={controller.pause} />
+      view={ownerView} onViewChange={changeOwnerView} onReload={reload} openForks={openForks} fork={fork} />
   ) : null;
   // Tag draws the Rooftop table (four seats, team LP, shared Extra Monster zones) in its own page.
   if (session.format === "tag") {

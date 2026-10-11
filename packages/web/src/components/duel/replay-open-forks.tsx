@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { GitBranch, GitFork } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
-import { cancelReplayFork, getOpenReplayForks, isDuelAccessError, type OpenReplayFork } from "./api";
+import { DuelRequestError, cancelReplayFork, getOpenReplayForks, type OpenReplayFork } from "./api";
 import { formatLabel } from "./table-format";
 import styles from "./replay-fork.module.css";
 
@@ -30,20 +30,38 @@ export function relativeAgo(text: string, now = Date.now()): string {
   return `${Math.floor(hours / 24)} d ago`;
 }
 
+/**
+ * The server refused this user (not an owner, or no session). A 503 is not a refusal: the access check was down for a
+ * moment, so the list stays retryable.
+ */
+function isListRefusal(error: unknown): boolean {
+  return error instanceof DuelRequestError && (error.code === "ACCESS_DENIED" || error.status === 401 || error.status === 403 || error.status === 404);
+}
+
+/**
+ * Renders in a layer on the page body. The shells draw the header inside a layer of its own, where a fixed sheet would
+ * sit under the replay strip; a portal to the body avoids that.
+ */
+export function BodyPortal({ children }: { children: ReactNode }) {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useEffect(() => { setHost(document.body); }, []);
+  return host ? createPortal(children, host) : null;
+}
+
 export interface OpenForksState {
   /** Null until a list has arrived. */
   forks: OpenReplayFork[] | null;
   limit: number | null;
   loading: boolean;
   error: string | null;
-  /** The route refused this user (not an owner). Nothing is shown and it is not asked again. */
+  /** The route refused this user (not an owner). Nothing is shown and it is not asked again. A 503 is an error instead. */
   denied: boolean;
   refresh: () => Promise<void>;
 }
 
 /**
  * The owner's open forks. `enabled` is false for anyone who is not an owner: the route is then never called and the state
- * stays empty (fail closed). A refusal from the server hides the list for good.
+ * stays empty (fail closed). A refusal from the server hides the list for good; an outage shows an error that can be retried.
  */
 export function useOpenForks(enabled: boolean): OpenForksState {
   const [state, setState] = useState<Omit<OpenForksState, "refresh">>({ forks: null, limit: null, loading: false, error: null, denied: false });
@@ -63,7 +81,7 @@ export function useOpenForks(enabled: boolean): OpenForksState {
       if (mounted.current && mine === latest.current) setState({ forks: list.forks, limit: list.limit, loading: false, error: null, denied: false });
     } catch (error) {
       if (!mounted.current || mine !== latest.current) return;
-      if (isDuelAccessError(error)) {
+      if (isListRefusal(error)) {
         deniedRef.current = true;
         setState({ forks: null, limit: null, loading: false, error: null, denied: true });
       } else {
@@ -83,7 +101,7 @@ export function useOpenForks(enabled: boolean): OpenForksState {
   return { ...state, refresh };
 }
 
-function ForkRow({ fork, onCancelled }: { fork: OpenReplayFork; onCancelled: () => Promise<void> }) {
+function ForkRow({ fork, onCancelled, currentSlug }: { fork: OpenReplayFork; onCancelled: () => Promise<void>; currentSlug?: string }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -114,9 +132,14 @@ function ForkRow({ fork, onCancelled }: { fork: OpenReplayFork; onCancelled: () 
     <li className={styles.forkRow} data-open-fork={fork.slug}>
       <div className={styles.forkInfo}>
         <span className={styles.forkFormat}>{formatLabel(fork.format)}</span>
-        <Link className={styles.forkSource} href={`/duels/${encodeURIComponent(fork.sourceSlug)}/replay`} title="Source replay">
-          From {fork.sourceSlug}
-        </Link>
+        {fork.sourceSlug === currentSlug ? (
+          // A link to the replay on screen would do nothing.
+          <span className={styles.forkSource} data-fork-source-here>From this replay ({fork.sourceSlug})</span>
+        ) : (
+          <Link className={styles.forkSource} href={`/duels/${encodeURIComponent(fork.sourceSlug)}/replay`} title="Source replay">
+            From {fork.sourceSlug}
+          </Link>
+        )}
         <span className={styles.forkTimes} title={createdMs != null ? `Started ${new Date(createdMs).toLocaleString()}` : undefined}>
           {started ? `Started ${started}` : null}{started && active ? " · " : null}{active ? `Active ${active}` : null}
         </span>
@@ -143,7 +166,7 @@ function ForkRow({ fork, onCancelled }: { fork: OpenReplayFork; onCancelled: () 
 }
 
 /** The list itself: one row for each open fork, with Open and a confirmed Cancel. */
-export function OpenForksList({ state }: { state: OpenForksState }) {
+export function OpenForksList({ state, currentSlug }: { state: OpenForksState; currentSlug?: string }) {
   if (state.denied) return null;
   const { forks } = state;
   return (
@@ -158,7 +181,7 @@ export function OpenForksList({ state }: { state: OpenForksState }) {
         <p className={styles.note}>You have no open forks.</p>
       ) : (
         <ul className={styles.forkItems}>
-          {forks.map((fork) => <ForkRow key={fork.slug} fork={fork} onCancelled={state.refresh} />)}
+          {forks.map((fork) => <ForkRow key={fork.slug} fork={fork} onCancelled={state.refresh} currentSlug={currentSlug} />)}
         </ul>
       )}
     </div>
@@ -169,61 +192,63 @@ export function OpenForksList({ state }: { state: OpenForksState }) {
  * The sheet with the list. `limitHit` is set when Jump in was refused for the limit: it says so and offers the retry once
  * a place is free.
  */
-export function OpenForksSheet({ open, onClose, state, limitHit = false, onRetry, retryBusy = false }: {
+export function OpenForksSheet({ open, onClose, state, currentSlug, limitHit = false, onRetry, retryBusy = false }: {
   open: boolean;
   onClose: () => void;
   state: OpenForksState;
+  /** The replay on screen. A fork made from it says so instead of linking to the page already open. */
+  currentSlug?: string;
   limitHit?: boolean;
   onRetry?: () => void;
   retryBusy?: boolean;
 }) {
-  // The shells draw the header inside a layer of its own, where a fixed sheet would sit under the replay strip. A portal to
-  // the page body avoids that.
-  const [host, setHost] = useState<HTMLElement | null>(null);
-  useEffect(() => { setHost(document.body); }, []);
-  if (state.denied || !host) return null;
+  if (state.denied) return null;
   const full = state.forks != null && state.limit != null && state.forks.length >= state.limit;
-  return createPortal(
-    <Sheet open={open} onClose={onClose} title="Open forks">
-      <div className={styles.sheetBody} data-open-forks-sheet>
-        {limitHit ? (
-          <p className={styles.hint} role="status">
-            {full || state.forks == null
-              ? `You have too many open forks${state.limit != null ? ` (limit ${state.limit})` : ""}. Cancel one to start another.`
-              : "There is room for a new fork now."}
-          </p>
-        ) : (
-          <p className={styles.hint}>
-            {state.limit != null ? `You can keep ${state.limit} forks open.` : "Forks you left open."} They are private to you.
-          </p>
-        )}
-        <OpenForksList state={state} />
-        {limitHit && onRetry ? (
-          <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={retryBusy || full || state.loading || state.forks == null}
-            onClick={onRetry}>
-            <GitFork size={14} aria-hidden />
-            <span>Jump in again</span>
-          </button>
-        ) : null}
-      </div>
-    </Sheet>,
-    host,
+  return (
+    <BodyPortal>
+      <Sheet open={open} onClose={onClose} title="Open forks">
+        <div className={styles.sheetBody} data-open-forks-sheet>
+          {limitHit ? (
+            <p className={styles.hint} role="status">
+              {full || state.forks == null
+                ? `You have too many open forks${state.limit != null ? ` (limit ${state.limit})` : ""}. Cancel one to start another.`
+                : "There is room for a new fork now."}
+            </p>
+          ) : (
+            <p className={styles.hint}>
+              {state.limit != null ? `You can keep ${state.limit} forks open.` : "Forks you left open."} They are private to you.
+            </p>
+          )}
+          <OpenForksList state={state} currentSlug={currentSlug} />
+          {limitHit && onRetry ? (
+            <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={retryBusy || full || state.loading || state.forks == null}
+              onClick={onRetry}>
+              <GitFork size={14} aria-hidden />
+              <span>Jump in again</span>
+            </button>
+          ) : null}
+        </div>
+      </Sheet>
+    </BodyPortal>
   );
 }
 
 /** "Open forks (N)": the owner finds a fork left open. Nothing renders until the server has answered for an owner. */
-export function OpenForksButton({ state }: { state: OpenForksState }) {
+export function OpenForksButton({ state, currentSlug }: { state: OpenForksState; currentSlug?: string }) {
   const [open, setOpen] = useState(false);
-  if (state.denied || state.forks == null) return null;
+  // No list and no error yet: nothing to show. An outage with no list still shows the entry, so the owner can try again.
+  if (state.denied || (state.forks == null && !state.error)) return null;
+  const count = state.forks?.length ?? null;
+  const name = count != null ? `Open forks (${count})` : "Open forks (could not load)";
   return (
     <>
-      <button type="button" className={styles.btn} aria-haspopup="dialog" aria-expanded={open} data-open-forks-button title={`Open forks (${state.forks.length})`}
+      <button type="button" className={styles.btn} aria-haspopup="dialog" aria-expanded={open} data-open-forks-button title={name}
         onClick={() => { setOpen(true); void state.refresh(); }}>
         <GitBranch size={14} aria-hidden />
-        <span className="sr-only">Open forks ({state.forks.length})</span>
-        <span className={styles.forkCount} aria-hidden="true">{state.forks.length}</span>
+        <span className="sr-only">{name}</span>
+        <span className={styles.forkCount} aria-hidden="true">{count ?? "!"}</span>
       </button>
-      <OpenForksSheet open={open} onClose={() => setOpen(false)} state={state} />
+      <OpenForksSheet open={open} onClose={() => setOpen(false)} state={state} currentSlug={currentSlug} />
     </>
   );
 }

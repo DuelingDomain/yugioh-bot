@@ -3,7 +3,9 @@ import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetCoinTossState } from "@/components/duel/coin-toss-lock";
-import { parseUtcStamp, relativeAgo } from "@/components/duel/replay-open-forks";
+import { parseUtcStamp, relativeAgo, useOpenForks } from "@/components/duel/replay-open-forks";
+import { ReplayOwnerTools, useForkStart } from "@/components/duel/replay-fork-button";
+import { normalizeReplay } from "@/components/duel/replay-controller";
 import { DuelReplayView } from "@/components/duel/replay";
 import { replayV2 } from "./replay-fixtures";
 
@@ -63,7 +65,7 @@ describe("open forks in the owner replay controls", () => {
       const url = new URL(input, "http://localhost");
       calls.push({ url, init });
       if (url.pathname === "/api/admin/duels/forks") {
-        return listStatus === 200 ? json({ forks, limit: 4 }, 200) : json({ error: "No access", code: "ACCESS_DENIED" }, listStatus);
+        return listStatus === 200 ? json({ forks, limit: 4 }, 200) : json({ error: listStatus === 503 ? "Access check unavailable" : "No access", code: listStatus === 503 ? "ACCESS_UNAVAILABLE" : "ACCESS_DENIED" }, listStatus);
       }
       if (url.pathname.endsWith("/fork/cancel") && init?.method === "POST") {
         const slug = url.pathname.split("/")[3]!;
@@ -94,11 +96,14 @@ describe("open forks in the owner replay controls", () => {
     const dialog = await screen.findByRole("dialog");
     const rowA = dialog.querySelector("[data-open-fork='fork-a']") as HTMLElement;
     expect(within(rowA).getByText("1v1")).toBeTruthy();
-    expect(within(rowA).getByText("From game-1").getAttribute("href")).toBe("/duels/game-1/replay");
+    // fork-a came from the replay on screen: no link to the page that is already open.
+    expect(within(rowA).getByText("From this replay (game-1)")).toBeTruthy();
+    expect(within(rowA).queryByRole("link", { name: /^From/ })).toBeNull();
     expect(within(rowA).getByText(/Started 2 h ago · Active 5 min ago/)).toBeTruthy();
     expect(within(rowA).getByRole("link", { name: /Open the 1v1 fork/ }).getAttribute("href")).toBe("/duels/fork-a");
     const rowB = dialog.querySelector("[data-open-fork='fork-b']") as HTMLElement;
     expect(within(rowB).getByText("4-player FFA")).toBeTruthy();
+    expect(within(rowB).getByText("From game-7").getAttribute("href")).toBe("/duels/game-7/replay");
   });
 
   it("cancels only after a confirm, then refreshes the list and the count", async () => {
@@ -142,6 +147,20 @@ describe("open forks in the owner replay controls", () => {
     expect(screen.queryByRole("button", { name: /Open forks/ })).toBeNull();
   });
 
+  it("fails closed when the page says owner but the server answer has no capabilities", async () => {
+    // The owner replay route answered like a plain viewer: no list call, no controls.
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, "http://localhost");
+      calls.push({ url, init });
+      return json(replayV2({ visibility: "mine" }));
+    }));
+    await open(true);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(forkCalls()).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: /Open forks|Jump in/ })).toBeNull();
+    expect(document.querySelector("[data-replay-owner-tools]")).toBeNull();
+  });
+
   it("hides the entry when the list route refuses, and does not ask again", async () => {
     listStatus = 403;
     await open();
@@ -149,5 +168,66 @@ describe("open forks in the owner replay controls", () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(screen.queryByRole("button", { name: /Open forks/ })).toBeNull();
     expect(document.querySelector("[data-open-forks-list]")).toBeNull();
+  });
+
+  it("treats a 503 as an error that can be retried, not as a refusal", async () => {
+    listStatus = 503;
+    await open();
+    const entry = await screen.findByRole("button", { name: "Open forks (could not load)" });
+    fireEvent.click(entry);
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByRole("alert")).toBeTruthy();
+    // The access check is back: Try again loads the list.
+    listStatus = 200;
+    fireEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(document.querySelector("[data-open-fork='fork-a']")).not.toBeNull());
+    expect(screen.getByRole("button", { name: "Open forks (2)", hidden: true })).toBeTruthy();
+  });
+});
+
+// The inner owner checks, without the page around them.
+describe("owner gates of the controls and the list", () => {
+  beforeEach(() => {
+    resetCoinTossState();
+    vi.stubGlobal("fetch", vi.fn(async () => json({ forks: [], limit: 4 })));
+  });
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); resetCoinTossState(); });
+
+  function Harness({ enabled }: { enabled: boolean }) {
+    const state = useOpenForks(enabled);
+    return <span data-testid="state">{state.forks == null ? "empty" : `list ${state.forks.length}`}</span>;
+  }
+
+  it("useOpenForks(false) never calls the list route", async () => {
+    render(<Harness enabled={false} />);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(screen.getByTestId("state").textContent).toBe("empty");
+  });
+
+  it("useOpenForks(true) calls it once", async () => {
+    render(<Harness enabled />);
+    await waitFor(() => expect(screen.getByTestId("state").textContent).toBe("list 0"));
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  function Tools({ capabilities }: { capabilities?: { canFork: boolean; privateSeats: number[] } }) {
+    const model = normalizeReplay({ ...replayV2({ visibility: "mine" }), ...(capabilities ? { capabilities } : {}) }, "game-1", "mine");
+    const openForks = useOpenForks(true);
+    const fork = useForkStart({ slug: "game-1", model, frame: model.frames[1], openForks });
+    return <ReplayOwnerTools slug="game-1" model={model} frame={model.frames[1]} view={{ seat: null, reveal: false }} onViewChange={() => {}}
+      openForks={openForks} fork={fork} />;
+  }
+
+  it("ReplayOwnerTools draws nothing for a model without capabilities", () => {
+    const { container } = render(<Tools />);
+    expect(container.querySelector("[data-replay-owner-tools]")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("ReplayOwnerTools draws the cluster for a model with capabilities", async () => {
+    const { container } = render(<Tools capabilities={{ canFork: true, privateSeats: [0] }} />);
+    expect(container.querySelector("[data-replay-owner-tools]")).not.toBeNull();
+    expect(await screen.findByRole("button", { name: /Jump in/ })).toBeTruthy();
   });
 });

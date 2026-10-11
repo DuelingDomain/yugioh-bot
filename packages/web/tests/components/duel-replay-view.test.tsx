@@ -42,6 +42,9 @@ vi.mock("@/components/duel/field", async (importOriginal) => {
   };
 });
 
+// The replay view holds the Jump in request, so it asks for the router even when no fork control shows.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), usePathname: () => "/", useSearchParams: () => new URLSearchParams() }));
+
 import { DuelReplayView } from "@/components/duel/replay";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });

@@ -1,6 +1,13 @@
 /* Owner replay controls and the fork bar. They sit in the shell header (a --duel-unit scope), so sizes use it. */
 .group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-.group[data-replay-owner-tools] { flex-wrap: nowrap; }
+.group[data-replay-owner-tools] { flex-wrap: nowrap; position: relative; }
+/* A refused Jump in: the text hangs below the cluster and wraps, so it never widens the header or pushes the label. */
+.group[data-replay-owner-tools] .alert {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: var(--duel-z-menu);
+  width: max-content; max-width: min(52ch, calc(100vw - 24px)); padding: 6px 10px;
+  border: 1px solid #8f4a4a; border-radius: 6px; background: rgb(10 14 24 / 0.96);
+  overflow-wrap: anywhere; white-space: normal;
+}
 .btn {
   display: inline-flex;
   align-items: center;

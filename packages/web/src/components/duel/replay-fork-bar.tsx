@@ -5,6 +5,7 @@ import Link from "next/link";
 import { GitFork, SlidersHorizontal } from "lucide-react";
 import type { ReplayForkControl } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
+import { BodyPortal } from "./replay-open-forks";
 import { FRAME_PARAM } from "./replay-controller";
 import { askAllState, type AskState } from "./replay-fork-control";
 import styles from "./replay-fork.module.css";
@@ -91,58 +92,60 @@ export function ReplayForkBar({
         <SlidersHorizontal size={14} aria-hidden /><span className={styles.wide} aria-hidden="true">Fork controls</span>
         <span className="sr-only">Fork controls</span>
       </button>
-      <Sheet open={open} onClose={close} title="Fork controls">
-        <div className={styles.sheetBody}>
-          <label className={styles.check}>
-            <input type="checkbox" checked={follow} onChange={(event) => onFollow(event.target.checked)} />
-            <span>Follow prompt</span>
-          </label>
-          <p className={styles.hint}>Switch to the seat that must answer. Picking a seat holds it until the next prompt.</p>
-          <label className={styles.check}>
-            <input type="checkbox" checked={reveal} disabled={disabled} onChange={(event) => onReveal(event.target.checked)} />
-            <span>Reveal hands</span>
-          </label>
-          <div>
-            <button type="button" className={styles.action} disabled={disabled || living.length === 0} onClick={onAskAll}>
-              Ask at all response windows
-            </button>
-            <p className={styles.hint} role="status">{ASK_COPY[ask]}</p>
+      <BodyPortal>
+        <Sheet open={open} onClose={close} title="Fork controls">
+          <div className={styles.sheetBody}>
+            <label className={styles.check}>
+              <input type="checkbox" checked={follow} onChange={(event) => onFollow(event.target.checked)} />
+              <span>Follow prompt</span>
+            </label>
+            <p className={styles.hint}>Switch to the seat that must answer. Picking a seat holds it until the next prompt.</p>
+            <label className={styles.check}>
+              <input type="checkbox" checked={reveal} disabled={disabled} onChange={(event) => onReveal(event.target.checked)} />
+              <span>Reveal hands</span>
+            </label>
+            <div>
+              <button type="button" className={styles.action} disabled={disabled || living.length === 0} onClick={onAskAll}>
+                Ask at all response windows
+              </button>
+              <p className={styles.hint} role="status">{ASK_COPY[ask]}</p>
+            </div>
+            <p className={styles.hint}>
+              Copied from the replay at move {fork.origin.sourceStep}.{" "}
+              {/* A plain click asks first: the link closes the fork. A click for a new tab keeps this page and the fork. */}
+              <Link href={sourceReplayHref(fork.origin)} className="underline"
+                onClick={(event) => { if (isPlainClick(event)) { event.preventDefault(); setConfirm("source"); } }}>
+                Close fork and open the source replay
+              </Link>
+            </p>
+            {confirm === null ? (
+              <div className={styles.group}>
+                <button type="button" className={styles.action} disabled={disabled} onClick={() => setConfirm("restart")}>Restart from start point</button>
+                {ended ? null : <button type="button" className={`${styles.action} ${styles.danger}`} disabled={disabled} onClick={() => setConfirm("end")}>End fork</button>}
+              </div>
+            ) : (
+              <div className={styles.group} role="group" aria-label="Confirm">
+                <span className={styles.note}>
+                  {confirm === "restart" ? "This drops every move played in the fork."
+                    : confirm === "source" ? "This closes the fork and opens the source replay." : "This closes the fork and goes back to the replay."}
+                </span>
+                {confirm === "source" ? (
+                  <Link href={sourceReplayHref(fork.origin)} className={`${styles.action} ${styles.danger}`}
+                    onClick={(event) => { if (isPlainClick(event)) { onLeave?.(); close(); } }}>
+                    Close fork and open the source replay
+                  </Link>
+                ) : (
+                  <button type="button" className={`${styles.action} ${styles.danger}`} disabled={disabled}
+                    onClick={() => { const next = confirm; close(); if (next === "restart") onRestart(); else onEnd(); }}>
+                    {confirm === "restart" ? "Restart" : "End fork"}
+                  </button>
+                )}
+                <button type="button" className={styles.action} onClick={() => setConfirm(null)}>Keep playing</button>
+              </div>
+            )}
           </div>
-          <p className={styles.hint}>
-            Copied from the replay at move {fork.origin.sourceStep}.{" "}
-            {/* A plain click asks first: the link closes the fork. A click for a new tab keeps this page and the fork. */}
-            <Link href={sourceReplayHref(fork.origin)} className="underline"
-              onClick={(event) => { if (isPlainClick(event)) { event.preventDefault(); setConfirm("source"); } }}>
-              Close fork and open the source replay
-            </Link>
-          </p>
-          {confirm === null ? (
-            <div className={styles.group}>
-              <button type="button" className={styles.action} disabled={disabled} onClick={() => setConfirm("restart")}>Restart from start point</button>
-              {ended ? null : <button type="button" className={`${styles.action} ${styles.danger}`} disabled={disabled} onClick={() => setConfirm("end")}>End fork</button>}
-            </div>
-          ) : (
-            <div className={styles.group} role="group" aria-label="Confirm">
-              <span className={styles.note}>
-                {confirm === "restart" ? "This drops every move played in the fork."
-                  : confirm === "source" ? "This closes the fork and opens the source replay." : "This closes the fork and goes back to the replay."}
-              </span>
-              {confirm === "source" ? (
-                <Link href={sourceReplayHref(fork.origin)} className={`${styles.action} ${styles.danger}`}
-                  onClick={(event) => { if (isPlainClick(event)) { onLeave?.(); close(); } }}>
-                  Close fork and open the source replay
-                </Link>
-              ) : (
-                <button type="button" className={`${styles.action} ${styles.danger}`} disabled={disabled}
-                  onClick={() => { const next = confirm; close(); if (next === "restart") onRestart(); else onEnd(); }}>
-                  {confirm === "restart" ? "Restart" : "End fork"}
-                </button>
-              )}
-              <button type="button" className={styles.action} onClick={() => setConfirm(null)}>Keep playing</button>
-            </div>
-          )}
-        </div>
-      </Sheet>
+        </Sheet>
+      </BodyPortal>
     </span>
   );
 }
