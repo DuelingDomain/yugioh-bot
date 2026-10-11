@@ -54,7 +54,7 @@ import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { EngineResourceCache } from "./engine-resource-cache.js";
 import { buildReplayData, projectReplayFrames, type ReplayFrameData, replayBuildError, replayHasUnsequencedLoss, revealReplayHands, ReplayBuildCache } from "./replay-builder.js";
 import { createReplayCursorCodec, replaySourceVersion, ReplayCursorError } from "./replay-cursor.js";
-import { createReplayForkLauncher, ReplayForkLaunchError } from "./replay-fork.js";
+import { createReplayForkLauncher, listActiveReplayForks, REPLAY_FORK_ACTIVE_LIMIT, ReplayForkLaunchError } from "./replay-fork.js";
 import { initialForkSeat, resolveReplayForkSeat, replayForkRoom } from "./replay-fork-seats.js";
 import { JournalRunnerError, runJournalPrefix, type JournalResources } from "./journal-runner.js";
 import { EngineResourceUnavailableError, resolveEngineResourcesForSource, type EngineResources } from "./engine-resource-resolver.js";
@@ -125,7 +125,7 @@ const BUG_CONTEXT_LOG_LINES = 15;
 const DUEL_OPS = new Set([
   "engine-data-status", "capabilities", "view", "start", "respond", "deck", "validate-deck", "cards",
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "add-bot", "archive", "cancel",
-  "replay", "owner-replay", "replay-fork", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
+  "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
   "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset",
   "report", "debug-trace", "bug-context", "chain-mode", "validate-deck-master",
 ]);
@@ -2409,6 +2409,7 @@ export function createDuelHost(options: {
     }
     const actor = playerId as number;
     const accessActor = { guildId, playerId: actor, ...(body.userId !== undefined ? { userId: body.userId as number } : {}) };
+    if (op === "fork-list") return { forks: listActiveReplayForks(options.db, accessActor), limit: REPLAY_FORK_ACTIVE_LIMIT };
     if (op === "replay-fork") {
       if (typeof body.slug !== "string" || !body.slug) throw new RequestError("Duel slug is required", 400, "INVALID_CURSOR");
       if (body.as !== undefined || body.reveal !== undefined) throw new RequestError("Invalid replay fork request", 400, "INVALID_CURSOR");
@@ -2997,7 +2998,7 @@ export function createDuelHost(options: {
         const key = body.op === "replay-fork" ? `fork-owner:${body.guildId}:${body.playerId}` : typeof body.slug === "string" ? body.slug : "catalog";
         // Diagnostics skip the queue; GitHub status reads must not block card editor requests.
         const ctl = { abandoned: false };
-        const queued = (body.op === "debug-trace" || body.op === "bug-context" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" ? operate(body) : enqueue(key, () => operate(body, ctl)));
+        const queued = (body.op === "debug-trace" || body.op === "bug-context" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body) : enqueue(key, () => operate(body, ctl)));
         const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
         if (fork) assertReplayForkAccess(options.db, body.slug as string, { guildId: body.guildId as string,
           playerId: body.playerId as number, ...(body.userId !== undefined ? { userId: body.userId as number } : {}) });

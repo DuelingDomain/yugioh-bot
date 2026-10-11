@@ -99,6 +99,76 @@ beforeEach(() => {
 });
 afterEach(async () => { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs(); });
 
+it("lists only the caller's active forks with exact metadata and deterministic creation order", async () => {
+  const input = request(), before = sourceRows();
+  const first = (await post({ op: "replay-fork", ...input, requestId: "list-first" })).body.slug;
+  const second = (await post({ op: "replay-fork", ...input, requestId: "list-second" })).body.slug;
+  const otherOwner = (await post({ op: "replay-fork", ...input, requestId: "list-other", playerId: 62, userId: 102 })).body.slug;
+  const otherGuild = (await post({ op: "replay-fork", ...input, requestId: "list-other-guild" })).body.slug;
+  seedIdentity(db, { guildId: "other-guild", playerId: 71, userId: 101 });
+  db.prepare("update duels set guild_id = 'other-guild', organizer_player_id = 71 where web_slug = ?").run(otherGuild);
+  db.prepare("update duel_seats set player_id = 71 where duel_id = (select id from duels where web_slug = ?) and seat = 0").run(otherGuild);
+  db.prepare("update duels set created_at = '2020-01-01 00:00:00', last_activity_at = '2020-01-02 00:00:00' where web_slug in (?, ?)")
+    .run(first, second);
+  const workerCount = workers.length, reads = workers.map(w => vi.spyOn(w, "view"));
+  const result = await post({ op: "fork-list", slug: undefined });
+  expect(result.response.status).toBe(200);
+  expect(result.body).toEqual({ limit: 4, forks: [second, first].map(forkSlug => ({ slug: forkSlug, sourceSlug: slug,
+    format: "1v1", createdAt: "2020-01-01 00:00:00", lastActivityAt: "2020-01-02 00:00:00" })) });
+  expect((await post({ op: "fork-list", slug: undefined, playerId: 62, userId: 102 })).body.forks.map((f: any) => f.slug)).toEqual([otherOwner]);
+  expect((await post({ op: "fork-list", slug: undefined, guildId: "other-guild", playerId: 71 })).body.forks.map((f: any) => f.slug)).toEqual([otherGuild]);
+  expect(workers).toHaveLength(workerCount); for (const read of reads) expect(read).not.toHaveBeenCalled();
+  expect(sourceRows()).toEqual(before);
+});
+it("returns an empty fork list without a source or worker", async () => {
+  db.prepare("delete from duels where web_slug = ?").run(slug);
+  const result = await post({ op: "fork-list", slug: undefined });
+  expect(result.response.status).toBe(200); expect(result.body).toEqual({ forks: [], limit: 4 }); expect(workers).toHaveLength(0);
+});
+it.each(["cancelled", "completed", "interrupted"] as const)("excludes %s forks from the active list", async status => {
+  const fork = (await post({ op: "replay-fork", ...request() })).body.slug;
+  db.prepare("update duels set status = ? where web_slug = ?").run(status, fork);
+  expect((await post({ op: "fork-list", slug: undefined })).body).toEqual({ forks: [], limit: 4 });
+});
+it("lists formats and stored origins after source deletion with activity fallback", async () => {
+  source("ffa4");
+  const sourceSlug = slug, fork = (await post({ op: "replay-fork", ...request() })).body.slug;
+  db.prepare("update duels set created_at = '2020-01-01 00:00:00', last_activity_at = null where web_slug = ?").run(fork);
+  db.prepare("delete from duels where web_slug = ?").run(sourceSlug);
+  expect((await post({ op: "fork-list", slug: undefined })).body).toEqual({ limit: 4, forks: [{ slug: fork, sourceSlug,
+    format: "ffa4", createdAt: "2020-01-01 00:00:00", lastActivityAt: "2020-01-01 00:00:00" }] });
+  expect((await post({ op: "fork-cancel", slug: fork })).response.status).toBe(200);
+  expect((await post({ op: "fork-list", slug: undefined })).body.forks).toEqual([]);
+  expect(workers[0]!.running).toBe(false);
+});
+it("reports accepted answers as activity without changing timestamps on list reads", async () => {
+  const fork = (await post({ op: "replay-fork", ...request() })).body.slug;
+  db.prepare("update duels set last_activity_at = '2020-01-01 00:00:00' where web_slug = ?").run(fork);
+  expect((await post({ op: "fork-list", slug: undefined })).body.forks[0].lastActivityAt).toBe("2020-01-01 00:00:00");
+  const room = (await post({ op: "view", slug: fork })).body;
+  expect((await post({ op: "respond", slug: fork, command: { promptId: room.engine.prompt.id,
+    revision: room.engine.revision, answer: { choice: "next" } } })).response.status).toBe(200);
+  const activity = db.prepare("select last_activity_at from duels where web_slug = ?").get(fork) as { last_activity_at: string };
+  expect(activity.last_activity_at).not.toBe("2020-01-01 00:00:00");
+  expect((await post({ op: "fork-list", slug: undefined })).body.forks[0].lastActivityAt).toBe(activity.last_activity_at);
+});
+it("denies fork listing for unsigned, non-owner, forged, wrong-guild and revoked callers", async () => {
+  expect((await post({ op: "fork-list", slug: undefined }, false)).response.status).toBe(401);
+  for (const actor of [{ playerId: 63, userId: 103 }, { playerId: 62, userId: 101 }, { guildId: "other-guild" }]) {
+    const result = await post({ op: "fork-list", slug: undefined, ...actor });
+    expect(result.response.status).toBe(404); expect(result.body).toEqual({ error: "Not found", code: "ACCESS_DENIED" });
+  }
+  vi.stubEnv("OWNER_USER_IDS", "102");
+  expect((await post({ op: "fork-list", slug: undefined })).body).toEqual({ error: "Not found", code: "ACCESS_DENIED" });
+  expect(workers).toHaveLength(0);
+});
+it("fails closed when an otherwise matching fork has invalid creator metadata", async () => {
+  const fork = (await post({ op: "replay-fork", ...request() })).body.slug;
+  db.prepare("update duels set setup_json = json_set(setup_json, '$.replayFork.control', 'invalid') where web_slug = ?").run(fork);
+  const result = await post({ op: "fork-list", slug: undefined });
+  expect(result.response.status).toBe(404); expect(result.body).toEqual({ error: "Not found", code: "ACCESS_DENIED" });
+});
+
 it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("launches a private Manual %s fork with defaults after the unchanged prefix", async format => {
   source(format);
   const before = sourceRows(), result = await post({ op: "replay-fork", ...request(3) });

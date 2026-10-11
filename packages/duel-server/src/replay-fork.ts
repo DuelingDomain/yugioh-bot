@@ -17,6 +17,28 @@ export const replayForkTimeoutMs = (prefixCount: number): number => REPLAY_FORK_
 export const REPLAY_FORK_ACTIVE_LIMIT = 4;
 const MAX_DETACHED_FORKS = 2;
 
+interface ActiveReplayFork {
+  slug: string;
+  sourceSlug: string;
+  format: DuelSession["format"];
+  createdAt: string;
+  lastActivityAt: string;
+}
+
+/** Metadata only: abandoned forks remain discoverable without recovering a worker or reading their source. */
+export function listActiveReplayForks(db: Database.Database, actor: OwnerPlayerActor): ActiveReplayFork[] {
+  const owner = resolveOwnerPlayer(db, actor);
+  if (!owner) throw new ReplayAccessError();
+  const forks = db.prepare<[string, number], ActiveReplayFork>(`select web_slug as slug,
+    json_extract(setup_json, '$.replayFork.origin.sourceSlug') as sourceSlug, format,
+    created_at as createdAt, coalesce(last_activity_at, created_at) as lastActivityAt
+    from duels where guild_id = ? and kind = 'replay-fork' and status = 'active'
+    and json_extract(setup_json, '$.replayFork.ownerUserId') = ?
+    order by datetime(created_at) desc, id desc`).all(owner.guildId, owner.userId);
+  for (const fork of forks) assertReplayForkAccess(db, fork.slug, owner);
+  return forks;
+}
+
 export class ReplayForkLaunchError extends Error {
   readonly status: number;
   constructor(message: string, readonly code: ReplayErrorCode) {
