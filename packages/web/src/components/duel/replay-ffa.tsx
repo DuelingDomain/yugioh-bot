@@ -82,17 +82,18 @@ export function ReplayTableTransport({
   const icon = `${replayStyles.iconButton} ${styles.icon}`;
   return (
     <div className={styles.bar} data-replay-table-transport>
-      {result ? (
-        <div className={styles.result} role="status">
-          <strong>{result.headline}</strong>
-          <span>{result.reason}</span>
-        </div>
-      ) : null}
       <ReplayStatus playing={playing} index={index} last={last} caption={caption} />
       <div className={styles.top}>
+        {result ? (
+          <div className={styles.result} role="status">
+            <strong>{result.headline}</strong>
+            <span>{result.reason}</span>
+          </div>
+        ) : null}
         <span className={styles.say} aria-live="off" title={said ? `${caption}. ${said}` : caption}>
           <b>{caption}</b>{said ? <> · {said}</> : null}
         </span>
+        {hiddenNote ? <span className={styles.hidden}>Public view — hidden cards stay hidden</span> : null}
         <Link href={`/duels/${slug}`} className={replayStyles.link}>Final board</Link>
       </div>
       <div className={styles.row}>
@@ -145,7 +146,6 @@ export function ReplayTableTransport({
         ) : null}
       </div>
       {notice ? <p role="alert" className={styles.note}>{notice}</p> : null}
-      {hiddenNote ? <p className={styles.note}>Public view — hidden cards stay hidden</p> : null}
     </div>
   );
 }

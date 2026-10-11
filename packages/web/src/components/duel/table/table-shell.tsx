@@ -600,6 +600,7 @@ function TableShellBody({
       data-grid={grid ? "true" : undefined}
       data-hud={hud ? "true" : undefined}
       data-plaza-hud={plazaHud ? "true" : undefined}
+      data-replay={replay ? "true" : undefined}
       data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
@@ -851,8 +852,12 @@ function TableShellBody({
         </section>
       </div>
       {hud ? (
-        <div className={hudStyles.corner} data-testid="hud-corner" style={replay ? ({ "--hud-corner-w": "min(380px, 34vw)" } as CSSProperties) : undefined}>
-          {replay ? <div className={styles.replayCorner} data-testid="replay-transport">{replay.transport}</div> : promptDockNode}
+        <>
+        {/* A replay's transport is a slim strip under the board (the board gives it room), not a block in the corner:
+            the corner stays the size the stage keeps clear of every field. */}
+        {replay ? <div className={styles.replayStrip} data-testid="replay-transport">{replay.transport}</div> : null}
+        <div className={hudStyles.corner} data-testid="hud-corner">
+          {replay ? null : promptDockNode}
           <StationTrack
             {...trackProps}
             phases="hub"
@@ -861,6 +866,7 @@ function TableShellBody({
             attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
           />
         </div>
+        </>
       ) : (
         <>
         {replay ? <div className={styles.replayBar} data-testid="replay-transport">{replay.transport}</div> : null}
