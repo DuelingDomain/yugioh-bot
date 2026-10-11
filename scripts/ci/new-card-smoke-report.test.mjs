@@ -23,6 +23,18 @@ test("a FAIL in any fixture shard makes the summary fail even with incompletenes
   assert.match(markdown, /Needs \\\| conditions &lt;test&gt;.*43.*1 of 2.*Trigger never ran Needs a ruling/);
   assert.ok(!markdown.includes("Good card"), "details contain only FAIL and WARN");
 });
+test("card names, Lua reasons and errors cannot inject mentions or Markdown", () => {
+  const report = mergeSmokeReports(fixture(), 2, "failure");
+  const input = '@user @owner/team [link](https://example.com) `code` *bold* _italic_ | <tag> \\path\r\nnext';
+  const escaped = '&#64;user &#64;owner/team \\[link\\](https://example.com) \\`code\\` \\*bold\\* \\_italic\\_ \\| &lt;tag&gt; \\\\path next';
+  const card = report.cards.find(card => card.status === "WARN");
+  card.name = input;
+  card.reason = input;
+  report.errors = [input];
+  const markdown = renderSmokeReport(report, context, "https://github.com/owner/repo/actions/runs/1");
+  assert.ok(markdown.includes(`| WARN | ${escaped} | ${card.code} | ${card.coverage.resolved} of ${card.coverage.total} | ${escaped} |`));
+  assert.ok(markdown.includes(`- ERROR: ${escaped}`));
+});
 test("incomplete-only fixture merge warns without failing; ordinary WARN exits zero", () => {
   const shards = fixture(); shards[1].cards = [];
   const merged = mergeSmokeReports(shards, 2, "success");

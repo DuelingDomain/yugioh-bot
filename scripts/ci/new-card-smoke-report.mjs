@@ -7,7 +7,7 @@ import { isSmokePull } from "./new-card-smoke-context.mjs";
 
 export const SMOKE_COMMENT_MARKER = "<!-- new-card-smoke-report -->";
 const cell = value => String(value).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ")
-  .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  .replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/@/g, "&#64;").replace(/[\[\]`*_]/g, "\\$&");
 const passcode = code => Number.isSafeInteger(code) && code > 0 && code <= 0xffffffff;
 
 export function mergeSmokeReports(reports, shardCount, shardResult) {
