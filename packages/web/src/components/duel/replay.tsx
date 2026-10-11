@@ -38,6 +38,7 @@ import type { TableController } from "./table/types";
 import styles from "./room.module.css";
 import replayStyles from "./replay.module.css";
 import { duelFontClasses } from "./fonts";
+import { useMatchHistoryHref } from "./history-link";
 
 export { useReplayAutoplay } from "./replay-controller";
 
@@ -121,7 +122,8 @@ function ReplayBusy({ busy, children }: { busy: boolean; children: ReactNode }) 
  * `canInspectSource` comes from the server page (the owner check). It only asks for the private replay and the
  * owner controls; the routes check the owner list again and the answer must carry capabilities before any control shows.
  */
-export function DuelReplayView({ slug, canInspectSource = false }: { slug: string; canInspectSource?: boolean }) {
+export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { slug: string; canInspectSource?: boolean; viewerId?: number | string }) {
+  const historyHref = useMatchHistoryHref(viewerId);
   const [visibility, setVisibility] = useState<ReplayVisibility>("mine");
   const [ownerView, setOwnerView] = useState<OwnerViewState>({ seat: null, reveal: false });
   const [forkStepId, setForkStepId] = useState<string | null>(null);
@@ -215,7 +217,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
         <p role="alert" className="text-accent-cta">{failure.message}</p>
         <div className={replayStyles.stateLinks}>
           {failure.finalBoard ? <Link href={`/duels/${slug}`} className="text-sm text-text-secondary underline">Final board</Link> : null}
-          <Link href="/duels?view=history" className="text-sm text-text-secondary underline">Match history</Link>
+          <Link href={historyHref} className="text-sm text-text-secondary underline">Match history</Link>
         </div>
       </div>
     );
@@ -237,7 +239,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
         {ownerTools ? <div data-replay-tools-wrap>{ownerTools}</div> : null}
         <div className={replayStyles.stateLinks}>
           <Link href={`/duels/${slug}`} className="text-sm text-text-secondary underline">Final board</Link>
-          <Link href="/duels?view=history" className="text-sm text-text-secondary underline">Match history</Link>
+          <Link href={historyHref} className="text-sm text-text-secondary underline">Match history</Link>
         </div>
       </div>
     );
@@ -248,7 +250,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   if (session.format === "tag") {
     return (
       <ReplayBusy busy={awaiting}>
-        <ReplayTag slug={slug} model={model} timeline={timeline} engine={engine} controller={controller}
+        <ReplayTag slug={slug} viewerId={viewerId} model={model} timeline={timeline} engine={engine} controller={controller}
           visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} inputSuspended={awaiting} />
       </ReplayBusy>
     );
@@ -334,7 +336,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
       data-replay-frame={controller.frameId ?? undefined} data-replay-visibility={model.visibility}>
       <header className={styles.header}>
         <div className={styles.identity}>
-          <Link href="/duels?view=history">Match history</Link>
+          <Link href={historyHref}>Match history</Link>
           <strong className={replayStyles.badge}><PlayCircle size={14} aria-hidden /> Replay</strong>
           <span>{modeText} · {formatLabel(session.format)}</span>
         </div>

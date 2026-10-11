@@ -647,6 +647,7 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "winner_seat", "integer");
   addColumnIfMissing(db, "duels", "archived_at", "text");
   addColumnIfMissing(db, "duels", "last_activity_at", "text");
+  addColumnIfMissing(db, "duels", "started_at", "text");
   addColumnIfMissing(db, "duels", "snapshot_public_json", "text");
   addColumnIfMissing(db, "duels", "snapshot_seat0_json", "text");
   addColumnIfMissing(db, "duels", "snapshot_seat1_json", "text");
@@ -704,6 +705,9 @@ export function migrate(db: Database.Database) {
 
   db.exec(`
     create index if not exists duels_guild_archived_created_idx on duels (guild_id, archived_at, created_at);
+    create index if not exists duels_play_history_idx
+      on duels (guild_id, julianday(coalesce(ended_at, created_at)) desc, id desc)
+      where kind = 'play';
     create index if not exists duels_archive_due_idx on duels (ended_at) where archived_at is null;
     create table if not exists duel_invite_grants (
       duel_id integer not null references duels(id) on delete cascade,

@@ -16,7 +16,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   let sandbox = false;
   let control: ReturnType<typeof readDuelControl>;
   try {
-    const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId, { ownerRead: false });
     sandbox = room.session.sandbox;
     if (sandbox) {
       const allowed = await requireSandboxActor();

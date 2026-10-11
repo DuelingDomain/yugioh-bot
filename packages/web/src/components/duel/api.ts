@@ -7,6 +7,7 @@ import type {
   DuelFirstChoice,
   DuelDeckValidation,
   DuelFormat,
+  DuelHistoryPage,
   DuelHistoryScope,
   DuelListItem,
   DuelReplay,
@@ -23,6 +24,7 @@ import type {
   DuelSettings,
   SandboxBotMode,
 } from "@yugidraft/shared/duels";
+import { EMPTY_HISTORY_FILTERS, historyQuery, type HistoryFilters } from "./history-filters";
 
 export class DuelRequestError extends Error {
   readonly status: number;
@@ -99,11 +101,26 @@ export function duelRoomKey(slug: string, spectate = false, fork: ForkViewContro
   return `/api/duels/${slug}${text ? `?${text}` : ""}`;
 }
 
+/** Live lists answer `{ duels }` only; history pages add the cursor and the admin flag. */
+export interface DuelListPage extends Partial<Omit<DuelHistoryPage, "duels">> {
+  duels: DuelListItem[];
+}
+
+export function duelHistoryKey(
+  scope: DuelHistoryScope = "mine",
+  filters: HistoryFilters = EMPTY_HISTORY_FILTERS,
+  cursor?: string | null,
+): string {
+  return `${DUEL_LIST_KEY}?${historyQuery(scope, filters, cursor)}`;
+}
+
 export async function listDuels(
   archived = false,
   scope: DuelHistoryScope = "mine",
-): Promise<{ duels: DuelListItem[] }> {
-  const url = archived ? `${DUEL_LIST_KEY}?archived=1&scope=${scope}` : DUEL_LIST_KEY;
+  filters: HistoryFilters = EMPTY_HISTORY_FILTERS,
+  cursor?: string | null,
+): Promise<DuelListPage> {
+  const url = archived ? duelHistoryKey(scope, filters, cursor) : DUEL_LIST_KEY;
   return parseBody(await fetch(url, { cache: "no-store" }));
 }
 

@@ -29,7 +29,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   let control: ReturnType<typeof readDuelControl>;
   let binding: { revision?: number; promptId?: string } = {};
   try {
-    const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId, { ownerRead: false });
     if (room.session.sandbox) {
       const sandboxActor = await requireSandboxActor();
       if (!sandboxActor.ok) return sandboxActor.response;

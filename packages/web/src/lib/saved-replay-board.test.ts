@@ -100,3 +100,30 @@ it("rechecks normal source access before returning the saved board", async () =>
   const response = await routeGet(false, input.session.slug, "version=2&visibility=public");
   expect(response.status).toBe(403); expect(await response.json()).toMatchObject({ code: "ACCESS_DENIED" });
 });
+it.each([false, true])("opens another player's private final board as admin through the replay route (owner=%s)", async owner => {
+  const input = await routeFixture();
+  seedIdentity(input.db, { guildId: "test-guild", playerId: 3, userId: 103 });
+  vi.stubEnv("OWNER_USER_IDS", "103");
+  routeState.auth.mockResolvedValue({ user: { id: "103", name: "Admin" } });
+  input.db.prepare("update duels set settings_json=json_set(settings_json,'$.visibility','private') where id=?").run(input.session.id);
+  const response = await routeGet(owner, input.session.slug, "version=2&visibility=public");
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.mySeat).toBeNull(); expect(body.dataSeat).toBeNull();
+  expect(body.frames[0].view.seats.map((seat: any) => seat.hand[0].code)).toEqual([undefined, undefined]);
+  expect(input.db.prepare("select * from duel_invite_grants").all()).toEqual([]);
+});
+it.each(["completed", "interrupted", "cancelled"])("opens another player's private %s saved board through the duel route as admin", async status => {
+  const input = await routeFixture();
+  seedIdentity(input.db, { guildId: "test-guild", playerId: 3, userId: 103 });
+  vi.stubEnv("OWNER_USER_IDS", "103");
+  routeState.auth.mockResolvedValue({ user: { id: "103", name: "Admin" } });
+  input.db.prepare("update duels set status=?,settings_json=json_set(settings_json,'$.visibility','private') where id=?").run(status, input.session.id);
+  const { GET } = await import("../../app/api/duels/[slug]/route");
+  const response = await GET(new Request("http://localhost/duel"), { params: Promise.resolve({ slug: input.session.slug }) });
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body).toMatchObject({ role: "spectator", mySeat: null, myDeck: null });
+  expect(body.engine.seats.map((seat: any) => seat.hand[0].code)).toEqual([undefined, undefined]);
+  expect(routeState.fetch).not.toHaveBeenCalled();
+});

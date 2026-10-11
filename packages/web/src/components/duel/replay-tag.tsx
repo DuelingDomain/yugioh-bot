@@ -19,6 +19,7 @@ import {
 import type { ReplayTimeline } from "./replay-timeline";
 import { defaultTeamNames } from "./tag/live-tag";
 import { TagShell } from "./tag/tag-shell";
+import { useMatchHistoryHref } from "./history-link";
 import { ReplayStatus } from "./replay-status";
 import styles from "./replay-tag.module.css";
 
@@ -26,6 +27,8 @@ const noop = () => undefined;
 
 export interface ReplayTagProps {
   slug: string;
+  /** The signed-in user, so Match history links back with that user's filters only. */
+  viewerId?: number | string;
   model: ReplayModel;
   timeline: ReplayTimeline<ReplayModel["frames"][number]>;
   /** The cumulative board of the selected frame (`timeline.viewAt(controller.index)`). */
@@ -48,7 +51,8 @@ export interface ReplayTagProps {
  * seat is drawn at home; the cards each seat shows were fixed by the server for the card view that was asked for,
  * so a camera change never reveals a card and never refetches.
  */
-export function ReplayTag({ slug, model, timeline, engine, controller, visibility, onVisibilityChange, notice, tools, inputSuspended = false }: ReplayTagProps) {
+export function ReplayTag({ slug, viewerId, model, timeline, engine, controller, visibility, onVisibilityChange, notice, tools, inputSuspended = false }: ReplayTagProps) {
+  const historyHref = useMatchHistoryHref(viewerId);
   const preferences = useDuelPreferences();
   const narrow = useIsNarrow();
   const { session } = model;
@@ -97,7 +101,7 @@ export function ReplayTag({ slug, model, timeline, engine, controller, visibilit
           ))}
         </div>
       ) : null}
-      <Link href="/duels?view=history" className={styles.linkIcon} aria-label="Match history" title="Match history"><History size={16} aria-hidden /></Link>
+      <Link href={historyHref} className={styles.linkIcon} aria-label="Match history" title="Match history"><History size={16} aria-hidden /></Link>
       <Link href={`/duels/${slug}`} className={styles.linkIcon} aria-label="Final board" title="Final board"><Flag size={16} aria-hidden /></Link>
     </div>
   );

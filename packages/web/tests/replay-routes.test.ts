@@ -43,6 +43,16 @@ it("checks normal current source access", async () => {
   const response = await get(false, "version=2"); expect(response.status).toBe(403); expect(state.fetch).not.toHaveBeenCalled();
   expect(await response.json()).toMatchObject({ code: "ACCESS_DENIED" });
 });
+it("allows normal private replay reads for a current admin and denies revoked access after the wait", async () => {
+  signIn(101);
+  state.db!.prepare("update duels set status='completed', settings_json=json_set(settings_json,'$.visibility','private') where web_slug=?").run(slug);
+  expect((await get(false, "version=2")).status).toBe(200);
+  expect(payload()).toMatchObject({ op: "replay", userId: "101", playerId: 61 });
+  state.fetch.mockImplementation(async () => {
+    vi.stubEnv("OWNER_USER_IDS", ""); return Response.json({ version: 2, frames: [] });
+  });
+  expect((await get(false, "version=2")).status).toBe(403);
+});
 it.each([401, 503])("returns a typed normal replay access error for status %s", async status => {
   if (status === 401) state.auth.mockResolvedValue(null); else state.auth.mockRejectedValue(new Error("Auth unavailable"));
   const response = await get(false, "version=2"); expect(response.status).toBe(status);

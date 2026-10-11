@@ -23,5 +23,5 @@ export default async function DuelReplayPage({ params }: { params: Promise<{ slu
       // A failed hint read must not enable private replay controls.
     }
   }
-  return <DuelReplayView slug={slug} canInspectSource={canInspectSource} />;
+  return <DuelReplayView slug={slug} canInspectSource={canInspectSource} viewerId={access.ok ? access.userId : undefined} />;
 }
