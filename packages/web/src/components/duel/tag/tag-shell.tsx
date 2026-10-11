@@ -332,7 +332,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
     />
   );
   const cameraDock = (
-    <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} />
+    <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} replay={replay != null} />
   );
   const side = (
     <TagSide
@@ -497,7 +497,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
         </section>
         {narrow || hud ? null : (
           <aside className={styles.right} aria-label="Camera">
-            <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} />
+            <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} replay={replay != null} />
           </aside>
         )}
       </div>

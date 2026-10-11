@@ -22,6 +22,8 @@ export interface HoloLpProps {
   status: SeatStatus;
   /** True for the viewer's own panel: a little larger, no projector beam. */
   me: boolean;
+  /** A replay has no player: the name stands alone, without "(you)". */
+  replay?: boolean;
   /** Top-left of the panel in stage px. */
   x: number;
   y: number;
@@ -114,6 +116,7 @@ export function HoloLp({
   clockMs,
   status,
   me,
+  replay = false,
   x,
   y,
   width,
@@ -155,7 +158,7 @@ export function HoloLp({
     <>
       <div className={styles.top} data-holo-text="true">
         <i aria-hidden="true" />
-        <b>{me ? `${name} (you)` : name}</b>
+        <b>{me && !replay ? `${name} (you)` : name}</b>
         {turn ? <span className={styles.turnChip}>Turn</span> : null}
       </div>
       <div className={styles.main} data-lp-seat={seat} data-holo-text="true">

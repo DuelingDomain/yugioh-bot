@@ -420,6 +420,7 @@ function TableShellBody({
     nameOf,
     dispatch: camera.dispatch,
     out: camera.out,
+    replay: replay != null,
   };
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
   const logVisible = hud ? hudState.pane === "log" : ui.pane === "log" && (narrow ? sheetOpen : drawer.open);
@@ -462,7 +463,7 @@ function TableShellBody({
   // Your Deck Master hangs under your LP plate on the wide table; a click opens the drawer on its Master tab.
   const myView = viewerSeat != null ? engine.seats.find((seat) => seat.seat === viewerSeat) : undefined;
   const masterChip = domain && !narrow && !hud && myView?.deckMaster ? (
-    <MasterChip view={myView} label="Your Master" onOpen={() => { ui.setPane("masters"); ui.setDrawerOpen(true); }} />
+    <MasterChip view={myView} label={replay ? `${nameOf(myView.seat)}'s Master` : "Your Master"} onOpen={() => { ui.setPane("masters"); ui.setDrawerOpen(true); }} />
   ) : null;
 
   const pileSeat = ui.pile?.seat;
@@ -475,10 +476,11 @@ function TableShellBody({
   const [opened, setOpened] = useState(() => ({ key: gameKey, seats: new Set(out.map((entry) => entry.seat)) }));
   if (opened.key !== gameKey) setOpened({ key: gameKey, seats: new Set(out.map((entry) => entry.seat)) });
   const outAtOpen = opened.seats;
-  const viewerEliminated = engine.seats.some((view) => view.seat === viewerSeat && view.eliminated === true);
+  // A replay has no player: the camera seat is not "you", so no first-person elimination text, chip or label.
+  const viewerEliminated = !replay && engine.seats.some((view) => view.seat === viewerSeat && view.eliminated === true);
   // The live region says your own elimination. On the 4-way grid it also says who left last while you watch and what
   // the last two are: there the out notes are hidden from the eye and not live, and the caption is only drawn.
-  const freshOut = grid ? out.filter((entry) => entry.seat !== viewerSeat && !outAtOpen.has(entry.seat)) : [];
+  const freshOut = grid ? out.filter((entry) => (replay != null || entry.seat !== viewerSeat) && !outAtOpen.has(entry.seat)) : [];
   const newestOut = freshOut.reduce<(typeof out)[number] | null>((best, entry) => (best == null || entry.place < best.place ? entry : best), null);
   const finaleNote = (grid || plazaHud) && finale.caption ? `Final duel: ${finale.caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
   const liveText = [
@@ -713,6 +715,7 @@ function TableShellBody({
                 grid={grid ? gridFocus : undefined}
                 gridFinale={grid ? finale.board : undefined}
                 hubPlace={hubPlace}
+                replay={replay != null}
                 gridHub={grid && hubOn ? (place) => (
                   <PhaseHub
                     variant={place === "band" ? "band" : "table"}
@@ -809,11 +812,11 @@ function TableShellBody({
                     {out.length > 0 ? (
                       <ul className={styles.outNote} aria-label="Duelists who left">
                         {out.map((entry) => (
-                          <li key={entry.seat} data-testid="seat-out" data-you={entry.seat === viewerSeat} data-fresh={outAtOpen.has(entry.seat) ? undefined : "true"} style={{ "--seat-main": toneOf(entry.seat).main, "--seat-ink": toneOf(entry.seat).ink } as CSSProperties}>
+                          <li key={entry.seat} data-testid="seat-out" data-you={!replay && entry.seat === viewerSeat} data-fresh={outAtOpen.has(entry.seat) ? undefined : "true"} style={{ "--seat-main": toneOf(entry.seat).main, "--seat-ink": toneOf(entry.seat).ink } as CSSProperties}>
                             <i aria-hidden="true" />
-                            {entry.seat === viewerSeat ? "You are out" : `${nameOf(entry.seat)} is out`}
+                            {!replay && entry.seat === viewerSeat ? "You are out" : `${nameOf(entry.seat)} is out`}
                             <b>{placeLabel(entry.place)}</b>
-                            {entry.seat === viewerSeat ? <em data-testid="self-eliminated" aria-hidden="true">You are eliminated.</em> : null}
+                            {!replay && entry.seat === viewerSeat ? <em data-testid="self-eliminated" aria-hidden="true">You are eliminated.</em> : null}
                           </li>
                         ))}
                       </ul>
@@ -892,8 +895,8 @@ function TableShellBody({
             ...hudMasterProps(
               { legalKeys: controller.legalKeys, selectedKeys: controller.selectedKeys, canAct, prompt, onAnswer: controller.onAnswer, onActivate: controller.onActivate, onHoverCard: controller.onHoverCard },
               engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
-              !spectator,
-              spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
+              !spectator && !replay,
+              spectator || replay ? `${nameOf(viewerSeat ?? layout.anchorSeat)}'s Master` : "Your Master",
             ),
             wide: plazaHud,
           } : null}

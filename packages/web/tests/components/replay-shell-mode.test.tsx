@@ -235,6 +235,24 @@ describe.each(CASES.filter(([, , kind]) => kind === "table"))("%s loss history",
   });
 });
 
+describe.each(CASES)("%s first-person words", (_name, set, kind) => {
+  it("never calls the camera seat \"you\", even when that seat is out", () => {
+    const stateId = kind === "table" ? "elimination" : "main";
+    const state = set.states[stateId as keyof typeof set.states];
+    const outSeat = state.room.engine!.seats.find((seat) => seat.eliminated)?.seat ?? 1;
+    const view = render(<View set={set} kind={kind} id={stateId} tweak={(controller) => ({ ...controller, viewerSeat: outSeat })} />);
+    const text = view.container.textContent ?? "";
+    expect(text).not.toMatch(/You are|Your Master|Your turn|\(you\)|· you\b/);
+    expect(view.container.querySelector("[data-testid='self-eliminated'], [data-testid='spectating-chip']")).toBeNull();
+    expect(view.container.querySelector("[data-you='true']")).toBeNull();
+    expect(view.container.querySelector("[role='status']")?.textContent ?? "").not.toMatch(/You are/);
+    // The camera buttons name every seat, the anchor one too.
+    const names = [...view.container.querySelectorAll("button, [data-seat-btn] span, [data-camera-name]")].map((node) => (node.textContent ?? "").replace(/^\d/, "").trim());
+    expect(names.some((label) => /^You(?![a-z])/.test(label))).toBe(false);
+    if (kind === "tag") expect(view.container.querySelectorAll("[data-seat-btn]").length).toBe(4);
+  });
+});
+
 describe("FFA3 camera across a seek", () => {
   it("keeps the camera the viewer chose and never moves it by itself", () => {
     const [, set, kind] = CASES[0];
