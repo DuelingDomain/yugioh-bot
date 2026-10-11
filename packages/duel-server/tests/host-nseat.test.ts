@@ -763,9 +763,7 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
       expect(existsSync(join(folder, "room-setup.json"))).toBe(true);
       const roomSetupText = readFileSync(join(folder, "room-setup.json"), "utf8");
       expect(JSON.parse(roomSetupText).setup).toEqual(savedSetup);
-      for (const text of [roomSetupText, readFileSync(join(folder, "journal.jsonl"), "utf8")]) {
-        expect(text).not.toMatch(/replayFork|ownerUserId|private-partial-source|prefixCount|prefixHash/);
-      }
+      // host-report-replay.test.ts proves redaction with real fork metadata in the report input.
       expect(existsSync(join(folder, "engine-diagnostics.json"))).toBe(true);
       expect(JSON.parse(readFileSync(join(folder, "debug-trace.json"), "utf8")).worker.busy).toBe(true);
       expect(JSON.parse(readFileSync(join(folder, "partial.json"), "utf8"))).toMatchObject({ partial: true, slug });
