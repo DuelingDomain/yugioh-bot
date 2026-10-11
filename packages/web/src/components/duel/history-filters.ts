@@ -32,8 +32,11 @@ function read(source: ParamSource, key: string): string {
   return (Array.isArray(value) ? value[0] : value) ?? "";
 }
 
+const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
+
+/** Accepts only the text a `datetime-local` input can hold ("2026-10-10T21:42"). Anything else means no filter. */
 function validLocalDate(text: string): string {
-  return text && !Number.isNaN(new Date(text).getTime()) ? text : "";
+  return LOCAL_DATE.test(text) && !Number.isNaN(new Date(text).getTime()) ? text : "";
 }
 
 /** Reads the scope and filters from page search params. Unknown or bad values fall back to "no filter". */
@@ -76,7 +79,8 @@ export function historyQuery(scope: DuelHistoryScope, filters: HistoryFilters = 
   if (from) query.set("from", from);
   if (to) query.set("to", to);
   if (filters.format) query.set("format", filters.format);
-  if (filters.status) query.set("status", filters.status);
+  // The server applies the status filter only for an admin on All, so Mine never sends it.
+  if (filters.status && scope === "all") query.set("status", filters.status);
   if (filters.q.trim()) query.set("q", filters.q.trim());
   if (filters.card.trim()) query.set("card", filters.card.trim());
   if (cursor) query.set("cursor", cursor);
@@ -91,10 +95,48 @@ export function lobbySearch(history: boolean, scope: DuelHistoryScope, filters: 
   if (filters.from) query.set("from", filters.from);
   if (filters.to) query.set("to", filters.to);
   if (filters.format) query.set("format", filters.format);
-  if (filters.status) query.set("status", filters.status);
+  if (filters.status && scope === "all") query.set("status", filters.status);
   if (filters.q.trim()) query.set("q", filters.q.trim());
   if (filters.card.trim()) query.set("card", filters.card.trim());
   return `?${query.toString()}`;
+}
+
+const LOBBY_PARAMS = ["view", "scope", "from", "to", "format", "status", "q", "card"];
+
+/**
+ * The page search after the lobby writes its own params: other params of the page (such as a future `?invite=`)
+ * stay as they are, and the Live view removes only the params the lobby owns.
+ */
+export function mergeLobbySearch(current: string, history: boolean, scope: DuelHistoryScope, filters: HistoryFilters): string {
+  const next = new URLSearchParams(lobbySearch(history, scope, filters));
+  for (const [key, value] of new URLSearchParams(current)) {
+    if (!LOBBY_PARAMS.includes(key)) next.append(key, value);
+  }
+  const text = next.toString();
+  return text ? `?${text}` : "";
+}
+
+const HISTORY_SEARCH_STORAGE = "duels.history-search";
+
+/** Remembers the last Match history search so the replay page can link back to the same filters. */
+export function rememberHistorySearch(search: string): void {
+  try {
+    window.sessionStorage.setItem(HISTORY_SEARCH_STORAGE, search);
+  } catch {
+    // Storage can be blocked; the link then goes to the plain Match history.
+  }
+}
+
+/** Link to Match history with the filters the user last used. Bad stored text falls back to the plain view. */
+export function savedHistoryHref(): string {
+  try {
+    const stored = window.sessionStorage.getItem(HISTORY_SEARCH_STORAGE);
+    if (!stored) return "/duels?view=history";
+    const { scope, filters } = parseHistoryParams(new URLSearchParams(stored));
+    return `/duels${lobbySearch(true, scope, filters)}`;
+  } catch {
+    return "/duels?view=history";
+  }
 }
 
 function pad(value: number): string {
@@ -111,8 +153,8 @@ export function presetRange(preset: HistoryPreset, now: Date = new Date()): Pick
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (preset === "today") return { from: toLocalInput(startOfToday), to: "" };
   if (preset === "yesterday") {
-    const start = new Date(startOfToday);
-    start.setDate(start.getDate() - 1);
+    // Build the date from its parts: setDate on a gap day (no local midnight) would keep the 01:00 hour.
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
     return { from: toLocalInput(start), to: toLocalInput(new Date(startOfToday.getTime() - 60_000)) };
   }
   const start = new Date(now);

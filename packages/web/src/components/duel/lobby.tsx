@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { ArrowRight, Check, ChevronDown, Copy, Eye, Lock, Plus, Swords, Users } from "lucide-react";
 import { isCustomDomain, type DuelFormat, type DuelHistoryScope, type DuelListItem } from "@yugidraft/shared/duels";
@@ -15,7 +15,7 @@ import {
   type DuelListPage,
 } from "./api";
 import {
-  EMPTY_HISTORY_FILTERS, hasHistoryFilters, lobbySearch, presetRange,
+  EMPTY_HISTORY_FILTERS, hasHistoryFilters, mergeLobbySearch, parseHistoryParams, presetRange, rememberHistorySearch,
   type HistoryFilters, type HistoryPreset, type HistoryStatus,
 } from "./history-filters";
 import { isNotableSeries, SeriesBadges } from "./series-banner";
@@ -97,26 +97,30 @@ function seatLine(duel: DuelListItem, seat: HistorySeat): string {
 
 /** Small button that copies the duel slug for bug reports. */
 function CopySlug({ slug }: { slug: string }) {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   async function copy() {
+    let next: "copied" | "failed" = "copied";
     try {
       await navigator.clipboard.writeText(slug);
     } catch {
-      return;
+      next = "failed";
     }
-    setCopied(true);
+    setState(next);
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), 2000);
+    timer.current = setTimeout(() => setState("idle"), 2000);
   }
+  const text = state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : "Copy";
   return (
     <span className={styles.slug}>
       <code>{slug}</code>
-      <button type="button" className={styles.copyBtn} onClick={() => void copy()} aria-label={`Copy duel id ${slug}`}>
-        {copied ? <Check size={13} strokeWidth={1.8} aria-hidden /> : <Copy size={13} strokeWidth={1.6} aria-hidden />}
-        {copied ? "Copied" : "Copy"}
+      <button type="button" className={styles.copyBtn} onClick={() => void copy()}>
+        {state === "copied" ? <Check size={13} strokeWidth={1.8} aria-hidden /> : <Copy size={13} strokeWidth={1.6} aria-hidden />}
+        {text}
+        {state === "idle" ? <>{" "}<span className={ui.srOnly}>duel id {slug}</span></> : null}
       </button>
+      <span role="status" className={ui.srOnly}>{state === "idle" ? "" : text}</span>
     </span>
   );
 }
@@ -126,12 +130,31 @@ function isOrganizer(duel: DuelListItem): boolean {
   return mine != null && duel.organizerPlayerId === mine.playerId;
 }
 
+const NO_RESULT = "—";
+
+/**
+ * The result text of a finished row, from the status and the seat results.
+ * Cancelled and interrupted duels have no result text: the status chip says it.
+ */
 function outcomeLabel(duel: DuelListItem): string {
-  if (duel.status === "interrupted") return "Interrupted";
-  if (duel.winnerSeat == null) return "Draw";
-  if (duel.mySeat != null) return duel.winnerSeat === duel.mySeat ? "Won" : "Lost";
-  const winner = duel.seats.find((seat) => seat.seat === duel.winnerSeat);
-  return `${winner?.displayName ?? `Seat ${duel.winnerSeat + 1}`} won`;
+  if (duel.status === "cancelled" || duel.status === "interrupted") return "";
+  const mine = duel.mySeat != null ? duel.seats.find((seat) => seat.seat === duel.mySeat) : undefined;
+  if (mine?.result) return SEAT_RESULT[mine.result];
+  const winners = duel.seats.filter((seat) => seat.result === "win");
+  if (winners.length > 0) {
+    // Tag: the whole team won, not only one player.
+    const team = winners[0].team;
+    if (duel.format === "tag" && team != null) return `Team ${team + 1} won`;
+    return `${winners.map((seat) => seat.displayName).join(" and ")} won`;
+  }
+  if (duel.seats.some((seat) => seat.result === "draw")) return "Draw";
+  // Older rows have no seat results: use the winner seat when there is one.
+  if (duel.winnerSeat != null) {
+    if (duel.mySeat != null) return duel.winnerSeat === duel.mySeat ? "Won" : "Lost";
+    const winner = duel.seats.find((seat) => seat.seat === duel.winnerSeat);
+    return `${winner?.displayName ?? `Seat ${duel.winnerSeat + 1}`} won`;
+  }
+  return NO_RESULT;
 }
 
 function outcomeTone(label: string): string {
@@ -267,10 +290,10 @@ function HistoryRow({ duel }: { duel: DuelListItem }) {
   const engine = engineLabel(duel.engine);
   const length = duel.durationMs != null ? formatDuration(duel.durationMs) : "";
   const turns = duel.turnCount != null ? `${duel.turnCount} ${duel.turnCount === 1 ? "turn" : "turns"}` : "";
-  // Older duels have no start time: show only the end (or creation) time, and the server sends no duration.
+  // Older duels have no start time and no duration. The header time already shows their end (or creation) time.
   const range = started
     ? ended ? `${formatDateTime(started)} to ${sameDay(started, ended) ? formatTime(ended) : formatDateTime(ended)}` : `Started ${formatDateTime(started)}`
-    : ended ? `Ended ${formatDateTime(ended)}` : created ? `Created ${formatDateTime(created)}` : "";
+    : "";
   return (
     <li className={cx(styles.row, styles.historyRow)}>
       <div className={styles.rowMain}>
@@ -285,8 +308,14 @@ function HistoryRow({ duel }: { duel: DuelListItem }) {
         </span>
         <p className={styles.versus}>
           {duel.mySeat != null ? "vs " : ""}{opponents(duel)}
-          <span className={styles.dot} aria-hidden>·</span>
-          <span className={cx(styles.outcome, outcomeTone(outcome))}>{outcome}</span>
+          {outcome ? (
+            <>
+              <span className={styles.dot} aria-hidden>·</span>
+              <span className={cx(styles.outcome, outcomeTone(outcome))}>
+                {outcome === NO_RESULT ? <><span aria-hidden>{NO_RESULT}</span><span className={ui.srOnly}>No result</span></> : outcome}
+              </span>
+            </>
+          ) : null}
           {duel.resultReason ? <span className={styles.reason}> · {duel.resultReason}</span> : null}
         </p>
         <button type="button" className={styles.detailsToggle} aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -337,20 +366,33 @@ const PRESETS: readonly { value: HistoryPreset; label: string }[] = [
   { value: "week", label: "Last 7 days" },
 ];
 
-function HistoryFilterBar({ canSeeAll, filters, q, card, onFilters, onQ, onCard, onClear }: {
-  /** Status and card filters work only for admins; the server ignores them for members. */
+function HistoryFilterBar({ canSeeAll, showStatus, filters, q, card, rangeError, hideClear, onFilters, onQ, onCard, onClear }: {
+  /** The card filter works only for admins; the server ignores it for members. */
   canSeeAll: boolean;
+  /** The status filter works only for an admin on All; the server ignores it elsewhere. */
+  showStatus: boolean;
   filters: HistoryFilters;
   q: string;
   card: string;
+  rangeError: boolean;
+  /** The empty state already has its own Clear filters button. */
+  hideClear: boolean;
   onFilters: (patch: Partial<HistoryFilters>) => void;
   onQ: (value: string) => void;
   onCard: (value: string) => void;
   onClear: () => void;
 }) {
-  const active = hasHistoryFilters(filters) || q !== "" || card !== "";
+  const active = hasHistoryFilters({ ...filters, status: showStatus ? filters.status : "" }) || q !== "" || card !== "";
+  // The chip the user clicked stays marked while the range is unchanged ("Last 7 days" moves with the clock).
+  const [applied, setApplied] = useState<{ value: HistoryPreset; from: string; to: string } | null>(null);
+  const isPressed = (value: HistoryPreset): boolean => {
+    if (applied?.value === value && applied.from === filters.from && applied.to === filters.to) return true;
+    const range = presetRange(value);
+    return value !== "week" && range.from === filters.from && range.to === filters.to;
+  };
   return (
-    <form className={styles.filters} role="search" aria-label="Filter match history" onSubmit={(event) => event.preventDefault()}>
+    <form className={cx(styles.filters, !showStatus && styles.noStatus, !canSeeAll && styles.noCard)} role="search"
+      aria-label="Filter match history" onSubmit={(event) => event.preventDefault()}>
       <label className={styles.fieldFrom}>
         <span className={ui.label}>From</span>
         <input type="datetime-local" className={cx(ui.input, styles.dateInput)} value={filters.from}
@@ -359,11 +401,14 @@ function HistoryFilterBar({ canSeeAll, filters, q, card, onFilters, onQ, onCard,
       <label className={styles.fieldTo}>
         <span className={ui.label}>To</span>
         <input type="datetime-local" className={cx(ui.input, styles.dateInput)} value={filters.to}
-          min={filters.from || undefined} onChange={(event) => onFilters({ to: event.target.value })} />
+          min={filters.from || undefined} aria-invalid={rangeError || undefined}
+          aria-describedby={rangeError ? "history-range-error" : undefined}
+          onChange={(event) => onFilters({ to: event.target.value })} />
       </label>
+      {rangeError ? <p id="history-range-error" role="alert" className={cx(ui.alert, styles.rangeError)}>From must be before To.</p> : null}
       <SheetSelect className={styles.fieldFormat} label="Format" value={filters.format}
         choices={FORMAT_CHOICES} onChange={(format) => onFilters({ format })} />
-      {canSeeAll ? (
+      {showStatus ? (
         <SheetSelect className={styles.fieldFormat} label="Status" value={filters.status}
           choices={STATUS_CHOICES} onChange={(status) => onFilters({ status })} />
       ) : null}
@@ -380,13 +425,21 @@ function HistoryFilterBar({ canSeeAll, filters, q, card, onFilters, onQ, onCard,
         </label>
       ) : null}
       <div className={styles.presets} role="group" aria-label="Quick date ranges">
-        {PRESETS.map((preset) => (
-          <button key={preset.value} type="button" className={cx(ui.chip, styles.preset)}
-            onClick={() => onFilters(presetRange(preset.value))}>
-            {preset.label}
-          </button>
-        ))}
-        {active ? <SheetButton kind="quiet" size="sm" onClick={onClear}>Clear filters</SheetButton> : null}
+        {PRESETS.map((preset) => {
+          const pressed = isPressed(preset.value);
+          return (
+            <button key={preset.value} type="button" className={cx(ui.chip, styles.preset, pressed && ui.chipAccent)}
+              aria-pressed={pressed}
+              onClick={() => {
+                const range = presetRange(preset.value);
+                setApplied({ value: preset.value, ...range });
+                onFilters(range);
+              }}>
+              {preset.label}
+            </button>
+          );
+        })}
+        {active && !hideClear ? <SheetButton kind="quiet" size="sm" onClick={onClear}>Clear filters</SheetButton> : null}
       </div>
     </form>
   );
@@ -394,25 +447,44 @@ function HistoryFilterBar({ canSeeAll, filters, q, card, onFilters, onQ, onCard,
 
 type MorePages = { key: string; items: DuelListItem[]; cursor: string | null; loading: boolean; error: string | null };
 
-export function DuelLobby({ initialView = "live", initialScope = "mine", initialFilters = EMPTY_HISTORY_FILTERS }: {
+/** The page URL is the source of the first view, scope and filters, so Back from a replay restores what the user had. */
+export function DuelLobby({ initialView, initialScope, initialFilters }: {
+  /** Overrides the view in the URL. */
   initialView?: DuelListView;
   initialScope?: DuelHistoryScope;
   initialFilters?: HistoryFilters;
 }) {
-  const [history, setHistory] = useState(initialView === "history");
-  const [scope, setScope] = useState<DuelHistoryScope>(initialScope);
-  const [filters, setFilters] = useState<HistoryFilters>(initialFilters);
-  const [qText, setQText] = useState(initialFilters.q);
-  const [cardText, setCardText] = useState(initialFilters.card);
+  const searchParams = useSearchParams();
+  const [initial] = useState(() => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    const parsed = parseHistoryParams(params);
+    return {
+      view: initialView ?? (params.get("view") === "history" ? "history" : "live"),
+      scope: initialScope ?? parsed.scope,
+      filters: initialFilters ?? parsed.filters,
+    };
+  });
+  const [history, setHistory] = useState(initial.view === "history");
+  const [scope, setScope] = useState<DuelHistoryScope>(initial.scope);
+  const [filters, setFilters] = useState<HistoryFilters>(initial.filters);
+  const [qText, setQText] = useState(initial.filters.q);
+  const [cardText, setCardText] = useState(initial.filters.card);
   const [more, setMore] = useState<MorePages | null>(null);
   const [closing, setClosing] = useState<DuelListItem | null>(null);
   const [closeBusy, setCloseBusy] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
+  const moreWrap = useRef<HTMLDivElement | null>(null);
+  const endNote = useRef<HTMLParagraphElement | null>(null);
+  const focusEnd = useRef(false);
   const listKey = history ? duelHistoryKey(scope, filters) : DUEL_LIST_KEY;
+  // A range that ends before it starts would only get a 400 from the server, so no request goes out.
+  const rangeError = history && filters.from !== "" && filters.to !== ""
+    && new Date(filters.from).getTime() > new Date(filters.to).getTime();
+  // History pages are loaded by hand: a refresh on focus or reconnect would move rows between page 1 and the later pages.
   const { data, error, isLoading, mutate } = useSWR(
-    listKey,
+    rangeError ? null : listKey,
     () => listDuels(history, scope, filters),
-    { refreshInterval: history ? 0 : 1000, revalidateOnFocus: true },
+    { refreshInterval: history ? 0 : 1000, revalidateOnFocus: !history, revalidateOnReconnect: !history },
   );
 
   // Remembered between queries so the admin-only boxes do not blink while a new page loads.
@@ -438,21 +510,40 @@ export function DuelLobby({ initialView = "live", initialScope = "mine", initial
   // A new query starts again from its first page.
   useEffect(() => { setMore(null); }, [listKey]);
 
-  // Keep the page URL in step so a filtered list can be bookmarked.
+  // Keep the page URL in step so a filtered list can be bookmarked. The state argument is null so that Next
+  // takes over the new URL (the old history state would make it skip the update). Other params stay.
   useEffect(() => {
-    const url = `${window.location.pathname}${lobbySearch(history, scope, filters)}`;
-    if (url !== `${window.location.pathname}${window.location.search}`) window.history.replaceState(window.history.state, "", url);
+    const search = mergeLobbySearch(window.location.search, history, scope, filters);
+    if (search !== window.location.search) window.history.replaceState(null, "", `${window.location.pathname}${search}`);
+    if (history) rememberHistorySearch(search);
   }, [history, scope, filters]);
 
   const pages = history && more?.key === listKey ? more : null;
   const cursor = pages ? pages.cursor : data?.nextCursor ?? null;
-  const firstSlugs = new Set((data?.duels ?? []).map((duel) => duel.slug));
-  const duels = [...(data?.duels ?? []), ...(pages?.items ?? []).filter((duel) => !firstSlugs.has(duel.slug))];
-  const filtered = hasHistoryFilters(filters);
+  const seen = new Set<string>();
+  const duels = [...(data?.duels ?? []), ...(pages?.items ?? [])].filter((duel) => {
+    if (seen.has(duel.slug)) return false;
+    seen.add(duel.slug);
+    return true;
+  });
+  // The Status filter counts only where the server applies it (an admin on All).
+  const showStatus = canSeeAll && scope === "all";
+  const filtered = hasHistoryFilters({ ...filters, status: showStatus ? filters.status : "" });
+  const emptyFiltered = history && !rangeError && !isLoading && data != null && duels.length === 0
+    && (filtered || qText !== "" || cardText !== "");
+
+  // When the last page has loaded the button is gone: move focus to the note that takes its place.
+  useEffect(() => {
+    if (!cursor && focusEnd.current && endNote.current) {
+      focusEnd.current = false;
+      endNote.current.focus();
+    }
+  }, [cursor, pages?.items.length]);
 
   async function loadMore() {
     if (!history || !cursor || pages?.loading) return;
     const key = listKey;
+    focusEnd.current = document.activeElement != null && document.activeElement === moreWrap.current?.querySelector("button");
     setMore((current) => ({ ...(current?.key === key ? current : { key, items: [], cursor }), loading: true, error: null }));
     try {
       const page = await listDuels(true, scope, filters, cursor);
@@ -517,7 +608,7 @@ export function DuelLobby({ initialView = "live", initialScope = "mine", initial
           <div className={styles.controls}>
             {history ? (
               <>
-                {canSeeAll ? <span className={styles.adminHint}>Admin: all duels, private included</span> : null}
+                {showStatus ? <span className={styles.adminHint}>Admin: all duels, private included</span> : null}
                 <SheetSegmented label="History scope" hideLabel value={scope}
                   choices={[{ value: "mine", label: "Mine" }, { value: "all", label: "All" }] as const}
                   onChange={setScope} />
@@ -534,7 +625,8 @@ export function DuelLobby({ initialView = "live", initialScope = "mine", initial
             : "Open tables and duels in progress. Join takes an open seat; Watch enters as a spectator. Finished duels move to Match history."}
         </p>
         {history ? (
-          <HistoryFilterBar canSeeAll={canSeeAll} filters={filters} q={qText} card={cardText}
+          <HistoryFilterBar canSeeAll={canSeeAll} showStatus={showStatus} filters={filters} q={qText} card={cardText}
+            rangeError={rangeError} hideClear={emptyFiltered}
             onFilters={(patch) => setFilters((current) => ({ ...current, ...patch }))}
             onQ={setQText} onCard={setCardText} onClear={clearFilters} />
         ) : null}
@@ -549,7 +641,7 @@ export function DuelLobby({ initialView = "live", initialScope = "mine", initial
           <p className={styles.reconnect}>Connection dropped. Reconnecting…</p>
         ) : null}
         {!isLoading && data && duels.length === 0 ? (
-          history && (filtered || qText !== "" || cardText !== "") ? (
+          emptyFiltered ? (
             <div className={styles.empty}>
               <p>No duels match these filters.</p>
               <SheetButton size="sm" onClick={clearFilters}>Clear filters</SheetButton>
@@ -568,9 +660,19 @@ export function DuelLobby({ initialView = "live", initialScope = "mine", initial
         ) : null}
         {history && pages?.error ? <p className={ui.alert}>{pages.error}</p> : null}
         {history && cursor ? (
-          <div className={styles.more}>
-            <SheetButton kind="secondary" loading={pages?.loading === true} onClick={() => void loadMore()}>Load more</SheetButton>
+          <div ref={moreWrap} className={styles.more}>
+            {/* aria-disabled, not disabled: the button keeps keyboard focus while the next page loads. */}
+            <SheetButton kind="secondary" aria-disabled={pages?.loading === true || undefined}
+              aria-busy={pages?.loading === true || undefined} onClick={() => void loadMore()}>
+              {pages?.loading ? "Loading…" : "Load more"}
+            </SheetButton>
           </div>
+        ) : null}
+        {history && pages && !cursor && !pages.loading ? (
+          <p ref={endNote} tabIndex={-1} className={cx(ui.hint, styles.endNote)}>All duels are loaded.</p>
+        ) : null}
+        {history ? (
+          <p role="status" className={ui.srOnly}>{duels.length > 0 ? `Showing ${duels.length} ${duels.length === 1 ? "duel" : "duels"}${cursor ? ", more available" : ""}` : ""}</p>
         ) : null}
       </section>
 
