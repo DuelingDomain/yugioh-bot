@@ -54,7 +54,7 @@ export function scenariosEnabled(): boolean {
 }
 
 export function scenariosOffResponse(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json({ error: "Not found" }, { status: 404, headers: { "cache-control": "private, no-store" } });
 }
 
 export type DuelActor =
@@ -63,10 +63,10 @@ export type DuelActor =
 
 export async function requireDuelActor(): Promise<DuelActor> {
   const actor = await requireWebAccess();
-  if (!actor.ok) return actor;
+  if (!actor.ok) { actor.response.headers.set("cache-control", "private, no-store"); return actor; }
   const guildId = env.discordGuildId;
   if (!guildId) {
-    return { ok: false, response: NextResponse.json({ error: "Guild is not configured" }, { status: 500 }) };
+    return { ok: false, response: NextResponse.json({ error: "Guild is not configured" }, { status: 500, headers: { "cache-control": "private, no-store" } }) };
   }
   const db = getDb();
   const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
@@ -86,10 +86,10 @@ export function duelErrorResponse(error: unknown) {
     error instanceof TournamentDuelError ||
     error instanceof SavedDeckServiceError
   ) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
+    return NextResponse.json({ error: error.message }, { status: error.status, headers: { "cache-control": "private, no-store" } });
   }
   console.error("[api/duels]", error);
-  return NextResponse.json({ error: "Failed to process duel request" }, { status: 500 });
+  return NextResponse.json({ error: "Failed to process duel request" }, { status: 500, headers: { "cache-control": "private, no-store" } });
 }
 
 /** Redact only when internal duel data leaves the web server for a viewer. */
@@ -175,7 +175,7 @@ export async function callDuelHost(input: {
   const failure = (body: ReturnType<typeof hostErrorBody>, status: number): NextResponse => NextResponse.json({
     ...body, ...(replayOp && !body.code && status >= 500 ? { code: "ENGINE_BUSY" } : {}),
   }, { status: replayOp && status >= 500 ? 503 : status,
-    ...(replayOp ? { headers: { "cache-control": "private, no-store" } } : {}) });
+    headers: { "cache-control": "private, no-store" } });
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
   if (configProblem) {

@@ -23,7 +23,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     command = (await request.json()) as DuelCommand;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400, headers: { "cache-control": "private, no-store" } });
   }
 
   const result = await callDuelHost({

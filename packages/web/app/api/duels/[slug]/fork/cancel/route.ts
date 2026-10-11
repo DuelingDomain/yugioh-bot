@@ -14,6 +14,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   if (!result.ok) return result.response;
   const current = await requireReplayForkActor(slug);
   if (!current.ok) return current.response;
-  if (current.userId !== actor.userId) return NextResponse.json({ error: "Replay access changed", code: "ACCESS_DENIED" }, { status: 404 });
+  if (current.userId !== actor.userId) return NextResponse.json({ error: "Replay access changed", code: "ACCESS_DENIED" }, { status: 404, headers: { "cache-control": "private, no-store" } });
   return NextResponse.json(result.data, { headers: { "cache-control": "private, no-store" } });
 }

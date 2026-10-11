@@ -34,11 +34,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400, headers: { "cache-control": "private, no-store" } });
   }
   const note = body && typeof body === "object" ? (body as { note?: unknown }).note : undefined;
   if (typeof note !== "string" || note.length > MAX_NOTE) {
-    return NextResponse.json({ error: `note must be text of at most ${MAX_NOTE} characters` }, { status: 400 });
+    return NextResponse.json({ error: `note must be text of at most ${MAX_NOTE} characters` }, { status: 400, headers: { "cache-control": "private, no-store" } });
   }
 
   let fork = false;
@@ -59,7 +59,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   }
   const data = result.data as { path?: unknown; dir?: unknown; folder?: unknown; partial?: unknown } | null;
   const path = [data?.path, data?.folder, data?.dir].find((v): v is string => typeof v === "string");
-  if (!path) return NextResponse.json({ error: "The engine did not return a report folder" }, { status: 502 });
+  if (!path) return NextResponse.json({ error: "The engine did not return a report folder" }, { status: 502, headers: { "cache-control": "private, no-store" } });
   const attachments = body && typeof body === "object" ? (body as { attachments?: unknown }).attachments : undefined;
   let written: "written" | "none" | "too-large" | "failed" = "none";
   if (attachments !== undefined && attachments !== null) {
@@ -77,5 +77,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     }
   }
   // The host sets `partial` when the core did not answer in time and it wrote the folder without the core.
-  return NextResponse.json(data?.partial === true ? { path, attachments: written, partial: true } : { path, attachments: written });
+  return NextResponse.json(data?.partial === true ? { path, attachments: written, partial: true } : { path, attachments: written }, { headers: { "cache-control": "private, no-store" } });
 }

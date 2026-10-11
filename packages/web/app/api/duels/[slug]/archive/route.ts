@@ -28,5 +28,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     try { actor.duels.room(slug, actor.guildId, actor.playerId); }
     catch (error) { return duelErrorResponse(error); }
   }
-  return NextResponse.json(result.data);
+  return NextResponse.json(result.data, fork ? { headers: { "cache-control": "private, no-store" } } : undefined);
 }
