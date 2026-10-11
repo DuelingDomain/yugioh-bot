@@ -46,8 +46,10 @@ Files: `packages/duel-server/src/replay-fork.ts`, `packages/duel-server/src/host
 
 ## Verification and delivery
 
+Code review identified that the shared proxy intercepts anonymous requests before route handlers run. Add an endpoint-specific `private, no-store` header to the fork-list 401 in `packages/web/proxy.ts`, with failing/passing checks in `packages/web/tests/proxy.test.ts` for Clerk and E2E modes. This completes the endpoint's cache contract before the final push.
+
 - Engine command (from `packages/duel-server`): `PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH DUEL_REQUIRE_CORES=1 prlimit --core=0 -- node ../../node_modules/vitest/vitest.mjs run tests/host-replay-fork.test.ts --config vitest.config.ts --testTimeout=15000`.
-- Web command (from checkout root): `PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH prlimit --core=0 -- node node_modules/vitest/vitest.mjs run packages/web/tests/replay-fork-routes.test.ts packages/web/tests/duel-host-errors.test.ts --config packages/web/vitest.config.ts`.
+- Web command (from checkout root): `PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH prlimit --core=0 -- node node_modules/vitest/vitest.mjs run packages/web/tests/replay-fork-routes.test.ts packages/web/tests/duel-host-errors.test.ts packages/web/tests/proxy.test.ts --config packages/web/vitest.config.ts`.
 - [ ] Review the complete diff and obtain code review; address material issues and rerun only affected touched tests if needed.
 - [ ] Confirm engine `.build` output is removed, no components changed, clean working tree and exact branch.
 - [ ] Push `replay/fix-engine` to `origin` without a PR; verify the remote full SHA matches local HEAD.
