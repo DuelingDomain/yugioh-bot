@@ -84,7 +84,11 @@ describe("DuelReplayView transport", () => {
     const previous = screen.getByRole("button", { name: "Previous move" }) as HTMLButtonElement;
     const next = screen.getByRole("button", { name: "Next move" }) as HTMLButtonElement;
     const lastButton = screen.getByRole("button", { name: "Last move" }) as HTMLButtonElement;
-    expect(first.disabled && previous.disabled).toBe(true);
+    expect(first.getAttribute("aria-disabled") === "true" && previous.getAttribute("aria-disabled") === "true").toBe(true);
+    // Not `disabled`: a focused step button keeps keyboard focus at the end of the replay and does nothing.
+    expect(first.disabled || previous.disabled).toBe(false);
+    fireEvent.click(previous);
+    expect(screen.getByText("Move 0 / 3")).toBeTruthy();
     fireEvent.click(next);
     expect(screen.getByText("Move 1 / 3")).toBeTruthy();
     fireEvent.click(next);
@@ -93,7 +97,11 @@ describe("DuelReplayView transport", () => {
     expect(screen.getByText("Move 3 / 3")).toBeTruthy();
     expect(screen.getByText("Final result")).toBeTruthy();
     expect(screen.getByText("Ada wins")).toBeTruthy();
-    expect(next.disabled && lastButton.disabled).toBe(true);
+    expect(next.getAttribute("aria-disabled") === "true" && lastButton.getAttribute("aria-disabled") === "true").toBe(true);
+    next.focus();
+    fireEvent.click(next);
+    expect(screen.getByText("Move 3 / 3")).toBeTruthy();
+    expect(document.activeElement).toBe(next);
     fireEvent.click(previous);
     expect(screen.getByText("Move 2 / 3")).toBeTruthy();
     expect(screen.queryByText("Ada wins")).toBeNull();
@@ -232,7 +240,37 @@ describe("DuelReplayView camera and card visibility", () => {
     expect(screen.getByTestId("bottom-hand").textContent).toBe("100,101");
   });
 
-  it("never shows the old card view while the public one loads", async () => {
+  it("says the selected move in one polite line, only when the viewer steps or pauses", async () => {
+    stubServer(() => json(replayV2()));
+    await open();
+    const status = () => document.querySelector("[data-replay-status]") as HTMLElement;
+    expect(status().getAttribute("aria-live")).toBe("polite");
+    expect(status().textContent).toBe("Move 0 of 3. Opening board");
+    fireEvent.click(screen.getByRole("button", { name: "Next move" }));
+    await waitFor(() => expect(status().textContent).toMatch(/^Move 1 of 3\. /));
+    // While autoplay runs the line is empty at once, so it does not read out every move.
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    expect(status().textContent).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    await waitFor(() => expect(status().textContent).toMatch(/^Move \d of 3\. /));
+  });
+
+  it("reads out only the move a slider drag stops on, not every move it passes", async () => {
+    stubServer(() => json(replayV2()));
+    await open();
+    const status = () => document.querySelector("[data-replay-status]") as HTMLElement;
+    const lines: string[] = [];
+    const watcher = new MutationObserver(() => lines.push(status().textContent ?? ""));
+    watcher.observe(status(), { childList: true, characterData: true, subtree: true });
+    const slider = screen.getByRole("slider", { name: "Replay position" });
+    for (const value of ["1", "2", "3"]) fireEvent.change(slider, { target: { value } });
+    expect(status().textContent).toBe("Move 0 of 3. Opening board");
+    await waitFor(() => expect(status().textContent).toMatch(/^Move 3 of 3\. /));
+    watcher.disconnect();
+    expect(lines).toHaveLength(1);
+  });
+
+  it("keeps the table mounted but hidden and inert while the public view loads", async () => {
     let release: (() => void) | null = null;
     calls = [];
     vi.stubGlobal("fetch", vi.fn((input: string) => new Promise<Response>((resolve) => {
@@ -243,11 +281,19 @@ describe("DuelReplayView camera and card visibility", () => {
     })));
     await open();
     expect(screen.getByTestId("bottom-hand").textContent).toBe("100,101");
+    const field = screen.getByTestId("field");
     fireEvent.click(screen.getByRole("button", { name: "Public" }));
-    expect(screen.queryByTestId("field")).toBeNull();
+    // The table keeps its place (so a camera or panel choice survives), but the old cards are hidden and cannot be used.
+    const scope = document.querySelector("[data-replay-busy='true']") as HTMLElement;
+    expect(scope).not.toBeNull();
+    expect(scope.contains(field)).toBe(true);
+    expect(scope.hasAttribute("inert")).toBe(true);
+    expect(scope.getAttribute("aria-busy")).toBe("true");
     expect(screen.getByText("Loading replay…")).toBeTruthy();
     await act(async () => { release?.(); });
-    await screen.findByTestId("field");
+    await waitFor(() => expect(document.querySelector("[data-replay-busy]")).toBeNull());
+    expect(screen.queryByText("Loading replay…")).toBeNull();
+    expect(screen.getByTestId("field")).toBe(field);
     expect(screen.getByText("Move 0 / 3")).toBeTruthy();
   });
 

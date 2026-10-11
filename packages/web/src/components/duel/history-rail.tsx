@@ -67,6 +67,7 @@ import {
   type HistoryState,
 } from "./history-model";
 import { categoryForEntry, summonMethodForIcon } from "./log-category";
+import { useForkLabels } from "./table/fork-labels";
 import baseStyles from "./history-rail.module.css";
 import { useSkinStyles } from "./skin";
 
@@ -365,8 +366,9 @@ export function DuelHistoryRail({ events, engine, mySeat, playerName, onInspectC
   const history = ingestHistory(base, events, contextFor(engine));
   if (history !== stored) setStored(history);
 
+  const fork = useForkLabels();
   const seatCount = engine.seats.length;
-  const who = (seat: number | null) => historyWho(seat, mySeat, playerName, seatCount);
+  const who = (seat: number | null) => historyWho(seat, mySeat, playerName, seatCount, fork);
   // Rows only change when an event arrives or a player name does, so key the view on those, not on `who`.
   const names = Array.from({ length: seatCount }, (_, seat) => who(seat)).join("\u0000");
   const view = useMemo(

@@ -36,6 +36,7 @@
  * no burst, no movement and no wire; the state shows through colour and opacity, with a short hold
  * so the order stays readable.
  */
+import { useForkLabels } from "./table/fork-labels";
 import { ChainRoomContext } from "./table/chain-room";
 import { duelFxClock } from "./fx-clock";
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -362,13 +363,15 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const styles = useSkinStyles(baseStyles, "chain");
   const skinned = styles !== baseStyles;
   const named = seatTones != null;
+  // A fork has no "you": the text names every seat; the acting seat keeps its accent.
+  const textSeat = useForkLabels() ? null : mySeat;
   // On Tag the partner's zones read "partner's"; every other seat that is not yours reads by name or "opponent's".
   const partner = table === "tag" && mySeat != null ? partnerSeatOf("tag", mySeat) : null;
   const namedChain = useMemo(() => projectChainNames(chain, seats), [chain, seats]);
   const played = useChainPlayback(events, namedChain, duelKey, reducedMotion);
   // A duel that ends mid-chain sends no "chain-end": nothing is left to resolve, so nothing stays on the board.
   const state = ended ? EMPTY_CHAIN : played;
-  const who = useMemo<Who>(() => ({ mySeat, playerName, named, naming: { named, partner } }), [mySeat, playerName, named, partner]);
+  const who = useMemo<Who>(() => ({ mySeat: textSeat, markSeat: mySeat, playerName, named, naming: { named, partner } }), [textSeat, mySeat, playerName, named, partner]);
 
   // Recap: after "chain-end" the panel keeps the last link and its result for a moment, so the player can read what
   // just happened. The held state is derived while rendering (no frame without a panel between the end and the recap),
@@ -767,13 +770,13 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const prevRef = useRef<ChainState>(EMPTY_CHAIN);
   const [announcement, setAnnouncement] = useState("");
   useEffect(() => {
-    const said = chainAnnouncement(prevRef.current, state, mySeat, playerName, named, partner, (link) => {
+    const said = chainAnnouncement(prevRef.current, state, textSeat, playerName, named, partner, (link) => {
       const outcome = outcomesRef.current.get(link.index);
       return outcome && outcome.tone !== "quiet" ? outcome.lines.join(", ") : null;
     });
     prevRef.current = state;
     if (said != null) setAnnouncement(said);
-  }, [state, mySeat, playerName, named, partner]);
+  }, [state, textSeat, playerName, named, partner]);
 
   // Target names the panel may say: remembered while the target is face-up on the viewer's board, so "Targets Gaia"
   // survives its destruction. Forgotten with the chain.
@@ -841,7 +844,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       data-room-ready={reportChainSize ? "false" : undefined}
       data-open={links.length > 0 ? "true" : "false"} data-recap={recapping ? "true" : undefined} data-reduced={reducedMotion ? "true" : "false"}>
       {links.map((link) => {
-        const callout = chainCallout(link, mySeat, playerName, named);
+        const callout = chainCallout(link, textSeat, playerName, named);
         return (
           <div
             key={link.index}
@@ -927,7 +930,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         {links.length > 0 && !(form !== "strip" && view != null && stripView != null) ? (
           <ol aria-label="Current chain" data-chain-sr-list="true">
             {links.map((link) => (
-              <li key={link.index} data-chain-sr-link={link.index}>{chainLinkLabel(link, mySeat, playerName, true, named, partner)}</li>
+              <li key={link.index} data-chain-sr-link={link.index}>{chainLinkLabel(link, textSeat, playerName, true, named, partner)}</li>
             ))}
           </ol>
         ) : null}

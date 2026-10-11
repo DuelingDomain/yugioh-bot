@@ -439,6 +439,11 @@ describe("history entries: historyWho", () => {
     expect(historyWho(null, 0, names, 2)).toBe("Unknown");
     expect(historyWho(0, null, names, 2)).toBe("Sulman");
   });
+
+  it("names every seat in a replay fork, with no You and no Opponent", () => {
+    expect(historyWho(0, 0, names, 2, true)).toBe("Sulman");
+    expect(historyWho(1, 0, (seat) => `Player ${seat + 1}`, 2, true)).toBe("Player 2");
+  });
 });
 
 describe("history entries: why a card was destroyed", () => {

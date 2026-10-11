@@ -27,7 +27,7 @@ import { clockStrip, hudClockBank, stationTrackProps } from "../table/hud-shared
 import { tagSeatCode } from "../table-format";
 import { OpponentBar } from "../table/opponent-bar";
 import { attackLockAt, toneBySeat } from "../table/seat-state";
-import { tableLayout } from "../table/geometry";
+import { controllerLayout } from "../table/geometry";
 import hudStyles from "../table/grid-hud.module.css";
 import { AimArrow } from "../table/aim-arrow";
 import { useAimFlow } from "../table/use-aim-flow";
@@ -123,6 +123,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
     noResultScreen = false,
     replay,
     replayCarry,
+    resetKey,
   } = props;
   const chainMode = replay ? null : chainModeProp;
   const { teamNames, mode } = resolveTagExtras(props, supplied);
@@ -151,12 +152,12 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
-  const { engine, room, viewerSeat, nameOf, prompt } = base;
+  const { engine, room, viewerSeat, cameraSeat, nameOf, prompt } = base;
   const layout = useMemo(
-    () => tableLayout("tag", engine, viewerSeat),
+    () => controllerLayout("tag", engine, { viewerSeat, cameraSeat }),
     // The layout depends on who sits where, never on a card: the seat list is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [engine.seats.length, viewerSeat],
+    [engine.seats.length, viewerSeat, cameraSeat],
   );
   const rootRef = useRef<HTMLDivElement>(null);
   const textSize = useCardTextSize();
@@ -171,7 +172,18 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
-  useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
+  // A replay suspends input while another card view loads: the open flyout stays (the table is hidden and inert meanwhile).
+  useEffect(() => { if (inputSuspended && !replay) closeHud(); }, [inputSuspended, replay, closeHud]);
+  const resetSeen = useRef(resetKey);
+  const resetUi = ui.reset;
+  const closePrivateHud = hudState.closePrivate;
+  useEffect(() => {
+    if (resetSeen.current === resetKey) return;
+    resetSeen.current = resetKey;
+    resetUi();
+    // Only what is private to the old view closes; an open Log, Settings or Camera flyout stays.
+    closePrivateHud();
+  }, [resetKey, resetUi, closePrivateHud]);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const [hideResult, setHideResult] = useState(false);
@@ -217,16 +229,18 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
 
   // The FX lock follows engine events newer than the last one handled. With reduced motion, or while the connection is
   // down (the FX replay nothing), no lock starts but the cursor still moves, so old events never lock the camera later.
+  // A replay and a replay fork never lock: the camera never moves or zooms by itself there (live Tag keeps its lock).
   const lastEvent = useRef<number>(lastEventId(engine.events, 0));
+  const fork = room.session.kind === "replay-fork";
   useEffect(() => {
-    const lock = fxActive ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
+    const lock = fxActive && !replay && !fork ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
     if (!lock) {
       lastEvent.current = lastEventId(engine.events, lastEvent.current);
       return;
     }
     lastEvent.current = lock.lastId;
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
-  }, [engine.events, fxActive, controller.reducedMotion]);
+  }, [engine.events, fxActive, replay, fork, controller.reducedMotion]);
 
   // An aim holds the camera where it is: a close-up goes back to the overview, and no click zooms in until the aim ends.
   useEffect(() => {
@@ -332,7 +346,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
     />
   );
   const cameraDock = (
-    <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} />
+    <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} replay={replay != null} />
   );
   const side = (
     <TagSide
@@ -497,7 +511,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
         </section>
         {narrow || hud ? null : (
           <aside className={styles.right} aria-label="Camera">
-            <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} />
+            <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} replay={replay != null} />
           </aside>
         )}
       </div>

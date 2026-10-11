@@ -1,5 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 import { LifePoints } from "../life-points";
+import { useForkLabels } from "../table/fork-labels";
 import { formatClock } from "../table/holo-lp";
 import type { ResponderState } from "./tag-logic";
 import styles from "./tag-stage.module.css";
@@ -70,6 +71,7 @@ function DeckIcon() {
 const RESPONSE_TEXT: Record<ResponderState, string> = { choosing: "…", waiting: "·", passed: "✓" };
 
 function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number) => void }) {
+  const forkLabels = useForkLabels();
   const style = { ["--seat" as string]: member.rgb, ["--seat-ink" as string]: member.ink } as CSSProperties;
   const clock = formatClock(member.clockMs);
   const pick = () => {
@@ -102,7 +104,7 @@ function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number)
         <span className={styles.code}>{member.code}</span>
         <b title={member.name} aria-hidden="true">{member.name.split(" ")[0]}</b>
         <span className={styles.srOnly}>{member.name}</span>
-        {member.you ? <span className={styles.you}>YOU</span> : null}
+        {member.you ? <span className={styles.you}>{forkLabels ? "ACTING" : "YOU"}</span> : null}
         {member.response ? (
           <span className={styles.st2} data-k={member.response} title={member.response}>
             {RESPONSE_TEXT[member.response]}

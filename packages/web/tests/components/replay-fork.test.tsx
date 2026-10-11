@@ -20,6 +20,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => nav, usePathname: () => "/"
 const swr = vi.hoisted(() => ({ data: null as unknown, error: undefined as unknown, keys: [] as unknown[], mutate: vi.fn() }));
 vi.mock("swr", () => ({
   default: (key: unknown) => { swr.keys.push(key); return { data: swr.data, error: swr.error, isLoading: false, mutate: swr.mutate }; },
+  useSWRConfig: () => ({ mutate: swr.mutate }),
 }));
 const ws = vi.hoisted(() => ({ seats: [] as unknown[] }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({
@@ -30,12 +31,20 @@ vi.mock("@/lib/hooks/use-duel-websocket", () => ({
 }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
 vi.mock("@/components/duel/field", () => ({
-  DuelField: (props: { mySeat: number | null; onInspect?: (target: { type: "pile"; title: string; cards: [] }) => void }) => (
-    <div data-testid="field" data-my-seat={props.mySeat ?? ""}>
+  DuelField: (props: { mySeat: number | null; bottomSeat?: number | null; named?: boolean; onInspect?: (target: { type: "pile"; title: string; cards: [] }) => void }) => (
+    <div data-testid="field" data-my-seat={props.mySeat ?? ""} data-bottom-seat={props.bottomSeat ?? ""} data-named={props.named ? "true" : "false"}>
       <button type="button" onClick={() => props.onInspect?.({ type: "pile", title: "Private hand", cards: [] })}>Inspect fixture hand</button>
     </div>
   ),
   DeckMasterRail: () => null,
+}));
+// The live shells of Tag and the FFA tables: the room test reads what the room hands them.
+const shells = vi.hoisted(() => ({ props: [] as Array<{ kind: "table" | "tag"; props: Record<string, any> }> }));
+vi.mock("@/components/duel/table/table-shell", () => ({
+  TableShell: (props: Record<string, any>) => { shells.props.push({ kind: "table", props }); return <div data-testid="table-shell">{props.headerTools}</div>; },
+}));
+vi.mock("@/components/duel/tag/tag-shell", () => ({
+  TagShell: (props: Record<string, any>) => { shells.props.push({ kind: "tag", props }); return <div data-testid="tag-shell">{props.headerTools}</div>; },
 }));
 vi.mock("@/components/duel/feedback", () => ({ DuelFeedback: () => null }));
 vi.mock("@/components/duel/summon-fx", () => ({ SummonFx: () => null }));
@@ -49,7 +58,7 @@ vi.mock("@/components/duel/destroy-fx", () => ({ DestroyFx: () => null }));
 import {
   askAllState, followSeat, forkRoomState, forkViewSettled, livingSeats,
 } from "@/components/duel/replay-fork-control";
-import { ReplayForkBar, sourceReplayHref } from "@/components/duel/replay-fork-bar";
+import { ReplayForkBar, ReplayForkResult, sourceReplayHref } from "@/components/duel/replay-fork-bar";
 import { useBugReportHeaderHosted } from "@/components/bug-report/room-store";
 import { canOfferFork, forkDisabledReason } from "@/components/duel/replay-fork-button";
 import {
@@ -85,6 +94,7 @@ beforeEach(() => {
   swr.keys = [];
   swr.error = undefined;
   swr.mutate.mockClear();
+  shells.props = [];
   ws.seats = [];
   window.localStorage.clear();
   window.history.replaceState(null, "", "/duels/game-1/replay");
@@ -257,7 +267,7 @@ describe("ReplayForkBar", () => {
     expect(within(dialog).getByRole("status").textContent).toMatch(/Some seats skip|not known|Every seat/);
     fireEvent.click(within(dialog).getByRole("button", { name: "Ask at all response windows" }));
     expect(p.onAskAll).toHaveBeenCalledTimes(1);
-    expect(within(dialog).getByRole("link", { name: "Open the source replay" }).getAttribute("href")).toBe("/duels/game-1/replay?frame=f2");
+    expect(within(dialog).getByRole("link", { name: "Close fork and open the source replay" }).getAttribute("href")).toBe("/duels/game-1/replay?frame=f2");
   });
 
   it("says when every seat already asks at every window", () => {
@@ -371,6 +381,25 @@ describe("Jump in on the replay viewer", () => {
     expect(body.requestId.length).toBeLessThanOrEqual(128);
   });
 
+  it("makes one fork per click: Jump in stays shut after success while the page navigates", async () => {
+    server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
+      ? json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: forkRoom() })
+      : json(ownerReplay()));
+    await open(true);
+    fireEvent.click(screen.getByRole("button", { name: "Next move" }));
+    const jump = screen.getByRole("button", { name: /Jump in/ }) as HTMLButtonElement;
+    fireEvent.click(jump);
+    await waitFor(() => expect(nav.push).toHaveBeenCalledTimes(1));
+    // The router has not left the page yet: the button is shut and a second click or a double-click does nothing.
+    const shut = screen.getByRole("button", { name: /Starting/ }) as HTMLButtonElement;
+    expect(shut.disabled).toBe(true);
+    fireEvent.click(shut);
+    fireEvent.click(shut);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(calls.filter((call) => call.init?.method === "POST")).toHaveLength(1);
+    expect(nav.push).toHaveBeenCalledTimes(1);
+  });
+
   it("disables Jump in on the final result frame", async () => {
     server(() => json(ownerReplay()));
     await open(true);
@@ -427,13 +456,55 @@ describe("the live room of a fork", () => {
     expect(swr.mutate).toHaveBeenCalledWith(undefined, { revalidate: false });
   });
 
-  it("keeps the websocket identity at seat 0 and draws the table for the acting seat", () => {
+  it("keeps the websocket identity and the camera at seat 0 while seat 1 acts", () => {
     swr.data = forkRoom({}, control({ actingSeat: 1 }));
     render(<DuelRoomView slug="fork-1" />);
+    // Seat 1 answers; the board still faces seat 0, so a seat switch never turns the table.
     expect(screen.getByTestId("field").getAttribute("data-my-seat")).toBe("1");
+    expect(screen.getByTestId("field").getAttribute("data-bottom-seat")).toBe("0");
     expect(new Set(ws.seats)).toEqual(new Set([0]));
     expect(swr.keys.at(-1)).toBe("/api/duels/fork-1");
   });
+
+  it("does not turn the 1v1 board when the creator picks another seat", () => {
+    swr.data = forkRoom();
+    const view = render(<DuelRoomView slug="fork-1" />);
+    expect(screen.getByTestId("field").getAttribute("data-bottom-seat")).toBe("0");
+    fireEvent.click(within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name: /Bo/ }));
+    swr.data = forkRoom({}, control({ actingSeat: 1 }));
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    expect(screen.getByTestId("field").getAttribute("data-bottom-seat")).toBe("0");
+    expect(screen.getByTestId("field").getAttribute("data-my-seat")).toBe("1");
+  });
+
+  it.each([["ffa3", "table", 3], ["ffa4", "table", 4], ["tag", "tag", 4]] as const)(
+    "gives the %s shell a fixed camera seat and a carried camera while the acting seat changes",
+    (format, kind, count) => {
+      const manualSeats = Array.from({ length: count }, (_, seat) => seat);
+      const multi = (acting: number) => {
+        const room = forkRoom({
+          session: session(format, { slug: "fork-1", kind: "replay-fork", status: "active", endedAt: null }),
+          engine: frame({ step: 2, format }).view,
+        }, control({ actingSeat: acting, manualSeats }));
+        return room;
+      };
+      swr.data = multi(0);
+      const view = render(<DuelRoomView slug="fork-1" />);
+      expect(screen.getByTestId(kind === "tag" ? "tag-shell" : "table-shell")).toBeTruthy();
+      const first = shells.props.at(-1)!.props;
+      expect(first.controller.viewerSeat).toBe(0);
+      expect(first.controller.cameraSeat).toBe(0);
+      expect(first.replayCarry).toBeTruthy();
+      swr.data = multi(1);
+      view.rerender(<DuelRoomView slug="fork-1" />);
+      const next = shells.props.at(-1)!.props;
+      // Seat 1 answers and owns its hand; the camera stays on seat 0 and the carry (camera, open panel) is the same object.
+      expect(next.controller.viewerSeat).toBe(1);
+      expect(next.controller.cameraSeat).toBe(0);
+      expect(next.replayCarry).toBe(first.replayCarry);
+      expect(next.controller.room.mySeat).toBe(1);
+    },
+  );
 
   it("shows the fork bar and leaves out Surrender, Cancel, Report bug, Pop out and invites", () => {
     swr.data = forkRoom();
@@ -510,6 +581,291 @@ describe("the live room of a fork", () => {
     expect(seat).not.toBeDisabled();
   });
 
+  it("never puts a reply that shows every hand on a table that hides them, and does not lock the table", async () => {
+    const initial = forkRoom();
+    initial.engine!.chainMode = "auto";
+    swr.data = initial;
+    // The host projects every reply with all hands shown, whatever the view asked for.
+    const reply = forkRoom({}, control({ revealHands: true }));
+    reply.engine!.chainMode = "off";
+    const fetch = vi.fn(async () => json(reply));
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    fireEvent.click(screen.getByLabelText("Reveal hands"));
+    expect(swr.keys.at(-1)).toBe("/api/duels/fork-1?reveal=0");
+    const hidden = forkRoom({ engine: { ...initial.engine!, chainMode: "auto" } }, control({ revealHands: false }));
+    swr.data = hidden;
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    swr.mutate.mockClear();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(document.querySelector("[role='dialog'][aria-modal='true']")).toBeNull());
+    await act(async () => { fireEvent.keyDown(window, { key: "r" }); });
+    expect(fetch).toHaveBeenCalledWith("/api/duels/fork-1/chain-mode?as=0", expect.anything());
+    const written = swr.mutate.mock.calls.filter(([value]) => value != null && typeof value === "object");
+    expect(written).toHaveLength(0);
+    // The current view is read again instead.
+    expect(swr.mutate).toHaveBeenCalledWith();
+  });
+
+  it("drops the cached views when the seat changes, and holds answers until a room newer than the change arrives", async () => {
+    const initial = forkRoom();
+    initial.engine!.chainMode = "auto";
+    swr.data = { ...initial, receivedAt: 100 };
+    const fetch = vi.fn(async () => json(initial));
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<DuelRoomView slug="fork-1" />);
+    swr.mutate.mockClear();
+    fireEvent.click(within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name: /Bo/ }));
+    // Every cached view of the table is purged before the key changes.
+    const purge = swr.mutate.mock.calls.find(([filter]) => typeof filter === "function");
+    expect(purge).toBeTruthy();
+    const filter = purge![0] as (key: unknown) => boolean;
+    expect([filter("/api/duels/fork-1"), filter("/api/duels/fork-1?as=1&reveal=0"), filter("/api/duels/fork-2"), filter("/api/duels/fork-10")])
+      .toEqual([true, true, false, false]);
+    // An old cache entry of the new key names seat 1 but came from before the change: it is not accepted.
+    swr.data = { ...forkRoom({ engine: { ...initial.engine!, chainMode: "auto" } }, control({ actingSeat: 1 })), receivedAt: 100 };
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    await act(async () => { fireEvent.keyDown(window, { key: "r" }); });
+    expect(fetch).not.toHaveBeenCalled();
+    swr.data = { ...forkRoom({ engine: { ...initial.engine!, chainMode: "auto" } }, control({ actingSeat: 1 })), receivedAt: performance.now() + 5000 };
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    await act(async () => { fireEvent.keyDown(window, { key: "r" }); });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  // A three-seat fork room; `out` seats are eliminated.
+  const ffa3Fork = (acting: number, out: number[]) => {
+    const room = forkRoom({
+      session: session("ffa3", { slug: "fork-1", kind: "replay-fork", status: "active", endedAt: null }),
+      engine: frame({ step: 2, format: "ffa3" }).view,
+    }, control({ actingSeat: acting, manualSeats: [0, 1, 2], chainModes: { 0: "auto", 1: "auto", 2: "auto" } }));
+    const engine = room.engine as unknown as { prioritySeat: number; seats: Array<{ seat: number; eliminated?: boolean }> };
+    engine.prioritySeat = acting;
+    for (const seat of engine.seats) if (out.includes(seat.seat)) seat.eliminated = true;
+    return room;
+  };
+
+  it("follows the prompt to the seat that must answer once, and does not loop on the same revision", () => {
+    // Seat 0 is on screen, the engine waits on seat 1.
+    swr.data = forkRoom();
+    const view = render(<DuelRoomView slug="fork-1" />);
+    const reads = () => swr.mutate.mock.calls.filter(([value, options]) => typeof value === "function" && options !== undefined).length;
+    expect(reads()).toBe(1);
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    expect(reads()).toBe(1);
+    // A later revision that waits on the other seat again is a new request.
+    const next = forkRoom();
+    next.engine = { ...next.engine!, revision: next.engine!.revision + 1 };
+    swr.data = next;
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    expect(reads()).toBe(2);
+  });
+
+  it("holds a seat picked by hand and offers a switch to the seat that must answer", () => {
+    swr.data = forkRoom({}, control({ actingSeat: 1 }));
+    swr.data = { ...(swr.data as DuelRoom), engine: { ...(swr.data as DuelRoom).engine!, prioritySeat: 0 } };
+    render(<DuelRoomView slug="fork-1" />);
+    // A read of the room (not the cache purge, which has no second argument).
+    const reads = () => swr.mutate.mock.calls.filter(([value, options]) => typeof value === "function" && options !== undefined).length;
+    // The seat on screen answers, and no hold: no notice.
+    expect(document.querySelector("[data-replay-fork-waiting]")).toBeNull();
+    swr.mutate.mockClear();
+    fireEvent.click(within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name: /Bo/ }));
+    const notice = document.querySelector("[data-replay-fork-waiting]") as HTMLElement;
+    expect(notice.textContent).toContain("Ada must answer");
+    // The hold stops Follow prompt from moving the seat by itself.
+    expect(reads()).toBe(0);
+    fireEvent.click(within(notice).getByRole("button", { name: "Switch to Ada" }));
+    expect(swr.keys.at(-1)).toBe("/api/duels/fork-1?as=0");
+  });
+
+  it("asks every living seat in turn, the acting seat last, each with its own binding", async () => {
+    const initial = ffa3Fork(0, [2]);
+    swr.data = initial;
+    const fetch = vi.fn(async () => json(initial));
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ask at all response windows" })); });
+    const urls = fetch.mock.calls.map((call) => String((call as unknown[])[0]));
+    // Seat 2 is out and is left out; seat 1 asks first, the acting seat 0 last (and only it names the prompt).
+    expect(urls).toEqual(["/api/duels/fork-1/chain-mode?as=1", "/api/duels/fork-1/chain-mode?as=0"]);
+    const bodies = fetch.mock.calls.map((call) => JSON.parse(String(((call as unknown[])[1] as { body: string }).body)));
+    expect(bodies[0]).toEqual({ mode: "always", revision: initial.engine!.revision });
+    expect(bodies[1]).toMatchObject({ mode: "always", revision: initial.engine!.revision });
+  });
+
+  it("leaves an eliminated acting seat out of ask-all, and asks the seats that live", async () => {
+    const initial = ffa3Fork(1, [1]);
+    swr.data = initial;
+    const fetch = vi.fn(async () => json(initial));
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ask at all response windows" })); });
+    expect(fetch.mock.calls.map((call) => String((call as unknown[])[0])))
+      .toEqual(["/api/duels/fork-1/chain-mode?as=0", "/api/duels/fork-1/chain-mode?as=2"]);
+  });
+
+  it("applies an ask-all reply only when it belongs to the seat on screen, and reads the room again when the acting seat is out", async () => {
+    // Seat 1 is on screen but out; the last seat asked is seat 2, so its view is not the one on screen.
+    const initial = ffa3Fork(1, [1]);
+    swr.data = initial;
+    const fetch = vi.fn(async (input: string) => {
+      const as = Number(new URL(input, "http://x").searchParams.get("as"));
+      const reply = ffa3Fork(as, [1]);
+      return json(reply);
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    swr.mutate.mockClear();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ask at all response windows" })); });
+    const written = swr.mutate.mock.calls.filter(([value]) => value != null && typeof value === "object").map(([value]) => value as DuelRoom);
+    expect(written.map((room) => room.fork?.actingSeat)).not.toContain(2);
+    // A plain read followed instead of the reply.
+    expect(swr.mutate.mock.calls.some((call) => call.length === 0)).toBe(true);
+  });
+
+  it("applies the ask-all reply of the acting seat itself", async () => {
+    const initial = ffa3Fork(0, [2]);
+    swr.data = initial;
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => json(ffa3Fork(Number(new URL(input, "http://x").searchParams.get("as")), [2]))));
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    swr.mutate.mockClear();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Ask at all response windows" })); });
+    const written = swr.mutate.mock.calls.filter(([value]) => value != null && typeof value === "object").map(([value]) => value as DuelRoom);
+    expect(written.map((room) => room.fork?.actingSeat)).toEqual([0]);
+  });
+
+  it("labels the 1v1 halves by seat name in a fork, so the camera seat is not called Your", () => {
+    swr.data = forkRoom({}, control({ actingSeat: 1 }));
+    render(<DuelRoomView slug="fork-1" />);
+    expect(screen.getByTestId("field").getAttribute("data-named")).toBe("true");
+    expect(document.body.textContent).not.toMatch(/Your turn|Your move|Your Master/);
+  });
+
+  it("keeps the seat of the restart as a hold when Follow prompt is off", async () => {
+    swr.data = forkRoom();
+    const restarted = forkRoom({}, control({ actingSeat: 1 }));
+    const fetch = vi.fn(async () => json(restarted));
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    fireEvent.click(screen.getByLabelText("Follow prompt"));
+    expect(swr.keys.at(-1)).toBe("/api/duels/fork-1?as=0");
+    fireEvent.click(screen.getByRole("button", { name: "Restart from start point" }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Restart" })); });
+    expect(fetch).toHaveBeenCalledWith("/api/duels/fork-1/fork/restart", expect.objectContaining({ method: "POST" }));
+    // The room did not fall back to the host default seat: it holds the seat the restart opened on.
+    expect(swr.keys.at(-1)).toBe("/api/duels/fork-1?as=1");
+  });
+
+  it("offers Show result again in the live shells after Show board, and after a restart the next result is not hidden", async () => {
+    const done = () => {
+      const room = forkRoom({
+        session: session("tag", { slug: "fork-1", kind: "replay-fork", status: "completed", endedAt: "2026-10-10T10:00:00Z" }),
+        engine: { ...frame({ step: 2, format: "tag" }).view, result: { winnerSeat: 0, reason: "Life points" } as never },
+      }, control({ manualSeats: [0, 1, 2, 3] }));
+      return room;
+    };
+    swr.data = done();
+    render(<DuelRoomView slug="fork-1" />);
+    expect(document.querySelector("[data-replay-fork-result]")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show board" }));
+    expect(document.querySelector("[data-replay-fork-result]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show result" }));
+    expect(document.querySelector("[data-replay-fork-result]")).not.toBeNull();
+  });
+
+  it("shows no clock and no timer rows copied from the source in a fork", () => {
+    swr.data = forkRoom();
+    render(<DuelRoomView slug="fork-1" />);
+    expect(screen.queryByText("Turn timer")).toBeNull();
+    expect(screen.queryByText("Lose on timeout")).toBeNull();
+  });
+
+  it("leaves a finished fork without a cancel call, and shows no End fork", async () => {
+    const done = forkRoom({ session: session("1v1", { slug: "fork-1", kind: "replay-fork", status: "completed", endedAt: "2026-10-10T10:00:00Z" }) });
+    done.engine = { ...done.engine!, result: { winnerSeat: 0, reason: "Life points" } as never, prompt: null };
+    swr.data = done;
+    const fetch = vi.fn(async () => json({}));
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    expect(screen.queryByRole("button", { name: "End fork" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Exit duel" }));
+    expect(nav.replace).toHaveBeenCalledWith(sourceReplayHref(control().origin));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("asks before an open fork is closed by the source replay link, and a new-tab click keeps it", async () => {
+    swr.data = forkRoom();
+    const fetch = vi.fn(async () => json({ session: forkRoom().session }));
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    const links = () => screen.getAllByRole("link", { name: "Close fork and open the source replay" });
+    const link = () => links()[0]!;
+    const confirmLink = () => links().at(-1)!;
+    // Ctrl, Cmd, Shift and a middle click open a new tab: the link is not stopped and the fork stays open.
+    for (const mods of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { button: 1 }]) {
+      await act(async () => { fireEvent.click(link(), mods); });
+    }
+    expect(fetch).not.toHaveBeenCalled();
+    // A plain click only asks.
+    await act(async () => { fireEvent.click(link()); });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getByText("This closes the fork and opens the source replay.")).toBeTruthy();
+    // The confirm link closes the fork, but not for a new-tab click.
+    expect(links()).toHaveLength(2);
+    await act(async () => { fireEvent.click(confirmLink(), { ctrlKey: true }); });
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(confirmLink()); });
+    expect(fetch).toHaveBeenCalledWith("/api/duels/fork-1/fork/cancel", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("does not cancel a fork that is already over when the creator uses the source replay link", async () => {
+    const done = forkRoom({ session: session("1v1", { slug: "fork-1", kind: "replay-fork", status: "completed", endedAt: "2026-10-10T10:00:00Z" }) });
+    swr.data = done;
+    const fetch = vi.fn(async () => json({}));
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    await act(async () => { fireEvent.click(screen.getByRole("link", { name: "Close fork and open the source replay" })); });
+    await act(async () => { fireEvent.click(screen.getAllByRole("link", { name: "Close fork and open the source replay" }).at(-1)!); });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("asks before Back to replay on the result panel, and a new-tab click does not end the fork", async () => {
+    const onLeave = vi.fn();
+    render(<ReplayForkResult headline="Seat 1 wins" reason={null} sourceHref="/duels/game-1/replay?frame=f2" disabled={false}
+      onRestart={vi.fn()} onClose={vi.fn()} onLeave={onLeave} />);
+    fireEvent.click(screen.getByRole("link", { name: "Back to replay" }), { ctrlKey: true });
+    expect(onLeave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("link", { name: "Back to replay" }));
+    expect(onLeave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("link", { name: "Close fork and open the source replay" }), { metaKey: true });
+    expect(onLeave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("link", { name: "Close fork and open the source replay" }));
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not ask before Back to replay once the fork has ended", () => {
+    const onLeave = vi.fn();
+    render(<ReplayForkResult headline="Seat 1 wins" reason={null} sourceHref="/duels/game-1/replay?frame=f2" disabled={false}
+      onRestart={vi.fn()} onClose={vi.fn()} onLeave={onLeave} ended />);
+    const link = screen.getByRole("link", { name: "Back to replay" });
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
+    expect(screen.queryByText("This closes the fork and opens the source replay.")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Close fork and open the source replay" })).toBeNull();
+  });
+
   it("fails closed on a fork row without its seat control", async () => {
     const unusable = forkRoom({}, null);
     unusable.engine!.chainMode = "auto";
@@ -529,5 +885,21 @@ describe("the live room of a fork", () => {
     render(<DuelRoomView slug="game-1" />);
     expect(document.querySelector("[data-replay-fork-bar]")).toBeNull();
     expect(screen.getByTestId("field").getAttribute("data-my-seat")).toBe("0");
+  });
+});
+
+describe("useDuelFieldModel in a fork", () => {
+  it("labels both halves and the tally by name when named, whoever answers", async () => {
+    const { renderHook } = await import("@testing-library/react");
+    const { useDuelFieldModel } = await import("@/components/duel/field-model");
+    const engine = { ...frame({ step: 2 }).view, prioritySeat: 1 };
+    const base = {
+      engine, mySeat: 1, masterRule: 5 as const, reducedMotion: true, legalKeys: new Set<string>(), selectedKeys: new Set<string>(),
+      onActivate: vi.fn(), onInspect: vi.fn(), bottomSeat: 0, bottomName: "Ada", topName: "Bo", boardRef: { current: null },
+    };
+    const live = renderHook(() => useDuelFieldModel(base)).result.current;
+    expect([live.bottomLabel, live.topLabel, live.priorityLabel(1, "Bo")]).toEqual(["Your", "Opponent", "Your move"]);
+    const named = renderHook(() => useDuelFieldModel({ ...base, named: true })).result.current;
+    expect([named.bottomLabel, named.topLabel, named.priorityLabel(1, "Bo")]).toEqual(["Ada", "Bo", "Bo to act"]);
   });
 });

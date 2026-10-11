@@ -178,18 +178,6 @@ export async function cancelReplayFork(slug: string): Promise<{ session: DuelSes
   );
 }
 
-/** A hint for the UI only: every owner route checks access again. Anything but a clear yes is no. */
-export async function getAdminAccessHint(signal?: AbortSignal): Promise<boolean> {
-  try {
-    const res = await fetch("/api/admin/access", { cache: "no-store", signal });
-    if (!res.ok) return false;
-    const body: unknown = await res.json().catch(() => null);
-    return body !== null && typeof body === "object" && (body as { admin?: unknown }).admin === true;
-  } catch {
-    return false;
-  }
-}
-
 export interface CreateDuelOptions {
   /** A named opponent makes a private challenge; empty is an open table. */
   opponentPlayerId?: number | null;

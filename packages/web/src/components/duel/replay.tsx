@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Pause, Play, PlayCircle, SkipBack, SkipForward } from "lucide-react";
 import { isCustomDomain, seatCountFor, type DuelCard, type DuelMasterRule, type ReplayVisibility } from "@yugidraft/shared/duels";
@@ -23,12 +23,14 @@ import {
   replayResultHeadline,
   replayRoom,
   resolveFocusSeat,
+  stepButtonProps,
   useReplayController,
   useReplayData,
 } from "./replay-controller";
 import { ReplayOwnerTools, type OwnerViewState } from "./replay-fork-button";
 import { ReplayTag } from "./replay-tag";
 import { ReplayFfa, isFfaFormat } from "./replay-ffa";
+import { ReplayStatus } from "./replay-status";
 import { buildReplayTimeline, type ReplayLogEntry } from "./replay-timeline";
 import { formatLabel } from "./table-format";
 import type { TableController } from "./table/types";
@@ -100,6 +102,21 @@ function ReplayBoard({ table, masterRule, camera, focusSeat, mySeat, playerName 
 }
 
 /**
+ * While another card view loads, the table stays mounted (the camera, zoom and open panels belong to it) but is
+ * hidden and inert: the old card view is never on screen, and nothing on it can be used.
+ */
+function ReplayBusy({ busy, children }: { busy: boolean; children: ReactNode }) {
+  return (
+    <>
+      <div className={replayStyles.busyScope} data-replay-busy={busy ? "true" : undefined} aria-busy={busy || undefined} inert={busy}>
+        {children}
+      </div>
+      {busy ? <div className={replayStyles.busyNote} role="status">Loading replay…</div> : null}
+    </>
+  );
+}
+
+/**
  * `canInspectSource` comes from the server page (the owner check). It only asks for the private replay and the
  * owner controls; the routes check the owner list again and the answer must carry capabilities before any control shows.
  */
@@ -111,7 +128,6 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
     slug, visibility, canInspectSource ? { enabled: true, ...ownerView } : null,
   );
   const preferences = useDuelPreferences();
-  const [focusChoice, setFocusChoice] = useState<number | null>(null);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [pane, setPane] = useState<"card" | "log">("card");
   const [mobileInspect, setMobileInspect] = useState(false);
@@ -120,7 +136,9 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
 
   const frames = model?.frames ?? null;
   const seatCount = model ? seatCountFor(model.session.format) : 2;
-  const controller = useReplayController({ slug, frames, seatCount, mySeat: model?.mySeat ?? null });
+  // While another card view loads, the table is hidden: no key may move it (see ReplayBusy).
+  const awaiting = model != null && !settled && (model.visibility !== visibility || canInspectSource);
+  const controller = useReplayController({ slug, frames, seatCount, mySeat: model?.mySeat ?? null, enabled: !awaiting });
   const { index, last, playing, speed, epoch, camera } = controller;
   const timeline = useMemo(() => (frames ? buildReplayTimeline(frames) : null), [frames]);
 
@@ -128,7 +146,6 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
     setVisibility("mine");
     setOwnerView({ seat: null, reveal: false });
     setNotice(null);
-    setFocusChoice(null);
     setInspect(null);
     setHover(null);
   }, [slug]);
@@ -180,8 +197,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
     setOwnerView(next);
   }
 
-  const awaiting = model != null && !settled && (model.visibility !== visibility || canInspectSource);
-  if ((!model || awaiting) && !error) return <div className="p-6 text-sm text-text-secondary" aria-busy="true">Loading replay…</div>;
+  if (!model && !error) return <div className="p-6 text-sm text-text-secondary" aria-busy="true">Loading replay…</div>;
   if (error && !model) {
     const failure = replayFailure(error);
     return (
@@ -214,12 +230,17 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   ) : null;
   // Tag draws the Rooftop table (four seats, team LP, shared Extra Monster zones) in its own page.
   if (session.format === "tag") {
-    return <ReplayTag slug={slug} model={model} timeline={timeline} engine={engine} controller={controller}
-      visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} />;
+    return (
+      <ReplayBusy busy={awaiting}>
+        <ReplayTag slug={slug} model={model} timeline={timeline} engine={engine} controller={controller}
+          visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} inputSuspended={awaiting} />
+      </ReplayBusy>
+    );
   }
   const frame = timeline.frame(index);
   const domain = session.mode === "domain";
-  const focusSeat = resolveFocusSeat(session, camera, focusChoice);
+  // This page draws the two-seat board; Tag and the free-for-all formats returned above.
+  const focusSeat = resolveFocusSeat(session, camera, null);
   const playerName = (seat: number) =>
     session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;
   const modeText = domain
@@ -230,15 +251,16 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   const newLines = timeline.newLogAt(index);
   const actor = frameCaption(frame, index, atEnd, playerName);
   const resultHeadline = replayResultHeadline(session, result, playerName);
-  const multiSeat = seatCount > 2;
   const canSwitchCards = model.version === 2 && model.mySeat != null;
 
   // 3-way and 4-way free-for-all tables draw every field in the shared table shell (replay mode).
   if (isFfaFormat(session.format)) {
     return (
-      <ReplayFfa slug={slug} model={model} frames={model.frames} engine={engine} controller={controller} preferences={preferences}
-        visibility={visibility} canSwitchCards={canSwitchCards} onVisibility={changeVisibility} notice={notice}
-        newLines={newLines} onCamera={() => { setInspect(null); setHover(null); setFocusChoice(null); }} tools={ownerTools} />
+      <ReplayBusy busy={awaiting}>
+        <ReplayFfa slug={slug} model={model} frames={model.frames} engine={engine} controller={controller} preferences={preferences}
+          visibility={visibility} canSwitchCards={canSwitchCards} onVisibility={changeVisibility} notice={notice}
+          newLines={newLines} onCamera={() => { setInspect(null); setHover(null); }} tools={ownerTools} inputSuspended={awaiting} />
+      </ReplayBusy>
     );
   }
 
@@ -291,6 +313,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   const seats = Array.from({ length: seatCount }, (_, seat) => seat);
 
   return (
+    <ReplayBusy busy={awaiting}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`} data-domain={domain}
       data-replay-frame={controller.frameId ?? undefined} data-replay-visibility={model.visibility}>
       <header className={styles.header}>
@@ -353,20 +376,21 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
                   {newLines.slice(-4).map((entry, i) => <li key={`${entry.id}-${i}`}>{entry.text}</li>)}
                 </ul>
               </div>
+              <ReplayStatus playing={playing} index={index} last={last} caption={actor} />
               <div className={replayStyles.transport}>
                 <div className={replayStyles.buttons} role="group" aria-label="Replay controls">
                   <button type="button" className={replayStyles.iconButton} aria-label="First move"
-                    disabled={index === 0} onClick={() => controller.seek(0)}><SkipBack size={18} aria-hidden /></button>
+                    {...stepButtonProps(index === 0, () => controller.seek(0))}><SkipBack size={18} aria-hidden /></button>
                   <button type="button" className={replayStyles.iconButton} aria-label="Previous move"
-                    disabled={index === 0} onClick={controller.stepBack}><ChevronLeft size={20} aria-hidden /></button>
+                    {...stepButtonProps(index === 0, controller.stepBack)}><ChevronLeft size={20} aria-hidden /></button>
                   <button type="button" className={`${replayStyles.iconButton} ${replayStyles.play}`}
                     aria-label={playing ? "Pause" : "Play"} onClick={controller.togglePlay}>
                     {playing ? <Pause size={20} aria-hidden /> : <Play size={20} aria-hidden />}
                   </button>
                   <button type="button" className={replayStyles.iconButton} aria-label="Next move"
-                    disabled={atEnd} onClick={controller.stepForward}><ChevronRight size={20} aria-hidden /></button>
+                    {...stepButtonProps(atEnd, controller.stepForward)}><ChevronRight size={20} aria-hidden /></button>
                   <button type="button" className={replayStyles.iconButton} aria-label="Last move"
-                    disabled={atEnd} onClick={() => controller.seek(last)}><SkipForward size={18} aria-hidden /></button>
+                    {...stepButtonProps(atEnd, () => controller.seek(last))}><SkipForward size={18} aria-hidden /></button>
                 </div>
                 <input type="range" className={replayStyles.slider} aria-label="Replay position"
                   min={0} max={last} step={1} value={index}
@@ -390,21 +414,11 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
                     onChange={(event) => {
                       setInspect(null);
                       setHover(null);
-                      setFocusChoice(null);
                       controller.setCamera(Number(event.target.value));
                     }}>
                     {seats.map((seat) => <option key={seat} value={seat}>{playerName(seat)}</option>)}
                   </select>
                 </label>
-                {multiSeat ? (
-                  <label className={replayStyles.viewField}>
-                    <span>Across from</span>
-                    <select className={replayStyles.select} value={focusSeat} aria-label="Opposite seat"
-                      onChange={(event) => { setInspect(null); setHover(null); setFocusChoice(Number(event.target.value)); controller.resetEffects(); }}>
-                      {seats.filter((seat) => seat !== camera).map((seat) => <option key={seat} value={seat}>{playerName(seat)}</option>)}
-                    </select>
-                  </label>
-                ) : null}
                 {canSwitchCards ? (
                   <div className={replayStyles.segmented} role="group" aria-label="Card visibility">
                     {(["mine", "public"] as const).map((value) => (
@@ -420,7 +434,6 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
               {notice ? <p role="alert" className={replayStyles.note}>{notice}</p> : null}
               {model.mySeat == null || model.visibility === "public"
                 ? <p className={replayStyles.note}>Public view — hidden cards stay hidden</p> : null}
-              {multiSeat ? <p className={replayStyles.note}>Two seats are drawn at a time. Pick them with the view controls.</p> : null}
               <p className={replayStyles.note}>
                 <Link href={`/duels/${slug}`} className={replayStyles.link}>Final board</Link>
               </p>
@@ -440,5 +453,6 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
         {sideContent}
       </Sheet>
     </div>
+    </ReplayBusy>
   );
 }

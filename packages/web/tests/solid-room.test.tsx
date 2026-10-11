@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 
 const { state, mutate } = vi.hoisted(() => ({ state: { room: null as DuelRoom | null }, mutate: vi.fn(async () => {}) }));
-vi.mock("swr", () => ({ default: () => ({ data: state.room, error: null, isLoading: false, mutate }) }));
+vi.mock("swr", () => ({ useSWRConfig: () => ({ mutate: () => Promise.resolve() }), default: () => ({ data: state.room, error: null, isLoading: false, mutate }) }));
 vi.mock("next/link", () => ({ default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a> }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({ useDuelWebsocket: () => ({ syncing: false, recovering: false, connected: true, presence: null, resync: vi.fn() }) }));

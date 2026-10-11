@@ -12,6 +12,7 @@ import hudStyles from "../table/grid-hud.module.css";
 import type { TableConnection } from "../table/table-settings";
 import { SEAT_TONE_HEX } from "../table/types";
 import { hexToRgbTriplet } from "../table/seat-angle";
+import { useForkLabels } from "../table/fork-labels";
 import { tagTurnText, type TagTeamNames } from "./live-tag";
 import styles from "./tag-header.module.css";
 
@@ -58,7 +59,9 @@ export function TagHeader({ session, engine, viewerSeat, nameOf, teamNames, pref
   const spectator = viewerSeat == null;
   const turnSeat = engine.turnSeat;
   const myTurn = !spectator && turnSeat === viewerSeat;
-  const youTurn = myTurn && !replay;
+  // A fork names the seat that plays: its camera seat and its acting seat differ, so "You" would be wrong on one.
+  const forkLabels = useForkLabels();
+  const youTurn = myTurn && !replay && !forkLabels;
   const terminal = session.status !== "active";
   const connectionLabel = labelForConnection(terminal, connection);
   const live = connectionLabel === "Live";

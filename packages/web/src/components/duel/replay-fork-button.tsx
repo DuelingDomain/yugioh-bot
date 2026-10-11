@@ -9,6 +9,9 @@ import { isDuelAccessError, postReplayFork } from "./api";
 import { replayFailure, type ReplayModel } from "./replay-controller";
 import styles from "./replay-fork.module.css";
 
+/** How long Jump in stays shut after the fork was made, while the page loads it. */
+const FORK_NAVIGATION_WAIT_MS = 15_000;
+
 /** A fresh retry key. It matches the server's key syntax (letters, digits, ".", "_", ":", "-"; at most 128). */
 export function newForkRequestId(): string {
   const random = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -51,9 +54,16 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, o
   const requestIds = useRef(new Map<string, string>());
   const inFlight = useRef(false);
   const mounted = useRef(true);
+  // The fork exists and the page is on its way to it. The button stays shut for that whole time: a second click would be
+  // a second fork. If the page never leaves (a stalled navigation) the button opens again after a while; the request id
+  // is kept, so even then the same click again returns the same fork.
+  const navigating = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+      if (navigating.current) clearTimeout(navigating.current);
+    };
   }, []);
 
   // A different frame is a different request. Its old failure no longer applies.
@@ -80,18 +90,23 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, o
     }
     try {
       const result = await postReplayFork(slug, { cursor, sourceVersion, requestId });
-      requestIds.current.delete(key);
+      // Pending and the request id both stay until the page has left.
+      navigating.current = setTimeout(() => {
+        navigating.current = null;
+        inFlight.current = false;
+        if (mounted.current) setPending(false);
+      }, FORK_NAVIGATION_WAIT_MS);
       router.push(`/duels/${encodeURIComponent(result.slug)}`);
+      return;
     } catch (error) {
       if (isDuelAccessError(error)) onReload?.();
       const text = replayFailure(error, "Could not start a fork.");
       const code = (error as { code?: string } | null)?.code;
       if (code === "REQUEST_CONFLICT" || code === "SOURCE_CHANGED") requestIds.current.clear();
       if (mounted.current) setFailure({ message: text.message, code });
-    } finally {
-      inFlight.current = false;
-      if (mounted.current) setPending(false);
     }
+    inFlight.current = false;
+    if (mounted.current) setPending(false);
   }
 
   return (
@@ -143,7 +158,7 @@ export function ReplayOwnerView({ model, view, busy = false, onChange }: {
       <button type="button" className={styles.btn} aria-haspopup="dialog" aria-expanded={open} data-replay-owner-view
         aria-pressed={view.seat != null || view.reveal} onClick={() => setOpen(true)}>
         <Eye size={14} aria-hidden />
-        <span className={styles.wide}>Private view</span>
+        <span className={styles.wide} aria-hidden="true">Private view</span>
         <span className="sr-only">Private view</span>
       </button>
       <Sheet open={open} onClose={() => setOpen(false)} title="Private view">

@@ -3,11 +3,12 @@
 import { useCallback, useMemo } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Pause, Play, SkipBack, SkipForward } from "lucide-react";
-import type { DuelEngineView, DuelSession, ReplayFrameV2, ReplayVisibility } from "@yugidraft/shared/duels";
+import { seatCountFor, type DuelEngineView, type DuelSession, type ReplayFrameV2, type ReplayVisibility } from "@yugidraft/shared/duels";
 import { isEliminated } from "./multi-seat";
 import type { DuelPreferences } from "./preferences";
 import {
   SPEEDS,
+  stepButtonProps,
   createReadOnlyTableController,
   frameCaption,
   replayResultHeadline,
@@ -16,6 +17,7 @@ import {
   type ReplayModel,
 } from "./replay-controller";
 import type { ReplayLogEntry } from "./replay-timeline";
+import { ReplayStatus } from "./replay-status";
 import { TableShell } from "./table/table-shell";
 import type { ReplayShellMode } from "./table/types";
 import replayStyles from "./replay.module.css";
@@ -80,48 +82,50 @@ export function ReplayTableTransport({
   const icon = `${replayStyles.iconButton} ${styles.icon}`;
   return (
     <div className={styles.bar} data-replay-table-transport>
-      {result ? (
-        <div className={styles.result} role="status">
-          <strong>{result.headline}</strong>
-          <span>{result.reason}</span>
-        </div>
-      ) : null}
       <div className={styles.top}>
+        {result ? (
+          <div className={styles.result} role="status">
+            <strong>{result.headline}</strong>
+            <span>{result.reason}</span>
+          </div>
+        ) : null}
         <span className={styles.say} aria-live="off" title={said ? `${caption}. ${said}` : caption}>
           <b>{caption}</b>{said ? <> · {said}</> : null}
         </span>
+        {hiddenNote ? <span className={styles.hidden} title="Public view — hidden cards stay hidden">Public view — hidden cards stay hidden</span> : null}
+        {notice ? <p role="alert" className={styles.note} title={notice}>{notice}</p> : null}
         <Link href={`/duels/${slug}`} className={replayStyles.link}>Final board</Link>
       </div>
       <div className={styles.row}>
         <div className={replayStyles.buttons} role="group" aria-label="Replay controls">
           <button type="button" className={icon} aria-label="First move"
-            disabled={index === 0} onClick={() => controller.seek(0)}><SkipBack size={16} aria-hidden /></button>
+            {...stepButtonProps(index === 0, () => controller.seek(0))}><SkipBack size={16} aria-hidden /></button>
           <button type="button" className={icon} aria-label="Previous move"
-            disabled={index === 0} onClick={controller.stepBack}><ChevronLeft size={18} aria-hidden /></button>
+            {...stepButtonProps(index === 0, controller.stepBack)}><ChevronLeft size={18} aria-hidden /></button>
           <button type="button" className={`${icon} ${replayStyles.play}`}
             aria-label={playing ? "Pause" : "Play"} onClick={controller.togglePlay}>
             {playing ? <Pause size={18} aria-hidden /> : <Play size={18} aria-hidden />}
           </button>
           <button type="button" className={icon} aria-label="Next move"
-            disabled={atEnd} onClick={controller.stepForward}><ChevronRight size={18} aria-hidden /></button>
+            {...stepButtonProps(atEnd, controller.stepForward)}><ChevronRight size={18} aria-hidden /></button>
           <button type="button" className={icon} aria-label="Last move"
-            disabled={atEnd} onClick={() => controller.seek(last)}><SkipForward size={16} aria-hidden /></button>
+            {...stepButtonProps(atEnd, () => controller.seek(last))}><SkipForward size={16} aria-hidden /></button>
         </div>
-        <div className={styles.meta}>
-          <span>Move {index} / {last}</span>
-          <label>
-            <span className="sr-only">Playback speed</span>
-            <select className={`${replayStyles.select} ${styles.speed}`} value={speed} aria-label="Playback speed"
-              onChange={(event) => controller.setSpeed(Number(event.target.value))}>
-              {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
-            </select>
-          </label>
-        </div>
+        <label className={styles.speedField}>
+          <span className="sr-only">Playback speed</span>
+          <select className={`${replayStyles.select} ${styles.speed}`} value={speed} aria-label="Playback speed"
+            onChange={(event) => controller.setSpeed(Number(event.target.value))}>
+            {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
+          </select>
+        </label>
       </div>
-      <input type="range" className={`${replayStyles.slider} ${styles.slider}`} aria-label="Replay position"
-        min={0} max={last} step={1} value={index}
-        aria-valuetext={`Move ${index} of ${last}`}
-        onChange={(event) => controller.seek(Number(event.target.value))} />
+      <div className={styles.scrub}>
+        <input type="range" className={`${replayStyles.slider} ${styles.slider}`} aria-label="Replay position"
+          min={0} max={last} step={1} value={index}
+          aria-valuetext={`Move ${index} of ${last}`}
+          onChange={(event) => controller.seek(Number(event.target.value))} />
+        <span className={styles.count}>Move {index} / {last}</span>
+      </div>
       <div className={styles.view} role="group" aria-label="Replay view">
         <label>
           <span>View from</span>
@@ -141,8 +145,6 @@ export function ReplayTableTransport({
           </div>
         ) : null}
       </div>
-      {notice ? <p role="alert" className={styles.note}>{notice}</p> : null}
-      {hiddenNote ? <p className={styles.note}>Public view — hidden cards stay hidden</p> : null}
     </div>
   );
 }
@@ -165,6 +167,8 @@ export interface ReplayFfaProps {
   newLines: ReplayLogEntry[];
   /** Extra header controls (for example Jump in). */
   tools?: ReplayShellMode["tools"];
+  /** The table is hidden (another card view loads): its own camera and sound keys must do nothing. */
+  inputSuspended?: boolean;
 }
 
 /**
@@ -173,11 +177,12 @@ export interface ReplayFfaProps {
  * The card visibility was fixed by the server; the camera seat only decides where each field is drawn.
  */
 export function ReplayFfa({
-  slug, model, frames, engine, controller, preferences, visibility, canSwitchCards, onVisibility, onCamera, notice, newLines, tools,
+  slug, model, frames, engine, controller, preferences, visibility, canSwitchCards, onVisibility, onCamera, notice, newLines, tools, inputSuspended = false,
 }: ReplayFfaProps) {
   const { index, last, epoch, camera } = controller;
   const session = model.session;
-  const seatCount = session.seats.length;
+  // The format fixes the seat list, so a short or padded session row cannot change the number of fields.
+  const seatCount = seatCountFor(session.format);
   const atEnd = index >= last;
   const frame = frames[index];
   // One function per seat list, so the table's memos hold while a frame plays.
@@ -199,13 +204,14 @@ export function ReplayFfa({
   // The table remounts on a new key. Losses are read from the frames, so a seek lands on the same order as playing there.
   const initialOutOrder = useMemo(() => lossOrderAt(frames, index), [frames, index]);
   const resetKey = `${slug}:${model.visibility}:${epoch}`;
+  const caption = frameCaption(frame, index, atEnd, playerName);
   const transport = (
     <ReplayTableTransport
       slug={slug}
       controller={controller}
       seatCount={seatCount}
       playerName={playerName}
-      caption={frameCaption(frame, index, atEnd, playerName)}
+      caption={caption}
       newLines={newLines}
       result={result ? { headline: replayResultHeadline(session, result, playerName), reason: result.reason } : null}
       visibility={visibility}
@@ -220,7 +226,9 @@ export function ReplayFfa({
   return (
     <div data-replay-frame={controller.frameId ?? undefined} data-replay-visibility={model.visibility} data-replay-format={session.format}
       className="-mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8">
-      <TableShell controller={table} replay={replay} preferences={preferences} initialOutOrder={initialOutOrder} fillViewport />
+      {/* Outside the keyed shell: a seek rebuilds the shell, and a live region that is rebuilt is not read out. */}
+      <ReplayStatus playing={controller.playing} index={index} last={last} caption={caption} />
+      <TableShell controller={table} replay={replay} preferences={preferences} initialOutOrder={initialOutOrder} fillViewport inputSuspended={inputSuspended} />
     </div>
   );
 }

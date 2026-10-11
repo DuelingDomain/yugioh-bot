@@ -23,8 +23,8 @@
   background: #121822;
   color: #e7edf6;
 }
-.iconButton:hover:not(:disabled) { border-color: #d1ad6e; background: #2a2438; }
-.iconButton:disabled { color: #6d7a8a; cursor: default; }
+.iconButton:hover:not(:disabled):not([aria-disabled="true"]) { border-color: #d1ad6e; background: #2a2438; }
+.iconButton:disabled, .iconButton[aria-disabled="true"] { color: #6d7a8a; cursor: default; }
 .play { background: #352052; border-color: #b48bea; }
 .iconButton:focus-visible, .slider:focus-visible, .select:focus-visible, .link:focus-visible {
   outline: 2px solid #c4a35a;
@@ -79,3 +79,8 @@
 .segmented button[aria-pressed="true"] { color: #f4edff; background: #352052; box-shadow: inset 0 0 10px rgb(139 92 246 / 0.25); }
 .segmented button:focus-visible { outline: 2px solid #c4a35a; outline-offset: -2px; }
 @media (max-width: 900px) { .segmented { margin-left: 0; } }
+
+/* The table stays mounted while another card view loads, but nothing of the old view shows. */
+.busyScope { display: contents; }
+.busyScope[data-replay-busy="true"] { visibility: hidden; }
+.busyNote { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; color: #9db0c4; font-size: 14px; }
