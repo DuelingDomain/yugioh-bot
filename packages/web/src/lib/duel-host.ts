@@ -81,7 +81,9 @@ export function duelErrorResponse(error: unknown) {
     }, { status: 409, headers: { "cache-control": "private, no-store" } });
   }
   // Missing slugs and hidden replay forks must have the same response.
-  if (error instanceof DuelServiceError && error.status === 404) error = new ReplayAccessError(404);
+  if (error instanceof DuelServiceError && error.status === 404 && error.message === "Duel not found") {
+    error = new ReplayAccessError(404);
+  }
   if (error instanceof ReplayAccessError) {
     return NextResponse.json({ error: error.message, code: error.code }, {
       status: error.status, headers: { "cache-control": "private, no-store" },
