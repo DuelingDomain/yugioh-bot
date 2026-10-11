@@ -77,6 +77,12 @@ export function isReplayV2(raw: unknown): raw is DuelReplayV2 {
     && raw.frames.every((frame) => isRecord(frame) && typeof frame.frameId === "string" && isRecord(frame.view));
 }
 
+/** A v2 answer whose session or seat list is missing would crash the table; it is a bad answer, not a replay. */
+function hasSessionShape(raw: DuelReplayV2): boolean {
+  const session: unknown = raw.session;
+  return isRecord(session) && Array.isArray(session.seats) && typeof session.format === "string";
+}
+
 /** Stable frame ID of a v1 frame. The step is the same for every viewer, so it also holds across a visibility switch. */
 export function legacyFrameId(step: number): string {
   return `step-${step}`;
@@ -90,6 +96,7 @@ export function normalizeReplay(
   requestKey: string = requested,
 ): ReplayModel {
   if (isReplayV2(raw)) {
+    if (!hasSessionShape(raw)) throw new DuelRequestError("The server returned an invalid replay.", 502);
     const frames = raw.frames.map((frame) => ({ ...frame, view: toOrdinaryReplayView(frame.view) }));
     return {
       version: 2,

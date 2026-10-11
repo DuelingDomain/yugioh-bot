@@ -69,6 +69,13 @@ describe("normalizeReplay", () => {
     expect(isReplayV2({ version: 2, frames: [{ view: {} }] })).toBe(false);
     expect(isReplayV2(replayV2())).toBe(true);
   });
+
+  it("rejects a v2 answer whose session or seat list is missing", () => {
+    for (const bad of [undefined, null, {}, { format: "1v1" }, { format: "1v1", seats: "no" }]) {
+      const raw = { ...replayV2(), session: bad } as never;
+      expect(() => normalizeReplay(raw, "game-1", "mine")).toThrow(DuelRequestError);
+    }
+  });
 });
 
 describe("replay timeline over v2 frames", () => {
