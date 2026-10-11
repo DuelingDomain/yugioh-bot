@@ -298,10 +298,38 @@ jobs:
             packages/duel-server/domain-core/dist
           key: ${{ needs.core-cache.outputs.key }}
 
+  # Dispatch job checks cannot satisfy PR rulesets. Explicit commit statuses use
+  # the report's stable context; hold it pending before any smoke can start.
+  new-card-smoke-status-pending:
+    name: New card smoke merge gate (pending)
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/engine-data-update' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && inputs.new_card_smoke && github.ref == 'refs/heads/chore/engine-data-update')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      SMOKE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout status helper without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Node.js without dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Hold the merge gate pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: prlimit --core=0 -- node scripts/ci/new-card-smoke-status.mjs pending
+
   new-card-smoke:
     name: New card engine smoke (${{ matrix.shard }}/4)
-    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.smoke_enabled == 'true' }}
-    needs: [changes, cores]
+    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.new-card-smoke-status-pending.result == 'success' && needs.changes.outputs.smoke_enabled == 'true' }}
+    needs: [changes, cores, new-card-smoke-status-pending]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -358,8 +386,12 @@ jobs:
 
   new-card-smoke-report:
     name: New card engine smoke report
-    if: always() && needs.changes.outputs.smoke_enabled == 'true'
-    needs: [changes, cores, new-card-smoke]
+    # Eligibility must not depend on resolver outputs: resolver/checkout failures
+    # still need an ERROR report and failed merge gate.
+    if: >-
+      always() && ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/engine-data-update' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && inputs.new_card_smoke && github.ref == 'refs/heads/chore/engine-data-update'))
+    needs: [changes, cores, new-card-smoke, new-card-smoke-status-pending]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -367,13 +399,14 @@ jobs:
       pull-requests: write
     # Serialize comment creation across PR and dispatch runs for the same PR.
     concurrency:
-      group: new-card-smoke-report-${{ github.repository }}-${{ needs.changes.outputs.smoke_pr }}
+      group: new-card-smoke-report-${{ github.repository }}-${{ needs.changes.outputs.smoke_pr || github.event.pull_request.number || github.ref }}
       cancel-in-progress: false
     env:
-      SMOKE_PR: ${{ needs.changes.outputs.smoke_pr }}
-      SMOKE_BASE: ${{ needs.changes.outputs.smoke_base }}
-      SMOKE_HEAD: ${{ needs.changes.outputs.smoke_head }}
+      SMOKE_PR: ${{ needs.changes.outputs.smoke_pr || github.event.pull_request.number }}
+      SMOKE_BASE: ${{ needs.changes.outputs.smoke_base || github.event.pull_request.base.sha || 'unavailable' }}
+      SMOKE_HEAD: ${{ needs.changes.outputs.smoke_head || github.event.pull_request.head.sha || github.sha }}
       SMOKE_RESULT: ${{ needs.new-card-smoke.result }}
+      SMOKE_CONTEXT_RESULT: ${{ needs.changes.result }}
       SMOKE_SHARD_COUNT: "4"
     steps:
       - name: Checkout report helpers without credentials
@@ -412,6 +445,34 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
+
+  new-card-smoke-status:
+    name: New card smoke merge gate (final)
+    if: >-
+      always() && ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/engine-data-update' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && inputs.new_card_smoke && github.ref == 'refs/heads/chore/engine-data-update'))
+    needs: [new-card-smoke-report]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      SMOKE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      SMOKE_REPORT_RESULT: ${{ needs.new-card-smoke-report.result }}
+    steps:
+      - name: Checkout status helper without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Node.js without dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Publish the required merge-gate result
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: prlimit --core=0 -- node scripts/ci/new-card-smoke-status.mjs final
 
   unit-packages:
     name: Unit packages and typecheck
@@ -663,7 +724,7 @@ jobs:
   engine:
     name: Engine tests (cores required)
     if: always() && github.event_name != 'schedule'
-    needs: [changes, engine-shards]
+    needs: [changes, engine-shards, new-card-smoke-report]
     runs-on: ubuntu-latest
     steps:
       - name: Check all engine shards
@@ -671,7 +732,10 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           REQUIRED: ${{ needs.changes.outputs.engine }}
           RESULT: ${{ needs.engine-shards.result }}
-        run: test "$CHANGES" = success && { test "$REQUIRED" != true || test "$RESULT" = success; }
+          SMOKE_REPORT: ${{ needs.new-card-smoke-report.result }}
+        run: |
+          test "$CHANGES" = success && { test "$REQUIRED" != true || test "$RESULT" = success; }
+          test "$SMOKE_REPORT" = success || test "$SMOKE_REPORT" = skipped
 
   engine-legacy:
     name: Engine tests, legacy 1v1 engine (cores required)

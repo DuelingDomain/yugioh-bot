@@ -97,6 +97,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     }
     const context = { repository: process.env.GITHUB_REPOSITORY, number: Number(process.env.SMOKE_PR), headSha: process.env.SMOKE_HEAD, baseSha: process.env.SMOKE_BASE };
     const report = mergeSmokeReports(reports, Number(process.env.SMOKE_SHARD_COUNT ?? 4), process.env.SMOKE_RESULT);
+    if (process.env.SMOKE_CONTEXT_RESULT && process.env.SMOKE_CONTEXT_RESULT !== "success") readErrors.push(`PR context resolution: ${process.env.SMOKE_CONTEXT_RESULT}`);
+    const hasPull = Number.isSafeInteger(context.number) && context.number > 0;
+    if (!hasPull) readErrors.push("PR context unavailable; no comment will be posted");
     if (readErrors.length) { report.errors.push(...readErrors); report.status = "ERROR"; report.exitCode = 2; }
     const runUrl = `${process.env.GITHUB_SERVER_URL}/${context.repository}/actions/runs/${process.env.GITHUB_RUN_ID}`;
     const markdown = renderSmokeReport(report, context, runUrl);
@@ -104,7 +107,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     writeFileSync(".status/new-card-smoke-report.md", markdown);
     writeFileSync(".status/new-card-smoke-report.json", JSON.stringify(report, null, 2) + "\n");
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown);
-    const result = await upsertSmokeComment(context, boundedSmokeComment(markdown, runUrl), githubApi);
+    const result = hasPull ? await upsertSmokeComment(context, boundedSmokeComment(markdown, runUrl), githubApi)
+      : { posted: false, reason: "PR context unavailable" };
     if (!result.posted) console.log(`::notice::Smoke comment skipped: ${result.reason}`);
     if (report.incomplete) console.log("::warning::New-card smoke is incomplete. Review unfinished passcodes and WARN rows in the report.");
     if ([1, 2].includes(report.exitCode)) console.error(`::error::New-card smoke ${report.status}; read the job summary and shard logs.`);

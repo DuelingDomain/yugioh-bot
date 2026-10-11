@@ -16,6 +16,7 @@ test("bot smoke uses four shards and the existing core pipeline", () => {
   assert.deepEqual(job.strategy.matrix.shard, [1, 2, 3, 4]);
   assert.equal(job.strategy["fail-fast"], false);
   assert.ok(job.needs.includes("cores"));
+  assert.ok(job.needs.includes("new-card-smoke-status-pending"));
   assert.match(job.if, /smoke_enabled == 'true'/);
   assert.equal(workflow.on.workflow_dispatch.inputs.new_card_smoke.default, false);
   const setup = job.steps.find(step => step.uses === "./.github/actions/restore-engine-bundle");
@@ -48,7 +49,9 @@ test("runner exits 0/3 pass, exits 1/2 fail with clear annotations", () => {
 });
 test("only the always-run bot report can write PR comments", () => {
   const report = workflow.jobs["new-card-smoke-report"];
-  assert.match(report.if, /always\(\).*smoke_enabled == 'true'/);
+  assert.match(report.if, /always\(\)/);
+  assert.match(report.if, /pull_request.*chore\/engine-data-update/);
+  assert.ok(!report.if.includes("smoke_enabled"), "resolver failure must not skip the report");
   assert.ok(report.needs.includes("new-card-smoke"));
   assert.equal(report.permissions["pull-requests"], "write");
   assert.equal(report.permissions.contents, "read");
@@ -58,4 +61,39 @@ test("only the always-run bot report can write PR comments", () => {
     assert.notEqual(job.permissions?.["pull-requests"], "write");
   }
   assert.ok(report.steps.find(step => step.run?.includes("new-card-smoke-report.mjs")));
+});
+test("a status bridge preserves the required gate on GITHUB_TOKEN dispatch and holds it pending first", () => {
+  for (const id of ["new-card-smoke-status-pending", "new-card-smoke-status"]) {
+    const job = workflow.jobs[id];
+    assert.equal(job.permissions.statuses, "write");
+    assert.equal(job.permissions["pull-requests"], undefined);
+    assert.match(job.if, /chore\/engine-data-update/);
+    assert.match(job.if, /workflow_dispatch/);
+    assert.ok(job.steps.some(step => step.run?.includes("new-card-smoke-status.mjs")));
+  }
+  assert.ok(workflow.jobs["new-card-smoke-status"].needs.includes("new-card-smoke-report"));
+  assert.ok(workflow.jobs.engine.needs.includes("new-card-smoke-report"));
+});
+test("the existing required engine aggregate fails for a failed smoke report", () => {
+  const run = workflow.jobs.engine.steps[0].run;
+  for (const smoke of ["success", "failure", "cancelled", "skipped"]) {
+    const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", run], { encoding: "utf8",
+      env: { ...process.env, CHANGES: "success", REQUIRED: "true", RESULT: "success", SMOKE_REPORT: smoke } });
+    assert.equal(result.status, ["success", "skipped"].includes(smoke) ? 0 : 1);
+  }
+});
+test("report and status gates select only the bot PR even if the resolver fails", () => {
+  const bot = { head: { ref: "chore/engine-data-update", repo: { full_name: "owner/repo" } } };
+  for (const id of ["new-card-smoke-report", "new-card-smoke-status-pending", "new-card-smoke-status"]) {
+    const expression = workflow.jobs[id].if;
+    const run = (event, pull, input = false, ref = "refs/heads/main") => Function("github", "inputs", "always", `return (${expression})`)(
+      { event_name: event, event: { pull_request: pull }, repository: "owner/repo", ref }, { new_card_smoke: input }, () => true);
+    assert.equal(run("pull_request", bot), true);
+    assert.equal(run("pull_request", { head: { ...bot.head, ref: "feature" } }), false);
+    assert.equal(run("pull_request", { head: { ...bot.head, repo: { full_name: "fork/repo" } } }), false);
+    assert.equal(run("workflow_dispatch", undefined, true, "refs/heads/chore/engine-data-update"), true);
+    assert.equal(run("workflow_dispatch", undefined, false, "refs/heads/chore/engine-data-update"), false);
+    assert.equal(run("workflow_dispatch", undefined, true, "refs/heads/main"), false);
+    assert.equal(run("schedule", undefined), false);
+  }
 });

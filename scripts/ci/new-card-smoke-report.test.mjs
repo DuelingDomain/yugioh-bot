@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { boundedSmokeComment, mergeSmokeReports, renderSmokeReport, upsertSmokeComment, SMOKE_COMMENT_MARKER } from "./new-card-smoke-report.mjs";
 
@@ -77,4 +80,46 @@ test("first report creates one comment; other branches, forks, closed and stale 
     assert.equal(result.posted, current === pull);
     assert.equal(writes.length, current === pull ? 1 : 0);
   }
+});
+
+for (const outcome of ["FAIL", "incomplete", "input-error", "context-error"]) test(`report CLI publishes the fixture summary and returns the right CI status (${outcome})`, () => {
+  const scratchRoot = fileURLToPath(new URL("../../.status/", import.meta.url));
+  mkdirSync(scratchRoot, { recursive: true });
+  const scratch = mkdtempSync(join(scratchRoot, "smoke-report-test-"));
+  try {
+    const directory = join(scratch, "shards"), bin = join(scratch, "bin");
+    mkdirSync(directory); mkdirSync(bin);
+    const shards = fixture();
+    if (outcome === "incomplete") shards[1].cards = [];
+    if (!["input-error", "context-error"].includes(outcome)) for (const [index, shard] of shards.entries()) {
+      writeFileSync(join(directory, `new-card-smoke-${index + 1}.json`), JSON.stringify(shard));
+    }
+    // Simulate GitHub's wire responses, including --paginate --slurp and stdin bodies.
+    writeFileSync(join(bin, "gh"), `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args.includes('--input')) {
+  const body = JSON.parse(fs.readFileSync(0, 'utf8'));
+  fs.writeFileSync(process.env.SMOKE_TEST_WRITE, JSON.stringify({args, ...body}));
+  process.stdout.write('{}');
+} else if (args[1].endsWith('/pulls/7')) process.stdout.write(${JSON.stringify(JSON.stringify(pull))});
+else process.stdout.write('[[]]');
+`, { mode: 0o755 });
+    const summary = join(scratch, "summary.md"), comment = join(scratch, "comment.json");
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("./new-card-smoke-report.mjs", import.meta.url))], {
+      cwd: scratch, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, SMOKE_REPORT_DIR: directory,
+        GITHUB_REPOSITORY: context.repository, SMOKE_PR: "7", SMOKE_HEAD: context.headSha, SMOKE_BASE: context.baseSha,
+        SMOKE_RESULT: outcome === "incomplete" ? "success" : "failure", SMOKE_SHARD_COUNT: "2",
+        SMOKE_CONTEXT_RESULT: outcome === "context-error" ? "failure" : "success",
+        GITHUB_STEP_SUMMARY: summary, GITHUB_SERVER_URL: "https://github.com", GITHUB_RUN_ID: "1", SMOKE_TEST_WRITE: comment },
+    });
+    assert.equal(result.status, outcome === "FAIL" ? 1 : ["input-error", "context-error"].includes(outcome) ? 2 : 0, result.stderr);
+    const markdown = readFileSync(summary, "utf8"), posted = JSON.parse(readFileSync(comment, "utf8"));
+    assert.equal(posted.body, markdown);
+    assert.ok(posted.args.includes("POST"));
+    assert.match(markdown, outcome === "FAIL" ? /Result: \*\*FAIL\*\*/ : ["input-error", "context-error"].includes(outcome) ? /Result: \*\*ERROR\*\*/ : /Result: \*\*WARN\*\*/);
+    if (outcome === "incomplete") assert.match(result.stdout, /::warning::.*incomplete/);
+    if (outcome === "input-error") assert.match(markdown, /Missing shard 1\/2/);
+    if (outcome === "context-error") assert.match(markdown, /PR context resolution: failure/);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
 });

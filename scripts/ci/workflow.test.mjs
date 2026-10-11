@@ -96,7 +96,7 @@ test("required engine checks include all balanced groups and legacy runs only tw
     assert.ok(job.needs.includes(shards));
     const guard = job.steps[0];
     for (const result of ["success", "failure", "cancelled", "skipped"]) {
-      const env = { ...process.env, CHANGES: "success", REQUIRED: "true", RESULT: result };
+      const env = { ...process.env, CHANGES: "success", REQUIRED: "true", RESULT: result, SMOKE_REPORT: "skipped" };
       const checked = spawnSync("bash", ["-e", "-o", "pipefail", "-c", guard.run], { env });
       assert.equal(checked.status, result === "success" ? 0 : 1);
     }
