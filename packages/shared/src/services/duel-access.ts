@@ -49,7 +49,9 @@ export function canReadDuel(db: Database.Database, claims: Pick<DuelConnectionTo
       .get(row.id, claims.playerId) as { seat: number } | undefined;
     if (isReplayFork(target)) return claims.seat === 0 && seat?.seat === 0
       && row.organizer_player_id === claims.playerId && target.ownerUserId === player.user_id && isOwnerUser(player.user_id);
-    if (claims.seat !== null && claims.seat !== seat?.seat) return false;
+    // Ordinary openings can reorder seats while this identity's token is still valid.
+    // The token seat is not an acting-seat grant; keep requiring a current seat.
+    if (claims.seat !== null && seat === undefined) return false;
     const settings = parseStoredDuelSettings(row.settings_json);
     if (settings.visibility === "public") return true;
     return row.organizer_player_id === claims.playerId || seat !== undefined

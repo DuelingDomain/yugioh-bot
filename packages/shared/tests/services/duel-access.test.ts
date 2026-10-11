@@ -89,3 +89,10 @@ it("reports a fork invite refusal as a typed conflict", () => {
     guildId: app.guildId, url: `https://duel.example/duels/${app.forkSlug}` }))
     .toThrowError(expect.objectContaining({ name: "DuelInviteRefusalError", code: "DUEL_INVITE_REFUSED", status: 409 }));
 });
+
+it("keeps an ordinary seated player's old token after a seat move", () => {
+  app.db.prepare("update duel_seats set seat=1 where duel_id=? and player_id=?").run(app.source.id, app.sourcePlayer.playerId);
+  expect(access.canReadDuel(app.db, claims(app.source.slug, app.sourcePlayer, 0))).toBe(true);
+  app.db.prepare("delete from duel_seats where duel_id=? and player_id=?").run(app.source.id, app.sourcePlayer.playerId);
+  expect(access.canReadDuel(app.db, claims(app.source.slug, app.sourcePlayer, 0))).toBe(false);
+});
