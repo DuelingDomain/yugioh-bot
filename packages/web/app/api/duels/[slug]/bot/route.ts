@@ -30,14 +30,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   const { slug } = await params;
-  try { assertNormalDuelRequest(request, actor.duels.room(slug, actor.guildId, actor.playerId)); }
+  try { assertNormalDuelRequest(request, actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false })); }
   catch (error) { return duelErrorResponse(error); }
 
   const parsed = await readSeat(request);
   if (!parsed.ok) return parsed.response;
 
   try {
-    const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
     if (parsed.seat !== undefined) {
       const { format, seats } = room.session;
       if (parsed.seat >= seatCountFor(format ?? "1v1")) {
@@ -67,7 +67,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ s
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   const { slug } = await params;
-  try { assertNormalDuelRequest(request, actor.duels.room(slug, actor.guildId, actor.playerId)); }
+  try { assertNormalDuelRequest(request, actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false })); }
   catch (error) { return duelErrorResponse(error); }
 
   // Body is optional: `{ seat }` removes the bot in that seat (a table can hold several bots); with no body every bot goes.

@@ -7,6 +7,7 @@ const MAX_BATCH_ROWS = 50;
 const MAX_BATCH_BYTES = 4 * 1024 * 1024;
 const MAX_SWEEP_BATCHES = 20;
 const enabled = () => ["1", "true"].includes((process.env.DUEL_SNAPSHOT_RETENTION_ENABLED ?? "0").trim().toLowerCase());
+const turnBackfillEnabled = () => ["1", "true"].includes((process.env.DUEL_TURN_BACKFILL_ENABLED ?? "1").trim().toLowerCase());
 function integerEnv(name: string, fallback: number, minimum: number): number {
   const raw = process.env[name];
   if (!raw?.trim()) return fallback;
@@ -14,7 +15,7 @@ function integerEnv(name: string, fallback: number, minimum: number): number {
   return Number.isSafeInteger(value) && value >= minimum ? value : fallback;
 }
 export function duelSnapshotRetentionConfig() {
-  return { enabled: enabled(), days: integerEnv("DUEL_SNAPSHOT_RETENTION_DAYS", 30, 0),
+  return { enabled: enabled(), turnBackfillEnabled: turnBackfillEnabled(), days: integerEnv("DUEL_SNAPSHOT_RETENTION_DAYS", 30, 0),
     intervalMs: Math.min(2_147_483_647, integerEnv("DUEL_SNAPSHOT_RETENTION_INTERVAL_MS", 6 * 60 * 60 * 1000, 60_000)) };
 }
 interface RetentionRow extends StoredDuelBoards {
@@ -25,6 +26,8 @@ export interface DuelSnapshotRetentionOptions {
   now?: number;
   batchSize?: number;
   maxBatches?: number;
+  /** Last handled turn row from the prior pass. Reset only after an empty select. */
+  turnCursor?: number;
   stopped?: () => boolean;
   /** Include the creator queue used by launch retries, as well as slug operations. */
   isForkBusy?: (slug: string, guildId: string, creatorPlayerId: number) => boolean;
@@ -49,9 +52,11 @@ const bytesOf = (row: RetentionRow) => originalsOf(row).reduce<number>((sum, raw
 
 /** Bounded, resumable sweep. Turn-only backfill runs even while compression is disabled. */
 export async function runDuelSnapshotRetention(db: Database.Database, options: DuelSnapshotRetentionOptions = {}) {
-  const stats = { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false };
+  const stats = { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false,
+    turnCursor: options.turnCursor ?? 0, turnBackfillDone: !turnBackfillEnabled() };
   const stopped = () => options.stopped?.() === true;
   const stopRetention = () => stopped() || !enabled();
+  const stopBackfill = () => stopped() || !turnBackfillEnabled();
   if (stopped()) return stats;
   const config = duelSnapshotRetentionConfig();
   const time = options.now ?? Date.now();
@@ -64,41 +69,47 @@ export async function runDuelSnapshotRetention(db: Database.Database, options: D
   const report = (phase: Phase, error: unknown) => {
     if (isBusy(error)) stats.busy = true;
     else if (options.onError) options.onError(phase, error);
-    else console.warn("[duel] storage maintenance error", { phase, code: (error as { code?: string })?.code ?? "unknown" });
+    else console.warn("[duel] storage maintenance error", { phase, code: (error as { code?: string })?.code ?? "unknown",
+      message: error instanceof Error ? error.message : String(error) });
   };
   const fetch = db.prepare<[number], RetentionRow>(`select id,format,status,kind,ended_at,clock_json,${STORED_BOARD_COLUMNS} from duels where id=?`);
 
-  // An in-pass ID cursor advances even if a row has no readable turn. No age or
+  // The host retains the ID cursor across passes, including unreadable turns. No age or
   // compaction guard: deployment must preserve recent history and repaired old rows.
   try {
-    const select = db.prepare<[number, number], { id: number }>(`select id from duels where turn_count is null and ${terminalGuard} and id>? order by id limit ?`);
+    const select = db.prepare<[number, number], { id: number }>(`select id from duels where turn_count is null and ${terminalGuard}
+      and (clock_json is not null or snapshot_public_json is not null or snapshot_seat0_json is not null
+        or snapshot_seat1_json is not null or snapshot_seats_json is not null) and id>? order by id limit ?`);
     const update = db.prepare(`update duels set turn_count=? where id=? and turn_count is null and status=?
       and ended_at is ? and clock_json is ? and snapshot_public_json is ? and snapshot_seat0_json is ? and snapshot_seat1_json is ? and snapshot_seats_json is ?`);
-    let cursor = 0;
-    for (let batch = 0; batch < batches && !stopped(); batch++) {
-      const ids = select.all(cursor, size);
-      if (!ids.length) break;
+    for (let batch = 0; batch < batches && !stopBackfill(); batch++) {
+      const ids = select.all(stats.turnCursor, size);
+      if (!ids.length) { stats.turnCursor = 0; stats.turnBackfillDone = true; break; }
       let bytes = 0;
       for (const { id } of ids) {
-        if (stopped() || bytes >= MAX_BATCH_BYTES) break;
+        if (stopBackfill() || bytes >= MAX_BATCH_BYTES) break;
         const row = fetch.get(id);
-        if (!row) { cursor = id; continue; }
+        if (!row) { stats.turnCursor = id; continue; }
         const rowBytes = bytesOf(row);
         if (bytes && bytes + rowBytes > MAX_BATCH_BYTES) break;
-        cursor = id; bytes += rowBytes;
+        bytes += rowBytes;
         try {
           const turn = storedTurnCount(row);
           await pause(0);
-          if (stopped()) return stats;
+          if (stopBackfill()) break;
           if (turn !== null) stats.backfilled += withoutBusyWait(db, () => db.transaction(() =>
             update.run(turn, row.id, row.status, row.ended_at, row.clock_json, ...originalsOf(row)).changes).immediate());
         } catch (error) { report("turn-backfill", error); if (isBusy(error)) break; }
+        stats.turnCursor = id;
       }
       if (stats.busy) break;
       await pause(100);
     }
   } catch (error) { report("turn-backfill", error); }
-  if (stopRetention()) return stats;
+  if (stopRetention()) {
+    stats.backlogDone = !stopped() && !stats.busy && stats.turnBackfillDone;
+    return stats;
+  }
 
   const forkGuard = "status='cancelled' and kind='replay-fork' and series_id is null and julianday(ended_at) < julianday(?)";
   // Fork failures never suppress compaction or another fork. Every delete keeps
@@ -172,7 +183,7 @@ export async function runDuelSnapshotRetention(db: Database.Database, options: D
       } catch (error) { report("compaction", error); if (isBusy(error)) break; }
       await pause(100);
     }
-    stats.backlogDone = !stopRetention() && !stats.busy
+    stats.backlogDone = !stopRetention() && !stats.busy && stats.turnBackfillDone
       && !db.prepare(`select 1 from duels where ${compactGuard} limit 1`).get(cutoff)
       && !db.prepare(`select 1 from duels where ${forkGuard} limit 1`).get(forkCutoff);
   } catch (error) { report("compaction", error); }

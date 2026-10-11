@@ -10,7 +10,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
 
   let fork = false;
   try {
-    const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
     readDuelControl(request, room);
     fork = room?.session.kind === "replay-fork";
   } catch (error) {
@@ -25,7 +25,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   });
   if (!result.ok) return result.response;
   if (fork) {
-    try { actor.duels.room(slug, actor.guildId, actor.playerId); }
+    try { actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false }); }
     catch (error) { return duelErrorResponse(error); }
   }
   return NextResponse.json(result.data, fork ? { headers: { "cache-control": "private, no-store" } } : undefined);

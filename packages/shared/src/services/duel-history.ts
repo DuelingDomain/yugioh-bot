@@ -17,7 +17,8 @@ type HistoryCursor = { v: 1; time: number | null; id: number };
 const registeredDatabases = new WeakSet<Database.Database>();
 export function registerDuelHistoryFunctions(db: Database.Database): void {
   if (registeredDatabases.has(db)) return;
-  // Read only a bounded prefix until the independent backfill reaches the row.
+  // Scan a bounded prefix until the independent backfill reaches the row.
+  // SQLite substr() still reads the whole TEXT value, including overflow pages.
   // Scan top-level scalar metadata (including format) without parsing a large board.
   db.function("duel_history_turn", { deterministic: true }, (raw: string | null) => {
     if (typeof raw !== "string") return null;

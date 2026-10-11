@@ -160,7 +160,7 @@ it("checks room access with the actor's guild before slug-bound lookups", async 
   room.mockImplementation(() => { throw new Error("Room belongs to another guild"); });
   const { GET } = await import("../app/api/duels/cards/route");
   expect((await GET(search("17242022", "other"))).status).toBe(404);
-  expect(room).toHaveBeenCalledWith("other", "guild-1", 7);
+  expect(room).toHaveBeenCalledWith("other", "guild-1", 7, { includeStoredBoard: false });
   expect(callDuelHost).not.toHaveBeenCalled();
   expect(getDb).not.toHaveBeenCalled();
 });

@@ -28,7 +28,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
 
   try {
     assertDuelForkAccess(slug, actor);
-    actor.duels.room(slug, actor.guildId, actor.playerId);
+    actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
   } catch (error) {
     return accessError(error);
   }
@@ -45,12 +45,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     if (result.response.status === 413 || result.response.status === 409) {
       try {
         assertDuelForkAccess(slug, actor);
-        const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+        const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
         const fallback = await savedReplayBoardResponse(result.response, {
           db: getDb(), session: room.session, playerId: actor.playerId, owner: false, ...query.input,
         });
         if (fallback) {
-          assertDuelForkAccess(slug, actor); actor.duels.room(slug, actor.guildId, actor.playerId);
+          assertDuelForkAccess(slug, actor); actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
           return fallback;
         }
       } catch (error) { return accessError(error); }
@@ -58,7 +58,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     return noStore(result.response);
   }
   // Recheck after the host wait, including allowlist changes for a marked fork.
-  try { assertDuelForkAccess(slug, actor); actor.duels.room(slug, actor.guildId, actor.playerId); }
+  try { assertDuelForkAccess(slug, actor); actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false }); }
   catch (error) { return accessError(error); }
   return noStore(NextResponse.json(result.data));
 }

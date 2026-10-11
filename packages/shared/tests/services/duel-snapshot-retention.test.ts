@@ -13,7 +13,10 @@ import { storedBoardFixture } from "../helpers/stored-board.js";
 const databases: Database.Database[] = [];
 const directories: string[] = [];
 afterEach(() => { databases.splice(0).forEach(db => db.close()); directories.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); vi.unstubAllEnvs(); });
-beforeEach(() => vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "1"));
+beforeEach(() => {
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "1");
+  vi.stubEnv("DUEL_TURN_BACKFILL_ENABLED", "1");
+});
 const now = Date.parse("2026-10-11T12:00:00Z");
 function fixture(path = ":memory:") {
   const db = new Database(path); databases.push(db); db.pragma("foreign_keys=on"); migrate(db);
@@ -187,6 +190,101 @@ it("advances the turn-only cursor past rows with no turn in the same pass", asyn
   db.prepare("update duels set snapshot_public_json=null,snapshot_seat0_json=null,snapshot_seat1_json=null,snapshot_seats_json=null where id=?").run(missing);
   const stats = await runDuelSnapshotRetention(db, { now, batchSize: 1, maxBatches: 2, pause: async () => {} });
   expect(stats.backfilled).toBe(1); expect(saved(db, missing).turn_count).toBeNull(); expect(saved(db, next).turn_count).toBe(40);
+});
+it("retains the turn cursor across passes and resets it only after an empty select", async () => {
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0");
+  const { db } = fixture(); const unreadable = row(db), next = row(db);
+  db.prepare("update duels set snapshot_public_json='broken',snapshot_seat0_json=null,snapshot_seat1_json=null,snapshot_seats_json=null where id=?").run(unreadable);
+  const options = { now, batchSize: 1, maxBatches: 1, pause: async () => {} };
+  const first = await runDuelSnapshotRetention(db, options);
+  expect(first).toMatchObject({ backfilled: 0, turnCursor: unreadable, turnBackfillDone: false, backlogDone: false });
+  const second = await runDuelSnapshotRetention(db, { ...options, turnCursor: first.turnCursor });
+  expect(second).toMatchObject({ backfilled: 1, turnCursor: next, turnBackfillDone: false });
+  expect(saved(db, next).turn_count).toBe(40);
+  const third = await runDuelSnapshotRetention(db, { ...options, turnCursor: second.turnCursor });
+  expect(third).toMatchObject({ turnCursor: 0, turnBackfillDone: true, backlogDone: true });
+});
+it("skips turn rows that have neither snapshots nor a clock", async () => {
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0");
+  const { db } = fixture(); const empty = row(db), next = row(db);
+  db.prepare("update duels set snapshot_public_json=null,snapshot_seat0_json=null,snapshot_seat1_json=null,snapshot_seats_json=null where id=?").run(empty);
+  const stats = await runDuelSnapshotRetention(db, { now, batchSize: 1, maxBatches: 1, pause: async () => {} });
+  expect(stats.backfilled).toBe(1); expect(saved(db, empty).turn_count).toBeNull(); expect(saved(db, next).turn_count).toBe(40);
+});
+it.each(["0", "false"])("disables turn backfill independently (%s) while allowing compaction", async disabled => {
+  vi.stubEnv("DUEL_TURN_BACKFILL_ENABLED", disabled);
+  const { db } = fixture(); const recent = row(db, "ffa4", "completed", "play", "2026-10-10 12:00:00"), old = row(db);
+  expect(duelSnapshotRetentionConfig()).toMatchObject({ turnBackfillEnabled: false });
+  const stats = await runDuelSnapshotRetention(db, { now, pause: async () => {} });
+  expect(stats).toMatchObject({ backfilled: 0, compacted: 1, turnBackfillDone: true, backlogDone: true });
+  expect(saved(db, recent).turn_count).toBeNull(); expect(saved(db, old).snapshot_compacted_at).not.toBeNull();
+});
+it("defaults backfill on and honors its switch between read and write", async () => {
+  vi.stubEnv("DUEL_TURN_BACKFILL_ENABLED", undefined); vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0");
+  expect(duelSnapshotRetentionConfig()).toMatchObject({ turnBackfillEnabled: true });
+  const { db } = fixture(); const id = row(db); const before = saved(db, id);
+  const stats = await runDuelSnapshotRetention(db, { now, pause: async () => { vi.stubEnv("DUEL_TURN_BACKFILL_ENABLED", "0"); } });
+  expect(stats.backfilled).toBe(0); expect(saved(db, id)).toEqual(before);
+});
+it.each([3, 5])("keeps an unconsumed turn row for the next batch at the byte cap (row=%s MiB)", async mib => {
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0");
+  const { db } = fixture(); const ids = Array.from({ length: 3 }, () => row(db, "1v1"));
+  const raw = JSON.stringify({ turn: 8, payload: "x".repeat(mib * 1024 * 1024) });
+  for (const id of ids) db.prepare("update duels set snapshot_public_json=?,snapshot_seat0_json=null,snapshot_seat1_json=null,snapshot_seats_json=null where id=?").run(raw, id);
+  const prepare = db.prepare.bind(db); const reads: number[] = [];
+  const spy = vi.spyOn(db, "prepare").mockImplementation(((sql: string) => {
+    const statement = prepare(sql);
+    if (/select id,format,status,kind,ended_at,clock_json/.test(sql)) {
+      const get = statement.get.bind(statement);
+      vi.spyOn(statement, "get").mockImplementation((...args: unknown[]) => { reads.push(args[0] as number); return get(...args); });
+      vi.spyOn(statement, "all").mockImplementation(() => { throw new Error("Full-row bulk read"); });
+    }
+    return statement;
+  }) as typeof db.prepare);
+  try {
+    const stats = await runDuelSnapshotRetention(db, { now, maxBatches: 2, pause: async () => {} });
+    expect(stats.backfilled).toBe(2);
+    expect(ids.map(id => saved(db, id).turn_count)).toEqual([8, 8, null]);
+    expect(reads).toEqual(mib === 3 ? [ids[0], ids[1], ids[1], ids[2]] : [ids[0], ids[1]]);
+  } finally { spy.mockRestore(); }
+});
+it("defers a busy turn write without consuming the row and restores the timeout", async () => {
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0");
+  const dir = mkdtempSync(join(tmpdir(), "retention-turn-lock-")); directories.push(dir);
+  const { db } = fixture(join(dir, "test.sqlite")); db.pragma("journal_mode=WAL"); db.pragma("busy_timeout=5000");
+  const id = row(db); const beforeRow = saved(db, id);
+  const lock = new Database(join(dir, "test.sqlite")); databases.push(lock); lock.exec("begin immediate");
+  const before = performance.now(); const options = { now, batchSize: 1, maxBatches: 1, pause: async () => {} };
+  const stats = await runDuelSnapshotRetention(db, options);
+  expect(stats).toMatchObject({ busy: true, backfilled: 0, turnCursor: 0, backlogDone: false });
+  expect(performance.now() - before).toBeLessThan(1000); expect(db.pragma("busy_timeout", { simple: true })).toBe(5000);
+  expect(saved(db, id)).toEqual(beforeRow); lock.exec("rollback");
+  expect((await runDuelSnapshotRetention(db, { ...options, turnCursor: stats.turnCursor })).backfilled).toBe(1);
+});
+it("does not write a stale turn after a fork restarts during the backfill pause", async () => {
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0");
+  const { db } = fixture(); const id = row(db, "ffa4", "cancelled", "replay-fork");
+  await runDuelSnapshotRetention(db, { now, pause: async () => {
+    db.prepare("update duels set status='active',ended_at=null,turn_count=null where id=?").run(id);
+  } });
+  expect(saved(db, id)).toMatchObject({ status: "active", ended_at: null, turn_count: null, snapshot_compacted_at: null });
+});
+it("includes turn backfill in backlog completion even when compaction has no work", async () => {
+  const { db } = fixture(); row(db, "ffa4", "completed", "play", "2026-10-10 12:00:00");
+  row(db, "ffa4", "completed", "play", "2026-10-10 12:00:00");
+  const stats = await runDuelSnapshotRetention(db, { now, batchSize: 1, maxBatches: 1, pause: async () => {} });
+  expect(stats).toMatchObject({ backfilled: 1, compacted: 0, turnBackfillDone: false, backlogDone: false });
+});
+it("logs the message from a non-SQLite backfill error", async () => {
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0");
+  const { db } = fixture(); row(db);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await runDuelSnapshotRetention(db, { now, pause: async () => { throw new TypeError("Synthetic backfill failure"); } });
+    expect(warn).toHaveBeenCalledWith("[duel] storage maintenance error", expect.objectContaining({
+      phase: "turn-backfill", code: "unknown", message: "Synthetic backfill failure",
+    }));
+  } finally { warn.mockRestore(); }
 });
 it.each([3, 5])("bounds full-row reads at the 4 MiB cap (row=%s MiB)", async mib => {
   const { db } = fixture(); const ids = Array.from({ length: 3 }, () => row(db, "1v1"));

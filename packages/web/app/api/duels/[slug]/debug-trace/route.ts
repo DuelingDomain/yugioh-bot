@@ -16,7 +16,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   let fork = false;
   try {
     // Same access rule as the room: throws when this player may not see the duel.
-    const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
     readDuelControl(request, room);
     fork = room?.session.kind === "replay-fork";
   } catch (error) {
@@ -26,7 +26,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   const result = await callDuelHost({ op: "debug-trace", slug, guildId: actor.guildId, playerId: actor.playerId, ...(actor.userId !== undefined ? { userId: actor.userId } : {}) });
   if (!result.ok) return result.response;
   if (fork) {
-    try { actor.duels.room(slug, actor.guildId, actor.playerId); }
+    try { actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false }); }
     catch (error) { return duelErrorResponse(error); }
   }
   return NextResponse.json(result.data, { headers: { "cache-control": "private, no-store" } });

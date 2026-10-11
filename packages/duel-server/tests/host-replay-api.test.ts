@@ -26,6 +26,7 @@ let configureWorker = (_worker: ReplayWorker) => {};
 const owner = { guildId: "test-guild", playerId: 61, userId: 101 };
 beforeEach(() => {
   vi.stubEnv("OWNER_USER_IDS", "101,102");
+  vi.stubEnv("DUEL_TURN_BACKFILL_ENABLED", "1");
   db = new Database(":memory:"); migrate(db);
   dir = mkdtempSync(join(tmpdir(), "host-replay-"));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "test-bundle" }));
@@ -333,7 +334,7 @@ it("schedules one retention sweep at a time and waits for it during shutdown", a
   const job = vi.spyOn(jobs, "runDuelSnapshotRetention").mockImplementation(async (_db, options) => {
     await gate;
     stoppedAtRelease = options?.stopped?.();
-    return { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false };
+    return { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false, turnCursor: 0, turnBackfillDone: false };
   });
   try {
     host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
@@ -386,7 +387,28 @@ it("backfills history while retention is disabled and logs pass progress", async
     expect(db.prepare("select turn_count,typeof(snapshot_public_json) as storage,snapshot_compacted_at from duels where web_slug=?").get(slug))
       .toEqual({ turn_count: 8, storage: "text", snapshot_compacted_at: null });
     expect(log).toHaveBeenCalledWith("[duel] snapshot retention pass", expect.objectContaining({ backfilled: 1, compacted: 0 }));
+    expect(log).toHaveBeenCalledWith("[duel] snapshot retention pass", expect.objectContaining({ turnBackfillDone: true, backlogDone: true }));
   } finally { await host.close(); log.mockRestore(); vi.useRealTimers(); }
+});
+
+it("passes the turn cursor to later host sweeps and logs non-SQLite error messages", async () => {
+  const jobs = await import("@yugidraft/shared/services");
+  await host.close(); vi.useFakeTimers(); vi.stubEnv("DUEL_SNAPSHOT_RETENTION_INTERVAL_MS", "120000");
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const job = vi.spyOn(jobs, "runDuelSnapshotRetention").mockImplementation(async (_db, options) => {
+    options?.onError?.("turn-backfill", new TypeError("Synthetic worker failure"));
+    return { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false, turnCursor: 7, turnBackfillDone: false };
+  });
+  try {
+    host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(job).toHaveBeenCalledTimes(2);
+    expect(job.mock.calls[0]![1]).toMatchObject({ turnCursor: 0 });
+    expect(job.mock.calls[1]![1]).toMatchObject({ turnCursor: 7 });
+    expect(warn).toHaveBeenCalledWith("[duel] storage maintenance error", expect.objectContaining({
+      phase: "turn-backfill", code: "unknown", message: "Synthetic worker failure",
+    }));
+  } finally { await host.close(); job.mockRestore(); warn.mockRestore(); vi.useRealTimers(); }
 });
 
 it("passes the live turn when cancelling an untimed active casual duel", async () => {
@@ -401,4 +423,19 @@ it("passes the live turn when cancelling an untimed active casual duel", async (
   expect(cancelled.response.status, JSON.stringify(cancelled.body)).toBe(200);
   expect(db.prepare("select status,turn_count,clock_json from duels where web_slug=?").get(slug))
     .toEqual({ status: "cancelled", turn_count: 10, clock_json: null });
+});
+
+it.each(["rejects", "stalls"])("cancels an active duel when the live view %s", async failure => {
+  db.prepare("update duels set status='active',ended_at=null,clock_json=null,series_id=null,ranked=0 where web_slug=?").run(slug);
+  expect((await post({ op: "view" })).response.status).toBe(200);
+  const worker = workers.at(-1)!;
+  worker.view = failure === "rejects" ? async () => { throw new Error("Worker stopped"); } : () => new Promise(() => {});
+  vi.useFakeTimers();
+  try {
+    const pending = post({ op: "cancel" });
+    await vi.advanceTimersByTimeAsync(2100);
+    const cancelled = await pending;
+    expect(cancelled.response.status, JSON.stringify(cancelled.body)).toBe(200);
+    expect(db.prepare("select status,turn_count from duels where web_slug=?").get(slug)).toEqual({ status: "cancelled", turn_count: null });
+  } finally { vi.useRealTimers(); }
 });

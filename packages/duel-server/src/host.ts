@@ -2422,7 +2422,9 @@ export function createDuelHost(options: {
 
   async function liveCancelTurn(slug: string): Promise<number | undefined> {
     const game = games.get(slug)?.game;
-    return game?.running ? (await game.view(null)).turn : undefined;
+    if (!game?.running) return undefined;
+    try { return (await withTimeout(game.view(null), debugReadTimeoutMs, "view spectator")).turn; }
+    catch { return undefined; }
   }
 
   async function operate(body: Record<string, unknown>, ctl?: { abandoned: boolean; signal?: AbortSignal }): Promise<unknown> {
@@ -3002,13 +3004,15 @@ export function createDuelHost(options: {
 
   let retentionSweep: Promise<unknown> | null = null;
   let retentionBacklogDone = false;
+  let turnBackfillCursor = 0;
   const sweepRetention = () => {
     if (stopped || retentionSweep) return;
-    retentionSweep = runDuelSnapshotRetention(options.db, { now: now(), stopped: () => stopped,
+    retentionSweep = runDuelSnapshotRetention(options.db, { now: now(), stopped: () => stopped, turnCursor: turnBackfillCursor,
       isForkBusy: (slug, guildId, creatorPlayerId) => queues.has(slug) || queues.has(`fork-owner:${guildId}:${creatorPlayerId}`),
       onError: (phase, error) => console.warn("[duel] storage maintenance error", { phase,
-        code: (error as { code?: string })?.code ?? "unknown" }),
+        code: (error as { code?: string })?.code ?? "unknown", message: error instanceof Error ? error.message : String(error) }),
     }).then(stats => {
+      turnBackfillCursor = stats.turnCursor;
       if (stats.backfilled || stats.compacted || stats.deletedForks || stats.busy || (stats.backlogDone && !retentionBacklogDone)) {
         console.info("[duel] snapshot retention pass", stats);
       }

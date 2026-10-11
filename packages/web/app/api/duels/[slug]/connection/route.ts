@@ -25,7 +25,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     if (fork && !canReadDuel(getDb(), { slug, guildId: actor.guildId, playerId: actor.playerId, seat: 0 })) {
       throw new ReplayAccessError();
     }
-    let room = actor.duels.room(slug, actor.guildId, actor.playerId);
+    let room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
     if (query.get("spectate") === "1") {
       const result = await callDuelHost({ op: "view", slug, guildId: actor.guildId, playerId: actor.playerId, spectate: true });
       if (!result.ok) return result.response;

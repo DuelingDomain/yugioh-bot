@@ -90,9 +90,9 @@ Deploy jobs run in the `production` / `staging` GitHub Environments and require 
    The VM also requires `git merge-base --is-ancestor HEAD "$DEPLOY_COMMIT"` before any checkout or image change.
    An older or diverged target is refused unless the owner explicitly sets `rollback=true`. The target must still be on main.
    Rollback does not restore the matching database or env; use the restore procedure when those are needed.
-   After retention has run, roll back only to a release that has the codec. Older images show no final board for compacted rows; the old eliminated-spectator reader also throws on gzip BLOBs, returning HTTP 500 for that room request. Roll forward to restore reads; the stored boards are preserved.
+   After retention has run, roll back only to a release that has the codec. Older images show no final board and no history turn count for compressed rows; the old eliminated-spectator reader also throws on gzip BLOBs, returning HTTP 500 for that room request. Roll forward to restore reads; the stored boards are preserved.
    This release defaults retention off in code and Compose. Keep it off through one stable codec release;
-   then enable it and recreate the duel container. Turn-count backfill runs while retention is off.
+   then enable it and recreate the duel container. Turn-count backfill runs while retention is off unless `DUEL_TURN_BACKFILL_ENABLED=0`. Set both maintenance switches to `0` and recreate the duel container to stop both phases.
    It waits only 15 minutes for the shared VM build lock; missing `flock` fails closed. A cold staging build can take longer.
    If prod reaches the lock timeout, let staging finish, then run Deploy again.
    Before checkout changes, backups or stopping staging, it runs `scripts/deployment/check-prod-activity.py`
@@ -273,7 +273,7 @@ Check the [backup retention policy](#backups) before choosing a release. Databas
 
 ### Replay-fork rollback
 
-After retention has run, roll back only to a release that has the codec. Older images show no final board for compacted rows; the old eliminated-spectator reader also throws on gzip BLOBs, returning HTTP 500 for that room request. Roll forward to restore reads; the stored boards are preserved.
+After retention has run, roll back only to a release that has the codec. Older images show no final board and no history turn count for compressed rows; the old eliminated-spectator reader also throws on gzip BLOBs, returning HTTP 500 for that room request. Roll forward to restore reads; the stored boards are preserved.
 
 Before rollback to code that predates `duels.kind`, block new fork creation and cancel every
 active `replay-fork` through the current host. Stop all writers and WS, then verify on the
@@ -634,16 +634,18 @@ systemctl start "$unit.timer"
 
 ## Manual duel storage VACUUM
 
-Snapshot retention only makes SQLite pages reusable. It never runs VACUUM. Schedule a drain window after compaction. The host logs pass counts, busy deferrals, and `backlogDone`. Check the remaining eligible rows with the same configured age (30 days below); queued or failing forks leave the backlog unfinished:
+Snapshot retention only makes SQLite pages reusable. It never runs VACUUM. Schedule a drain window after compaction. The host logs pass counts, busy deferrals, and `backlogDone`, including turn-backfill progress while retention is off. `backlogDone` covers the enabled phases; unreadable turns stay null and are retried on the next cursor scan.
+
+As root, first set `DUEL_DB_FILE` to the existing database, `DUEL_DB_BACKUP` to a new backup file outside application cleanup, and `DUEL_SQLITE_TMPDIR` to a writable temporary directory on the database volume. Use operator-selected paths. The backup directory must already exist. Never overwrite a backup. Check the remaining eligible rows with the same configured age (30 days below); queued or failing forks leave the backlog unfinished:
 
 ```bash
-sqlite3 -readonly "$DUEL_DB_FILE" "select count(*) as boards_pending from duels where snapshot_compacted_at is null and status in ('completed','interrupted','cancelled') and julianday(ended_at)<julianday('now','-30 days'); select count(*) as forks_pending from duels where status='cancelled' and kind='replay-fork' and series_id is null and julianday(ended_at)<julianday('now','-7 days');"
+: "${DUEL_DB_FILE:?Set DUEL_DB_FILE to the existing database path}"
+sqlite3 -readonly "$DUEL_DB_FILE" "select count(*) as turns_pending from duels where turn_count is null and status in ('completed','interrupted','cancelled') and (clock_json is not null or snapshot_public_json is not null or snapshot_seat0_json is not null or snapshot_seat1_json is not null or snapshot_seats_json is not null); select count(*) as boards_pending from duels where snapshot_compacted_at is null and status in ('completed','interrupted','cancelled') and julianday(ended_at)<julianday('now','-30 days'); select count(*) as forks_pending from duels where status='cancelled' and kind='replay-fork' and series_id is null and julianday(ended_at)<julianday('now','-7 days');"
 ```
 
 1. Stop new duel admissions, let active duels finish, and verify the count is zero with the [active-duel drain check](#before-a-deploy-that-changes-the-engine-bundle). Pause `dueling-backup.timer`, wait for any running `dueling-backup.service` to finish, then stop web, bot (if separately running), worker, ws, and duel. Keep all database readers and writers stopped through verification.
-2. As root, set `DUEL_DB_FILE` to the existing database, `DUEL_DB_BACKUP` to a new backup file outside application cleanup, and `DUEL_SQLITE_TMPDIR` to a writable temporary directory on the database volume. Use operator-selected paths. The backup directory must already exist. Never overwrite a backup.
-3. Run the guarded subshell below. It verifies the live DB and backup, requires at least **2x the database file size in free space after backup**, and places SQLite's temporary copy on that same volume via `SQLITE_TMPDIR`. This accounts for the temporary database and WAL copy-back; leave additional room for filesystem overhead. If using a different temp volume instead, independently reserve 2x the file size there and on the database volume and change the same-volume guard only after checking both.
-4. Every failed prerequisite check exits the subshell before VACUUM. The SSH shell stays open. The exit trap repairs ownership and permissions of any `-wal` and `-shm` files left by the root CLI, including on failure.
+2. Run the guarded subshell below. It verifies the live DB and backup, requires at least **2x the database file size in free space after backup**, and places SQLite's temporary copy on that same volume via `SQLITE_TMPDIR`. This accounts for the temporary database and WAL copy-back; leave additional room for filesystem overhead. If using a different temp volume instead, independently reserve 2x the file size there and on the database volume and change the same-volume guard only after checking both.
+3. Every failed prerequisite check exits the subshell before VACUUM. The SSH shell stays open. The exit trap repairs ownership and permissions of any `-wal` and `-shm` files left by the root CLI, including on failure.
 
 ```bash
 # Set the three variables and stop all readers/writers before this block.
