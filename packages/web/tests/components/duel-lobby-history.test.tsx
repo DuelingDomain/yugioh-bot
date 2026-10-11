@@ -132,7 +132,9 @@ describe("Match history rows", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("tag-1"));
     // Shown in the button and announced in a live region.
     expect((await within(row).findAllByText("Copied")).length).toBeGreaterThanOrEqual(1);
-    expect(within(row).getByRole("status")).toHaveTextContent("Copied");
+    // One live region for the whole list, not one per row.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("Copied");
   });
 
   it("says so when the id cannot be copied", async () => {
@@ -141,7 +143,7 @@ describe("Match history rows", () => {
     renderHistory();
     const row = (await screen.findByText("Duel a")).closest("li")!;
     fireEvent.click(within(row).getByRole("button", { name: "Copy duel id a" }));
-    await waitFor(() => expect(within(row).getByRole("status")).toHaveTextContent("Copy failed"));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Copy failed"));
     expect(within(row).getByRole("button", { name: /Copy failed/ })).toBeInTheDocument();
   });
 });
@@ -373,9 +375,9 @@ describe("Match history page URL", () => {
 
   it("remembers the history search for the replay page link", async () => {
     respond({ duels: [entry("a")] });
-    renderHistory({ initialFilters: { ...EMPTY_HISTORY_FILTERS, q: "Imran" } });
+    renderHistory({ viewerId: 7, initialFilters: { ...EMPTY_HISTORY_FILTERS, q: "Imran" } });
     await screen.findByText("Duel a");
-    expect(window.sessionStorage.getItem("duels.history-search")).toBe("?view=history&q=Imran");
+    expect(JSON.parse(window.sessionStorage.getItem("duels.history-search") ?? "null")).toEqual({ viewer: "7", search: "?view=history&q=Imran" });
   });
 });
 
@@ -433,10 +435,25 @@ describe("Load more", () => {
     expect(screen.getByRole("button", { name: "Load more" })).toBeEnabled();
   });
 
-  it("does not refetch the first page when the window gets focus", async () => {
+  it("refreshes the first page when the window gets focus and no more pages are loaded", async () => {
     respond({ duels: [entry("a")], nextCursor: "cur-1" });
     renderHistory();
     await screen.findByText("Duel a");
+    // SWR ignores focus in its first 5 seconds: move the clock past that.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(Date.now() + 10_000));
+    fetchMock.mockImplementation(async () => Response.json({ duels: [entry("fresh"), entry("a")], canSeeAll: true }));
+    act(() => { window.dispatchEvent(new Event("focus")); document.dispatchEvent(new Event("visibilitychange")); });
+    expect(await screen.findByText("Duel fresh")).toBeInTheDocument();
+  });
+
+  it("does not refetch the first page when the window gets focus after Load more", async () => {
+    respond({ duels: [entry("a")], nextCursor: "cur-1" });
+    renderHistory();
+    await screen.findByText("Duel a");
+    fetchMock.mockImplementationOnce(async () => Response.json({ duels: [entry("b")], nextCursor: "cur-2", canSeeAll: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await screen.findByText("Duel b");
     const count = fetchMock.mock.calls.length;
     // SWR ignores focus in its first 5 seconds: move the clock past that.
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -452,7 +469,7 @@ describe("Load more", () => {
     respond({ duels: [entry("a"), entry("b")], nextCursor: "cur-1" });
     renderHistory();
     await screen.findByText("Duel b");
-    expect(screen.getByText(/^Showing /)).toHaveTextContent("Showing 2 duels, more available");
+    expect(screen.getByRole("status")).toHaveTextContent("Showing 2 duels, more available");
     const button = screen.getByRole("button", { name: "Load more" });
     button.focus();
     let release: (value: Response) => void = () => undefined;
@@ -464,7 +481,7 @@ describe("Load more", () => {
     expect(document.activeElement).toBe(loading);
     release(Response.json({ duels: [entry("c")], nextCursor: "cur-2", canSeeAll: true }));
     await screen.findByText("Duel c");
-    expect(screen.getByText(/^Showing /)).toHaveTextContent("Showing 3 duels, more available");
+    expect(screen.getByRole("status")).toHaveTextContent("Showing 3 duels, more available");
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Load more" }));
   });
 

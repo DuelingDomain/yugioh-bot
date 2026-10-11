@@ -118,21 +118,29 @@ export function mergeLobbySearch(current: string, history: boolean, scope: DuelH
 
 const HISTORY_SEARCH_STORAGE = "duels.history-search";
 
-/** Remembers the last Match history search so the replay page can link back to the same filters. */
-export function rememberHistorySearch(search: string): void {
+/**
+ * Remembers the last Match history search so the replay page can link back to the same filters.
+ * The signed-in user is stored with it: another user in the same tab must not get this search.
+ */
+export function rememberHistorySearch(search: string, viewerId?: number | string): void {
   try {
-    window.sessionStorage.setItem(HISTORY_SEARCH_STORAGE, search);
+    window.sessionStorage.setItem(HISTORY_SEARCH_STORAGE, JSON.stringify({ viewer: String(viewerId ?? ""), search }));
   } catch {
     // Storage can be blocked; the link then goes to the plain Match history.
   }
 }
 
 /** Link to Match history with the filters the user last used. Bad stored text falls back to the plain view. */
-export function savedHistoryHref(): string {
+export function savedHistoryHref(viewerId?: number | string): string {
   try {
     const stored = window.sessionStorage.getItem(HISTORY_SEARCH_STORAGE);
     if (!stored) return "/duels?view=history";
-    const { scope, filters } = parseHistoryParams(new URLSearchParams(stored));
+    const saved: unknown = JSON.parse(stored);
+    if (typeof saved !== "object" || saved === null) return "/duels?view=history";
+    const { viewer, search } = saved as { viewer?: unknown; search?: unknown };
+    // A search saved by another user, or a bad value, is ignored.
+    if (typeof search !== "string" || viewer !== String(viewerId ?? "")) return "/duels?view=history";
+    const { scope, filters } = parseHistoryParams(new URLSearchParams(search));
     return `/duels${lobbySearch(true, scope, filters)}`;
   } catch {
     return "/duels?view=history";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -96,7 +96,7 @@ function seatLine(duel: DuelListItem, seat: HistorySeat): string {
 }
 
 /** Small button that copies the duel slug for bug reports. */
-function CopySlug({ slug }: { slug: string }) {
+function CopySlug({ slug, onResult }: { slug: string; /** Tells the list live region what happened. */ onResult: (text: string) => void }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
@@ -108,6 +108,7 @@ function CopySlug({ slug }: { slug: string }) {
       next = "failed";
     }
     setState(next);
+    onResult(next === "copied" ? "Copied" : "Copy failed");
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setState("idle"), 2000);
   }
@@ -120,7 +121,6 @@ function CopySlug({ slug }: { slug: string }) {
         {text}
         {state === "idle" ? <>{" "}<span className={ui.srOnly}>duel id {slug}</span></> : null}
       </button>
-      <span role="status" className={ui.srOnly}>{state === "idle" ? "" : text}</span>
     </span>
   );
 }
@@ -280,7 +280,7 @@ function LiveRow({ duel, onClose }: { duel: DuelListItem; onClose: (duel: DuelLi
   );
 }
 
-function HistoryRow({ duel }: { duel: DuelListItem }) {
+function HistoryRow({ duel, onAnnounce }: { duel: DuelListItem; onAnnounce: (text: string) => void }) {
   const [open, setOpen] = useState(false);
   const outcome = outcomeLabel(duel);
   const created = parseUtc(duel.createdAt);
@@ -334,7 +334,7 @@ function HistoryRow({ duel }: { duel: DuelListItem }) {
               {duel.seats.map((seat) => <li key={seat.seat}>{seatLine(duel, seat)}</li>)}
             </ul>
           ) : null}
-          <CopySlug slug={duel.slug} />
+          <CopySlug slug={duel.slug} onResult={onAnnounce} />
         </div>
       </div>
       <div className={styles.historyActions}>
@@ -448,7 +448,9 @@ function HistoryFilterBar({ canSeeAll, showStatus, filters, q, card, rangeError,
 type MorePages = { key: string; items: DuelListItem[]; cursor: string | null; loading: boolean; error: string | null };
 
 /** The page URL is the source of the first view, scope and filters, so Back from a replay restores what the user had. */
-export function DuelLobby({ initialView, initialScope, initialFilters }: {
+export function DuelLobby({ initialView, initialScope, initialFilters, viewerId }: {
+  /** The signed-in user: the saved history search belongs to this user only. */
+  viewerId?: number | string;
   /** Overrides the view in the URL. */
   initialView?: DuelListView;
   initialScope?: DuelHistoryScope;
@@ -480,11 +482,12 @@ export function DuelLobby({ initialView, initialScope, initialFilters }: {
   // A range that ends before it starts would only get a 400 from the server, so no request goes out.
   const rangeError = history && filters.from !== "" && filters.to !== ""
     && new Date(filters.from).getTime() > new Date(filters.to).getTime();
-  // History pages are loaded by hand: a refresh on focus or reconnect would move rows between page 1 and the later pages.
+  // Later history pages are loaded by hand: a refresh on focus or reconnect would move rows between page 1 and those
+  // pages. While only page 1 is loaded the refresh is safe, so a tab left open still gets new duels.
   const { data, error, isLoading, mutate } = useSWR(
     rangeError ? null : listKey,
     () => listDuels(history, scope, filters),
-    { refreshInterval: history ? 0 : 1000, revalidateOnFocus: !history, revalidateOnReconnect: !history },
+    { refreshInterval: history ? 0 : 1000, revalidateOnFocus: !history || more == null, revalidateOnReconnect: !history || more == null },
   );
 
   // Remembered between queries so the admin-only boxes do not blink while a new page loads.
@@ -510,12 +513,22 @@ export function DuelLobby({ initialView, initialScope, initialFilters }: {
   // A new query starts again from its first page.
   useEffect(() => { setMore(null); }, [listKey]);
 
+  // A copy result for the shared live region; it gives way to the row count again after a moment.
+  const [copyNote, setCopyNote] = useState("");
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (noteTimer.current) clearTimeout(noteTimer.current); }, []);
+  const announce = useCallback((text: string) => {
+    setCopyNote(text);
+    if (noteTimer.current) clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setCopyNote(""), 2500);
+  }, []);
+
   // Keep the page URL in step so a filtered list can be bookmarked. The state argument is null so that Next
   // takes over the new URL (the old history state would make it skip the update). Other params stay.
   useEffect(() => {
     const search = mergeLobbySearch(window.location.search, history, scope, filters);
     if (search !== window.location.search) window.history.replaceState(null, "", `${window.location.pathname}${search}`);
-    if (history) rememberHistorySearch(search);
+    if (history) rememberHistorySearch(search, viewerId);
   }, [history, scope, filters]);
 
   const pages = history && more?.key === listKey ? more : null;
@@ -526,6 +539,12 @@ export function DuelLobby({ initialView, initialScope, initialFilters }: {
     seen.add(duel.slug);
     return true;
   });
+  // One polite live region serves the whole list: a copy result first, else the row count.
+  const live = {
+    text: copyNote || (duels.length > 0
+      ? `Showing ${duels.length} ${duels.length === 1 ? "duel" : "duels"}${cursor ? ", more available" : ""}`
+      : ""),
+  };
   // The Status filter counts only where the server applies it (an admin on All).
   const showStatus = canSeeAll && scope === "all";
   const filtered = hasHistoryFilters({ ...filters, status: showStatus ? filters.status : "" });
@@ -654,7 +673,7 @@ export function DuelLobby({ initialView, initialScope, initialFilters }: {
         ) : duels.length > 0 ? (
           <ul className={styles.list}>
             {duels.map((duel) => history
-              ? <HistoryRow key={duel.slug} duel={duel} />
+              ? <HistoryRow key={duel.slug} duel={duel} onAnnounce={announce} />
               : <LiveRow key={duel.slug} duel={duel} onClose={(item) => { setCloseError(null); setClosing(item); }} />)}
           </ul>
         ) : null}
@@ -672,7 +691,7 @@ export function DuelLobby({ initialView, initialScope, initialFilters }: {
           <p ref={endNote} tabIndex={-1} className={cx(ui.hint, styles.endNote)}>All duels are loaded.</p>
         ) : null}
         {history ? (
-          <p role="status" className={ui.srOnly}>{duels.length > 0 ? `Showing ${duels.length} ${duels.length === 1 ? "duel" : "duels"}${cursor ? ", more available" : ""}` : ""}</p>
+          <p role="status" className={ui.srOnly}>{live.text}</p>
         ) : null}
       </section>
 

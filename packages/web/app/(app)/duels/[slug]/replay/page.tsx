@@ -10,5 +10,5 @@ export default async function DuelReplayPage({ params }: { params: Promise<{ slu
   // check the current owner list again for every request.
   const access = await requireWebAccess();
   const canInspectSource = access.ok && isOwnerUser(access.userId);
-  return <DuelReplayView slug={slug} canInspectSource={canInspectSource} />;
+  return <DuelReplayView slug={slug} canInspectSource={canInspectSource} viewerId={access.ok ? access.userId : undefined} />;
 }

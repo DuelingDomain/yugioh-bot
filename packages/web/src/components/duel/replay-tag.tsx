@@ -27,6 +27,8 @@ const noop = () => undefined;
 
 export interface ReplayTagProps {
   slug: string;
+  /** The signed-in user, so Match history links back with that user's filters only. */
+  viewerId?: number | string;
   model: ReplayModel;
   timeline: ReplayTimeline<ReplayModel["frames"][number]>;
   /** The cumulative board of the selected frame (`timeline.viewAt(controller.index)`). */
@@ -49,8 +51,8 @@ export interface ReplayTagProps {
  * seat is drawn at home; the cards each seat shows were fixed by the server for the card view that was asked for,
  * so a camera change never reveals a card and never refetches.
  */
-export function ReplayTag({ slug, model, timeline, engine, controller, visibility, onVisibilityChange, notice, tools, inputSuspended = false }: ReplayTagProps) {
-  const historyHref = useMatchHistoryHref();
+export function ReplayTag({ slug, viewerId, model, timeline, engine, controller, visibility, onVisibilityChange, notice, tools, inputSuspended = false }: ReplayTagProps) {
+  const historyHref = useMatchHistoryHref(viewerId);
   const preferences = useDuelPreferences();
   const narrow = useIsNarrow();
   const { session } = model;

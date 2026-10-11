@@ -73,16 +73,12 @@
   .filters.noStatus .fieldFormat { grid-column: 1 / -1; }
 }
 
-@container (max-width: 560px) {
+/* The section is about 32px narrower than the screen: 528px here is the old 560px screen width. */
+@container (max-width: 528px) {
   /* Touch targets of at least 32px. */
   .copyBtn, .detailsToggle { min-height: 32px; }
   .detailsToggle { padding-inline: 4px; margin-left: -4px; }
   .presets > button.preset { height: 32px; }
-}
-
-@container (max-width: 480px) {
-  .filters { grid-template-columns: minmax(0, 1fr); padding: 12px; }
-  .filters .fieldFrom, .filters .fieldTo, .filters .fieldFormat, .filters .fieldText { grid-column: 1 / -1; }
   .details { display: none; }
   .detailsOpen { display: grid; }
   .detailsToggle { display: inline-flex; }
@@ -92,4 +88,10 @@
   .close { padding: 0 12px 12px 18px; flex-basis: 100%; }
   .historyActions { width: 100%; }
   .historyActions > a { flex: 1; }
+}
+
+/* Only the filter grid needs the narrower rule. */
+@container (max-width: 480px) {
+  .filters { grid-template-columns: minmax(0, 1fr); padding: 12px; }
+  .filters .fieldFrom, .filters .fieldTo, .filters .fieldFormat, .filters .fieldText { grid-column: 1 / -1; }
 }

@@ -122,8 +122,8 @@ function ReplayBusy({ busy, children }: { busy: boolean; children: ReactNode }) 
  * `canInspectSource` comes from the server page (the owner check). It only asks for the private replay and the
  * owner controls; the routes check the owner list again and the answer must carry capabilities before any control shows.
  */
-export function DuelReplayView({ slug, canInspectSource = false }: { slug: string; canInspectSource?: boolean }) {
-  const historyHref = useMatchHistoryHref();
+export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { slug: string; canInspectSource?: boolean; viewerId?: number | string }) {
+  const historyHref = useMatchHistoryHref(viewerId);
   const [visibility, setVisibility] = useState<ReplayVisibility>("mine");
   const [ownerView, setOwnerView] = useState<OwnerViewState>({ seat: null, reveal: false });
   const [forkStepId, setForkStepId] = useState<string | null>(null);
@@ -250,7 +250,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   if (session.format === "tag") {
     return (
       <ReplayBusy busy={awaiting}>
-        <ReplayTag slug={slug} model={model} timeline={timeline} engine={engine} controller={controller}
+        <ReplayTag slug={slug} viewerId={viewerId} model={model} timeline={timeline} engine={engine} controller={controller}
           visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} inputSuspended={awaiting} />
       </ReplayBusy>
     );
