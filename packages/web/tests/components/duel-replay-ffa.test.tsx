@@ -168,6 +168,15 @@ describe("FFA replay: every field, every camera seat", () => {
     });
   }
 
+  it("leaves out the live turn button in the corner and keeps the attack-lock chip", async () => {
+    stubServer(replayOf("ffa4", [ffaFrame("ffa4", 0, { pairing: "facing" }), ffaFrame("ffa4", 1, { pairing: "facing" })]));
+    await open();
+    expect(document.querySelector("[data-testid='attack-lock']")).not.toBeNull();
+    expect(document.querySelector("button[data-wait]")).toBeNull();
+    const corner = screen.getByTestId("hud-corner");
+    expect(corner.querySelector("button")).toBeNull();
+  });
+
   it("offers every seat in the camera select and no opposite-seat select", async () => {
     stubServer(replayOf("ffa4", [ffaFrame("ffa4", 0), ffaFrame("ffa4", 1)]));
     await open();

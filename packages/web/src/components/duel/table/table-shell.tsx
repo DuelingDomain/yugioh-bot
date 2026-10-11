@@ -889,6 +889,7 @@ function TableShellBody({
             compact
             clock={null}
             attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
+            replay={replay != null}
           />
         </div>
         </>
@@ -904,6 +905,7 @@ function TableShellBody({
             phases={hubOn ? "hub" : "bar"}
             clock={null}
             attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
+            replay={replay != null}
           />
         </div>
         </>
