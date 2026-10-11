@@ -6,11 +6,15 @@ import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./en
 import type { DuelWorkerResponse } from "./worker-protocol.js";
 import { EngineAnswerError } from "./prompts.js";
 import { EngineLoopError } from "./engine-loop-error.js";
-import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
+import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
+import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode, EngineIdentity } from "@yugidraft/shared/duels";
 
 const PROMPT_LOG_LIMIT = 5_000;
 
 export interface GameOptions {
+  /** Internal fork control boundary in accepted journal commands. Original prefix rules stay unchanged. */
+  manualLossAnswersAfter?: number;
+  engineIdentity?: EngineIdentity;
   scriptErrorMode?: DuelScriptErrorMode;
   mode: DuelMode;
   decks: DuelDeck[];
@@ -22,6 +26,8 @@ export interface GameOptions {
   format?: DuelFormat;
   /** Saved FIRST_TURN_DRAW flag. */
   firstTurnDraw?: boolean;
+  /** Server-selected exact multi overlay for a saved journal. */
+  multiScriptsDirectory?: string;
   /** Lua chunks that run before the duel starts (hand scenarios). */
   startupScripts?: EngineStartupScript[];
   /** Engine of a 1v1 table (see `DuelWorkerCreateOptions.engine`). Absent: the merged engine. */
@@ -102,7 +108,9 @@ export class GameWorker implements DuelGameWorker {
       if (!request) return;
       this.pending.delete(message.id);
       if (message.ok) request.resolve(message.value);
-      else request.reject(message.engineLoop ? new EngineLoopError() : message.answerError || message.code
+      else request.reject(message.code === "ENGINE_UNAVAILABLE_FOR_SOURCE"
+        ? new EngineResourceUnavailableError("the worker cannot use the recorded engine resources")
+        : message.engineLoop ? new EngineLoopError() : message.answerError || message.code
         ? new EngineAnswerError(message.error, message.code)
         : new Error(message.error ?? "Engine rejected the request"));
     });

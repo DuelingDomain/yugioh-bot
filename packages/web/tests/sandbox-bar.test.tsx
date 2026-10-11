@@ -66,7 +66,7 @@ describe("SandboxBar", () => {
     fireEvent.click(screen.getByTestId("sandbox-seat-1"));
     await waitFor(() => expect(props.onActAs).toHaveBeenCalledWith(1, next));
     expect(api.setSandboxSeatControl).toHaveBeenCalledWith("abc", 1, "manual", { as: 0, reveal: true });
-    expect(api.getDuelRoom).toHaveBeenCalledWith("abc", false, { as: 1, reveal: true });
+    expect(api.getDuelRoom).toHaveBeenCalledWith("abc", false, null, { as: 1, reveal: true });
   });
 
   it("does not change a Manual seat when its chip is clicked", async () => {
@@ -224,7 +224,7 @@ describe("SandboxBar eliminate", () => {
     fireEvent.click(screen.getByTestId("sandbox-eliminate-1"));
     fireEvent.click(screen.getByTestId("sandbox-eliminate-confirm-1"));
     await waitFor(() => expect(props.onActAs).toHaveBeenCalledWith(0, next));
-    expect(api.getDuelRoom).toHaveBeenCalledWith("abc", false, { as: 0, reveal: true });
+    expect(api.getDuelRoom).toHaveBeenCalledWith("abc", false, null, { as: 0, reveal: true });
   });
 
   it.each([0, 2])("selects the first living seat after eliminating acting seat %i with P0 out", async (acting) => {
@@ -238,7 +238,7 @@ describe("SandboxBar eliminate", () => {
     fireEvent.click(screen.getByTestId(`sandbox-eliminate-confirm-${acting}`));
     await waitFor(() => expect(props.onActAs).toHaveBeenCalledWith(1, next));
     expect(api.setSandboxSeatControl).toHaveBeenCalledWith("abc", 1, "manual", { as: acting, reveal: true });
-    expect(api.getDuelRoom).toHaveBeenCalledWith("abc", false, { as: 1, reveal: true });
+    expect(api.getDuelRoom).toHaveBeenCalledWith("abc", false, null, { as: 1, reveal: true });
   });
 
   it("shows an eliminated seat as Out and disables it", () => {

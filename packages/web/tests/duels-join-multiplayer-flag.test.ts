@@ -107,7 +107,8 @@ describe("POST /api/duels/[slug]/seat with MULTIPLAYER_TABLES", () => {
   it("returns 404 for an unknown duel", async () => {
     const response = await join("missing");
     expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: "Duel not found" });
+    expect(await response.json()).toEqual({ error: "Not found", code: "ACCESS_DENIED" });
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(notify).not.toHaveBeenCalled();
     expect(host).not.toHaveBeenCalled();
   });

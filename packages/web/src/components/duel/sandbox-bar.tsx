@@ -317,7 +317,7 @@ export function SandboxBar({ slug, room, info, acting, reveal, follow, onActAs, 
   const shownNote = note && engine && note.revision === engine.revision ? note : null;
 
   const switchTo = useCallback(async (seat: number) => {
-    const next = await getDuelRoom(slug, false, { as: seat, reveal });
+    const next = await getDuelRoom(slug, false, null, { as: seat, reveal });
     await onActAs(seat, next);
   }, [slug, reveal, onActAs]);
 

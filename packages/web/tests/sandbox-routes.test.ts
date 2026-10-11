@@ -101,6 +101,7 @@ describe("route access coverage", () => {
     const sandbox = await import("../app/api/duels/[slug]/sandbox/route");
     const view = await import("../app/api/duels/[slug]/route");
     const actions = await import("../app/api/duels/[slug]/actions/route");
+    const sandboxSlug = duel().slug;
     const responses = [
       await collection.GET(), await collection.POST(request("/", write)),
       await item.GET(request("/", undefined, "GET"), idParams(1)),
@@ -110,12 +111,13 @@ describe("route access coverage", () => {
       await sandbox.GET(request("/", undefined, "GET"), slugParams("s")),
       ...await Promise.all(["control", "restart", "go-to-phase", "next-turn"].map((action) =>
         sandbox.POST(request("/", { action }), slugParams("s")))),
-      await view.GET(request("/?as=0", undefined, "GET"), slugParams("s")),
-      await actions.POST(request("/?reveal=false", {}), slugParams("s")),
+      await view.GET(request("/?as=0", undefined, "GET"), slugParams(sandboxSlug)),
+      await actions.POST(request("/?reveal=false", {}), slugParams(sandboxSlug)),
     ];
     expect(responses.map((response) => response.status)).toEqual(responses.map(() => 403));
     expect(mocks.post).not.toHaveBeenCalled();
-    expect(mocks.membership).not.toHaveBeenCalled();
+    // Generic duel routes resolve the member before they classify fork and sandbox controls.
+    expect(mocks.membership).toHaveBeenCalledTimes(2);
     expect(createSandboxScenarioService(mocks.db!).list("guild")).toEqual([]);
   });
   it("allows developer requests in production with no scenario env flag", async () => {
@@ -226,6 +228,8 @@ describe("validation and start", () => {
 describe("duel sandbox operations", () => {
   it("sends the real web phase payload through the host contract", async () => {
     const session = duel();
+    // A recorded 1v1 journal has both seats, even when the worker is a test double.
+    mocks.db!.prepare("insert into duel_seats(duel_id, seat, player_id, is_bot) values(?, 1, null, 1)").run(session.id);
     const dataDirectory = mkdtempSync(join(tmpdir(), "sandbox-contract-"));
     writeFileSync(join(dataDirectory, "manifest.json"), JSON.stringify({ bundleVersion: "contract-test" }));
     mocks.db!.prepare("update duels set status = 'active', seed_json = '[\"1\",\"2\",\"3\",\"4\"]', bundle_version = 'contract-test' where id = ?").run(session.id);
@@ -397,7 +401,7 @@ describe("request boundaries", () => {
     const command = { promptId: "p", revision: 0, answer: { choice: "opt:0" } };
     const { POST } = await import("../app/api/duels/[slug]/actions/route");
     expect((await POST(request("/", command), slugParams(session.slug))).status).toBe(200);
-    expect(payloads()[0]).toEqual({ op: "respond", slug: session.slug, guildId: "guild", playerId: owner, command });
+    expect(payloads()[0]).toEqual({ op: "respond", slug: session.slug, guildId: "guild", playerId: owner, userId: developer, command });
     expect(mocks.access).not.toHaveBeenCalled();
   });
   it("forwards false reveal and seat zero for surrender through the host adapter", async () => {

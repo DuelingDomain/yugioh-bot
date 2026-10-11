@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
@@ -13,11 +14,13 @@ import type { DuelHost } from "../src/host.js";
 import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { GameWorker } from "../src/worker-client.js";
+import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
 import { loadSource, replaySource } from "../scripts/lib/replay-source.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
 const SECRET = "first-draw-pin-test";
+const replayJournalCli = fileURLToPath(new URL("../scripts/replay-journal.ts", import.meta.url));
 const seed = ["1", "2", "3", "4"];
 const resources: Array<{ host: DuelHost; db: Database.Database }> = [];
 const dirs: string[] = [];
@@ -50,17 +53,17 @@ async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterR
     onChange: (slug, guildId) => { changes.push({ slug, guildId, status: duels.privateState(slug, guildId).session.status }); },
     pollIntervalMs: 60_000, createWorker: () => { const worker = new GameWorker(); workers.push(worker); return worker; } });
   resources.push({ host, db });
-  const post = async (op: string, seat = 0, extra: Record<string, unknown> = {}): Promise<{ status: number; data: DuelRoom & DuelReplay & { error?: string } }> => {
+  const post = async (op: string, seat = 0, extra: Record<string, unknown> = {}): Promise<{ status: number; data: DuelRoom & DuelReplay & { error?: string; code?: string } }> => {
     const raw = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId: players[seat], ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
       headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
     return finishTestDiceOpening(host, { op, slug: session.slug },
-      { status: response.status, data: await response.json() as DuelRoom & DuelReplay & { error?: string } }, () => post("view", seat, extra));
+      { status: response.status, data: await response.json() as DuelRoom & DuelReplay & { error?: string; code?: string } }, () => post("view", seat, extra));
   };
   const bundle = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")).bundleVersion as string;
   const pin = pinnedEngineVersion(bundle, count, count > 2 ? activeMultiScriptsHash(DATA) : null);
   const options = { mode, format, masterRule: session.masterRule, settings: session.settings, decks, seed, dataDirectory: DATA };
-  return { db, duels, session, decks, options, count, players, post, pin, workers, changes };
+  return { db, duels, session, decks, options, count, players, post, pin, bundle, workers, changes };
 }
 
 function checkDraws(view: DuelEngineView, firstTurnDraw: boolean, actor: number) {
@@ -105,7 +108,13 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     const history: DuelEngineView[][] = [];
     const commands: Array<{ seat: number; command: { promptId: string; revision: number; answer: { choice: string } } }> = [];
     try {
-      t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, { ...(saved ? { firstTurnDraw } : {}), ...mergedEngine(format) });
+      if (saved) {
+        t.duels.activateRecorded(t.session.slug, "g", t.players[0]!, seed, t.pin, null,
+          { firstTurnDraw, scriptErrorMode: "tolerant", ...mergedEngine(format) },
+          getCurrentEngineResources(DATA, { mode, format, engine: "pinned" }).identity);
+      } else {
+        t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, mergedEngine(format));
+      }
       if (saved) expect(t.duels.privateState(t.session.slug, "g").setup).toMatchObject({ firstTurnDraw });
       else expect(t.duels.privateState(t.session.slug, "g").setup?.firstTurnDraw).toBeUndefined();
       for (let actor = 0; actor < t.count; actor++) {
@@ -135,9 +144,10 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     for (let viewer = 0; viewer < t.count; viewer++) {
       const response = await t.post("replay", viewer);
       expect(response.status, response.data.error).toBe(200);
+      const frames = response.data.frames.map(frame => frame.view);
       for (let step = 0; step <= commands.length; step++) {
         const expected = history[step]![viewer]!;
-        expect(response.data.frames[step]!.view).toMatchObject({ turn: expected.turn, turnSeat: expected.turnSeat,
+        expect(frames[step]).toMatchObject({ turn: expected.turn, turnSeat: expected.turnSeat,
           revision: expected.revision, seats: JSON.parse(JSON.stringify(expected.seats)) });
       }
     }
@@ -149,7 +159,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       bundleVersion: t.pin, ...(saved ? { setup: { firstTurnDraw } } : {}), commands }));
     const replayed = await replaySource(loadSource(file), DATA, commands.length);
     expect(replayed.seats).toEqual(history.at(-1));
-    const output = execFileSync("npx", ["tsx", "scripts/replay-journal.ts", file, "--data", DATA, "--json", "--views"],
+    const output = execFileSync("npx", ["tsx", replayJournalCli, file, "--data", DATA, "--json", "--views"],
       { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     const cli = JSON.parse(output);
     expect(cli).toMatchObject({ ok: true, replayed: commands.length, total: commands.length, seatCount: t.count });
@@ -170,6 +180,12 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       const recovered = await t.post("view", viewer);
       expect(recovered.status, recovered.data.error).toBe(200);
       expect(recovered.data.engine).toEqual(views[viewer]);
+    }
+    t.duels.interrupt(t.session.slug, "g", "Test finished");
+    for (let viewer = 0; viewer < t.count; viewer++) {
+      const replay = await t.post("replay", viewer);
+      expect(replay.status, replay.data.error).toBe(200);
+      expect(replay.data.frames[0]!.view.seats).toEqual(views[viewer]!.seats);
     }
   }, 60_000);
 
@@ -199,8 +215,9 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     for (let viewer = 0; viewer < t.count; viewer++) {
       const replay = await t.post("replay", viewer);
       expect(replay.status, replay.data.error).toBe(200);
-      expect(replay.data.frames[0]!.view.seats).toEqual(initial[viewer]!.seats);
-      expect(replay.data.frames[1]!.view.seats).toEqual(expected[viewer]!.seats);
+      const frames = replay.data.frames.map(frame => frame.view);
+      expect(frames[0]!.seats).toEqual(initial[viewer]!.seats);
+      expect(frames[1]!.seats).toEqual(expected[viewer]!.seats);
     }
   }, 60_000);
 
@@ -216,7 +233,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     expect(t.changes).toEqual([{ slug: t.session.slug, guildId: "g", status: "interrupted" }]);
     const replay = await t.post("replay");
     expect(replay.status).toBe(409);
-    expect(replay.data.error).toContain("first-turn draw rule was not saved");
+    expect(replay.data.code).toBe("ENGINE_UNAVAILABLE_FOR_SOURCE");
     const dir = mkdtempSync(join(tmpdir(), "first-draw-missing-"));
     dirs.push(dir);
     const file = join(dir, "missing-rule.json");
@@ -224,7 +241,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       masterRule: t.session.masterRule, seed, decks: t.decks, commands: [] }));
     expect(() => loadSource(file)).toThrow("first-turn draw rule was not saved");
     try {
-      execFileSync("npx", ["tsx", "scripts/replay-journal.ts", file, "--data", DATA],
+      execFileSync("npx", ["tsx", replayJournalCli, file, "--data", DATA],
         { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
       expect.fail("The CLI must refuse an ambiguous journal");
     } catch (error) {

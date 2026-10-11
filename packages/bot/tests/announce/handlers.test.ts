@@ -1,7 +1,8 @@
 import Database from "better-sqlite3";
 import { migrate } from "../../src/db/schema.js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChannelType } from "discord.js";
+import { forkEventFixture } from "../helpers/replay-fork-events.js";
 import { createAnnounceHandlers } from "../../src/announce/handlers.js";
 import { createDraftLobbyService } from "@yugidraft/shared/services";
 
@@ -91,9 +92,12 @@ describe("announce handlers", () => {
   });
 
   describe("duel invite DM", () => {
+    const databases: Database.Database[] = [];
+    afterEach(() => { for (const db of databases.splice(0)) db.close(); });
     const invite = {
-      guildId: "g1",
-      opponentDiscordUserId: "u2",
+      duelId: 1, slug: "abc",
+      guildId: "fork-events-test",
+      opponentDiscordUserId: "900000000000000111",
       challengerName: "Yugi",
       duelName: "Yugi vs Kaiba",
       bestOf: 3 as const,
@@ -103,9 +107,11 @@ describe("announce handlers", () => {
     };
 
     function build(users: unknown) {
+      const { db, source } = forkEventFixture(); databases.push(db);
+      db.prepare("update duels set web_slug='abc' where id=?").run(source.id);
       return createAnnounceHandlers({
         client: { channels: { fetch: vi.fn() }, users } as any,
-        db: { prepare: vi.fn() } as any,
+        db,
         guildSettings: {} as any,
         drafts: {} as any,
         messenger: {} as any,
@@ -117,7 +123,7 @@ describe("announce handlers", () => {
       const fetch = vi.fn().mockResolvedValue({ send });
       await build({ fetch }).onDuelInvite(invite);
 
-      expect(fetch).toHaveBeenCalledWith("u2");
+      expect(fetch).toHaveBeenCalledWith(invite.opponentDiscordUserId);
       const message = send.mock.calls[0][0];
       const embed = message.embeds[0].toJSON();
       expect(embed.description).toContain("Yugi");
@@ -148,7 +154,7 @@ describe("announce handlers", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       const send = vi.fn().mockRejectedValue(new Error("Cannot send messages to this user"));
       await expect(build({ fetch: vi.fn().mockResolvedValue({ send }) }).onDuelInvite(invite)).resolves.toBeUndefined();
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("u2"), expect.any(Error));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(invite.opponentDiscordUserId), expect.any(Error));
       warn.mockRestore();
     });
 

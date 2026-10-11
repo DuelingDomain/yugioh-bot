@@ -39,3 +39,12 @@ it("returns 503 when Discord cannot be verified", async () => {
   expect(response.status).toBe(503);
   expect(response.headers.get("cache-control")).toBe("no-store");
 });
+
+it("keeps owner IDs as text without losing Discord precision", async () => {
+  vi.stubEnv("OWNER_USER_IDS", "7,9007199254740992,999999999999999999999999999999");
+  const { ownerUserIds, isOwnerUser } = await import("../src/lib/owner-access");
+  expect(ownerUserIds()).toEqual(new Set(["7", "9007199254740992"]));
+  expect(isOwnerUser("9007199254740992")).toBe(true);
+  vi.stubEnv("OWNER_USER_IDS", "7");
+  expect(isOwnerUser("9007199254740992")).toBe(false);
+});

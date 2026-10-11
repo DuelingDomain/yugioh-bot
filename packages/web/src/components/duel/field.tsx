@@ -44,6 +44,7 @@ import type { InspectTarget } from "./inspector";
 import { RivalHand } from "./table/rival-hand";
 import { hexToRgbTriplet, isStraight, labelTurnDeg, normalizeDeg, textScale } from "./table/seat-angle";
 import { SEAT_TONE_HEX, type SeatFieldProps } from "./table/types";
+import { useForkLabels } from "./table/fork-labels";
 import { useDuelFieldModel, type DuelFieldProps } from "./field-model";
 import {
   anyLegal,
@@ -514,6 +515,7 @@ export function Tally({
   priorityLabel,
   spectator,
   reducedMotion,
+  acting = false,
 }: {
   side: "opp" | "you";
   name: string;
@@ -523,6 +525,8 @@ export function Tally({
   priorityLabel: string | null;
   spectator: boolean;
   reducedMotion: boolean;
+  /** A replay fork: the seat that answers. Tagged "Acting" next to the name. */
+  acting?: boolean;
 }) {
   const styles = useSkinStyles(baseStyles, "field");
   const priority = priorityLabel ? (
@@ -537,6 +541,7 @@ export function Tally({
       <div className={styles.tHead}>
         <span className={styles.tIdentity}>
           <span className={styles.tWho} aria-hidden={spectator && priorityLabel ? true : undefined}>{name}</span>
+          {acting ? <span className={styles.tActing} data-acting>Acting</span> : null}
           {spectator ? priority : null}
         </span>
         {active ? (
@@ -886,7 +891,7 @@ export function DuelField(props: DuelFieldProps) {
     showExtraZones = true } = props;
   const boardRef = useRef<HTMLElement | null>(null);
   const { bottomIndex, topIndex, bottom, top, callbacks, topLabel, bottomLabel, battle, activity, priorityLabel,
-    leftEmz, rightEmz, leftEmzKeys, rightEmzKeys, emzOff, equipLinks } = useDuelFieldModel({ ...props, boardRef });
+    leftEmz, rightEmz, leftEmzKeys, rightEmzKeys, emzOff, equipLinks, actingSeat } = useDuelFieldModel({ ...props, boardRef });
 
   return (
     <EquipLinksContext.Provider value={equipLinks}>
@@ -911,7 +916,8 @@ export function DuelField(props: DuelFieldProps) {
             seatKey={top?.seat}
             active={activity.turnSeat === topIndex}
             priorityLabel={priorityLabel(topIndex, topName)}
-            spectator={mySeat == null}
+            acting={actingSeat === topIndex}
+            spectator={mySeat == null || props.named === true}
             reducedMotion={reducedMotion}
           />
           {top ? (
@@ -971,7 +977,8 @@ export function DuelField(props: DuelFieldProps) {
             seatKey={bottom?.seat}
             active={activity.turnSeat === bottomIndex}
             priorityLabel={priorityLabel(bottomIndex, bottomName)}
-            spectator={mySeat == null}
+            acting={actingSeat === bottomIndex}
+            spectator={mySeat == null || props.named === true}
             reducedMotion={reducedMotion}
           />
           {bottom ? (
@@ -1036,7 +1043,9 @@ export const SeatField = memo(function SeatField({
   const angle = normalizeDeg(angleDeg);
   const straight = isStraight(angle, upright);
   const label = name ?? `Player ${seat + 1}`;
-  const owner = viewerSeat === seat ? "Your" : label;
+  // A fork names every seat: the one that answers is not the camera seat, so neither is "Your".
+  const forkLabels = useForkLabels();
+  const owner = viewerSeat === seat && !forkLabels ? "Your" : label;
   const battle = isBattlePhase(engine.phase);
   const eliminated = view?.eliminated === true;
   const turn = engine.turnSeat === seat && !eliminated;
@@ -1305,6 +1314,7 @@ export function DeckMasterRail({
   onInspect,
   onHoverCard,
   topSeat,
+  bottomSeat,
   rivals,
   selfTitle,
 }: {
@@ -1320,6 +1330,8 @@ export function DeckMasterRail({
   onHoverCard?: DuelHoverHandler;
   /** 3 and 4 seat tables: the opponent whose master shows in the top dock. */
   topSeat?: number | null;
+  /** Replay camera: the seat whose master shows in the bottom dock when it is not `mySeat`. */
+  bottomSeat?: number | null;
   /**
    * 3 and 4 seat tables: one dock per rival seat (small, read-only), in this order, above your own. Replaces the single
    * top dock. `title` is the dock heading, for example "Ryo's Master".
@@ -1329,7 +1341,7 @@ export function DeckMasterRail({
   selfTitle?: string;
 }) {
   const styles = useSkinStyles(baseStyles, "field");
-  const bottomIndex = mySeat ?? 0;
+  const bottomIndex = bottomSeat ?? mySeat ?? 0;
   const topIndex = topSeat ?? (bottomIndex === 0 ? 1 : 0);
   const bottom = engine.seats.find((seat) => seat.seat === bottomIndex);
   const top = engine.seats.find((seat) => seat.seat === topIndex);

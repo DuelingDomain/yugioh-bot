@@ -1,7 +1,7 @@
 import { isDuelFormat, MULTI_CORE_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled, type DuelTableCapabilities } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
 import { createDuelSeriesService } from "@yugidraft/shared/services";
-import { sendDuelInvite } from "@/lib/announce-bot";
+import { assertDuelInviteUrl, duelUrl, sendDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
@@ -94,7 +94,10 @@ export async function POST(request: NextRequest) {
 
   try {
     if (opponentPlayerId !== null) {
-      const { series, duel } = createDuelSeriesService(getDb()).createChallenge({
+      const db = getDb();
+      const opponentDiscordUserId = playerIdentity(db, opponentPlayerId as number)?.discordUserId;
+      if (opponentDiscordUserId) assertDuelInviteUrl(actor.guildId, request);
+      const { series, duel } = createDuelSeriesService(db).createChallenge({
         guildId: actor.guildId,
         challengerPlayerId: actor.playerId,
         opponentPlayerId: opponentPlayerId as number,

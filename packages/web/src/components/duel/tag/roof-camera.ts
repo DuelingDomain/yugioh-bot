@@ -514,7 +514,7 @@ export function roofKeyAction(key: string, ctx: RoofKeyContext, mods: RoofKeyMod
 }
 
 /** Name of the camera for the dock ("Home", "Corvin · partner", ...). */
-export function cameraLabel(state: Pick<RoofCameraState, "mode" | "focusSeat" | "anchor">, nameOf: (seat: number) => string): string {
+export function cameraLabel(state: Pick<RoofCameraState, "mode" | "focusSeat" | "anchor">, nameOf: (seat: number) => string, replay = false): string {
   switch (state.mode) {
     case "home":
       return "Home";
@@ -525,7 +525,7 @@ export function cameraLabel(state: Pick<RoofCameraState, "mode" | "focusSeat" | 
     case "focus": {
       const seat = state.focusSeat;
       if (seat == null) return "Home";
-      if (seat === state.anchor) return `${nameOf(seat)} · you`;
+      if (seat === state.anchor) return replay ? nameOf(seat) : `${nameOf(seat)} · you`;
       if (nearTeam(state.anchor, seat)) return `${nameOf(seat)} · partner`;
       return `${nameOf(seat)}'s chair`;
     }

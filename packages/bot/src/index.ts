@@ -139,7 +139,7 @@ const broadcaster = createBroadcaster(
   httpTransport({ url: process.env.WS_INTERNAL_URL ?? "", secret: process.env.WS_INTERNAL_SECRET ?? "", timeoutMs: 5_000 }),
 );
 
-const notifyDuelChange = createHttpNotifyDuelChange({
+const notifyDuelChange = createHttpNotifyDuelChange(db, {
   url: process.env.WS_INTERNAL_URL ?? "",
   secret: process.env.WS_INTERNAL_SECRET ?? "",
 });

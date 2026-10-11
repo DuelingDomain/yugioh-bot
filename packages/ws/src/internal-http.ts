@@ -98,7 +98,15 @@ function parseDuelChanged(v: unknown): { slug: string; guildId: string } | null 
   return { slug: o.slug, guildId: o.guildId };
 }
 
-export function createInternalHttpHandler(opts: { io: TypedServer; secret: string; beforeDraftBroadcast?: (slug: string) => void }) {
+type BroadcastOptions = {
+  io: TypedServer;
+  secret: string;
+  beforeDraftBroadcast?: (slug: string) => void;
+  /** Check the stored target and prune unauthorized subscriptions before duel events. */
+  beforeDuelBroadcast?: (slug: string, guildId: string) => boolean;
+};
+
+export function createInternalHttpHandler(opts: BroadcastOptions) {
   return async function handle(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (req.method !== "POST") return new Response("Not found", { status: 404 });
@@ -203,6 +211,10 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/duel/changed": {
         const data = parseDuelChanged(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        if (!opts.beforeDuelBroadcast) return new Response("Duel access unavailable", { status: 503 });
+        try {
+          if (!opts.beforeDuelBroadcast(data.slug, data.guildId)) return new Response("Not found", { status: 404 });
+        } catch { return new Response("Duel access unavailable", { status: 503 }); }
         opts.io.to(`duel:${data.guildId}:${data.slug}`).emit("duel:changed", { slug: data.slug });
         return new Response(null, { status: 204 });
       }
@@ -212,7 +224,7 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
   };
 }
 
-export function listenInternalHttp(opts: { io: TypedServer; secret: string; port: number; beforeDraftBroadcast?: (slug: string) => void }): Server {
+export function listenInternalHttp(opts: BroadcastOptions & { port: number }): Server {
   const handle = createInternalHttpHandler(opts);
   const server = createServer(async (nodeReq, nodeRes) => {
     const chunks: Buffer[] = [];

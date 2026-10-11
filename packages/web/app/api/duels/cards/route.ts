@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createCardCatalogService } from "@yugidraft/shared/services";
 import type { DeckCardInfo, DuelCardInfo } from "@yugidraft/shared/duels";
 import { getDb } from "@/lib/db";
-import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
-import { hasSandboxQuery, requireSandboxActor, sandboxErrorResponse, sandboxQueryOptions } from "@/lib/sandbox-access";
+import { readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { requireSandboxActor, sandboxQueryOptions } from "@/lib/sandbox-access";
 
 export const runtime = "nodejs";
 
@@ -34,29 +34,37 @@ function withCatalogCardText<T extends DuelCardInfo>(cards: T[]): T[] {
 }
 
 export async function GET(request: NextRequest) {
-  const sandboxQuery = hasSandboxQuery(request);
-  const actor = await (sandboxQuery ? requireSandboxActor() : requireDuelActor());
+  const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
+
+  const query = request.nextUrl.searchParams.get("q") ?? "";
+  const slug = request.nextUrl.searchParams.get("slug") ?? undefined;
+  let fork = false;
+  let control: ReturnType<typeof readDuelControl>;
   try {
-    const query = request.nextUrl.searchParams.get("q") ?? "";
-    const slug = request.nextUrl.searchParams.get("slug") ?? undefined;
-    const options = sandboxQueryOptions(request);
-    if (slug) {
-      const room = actor.duels.room(slug, actor.guildId, actor.playerId);
-      if (room.session.sandbox && !sandboxQuery) {
-        const sandboxActor = await requireSandboxActor();
-        if (!sandboxActor.ok) return sandboxActor.response;
-      }
+    const room = slug ? actor.duels.room(slug, actor.guildId, actor.playerId) : undefined;
+    if (room?.session.sandbox) {
+      const allowed = await requireSandboxActor();
+      if (!allowed.ok) return allowed.response;
     }
-    const result = await callDuelHost({
-      op: "cards", slug, guildId: actor.guildId, playerId: actor.playerId, query, ...options,
-    });
-    if (!result.ok) return result.response;
-    const data = result.data as { cards: DuelCardInfo[] };
-    return NextResponse.json({ ...data, cards: withCatalogCardText(data.cards) });
-  } catch (error) {
-    return sandboxErrorResponse(error);
+    control = room?.session.sandbox ? sandboxQueryOptions(request) : readDuelControl(request, room, "cards");
+    fork = room?.session.kind === "replay-fork";
   }
+  catch (error) { return duelErrorResponse(error); }
+  const result = await callDuelHost({
+    op: "cards",
+    slug,
+    guildId: actor.guildId,
+    playerId: actor.playerId, ...(actor.userId !== undefined ? { userId: actor.userId } : {}), ...control,
+    query,
+  });
+  if (!result.ok) return result.response;
+  if (fork && slug) {
+    try { actor.duels.room(slug, actor.guildId, actor.playerId); }
+    catch (error) { return duelErrorResponse(error); }
+  }
+  const data = result.data as { cards: DuelCardInfo[] };
+  return NextResponse.json({ ...data, cards: withCatalogCardText(data.cards) }, { headers: { "cache-control": "private, no-store" } });
 }
 
 export async function POST(request: Request) {

@@ -30,6 +30,8 @@ export * from "../scoring/rank.js";
 export * from "../scoring/achievements.js";
 export { createDuelService, DuelServiceError, DUEL_LIVE_IDLE_AFTER_MS } from "./duels.js";
 export type { DuelService, DuelPrivateState, DuelFinalSnapshots } from "./duels.js";
+export { createReplayForkService, hashReplayForkPrefix, ReplayForkStorageError } from "./replay-forks.js";
+export type { ReplayForkService, ReplayForkCreateInput, ReplayForkRetryInput, ReplayForkStored } from "./replay-forks.js";
 export {
   buildDraftDeck,
   createDraftDeckService,
@@ -57,3 +59,4 @@ export { createBugReportService, BugReportServiceError, BUG_REPORT_LIMIT } from 
 export type { BugReportService, BugReport, BugReportInput, BugReportLimit } from "./bug-reports.js";
 export { createWaitlistService } from "./waitlist.js";
 export type { WaitlistService, WaitlistMeta } from "./waitlist.js";
+export * from "./duel-access.js";

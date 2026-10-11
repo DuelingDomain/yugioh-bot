@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { createDuelSeriesService, DuelServiceError } from "@yugidraft/shared/services";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { readDuelControl, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
 import { broadcaster } from "@/lib/notify";
 
 export const runtime = "nodejs";
 
 /** Casual series: a series player cancels. Tournament series: only the tournament creator. */
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   const seriesId = Number((await params).id);
@@ -18,6 +18,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   }
 
   try {
+    readDuelControl(request);
     const db = getDb();
     const seriesService = createDuelSeriesService(db);
     const series = seriesService.get(seriesId, actor.guildId);

@@ -51,6 +51,7 @@ import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place
 import base from "./prompts.module.css";
 import baseStyles from "./prompt-center.module.css";
 import { useSkinExtra, useSkinStyles } from "./skin";
+import { useForkLabels } from "./table/fork-labels";
 import { useMedia } from "@/components/draft/room/use-media";
 
 /**
@@ -170,9 +171,9 @@ export function positionOf(option: DuelPromptOption): number | null {
   return null;
 }
 
-function zonePlace(zone: DuelZoneRef | undefined, mySeat: number | null): string | null {
+function zonePlace(zone: DuelZoneRef | undefined, mySeat: number | null, forkNameOf?: (seat: number) => string): string | null {
   if (!zone) return null;
-  const whose = mySeat == null ? "" : zone.controller === mySeat ? "your " : "opponent's ";
+  const whose = forkNameOf ? `${forkNameOf(zone.controller)}'s ` : mySeat == null ? "" : zone.controller === mySeat ? "your " : "opponent's ";
   const location = zone.location;
   let name: string | null = null;
   if (location & LOCATION_HAND) name = "hand";
@@ -213,7 +214,9 @@ function toneVars(tones: PromptSeatTones | undefined, seat: number | undefined):
  * "You" / "Opponent" (or "Your" / "Opponent's"). With `nameOf` (a table of 3 or 4, where "Opponent" does not say
  * which one) a rival reads by name.
  */
-function ownerWord(seat: number | undefined, mySeat: number | null, form: "your" | "you", nameOf?: (seat: number) => string): string {
+function ownerWord(seat: number | undefined, mySeat: number | null, form: "your" | "you", nameOf?: (seat: number) => string, fork = false): string {
+  // A replay fork has no "you": every seat reads by name (the seat that answers is tagged "Acting" elsewhere).
+  if (fork && seat != null && nameOf) return form === "your" ? `${nameOf(seat)}'s` : nameOf(seat);
   if (seat == null || mySeat == null) return form === "your" ? "Your" : "You";
   if (seat === mySeat) return form === "your" ? "Your" : "You";
   if (nameOf) return form === "your" ? `${nameOf(seat)}'s` : nameOf(seat);
@@ -607,6 +610,7 @@ function ChainStrip({
 }) {
   const styles = useSkinStyles(baseStyles, "prompt");
   const solid = useSkinExtra("prompt");
+  const fork = useForkLabels();
   if (chain.length === 0) return null;
   const shown = chain.slice(-4);
   // 3D mode: the links are tiles, the newest on top (it resolves first), like the concept chain stack.
@@ -632,7 +636,7 @@ function ChainStrip({
                   <span className={solid?.cname}>{chainCardName({ name: link.name ?? null })}</span>
                   <span className={solid?.cowner}>
                     <i aria-hidden />
-                    {ownerWord(link.seat, mySeat, "you", nameOf)}
+                    {ownerWord(link.seat, mySeat, "you", nameOf, fork)}
                   </span>
                 </span>
                 {link.description ? <span className={solid?.ceff}>{link.description}</span> : null}
@@ -680,12 +684,13 @@ function ChainRows({
 }) {
   const styles = useSkinStyles(baseStyles, "prompt");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const fork = useForkLabels();
   return (
     <div className={styles.rows} data-toned={seatTones ? "true" : undefined} style={toneVars(seatTones, prompt.seat)}>
       {prompt.options.map((option, index) => {
         const { name, effect, cardText } = effectText(option);
         const ownerSeat = option.controller ?? prompt.seat;
-        const owner = ownerWord(ownerSeat, mySeat, "you", seatTones ? nameOf : undefined);
+        const owner = ownerWord(ownerSeat, mySeat, "you", seatTones || fork ? nameOf : undefined, fork);
         const open = Boolean(expanded[option.id]);
         const showMore = cardText.length > 0 && cardText !== effect;
         // A short effect label ("Take control") says too little on its own: the printed text follows it.
@@ -843,6 +848,7 @@ function ResponseBody({
   leavingSeats?: ReadonlySet<number>;
 }) {
   const styles = useSkinStyles(baseStyles, "prompt");
+  const fork = useForkLabels();
   const tray = useSkinStyles(base, "tray");
   const context = prompt.context;
   const choose = (id: string) => onSubmit({ choice: id });
@@ -892,7 +898,7 @@ function ResponseBody({
     const cards = isChainStripPrompt(prompt);
     return (
       <>
-        <ChainStrip chain={chain} compact={cards} mySeat={mySeat} nameOf={seatTones ? nameOf : undefined} />
+        <ChainStrip chain={chain} compact={cards} mySeat={mySeat} nameOf={seatTones || fork ? nameOf : undefined} />
         {priority && nameOf ? <PriorityChips order={priority} mySeat={mySeat} nameOf={nameOf} seatTones={seatTones} compact={cards} /> : null}
         {cards ? (
           <StripChoice prompt={prompt} draft={draft} busy={busy} offline={offline} choose={choose} onInspectCard={onInspectCard} who={{ mySeat, nameOf: seatTones ? nameOf : undefined }} />
@@ -926,7 +932,7 @@ function ResponseBody({
 
   if (isYesNo(prompt)) {
     const yes = prompt.options.find((option) => option.id === "yes");
-    const place = zonePlace(source?.zone, mySeat);
+    const place = zonePlace(source?.zone, mySeat, fork ? nameOf : undefined);
     const title = fillPlaceholders(prompt.title, source?.name, place).trim();
     const description = prompt.description ? fillPlaceholders(prompt.description, source?.name, place).trim() : "";
     const effect = (yes ? optionTexts(yes).effectText : "") || (description && description !== title ? description : "");
@@ -1048,13 +1054,14 @@ export function responseTitle(
   chain: readonly DuelChainLink[],
   mySeat: number | null = null,
   nameOf?: (seat: number) => string,
+  fork = false,
 ): { title: string; sub?: string; source: PromptSource | null } {
   const context = prompt.context;
   const source = promptSource(prompt);
-  const place = zonePlace(source?.zone, mySeat);
+  const place = zonePlace(source?.zone, mySeat, fork ? nameOf : undefined);
   const kind = effectKind(prompt);
   const sourceLine = source
-    ? [source.name, `${ownerWord(source.seat, mySeat, "your", nameOf)} ${kind ? `${kind} effect` : "effect"}`, place]
+    ? [source.name, `${ownerWord(source.seat, mySeat, "your", nameOf, fork)} ${kind ? `${kind} effect` : "effect"}`, place]
         .filter(Boolean)
         .join(" · ")
     : undefined;
@@ -1425,6 +1432,7 @@ export interface PromptCenterProps {
  */
 export function PromptCenter(props: PromptCenterProps) {
   const styles = useSkinStyles(baseStyles, "prompt");
+  const fork = useForkLabels();
   const { prompt, mySeat, active, draft, busy, offline, onSubmit, chain, aim, reducedMotion, revision, slug, battleStep, onInspectCard } = props;
   const revealed = props.revealed ?? true;
   const answering = prompt != null && mySeat != null && prompt.seat === mySeat && active;
@@ -1941,7 +1949,7 @@ export function PromptCenter(props: PromptCenterProps) {
   );
 
   if (kind === "response") {
-    const { title, sub, source } = responseTitle(prompt, chain, mySeat, props.seatTones ? props.nameOf : undefined);
+    const { title, sub, source } = responseTitle(prompt, chain, mySeat, props.seatTones || fork ? props.nameOf : undefined, fork);
     const actions = prompt.kind === "choice" && isYesNo(prompt) ? null : (
       <Actions prompt={prompt} draft={draft} busy={busy} onSubmit={onSubmit} />
     );

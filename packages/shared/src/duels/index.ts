@@ -1,6 +1,12 @@
 export * from "./sandbox-ops.js";
 import type { DuelClock, DuelFormat, DuelSettings } from "./settings.js";
 import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
+import type { DuelKind } from "./duel-kind.js";
+import type { ReplayForkControl } from "./replay-fork.js";
+
+export * from "./duel-kind.js";
+export * from "./replay.js";
+export * from "./replay-fork.js";
 
 export * from "./sandbox-board.js";
 export * from "./sandbox-share.js";
@@ -548,6 +554,8 @@ export interface DuelSeat {
 export interface DuelSession {
   id: number;
   slug: string;
+  /** Server-owned immutable kind. Rows from before fork storage are play. */
+  kind: DuelKind;
   name: string;
   guildId: string;
   organizerPlayerId: number;
@@ -592,6 +600,8 @@ export interface DuelRoom {
   stale?: boolean;
   /** Rock-paper-scissors or FFA dice rolls before the game starts; null when there is none. */
   opening?: DuelOpeningView | null;
+  /** Only for the authorized replay-fork creator. mySeat remains the stored identity seat. */
+  fork?: ReplayForkControl;
 }
 
 /** A table row in the lobby list or match history, as seen by one viewer. */

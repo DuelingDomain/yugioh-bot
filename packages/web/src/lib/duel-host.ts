@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ReplayAccessError } from "@yugidraft/shared/access/owner-access";
 import { httpTransport } from "@yugidraft/shared/notify";
 import {
   createDuelService,
@@ -8,7 +9,7 @@ import {
   TournamentDuelError,
   type DuelService,
 } from "@yugidraft/shared/services";
-import type { SandboxHostOp, CardQuery, DuelChainMode, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove, SandboxBoard, SandboxRun, SandboxBotMode } from "@yugidraft/shared/duels";
+import { isReplayFork, seatCountFor, type  SandboxHostOp, CardQuery, DuelChainMode, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove, SandboxBoard, SandboxRun, SandboxBotMode, type DuelRoom, type ReplayForkRequest } from "@yugidraft/shared/duels";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -16,7 +17,36 @@ import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 import type { CardDataStatus } from "@yugidraft/shared/types";
 import { checkDiscordWebAccess, webAccessError, type WebAccessLevel } from "@/lib/discord-web-access";
 
-export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode" | SandboxHostOp;
+export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode" | SandboxHostOp;
+
+/** Read-only seat identity stays separate from creator identity. Unknown control flags fail closed. */
+export function readDuelControl(request: Request, room?: DuelRoom, allowed: "view" | "action" | "cards" | "none" = "none") {
+  const query = new URL(request.url).searchParams;
+  const flags = ["as", "reveal", "promptId", "revision"];
+  const present = flags.filter(key => query.has(key));
+  const fork = room && isReplayFork(room.session);
+  const permitted = allowed === "view" ? ["as", "reveal"] : allowed === "action" ? ["as"]
+    : allowed === "cards" ? ["as", "promptId", "revision"] : [];
+  if (present.some(key => !fork || !permitted.includes(key) || query.getAll(key).length !== 1)) {
+    throw new DuelServiceError("Control overrides are only available on replay fork controls", 400);
+  }
+  const as = query.get("as"), reveal = query.get("reveal"), promptId = query.get("promptId"), revision = query.get("revision");
+  if ((as !== null && (!/^[0-3]$/.test(as) || Number(as) >= seatCountFor(room!.session.format)))
+    || (reveal !== null && reveal !== "0" && reveal !== "1")
+    || (promptId !== null && (!promptId || promptId.length > 200))
+    || (revision !== null && (!/^(0|[1-9]\d*)$/.test(revision) || !Number.isSafeInteger(Number(revision))))
+    || (fork && allowed === "cards" && (as === null || promptId === null || revision === null))) {
+    throw new DuelServiceError("Invalid replay fork control request", 400);
+  }
+  return { ...(as !== null ? { as: Number(as) } : {}), ...(reveal !== null ? { reveal: reveal === "1" } : {}),
+    ...(promptId !== null ? { promptId } : {}), ...(revision !== null ? { revision: Number(revision) } : {}) };
+}
+
+/** Normal admission and series routes never accept a fork or a seat override. */
+export function assertNormalDuelRequest(request: Request, room: DuelRoom) {
+  if (room && isReplayFork(room.session)) throw new DuelServiceError("Replay forks cannot use lobby or series operations", 409);
+  readDuelControl(request, room);
+}
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {
@@ -24,11 +54,11 @@ export function scenariosEnabled(): boolean {
 }
 
 export function scenariosOffResponse(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json({ error: "Not found" }, { status: 404, headers: { "cache-control": "private, no-store" } });
 }
 
-type DuelActor =
-  | { ok: true; guildId: string; playerId: number; duels: DuelService }
+export type DuelActor =
+  | { ok: true; guildId: string; playerId: number; userId: string; duels: DuelService }
   | { ok: false; response: NextResponse };
 
 export async function requireDuelActor(access: WebAccessLevel = "member"): Promise<DuelActor> {
@@ -58,26 +88,49 @@ export async function requireDuelActor(access: WebAccessLevel = "member"): Promi
   }
   const db = getDb();
   const player = createPlayerService(db).findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
-  return { ok: true, guildId, playerId: player.id, duels: createDuelService(db) };
+  return { ok: true, guildId, playerId: player.id, userId: session.user.id, duels: createDuelService(db) };
 }
 
 export function duelErrorResponse(error: unknown) {
+  if (error && typeof error === "object" && "code" in error && error.code === "DUEL_INVITE_REFUSED") {
+    return NextResponse.json({
+      error: "message" in error && typeof error.message === "string" ? error.message : "Duel invites are unavailable",
+      code: error.code,
+    }, { status: 409, headers: { "cache-control": "private, no-store" } });
+  }
+  // Missing slugs and hidden replay forks must have the same response.
+  if (error instanceof DuelServiceError && error.status === 404 && error.message === "Duel not found") {
+    error = new ReplayAccessError(404);
+  }
+  if (error instanceof ReplayAccessError) {
+    return NextResponse.json({ error: error.message, code: error.code }, {
+      status: error.status, headers: { "cache-control": "private, no-store" },
+    });
+  }
   if (
     error instanceof DuelServiceError ||
     error instanceof TournamentDuelError ||
     error instanceof SavedDeckServiceError
   ) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
+    return NextResponse.json({ error: error.message }, { status: error.status, headers: { "cache-control": "private, no-store" } });
   }
   console.error("[api/duels]", error);
-  return NextResponse.json({ error: "Failed to process duel request" }, { status: 500 });
+  return NextResponse.json({ error: "Failed to process duel request" }, { status: 500, headers: { "cache-control": "private, no-store" } });
 }
 
-function hostErrorBody(text: string): { error: string; code?: string } {
+function hostErrorBody(text: string, status: number): { error: string; code?: string; finalBoard?: "available" | "none"; limit?: number; forksUrl?: string } {
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") {
-      return { error: parsed.error, ...("code" in parsed && typeof parsed.code === "string" ? { code: parsed.code } : {}) };
+      const recovery = "code" in parsed && parsed.code === "FORK_LIMIT"
+        && "limit" in parsed && typeof parsed.limit === "number" && Number.isSafeInteger(parsed.limit) && parsed.limit > 0
+        && "forksUrl" in parsed && parsed.forksUrl === "/api/admin/duels/forks"
+        ? { limit: parsed.limit, forksUrl: parsed.forksUrl } : {};
+      return { error: parsed.error, ...("code" in parsed && typeof parsed.code === "string" ? { code: parsed.code } : {}),
+        ...("code" in parsed && typeof parsed.code === "string"
+          && ((status === 409 && ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE"].includes(parsed.code))
+            || (status === 413 && parsed.code === "REPLAY_TOO_LARGE"))
+          && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery };
     }
   } catch {
     // Host may return a plain-text error body.
@@ -100,6 +153,19 @@ export async function callDuelHost(input: {
   slug?: string;
   guildId: string;
   playerId: number;
+  /** Trusted NextAuth Discord session ID. Owner operations must recheck its stored player mapping on the host. */
+  userId?: string;
+  as?: number;
+  promptId?: string;
+  revision?: number;
+  cursor?: ReplayForkRequest["cursor"];
+  sourceVersion?: string;
+  requestId?: string;
+  /** Replay contract and server card projection. Camera position stays in the browser. */
+  version?: 1 | 2;
+  visibility?: "mine" | "public";
+  /** Owner replay and fork views: reveal hands/Extra Decks in the selected projection. */
+  reveal?: boolean;
   /** view only: an eliminated FFA player watches through the public view. */
   spectate?: boolean;
   command?: DuelCommand;
@@ -130,26 +196,41 @@ export async function callDuelHost(input: {
   /** chain-mode only: the response switch position for the caller's own seat. */
   chainMode?: DuelChainMode;
   /** Sandbox-only options. Routes require sandbox access; the host checks the organizer. */
-  as?: number;
-  reveal?: boolean;
   board?: SandboxBoard;
   run?: SandboxRun;
   scenarioId?: number;
   control?: SandboxBotMode;
   to?: string;
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
+  const replayOp = input.op === "replay" || input.op === "owner-replay" || input.op === "replay-fork"
+    || input.op === "fork-list" || input.op === "fork-restart" || input.op === "fork-cancel";
+  const failure = (body: ReturnType<typeof hostErrorBody>, status: number): NextResponse => NextResponse.json({
+    ...body, ...(replayOp && !body.code && status >= 500 ? { code: "ENGINE_BUSY" } : {}),
+  }, { status: replayOp && status >= 500 ? 503 : status,
+    headers: { "cache-control": "private, no-store" } });
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
   if (configProblem) {
     console.error(`[duel-host] ${configProblem}`);
-    return { ok: false, response: NextResponse.json({ error: configProblem }, { status: 503 }) };
+    return { ok: false, response: failure({ error: configProblem }, 503) };
   }
-  const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 } : {}) });
+  const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 }
+    : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {
     op: input.op,
     guildId: input.guildId,
     playerId: input.playerId,
   };
+  if (input.userId !== undefined) payload.userId = input.userId;
+  if (input.as !== undefined) payload.as = input.as;
+  if (input.promptId !== undefined) payload.promptId = input.promptId;
+  if (input.revision !== undefined) payload.revision = input.revision;
+  if (input.cursor !== undefined) payload.cursor = input.cursor;
+  if (input.sourceVersion !== undefined) payload.sourceVersion = input.sourceVersion;
+  if (input.requestId !== undefined) payload.requestId = input.requestId;
+  if (input.version !== undefined) payload.version = input.version;
+  if (input.visibility !== undefined) payload.visibility = input.visibility;
+  if (input.reveal !== undefined) payload.reveal = input.reveal;
   if (input.slug) payload.slug = input.slug;
   if (input.op === "view" && input.spectate === true) payload.spectate = true;
   if (input.command) payload.command = input.command;
@@ -182,27 +263,46 @@ export async function callDuelHost(input: {
   if (!result.ok) {
     if (result.status < 400) {
       console.error(`[duel-host] ${input.op} failed: ${result.text || "no response"}`);
-      return { ok: false, response: NextResponse.json({ error: unreachableMessage(result.text) }, { status: 503 }) };
+      return { ok: false, response: failure({ error: unreachableMessage(result.text) }, 503) };
     }
     if (result.status === 401) {
       // The host answers 401 only for a bad signature.
       const error = "The duel engine refused the web server: their DUEL_INTERNAL_SECRET values do not match. Ask the server admin to fix .env and restart both services.";
       console.error(`[duel-host] ${error}`);
-      return { ok: false, response: NextResponse.json({ error }, { status: 503 }) };
+      return { ok: false, response: failure({ error }, 503) };
     }
     return {
       ok: false,
-      response: NextResponse.json(hostErrorBody(result.text), { status: result.status }),
+      response: failure(hostErrorBody(result.text, result.status), result.status),
     };
   }
   if (!result.text) {
-    return { ok: false, response: NextResponse.json({ error: "Empty engine response" }, { status: 502 }) };
+    return { ok: false, response: failure({ error: "Empty engine response" }, 502) };
   }
   try {
     return { ok: true, data: JSON.parse(result.text) as unknown };
   } catch {
-    return { ok: false, response: NextResponse.json({ error: "Invalid engine response" }, { status: 502 }) };
+    return { ok: false, response: failure({ error: "Invalid engine response" }, 502) };
   }
+}
+
+/** Strict query parsing prevents private view flags from reaching the ordinary host operation. */
+export function readReplayQuery(request: Request, privileged = false) {
+  const query = new URL(request.url).searchParams;
+  const allowed = privileged ? ["version", "visibility", "seat", "reveal"] : ["version", "visibility"];
+  const invalid = () => ({ ok: false as const, response: NextResponse.json({ error: "Invalid replay request", code: "INVALID_CURSOR" },
+    { status: 400, headers: { "cache-control": "private, no-store" } }) });
+  if ([...query.keys()].some(key => !allowed.includes(key) || query.getAll(key).length !== 1)) return invalid();
+  const version = query.get("version"); const visibility = query.get("visibility");
+  const seat = query.get("seat"); const reveal = query.get("reveal");
+  if ((version !== null && (privileged ? version !== "2" : version !== "1" && version !== "2"))
+    || (visibility !== null && visibility !== "mine" && visibility !== "public")
+    || (seat !== null && !/^[0-3]$/.test(seat)) || (reveal !== null && reveal !== "0" && reveal !== "1")) return invalid();
+  return { ok: true as const, input: {
+    ...(version !== null ? { version: Number(version) as 1 | 2 } : privileged ? { version: 2 as const } : {}),
+    ...(visibility !== null ? { visibility: visibility as "mine" | "public" } : {}),
+    ...(seat !== null ? { seat: Number(seat) } : {}), ...(reveal !== null ? { reveal: reveal === "1" } : {}),
+  } };
 }
 
 export function sessionFromHost(data: unknown) {

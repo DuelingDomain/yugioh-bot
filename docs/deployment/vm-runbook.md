@@ -518,3 +518,14 @@ systemctl start "$unit.timer"
 - [ ] [Deployment verification passes](#verify)
 - [ ] [Discord OAuth redirect added](#discord-oauth-redirect)
 - [ ] `duel` container logs show the private server listening
+
+### Replay-fork rollback
+
+Before rollback to code that predates `duels.kind`, block new fork creation and cancel every
+active `replay-fork` through the current host. Stop all writers and WS, then verify on the
+drained DB that `select count(*) from duels where kind = 'replay-fork' and status = 'active'`
+returns `0`. Save a WAL-safe backup before starting older images. Older code has no kind
+filter and can recover an active fork as an ordinary duel with bot seats and live timers.
+
+For local integration with the sandbox branch, retain both exclusions in ordinary duel
+selectors: `kind = 'play' and sandbox = 0`. This release does not change sandbox behavior.

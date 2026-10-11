@@ -16,7 +16,7 @@ vi.mock("next/font/google", () => {
 
 const swr = vi.hoisted(() => ({ data: null as unknown }));
 const sendDuelAction = vi.hoisted(() => vi.fn(async () => ({})));
-vi.mock("swr", () => ({ default: () => ({ data: swr.data, error: undefined, isLoading: false, mutate: vi.fn() }) }));
+vi.mock("swr", () => ({ useSWRConfig: () => ({ mutate: () => Promise.resolve() }), default: () => ({ data: swr.data, error: undefined, isLoading: false, mutate: vi.fn() }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({
   useDuelWebsocket: () => ({ syncing: false, recovering: false, connected: true, presence: null, resync: vi.fn() }),

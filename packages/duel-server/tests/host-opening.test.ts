@@ -240,7 +240,7 @@ describe("rock-paper-scissors opening", () => {
 
     await vi.advanceTimersByTimeAsync(34_000);
     await settle();
-    expect(app.duels.get(slug, GUILD).status).toBe("active");
+    await vi.waitFor(() => expect(app.duels.get(slug, GUILD).status).toBe("active"));
     expect(workers).toHaveLength(1);
     expect(seatPlayer(app, slug, 0)).toBe(app.p2);
   });
@@ -289,7 +289,7 @@ describe("rock-paper-scissors opening", () => {
     // The reveal ends: the bot chooses to go first and the duel starts.
     await vi.advanceTimersByTimeAsync(1_500);
     await settle();
-    expect(app.duels.get(table.slug, GUILD).status).toBe("active");
+    await vi.waitFor(() => expect(app.duels.get(table.slug, GUILD).status).toBe("active"));
     expect(app.duels.get(table.slug, GUILD).seats.find((seat) => seat.seat === 0)?.isBot).toBe(true);
     expect(workers).toHaveLength(1);
   });

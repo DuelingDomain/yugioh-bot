@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createDuelSeriesService } from "@yugidraft/shared/services";
-import { announceDuelInvite } from "@/lib/announce-bot";
+import { assertDuelInviteUrl, duelUrl, announceDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
 import { mapDraftTournamentDecks } from "@/lib/draft-deck-codes";
 import { linkDraftDeck } from "@/lib/draft-decks";
@@ -55,6 +55,16 @@ export async function POST(
     }
 
     const playerIds = [slot.player_one_id, slot.player_two_id];
+    const seriesService = createDuelSeriesService(db);
+    const inviteRecipientIds = playerIds.filter(playerId => playerId !== actor.playerId)
+          .map(playerId => playerIdentity(db, playerId)?.discordUserId)
+          .filter((discordUserId): discordUserId is string => !!discordUserId);
+    const assertPlannedInviteUrl = () => {
+      if (inviteRecipientIds.length > 0 && !seriesService.openForTournamentMatch(tournamentMatchId)) {
+        assertDuelInviteUrl(actor.guildId, request);
+      }
+    };
+    assertPlannedInviteUrl();
     // A player who joined from the Discord button and never opened the page has no deck on the
     // entry yet: register their draft deck first.
     for (const playerId of playerIds) linkDraftDeck(tournament.id, playerId, db);
@@ -67,7 +77,9 @@ export async function POST(
       });
     }
 
-    const { series, duel, created } = createDuelSeriesService(db).startTournamentMatch({
+    // The existing series may have been cancelled while the deck mapping was awaited.
+    assertPlannedInviteUrl();
+    const { series, duel, created } = seriesService.startTournamentMatch({
       guildId: actor.guildId,
       tournamentMatchId,
       actorPlayerId: actor.playerId,

@@ -1,20 +1,23 @@
 import { requireSandboxActor } from "@/lib/sandbox-access";
 import { NextResponse } from "next/server";
-import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
 
-export async function POST(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   const { slug } = await params;
 
+  let fork = false;
   try {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId);
     if (room.session.sandbox) {
       const sandboxActor = await requireSandboxActor();
       if (!sandboxActor.ok) return sandboxActor.response;
     }
+    readDuelControl(request, room);
+    fork = room?.session.kind === "replay-fork";
   } catch (error) {
     return duelErrorResponse(error);
   }
@@ -23,8 +26,12 @@ export async function POST(_request: Request, { params }: { params: Promise<{ sl
     op: "cancel",
     slug,
     guildId: actor.guildId,
-    playerId: actor.playerId,
+    playerId: actor.playerId, ...(actor.userId !== undefined ? { userId: actor.userId } : {}),
   });
   if (!result.ok) return result.response;
-  return NextResponse.json(result.data);
+  if (fork) {
+    try { actor.duels.room(slug, actor.guildId, actor.playerId); }
+    catch (error) { return duelErrorResponse(error); }
+  }
+  return NextResponse.json(result.data, fork ? { headers: { "cache-control": "private, no-store" } } : undefined);
 }

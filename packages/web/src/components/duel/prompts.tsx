@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useContext, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   DuelAnswer,
   DuelCard,
@@ -11,6 +11,7 @@ import type {
 } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { searchDuelCards, type SandboxView } from "./api";
+import { ForkSearchContext } from "./replay-fork-control";
 import { cardArtUrl, LOCATION_HAND, LOCATION_MZONE, zoneKey } from "./constants";
 import { stripCardsPerRow } from "./card-strip";
 import { nextEnabledIndex, rowStep } from "./multi-seat";
@@ -214,7 +215,7 @@ function waitingCopy(prompt: DuelPrompt | null, mySeat: number | null, seatName?
   return "Waiting for a response.";
 }
 
-export function usePromptDraft(prompt: DuelPrompt | null): PromptDraft {
+export function usePromptDraft(prompt: DuelPrompt | null, resetKey?: string): PromptDraft {
   const [selected, setSelected] = useState<string[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [value, setValue] = useState(0);
@@ -227,7 +228,7 @@ export function usePromptDraft(prompt: DuelPrompt | null): PromptDraft {
     setValue(prompt?.min ?? 0);
     setCardCode(null);
     setHighlight(0);
-  }, [prompt?.id]);
+  }, [prompt?.id, resetKey]);
 
   return {
     selected,
@@ -382,10 +383,18 @@ export function AnnounceSearch({
   onPick: (card: DuelCardInfo) => void;
 }) {
   const styles = useSkinStyles(baseStyles, "tray");
+  const fork = useContext(ForkSearchContext);
+  // The search is tied to a seat, a prompt and a revision. A new reading of the same prompt must not restart it, and
+  // results found for another binding must not stay pickable.
+  const forkKey = fork ? `${fork.as}:${fork.promptId}:${fork.revision}` : "";
+  const forkNow = useRef(fork);
+  forkNow.current = fork;
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DuelCardInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
+
+  useEffect(() => { setResults([]); }, [forkKey]);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -398,7 +407,7 @@ export function AnnounceSearch({
     let cancelled = false;
     const handle = window.setTimeout(() => {
       setSearching(true);
-      searchDuelCards(trimmed, slug, sandbox)
+      searchDuelCards(trimmed, slug, forkNow.current ?? sandbox)
         .then((data) => {
           if (cancelled) return;
           setResults(data.cards);
@@ -416,7 +425,7 @@ export function AnnounceSearch({
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [query, slug, sandbox?.as, sandbox?.reveal]);
+  }, [query, slug, forkKey, sandbox?.as, sandbox?.reveal]);
 
   return (
     <div className={styles.search}>

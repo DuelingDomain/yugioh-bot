@@ -1,36 +1,46 @@
 import { NextResponse } from "next/server";
-import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
-import { hasSandboxQuery, requireSandboxActor, sandboxErrorResponse, sandboxQueryOptions } from "@/lib/sandbox-access";
+import { readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { requireSandboxActor, sandboxErrorResponse, sandboxQueryOptions } from "@/lib/sandbox-access";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const sandboxQuery = hasSandboxQuery(request);
-  const actor = await (sandboxQuery ? requireSandboxActor() : requireDuelActor());
+  const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   const { slug } = await params;
   const spectate = new URL(request.url).searchParams.get("spectate") === "1";
 
+  let fork = false;
+  let control: ReturnType<typeof readDuelControl>;
   try {
-    const options = sandboxQueryOptions(request);
     const room = actor.duels.room(slug, actor.guildId, actor.playerId);
-    if (room.session.sandbox && !sandboxQuery) {
-      const sandboxActor = await requireSandboxActor();
-      if (!sandboxActor.ok) return sandboxActor.response;
+    if (room.session.sandbox) {
+      const allowed = await requireSandboxActor();
+      if (!allowed.ok) return allowed.response;
     }
+    control = room.session.sandbox ? sandboxQueryOptions(request) : readDuelControl(request, room, "view");
+    fork = room.session.kind === "replay-fork";
     // A lobby with a timed-out rock-paper-scissors opening goes to the host, which settles it.
     const openingDue = room.session.status === "lobby" && room.opening != null
       && Date.parse(room.opening.deadlineAt) <= Date.now();
-    // Sandbox views always reach the host for organizer, seat and reveal checks.
-    if (!room.session.sandbox && !sandboxQuery && room.session.status !== "active" && !openingDue && !spectate) {
+    if (!room.session.sandbox && room.session.kind !== "replay-fork" && room.session.status !== "active" && !openingDue && !spectate) {
       return NextResponse.json(room);
     }
-    const result = await callDuelHost({
-      op: "view", slug, guildId: actor.guildId, playerId: actor.playerId,
-      ...(spectate ? { spectate: true } : {}), ...options,
-    });
-    return result.ok ? NextResponse.json(result.data) : result.response;
   } catch (error) {
     return sandboxErrorResponse(error);
   }
+
+  const result = await callDuelHost({
+    op: "view",
+    slug,
+    guildId: actor.guildId,
+    playerId: actor.playerId, ...(actor.userId !== undefined ? { userId: actor.userId } : {}), ...control,
+    ...(spectate ? { spectate: true } : {}),
+  });
+  if (!result.ok) return result.response;
+  if (fork) {
+    try { actor.duels.room(slug, actor.guildId, actor.playerId); }
+    catch (error) { return duelErrorResponse(error); }
+  }
+  return NextResponse.json(result.data, { headers: { "cache-control": "private, no-store" } });
 }

@@ -8,6 +8,7 @@ import { masterCard, masterDetailLines, masterStatus, withExact } from "../field
 import { anyLegal, anySelected, type DuelHoverHandler } from "../field-keys";
 import type { InspectTarget } from "../inspector";
 import type { DuelActivateHandler } from "./types";
+import { useForkLabels } from "./fork-labels";
 import styles from "./grid-hud.module.css";
 
 /**
@@ -156,6 +157,7 @@ export function GridMasterToken({
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
 }) {
+  const forkLabels = useForkLabels();
   const master = view?.deckMaster;
   const wrapRef = useRef<HTMLDivElement>(null);
   const artRef = useRef<HTMLSpanElement>(null);
@@ -234,7 +236,7 @@ export function GridMasterToken({
               ? `url(${cardArtUrl(master.card.code, "full")}), url(${cardArtUrl(master.card.code, "small")})`
               : `url(${cardArtUrl(master.card.code, "small")})` }} aria-hidden="true" />
             <span className={styles.masterId}>
-              <small>{local ? "Your Master" : "Deck Master"}</small>
+              <small>{local ? (forkLabels ? "Acting Master" : "Your Master") : "Deck Master"}</small>
               <b title={master.card.name}>{master.card.name}</b>
               {wide ? (
                 <span className={styles.masterFacts} data-testid={id("hud-master-facts")}>

@@ -138,7 +138,7 @@ export const {
       const isApi = nextUrl.pathname.startsWith("/api/");
       if (!auth?.user?.id) {
         return isApi
-          ? Response.json({ error: "Unauthorized" }, { status: 401 })
+          ? Response.json({ error: "Unauthorized" }, { status: 401, headers: { "cache-control": "private, no-store" } })
           : Response.redirect(new URL("/login", nextUrl));
       }
 

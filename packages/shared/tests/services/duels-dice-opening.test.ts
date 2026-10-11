@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
-import { createDuelService } from "../../src/services/duels.js";
+import { createDuelService, type DuelSetup } from "../../src/services/duels.js";
 import type { DuelFormat } from "../../src/duels/index.js";
 
 const databases: Database.Database[] = [];
@@ -29,7 +29,55 @@ function table(format: DuelFormat = "ffa4", values = [3, 1, 6, 4], botSeat?: num
   return { db, duels, players, slug: session.slug, rollDie };
 }
 
+function serverSetup(): DuelSetup {
+  return {
+    firstTurnDraw: false,
+    engineIdentity: {
+      version: 1, coreFamily: "multi", mode: "normal", wasmHash: "a".repeat(64),
+      wrapperVersion: "0.1.2", wrapperHash: "b".repeat(64), protocolVersion: "1",
+      cardDatabaseHash: "c".repeat(64), cardRemapsHash: null, cardScriptsHash: "d".repeat(64),
+      domainScriptHash: null, multiOverlayHash: "e".repeat(64), hostRuleVersion: "1",
+    },
+
+  };
+}
+
 describe("FFA opening seat move", () => {
+  it("keeps validated server metadata through a dice setup rewrite", () => {
+    const t = table();
+    const saved = serverSetup();
+    // A normal duel can carry a saved engine identity; forks cannot enter an opening.
+    t.db.prepare("update duels set setup_json = ? where web_slug = ?").run(JSON.stringify(saved), t.slug);
+    t.duels.startOpening(t.slug, "g", t.players[0]!, 1000);
+    t.duels.settleOpening(t.slug, "g", 4000);
+    const row = t.db.prepare("select setup_json from duels where web_slug = ?").get(t.slug) as { setup_json: string };
+    expect(JSON.parse(row.setup_json)).toEqual(saved);
+    expect(t.duels.privateState(t.slug, "g").setup).toEqual(saved);
+    expect(createDuelService(t.db).privateState(t.slug, "g").setup).toEqual(saved);
+  });
+
+  it.each(["engineIdentity", "replayFork"] as const)("rejects caller-supplied %s without changing the saved setup", (key) => {
+    const t = table();
+    const saved = serverSetup();
+    t.db.prepare("update duels set setup_json = ? where web_slug = ?").run(JSON.stringify(saved), t.slug);
+    const changed = key === "engineIdentity" ? { ...saved.engineIdentity, wasmHash: "f".repeat(64) } : {};
+    expect(() => t.duels.setSetup(t.slug, "g", { [key]: changed })).toThrow(
+      key === "engineIdentity" ? "Recorded engine identity is immutable" : "Unknown duel setup field: replayFork",
+    );
+    const row = t.db.prepare("select setup_json from duels where web_slug = ?").get(t.slug) as { setup_json: string };
+    expect(JSON.parse(row.setup_json)).toEqual(saved);
+  });
+
+  it("does not trust malformed stored identity or private fork metadata", () => {
+    const t = table();
+    const saved = serverSetup();
+    t.db.prepare("update duels set setup_json = ? where web_slug = ?").run(JSON.stringify({
+      ...saved, engineIdentity: { ...saved.engineIdentity, wasmHash: "invalid" },
+      replayFork: { ...saved.replayFork, playerId: 9 },
+    }), t.slug);
+    expect(() => t.duels.privateState(t.slug, "g")).toThrow("Duel setup record is invalid");
+  });
+
   it.each(["ffa3", "ffa4"] as const)("moves complete %s seat rows only at the last reveal deadline", (format) => {
     const t = table(format, format === "ffa3" ? [3, 1, 6] : [3, 1, 6, 4]);
     const before = t.duels.get(t.slug, "g");

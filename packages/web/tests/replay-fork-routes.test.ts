@@ -1,0 +1,346 @@
+import Database from "better-sqlite3";
+import { NextRequest } from "next/server";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { migrate } from "@yugidraft/shared/db";
+import { createDuelService, createReplayForkService, hashReplayForkPrefix } from "@yugidraft/shared/services";
+import { verifyDuelConnectionToken } from "@yugidraft/shared/ws";
+import { seedIdentity } from "../../shared/tests/helpers/identity";
+
+const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), fetch: vi.fn() }));
+vi.mock("@/lib/auth", () => ({ auth: state.auth }));
+vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: async () => ({ ok: true }) }));
+vi.mock("@/lib/db", () => ({ getDb: () => state.db! }));
+let slug: string, fork: string;
+const signIn = (id: number) => state.auth.mockResolvedValue({ user: { id: String(id), name: "Test actor" } });
+const params = (slug: string) => ({ params: Promise.resolve({ slug }) });
+const payload = () => JSON.parse(state.fetch.mock.calls.at(-1)![1].body as string);
+const input = { cursor: "sealed-test-cursor", sourceVersion: "source-v1", requestId: "request-1" };
+const duelRoutes = {
+  view: async () => (await import("../app/api/duels/[slug]/route")).GET,
+  actions: async () => (await import("../app/api/duels/[slug]/actions/route")).POST,
+  "chain-mode": async () => (await import("../app/api/duels/[slug]/chain-mode/route")).POST,
+  surrender: async () => (await import("../app/api/duels/[slug]/surrender/route")).POST,
+  cancel: async () => (await import("../app/api/duels/[slug]/cancel/route")).POST,
+  archive: async () => (await import("../app/api/duels/[slug]/archive/route")).POST,
+  "debug-trace": async () => (await import("../app/api/duels/[slug]/debug-trace/route")).GET,
+  report: async () => (await import("../app/api/duels/[slug]/report/route")).POST,
+};
+beforeEach(() => {
+  vi.resetModules(); state.auth.mockReset(); state.fetch.mockReset();
+  vi.stubEnv("OWNER_USER_IDS", "101,102");
+  state.db = new Database(":memory:"); migrate(state.db);
+  for (const [playerId, userId] of [[61, 101], [62, 102], [63, 103], [64, 201], [65, 202]]) {
+    seedIdentity(state.db, { guildId: "test-guild", playerId, userId });
+  }
+  const duels = createDuelService(state.db), session = duels.create({ guildId: "test-guild", organizerPlayerId: 64,
+    name: "Private source", mode: "normal", settings: { visibility: "private" } });
+  slug = session.slug; state.db.prepare("insert into duel_seats(duel_id,seat,player_id) values(?,1,65)").run(session.id);
+  state.db.prepare("update duel_seats set deck_json = ?, ready = 1 where duel_id = ?").run(JSON.stringify({ main: [100], extra: [], side: [] }), session.id);
+  state.db.prepare("update duels set status = 'interrupted', seed_json = ?, bundle_version = 'test-bundle' where id = ?")
+    .run(JSON.stringify(["1", "2", "3", "4"]), session.id);
+  const s = duels.privateState(slug, "test-guild");
+  fork = createReplayForkService(state.db).create({ actor: { guildId: "test-guild", playerId: 61, userId: "101" },
+    requestId: "fixture-1", cursorDigest: "a".repeat(64),
+    source: { session: s.session, decks: s.decks, seed: s.seed as [string, string, string, string], bundleVersion: s.bundleVersion!, engineIdentity: null, commands: [] },
+    origin: { sourceSlug: slug, sourceVersion: "source-v1", frameId: "frame-0", step: 0, prefixCount: 0,
+      prefixHash: hashReplayForkPrefix([]), sourceSeats: s.session.seats.map(s => ({ seat: s.seat, displayName: s.displayName })) } }).session.slug;
+  vi.stubEnv("DISCORD_GUILD_ID", "test-guild"); vi.stubEnv("OWNER_USER_IDS", "101,102"); vi.stubEnv("DUEL_SCENARIOS", "1");
+  vi.stubEnv("DUEL_INTERNAL_URL", "http://duel.test"); vi.stubEnv("DUEL_INTERNAL_SECRET", "route-test-secret");
+  state.fetch.mockImplementation(async () => Response.json({ slug: fork, room: { session: { slug: fork, kind: "replay-fork" } }, cards: [] }));
+  vi.stubGlobal("fetch", state.fetch); signIn(101);
+});
+afterEach(() => { state.db?.close(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+async function launch(body: unknown = input) {
+  const { POST } = await import("../app/api/admin/duels/[slug]/replay/fork/route");
+  return POST(new Request("http://localhost/api/admin/duels/source/replay/fork", { method: "POST", body: JSON.stringify(body) }), params(slug));
+}
+it.each([
+  { status: "active", viewer: "player" }, { status: "completed", viewer: "player" },
+  { status: "active", viewer: "spectator" }, { status: "completed", viewer: "spectator" },
+])("keeps public FFA views and spectator tokens available to an ordinary $viewer after $status", async ({ status, viewer }) => {
+  vi.stubEnv("WS_INTERNAL_SECRET", "spectator-token-test");
+  const duels = createDuelService(state.db!);
+  const session = duels.create({ guildId: "test-guild", organizerPlayerId: 64, name: "Public FFA", mode: "normal", format: "ffa3" });
+  duels.takeSeat(session.slug, "test-guild", 65, 1);
+  duels.takeSeat(session.slug, "test-guild", 61, 2);
+  state.db!.prepare("update duels set status = ? where id = ?").run(status, session.id);
+  signIn(viewer === "player" ? 202 : 103);
+  const publicRoom = { role: "spectator", mySeat: null, myDeck: null, mySide: null, session: { status }, engine: { prompt: null } };
+  state.fetch.mockImplementation(async () => Response.json(publicRoom));
+  const { GET: roomGet } = await import("../app/api/duels/[slug]/route");
+  const { GET: connectionGet } = await import("../app/api/duels/[slug]/connection/route");
+  const request = () => new Request(`http://localhost/api/duels/${session.slug}?spectate=1`);
+  const room = await roomGet(request(), params(session.slug));
+  expect(room.status).toBe(200); expect(await room.json()).toEqual(publicRoom);
+  expect(payload()).toMatchObject({ op: "view", slug: session.slug, spectate: true, playerId: viewer === "player" ? 65 : 63 });
+  const connection = await connectionGet(request(), params(session.slug));
+  expect(connection.status).toBe(200);
+  expect(verifyDuelConnectionToken((await connection.json()).token, "spectator-token-test"))
+    .toMatchObject({ slug: session.slug, playerId: viewer === "player" ? 65 : 63, seat: null });
+  if (status === "completed") {
+    state.fetch.mockClear();
+    const terminal = await roomGet(new Request(`http://localhost/api/duels/${session.slug}`), params(session.slug));
+    expect(terminal.status).toBe(200);
+    expect(await terminal.json()).toMatchObject({ session: { kind: "play", status }, mySeat: viewer === "player" ? 1 : null });
+    expect(state.fetch).not.toHaveBeenCalled();
+  }
+});
+async function listForks(query = "") {
+  const { GET } = await import("../app/api/admin/duels/forks/route");
+  return GET(new Request(`http://localhost/api/admin/duels/forks${query}`));
+}
+it("lists active forks through the owner host operation and lets a returned slug use the cancel route", async () => {
+  const body = { limit: 4, forks: [{ slug: fork, sourceSlug: slug, format: "1v1",
+    createdAt: "2020-01-01 00:00:00", lastActivityAt: "2020-01-02 00:00:00" }] };
+  state.fetch.mockResolvedValueOnce(Response.json(body));
+  const response = await listForks(); expect(response.status).toBe(200);
+  const listed = await response.json(); expect(listed).toEqual(body);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(payload()).toEqual({ op: "fork-list", guildId: "test-guild", playerId: 61, userId: "101" });
+  const { POST } = await import("../app/api/duels/[slug]/fork/cancel/route");
+  const cancel = await POST(new Request(`http://localhost/api/duels/${listed.forks[0].slug}/fork/cancel`, { method: "POST" }), params(listed.forks[0].slug));
+  expect(cancel.status).toBe(200); expect(payload()).toMatchObject({ op: "fork-cancel", slug: fork, userId: "101" });
+});
+it("returns an empty fork list without requiring a source", async () => {
+  state.db!.prepare("delete from duels where web_slug = ?").run(slug);
+  state.fetch.mockResolvedValueOnce(Response.json({ forks: [], limit: 4 }));
+  const result = await listForks(); expect(result.status).toBe(200); expect(await result.json()).toEqual({ forks: [], limit: 4 });
+});
+it.each([null, 103, 201])("denies fork listing for caller %s before contacting the host", async userId => {
+  if (userId === null) state.auth.mockResolvedValue(null); else signIn(userId);
+  const response = await listForks(); expect(response.status).toBe(userId === null ? 401 : 404);
+  expect(await response.json()).toMatchObject({ code: "ACCESS_DENIED" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store"); expect(state.fetch).not.toHaveBeenCalled();
+});
+it("returns a private access-unavailable response when fork list authentication fails", async () => {
+  state.auth.mockRejectedValue(new Error("Unavailable"));
+  const response = await listForks(); expect(response.status).toBe(503);
+  expect(await response.json()).toEqual({ error: "Replay access is unavailable", code: "ACCESS_UNAVAILABLE" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store"); expect(state.fetch).not.toHaveBeenCalled();
+});
+it.each(["?userId=102", "?guildId=other-guild", "?as=1", "?limit=100"])("rejects fork list query filters %s", async query => {
+  const response = await listForks(query); expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({ error: "Invalid fork list request", code: "INVALID_CURSOR" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store"); expect(state.fetch).not.toHaveBeenCalled();
+});
+it.each([404, 503])("preserves host fork-list error %s with private no-store", async status => {
+  const body = status === 404 ? { error: "Not found", code: "ACCESS_DENIED" } : { error: "Engine unavailable", code: "ENGINE_BUSY" };
+  state.fetch.mockResolvedValueOnce(Response.json(body, { status }));
+  const response = await listForks(); expect(response.status).toBe(status); expect(await response.json()).toEqual(body);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
+it.each(["revoked", "session-changed"])("drops a fork list if access is %s during the host wait", async change => {
+  state.fetch.mockImplementation(async () => {
+    if (change === "revoked") vi.stubEnv("OWNER_USER_IDS", "102"); else signIn(102);
+    return Response.json({ forks: [{ slug: fork, sourceSlug: slug, private: "fixture" }], limit: 4 });
+  });
+  const response = await listForks(); expect(response.status).toBe(404);
+  expect(await response.json()).toMatchObject({ code: "ACCESS_DENIED" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
+it.each(["launch", "restart"])("preserves the fork-limit recovery route for %s", async operation => {
+  const body = { error: "Replay fork limit reached. Cancel a fork and try again.", code: "FORK_LIMIT",
+    limit: 4, forksUrl: "/api/admin/duels/forks" };
+  state.fetch.mockResolvedValueOnce(Response.json(body, { status: 429 }));
+  const response = operation === "launch" ? await launch() : await (await import("../app/api/duels/[slug]/fork/restart/route"))
+    .POST(new Request(`http://localhost/api/duels/${fork}/fork/restart`, { method: "POST" }), params(fork));
+  expect(response.status).toBe(429); expect(await response.json()).toEqual(body);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
+it.each([101, 102])("allows owner %s to launch from a private production source without a source grant", async id => {
+  signIn(id);
+  // This route does not use normal room access. The host checks source and retry access.
+  state.fetch.mockImplementation(async () => Response.json({ accepted: true }));
+  const result = await launch(); expect(result.status).toBe(200);
+  expect(payload()).toEqual({ op: "replay-fork", slug, guildId: "test-guild", playerId: id === 101 ? 61 : 62, userId: String(id), ...input });
+  expect(result.headers.get("cache-control")).toBe("private, no-store");
+  expect(state.db!.prepare("select * from duel_invite_grants").all()).toEqual([]);
+});
+it("forwards retries after source deletion to the host", async () => {
+  state.db!.prepare("delete from duels where web_slug = ?").run(slug);
+  expect((await launch()).status).toBe(200); expect(payload()).toMatchObject({ ...input, slug });
+});
+it.each([103, 201])("denies alpha user %s before host calls", async id => {
+  signIn(id); const result = await launch(); expect(result.status).toBe(404);
+  expect(await result.json()).toMatchObject({ code: "ACCESS_DENIED" }); expect(state.fetch).not.toHaveBeenCalled();
+});
+it.each([null, {}, { ...input, requestId: "" }, { ...input, decks: [] }, { ...input, ownerUserId: "101" }, { ...input, prefixCount: 0 }])
+("rejects malformed or forged launch input %j", async body => {
+  const result = await launch(body); expect(result.status).toBe(400);
+  expect(await result.json()).toMatchObject({ code: "INVALID_CURSOR" }); expect(state.fetch).not.toHaveBeenCalled();
+});
+it.each([401, 503])("preserves access failure %s", async status => {
+  if (status === 401) state.auth.mockResolvedValue(null); else state.auth.mockRejectedValue(new Error("Unavailable"));
+  expect((await launch()).status).toBe(status); expect(state.fetch).not.toHaveBeenCalled();
+});
+it("drops the response when access is revoked during launch", async () => {
+  state.fetch.mockImplementation(async () => { vi.stubEnv("OWNER_USER_IDS", ""); return Response.json({ private: "fixture" }); });
+  const result = await launch(); expect(result.status).toBe(404); expect(await result.json()).toMatchObject({ code: "ACCESS_DENIED" });
+});
+it.each(["restart", "cancel"] as const)("restricts dedicated fork %s to its current creator", async operation => {
+  const route = operation === "restart" ? await import("../app/api/duels/[slug]/fork/restart/route") : await import("../app/api/duels/[slug]/fork/cancel/route");
+  const req = new Request(`http://localhost/api/duels/${fork}/fork/${operation}`, { method: "POST" });
+  expect((await route.POST(req, params(fork))).status).toBe(200);
+  expect(payload()).toMatchObject({ op: `fork-${operation}`, slug: fork, userId: "101" });
+  state.fetch.mockClear();
+  for (const id of [102, 103]) { signIn(id); expect((await route.POST(req, params(fork))).status).toBe(404); }
+  expect(state.fetch).not.toHaveBeenCalled();
+  signIn(101); expect((await route.POST(req, params(slug))).status).toBe(404);
+});
+it("forwards fork room seat/reveal and action/chain-mode seats with trusted user identity", async () => {
+  const room = await import("../app/api/duels/[slug]/route");
+  expect((await room.GET(new Request(`http://localhost/api/duels/${fork}?as=1&reveal=0`), params(fork))).status).toBe(200);
+  expect(payload()).toMatchObject({ op: "view", slug: fork, as: 1, reveal: false, userId: "101" });
+  const action = await import("../app/api/duels/[slug]/actions/route");
+  const command = { promptId: "p1", revision: 1, answer: { choice: "next" } };
+  expect((await action.POST(new NextRequest(`http://localhost/api/duels/${fork}/actions?as=1`, { method: "POST", body: JSON.stringify(command) }), params(fork))).status).toBe(200);
+  expect(payload()).toMatchObject({ op: "respond", as: 1, userId: "101", command });
+  const chain = await import("../app/api/duels/[slug]/chain-mode/route");
+  expect((await chain.POST(new NextRequest(`http://localhost/api/duels/${fork}/chain-mode?as=1`, { method: "POST", body: JSON.stringify({ mode: "always", revision: 2 }) }), params(fork))).status).toBe(200);
+  expect(payload()).toMatchObject({ op: "chain-mode", as: 1, userId: "101", mode: "always", revision: 2 });
+});
+it.each(["as=4", "as=-1", "as=01", "as=1&as=0", "reveal=true", "reveal=1&reveal=0"])("rejects malformed fork view %s", async query => {
+  const route = await import("../app/api/duels/[slug]/route");
+  expect((await route.GET(new Request(`http://localhost/api/duels/${fork}?${query}`), params(fork))).status).toBe(400);
+  expect(state.fetch).not.toHaveBeenCalled();
+});
+it("forwards a prompt-bound card announcement search for a fork", async () => {
+  const { GET } = await import("../app/api/duels/cards/route");
+  const response = await GET(new NextRequest(`http://localhost/api/duels/cards?slug=${fork}&q=Card&as=1&promptId=p1&revision=5`));
+  expect(response.status).toBe(200); expect(payload()).toMatchObject({ op: "cards", slug: fork, as: 1, promptId: "p1", revision: 5, userId: "101" });
+  state.fetch.mockClear();
+  for (const query of [`slug=${fork}&as=1`, "as=1", `slug=${fork}&as=1&promptId=p1&revision=-1`]) {
+    expect((await GET(new NextRequest(`http://localhost/api/duels/cards?${query}`))).status).toBe(400);
+  }
+  signIn(103); expect((await GET(new NextRequest(`http://localhost/api/duels/cards?slug=${fork}&as=1&promptId=p1&revision=5`))).status).toBe(404);
+  expect(state.fetch).not.toHaveBeenCalled();
+});
+it("rejects acting-seat control on a real duel for its player", async () => {
+  signIn(201);
+  const route = await import("../app/api/duels/[slug]/route");
+  expect((await route.GET(new Request(`http://localhost/api/duels/${slug}?as=1`), params(slug))).status).toBe(400);
+  const cards = await import("../app/api/duels/cards/route");
+  expect((await cards.GET(new NextRequest(`http://localhost/api/duels/cards?slug=${slug}&as=1`))).status).toBe(400);
+  expect(state.fetch).not.toHaveBeenCalled();
+});
+it("rejects normal fork lobby and series routes, including deck validation", async () => {
+  const routes = [await import("../app/api/duels/[slug]/seat/route"), await import("../app/api/duels/[slug]/leave/route"),
+    await import("../app/api/duels/[slug]/ready/route"), await import("../app/api/duels/[slug]/unready/route"),
+    await import("../app/api/duels/[slug]/start/route"), await import("../app/api/duels/[slug]/bot/route"),
+    await import("../app/api/duels/[slug]/deck/route"), await import("../app/api/duels/[slug]/deck/validate/route"),
+    await import("../app/api/duels/[slug]/opening/route"), await import("../app/api/duels/[slug]/series/first/route"),
+    await import("../app/api/duels/[slug]/series/side/route"), await import("../app/api/duels/[slug]/series/ready/route"),
+    await import("../app/api/duels/[slug]/series/unready/route"), await import("../app/api/duels/[slug]/invite/route")];
+  for (const route of routes) {
+    const request = new NextRequest(`http://localhost/api/duels/${fork}`, { method: "POST", body: JSON.stringify({ seat: 1, choice: "first", action: "pick", move: "rock" }) });
+    const result = await route.POST(request, params(fork)); expect(result.status).toBe(409);
+    expect(result.headers.get("cache-control")).toBe("private, no-store");
+  }
+  signIn(201);
+  for (const route of routes) {
+    const request = new NextRequest(`http://localhost/api/duels/${slug}?as=1`, { method: "POST", body: JSON.stringify({ seat: 1, choice: "first", action: "pick", move: "rock" }) });
+    expect((await route.POST(request, params(slug))).status).toBe(400);
+  }
+  expect(state.fetch).not.toHaveBeenCalled();
+});
+
+it.each(["surrender", "cancel", "archive", "debug-trace", "report"] as const)("does not cache a successful fork %s response", async operation => {
+  const handler = await duelRoutes[operation]();
+  if (operation === "report") state.fetch.mockResolvedValue(Response.json({ path: "/tmp/fork-report-test" }));
+  const request = new NextRequest(`http://localhost/api/duels/${fork}/${operation}`, operation === "debug-trace" ? {}
+    : { method: "POST", body: JSON.stringify({ note: "Test report" }) });
+  const response = await handler(request, params(fork));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
+
+it.each(["view", "actions", "chain-mode", "surrender", "cancel", "archive", "debug-trace", "report"] as const)
+("does not cache a fork %s host failure", async operation => {
+  const handler = await duelRoutes[operation]();
+  state.fetch.mockResolvedValue(Response.json({ error: "Engine refused", code: "NOT_PLAYABLE" }, { status: 409 }));
+  const request = new NextRequest(`http://localhost/api/duels/${fork}/${operation}`,
+    ["view", "debug-trace"].includes(operation) ? {}
+      : { method: "POST", body: JSON.stringify({ mode: "always", revision: 2, note: "Test report" }) });
+  const response = await handler(request, params(fork));
+  expect(response.status).toBe(409);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
+
+it.each(["actions", "chain-mode", "report"] as const)("does not cache fork %s input errors", async operation => {
+  const handler = await duelRoutes[operation]();
+  const response = await handler(new NextRequest(`http://localhost/api/duels/${fork}/${operation}`, { method: "POST", body: "{" }), params(fork));
+  expect(response.status).toBe(400);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
+
+it.each(["restart", "cancel"] as const)("does not cache a fork %s access-changed reply", async operation => {
+  const route = operation === "restart" ? await import("../app/api/duels/[slug]/fork/restart/route") : await import("../app/api/duels/[slug]/fork/cancel/route");
+  // Change both the session and the saved creator during the engine wait so the second gate succeeds for user 102.
+  state.fetch.mockImplementation(async () => {
+    const row = state.db!.prepare("select id, setup_json from duels where web_slug=?").get(fork) as { id: number; setup_json: string };
+    const setup = JSON.parse(row.setup_json); setup.replayFork.ownerUserId = "102";
+    state.db!.prepare("update duels set setup_json=?, organizer_player_id=62 where id=?").run(JSON.stringify(setup), row.id);
+    state.db!.prepare("update duel_seats set player_id=62 where duel_id=? and seat=0").run(row.id);
+    signIn(102);
+    return Response.json({ private: "fixture" });
+  });
+  const response = await route.POST(new Request(`http://localhost/api/duels/${fork}/fork/${operation}`, { method: "POST" }), params(fork));
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({ error: "Replay access changed", code: "ACCESS_DENIED" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
+it("rejects series cancel when a marked fork is linked to the series", async () => {
+  const id = Number(state.db!.prepare(`insert into duel_series(guild_id, player0_id, player1_id, mode, settings_json, created_by_player_id)
+    values('test-guild',61,62,'normal','{}',61)`).run().lastInsertRowid);
+  state.db!.prepare("update duels set series_id = ? where web_slug = ?").run(id, fork);
+  const before = state.db!.prepare("select * from duel_series where id = ?").get(id);
+  const { POST } = await import("../app/api/duels/series/[id]/cancel/route");
+  const response = await POST(new Request(`http://localhost/api/duels/series/${id}/cancel`, { method: "POST" }),
+    { params: Promise.resolve({ id: String(id) }) });
+  expect(response.status).toBe(409); expect(state.db!.prepare("select * from duel_series where id = ?").get(id)).toEqual(before);
+  expect(state.fetch).not.toHaveBeenCalled();
+});
+it("guards the report capability GET for a private fork", async () => {
+  const { GET } = await import("../app/api/duels/[slug]/report/route");
+  signIn(103); expect((await GET(new Request(`http://localhost/api/duels/${fork}/report`), params(fork))).status).toBe(404);
+  signIn(101); expect((await GET(new Request(`http://localhost/api/duels/${fork}/report`), params(fork))).status).toBe(200);
+});
+it("drops fork room data if access is revoked during the host wait", async () => {
+  const { GET } = await import("../app/api/duels/[slug]/route");
+  state.fetch.mockImplementation(async () => { vi.stubEnv("OWNER_USER_IDS", ""); return Response.json({ engine: { private: "fixture" } }); });
+  const response = await GET(new Request(`http://localhost/api/duels/${fork}?as=1`), params(fork));
+  expect(response.status).toBe(404); expect(await response.json()).not.toHaveProperty("engine");
+});
+
+it.each(["view", "actions", "seat"] as const)("gives the same 404 for missing and hidden fork slugs on %s", async operation => {
+  signIn(103);
+  const route = operation === "view" ? await import("../app/api/duels/[slug]/route")
+    : operation === "actions" ? await import("../app/api/duels/[slug]/actions/route")
+    : await import("../app/api/duels/[slug]/seat/route");
+  const responses = [];
+  for (const target of [fork, "missing-duel"]) {
+    const request = new NextRequest(`http://localhost/api/duels/${target}`, operation === "view" ? {}
+      : { method: "POST", body: JSON.stringify({ seat: 1 }) });
+    const response = "GET" in route ? await route.GET(request, params(target)) : await route.POST(request, params(target));
+    responses.push({ status: response.status, body: await response.json(), cache: response.headers.get("cache-control") });
+  }
+  expect(responses[1]).toEqual(responses[0]);
+  expect(responses[0]).toEqual({ status: 404, body: { error: "Not found", code: "ACCESS_DENIED" }, cache: "private, no-store" });
+  expect(state.fetch).not.toHaveBeenCalled();
+});
+
+it.each([102, 103, 201].flatMap(userId => (Object.keys(duelRoutes) as Array<keyof typeof duelRoutes>)
+  .map(operation => ({ userId, operation }))))("denies user $userId on fork $operation before the engine call", async ({ userId, operation }) => {
+  signIn(userId);
+  const handler = await duelRoutes[operation]();
+  const request = new NextRequest(`http://localhost/api/duels/${fork}/${operation}`,
+    ["view", "debug-trace"].includes(operation) ? {} : { method: "POST", body: JSON.stringify({
+      mode: "always", revision: 2, note: "Test report", promptId: "p1", answer: { choice: "next" },
+    }) });
+  const response = await handler(request, params(fork));
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({ error: "Not found", code: "ACCESS_DENIED" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(state.fetch).not.toHaveBeenCalled();
+});

@@ -52,6 +52,18 @@ export async function POST(request: Request) {
     if (error instanceof BugReportServiceError) return serviceErrorResponse(error);
     throw error;
   }
+  // The duel facts and the log come from the server, never from the browser's copy. A duel the player may not see
+  // (invite-only, or not found) is not kept: no saved slug, no replay link, no slug in the issue.
+  const built = await buildReportContext({ guildId, playerId: player.id, duels: createDuelService(db), duelSlug: report.duelSlug, client: report.context });
+  if (built.replayFork) {
+    return NextResponse.json({ error: "Bug reports from replay forks are disabled to protect private duel data." },
+      { status: 409, headers: { "cache-control": "private, no-store" } });
+  }
+  report.context = built.context;
+  const duelSlug = built.duelVerified ? report.duelSlug : undefined;
+  // The page path of such a duel names the slug too, so it is masked.
+  if (report.duelSlug && !duelSlug) report.path = report.path.split(report.duelSlug).join("[duel]");
+
   if (report.duplicateOf !== undefined) {
     const slot = takeDuplicateCheckSlot(`${guildId}:${actor.userId}`);
     if (!slot.ok) {
@@ -71,14 +83,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "That issue is not open for reports. Send your report as a new one." }, { status: 409 });
     }
   }
-
-  // The duel facts and the log come from the server, never from the browser's copy. A duel the player may not see
-  // (invite-only, or not found) is not kept: no saved slug, no replay link, no slug in the issue.
-  const built = await buildReportContext({ guildId, playerId: player.id, duels: createDuelService(db), duelSlug: report.duelSlug, client: report.context });
-  report.context = built.context;
-  const duelSlug = built.duelVerified ? report.duelSlug : undefined;
-  // The page path of such a duel names the slug too, so it is masked.
-  if (report.duelSlug && !duelSlug) report.path = report.path.split(report.duelSlug).join("[duel]");
 
   let saved;
   try {

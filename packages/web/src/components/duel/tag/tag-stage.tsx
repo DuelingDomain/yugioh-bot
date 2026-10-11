@@ -39,6 +39,7 @@ import { CameraRail } from "./camera-rail";
 import { Baton, RoofDecor, TeamStrip } from "./roof-world";
 import { SharedExtraBand } from "./shared-band";
 import { batonOrder, lastTeamDamage, responseWindow, rivalPickOptions, teamGlyph, teamLoss, teamLp } from "./tag-logic";
+import { useForkLabels } from "../table/fork-labels";
 import { plateState, TeamLpPlate, type PlateMember } from "./team-lp-plate";
 import styles from "./tag-stage.module.css";
 import cameraStyles from "./tag-camera.module.css";
@@ -51,6 +52,8 @@ export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
   camera: RoofCameraState;
   /** Team names are not part of the engine view: the room passes them when it knows them. */
   teamNames?: readonly [string, string];
+  /** Replay: the camera seat is not "you". No YOU tag on the plate, and the partner hand does not claim to be team-only. */
+  replay?: boolean;
 }
 
 const TAG = "tag" as const;
@@ -120,8 +123,9 @@ const STRIP_OWN_HAND = '[data-hand-seat][data-side="you"] [data-zones]';
  * the chain hub and the hands. It draws the fields only through `renderSeatField`. FX, the prompt panel and any overlay
  * are slots over the whole box, so they measure the real screen position of `[data-zones]` and `[data-lp-seat]` nodes.
  */
-export function TagStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub: phaseHub, teamNames }: TagBoardProps) {
+export function TagStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub: phaseHub, teamNames, replay = false }: TagBoardProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion, prompt, promptSeat } = controller;
+  const forkLabels = useForkLabels();
   const [phone, setPhone] = useState(false);
   const [chainSize, setChainSize] = useState<ChainStripSize | null>(null);
   useLayoutEffect(() => {
@@ -638,7 +642,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         code: layout.slots.find((s) => s.seat === seat)?.code ?? `${team + 1}${i === 0 ? "A" : "B"}`,
         rgb: tone.rgb,
         ink: tone.ink,
-        you: seat === viewerSeat,
+        you: !replay && seat === viewerSeat,
         hand: view?.hand.length ?? 0,
         deck: view?.deckCount ?? 0,
         clockMs: room.clock?.remainingMs[seat] ?? null,
@@ -788,6 +792,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
             onHoverCard={controller.onHoverCard}
             label={`${nameOf(partnerView.seat)} hand`}
             partnerName={nameOf(partnerView.seat).split(" ")[0]}
+            teamOnly={!replay && !forkLabels}
           />
         ) : null}
         {camera.mode === "focus" && !camera.lock ? (

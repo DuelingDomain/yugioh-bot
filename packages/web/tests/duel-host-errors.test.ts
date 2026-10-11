@@ -91,6 +91,74 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "Invalid answer" });
   });
 
+  it.each([
+    ...["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE"].map(code => ({ status: 409, code })),
+    { status: 413, code: "REPLAY_TOO_LARGE" },
+  ].flatMap(error => ["available", "none"].map(finalBoard => ({ ...error, finalBoard }))))
+  ("keeps finalBoard for a permitted $status: $code/$finalBoard", async ({ status, ...body }) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Cannot replay", ...body }, { status })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "owner-replay" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(status);
+    expect(await result.response.json()).toEqual({ error: "Cannot replay", ...body });
+  });
+
+  it.each([
+    { status: 403, code: "ACCESS_DENIED" }, { status: 404, code: "ACCESS_DENIED" },
+    { status: 409, code: "ACCESS_DENIED" }, { status: 400, code: "INVALID_CURSOR" },
+    { status: 503, code: "ENGINE_BUSY" }, { status: 409, code: "ENGINE_BUSY" },
+    { status: 403, code: "NOT_PLAYABLE" }, { status: 500, code: "REPLAY_MISMATCH" },
+    { status: 409, code: undefined },
+    { status: 409, code: "REPLAY_TOO_LARGE" }, { status: 413, code: "ACCESS_DENIED" },
+    { status: 413, code: "NOT_PLAYABLE" },
+  ])("drops finalBoard on $status/$code", async ({ status, code }) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Cannot replay", code, finalBoard: "available" }, { status })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "owner-replay" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(status >= 500 ? 503 : status);
+    expect(await result.response.json()).not.toHaveProperty("finalBoard");
+  });
+
+  it.each(["replay-fork", "fork-restart"] as const)("preserves only the recovery contract for a %s fork-limit error", async op => {
+    const body = { error: "Replay fork limit reached. Cancel a fork and try again.", code: "FORK_LIMIT",
+      limit: 4, forksUrl: "/api/admin/duels/forks" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, forks: [{ private: "fixture" }] }, { status: 429 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(429); expect(await result.response.json()).toEqual(body);
+    expect(result.response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it.each([0, -1, 4.5, "4"])("ignores an invalid fork quota %s", async limit => {
+    const body = { error: "Fork limit", code: "FORK_LIMIT" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, limit, forksUrl: "/api/admin/duels/forks" }, { status: 429 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "replay-fork" });
+    if (result.ok) throw new Error("expected failure");
+    expect(await result.response.json()).toEqual(body);
+  });
+
+  it.each(["https://example.test/forks", "/api/other", null])("ignores an unexpected fork list URL %s", async forksUrl => {
+    const body = { error: "Fork limit", code: "FORK_LIMIT" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, limit: 4, forksUrl }, { status: 429 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "replay-fork" });
+    if (result.ok) throw new Error("expected failure");
+    expect(await result.response.json()).toEqual(body);
+  });
+
+  it("does not attach fork recovery data to an engine-busy error", async () => {
+    const body = { error: "A replay fork is still launching", code: "ENGINE_BUSY" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, limit: 4, forksUrl: "/api/admin/duels/forks" }, { status: 503 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "replay-fork" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(503); expect(await result.response.json()).toEqual(body);
+  });
+
   it("preserves a restart as a retryable 503 for duel answers", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "restarting" }, { status: 503 })));
     const { callDuelHost } = await loadHost();
@@ -113,7 +181,7 @@ describe("callDuelHost error messages", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "restarting" }, { status: 503 })));
     const host = await loadHost();
     vi.spyOn(host, "requireDuelActor").mockResolvedValue({
-      ok: true, guildId: call.guildId, playerId: call.playerId,
+      ok: true, guildId: call.guildId, playerId: call.playerId, userId: "7",
       duels: { room: () => ({ session: { status: "active" } }) } as never,
     });
     const context = { params: Promise.resolve({ slug: call.slug }) };
@@ -139,6 +207,16 @@ describe("callDuelHost error messages", () => {
     expect(JSON.parse(request.body as string)).toMatchObject({ op: "view", spectate: true });
     await callDuelHost({ ...call, op: "view" });
     expect(JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)).not.toHaveProperty("spectate");
+  });
+
+  it("carries the application user ID for the host mapping check", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { callDuelHost } = await loadHost();
+    await callDuelHost({ ...call, userId: "7" });
+    const payload = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    expect(payload).toMatchObject({ guildId: call.guildId, playerId: call.playerId, userId: "7" });
+    expect(payload).not.toHaveProperty("isOwner");
   });
 });
 
