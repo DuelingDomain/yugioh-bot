@@ -18,6 +18,7 @@ export function SeatStrip({
   focusAny = false,
   pick,
   compact = false,
+  replay = false,
 }: {
   engine: Pick<DuelEngineView, "format" | "seats" | "turnSeat">;
   mySeat: number | null;
@@ -31,6 +32,8 @@ export function SeatStrip({
   pick?: SeatPick | null;
   /** In the phase bar of the wide table: one slim row of tags that never wraps. */
   compact?: boolean;
+  /** A replay has no player: the camera seat is not "you", so it gets no "You" tag. */
+  replay?: boolean;
 }) {
   const format = engineFormat(engine);
   const ordered = [...engine.seats].sort((a, b) => a.seat - b.seat);
@@ -53,7 +56,7 @@ export function SeatStrip({
           <>
             <span className={styles.order} aria-hidden="true">{view.seat + 1}</span>
             <span className={styles.name}>{nameOf(view.seat)}</span>
-            {relation === "self" ? <span className={styles.rel}>You</span> : relation === "partner" ? <span className={styles.rel}>Partner</span> : null}
+            {relation === "self" && !replay ? <span className={styles.rel}>You</span> : relation === "partner" ? <span className={styles.rel}>Partner</span> : null}
             {status ? <span className={styles.status} data-kind={out ? "out" : turn ? "turn" : "next"}>{status}</span> : null}
             {answering ? <span className={styles.status} data-kind="answer">Choosing</span> : null}
             {leaving ? <span className={styles.status} data-kind="leaving" data-testid={`seat-strip-leaving-${view.seat}`}>Leaving</span> : null}

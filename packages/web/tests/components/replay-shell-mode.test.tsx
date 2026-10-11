@@ -243,6 +243,7 @@ describe.each(CASES)("%s first-person words", (_name, set, kind) => {
     const view = render(<View set={set} kind={kind} id={stateId} tweak={(controller) => ({ ...controller, viewerSeat: outSeat })} />);
     const text = view.container.textContent ?? "";
     expect(text).not.toMatch(/You are|Your Master|Your turn|\(you\)|· you\b/);
+    expect(view.container.querySelector("[data-testid='seat-strip'] [data-relation='self']")?.textContent ?? "").not.toMatch(/You/);
     expect(view.container.querySelector("[data-testid='self-eliminated'], [data-testid='spectating-chip']")).toBeNull();
     expect(view.container.querySelector("[data-you='true']")).toBeNull();
     expect(view.container.querySelector("[role='status']")?.textContent ?? "").not.toMatch(/You are/);

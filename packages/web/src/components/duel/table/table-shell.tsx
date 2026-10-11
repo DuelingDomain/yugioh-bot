@@ -557,7 +557,7 @@ function TableShellBody({
     <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
       focusSeat={grid ? gridFocus.focus.seat : camera.state.focusSeat} focusAny={grid}
       onFocusSeat={grid ? gridFocus.focusSeat : isFaceOff(layout, camera.out) ? undefined : (seat) => camera.dispatch({ type: "focus", seat })}
-      pick={canAct && controller.revealed ? controller.seatPick : null} compact={!narrow} />
+      pick={canAct && controller.revealed ? controller.seatPick : null} compact={!narrow} replay={replay != null} />
   );
 
   const promptDockNode = (
