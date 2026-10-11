@@ -20,7 +20,10 @@ export function encodeStoredSnapshot(value: unknown): string {
 
 export function decodeStoredSnapshot(raw: StoredSnapshot | undefined): unknown {
   if (!raw) return null;
-  try { return JSON.parse(typeof raw === "string" ? raw : gunzipSync(raw).toString("utf8")); }
+  try {
+    const text = typeof raw === "string" ? raw : (raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw) : raw).toString("utf8");
+    return JSON.parse(text);
+  }
   catch { return null; }
 }
 
@@ -42,14 +45,27 @@ export function readStoredSeatBoards(raw: StoredSnapshot | undefined): Array<Due
   return Array.isArray(parsed) ? parsed.map(board) : [];
 }
 
-/** The complete seat list supersedes the older per-seat columns. No other seat's view is returned. */
+/** Cache decoded projections within one request, including the shared seat list. */
+export function createStoredBoardReader(row: StoredDuelBoards | undefined): (seat: number | null) => DuelEngineView | null {
+  let seats: Array<DuelEngineView | null> | undefined;
+  const views = new Map<number | null, DuelEngineView | null>();
+  return seat => {
+    if (!row || (seat !== null && (!Number.isInteger(seat) || seat < 0))) return null;
+    if (views.has(seat)) return views.get(seat)!;
+    let view: DuelEngineView | null;
+    if (seat === null) view = board(decodeStoredSnapshot(row.snapshot_public_json));
+    else {
+      seats ??= readStoredSeatBoards(row.snapshot_seats_json);
+      view = seats[seat] ?? board(decodeStoredSnapshot(seat === 0 ? row.snapshot_seat0_json : seat === 1 ? row.snapshot_seat1_json : null));
+    }
+    views.set(seat, view);
+    return view;
+  };
+}
+
+/** The complete seat list supersedes legacy columns. Never return another seat's view. */
 export function readStoredBoard(row: StoredDuelBoards | undefined, seat: number | null): DuelEngineView | null {
-  if (!row) return null;
-  if (seat === null) return board(decodeStoredSnapshot(row.snapshot_public_json));
-  if (!Number.isInteger(seat) || seat < 0) return null;
-  const fromList = readStoredSeatBoards(row.snapshot_seats_json)[seat];
-  if (fromList) return fromList;
-  return board(decodeStoredSnapshot(seat === 0 ? row.snapshot_seat0_json : seat === 1 ? row.snapshot_seat1_json : null));
+  return createStoredBoardReader(row)(seat);
 }
 
 export function freezeStoredBoard(view: DuelEngineView, result: NonNullable<DuelEngineView["result"]>): string {

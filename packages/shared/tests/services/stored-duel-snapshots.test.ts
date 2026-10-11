@@ -43,3 +43,19 @@ it("extracts only safe numeric turns from old, gzip, seat-list, and clock values
   expect(storedTurnCount({ snapshot_seats_json: gzipSync('[null,null,{"seats":[],"turn":9}]') })).toBe(9);
   expect(storedTurnCount({ clock_json: '{"turn":8}' })).toBe(8);
 });
+
+it("decodes UTF-8 JSON BLOBs as well as gzip and rejects truncated gzip", () => {
+  const raw = JSON.stringify(storedBoardFixture());
+  expect(readStoredBoard({ snapshot_public_json: Buffer.from(raw) }, null)).toEqual(storedBoardFixture());
+  expect(decodeStoredSnapshot(Buffer.from([0x1f, 0x8b]))).toBeNull();
+});
+it("returns no other projection for seat 2+ without a seat list", () => {
+  const raw = JSON.stringify(storedBoardFixture());
+  for (const seat of [2, 3, 8]) expect(readStoredBoard({ snapshot_public_json: raw, snapshot_seat0_json: raw, snapshot_seat1_json: raw }, seat)).toBeNull();
+});
+it("invalidates higher-seat and reveal stamps after seat-list changes and dedup", () => {
+  const raw = JSON.stringify(storedBoardFixture());
+  const row = { snapshot_seat0_json: raw, snapshot_seat1_json: raw, snapshot_seats_json: JSON.stringify([raw, raw, raw]) };
+  expect(storedBoardStamp({ ...row, snapshot_seats_json: gzipSync(row.snapshot_seats_json) }, 2)).not.toBe(storedBoardStamp(row, 2));
+  expect(storedBoardStamp({ ...row, snapshot_seat0_json: null, snapshot_seat1_json: null }, null, true)).not.toBe(storedBoardStamp(row, null, true));
+});

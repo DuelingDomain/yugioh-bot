@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createDuelService } from "../../src/services/duels.js";
 import { readStoredBoard, storedTurnCount } from "../../src/services/stored-duel-snapshots.js";
@@ -13,6 +13,7 @@ import { storedBoardFixture } from "../helpers/stored-board.js";
 const databases: Database.Database[] = [];
 const directories: string[] = [];
 afterEach(() => { databases.splice(0).forEach(db => db.close()); directories.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); vi.unstubAllEnvs(); });
+beforeEach(() => vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "1"));
 const now = Date.parse("2026-10-11T12:00:00Z");
 function fixture(path = ":memory:") {
   const db = new Database(path); databases.push(db); db.pragma("foreign_keys=on"); migrate(db);
@@ -77,7 +78,7 @@ it("backfills numeric turns from plain, compressed, seat-list and clock values",
   }
 });
 it.each(["0", "false"])("honors the environment kill switch (%s) before any writes", async disabled => {
-  const { db } = fixture(); const id = row(db, "ffa4", "cancelled", "replay-fork"); const before = saved(db, id);
+  const { db } = fixture(); const id = row(db, "ffa4", "cancelled", "replay-fork"); db.prepare("update duels set turn_count=40 where id=?").run(id); const before = saved(db, id);
   vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", disabled);
   expect(await runDuelSnapshotRetention(db, { now })).toMatchObject({ compacted: 0, deletedForks: 0 });
   expect(saved(db, id)).toEqual(before);
@@ -97,7 +98,8 @@ it("does not wait for a held write lock and restores the normal timeout", async 
   const { db } = fixture(join(dir, "test.sqlite")); db.pragma("journal_mode=WAL"); db.pragma("busy_timeout=5000"); const id = row(db);
   const lock = new Database(join(dir, "test.sqlite")); databases.push(lock); lock.exec("begin immediate");
   const before = performance.now();
-  await runDuelSnapshotRetention(db, { now });
+  const stats = await runDuelSnapshotRetention(db, { now });
+  expect(stats.busy).toBe(true);
   expect(performance.now() - before).toBeLessThan(1000);
   expect(db.pragma("busy_timeout", { simple: true })).toBe(5000);
   lock.exec("rollback");
@@ -166,4 +168,73 @@ it("rechecks foreign keys after yielding before a fork delete", async () => {
   await runDuelSnapshotRetention(db, { now, pause: async () => { db.pragma("foreign_keys=off"); } });
   expect(saved(db, id)).toBeDefined();
   expect(db.prepare("select * from duel_seats where duel_id=?").all(id)).toHaveLength(1);
+});
+
+it("defaults compression off but backfills recent turns without changing board storage", async () => {
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", undefined);
+  expect(duelSnapshotRetentionConfig().enabled).toBe(false);
+  const { db } = fixture(); const id = row(db, "ffa4", "completed", "play", "2026-10-10 12:00:00");
+  db.prepare("update duels set snapshot_public_json=? where id=?").run('{"turn":8}', id);
+  const before = saved(db, id);
+  const stats = await runDuelSnapshotRetention(db, { now, pause: async () => {} });
+  expect(stats).toMatchObject({ backfilled: 1, compacted: 0, deletedForks: 0 });
+  expect(saved(db, id)).toEqual({ ...before, turn_count: 8 });
+  expect(db.prepare("select typeof(snapshot_public_json) as storage from duels where id=?").get(id)).toEqual({ storage: "text" });
+});
+it("advances the turn-only cursor past rows with no turn in the same pass", async () => {
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0");
+  const { db } = fixture(); const missing = row(db), next = row(db);
+  db.prepare("update duels set snapshot_public_json=null,snapshot_seat0_json=null,snapshot_seat1_json=null,snapshot_seats_json=null where id=?").run(missing);
+  const stats = await runDuelSnapshotRetention(db, { now, batchSize: 1, maxBatches: 2, pause: async () => {} });
+  expect(stats.backfilled).toBe(1); expect(saved(db, missing).turn_count).toBeNull(); expect(saved(db, next).turn_count).toBe(40);
+});
+it.each([3, 5])("bounds full-row reads at the 4 MiB cap (row=%s MiB)", async mib => {
+  const { db } = fixture(); const ids = Array.from({ length: 3 }, () => row(db, "1v1"));
+  const raw = JSON.stringify({ turn: 8, payload: "x".repeat(mib * 1024 * 1024) });
+  for (const id of ids) db.prepare("update duels set turn_count=8,snapshot_public_json=?,snapshot_seat0_json=null,snapshot_seat1_json=null,snapshot_seats_json=null where id=?").run(raw, id);
+  const prepare = db.prepare.bind(db); let reads = 0;
+  const spy = vi.spyOn(db, "prepare").mockImplementation(((sql: string) => {
+    const statement = prepare(sql);
+    if (/select id,format,status,kind,ended_at,clock_json/.test(sql)) {
+      const get = statement.get.bind(statement);
+      vi.spyOn(statement, "get").mockImplementation((...args: any[]) => { reads++; return get(...args); });
+      vi.spyOn(statement, "all").mockImplementation(() => { throw new Error("Full-row bulk read"); });
+    }
+    return statement;
+  }) as typeof db.prepare);
+  try {
+    const stats = await runDuelSnapshotRetention(db, { now, maxBatches: 1, pause: async () => {} });
+    expect(stats.compacted).toBe(1); expect(reads).toBe(mib === 3 ? 2 : 1);
+    expect(ids.filter(id => saved(db, id).snapshot_compacted_at !== null)).toEqual([ids[0]]);
+  } finally { spy.mockRestore(); }
+});
+it("defers a fork delete on a writer lock and reports busy", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "retention-fork-lock-")); directories.push(dir);
+  const { db } = fixture(join(dir, "test.sqlite")); db.pragma("journal_mode=WAL"); db.pragma("busy_timeout=5000");
+  const id = row(db, "ffa4", "cancelled", "replay-fork"); db.prepare("update duels set turn_count=40 where id=?").run(id);
+  const lock = new Database(join(dir, "test.sqlite")); databases.push(lock); lock.exec("begin immediate");
+  const before = performance.now();
+  const stats = await runDuelSnapshotRetention(db, { now, pause: async () => {} });
+  expect(stats.busy).toBe(true); expect(stats.deletedForks).toBe(0); expect(performance.now() - before).toBeLessThan(1000);
+  expect(db.pragma("busy_timeout", { simple: true })).toBe(5000); lock.exec("rollback"); expect(saved(db, id)).toBeDefined();
+});
+it("honors the kill switch between fork deletes", async () => {
+  const { db } = fixture(); const ids = Array.from({ length: 2 }, () => row(db, "ffa4", "cancelled", "replay-fork"));
+  const stats = await runDuelSnapshotRetention(db, { now, pause: async ms => { if (ms === 100 && !saved(db, ids[0]!)) vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0"); } });
+  expect(stats.deletedForks).toBe(1); expect(ids.filter(id => saved(db, id))).toEqual([ids[1]]);
+});
+it("continues fork deletion and compaction after one non-busy fork error", async () => {
+  const { db } = fixture(); const bad = row(db, "ffa4", "cancelled", "replay-fork"), good = row(db, "ffa4", "cancelled", "replay-fork"), play = row(db);
+  db.exec(`create trigger reject_one_fork before delete on duels when old.id=${bad} begin select raise(abort,'Synthetic failure'); end`);
+  const onError = vi.fn();
+  const stats = await runDuelSnapshotRetention(db, { now, onError, pause: async () => {} });
+  expect(onError).toHaveBeenCalled(); expect(stats.deletedForks).toBe(1); expect(saved(db, good)).toBeUndefined();
+  expect(saved(db, bad)).toBeDefined(); expect(saved(db, play).snapshot_compacted_at).not.toBeNull();
+});
+it("continues compaction past a failing row", async () => {
+  const { db } = fixture(); const bad = row(db), good = row(db);
+  db.exec(`create trigger reject_one_compaction before update of snapshot_compacted_at on duels when old.id=${bad} begin select raise(abort,'Synthetic failure'); end`);
+  const onError = vi.fn();
+  const stats = await runDuelSnapshotRetention(db, { now, onError, batchSize: 1, maxBatches: 2, pause: async () => {} });
+  expect(onError).toHaveBeenCalled(); expect(stats.compacted).toBe(1); expect(saved(db, good).snapshot_compacted_at).not.toBeNull();
 });

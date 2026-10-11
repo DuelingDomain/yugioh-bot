@@ -17,6 +17,24 @@ type HistoryCursor = { v: 1; time: number | null; id: number };
 const registeredDatabases = new WeakSet<Database.Database>();
 export function registerDuelHistoryFunctions(db: Database.Database): void {
   if (registeredDatabases.has(db)) return;
+  // Read only a bounded prefix until the independent backfill reaches the row.
+  // Scan top-level scalar metadata (including format) without parsing a large board.
+  db.function("duel_history_turn", { deterministic: true }, (raw: string | null) => {
+    if (typeof raw !== "string") return null;
+    let text = raw.trimStart();
+    if (text.startsWith("[")) text = text.slice(1).trimStart();
+    if (!text.startsWith("{")) return null;
+    text = text.slice(1);
+    const scalar = /^\s*("(?:[^"\\]|\\.)*")\s*:\s*("(?:[^"\\]|\\.)*"|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)\s*([,}])/;
+    for (let token; (token = scalar.exec(text)); text = text.slice(token[0].length)) {
+      if (token[1] === '"turn"') {
+        const turn = Number(token[2]);
+        return Number.isSafeInteger(turn) && turn >= 0 ? turn : null;
+      }
+      if (token[3] === "}") break;
+    }
+    return null;
+  });
   let lastQuery: string | undefined;
   let pattern: RegExp;
   // SQLite lower() folds only ASCII. Cache the escaped Unicode pattern for a scan.
@@ -55,7 +73,12 @@ export const DUEL_LIST_COLUMNS = `duels.id, duels.kind, duels.guild_id, duels.we
   duels.last_activity_at, duels.winner_player_id, duels.winner_seat, duels.result_reason,
   duels.series_id, duels.game_number, duels.best_of, duels.ranked,
   (seed_json is not null and seed_json != '' and bundle_version is not null and bundle_version != '') as has_started,
-  duels.turn_count`;
+  coalesce(duels.turn_count,
+    duel_history_turn(substr(clock_json,1,256)),
+    case when typeof(snapshot_public_json)='text' then duel_history_turn(substr(snapshot_public_json,1,256)) end,
+    case when typeof(snapshot_seat0_json)='text' then duel_history_turn(substr(snapshot_seat0_json,1,256)) end,
+    case when typeof(snapshot_seat1_json)='text' then duel_history_turn(substr(snapshot_seat1_json,1,256)) end,
+    case when typeof(snapshot_seats_json)='text' then duel_history_turn(substr(snapshot_seats_json,1,256)) end) as turn_count`;
 
 function readCursor(value: string): HistoryCursor {
   try {

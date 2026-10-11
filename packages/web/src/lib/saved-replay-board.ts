@@ -1,4 +1,4 @@
-import { readStoredBoard, STORED_BOARD_COLUMNS, type StoredDuelBoards } from "@yugidraft/shared/services";
+import { createStoredBoardReader, STORED_BOARD_COLUMNS, type StoredDuelBoards } from "@yugidraft/shared/services";
 import type Database from "better-sqlite3";
 import { NextResponse } from "next/server";
 import { toOrdinaryReplayView, type DuelSession, type ReplayVisibility } from "@yugidraft/shared/duels";
@@ -21,11 +21,11 @@ export async function savedReplayBoardResponse(response: NextResponse, input: {
   const visibility = input.visibility ?? "mine";
   const dataSeat = input.owner && input.seat !== undefined ? input.seat : visibility === "public" ? null : ownSeat;
   try {
-    const savedSeat = (seat: number) => readStoredBoard(row, seat);
-    let board = readStoredBoard(row, dataSeat);
+    const readSaved = createStoredBoardReader(row);
+    let board = readSaved(dataSeat);
     if (!board) return null;
     if (input.owner && input.reveal) board = { ...board, seats: board.seats.map(seat => {
-      const own = savedSeat(seat.seat)?.seats.find(candidate => candidate.seat === seat.seat);
+      const own = readSaved(seat.seat)?.seats.find(candidate => candidate.seat === seat.seat);
       return own ? { ...seat, hand: own.hand, extra: own.extra } : seat;
     }) };
     const message = typeof failure.error === "string" ? failure.error : "Move-by-move replay exceeds the size limit.";

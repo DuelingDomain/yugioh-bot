@@ -264,11 +264,11 @@ it("records start time on activation without inventing start dates for older due
   expect(item.engine).toBe("pinned");
   expect(item.durationMs).toBe(Date.parse(item.endedAt!) - Date.parse(item.startedAt!));
 });
-it("reads the stored column without parsing old or malformed boards", () => {
+it("keeps recent turns visible with a bounded fallback until backfill", () => {
   const duel = finished();
   db.prepare("update duels set snapshot_public_json=?,snapshot_seats_json=? where id=?")
     .run(JSON.stringify({ turn: 8, payload: "large board fixture".repeat(1000) }), "broken", duel.id);
-  expect(history().duels[0].turnCount).toBeNull();
+  expect(history().duels[0].turnCount).toBe(8);
   db.prepare("update duels set turn_count=9 where id=?").run(duel.id);
   const query = duelHistoryQuery("history-test", 1, true, { scope: "all" });
   expect(query.sql).not.toMatch(/json_(extract|valid|type)\(snapshot/);
@@ -347,4 +347,11 @@ it("uses an idempotent history index for guild timestamp ordering", () => {
   expect(nullCursorPlan).toContain("duels_play_history_idx");
   expect(nullCursorPlan).toContain("<expr>=?");
   expect(nullCursorPlan).not.toContain("TEMP B-TREE");
+});
+
+it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("shows old %s turns immediately with format metadata before the turn", async format => {
+  const { storedBoardFixture } = await import("../helpers/stored-board.js");
+  const duel = finished({ format }); const board = storedBoardFixture(format);
+  db.prepare("update duels set turn_count=null,snapshot_public_json=? where id=?").run(JSON.stringify(board), duel.id);
+  expect(history().duels[0].turnCount).toBe(board.turn);
 });

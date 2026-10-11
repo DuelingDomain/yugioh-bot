@@ -129,7 +129,7 @@ it.each(["completed", "interrupted", "cancelled"])("opens another player's priva
   expect(routeState.fetch).not.toHaveBeenCalled();
 });
 
-it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("reads plain and gzip deduped %s fallback boards and all-seat reveal", async format => {
+it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("reads plain and gzip production-shaped %s fallback boards and all-seat reveal", async format => {
   const { gzipSync } = await import("node:zlib");
   const { storedBoardFixture } = await import("../../../shared/tests/helpers/stored-board");
   const input = await fixture();
@@ -138,12 +138,17 @@ it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("reads plain and gzip deduped %
   // The accessor is exercised through the route's saved-board response contract.
   for (const compressed of [false, true]) {
     const encode = (value: unknown) => compressed ? gzipSync(JSON.stringify(value)) : JSON.stringify(value);
-    input.db.prepare("update duels set snapshot_public_json=?,snapshot_seats_json=?,snapshot_seat0_json=null,snapshot_seat1_json=null where id=?")
-      .run(encode(publicBoard), encode(seats), input.session.id);
+    input.db.prepare("update duels set snapshot_public_json=?,snapshot_seats_json=?,snapshot_seat0_json=?,snapshot_seat1_json=? where id=?")
+      .run(encode(publicBoard), format === "1v1" ? null : encode(seats), format === "1v1" ? encode(seats[0]) : null,
+        format === "1v1" ? encode(seats[1]) : null, input.session.id);
     const mine = await savedReplayBoardResponse(tooLarge(), { ...input, owner: false });
     expect((await mine!.json()).frames[0].view.seats.map((s: any) => s.hand[0].code)).toEqual(seats.map((_, seat) => seat === 0 ? 1000 : undefined));
-    const revealed = await savedReplayBoardResponse(tooLarge(), { ...input, owner: true, reveal: true, seat: seats.length - 1 });
-    expect((await revealed!.json()).frames[0].view.seats.map((s: any) => s.hand[0].code)).toEqual(seats.map((_, seat) => 1000 + seat * 7));
+    const parse = vi.spyOn(JSON, "parse");
+    try {
+      const revealed = await savedReplayBoardResponse(tooLarge(), { ...input, owner: true, reveal: true, seat: seats.length - 1 });
+      expect((await revealed!.json()).frames[0].view.seats.map((s: any) => s.hand[0].code)).toEqual(seats.map((_, seat) => 1000 + seat * 7));
+      if (format !== "1v1") expect(parse.mock.calls.filter(([raw]) => raw === JSON.stringify(seats))).toHaveLength(1);
+    } finally { parse.mockRestore(); }
   }
 });
 

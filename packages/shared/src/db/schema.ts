@@ -1048,7 +1048,7 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "ranked", "integer not null default 0");
   db.exec("create index if not exists duels_series_idx on duels (series_id, game_number) where series_id is not null");
   db.exec(`create index if not exists duels_cancelled_fork_retention_idx on duels (julianday(ended_at), id)
-    where kind='replay-fork' and status='cancelled' and series_id is null`);
+    where status='cancelled' and kind='replay-fork' and series_id is null`);
   // Rock-paper-scissors before game 1: the opening state (JSON) while it runs, null otherwise.
   addColumnIfMissing(db, "duels", "opening_json", "text");
   // Between games the loser chooses to go first or second (index into the series players, and 'first' | 'second').

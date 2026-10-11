@@ -1,4 +1,4 @@
-import { readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, type StoredDuelBoards } from "@yugidraft/shared/services";
+import { createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, type StoredDuelBoards } from "@yugidraft/shared/services";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
@@ -1431,12 +1431,14 @@ export function createDuelHost(options: {
   }
 
   async function project(slug: string, guildId: string, playerId: number, game?: DuelGameWorker, spectate = false, control: { as?: unknown; reveal?: boolean } = {}): Promise<DuelRoom> {
-    const room = stampRoomClock(service.room(slug, guildId, playerId), now());
+    const room = stampRoomClock(service.room(slug, guildId, playerId, { includeStoredBoard: false }), now());
     if (isReplayFork(room.session)) {
       const state = service.privateState(slug, guildId);
+      const saved = game?.running && room.session.status === "active" ? undefined : savedReplayBoards(slug, guildId);
+      const readSaved = createStoredBoardReader(saved);
       const ownViews: Array<DuelEngineView | null> = [];
       for (let seat = 0; seat < seatCountFor(room.session.format); seat++) {
-        ownViews.push(game?.running && room.session.status === "active" ? await game.view(seat) : savedReplayBoard(slug, guildId, seat));
+        ownViews.push(game?.running && room.session.status === "active" ? await game.view(seat) : readSaved(seat));
       }
       const first = ownViews.find(view => view !== null);
       if (first?.result && game?.running && room.session.status === "active") {
@@ -1450,6 +1452,10 @@ export function createDuelHost(options: {
       assertReplayForkAccess(options.db, slug, { guildId, playerId });
       for (let index = 0; index < ownViews.length; index++) rememberView(slug, index, ownViews[index] ?? null, game);
       return projected;
+    }
+    if (["completed", "interrupted", "cancelled"].includes(room.session.status)) {
+      room.engine = readStoredBoard(savedReplayBoards(slug, guildId), room.mySeat);
+      room.metadataOnly = room.engine === null;
     }
     const setup = room.session.format === "1v1" ? null : service.privateState(slug, guildId);
     // Retired commands identify old setup flags; they are not accepted for new surrender.
@@ -1524,10 +1530,9 @@ export function createDuelHost(options: {
   }
 
   /** Stored projections are read only after source access succeeds. */
-  function savedReplayBoard(slug: string, guildId: string, dataSeat: number | null): DuelEngineView | null {
-    const row = options.db.prepare<[string, string], StoredDuelBoards>(
+  function savedReplayBoards(slug: string, guildId: string): StoredDuelBoards | undefined {
+    return options.db.prepare<[string, string], StoredDuelBoards>(
       `select ${STORED_BOARD_COLUMNS} from duels where web_slug = ? and guild_id = ?`).get(slug, guildId);
-    return readStoredBoard(row, dataSeat);
   }
 
   interface ReplayProjection {
@@ -1538,15 +1543,11 @@ export function createDuelHost(options: {
     ownerUserId?: number;
   }
 
-  function savedReplayBoardStamp(slug: string, guildId: string, dataSeat: number | null, reveal?: boolean): string {
-    const row = options.db.prepare<[string, string], StoredDuelBoards>(
-      `select ${STORED_BOARD_COLUMNS} from duels where web_slug = ? and guild_id = ?`).get(slug, guildId);
-    return storedBoardStamp(row, dataSeat, reveal);
-  }
-
   async function replay(slug: string, guildId: string, room: DuelRoom,
     projection: ReplayProjection = { version: 1, visibility: "mine", dataSeat: room.mySeat }, signal?: AbortSignal): Promise<ReplayHttpResult> {
-    let finalView = savedReplayBoard(slug, guildId, projection.dataSeat);
+    const saved = savedReplayBoards(slug, guildId);
+    const readSaved = createStoredBoardReader(saved);
+    let finalView = readSaved(projection.dataSeat);
     const finalBoard = finalView ? "available" : "none";
     if (room.session.status !== "completed" && room.session.status !== "interrupted") {
       throw new RequestError("Replays are available after the duel ends", 409, "NOT_PLAYABLE", finalBoard);
@@ -1557,11 +1558,11 @@ export function createDuelHost(options: {
       const sourceVersion = replaySourceVersion(source);
       const resources = await resourcesOfSource(state);
       if (projection.reveal && finalView) {
-        const ownViews = source.session.seats.map(seat => savedReplayBoard(slug, guildId, seat.seat));
+        const ownViews = source.session.seats.map(seat => readSaved(seat.seat));
         if (ownViews.every((view): view is DuelEngineView => view !== null)) finalView = revealReplayHands(finalView, ownViews);
       }
       const key = createHash("sha256").update(JSON.stringify([guildId, slug, sourceVersion, resources?.identity ?? null, resources?.bundleVersion ?? pinnedVersionFor(state.session.format), projection.visibility, projection.dataSeat, projection.reveal,
-        savedReplayBoardStamp(slug, guildId, projection.dataSeat, projection.reveal)])).digest("hex");
+        storedBoardStamp(saved, projection.dataSeat, projection.reveal)])).digest("hex");
       const built = await replayCache.getOrBuild(key, () => buildReplayData({ source, sourceVersion,
         ...(isReplayFork(state.session) ? { manualLossAnswersAfter: state.setup!.replayFork!.origin.prefixCount } : {}),
         resources: journalResourcesOf(resources), dataSeat: projection.dataSeat,
@@ -1620,7 +1621,7 @@ export function createDuelHost(options: {
       room = { session, role: mySeat === null ? "spectator" : "player", mySeat, myDeck: null, engine: null, clock: null, metadataOnly: true };
     } else {
       assertDuelForkAccess(options.db, slug, accessActor);
-      try { room = service.room(slug, guildId, actor); }
+      try { room = service.room(slug, guildId, actor, { includeStoredBoard: false }); }
       catch (error) {
         if (error instanceof DuelServiceError && error.status === 403) throw new RequestError("You cannot view this duel", 403, "ACCESS_DENIED");
         throw error;
@@ -1641,7 +1642,7 @@ export function createDuelHost(options: {
     // Access can be revoked while a detached worker is building a private projection.
     if (privileged) assertOwnerReplaySourceAccess(options.db, slug, accessActor);
     else {
-      assertDuelForkAccess(options.db, slug, accessActor); service.room(slug, guildId, actor);
+      assertDuelForkAccess(options.db, slug, accessActor); service.room(slug, guildId, actor, { includeStoredBoard: false });
       if (owner && !resolveOwnerPlayer(options.db, accessActor)) {
         throw new RequestError("Replay access changed. Reload the replay.", 404, "ACCESS_DENIED");
       }
@@ -2045,7 +2046,7 @@ export function createDuelHost(options: {
    * for a stuck duel too: when the core does not answer in time it uses the last spectator view, or gives no log.
    */
   async function bugContext(slug: string, guildId: string, actor: number): Promise<BugDuelContext> {
-    const room = service.room(slug, guildId, actor);
+    const room = service.room(slug, guildId, actor, { includeStoredBoard: false });
     const { format, mode } = room.session;
     const out: BugDuelContext = { format, mode, seat: room.mySeat, turn: null, phase: null, turnSeat: null, livingPlayers: null, log: [] };
     let view: DuelEngineView | null = null;
@@ -2419,6 +2420,11 @@ export function createDuelHost(options: {
     return step.next;
   }
 
+  async function liveCancelTurn(slug: string): Promise<number | undefined> {
+    const game = games.get(slug)?.game;
+    return game?.running ? (await game.view(null)).turn : undefined;
+  }
+
   async function operate(body: Record<string, unknown>, ctl?: { abandoned: boolean; signal?: AbortSignal }): Promise<unknown> {
     ctl?.signal?.throwIfAborted();
     const { op, guildId, playerId } = body;
@@ -2457,7 +2463,7 @@ export function createDuelHost(options: {
         assertReplayForkAccess(options.db, body.slug, accessActor);
         return room;
       }
-      const session = service.cancel(body.slug, guildId, actor);
+      const session = service.cancel(body.slug, guildId, actor, await liveCancelTurn(body.slug));
       await disposeGame(body.slug); await emitChange(body.slug, guildId);
       return { session };
     }
@@ -2580,7 +2586,7 @@ export function createDuelHost(options: {
     if (typeof body.slug !== "string" || !body.slug || body.slug.length > 128) throw new RequestError("Duel slug is required", 400);
     const slug = body.slug;
     if (op === "replay" || op === "owner-replay") return replayRequest(body, slug, guildId, actor, ctl?.signal);
-    const room = service.room(slug, guildId, actor);
+    const room = service.room(slug, guildId, actor, { includeStoredBoard: false });
     if (isReplayFork(room.session) && ["start", "ready", "unready", "deck", "validate-deck", "add-bot", "opening-pick", "opening-choose",
       "series-first", "series-side", "series-ready", "series-unready"].includes(String(op))) {
       throw new RequestError("Replay forks cannot use normal lobby or series operations", 409);
@@ -2624,7 +2630,7 @@ export function createDuelHost(options: {
       return project(slug, guildId, actor);
     }
     if (op === "cancel") {
-      service.cancel(slug, guildId, actor);
+      service.cancel(slug, guildId, actor, await liveCancelTurn(slug));
       clearOpeningTimer(slug);
       await disposeGame(slug);
       await emitChange(slug, guildId);
@@ -2995,9 +3001,19 @@ export function createDuelHost(options: {
   stallTimer?.unref();
 
   let retentionSweep: Promise<unknown> | null = null;
+  let retentionBacklogDone = false;
   const sweepRetention = () => {
-    if (stopped || retentionSweep || !duelSnapshotRetentionConfig().enabled) return;
-    retentionSweep = runDuelSnapshotRetention(options.db, { now: now(), stopped: () => stopped, isForkBusy: slug => queues.has(slug) })
+    if (stopped || retentionSweep) return;
+    retentionSweep = runDuelSnapshotRetention(options.db, { now: now(), stopped: () => stopped,
+      isForkBusy: (slug, guildId, creatorPlayerId) => queues.has(slug) || queues.has(`fork-owner:${guildId}:${creatorPlayerId}`),
+      onError: (phase, error) => console.warn("[duel] storage maintenance error", { phase,
+        code: (error as { code?: string })?.code ?? "unknown" }),
+    }).then(stats => {
+      if (stats.backfilled || stats.compacted || stats.deletedForks || stats.busy || (stats.backlogDone && !retentionBacklogDone)) {
+        console.info("[duel] snapshot retention pass", stats);
+      }
+      retentionBacklogDone = stats.backlogDone;
+    })
       .catch(error => console.warn("[duel] snapshot retention sweep failed", error))
       .finally(() => { retentionSweep = null; });
   };

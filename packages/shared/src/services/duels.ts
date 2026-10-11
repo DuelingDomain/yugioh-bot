@@ -180,7 +180,7 @@ export interface DuelService {
    */
   removePracticeBot(slug: string, guildId: string, organizerPlayerId: number, seat?: number): DuelSession;
   setDeck(slug: string, guildId: string, playerId: number, deck: DuelDeck): DuelSession;
-  room(slug: string, guildId: string, playerId: number): DuelRoom;
+  room(slug: string, guildId: string, playerId: number, options?: { includeStoredBoard?: boolean }): DuelRoom;
   privateState(slug: string, guildId: string): DuelPrivateState;
   /**
    * Marks a seated player ready with the deck already in the seat (a
@@ -223,7 +223,7 @@ export interface DuelService {
     snapshots?: DuelFinalSnapshots,
   ): DuelSession;
   interrupt(slug: string, guildId: string, reason: string, snapshots?: DuelFinalSnapshots): DuelSession;
-  cancel(slug: string, guildId: string, organizerPlayerId: number): DuelSession;
+  cancel(slug: string, guildId: string, organizerPlayerId: number, liveTurn?: number): DuelSession;
   archive(slug: string, guildId: string, organizerPlayerId: number): DuelSession;
   archiveDue(limit: number, archiveAfterMs: number): DuelSession[];
   admit(slug: string, guildId: string, playerId: number, inviteCode: string): void;
@@ -1222,7 +1222,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     },
   );
 
-  const cancelTx = db.transaction((slug: string, guildId: string, organizerPlayerId: number) => {
+  const cancelTx = db.transaction((slug: string, guildId: string, organizerPlayerId: number, liveTurn?: number) => {
     const row = loadDuelRow(slug, guildId);
     assertPlayerGuild(organizerPlayerId, guildId);
     assertRoomAccess(row, organizerPlayerId);
@@ -1264,7 +1264,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
             result_reason = 'Cancelled', turn_count = coalesce(turn_count, ?), clock_json = null
         where id = ? and status in ('lobby', 'active')
       `,
-    ).run(storedTurnCount(row), row.id);
+    ).run(row.status === "active" && typeof liveTurn === "number" && Number.isSafeInteger(liveTurn) && liveTurn >= 0 ? liveTurn : storedTurnCount(row), row.id);
     const updated = selectDuelById.get(row.id);
     if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
     return mapSession(updated);
@@ -1391,7 +1391,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       return setDeckTx(slug, guildId, playerId, deck);
     },
 
-    room(slug, guildId, playerId): DuelRoom {
+    room(slug, guildId, playerId, options): DuelRoom {
       const row = loadDuelRow(slug, guildId);
       assertPlayerGuild(playerId, guildId);
       // Read-only owner inspection grants no seat, deck, invite or mutation authority.
@@ -1402,7 +1402,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       const role: DuelActorRole = seated ? "player" : "spectator";
       const mySeat = seated ? seated.seat : null;
       const terminal = isTerminalStatus(session.status);
-      const engine = terminal ? readStoredBoard(row, mySeat) : null;
+      const engine = terminal && options?.includeStoredBoard !== false ? readStoredBoard(row, mySeat) : null;
       const room: DuelRoom = {
         session,
         role,
@@ -1473,8 +1473,8 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       return finalizeTx(slug, guildId, "interrupted", null, reason, snapshots);
     },
 
-    cancel(slug, guildId, organizerPlayerId) {
-      return cancelTx(slug, guildId, organizerPlayerId);
+    cancel(slug, guildId, organizerPlayerId, liveTurn) {
+      return cancelTx(slug, guildId, organizerPlayerId, liveTurn);
     },
 
     startOpening(slug, guildId, actorPlayerId, at) {

@@ -24,3 +24,22 @@ it("adds nullable storage metadata and reruns without rewriting old boards", () 
     expect(db.prepare("pragma index_list(replay_fork_requests)").all()).toContainEqual(expect.objectContaining({ name: "replay_fork_requests_duel_idx" }));
   } finally { db.close(); }
 });
+
+it("requires every foreign key to duels to cascade and keeps retention selects indexed", () => {
+  const db = new Database(":memory:");
+  try {
+    db.pragma("foreign_keys=on"); migrate(db);
+    const tables = db.prepare("select name from sqlite_schema where type='table'").all() as { name: string }[];
+    let references = 0;
+    for (const { name } of tables) {
+      const keys = db.prepare(`pragma foreign_key_list("${name.replaceAll('"', '""')}")`).all() as { table: string; on_delete: string }[];
+      for (const key of keys.filter(key => key.table === "duels")) { references++; expect(key.on_delete, name).toBe("CASCADE"); }
+    }
+    expect(references).toBeGreaterThanOrEqual(4);
+    const plan = (sql: string) => db.prepare(`explain query plan ${sql}`).all("2026-01-01", 50);
+    expect(plan("select id,web_slug from duels where kind='replay-fork' and status='cancelled' and series_id is null and julianday(ended_at)<julianday(?) order by julianday(ended_at),id limit ?"))
+      .toContainEqual(expect.objectContaining({ detail: expect.stringContaining("duels_cancelled_fork_retention_idx") }));
+    expect(plan("select id from duels where snapshot_compacted_at is null and status in ('completed','interrupted','cancelled') and julianday(ended_at)<julianday(?) order by julianday(ended_at),id limit ?"))
+      .toContainEqual(expect.objectContaining({ detail: expect.stringContaining("duels_snapshot_retention_idx") }));
+  } finally { db.close(); }
+});
