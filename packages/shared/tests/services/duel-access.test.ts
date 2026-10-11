@@ -64,7 +64,8 @@ it("fails closed when the database is missing", () => {
   const reader = access.createDuelAccessReader("/missing-fork-test/test.sqlite");
   try {
     expect(reader.canReadDuel({ ...claims(app.forkSlug), expiresAt: Date.now() + 60_000 })).toBe(false);
-    expect(reader.findDuelEventTarget(app.forkSlug, app.guildId)).toBeNull();
+    expect(() => reader.findDuelEventTarget(app.forkSlug, app.guildId))
+      .toThrowError(expect.objectContaining({ status: 503, code: "ACCESS_UNAVAILABLE" }));
   } finally { reader.close(); }
 });
 
@@ -95,4 +96,37 @@ it("keeps an ordinary seated player's old token after a seat move", () => {
   expect(access.canReadDuel(app.db, claims(app.source.slug, app.sourcePlayer, 0))).toBe(true);
   app.db.prepare("delete from duel_seats where duel_id=? and player_id=?").run(app.source.id, app.sourcePlayer.playerId);
   expect(access.canReadDuel(app.db, claims(app.source.slug, app.sourcePlayer, 0))).toBe(false);
+});
+
+it("distinguishes a missing target from a DB read outage", () => {
+  expect(access.findDuelEventTarget(app.db, "missing", app.guildId)).toBeNull();
+  app.db.close();
+  expect(() => access.findDuelEventTarget(app.db, app.source.slug, app.guildId))
+    .toThrowError(expect.objectContaining({ status: 503, code: "ACCESS_UNAVAILABLE" }));
+  expect(access.canReadDuel(app.db, claims(app.source.slug))).toBe(false);
+});
+it("prepares access queries once per connection while rechecking stored rows", () => {
+  const prepare = vi.spyOn(app.db, "prepare");
+  try {
+    expect(access.canReadDuel(app.db, claims(app.forkSlug))).toBe(true);
+    const count = prepare.mock.calls.length;
+    expect(count).toBeGreaterThan(0);
+    for (let i = 0; i < 3; i++) {
+      expect(access.canReadDuel(app.db, claims(app.forkSlug))).toBe(true);
+      expect(access.findDuelEventTarget(app.db, app.source.slug, app.guildId)?.kind).toBe("play");
+    }
+    expect(prepare).toHaveBeenCalledTimes(count);
+    const other = forkEventFixture();
+    try {
+      other.db.prepare("delete from duel_seats where duel_id=?").run(other.forkId);
+      expect(access.canReadDuel(other.db, claims(other.forkSlug))).toBe(false);
+      expect(access.canReadDuel(app.db, claims(app.forkSlug))).toBe(true);
+    } finally { other.db.close(); }
+    vi.stubEnv("OWNER_USER_IDS", "102");
+    expect(access.canReadDuel(app.db, claims(app.forkSlug))).toBe(false);
+  } finally { prepare.mockRestore(); }
+});
+it("treats corrupt setup JSON as an invalid target", () => {
+  app.db.prepare("update duels set setup_json='not JSON' where id=?").run(app.source.id);
+  expect(access.findDuelEventTarget(app.db, app.source.slug, app.guildId)).toBeNull();
 });

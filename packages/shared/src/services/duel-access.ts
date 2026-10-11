@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { isOwnerUser } from "../access/owner-access.js";
+import { isOwnerUser, ReplayAccessError } from "../access/owner-access.js";
 import { isDuelKind, isDuelKindSetup, isReplayFork, isDuelFormat, type DuelKind, type ReplayForkSetup } from "../duels/index.js";
 import { parseStoredDuelSettings } from "../duels/settings.js";
 import type { DuelConnectionTokenClaims } from "../ws/duel-token.js";
@@ -18,12 +18,32 @@ export interface DuelEventTarget {
 type AccessRow = { id: number; web_slug: string; guild_id: string; kind: unknown; setup_json: string | null;
   format: unknown; settings_json: string | null; organizer_player_id: number };
 
+function prepareAccessStatements(db: Database.Database) {
+  return {
+    target: db.prepare<[string, string], AccessRow>(
+      "select id,web_slug,guild_id,kind,setup_json,format,settings_json,organizer_player_id from duels where web_slug=? and guild_id=?"),
+    player: db.prepare<[number, string], { user_id: number }>(
+      "select p.user_id from players p join users u on u.id=p.user_id where p.id=? and p.guild_id=?"),
+    seat: db.prepare<[number, number], { seat: number }>(
+      "select seat from duel_seats where duel_id=? and player_id=?"),
+    grant: db.prepare<[number, number], { allowed: number }>(
+      "select 1 as allowed from duel_invite_grants where duel_id=? and player_id=?"),
+  };
+}
+
+const accessStatements = new WeakMap<Database.Database, ReturnType<typeof prepareAccessStatements>>();
+function statements(db: Database.Database) {
+  let cached = accessStatements.get(db);
+  if (!cached) { cached = prepareAccessStatements(db); accessStatements.set(db, cached); }
+  return cached;
+}
+
 function loadTarget(db: Database.Database, slug: string, guildId: string): { row: AccessRow; target: DuelEventTarget } | null {
   if (typeof slug !== "string" || !slug || typeof guildId !== "string" || !guildId) return null;
-  const row = db.prepare("select id,web_slug,guild_id,kind,setup_json,format,settings_json,organizer_player_id from duels where web_slug=? and guild_id=?")
-    .get(slug, guildId) as AccessRow | undefined;
+  const row = statements(db).target.get(slug, guildId);
   if (!row || !isDuelKind(row.kind) || !isDuelFormat(row.format)) return null;
-  const setup: unknown = row.setup_json === null ? undefined : JSON.parse(row.setup_json);
+  let setup: unknown;
+  try { setup = row.setup_json === null ? undefined : JSON.parse(row.setup_json); } catch { return null; }
   if (!isDuelKindSetup(row.kind, setup, row.format)) return null;
   return { row, target: { id: row.id, slug: row.web_slug, guildId: row.guild_id, kind: row.kind,
     ownerUserId: isReplayFork(row) ? (setup as { replayFork: ReplayForkSetup }).replayFork.ownerUserId : null } };
@@ -31,7 +51,7 @@ function loadTarget(db: Database.Database, slug: string, guildId: string): { row
 
 /** Server-only event routing metadata. A stored reference never grants read access. */
 export function findDuelEventTarget(db: Database.Database, slug: string, guildId: string): DuelEventTarget | null {
-  try { return loadTarget(db, slug, guildId)?.target ?? null; } catch { return null; }
+  try { return loadTarget(db, slug, guildId)?.target ?? null; } catch { throw new ReplayAccessError(503); }
 }
 
 /** Recheck persisted identity and access on join and before each broadcast. Never trust an acting seat. */
@@ -42,11 +62,10 @@ export function canReadDuel(db: Database.Database, claims: Pick<DuelConnectionTo
     const stored = loadTarget(db, claims.slug, claims.guildId);
     if (!stored) return false;
     const { row, target } = stored;
-    const player = db.prepare("select p.user_id from players p join users u on u.id=p.user_id where p.id=? and p.guild_id=?")
-      .get(claims.playerId, claims.guildId) as { user_id: number } | undefined;
+    const queries = statements(db);
+    const player = queries.player.get(claims.playerId, claims.guildId);
     if (!player) return false;
-    const seat = db.prepare("select seat from duel_seats where duel_id=? and player_id=?")
-      .get(row.id, claims.playerId) as { seat: number } | undefined;
+    const seat = queries.seat.get(row.id, claims.playerId);
     if (isReplayFork(target)) return claims.seat === 0 && seat?.seat === 0
       && row.organizer_player_id === claims.playerId && target.ownerUserId === player.user_id && isOwnerUser(player.user_id);
     // Ordinary openings can reorder seats while this identity's token is still valid.
@@ -55,7 +74,7 @@ export function canReadDuel(db: Database.Database, claims: Pick<DuelConnectionTo
     const settings = parseStoredDuelSettings(row.settings_json);
     if (settings.visibility === "public") return true;
     return row.organizer_player_id === claims.playerId || seat !== undefined
-      || !!db.prepare("select 1 from duel_invite_grants where duel_id=? and player_id=?").get(row.id, claims.playerId);
+      || !!queries.grant.get(row.id, claims.playerId);
   } catch { return false; }
 }
 
@@ -76,16 +95,19 @@ export function assertDuelInviteTarget(db: Database.Database, reference: unknown
   return target;
 }
 
-/** Lazy readonly access to the database mounted by ws and bot. Missing data fails closed. */
+/** Lazy readonly access to the database mounted by ws and bot. Missing data fails closed; event routing distinguishes outages from absent targets. */
 export function createDuelAccessReader(databasePath = process.env.DATABASE_PATH ?? "./data/bot.sqlite") {
   const path = resolveDraftDatabasePath(databasePath);
   let db: Database.Database | undefined;
-  function read<T>(work: (database: Database.Database) => T, fallback: T): T {
-    try { db ??= new Database(path, { readonly: true, fileMustExist: true }); return work(db); } catch { return fallback; }
+  function read<T>(work: (database: Database.Database) => T): T {
+    try { db ??= new Database(path, { readonly: true, fileMustExist: true }); return work(db); }
+    catch { throw new ReplayAccessError(503); }
   }
   return {
-    canReadDuel: (claims: DuelConnectionTokenClaims) => read(database => canReadDuel(database, claims), false),
-    findDuelEventTarget: (slug: string, guildId: string) => read(database => findDuelEventTarget(database, slug, guildId), null),
+    canReadDuel: (claims: DuelConnectionTokenClaims) => {
+      try { return read(database => canReadDuel(database, claims)); } catch { return false; }
+    },
+    findDuelEventTarget: (slug: string, guildId: string) => read(database => findDuelEventTarget(database, slug, guildId)),
     close() { db?.close(); db = undefined; },
   };
 }

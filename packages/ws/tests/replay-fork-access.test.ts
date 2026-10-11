@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { canReadDuel, findDuelEventTarget, createDuelService } from "@yugidraft/shared/services";
+import { canReadDuel, findDuelEventTarget, createDuelService, createDuelAccessReader } from "@yugidraft/shared/services";
 import { createDuelConnectionToken, type DuelConnectionTokenClaims, type DuelJoinAck } from "@yugidraft/shared/ws";
 import { forkEventFixture } from "./helpers/replay-fork-events.js";
 import { registerDuelEventHandlers } from "../src/duel-events.js";
@@ -138,4 +138,26 @@ it.each(["1v1", "ffa3", "ffa4"] as const)("keeps subscribed players through a re
     expect(socket.rooms.has(`duel:${app.guildId}:${duel.slug}`)).toBe(true);
     expect(changed[index]).toHaveBeenCalledWith({ slug: duel.slug });
   }
+});
+
+it("returns 503 with the real target reader when the DB is unavailable", async () => {
+  const room = server(), owner = room.connect();
+  join(owner, token());
+  const changed = vi.fn(); owner.on("duel:changed", changed);
+  app.db.close();
+  expect((await room.change()).status).toBe(503);
+  expect(changed).not.toHaveBeenCalled();
+});
+it("returns 503 with a real reader when its DB cannot be opened", async () => {
+  const reader = createDuelAccessReader("/missing-ws-test/test.sqlite");
+  const emit = vi.fn();
+  const handle = createInternalHttpHandler({ secret: SECRET, io: { to: () => ({ emit }) } as unknown as TypedServer,
+    beforeDuelBroadcast: (slug, guild) => reader.findDuelEventTarget(slug, guild) !== null });
+  const body = JSON.stringify({ slug: app.forkSlug, guildId: app.guildId });
+  try {
+    const response = await handle(new Request("http://test/internal/duel/changed", { method: "POST", body,
+      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex") } }));
+    expect(response.status).toBe(503);
+    expect(emit).not.toHaveBeenCalled();
+  } finally { reader.close(); }
 });
