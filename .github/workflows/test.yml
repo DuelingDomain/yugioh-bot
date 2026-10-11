@@ -10,10 +10,12 @@ name: Test
 #                Production Compose defaults Standard to DUEL_STANDARD_1V1_ENGINE=pinned; Domain keeps the global legacy default.
 #   native       ASan/UBSan build of the multi core and the committed native checks (npm run test:native).
 #   rule-coverage  every rule of ADR-0002 has a covering test (--strict).
+#   new-card-smoke  four real-engine smoke shards for the automatic card-data PR, followed by one sticky report.
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
 #
 # Pull requests and pushes to main always run unit. They run cores, engine, engine-legacy, native and rule-coverage
-# only when changes sets engine=true. A manual run runs every job, including nduel-nightly unless nightly=false.
+# only when changes sets engine=true (the bot smoke also requests cores). A manual run runs all regular jobs,
+# including nduel-nightly unless nightly=false; bot smoke also needs its branch and new_card_smoke input.
 # The schedule runs cores and nduel-nightly only.
 
 on:
@@ -30,15 +32,21 @@ on:
         type: boolean
         required: false
         default: true
+      new_card_smoke:
+        description: "Run new/changed-card smoke for the open chore/engine-data-update PR (dispatch that branch)"
+        type: boolean
+        required: false
+        default: false
       nduel_seeds:
         description: "Seeds per nduel case in the nightly fuzz"
         required: false
         default: "100"
 
 concurrency:
-  # The event name is in the group: a long nightly run must not hold back (or cancel) the push runs on main.
-  group: test-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Bot PR/dispatch runs for one head share a serial group so an older PASS cannot
+  # overwrite a newer FAIL. Different heads and ordinary nightly/main runs stay independent.
+  group: test-${{ github.workflow }}-${{ ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/engine-data-update' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.new_card_smoke && github.ref == 'refs/heads/chore/engine-data-update')) && format('card-data-{0}', github.event.pull_request.head.sha || github.sha) || format('{0}-{1}', github.event_name, github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.ref != 'chore/engine-data-update' || github.event.pull_request.head.repo.full_name != github.repository) }}
 
 permissions:
   contents: read
@@ -60,12 +68,19 @@ jobs:
     name: Changed layers
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
       golden: ${{ steps.diff.outputs.golden }}
       tests_only: ${{ steps.diff.outputs.tests_only }}
       base: ${{ steps.diff.outputs.base }}
       head: ${{ steps.diff.outputs.head }}
+      smoke_enabled: ${{ steps.smoke.outputs.smoke_enabled }}
+      smoke_pr: ${{ steps.smoke.outputs.smoke_pr }}
+      smoke_base: ${{ steps.smoke.outputs.smoke_base }}
+      smoke_head: ${{ steps.smoke.outputs.smoke_head }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,10 +97,16 @@ jobs:
           PUSH_AFTER: ${{ github.sha }}
         run: node scripts/ci/changed-layers.mjs
 
+      - name: Resolve new-card smoke PR
+        id: smoke
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: prlimit --core=0 -- node scripts/ci/new-card-smoke-context.mjs
+
   core-cache:
     name: Engine core cache
     needs: changes
-    if: needs.changes.outputs.engine == 'true'
+    if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.smoke_enabled == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -279,6 +300,182 @@ jobs:
             packages/duel-server/domain-core/dist
           key: ${{ needs.core-cache.outputs.key }}
 
+  # Dispatch job checks cannot satisfy PR rulesets. Explicit commit statuses use
+  # the report's stable context; hold it pending before any smoke can start.
+  new-card-smoke-status-pending:
+    name: New card smoke merge gate (pending)
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/engine-data-update' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && inputs.new_card_smoke && github.ref == 'refs/heads/chore/engine-data-update')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      SMOKE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout status helper without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Node.js without dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Hold the merge gate pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: prlimit --core=0 -- node scripts/ci/new-card-smoke-status.mjs pending
+
+  new-card-smoke:
+    name: New card engine smoke (${{ matrix.shard }}/4)
+    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.new-card-smoke-status-pending.result == 'success' && needs.changes.outputs.smoke_enabled == 'true' }}
+    needs: [changes, cores, new-card-smoke-status-pending]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
+      SMOKE_BASE: ${{ needs.changes.outputs.smoke_base }}
+      SMOKE_HEAD: ${{ needs.changes.outputs.smoke_head }}
+      SMOKE_SHARD: ${{ matrix.shard }}
+    steps:
+      - name: Checkout base and head history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Restore engine bundle and test dependencies
+        uses: ./.github/actions/restore-engine-bundle
+        with:
+          key: ${{ needs.cores.outputs.key }}
+
+      # The runner reads prepare-data.ts at these exact refs. Its own selection adds
+      # the fixed 150-card sample when shared Lua helpers change; do not select again here.
+      - name: Smoke new and changed cards
+        id: smoke
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          result=0
+          prlimit --core=0 -- node --import tsx packages/duel-server/scripts/new-card-smoke.ts \
+            --from-pin "$SMOKE_BASE" --to-pin "$SMOKE_HEAD" \
+            --jobs 4 --shard "$SMOKE_SHARD/4" --output ".status/new-card-smoke-$SMOKE_SHARD" || result=$?
+          case "$result" in
+            0) ;;
+            1) echo "::error::New-card smoke FAIL. Read the shard report for card names and reasons."; exit 1 ;;
+            2) echo "::error::New-card smoke input/download/infrastructure error. Read the runner logs."; exit 2 ;;
+            3) echo "::warning::New-card smoke incomplete: time budget reached. Review unfinished cards in the report." ;;
+            *) echo "::error::Unexpected new-card smoke exit code: $result"; exit "$result" ;;
+          esac
+
+      - name: Save shard JSON and Markdown even on FAIL
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: new-card-smoke-${{ matrix.shard }}
+          path: |
+            .status/new-card-smoke-${{ matrix.shard }}.json
+            .status/new-card-smoke-${{ matrix.shard }}.md
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  new-card-smoke-report:
+    name: New card engine smoke report
+    # Eligibility must not depend on resolver outputs: resolver/checkout failures
+    # still need an ERROR report and failed merge gate.
+    if: >-
+      always() && ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/engine-data-update' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && inputs.new_card_smoke && github.ref == 'refs/heads/chore/engine-data-update'))
+    needs: [changes, cores, new-card-smoke, new-card-smoke-status-pending]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    # Serialize comment creation across PR and dispatch runs for the same PR head.
+    concurrency:
+      group: new-card-smoke-report-${{ github.repository }}-${{ needs.changes.outputs.smoke_pr || github.event.pull_request.number || github.ref }}-${{ needs.changes.outputs.smoke_head || github.event.pull_request.head.sha || github.sha }}
+      cancel-in-progress: false
+    env:
+      SMOKE_PR: ${{ needs.changes.outputs.smoke_pr || github.event.pull_request.number }}
+      SMOKE_BASE: ${{ needs.changes.outputs.smoke_base || github.event.pull_request.base.sha || 'unavailable' }}
+      SMOKE_HEAD: ${{ needs.changes.outputs.smoke_head || github.event.pull_request.head.sha || github.sha }}
+      SMOKE_RESULT: ${{ needs.new-card-smoke.result }}
+      SMOKE_CONTEXT_RESULT: ${{ needs.changes.result }}
+      SMOKE_SHARD_COUNT: "4"
+    steps:
+      - name: Checkout report helpers without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js without dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download all available shard reports
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: new-card-smoke-*
+          path: .status/new-card-smoke-shards
+          merge-multiple: true
+
+      # No install or candidate engine code executes with this write token.
+      # The helper checks the current PR branch/repo/head before creating or editing its marker.
+      - name: Merge reports, write summary and update sticky comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: prlimit --core=0 -- node scripts/ci/new-card-smoke-report.mjs
+
+      - name: Save the complete merged report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: new-card-smoke-report
+          path: |
+            .status/new-card-smoke-report.json
+            .status/new-card-smoke-report.md
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  new-card-smoke-status:
+    name: New card smoke merge gate (final)
+    if: >-
+      always() && ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/engine-data-update' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && inputs.new_card_smoke && github.ref == 'refs/heads/chore/engine-data-update'))
+    needs: [new-card-smoke-report]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      SMOKE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      SMOKE_REPORT_RESULT: ${{ needs.new-card-smoke-report.result }}
+    steps:
+      - name: Checkout status helper without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Node.js without dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Publish the required merge-gate result
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: prlimit --core=0 -- node scripts/ci/new-card-smoke-status.mjs final
+
   unit-packages:
     name: Unit packages and typecheck
     needs: changes
@@ -330,6 +527,7 @@ jobs:
         run: |
           node --test scripts/ci/*.test.mjs
           python3 -B scripts/ci/parallel_emxx_test.py
+          python3 -B -m unittest discover -s scripts/deployment -p test_deploy_safety.py
 
       - name: Select changed test files
         id: selection
@@ -432,26 +630,10 @@ jobs:
         with:
           fetch-depth: ${{ needs.changes.outputs.tests_only == 'true' && '0' || '1' }}
 
-      - name: Restore engine bundle
-        uses: actions/cache/restore@v4
+      - name: Restore engine bundle and test dependencies
+        uses: ./.github/actions/restore-engine-bundle
         with:
-          path: |
-            data/duel-engine-next
-            packages/duel-server/domain-core/dist
           key: ${{ needs.cores.outputs.key }}
-          fail-on-cache-miss: true
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-
-      - name: Install
-        run: npm ci
-
-      - name: Build shared
-        run: npm run build --workspace=@yugidraft/shared
 
       - name: Select changed test files
         id: selection
@@ -523,26 +705,10 @@ jobs:
         with:
           fetch-depth: ${{ needs.changes.outputs.tests_only == 'true' && '0' || '1' }}
 
-      - name: Restore engine bundle
-        uses: actions/cache/restore@v4
+      - name: Restore engine bundle and test dependencies
+        uses: ./.github/actions/restore-engine-bundle
         with:
-          path: |
-            data/duel-engine-next
-            packages/duel-server/domain-core/dist
           key: ${{ needs.cores.outputs.key }}
-          fail-on-cache-miss: true
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-
-      - name: Install
-        run: npm ci
-
-      - name: Build shared
-        run: npm run build --workspace=@yugidraft/shared
 
       - name: Select changed test files
         id: selection
@@ -560,7 +726,7 @@ jobs:
   engine:
     name: Engine tests (cores required)
     if: always() && github.event_name != 'schedule'
-    needs: [changes, engine-shards]
+    needs: [changes, engine-shards, new-card-smoke-report]
     runs-on: ubuntu-latest
     steps:
       - name: Check all engine shards
@@ -568,7 +734,10 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           REQUIRED: ${{ needs.changes.outputs.engine }}
           RESULT: ${{ needs.engine-shards.result }}
-        run: test "$CHANGES" = success && { test "$REQUIRED" != true || test "$RESULT" = success; }
+          SMOKE_REPORT: ${{ needs.new-card-smoke-report.result }}
+        run: |
+          test "$CHANGES" = success && { test "$REQUIRED" != true || test "$RESULT" = success; }
+          test "$SMOKE_REPORT" = success || test "$SMOKE_REPORT" = skipped
 
   engine-legacy:
     name: Engine tests, legacy 1v1 engine (cores required)
