@@ -121,6 +121,14 @@ describe("Open unchecked replay", () => {
     expect(screen.getByText(BANNER)).toBeTruthy();
   });
 
+  it("shows no button again when the unchecked request itself failed (command mismatch)", async () => {
+    window.history.replaceState(null, "", "/duels/game-1/replay?unchecked=1");
+    server(() => json(unverifiedBody({ canOpenUnchecked: true, reason: "command_mismatch" }), 409));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    expect((await screen.findByRole("alert")).textContent).toBe(MISMATCH);
+    expect(screen.queryByRole("button", { name: "Open unchecked replay" })).toBeNull();
+  });
+
   it("asks for the unchecked replay at once when the address has ?unchecked=1 (owner page)", async () => {
     window.history.replaceState(null, "", "/duels/game-1/replay?unchecked=1");
     server(() => json({ ...replayV2(), verification: "unverified" }));
@@ -205,6 +213,48 @@ describe("Jump in from an unchecked replay", () => {
     const body = await jump("verified");
     expect("unchecked" in body).toBe(false);
     expect(document.querySelector("[data-fork-unchecked-mark]")).toBeNull();
+  });
+});
+
+describe("saved final board fallback", () => {
+  /** What the web route sends when it cannot run the moves: one result frame, no cursor, "unverified" and a replayError. */
+  function savedBoard(version: 1 | 2, over: Record<string, unknown> = {}) {
+    const full = replayV2();
+    const result = full.frames[full.frames.length - 1]!;
+    const replayError = { code: "ENGINE_UNAVAILABLE_FOR_SOURCE", error: "No replay. Showing the saved final board." };
+    return version === 2
+      ? { ...full, verification: "unverified", sourceVersion: "saved-board-1", frames: [{ ...result, frameId: "saved-final-board", cursor: null }], replayError, ...over }
+      : { verification: "unverified", session: full.session, role: full.role, mySeat: full.mySeat,
+          frames: [{ step: 0, actorSeat: null, view: result.view }], replayError, ...over };
+  }
+
+  it.each([1, 2] as const)("shows no unchecked banner for the v%s saved board, only the not-a-replay note", async (version) => {
+    server(() => json(savedBoard(version)));
+    render(<DuelReplayView slug="game-1" />);
+    await waitFor(() => expect(document.querySelector("[data-replay-saved-board]")).toBeTruthy());
+    expect(document.querySelector("[data-replay-unchecked]")).toBeNull();
+    expect(screen.queryByText(BANNER)).toBeNull();
+    expect(screen.getByText("Saved final board — this is not a move replay.")).toBeTruthy();
+  });
+
+  it("offers no Jump in warning mark for the saved board", async () => {
+    server(() => json(savedBoard(2, { capabilities: { canFork: false, privateSeats: [] } })));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    await waitFor(() => expect(document.querySelector("[data-replay-saved-board]")).toBeTruthy());
+    expect(document.querySelector("[data-fork-unchecked-mark]")).toBeNull();
+  });
+
+  it("still shows the banner for a real unchecked replay (no replayError)", async () => {
+    server(() => json({ ...replayV2(), verification: "unverified" }));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    await screen.findByText(BANNER);
+    expect(document.querySelector("[data-replay-saved-board]")).toBeNull();
+  });
+
+  it("shows the note, not the banner, in the strip form", () => {
+    render(<ReplayVerificationNote verification="saved-board" strip />);
+    expect(document.querySelector("[data-replay-saved-board]")).toBeTruthy();
+    expect(document.querySelector("[data-replay-unchecked]")).toBeNull();
   });
 });
 

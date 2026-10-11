@@ -100,7 +100,7 @@ export function useForkStart({ slug, model, frame, onReload, onPause, openForks 
     setPending(true);
     setFailure(null);
     // A fork of an unchecked replay is asked for as such: the server refuses it otherwise. It is part of the retry key.
-    const unchecked = model.verification === "unverified";
+    const unchecked = model.verification === "unverified" && !model.savedBoard;
     const key = `${slug}:${frame.frameId}:${cursor}:${sourceVersion}${unchecked ? ":unchecked" : ""}`;
     let requestId = requestIds.current.get(key);
     if (!requestId) {
@@ -161,7 +161,7 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, f
   if (!canOfferFork(model)) return null;
   const reason = forkDisabledReason(frame);
   const disabled = pending || busy || reason != null;
-  const unchecked = model.verification === "unverified";
+  const unchecked = model.verification === "unverified" && !model.savedBoard;
 
   return (
     <span ref={groupRef} className={styles.group} data-replay-fork>

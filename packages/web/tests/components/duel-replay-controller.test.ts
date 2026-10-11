@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DuelRequestError } from "@/components/duel/api";
 import {
+  checkNoteOf,
   createReadOnlyTableController,
   frameCaption,
   isReplayV2,
@@ -35,6 +36,19 @@ describe("normalizeReplay", () => {
     expect(withValue(undefined)).toBe("exact");
     expect(withValue("surprise")).toBe("exact");
     expect(normalizeReplay(replayV1(), "game-1", "mine").verification).toBe("exact");
+    expect(normalizeReplay({ ...replayV1(), verification: "unverified" }, "game-1", "mine").verification).toBe("unverified");
+  });
+
+  it("marks the saved final board by its replayError, so it is not read as an unchecked move replay", () => {
+    const replayError = { code: "REPLAY_TOO_LARGE" as const, error: "Too large." };
+    const saved = normalizeReplay({ ...replayV2(), verification: "unverified", replayError }, "game-1", "mine");
+    expect(saved.savedBoard).toBe(true);
+    expect(checkNoteOf(saved)).toBe("saved-board");
+    const savedV1 = normalizeReplay({ ...replayV1(), verification: "unverified", replayError } as never, "game-1", "mine");
+    expect(checkNoteOf(savedV1)).toBe("saved-board");
+    const unchecked = normalizeReplay({ ...replayV2(), verification: "unverified" }, "game-1", "mine");
+    expect(unchecked.savedBoard).toBe(false);
+    expect(checkNoteOf(unchecked)).toBe("unverified");
   });
 
   it("passes v2 frames through with their IDs and strips private prompt fields from every view", () => {

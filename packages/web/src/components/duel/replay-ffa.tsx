@@ -15,11 +15,12 @@ import {
   replayRoom,
   type ReplayController,
   type ReplayModel,
+  checkNoteOf,
 } from "./replay-controller";
 import type { ReplayLogEntry } from "./replay-timeline";
 import { ReplayStatus } from "./replay-status";
 import { ReplayVerificationNote } from "./replay-verification";
-import type { ReplayVerification } from "./api";
+import type { ReplayCheckNote } from "./replay-controller";
 import { TableShell } from "./table/table-shell";
 import type { ReplayShellMode } from "./table/types";
 import replayStyles from "./replay.module.css";
@@ -67,7 +68,7 @@ interface TransportProps {
   onVisibility: (next: ReplayVisibility) => void;
   onCamera: (seat: number) => void;
   notice: string | null;
-  verification?: ReplayVerification;
+  verification?: ReplayCheckNote;
 }
 
 /**
@@ -224,7 +225,7 @@ export function ReplayFfa({
       onVisibility={onVisibility}
       onCamera={(seat) => { onCamera?.(seat); controller.setCamera(seat); }}
       notice={notice}
-      verification={model.verification}
+      verification={checkNoteOf(model)}
     />
   );
   const replay: ReplayShellMode = { transport, resetKey, tools };

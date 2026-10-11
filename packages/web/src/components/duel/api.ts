@@ -12,8 +12,10 @@ import type {
   DuelListItem,
   DuelReplay,
   DuelReplayV2,
+  ReplayErrorResponse,
   ReplayForkRequest,
   ReplayForkResult,
+  ReplayUnverifiedReason,
   ReplayVisibility,
   DuelMasterRule,
   DuelMode,
@@ -25,24 +27,8 @@ import type {
 } from "@yugidraft/shared/duels";
 import { EMPTY_HISTORY_FILTERS, historyQuery, type HistoryFilters } from "./history-filters";
 
-/**
- * How a replay was checked. "exact": the engine package of the duel. "verified": the current package, and the
- * result matches the saved final board. "unverified": the owner opened it without a check. Absent on older servers
- * (the same as "exact").
- */
-export type ReplayVerification = "exact" | "verified" | "unverified";
-
-export type ReplayUnverifiedReason = "board_mismatch" | "command_mismatch" | "no_saved_board";
-
-/** The extra fields of a REPLAY_UNVERIFIED (409) answer. All are optional: an older server sends none of them. */
-export interface ReplayErrorDetail {
-  /** True only for the owner, and only when the server can open the replay without the check. */
-  canOpenUnchecked?: boolean;
-  reason?: ReplayUnverifiedReason;
-}
-
-/** A replay answer with the check result. The shared type does not carry it yet, so it is added here (optional). */
-export type CheckedReplayV2 = DuelReplayV2 & { verification?: ReplayVerification };
+/** The extra fields of a REPLAY_UNVERIFIED (409) answer. Both are optional: an older server sends neither. */
+export type ReplayErrorDetail = Pick<ReplayErrorResponse, "canOpenUnchecked" | "reason">;
 
 export class DuelRequestError extends Error {
   readonly status: number;
@@ -179,7 +165,7 @@ export async function getDuelReplayFrames(
   visibility: ReplayVisibility,
   signal?: AbortSignal,
   unchecked = false,
-): Promise<DuelReplay | CheckedReplayV2> {
+): Promise<DuelReplay | DuelReplayV2> {
   return parseBody(await fetch(duelReplayUrl(slug, visibility, unchecked), { cache: "no-store", signal }));
 }
 
@@ -205,12 +191,12 @@ export async function getOwnerReplayFrames(
   slug: string,
   view: OwnerReplayView,
   signal?: AbortSignal,
-): Promise<CheckedReplayV2> {
+): Promise<DuelReplayV2> {
   return parseBody(await fetch(ownerReplayUrl(slug, view), { cache: "no-store", signal }));
 }
 
 /** Owner only. The retry key in `request` makes a repeated click or a network retry one fork. */
-export async function postReplayFork(slug: string, request: ReplayForkRequest & { unchecked?: boolean }): Promise<ReplayForkResult> {
+export async function postReplayFork(slug: string, request: ReplayForkRequest): Promise<ReplayForkResult> {
   return parseBody(await fetch(`/api/admin/duels/${encodeURIComponent(slug)}/replay/fork`, {
     method: "POST",
     cache: "no-store",

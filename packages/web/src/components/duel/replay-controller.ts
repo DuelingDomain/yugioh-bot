@@ -16,6 +16,7 @@ import {
   type ReplayFrameV2,
   type ReplayForkStep,
   type ReplayOwnerCapabilities,
+  type ReplayVerification,
   type ReplayVisibility,
 } from "@yugidraft/shared/duels";
 import {
@@ -23,7 +24,6 @@ import {
   getDuelReplayFrames,
   getOwnerReplayFrames,
   isDuelAccessError,
-  type ReplayVerification,
 } from "./api";
 import { useCoinPlaying } from "./coin-toss-lock";
 import { seatTeamLabel } from "./table-format";
@@ -55,6 +55,11 @@ export interface ReplayModel {
   sourceVersion: string | null;
   /** How the server checked the replay. An answer without the field (an older server, or a v1 answer) is "exact". */
   verification: ReplayVerification;
+  /**
+   * The answer is the saved final board, not a move replay (the web fallback for a replay that is too large or cannot run:
+   * one frame, no cursor, and a `replayError`). It also says "unverified", but that is not a warning about moves.
+   */
+  savedBoard: boolean;
   session: DuelSession;
   role: DuelActorRole;
   /** The viewer's real seat. The camera never changes it. */
@@ -89,6 +94,11 @@ function verificationOf(raw: unknown): ReplayVerification {
   return typeof raw === "string" && VERIFICATIONS.includes(raw) ? raw as ReplayVerification : "exact";
 }
 
+/** The saved-board fallback is the only answer with a `replayError`. It has one result frame and no playable cursor. */
+function isSavedBoard(raw: unknown): boolean {
+  return isRecord(raw) && raw.replayError != null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -110,7 +120,7 @@ export function legacyFrameId(step: number): string {
 }
 
 export function normalizeReplay(
-  raw: DuelReplay | (DuelReplayV2 & { verification?: ReplayVerification }),
+  raw: DuelReplay | DuelReplayV2,
   slug: string,
   requested: ReplayVisibility,
   requestedView: ReplayRequestView = { ...ORDINARY_VIEW, visibility: requested },
@@ -127,7 +137,8 @@ export function normalizeReplay(
       requestedView,
       visibility: raw.visibility === "public" ? "public" : "mine",
       sourceVersion: raw.sourceVersion,
-      verification: verificationOf((raw as { verification?: unknown }).verification),
+      verification: verificationOf(raw.verification),
+      savedBoard: isSavedBoard(raw),
       session: raw.session,
       role: raw.role,
       // An owner who asked for one seat's cards views the table as that seat: the camera and hand follow it.
@@ -162,7 +173,8 @@ export function normalizeReplay(
     requestedView,
     visibility: "mine",
     sourceVersion: null,
-    verification: "exact",
+    verification: verificationOf(legacy.verification),
+    savedBoard: isSavedBoard(legacy),
     session: legacy.session,
     role: legacy.role,
     mySeat: legacy.mySeat,
@@ -207,6 +219,16 @@ export const UNVERIFIED_COPY = {
 
 /** The line under a failure when the server has no final board at all. */
 export const NO_FINAL_BOARD_COPY = "No saved final board for this duel.";
+
+/** What a replay says about itself in its info area. `saved-board` is not a warning: it is not a move replay. */
+export type ReplayCheckNote = ReplayVerification | "saved-board";
+
+export function checkNoteOf(model: Pick<ReplayModel, "verification" | "savedBoard">): ReplayCheckNote {
+  return model.savedBoard ? "saved-board" : model.verification;
+}
+
+/** The note of the saved final board (the one-frame fallback). */
+export const SAVED_BOARD_NOTE_COPY = "Saved final board — this is not a move replay.";
 
 /** The banner of a replay that the owner opened without a check. */
 export const UNCHECKED_BANNER_COPY = "Unchecked replay — card data changed after this duel. Moves after a changed card can be wrong.";

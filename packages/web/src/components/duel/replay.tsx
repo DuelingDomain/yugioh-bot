@@ -30,6 +30,7 @@ import {
   useReplayController,
   useReplayData,
   withUncheckedParam,
+  checkNoteOf,
 } from "./replay-controller";
 import { ReplayOwnerTools, forkTarget, isOwnerModel, useForkStart, type OwnerViewState } from "./replay-fork-button";
 import { useOpenForks } from "./replay-open-forks";
@@ -235,7 +236,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
       <div className={replayStyles.state} data-replay-failure>
         <p role="alert" className="text-accent-cta">{failure.message}</p>
         {failure.noFinalBoard ? <p className="text-text-secondary" data-replay-no-final-board>{NO_FINAL_BOARD_COPY}</p> : null}
-        {failure.canOpenUnchecked ? (
+        {failure.canOpenUnchecked && !unchecked ? (
           <button type="button" className={replayStyles.stateButton} data-replay-open-unchecked onClick={openUnchecked}>
             <TriangleAlert size={14} aria-hidden /> Open unchecked replay
           </button>
@@ -474,7 +475,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
                 ) : null}
                 {renderOwnerTools(true)}
               </div>
-              <ReplayVerificationNote verification={model.verification} />
+              <ReplayVerificationNote verification={checkNoteOf(model)} />
               {notice ? <p role="alert" className={replayStyles.note}>{notice}</p> : null}
               {model.mySeat == null || model.visibility === "public"
                 ? <p className={replayStyles.note}>Public view — hidden cards stay hidden</p> : null}
