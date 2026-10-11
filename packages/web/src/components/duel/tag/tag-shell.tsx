@@ -123,6 +123,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
     noResultScreen = false,
     replay,
     replayCarry,
+    resetKey,
   } = props;
   const chainMode = replay ? null : chainModeProp;
   const { teamNames, mode } = resolveTagExtras(props, supplied);
@@ -172,6 +173,14 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
+  const resetSeen = useRef(resetKey);
+  const resetUi = ui.reset;
+  useEffect(() => {
+    if (resetSeen.current === resetKey) return;
+    resetSeen.current = resetKey;
+    resetUi();
+    closeHud();
+  }, [resetKey, resetUi, closeHud]);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const [hideResult, setHideResult] = useState(false);
@@ -217,16 +226,18 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
 
   // The FX lock follows engine events newer than the last one handled. With reduced motion, or while the connection is
   // down (the FX replay nothing), no lock starts but the cursor still moves, so old events never lock the camera later.
+  // A replay fork never locks either: the camera never moves or zooms by itself there (live Tag keeps its lock).
   const lastEvent = useRef<number>(lastEventId(engine.events, 0));
+  const fork = room.session.kind === "replay-fork";
   useEffect(() => {
-    const lock = fxActive ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
+    const lock = fxActive && !fork ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
     if (!lock) {
       lastEvent.current = lastEventId(engine.events, lastEvent.current);
       return;
     }
     lastEvent.current = lock.lastId;
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
-  }, [engine.events, fxActive, controller.reducedMotion]);
+  }, [engine.events, fxActive, fork, controller.reducedMotion]);
 
   // An aim holds the camera where it is: a close-up goes back to the overview, and no click zooms in until the aim ends.
   useEffect(() => {

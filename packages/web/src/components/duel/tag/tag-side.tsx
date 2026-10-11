@@ -25,6 +25,7 @@ import { toneBySeat } from "../table/seat-state";
 import { SEAT_TONE_HEX, type InspectTarget, type TableController } from "../table/types";
 import type { TableUi } from "../table/use-table-ui";
 import type { TableShellProps } from "../table/table-shell";
+import { useForkLabels } from "../table/fork-labels";
 import { pileSideForSeat } from "./live-tag";
 import { firstInspectCard } from "./tag-logic";
 import styles from "./tag-side.module.css";
@@ -108,6 +109,7 @@ export function TagSide({
   replay = false,
 }: TagSideProps) {
   const { engine, room, viewerSeat, nameOf, prompt } = controller;
+  const forkLabels = useForkLabels();
   const session = room.session;
   const domain = session.mode === "domain";
   const narrow = useIsNarrow();
@@ -217,7 +219,7 @@ export function TagSide({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          master={domain ? hudMasterProps(source, engine.seats.find((view) => view.seat === seat), viewerSeat != null, viewerSeat == null ? `${nameOf(seat)}'s Master` : "Your Master") : null}
+          master={domain ? hudMasterProps(source, engine.seats.find((view) => view.seat === seat), viewerSeat != null, viewerSeat == null || forkLabels ? `${nameOf(seat)}'s Master` : "Your Master") : null}
           otherMaster={domain && partner != null ? hudMasterProps(source, engine.seats.find((view) => view.seat === partner), false, `${nameOf(partner)}'s Master`) : null}
           onInspect={ui.setInspect}
           preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hud.state.pinned)}

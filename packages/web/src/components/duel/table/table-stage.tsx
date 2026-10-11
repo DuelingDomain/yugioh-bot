@@ -31,6 +31,7 @@ import { useStripRoom } from "./use-strip-room";
 import { ViewReset } from "./view-reset";
 import { clearRoom, FOLLOW_ATTR, fitItemRect, fitRoom, followShift, VIEW_IDENTITY, type FitItem, type View } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
+import { useForkLabels } from "./fork-labels";
 import styles from "./table-stage.module.css";
 
 /**
@@ -140,6 +141,7 @@ export interface TableStageViewProps extends TableStageProps {
  * `[data-lp-seat]` nodes. `camera` is the camera to draw (the shell passes the effective one).
  */
 export function TableStage({ controller, layout, camera: viewCamera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], targetSeat = null, ring = true, placeLabels, centerPrompts = false }: TableStageViewProps) {
+  const forkLabels = useForkLabels();
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -784,7 +786,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
                 };
                 const enlarged = viewCamera.mode === "focus" && viewCamera.focusSeat === slot.seat;
                 const reach = plaza3 && !fly && !locked && !out.includes(slot.seat)
-                  ? { label: `${nameOf(slot.seat)}${slot.seat === layout.anchorSeat ? " (you)" : ""}'s field`, onToggle: () => dispatchCamera({ type: "enlarge", seat: slot.seat }) }
+                  ? { label: `${nameOf(slot.seat)}${forkLabels ? (slot.relation === "self" ? " (acting)" : "") : slot.seat === layout.anchorSeat ? " (you)" : ""}'s field`, onToggle: () => dispatchCamera({ type: "enlarge", seat: slot.seat }) }
                   : undefined;
                 return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} enlarged={enlarged} reach={reach} targeted={targetSeat === slot.seat} />;
               })}
@@ -822,6 +824,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               clockMs={room.clock?.remainingMs[slot.seat] ?? null}
               status={holoStatus(engine, slot.seat, promptSeat)}
               me={anchor.me}
+              acting={slot.relation === "self"}
               x={anchor.x}
               y={anchor.y}
               beam={fly ? "none" : threeWay ? anchor.beam : place === 0 ? "none" : "down"}

@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
+import { useForkLabels } from "../table/fork-labels";
 import { hexToRgbTriplet } from "../table/seat-angle";
 import { SEAT_TONE_HEX, type CameraLockReason, type TableLayout } from "../table/types";
 import { cameraLabel, lockLabel, ROOF_FIELD, ROOF_WORLD, roofSlots, type CameraAction, type RoofCameraState } from "./roof-camera";
@@ -43,6 +44,8 @@ function keyPress(run: () => void) {
  * ignores them while the FX lock runs, so the buttons are disabled then.
  */
 export function CameraDock({ camera, layout, dispatch, nameOf, turnSeat, outSeats }: CameraDockProps) {
+  // A fork has no "you": the anchor is the camera seat, and the seat that answers is another one.
+  const named = useForkLabels();
   const slots = roofSlots(camera.anchor);
   const locked = camera.lock != null;
   const lockReason: CameraLockReason | null = camera.lock?.reason ?? null;
@@ -58,7 +61,7 @@ export function CameraDock({ camera, layout, dispatch, nameOf, turnSeat, outSeat
     <section className={styles.dock} aria-label="Camera" data-camera-dock data-locked={locked ? "true" : "false"} data-cam={camera.mode}>
       <header className={styles.dockHead}>
         <span>Camera</span>
-        <b data-camera-name>{locked && lockReason ? `Locked · ${lockLabel(lockReason)}` : cameraLabel(camera, nameOf)}</b>
+        <b data-camera-name>{locked && lockReason ? `Locked · ${lockLabel(lockReason)}` : cameraLabel(camera, nameOf, named)}</b>
       </header>
       <svg className={styles.map} viewBox={`0 0 ${MAP_W} ${MAP_H}`} role="group" aria-label="Roof map" data-roof-map>
         <rect className={styles.mapRoof} x={2} y={2} width={MAP_W - 4} height={MAP_H - 4} rx={3} />
@@ -125,7 +128,7 @@ export function CameraDock({ camera, layout, dispatch, nameOf, turnSeat, outSeat
               onClick={() => dispatch({ type: "focus", seat: slot.seat })}
             >
               <kbd>{slot.turnOrder + 1}</kbd>
-              <span>{slot.seat === layout.viewerSeat ? "You" : nameOf(slot.seat).split(" ")[0]}</span>
+              <span>{slot.seat === layout.viewerSeat && !named ? "You" : nameOf(slot.seat).split(" ")[0]}</span>
               <i>{slot.code}</i>
             </button>
           );

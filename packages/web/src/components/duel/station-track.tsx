@@ -9,6 +9,7 @@ import { ChainModeSwitch } from "./chain-mode-switch";
 import { useIsNarrow } from "./side-panel";
 import { duelFontClasses } from "./fonts";
 import { useSkinStyles } from "./skin";
+import { useForkLabels } from "./table/fork-labels";
 import type { ChainModeControl } from "./use-chain-mode";
 import baseStyles from "./station-track.module.css";
 
@@ -216,6 +217,7 @@ export function StationTrack({
   compact = false,
 }: StationTrackProps) {
   const styles = useSkinStyles(baseStyles, "station");
+  const forkLabels = useForkLabels();
   // The hub shows the phases on the board, but only where it fits. On a phone the bar keeps its own strip.
   const narrow = useIsNarrow();
   const hubbed = phases === "hub" && !narrow;
@@ -385,10 +387,10 @@ export function StationTrack({
               >
                 <i className={styles.chipDot} aria-hidden="true" />
                 <span className={styles.chipText}>
-                  <span className={styles.chipName}>{chip.you ? "You" : chip.name.split(" ")[0]}</span>
+                  <span className={styles.chipName}>{chip.you && !forkLabels ? "You" : chip.name.split(" ")[0]}</span>
                   <small className={styles.chipWord} data-testid="chip-word" aria-hidden="true">{SEAT_CHIP_WORD[chip.status]}</small>
                 </span>
-                <span className={styles.srOnly}>{chip.you ? `${chip.name} (you)` : chip.name}{chip.status === "turn" ? ", turn" : chip.status === "eliminated" ? ", out" : ""}</span>
+                <span className={styles.srOnly}>{chip.you && !forkLabels ? `${chip.name} (you)` : chip.name}{chip.status === "turn" ? ", turn" : chip.status === "eliminated" ? ", out" : ""}</span>
               </li>
             ))}
           </ol>

@@ -57,6 +57,7 @@ import { DeckMasterRail, DuelField } from "./field";
 import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
 import { TableShell, type TableShellProps } from "./table/table-shell";
 import type { ReplayCarry } from "./table/replay-mode";
+import { ForkLabelsContext } from "./table/fork-labels";
 import { TagShell } from "./tag/tag-shell";
 import { fieldWaitsForReveal } from "./field-gate";
 import { defaultTeamNames } from "./tag/live-tag";
@@ -1211,7 +1212,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       initialOutOrder: eliminationOrder(liveController.engine),
       connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
       actions: { onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame },
-      ...(forkMode ? { noResultScreen: true, replayCarry: forkCarry } : {}),
+      ...(forkMode ? { noResultScreen: true, replayCarry: forkCarry, resetKey: forkDraftKey } : {}),
       headerTools: <>
         {forkBar}
         {forkMode ? null : <BugReportHeaderButton room={data} />}
@@ -1237,12 +1238,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {cancelModal}
       </>,
     };
-    // The shells keep their own piles, inspector and menus. A new fork view or spectator view clears them with the room's.
-    const shellKey = forkDraftKey !== undefined ? `${slug}:fork:${forkDraftKey}` : watchingOnly ? `${slug}:watching` : slug;
-    return <ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
+    // The shells keep their own piles, inspector and menus. A spectator view remounts them. A fork never does: a seat
+    // switch, a Follow switch or a Reveal change clears them through `resetKey`, and the camera, the grid focus and the
+    // zoom stay where the creator put them.
+    const shellKey = forkMode ? `${slug}:fork` : watchingOnly ? `${slug}:watching` : slug;
+    return <ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
       {liveTagTable ? <TagShell key={shellKey} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={shellKey} {...shellProps} />}
       {forkResult}
-    </DeckSurrenderContext.Provider></ForkSearchContext.Provider>;
+    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>;
   }
   const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
   const domain = data.session.mode === "domain";
@@ -1258,7 +1261,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const headerPhase = battle ? `Battle Phase${stepName ? ` · ${stepName}` : ""}` : shownPhase === null ? "Dealing hands" : phaseTitle(shownPhase);
   const turnSeat = engine?.turnSeat;
   const myTurn = !spectator && turnSeat === data.mySeat;
-  const turnText = turnSeat == null ? null : myTurn ? "Your turn" : `${playerName(turnSeat)}'s turn`;
+  const turnText = turnSeat == null ? null : myTurn && !forkMode ? "Your turn" : `${playerName(turnSeat)}'s turn`;
   const soundLabel = preferences.soundEnabled ? "On" : "Off";
 
   const isActionPrompt = prompt?.kind === "choice" && prompt.context?.type === "action";
@@ -1314,12 +1317,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     setMobileInspect(false);
     onSubmitAnswer({ choice: option.id });
   };
+  // A fork names the docks by seat: the dock is the acting seat's, and "Your"/"Opponent" would be wrong for the camera's seat.
+  const forkMasterTitles = data.mySeat != null ? {
+    selfTitle: `${playerName(data.mySeat)}'s Master`,
+    ...(multi ? {} : { rivals: [{ seat: 1 - data.mySeat, title: `${playerName(1 - data.mySeat)}'s Master` }] }),
+  } : {};
   const masterRail = domain && engine ? (
     <DeckMasterRail engine={engine} mySeat={data.mySeat} legalKeys={fieldLegalKeys}
       selectedKeys={selectedKeys} canAct={canAct}
       legalActionsFor={legalActionsFor}
       onChooseAction={onChooseAction}
       onActivate={onFieldActivate} topSeat={multi ? focusSeat : undefined}
+      {...(forkMode ? forkMasterTitles : {})}
       onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
   ) : null;
   // The Log list stays mounted behind the other tabs (SidePanel keepMounted), so it keeps the rows it has built.
@@ -1568,6 +1577,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed),
     legalKeys: fieldLegalKeys, selectedKeys, onActivate: onFieldActivate,
     onHoverCard, onInspect: (target: InspectTarget) => showInspector(target, true),
+    named: forkMode,
     bottomName: playerName(localSeat),
     topName: playerName(top?.seat ?? 1 - localSeat),
     hub: hubNode,
@@ -1724,7 +1734,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }
 
   return (
-    <ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
+    <ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
       data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
       data-hud={hud ? "room" : undefined}
@@ -1798,7 +1808,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           nameOf={playerName}
           seatTones={hudSeatTones}
           logUnread={logUnread}
-          master={domain ? hudMaster(engine.seats.find((seat) => seat.seat === localSeat), !spectator, spectator ? `${playerName(localSeat)}'s Master` : "Your Master") : null}
+          master={domain ? hudMaster(engine.seats.find((seat) => seat.seat === localSeat), !spectator, spectator || forkMode ? `${playerName(localSeat)}'s Master` : "Your Master") : null}
           otherMaster={domain && top ? hudMaster(top, false, `${playerName(top.seat)}'s Master`) : null}
           onInspect={setInspect}
           preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hudState.pinned)}
@@ -1809,6 +1819,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       ) : null}
       {overlaysNode}
     </div>
-    </DeckSurrenderContext.Provider></ForkSearchContext.Provider>
+    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>
   );
 }

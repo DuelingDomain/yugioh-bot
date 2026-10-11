@@ -70,6 +70,7 @@ import { AimArrow } from "./aim-arrow";
 import { useAimFlow } from "./use-aim-flow";
 import { useCamera } from "./use-camera";
 import { useTableDrawer } from "./use-table-drawer";
+import { useForkLabels } from "./fork-labels";
 import { useTableUi } from "./use-table-ui";
 import { carriedCamera, useReadOnlyReplayController, useReplayCarry, type ReplayCarryRef } from "./replay-mode";
 import { SEAT_TONE_HEX, type CameraLockReason, type CameraState, type ReplayShellMode, type TableController, type TableFormat } from "./types";
@@ -137,6 +138,11 @@ export interface TableShellProps {
    * restarts the table clean; the chosen camera and the open panel stay. Do not switch this prop on a mounted shell.
    */
   replay?: ReplayShellMode;
+  /**
+   * A new value clears the shell's own menus, hover, piles, inspector, declared attack and open flyout, on the mounted
+   * shell. The camera, the grid focus and the zoom stay. A replay fork passes it when the acting seat or the view changes.
+   */
+  resetKey?: string;
   /**
    * A live room that remounts the shell (a replay fork on a new view) keeps its camera and open panel here. The shell writes
    * the camera it shows into it and starts from it. Ignored in replay mode, which owns its own.
@@ -211,6 +217,7 @@ function TableShellBody({
   noResultScreen = false,
   replay,
   replayCarry,
+  resetKey,
 }: TableShellRootProps & { preferences: DuelPreferences }) {
   // A hidden panel prompt (see fieldWaitsForReveal) must not be answered from the field, and nothing glows for it yet.
   // A field pick (zone, tribute, card on the board) takes the click at once: its zones glow from the first frame.
@@ -249,6 +256,14 @@ function TableShellBody({
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
+  const resetSeen = useRef(resetKey);
+  const resetUi = ui.reset;
+  useEffect(() => {
+    if (resetSeen.current === resetKey) return;
+    resetSeen.current = resetKey;
+    resetUi();
+    closeHud();
+  }, [resetKey, resetUi, closeHud]);
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, cameraSeat, nameOf, prompt } = base;
@@ -336,9 +351,11 @@ function TableShellBody({
   const stepName = battleStepLabel(battleStep);
   const headerPhase = battle ? `Battle Phase${stepName ? ` · ${stepName}` : ""}` : phaseTitle(engine.phase);
   const turnSeat = engine.turnSeat;
+  // A replay fork has no "you": every seat reads by name and the seat that answers is tagged "Acting" (fork-labels.ts).
+  const forkLabels = useForkLabels();
   const myTurn = !spectator && turnSeat === viewerSeat;
   // A replay has no player: the camera seat is not "you".
-  const turnText = myTurn && !replay ? "Your turn" : `${nameOf(turnSeat)}'s turn`;
+  const turnText = myTurn && !replay && !forkLabels ? "Your turn" : `${nameOf(turnSeat)}'s turn`;
   const soundLabel = preferences.soundEnabled ? "On" : "Off";
   const connectionLabel = labelForConnection(terminal, connection);
 
@@ -467,7 +484,7 @@ function TableShellBody({
   // Your Deck Master hangs under your LP plate on the wide table; a click opens the drawer on its Master tab.
   const myView = viewerSeat != null ? engine.seats.find((seat) => seat.seat === viewerSeat) : undefined;
   const masterChip = domain && !narrow && !hud && myView?.deckMaster ? (
-    <MasterChip view={myView} label="Your Master" onOpen={() => { ui.setPane("masters"); ui.setDrawerOpen(true); }} />
+    <MasterChip view={myView} label={forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)}'s Master` : "Your Master"} onOpen={() => { ui.setPane("masters"); ui.setDrawerOpen(true); }} />
   ) : null;
 
   const pileSeat = ui.pile?.seat;
@@ -487,7 +504,7 @@ function TableShellBody({
   const newestOut = freshOut.reduce<(typeof out)[number] | null>((best, entry) => (best == null || entry.place < best.place ? entry : best), null);
   const finaleNote = (grid || plazaHud) && finale.caption ? `Final duel: ${finale.caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
   const liveText = [
-    viewerEliminated ? "You are eliminated. You keep watching." : "",
+    viewerEliminated ? (forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)} is eliminated.` : "You are eliminated. You keep watching.") : "",
     newestOut ? `${nameOf(newestOut.seat)} is out, ${placeLabel(newestOut.place)}.` : "",
     finaleNote,
   ].filter(Boolean).join(" ");
@@ -814,11 +831,11 @@ function TableShellBody({
                     {out.length > 0 ? (
                       <ul className={styles.outNote} aria-label="Duelists who left">
                         {out.map((entry) => (
-                          <li key={entry.seat} data-testid="seat-out" data-you={entry.seat === viewerSeat} data-fresh={outAtOpen.has(entry.seat) ? undefined : "true"} style={{ "--seat-main": toneOf(entry.seat).main, "--seat-ink": toneOf(entry.seat).ink } as CSSProperties}>
+                          <li key={entry.seat} data-testid="seat-out" data-you={!forkLabels && entry.seat === viewerSeat} data-fresh={outAtOpen.has(entry.seat) ? undefined : "true"} style={{ "--seat-main": toneOf(entry.seat).main, "--seat-ink": toneOf(entry.seat).ink } as CSSProperties}>
                             <i aria-hidden="true" />
-                            {entry.seat === viewerSeat ? "You are out" : `${nameOf(entry.seat)} is out`}
+                            {!forkLabels && entry.seat === viewerSeat ? "You are out" : `${nameOf(entry.seat)} is out`}
                             <b>{placeLabel(entry.place)}</b>
-                            {entry.seat === viewerSeat ? <em data-testid="self-eliminated" aria-hidden="true">You are eliminated.</em> : null}
+                            {!forkLabels && entry.seat === viewerSeat ? <em data-testid="self-eliminated" aria-hidden="true">You are eliminated.</em> : null}
                           </li>
                         ))}
                       </ul>
@@ -898,7 +915,7 @@ function TableShellBody({
               { legalKeys: controller.legalKeys, selectedKeys: controller.selectedKeys, canAct, prompt, onAnswer: controller.onAnswer, onActivate: controller.onActivate, onHoverCard: controller.onHoverCard },
               engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
               !spectator,
-              spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
+              spectator ? `${nameOf(layout.anchorSeat)}'s Master` : forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)}'s Master` : "Your Master",
             ),
             wide: plazaHud,
           } : null}

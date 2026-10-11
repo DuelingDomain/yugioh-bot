@@ -24,6 +24,8 @@ export type DuelFieldProps = {
   onHoverCard?: DuelHoverHandler;
   bottomName: string;
   topName: string;
+  /** A replay fork: label both halves and the priority tally by name, even with a seat. `mySeat` still means who answers. */
+  named?: boolean;
   /**
    * Replay camera: the seat drawn in the bottom half when it is not `mySeat` (a spectator, or a player looking from
    * another seat). Default: `mySeat`, or seat 0 for a spectator. Pair it with `mySeat: null` so labels use the names.
@@ -52,14 +54,14 @@ export type DuelFieldProps = {
  */
 export function useDuelFieldModel(props: DuelFieldProps & { boardRef: RefObject<HTMLElement | null> }) {
   const { engine, mySeat, masterRule, reducedMotion, legalKeys, selectedKeys, onActivate, onInspect, onHoverCard,
-    bottomName, topName, topSeat, topLabel: topLabelOverride, priorityLive, boardRef } = props;
+    bottomName, topName, named = false, topSeat, topLabel: topLabelOverride, priorityLive, boardRef } = props;
   const bottomIndex = props.bottomSeat ?? mySeat ?? 0;
   const topIndex = topSeat ?? (bottomIndex === 0 ? 1 : 0);
   const bottom = engine.seats.find((seat) => seat.seat === bottomIndex);
   const top = engine.seats.find((seat) => seat.seat === topIndex);
   const callbacks: FieldCallbacks = { legalKeys, selectedKeys, onActivate, onInspect, onHoverCard };
-  const topLabel = topLabelOverride ?? (mySeat == null ? topName : "Opponent");
-  const bottomLabel = mySeat == null ? bottomName : "Your";
+  const topLabel = topLabelOverride ?? (mySeat == null || named ? topName : "Opponent");
+  const bottomLabel = mySeat == null || named ? bottomName : "Your";
   const battle = isBattlePhase(engine.phase);
   const pending = deriveFieldActivity(engine);
   // The room owns local reveal. The parent also contains sibling board effects, which gate
@@ -75,7 +77,7 @@ export function useDuelFieldModel(props: DuelFieldProps & { boardRef: RefObject<
   const turnSeat = useFieldTurnSeat(engine, pending.turnSeat);
   const activity = { ...deriveFieldActivity(engine, !priorityShown), turnSeat };
   const priorityLabel = (seat: number, name: string) => activity.prioritySeat !== seat ? null
-    : mySeat == null ? `${name} to act` : mySeat === seat ? "Your move" : "Opponent to act";
+    : mySeat == null || named ? `${name} to act` : mySeat === seat ? "Your move" : "Opponent to act";
 
   const leftEmz = extraMonster(bottom, top, "left");
   const rightEmz = extraMonster(bottom, top, "right");
@@ -94,7 +96,7 @@ export function useDuelFieldModel(props: DuelFieldProps & { boardRef: RefObject<
   const equipLinks = useMemo(() => resolveEquipLinks(engine.seats), [engine.seats]);
 
   return {
-    bottomIndex, topIndex, bottom, top, callbacks, topLabel, bottomLabel, spectator: mySeat == null, battle,
+    bottomIndex, topIndex, bottom, top, callbacks, topLabel, bottomLabel, spectator: mySeat == null || named, battle,
     activity, priorityLabel, leftEmz, rightEmz, leftEmzKeys, rightEmzKeys, emzOff, equipLinks,
   };
 }

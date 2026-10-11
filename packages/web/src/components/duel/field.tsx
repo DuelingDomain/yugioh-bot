@@ -911,7 +911,7 @@ export function DuelField(props: DuelFieldProps) {
             seatKey={top?.seat}
             active={activity.turnSeat === topIndex}
             priorityLabel={priorityLabel(topIndex, topName)}
-            spectator={mySeat == null}
+            spectator={mySeat == null || props.named === true}
             reducedMotion={reducedMotion}
           />
           {top ? (
@@ -971,7 +971,7 @@ export function DuelField(props: DuelFieldProps) {
             seatKey={bottom?.seat}
             active={activity.turnSeat === bottomIndex}
             priorityLabel={priorityLabel(bottomIndex, bottomName)}
-            spectator={mySeat == null}
+            spectator={mySeat == null || props.named === true}
             reducedMotion={reducedMotion}
           />
           {bottom ? (

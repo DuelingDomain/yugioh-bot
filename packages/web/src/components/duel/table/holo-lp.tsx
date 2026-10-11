@@ -7,6 +7,7 @@ import { LifePoints } from "../life-points";
 import { hexToRgbTriplet } from "./seat-angle";
 import { FOLLOW_ATTR, followTransform } from "./view-zoom";
 import { SEAT_TONE_HEX, type SeatStatus, type SeatTone } from "./types";
+import { useForkLabels } from "./fork-labels";
 import styles from "./holo-lp.module.css";
 
 export interface HoloLpProps {
@@ -22,6 +23,8 @@ export interface HoloLpProps {
   status: SeatStatus;
   /** True for the viewer's own panel: a little larger, no projector beam. */
   me: boolean;
+  /** In a fork: the seat that answers (default: `me`). The camera seat keeps `me` for its size and place, but is not "you". */
+  acting?: boolean;
   /** Top-left of the panel in stage px. */
   x: number;
   y: number;
@@ -114,6 +117,7 @@ export function HoloLp({
   clockMs,
   status,
   me,
+  acting,
   x,
   y,
   width,
@@ -136,6 +140,7 @@ export function HoloLp({
   reducedMotion,
   follow = false,
 }: HoloLpProps) {
+  const forkLabels = useForkLabels();
   const hex = SEAT_TONE_HEX[tone];
   const stateLabel = STATE_LABEL[status];
   const turn = status === "turn";
@@ -155,7 +160,7 @@ export function HoloLp({
     <>
       <div className={styles.top} data-holo-text="true">
         <i aria-hidden="true" />
-        <b>{me ? `${name} (you)` : name}</b>
+        <b>{forkLabels ? ((acting ?? me) ? `${name} (acting)` : name) : me ? `${name} (you)` : name}</b>
         {turn ? <span className={styles.turnChip}>Turn</span> : null}
       </div>
       <div className={styles.main} data-lp-seat={seat} data-holo-text="true">
