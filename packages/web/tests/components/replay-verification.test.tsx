@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetCoinTossState } from "@/components/duel/coin-toss-lock";
 import { replayV2 } from "./replay-fixtures";
@@ -32,14 +32,15 @@ vi.mock("@/components/duel/tag/tag-shell", () => ({
 import { DuelReplayView } from "@/components/duel/replay";
 import { ReplayVerificationNote } from "@/components/duel/replay-verification";
 import { ReplayTableTransport } from "@/components/duel/replay-ffa";
-import { replayFailure, UNCHECKED_BANNER_COPY } from "@/components/duel/replay-controller";
+import { replayFailure, useReplayData, UNCHECKED_BANNER_COPY } from "@/components/duel/replay-controller";
 import { DuelRequestError } from "@/components/duel/api";
 import { rememberHistorySearch, savedHistoryHref } from "@/components/duel/history-filters";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const MISMATCH = "This replay no longer matches the saved duel, because card data changed after it was played.";
 const NO_BOARD = "This duel has no saved final board, so its replay cannot be checked.";
-const BANNER = "Unchecked replay — card data changed after this duel. Moves after a changed card can be wrong.";
+const PARTIAL = "This replay cannot be checked, because part of the saved final board is missing.";
+const BANNER = "Unchecked replay — this replay was not checked against the saved final board. Moves can be wrong if card data changed.";
 
 let calls: Array<{ url: URL; init?: RequestInit }>;
 function server(answer: (url: URL, init?: RequestInit) => Response | Promise<Response>) {
@@ -66,11 +67,17 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); resetCoinTossState(); });
 
 describe("REPLAY_UNVERIFIED copy", () => {
-  it.each([["board_mismatch", MISMATCH], ["command_mismatch", MISMATCH], ["no_saved_board", NO_BOARD]])(
+  it.each([["board_mismatch", MISMATCH], ["command_mismatch", MISMATCH]])(
     "says the right thing for %s", (reason, text) => {
       const failure = replayFailure(new DuelRequestError("server text", 409, "REPLAY_UNVERIFIED", "available", { reason: reason as "board_mismatch" }));
       expect(failure.message).toBe(text);
     });
+
+  it.each([["none", NO_BOARD], ["available", PARTIAL]] as const)("picks the no_saved_board copy by finalBoard (%s)", (finalBoard, text) => {
+    const failure = replayFailure(new DuelRequestError("x", 409, "REPLAY_UNVERIFIED", finalBoard, { reason: "no_saved_board" }));
+    expect(failure.message).toBe(text);
+    expect(failure.noFinalBoard).toBe(false);
+  });
 
   it("uses the mismatch copy when the server sends no reason", () => {
     expect(replayFailure(new DuelRequestError("x", 409, "REPLAY_UNVERIFIED")).message).toBe(MISMATCH);
@@ -84,10 +91,20 @@ describe("REPLAY_UNVERIFIED copy", () => {
     expect(screen.getByRole("link", { name: "Match history" })).toBeTruthy();
   });
 
-  it("shows the no-board copy for no_saved_board", async () => {
+  it("says the final board is missing, once, when finalBoard is none", async () => {
     server(() => json(unverifiedBody({ reason: "no_saved_board", finalBoard: "none" }), 409));
     render(<DuelReplayView slug="game-1" />);
     expect((await screen.findByRole("alert")).textContent).toBe(NO_BOARD);
+    expect(screen.queryByText("No saved final board for this duel.")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Final board" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Match history" })).toBeTruthy();
+  });
+
+  it("says part of the board is missing, with the Final board link, when finalBoard is available", async () => {
+    server(() => json(unverifiedBody({ reason: "no_saved_board", finalBoard: "available" }), 409));
+    render(<DuelReplayView slug="game-1" />);
+    expect((await screen.findByRole("alert")).textContent).toBe(PARTIAL);
+    expect(screen.getByRole("link", { name: "Final board" }).getAttribute("href")).toBe("/duels/game-1");
   });
 });
 
@@ -121,12 +138,74 @@ describe("Open unchecked replay", () => {
     expect(screen.getByText(BANNER)).toBeTruthy();
   });
 
-  it("shows no button again when the unchecked request itself failed (command mismatch)", async () => {
-    window.history.replaceState(null, "", "/duels/game-1/replay?unchecked=1");
+  it("shows no button for a command mismatch, even when the server says the owner may open it", async () => {
     server(() => json(unverifiedBody({ canOpenUnchecked: true, reason: "command_mismatch" }), 409));
     render(<DuelReplayView slug="game-1" canInspectSource />);
     expect((await screen.findByRole("alert")).textContent).toBe(MISMATCH);
     expect(screen.queryByRole("button", { name: "Open unchecked replay" })).toBeNull();
+  });
+
+  it("shows no button again when the unchecked request itself failed", async () => {
+    window.history.replaceState(null, "", "/duels/game-1/replay?unchecked=1");
+    server(() => json(unverifiedBody({ canOpenUnchecked: true }), 409));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("button", { name: "Open unchecked replay" })).toBeNull();
+  });
+
+  it("moves focus to the replay controls once the unchecked replay is there", async () => {
+    server((url) => url.searchParams.get("unchecked") === "1"
+      ? json({ ...replayV2(), verification: "unverified" })
+      : json(unverifiedBody({ canOpenUnchecked: true }), 409));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open unchecked replay" }));
+    const group = await screen.findByRole("group", { name: "Replay controls" });
+    await waitFor(() => expect(document.activeElement).toBe(group));
+  });
+
+  it("moves focus to the failure when the unchecked request is refused", async () => {
+    server((url) => json(url.searchParams.get("unchecked") === "1"
+      ? unverifiedBody({ reason: "command_mismatch", canOpenUnchecked: false })
+      : unverifiedBody({ canOpenUnchecked: true }), 409));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open unchecked replay" }));
+    await waitFor(() => expect(document.activeElement).toBe(document.querySelector("[data-replay-failure]")));
+  });
+
+  it("keeps unchecked when the card view changes", async () => {
+    window.history.replaceState(null, "", "/duels/game-1/replay?unchecked=1");
+    server(() => json({ ...replayV2(), verification: "unverified" }));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    await screen.findByRole("group", { name: "Replay controls" });
+    fireEvent.click(screen.getByRole("button", { name: "Public" }));
+    await waitFor(() => expect(calls.some((call) => call.url.searchParams.get("visibility") === "public")).toBe(true));
+    for (const call of calls) expect(call.url.searchParams.get("unchecked")).toBe("1");
+  });
+
+  it("keeps unchecked when the owner changes seat or reveal", async () => {
+    server(() => json({ ...replayV2(), verification: "unverified" }));
+    const { rerender } = renderHook((props: { seat: number | null; reveal: boolean }) =>
+      useReplayData("game-1", "mine", { enabled: true, ...props }, true), { initialProps: { seat: null as number | null, reveal: false } });
+    await waitFor(() => expect(calls).toHaveLength(1));
+    rerender({ seat: 1, reveal: true });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    const last = calls[1]!.url;
+    expect(last.pathname).toBe("/api/admin/duels/game-1/replay");
+    expect(last.searchParams.get("seat")).toBe("1");
+    expect(last.searchParams.get("reveal")).toBe("1");
+    for (const call of calls) expect(call.url.searchParams.get("unchecked")).toBe("1");
+  });
+
+  it("does not send unchecked in the ordinary fallback after ACCESS_DENIED", async () => {
+    window.history.replaceState(null, "", "/duels/game-1/replay?unchecked=1");
+    server((url) => url.pathname.startsWith("/api/admin/")
+      ? json({ error: "Not allowed", code: "ACCESS_DENIED" }, 403)
+      : json(replayV2()));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    await screen.findByRole("group", { name: "Replay controls" });
+    expect(calls.map((call) => call.url.pathname)).toEqual(["/api/admin/duels/game-1/replay", "/api/duels/game-1/replay"]);
+    expect(calls[0]!.url.searchParams.get("unchecked")).toBe("1");
+    expect(calls[1]!.url.searchParams.has("unchecked")).toBe(false);
   });
 
   it("asks for the unchecked replay at once when the address has ?unchecked=1 (owner page)", async () => {
@@ -151,7 +230,7 @@ describe("verification banner", () => {
     server(() => json({ ...replayV2(), verification: "unverified" }));
     render(<DuelReplayView slug="game-1" />);
     await screen.findByRole("group", { name: "Replay controls" });
-    expect(document.querySelector("[data-replay-unchecked]")?.textContent).toBe(BANNER);
+    expect(document.querySelector("[data-replay-unchecked]")?.textContent).toContain(BANNER);
     expect(BANNER).toBe(UNCHECKED_BANNER_COPY);
   });
 
@@ -164,25 +243,54 @@ describe("verification banner", () => {
     expect(Boolean(document.querySelector("[data-replay-verified]"))).toBe(verification === "verified");
   });
 
-  it("shows in the Tag layout and the free-for-all strip too", async () => {
+  it("shows in the Tag layout", async () => {
     server(() => json({ ...replayV2({ format: "tag" }), verification: "unverified" }));
     render(<DuelReplayView slug="game-1" />);
     await screen.findByTestId("tag-shell");
     expect(screen.getByTestId("tag-shell").querySelector("[data-replay-unchecked]")).toBeTruthy();
-    cleanup();
+  });
+
+  it("is a static note with a name, not a live region, and does not repeat its text as a title", () => {
+    render(<ReplayVerificationNote verification="unverified" />);
+    expect(screen.queryByRole("status")).toBeNull();
+    const note = screen.getByRole("note", { name: "Unchecked replay" });
+    expect(note.getAttribute("title")).toBeNull();
+    expect(note.querySelector("[title]")).toBeNull();
+  });
+
+  it("keeps the full text as the title of the cut text in the strip form", () => {
     render(<ReplayVerificationNote verification="unverified" strip />);
-    expect(screen.getByRole("status").textContent).toBe(BANNER);
-    cleanup();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("note", { name: "Unchecked replay" }).textContent).toContain(BANNER);
+    expect(screen.getByTitle(BANNER)).toBeTruthy();
+  });
+
+  describe("free-for-all transport", () => {
     const props = {
       slug: "g", seatCount: 3, playerName: (seat: number) => `P${seat}`, caption: "c", newLines: [], result: null, visibility: "mine" as const,
       hiddenNote: false, canSwitchCards: false, onVisibility: vi.fn(), onCamera: vi.fn(), notice: null,
       controller: { index: 0, last: 1, playing: false, speed: 1, camera: 0, seek: vi.fn(), stepBack: vi.fn(), stepForward: vi.fn(), togglePlay: vi.fn(), setSpeed: vi.fn() },
     };
-    render(<ReplayTableTransport {...props} controller={props.controller as never} verification="unverified" />);
-    expect(document.querySelector("[data-replay-unchecked]")).toBeTruthy();
-    cleanup();
-    render(<ReplayTableTransport {...props} controller={props.controller as never} verification="exact" />);
-    expect(document.querySelector("[data-replay-unchecked]")).toBeNull();
+
+    it("shows the banner when unverified", () => {
+      render(<ReplayTableTransport {...props} controller={props.controller as never} verification="unverified" />);
+      expect(document.querySelector("[data-replay-unchecked]")).toBeTruthy();
+    });
+
+    it("shows none when exact", () => {
+      render(<ReplayTableTransport {...props} controller={props.controller as never} verification="exact" />);
+      expect(document.querySelector("[data-replay-unchecked]")).toBeNull();
+    });
+  });
+});
+
+describe("Back to checked view", () => {
+  it("is a link to the same address without ?unchecked=1 (other parameters stay)", async () => {
+    window.history.replaceState(null, "", "/duels/game-1/replay?frame=step-2&unchecked=1");
+    server(() => json({ ...replayV2(), verification: "unverified" }));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    const link = await screen.findByRole("link", { name: "Back to checked view" });
+    expect(link.getAttribute("href")).toBe("/duels/game-1/replay?frame=step-2");
   });
 });
 

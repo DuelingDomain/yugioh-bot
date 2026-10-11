@@ -164,6 +164,20 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const openForks = useOpenForks(ownerAnswer);
   const fork = useForkStart({ slug, model, frame: forkTarget(model, model?.frames[index], forkStepId), onReload: reload, onPause: controller.pause, openForks });
 
+  // The button that opened the unchecked replay is gone by the time the answer comes: put focus on the new page (the
+  // replay controls, or the failure) instead of leaving it on the body.
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (!refocus.current) return;
+    const target = model && settled
+      ? document.querySelector<HTMLElement>('[role="group"][aria-label="Replay controls"]')
+      : error && !model ? document.querySelector<HTMLElement>("[data-replay-failure]") : null;
+    if (!target) return;
+    refocus.current = false;
+    target.tabIndex = -1;
+    target.focus({ preventScroll: true });
+  }, [model, settled, error]);
+
   useEffect(() => {
     setUnchecked(uncheckedInUrl);
     setVisibility("mine");
@@ -226,6 +240,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
     window.history.replaceState(window.history.state, "", withUncheckedParam(
       `${window.location.pathname}${window.location.search}${window.location.hash}`, true,
     ));
+    refocus.current = true;
     setUnchecked(true);
   }
 
@@ -233,7 +248,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   if (error && !model) {
     const failure = replayFailure(error);
     return (
-      <div className={replayStyles.state} data-replay-failure>
+      <div className={replayStyles.state} data-replay-failure tabIndex={-1}>
         <p role="alert" className="text-accent-cta">{failure.message}</p>
         {failure.noFinalBoard ? <p className="text-text-secondary" data-replay-no-final-board>{NO_FINAL_BOARD_COPY}</p> : null}
         {failure.canOpenUnchecked && !unchecked ? (

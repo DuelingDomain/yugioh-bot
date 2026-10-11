@@ -215,6 +215,8 @@ const FAILURE_COPY: Record<string, string> = {
 export const UNVERIFIED_COPY = {
   mismatch: "This replay no longer matches the saved duel, because card data changed after it was played.",
   noBoard: "This duel has no saved final board, so its replay cannot be checked.",
+  /** no_saved_board while the viewer's own final board exists: another seat's saved board is missing. */
+  partialBoard: "This replay cannot be checked, because part of the saved final board is missing.",
 } as const;
 
 /** The line under a failure when the server has no final board at all. */
@@ -231,13 +233,19 @@ export function checkNoteOf(model: Pick<ReplayModel, "verification" | "savedBoar
 export const SAVED_BOARD_NOTE_COPY = "Saved final board — this is not a move replay.";
 
 /** The banner of a replay that the owner opened without a check. */
-export const UNCHECKED_BANNER_COPY = "Unchecked replay — card data changed after this duel. Moves after a changed card can be wrong.";
+export const UNCHECKED_BANNER_COPY = "Unchecked replay — this replay was not checked against the saved final board. Moves can be wrong if card data changed.";
+
+/** The link in that banner: the same address without ?unchecked=1. */
+export const BACK_TO_CHECKED_COPY = "Back to checked view";
 
 export function replayFailure(error: unknown, fallback = "Could not load this replay."): ReplayFailure {
   if (error instanceof DuelRequestError) {
     const unverified = error.code === "REPLAY_UNVERIFIED";
+    const reason = error.detail?.reason;
+    // no_saved_board: the copy follows finalBoard, so the text never says "no final board" above a Final board link.
+    const noBoardCopy = error.finalBoard === "available" ? UNVERIFIED_COPY.partialBoard : UNVERIFIED_COPY.noBoard;
     const typed = unverified
-      ? (error.detail?.reason === "no_saved_board" ? UNVERIFIED_COPY.noBoard : UNVERIFIED_COPY.mismatch)
+      ? (reason === "no_saved_board" ? noBoardCopy : UNVERIFIED_COPY.mismatch)
       : error.code ? FAILURE_COPY[error.code] : undefined;
     const message = typed ?? (error.message || fallback);
     const reasonFinalBoard = error.code === "ENGINE_UNAVAILABLE_FOR_SOURCE" || error.code === "REPLAY_MISMATCH"
@@ -248,8 +256,10 @@ export function replayFailure(error: unknown, fallback = "Could not load this re
     return {
       message: text,
       finalBoard: !none && error.code !== "ACCESS_DENIED",
-      noFinalBoard: none,
-      canOpenUnchecked: unverified && error.detail?.canOpenUnchecked === true,
+      // The no_saved_board message already says it: one message, never two.
+      noFinalBoard: none && !(unverified && reason === "no_saved_board"),
+      // The host refuses a command mismatch even for an unchecked request: the button could never work.
+      canOpenUnchecked: unverified && reason !== "command_mismatch" && error.detail?.canOpenUnchecked === true,
     };
   }
   return {
@@ -321,7 +331,8 @@ export function useReplayData(
           // The old privileged answer must disappear before an ordinary fallback can load.
           if (isDuelAccessError(error) && mine === generation.current && !abort.signal.aborted) setModel(null);
           if (error instanceof DuelRequestError && error.code === "ACCESS_DENIED" && !abort.signal.aborted) {
-            return getDuelReplayFrames(slug, visibility, abort.signal, unchecked);
+            // Never unchecked here: the ordinary route refuses it for everyone who is not the owner.
+            return getDuelReplayFrames(slug, visibility, abort.signal);
           }
           throw error;
         })
