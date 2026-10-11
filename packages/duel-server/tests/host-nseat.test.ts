@@ -748,6 +748,9 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
           prefixCount: 7, prefixHash: "a".repeat(64), sourceSeats: [{ seat: 0, displayName: null }, { seat: 1, displayName: null }],
         },
       } }), slug);
+      const denied = await post(t.host, { op: "report", slug, note: "Forged fork metadata", ...t.who });
+      expect(denied.status).toBe(404);
+      t.db.prepare("update duels set setup_json = ? where web_slug = ?").run(JSON.stringify(savedSetup), slug);
       const began = Date.now();
       const reported = await post(t.host, { op: "report", slug, note: "Hung.", ...t.who });
       expect(Date.now() - began).toBeLessThan(2000);
@@ -947,7 +950,7 @@ describe("the engine version a duel pins", () => {
 
   async function activated(format: DuelFormat, humans: number, version: string) {
     const t = await table(format, humans, []);
-    t.duels.activate(t.slug, "g1", t.players[0]!, ["seed"], version, null, { firstTurnDraw: false });
+    t.duels.activate(t.slug, "g1", t.players[0]!, ["1", "2", "3", "4"], version, null, { firstTurnDraw: false });
     return t;
   }
   const view = (t: Awaited<ReturnType<typeof table>>) => post(t.host, { op: "view", ...t.organizer });

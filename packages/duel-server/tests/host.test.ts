@@ -895,7 +895,8 @@ describe("duel host clocks", () => {
 
     nowMs = 35_000;
     await vi.advanceTimersByTimeAsync(20);
-    expect(duels.get(session.slug, "g1").status).toBe("completed");
+    // Recovery now awaits the resource hash worker before the sweep can finish.
+    await vi.waitFor(() => expect(duels.get(session.slug, "g1").status).toBe("completed"));
     expect(duels.get(session.slug, "g1").winnerSeat).toBe(1);
     expect(duels.get(session.slug, "g1").resultReason).toBe("Time limit");
     const retained = duels.room(session.slug, "g1", p1);
