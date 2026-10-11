@@ -411,6 +411,67 @@ describe("FFA replay: read only", () => {
     expect(screen.getByText("Move 2 / 4")).toBeTruthy();
   });
 
+  it("keeps the open Log panel open across a card view switch", async () => {
+    let release: (() => void) | null = null;
+    const server = replayOf("ffa4", FOUR_TO_TWO(), 0);
+    vi.stubGlobal("fetch", vi.fn((input: string) => new Promise<Response>((resolve) => {
+      const url = new URL(input, "http://localhost");
+      if (!url.pathname.endsWith("/replay")) return resolve(json({ cards: [] }));
+      const visibility = url.searchParams.get("visibility") === "public" ? "public" : "mine";
+      const respond = () => resolve(json(server(visibility)));
+      if (visibility === "public") release = respond; else respond();
+    })));
+    await open();
+    // The Log flyout stays mounted when closed, so the dock button says whether it is open.
+    const logOpen = () => screen.getByTestId("hud-dock-log").getAttribute("aria-pressed");
+    if (logOpen() !== "true") fireEvent.click(screen.getByTestId("hud-dock-log"));
+    expect(logOpen()).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Public" }));
+    expect(document.querySelector("[data-replay-busy='true']")).not.toBeNull();
+    await act(async () => { release?.(); });
+    await waitFor(() => expect(document.querySelector("[data-replay-busy]")).toBeNull());
+    expect(logOpen()).toBe("true");
+  });
+
+  it("announces a seek: the status line outlives the rebuild of the table", async () => {
+    stubServer(replayOf("ffa4", FOUR_TO_TWO(), 0));
+    await open();
+    const status = () => document.querySelector("[data-replay-status]") as HTMLElement;
+    const line = status();
+    expect(document.querySelectorAll("[data-replay-status]")).toHaveLength(1);
+    go("Next move");
+    go("Next move");
+    go("Previous move");
+    await waitFor(() => expect(status().textContent).toMatch(/^Move 1 of 4\. /));
+    fireEvent.change(screen.getByRole("slider", { name: "Replay position" }), { target: { value: "3" } });
+    await waitFor(() => expect(status().textContent).toMatch(/^Move 3 of 4\. /));
+    // Same node: a seek rebuilds the table (a new key), not the live region a screen reader is already watching.
+    expect(status()).toBe(line);
+    expect(line.isConnected).toBe(true);
+    expect(document.querySelectorAll("[data-replay-status]")).toHaveLength(1);
+  });
+
+  it("keeps the strip to one line: the failed-switch note, the public note and the link share the caption row", async () => {
+    stubServer((visibility) => {
+      if (visibility === "public") throw new Error("never");
+      return replayOf("ffa4", FOUR_TO_TWO(), 0)(visibility);
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      const url = new URL(input, "http://localhost");
+      if (!url.pathname.endsWith("/replay")) return json({ cards: [] });
+      if (url.searchParams.get("visibility") === "public") return json({ error: "Public view is busy.", code: "ENGINE_BUSY" }, 503);
+      return json(replayOf("ffa4", FOUR_TO_TWO(), 0)("mine"));
+    }));
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Public" }));
+    const alert = await screen.findByRole("alert");
+    const bar = screen.getByTestId("replay-transport");
+    const top = alert.parentElement as HTMLElement;
+    expect(bar.contains(alert)).toBe(true);
+    expect(top.contains(screen.getByRole("link", { name: "Final board" }))).toBe(true);
+    expect(alert.getAttribute("title")).toBe(alert.textContent);
+  });
+
   it("offers no live control: no surrender, no clock, no prompt answer, nothing legal to click", async () => {
     stubServer(replayOf("ffa4", [
       ffaFrame("ffa4", 0, { pairing: "facing" }),
