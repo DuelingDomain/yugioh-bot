@@ -17,6 +17,7 @@ const scriptErrors: DuelScriptError[] = [];
 const fatalScriptErrors: DuelScriptFatalError[] = [];
 let creationIdentity = "start";
 let journalPosition = 0;
+let manualLossAnswersAfter: number | null = null;
 
 function canonicalCommand(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalCommand);
@@ -43,8 +44,9 @@ export async function handleWorkerRequest(request: DuelWorkerRequest): Promise<D
   if (mutation && response.ok) {
     if (request.op === "create") { creationIdentity = commandHash; journalPosition = 0; }
     else journalPosition++;
+    if (manualLossAnswersAfter !== null && journalPosition >= manualLossAnswersAfter) game?.setManualLossAnswers?.(true);
   }
-  if (request.op === "close") { creationIdentity = "start"; journalPosition = 0; traceSeats = 0; }
+  if (request.op === "close") { creationIdentity = "start"; journalPosition = 0; traceSeats = 0; manualLossAnswersAfter = null; }
   if (response.ok && game) {
     try {
       response.info = game.coreInfo();
@@ -73,6 +75,11 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
     switch (request.op) {
       case "create": {
         if (game) return { id: request.id, ok: false, error: "A game is already running in this worker" };
+        const boundary = request.options.manualLossAnswersAfter;
+        if (boundary !== undefined && (!Number.isSafeInteger(boundary) || boundary < 0)) {
+          return { id: request.id, ok: false, error: "Invalid fork control boundary" };
+        }
+        manualLossAnswersAfter = boundary ?? null;
         if (request.options.engineIdentity) {
           verifyWorkerEngineIdentity(request.options.dataDirectory, request.options, request.options.engineIdentity);
         }

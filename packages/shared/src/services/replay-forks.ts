@@ -176,6 +176,9 @@ export function createReplayForkService(db: Database.Database): ReplayForkServic
     const current = duels.privateState(input.origin.sourceSlug, owner.guildId);
     if (!sourceMatches(current, input.source)) throw new ReplayForkStorageError("The source changed after checkpoint validation", "SOURCE_CHANGED");
     const replayFork: ReplayForkSetup = { ownerUserId: owner.userId, control: "all-manual", origin: input.origin };
+    const previousFork = current.setup?.replayFork;
+    const manualBoundary = previousFork?.manualLossAnswersAfter ?? previousFork?.origin.prefixCount;
+    if (manualBoundary !== undefined && manualBoundary < input.origin.prefixCount) replayFork.manualLossAnswersAfter = manualBoundary;
     validateSource(input.source, replayFork, owner);
     const setup = forkSetup(input.source, replayFork), source = input.source;
     // Retain recorded engine rules in settings. A null clock disables live timers; no opening or invite is created.

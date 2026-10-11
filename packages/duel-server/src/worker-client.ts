@@ -11,6 +11,8 @@ import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoic
 const PROMPT_LOG_LIMIT = 5_000;
 
 export interface GameOptions {
+  /** Internal fork control boundary in accepted journal commands. Original prefix rules stay unchanged. */
+  manualLossAnswersAfter?: number;
   engineIdentity?: EngineIdentity;
   scriptErrorMode?: DuelScriptErrorMode;
   mode: DuelMode;

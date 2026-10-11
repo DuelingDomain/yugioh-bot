@@ -1219,6 +1219,7 @@ export function createDuelHost(options: {
     let recordRecoveryErrors = !fork;
     try {
       const replayRun = runJournalPrefix({
+        ...(fork ? { manualLossAnswersAfter: state.setup!.replayFork!.manualLossAnswersAfter ?? state.setup!.replayFork!.origin.prefixCount } : {}),
         source: journalSourceOf(state),
         resources: journalResourcesOf(resources),
         prefixCount: state.commands.length,
@@ -1551,6 +1552,7 @@ export function createDuelHost(options: {
         projection.visibility, projection.dataSeat, projection.reveal, projection.actorPlayerId,
         projection.ownerUserId, projection.privileged, finalView])).digest("hex");
       const frames = await replayCache.getOrBuild(key, () => buildReplayFrames({ source, sourceVersion,
+        ...(isReplayFork(state.session) ? { manualLossAnswersAfter: state.setup!.replayFork!.manualLossAnswersAfter ?? state.setup!.replayFork!.origin.prefixCount } : {}),
         resources: journalResourcesOf(resources), codec: replayCursorCodec, dataSeat: projection.dataSeat,
         reveal: projection.reveal, finalView, createWorker: () => spawn() }));
       if (sourceVersion !== replaySourceVersion(journalSourceOf(service.privateState(slug, guildId)))) {
