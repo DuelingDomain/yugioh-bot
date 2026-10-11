@@ -47,6 +47,7 @@ import {
   startDuel,
   setChainResponseMode,
   surrenderDuel,
+  type ForkViewControl,
 } from "./api";
 import { ReplayForkBar, ReplayForkResult, sourceReplayHref } from "./replay-fork-bar";
 import { ForkSearchContext, followSeat, forkRoomState, forkViewSettled, livingSeats, useForkViewState } from "./replay-fork-control";
@@ -168,12 +169,17 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const { mutate: purgeCache } = useSWRConfig();
   // Each fork view (seat and Reveal choice) has its own cache key. All of them go together, so a key used earlier
   // never shows its old room when it is asked for again.
+  // A purge with `revalidate` on also drops the shared in-flight request of a key, so a view asked for again while its first
+  // request is still running starts a new one (that request began before the purge stamp and SWR would discard it). The key on
+  // screen is the one mounted hook: it is left out, or it would send a second request.
+  const forkViewNow = useRef<ForkViewControl | null>(null);
   const purgeForkViews = useCallback(() => {
     const own = `/api/duels/${slug}`;
-    return purgeCache((key) => typeof key === "string" && (key === own || key.startsWith(`${own}?`)), undefined, { revalidate: false });
-  }, [purgeCache, slug]);
+    const shown = duelRoomKey(slug, spectate, forkViewNow.current);
+    return purgeCache((key) => typeof key === "string" && (key === own || key.startsWith(`${own}?`)), undefined,
+      { revalidate: (_data: unknown, key: unknown) => key !== shown });
+  }, [purgeCache, slug, spectate]);
   const forkView = useForkViewState(() => { void purgeForkViews(); });
-  const forkViewNow = useRef(forkView.view);
   forkViewNow.current = forkView.view;
   const forkSeenFor = useRef<string | null>(null);
   // Set while a fork view is refused (access lost). It holds until a room that arrived after the refusal is on screen, so a
@@ -208,9 +214,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       keepPreviousData: forkSeenFor.current === slug && !(accessLostAt != null && accessLostAt.slug === slug),
       // A fork view is asked for with a new key, and the purge above stamps a newer mutation time on it: SWR throws away a
       // request that started before that stamp. A finished request that is still shared (the default is 2 s) would be reused
-      // for the same view asked for again and then discarded, and the table would stay on "catching up". So a finished
-      // request is never reused (one still in flight is). This is also the only request a view change makes.
-      dedupingInterval: 0 },
+      // for the same view asked for again and then discarded, and the table would stay on "catching up". So in a fork a finished
+      // request is never reused (one still in flight is). This is also the only request a view change makes. Ordinary rooms
+      // keep the default.
+      dedupingInterval: forkSeenFor.current === slug ? 0 : undefined },
   );
   const refreshRoom = useCallback(
     () => mutate(() => getDuelRoom(slug, spectate, forkView.view), { revalidate: false }),
@@ -1561,7 +1568,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
         draft={draft} onSubmit={onSubmitAnswer} menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen}
         active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
-        waitingName={multi && prompt ? playerName(prompt.seat) : null}
+        waitingName={(multi || forkMode) && prompt ? playerName(prompt.seat) : null}
         disabledIds={engine ? outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats)) : undefined} />
     </div>
   );

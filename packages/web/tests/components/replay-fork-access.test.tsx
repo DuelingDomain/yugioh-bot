@@ -135,6 +135,50 @@ describe("a fork view that is asked for again within the dedupe window", () => {
     expect(chip(/Ada/).getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("settles: a view asked for again while its first request is still running starts a new request", async () => {
+    const urls: string[] = [];
+    const held: Array<() => void> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      urls.push(input);
+      // The first as=0 request is held open: it is still in flight when the view is asked for again.
+      if (input === "/api/duels/fork-1?as=0" && urls.filter((url) => url === input).length === 1) await new Promise<void>((resolve) => held.push(resolve));
+      return json(forkRoom(control({ actingSeat: 0 })));
+    }));
+    render(
+      <SWRConfig value={{ provider: () => new Map() }}>
+        <DuelRoomView slug="fork-1" />
+      </SWRConfig>,
+    );
+    await screen.findByTestId("field");
+    await waitFor(() => expect((chip(/Bo/) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    const follow = () => within(screen.getByRole("dialog")).getByLabelText("Follow prompt");
+    // Follow off holds seat 0 (as=0, held), Follow on returns to the plain view, Follow off asks for as=0 again.
+    fireEvent.click(follow());
+    await waitFor(() => expect(urls).toContain("/api/duels/fork-1?as=0"));
+    fireEvent.click(follow());
+    fireEvent.click(follow());
+    await waitFor(() => expect(urls.filter((url) => url === "/api/duels/fork-1?as=0")).toHaveLength(2));
+    held.forEach((release) => release());
+    await waitFor(() => expect((chip(/Ada/) as HTMLButtonElement).disabled).toBe(false), { timeout: 1500 });
+  });
+
+  it("a 1v1 fork held on a seat that does not answer says who is awaited by name", async () => {
+    const prompt = { id: "ask", seat: 1, kind: "choice", title: "Respond?", options: [{ id: "pass", label: "Pass" }], cancelable: true } as unknown as NonNullable<NonNullable<DuelRoom["engine"]>["prompt"]>;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      const room = forkRoom(control({ actingSeat: 0 }));
+      return json({ ...room, engine: { ...room.engine!, prompt } });
+    }));
+    render(
+      <SWRConfig value={{ provider: () => new Map() }}>
+        <DuelRoomView slug="fork-1" />
+      </SWRConfig>,
+    );
+    await screen.findByTestId("field");
+    expect(await screen.findByText(/Waiting for Bo/)).toBeTruthy();
+    expect(screen.queryByText(/Waiting for the opponent/)).toBeNull();
+  });
+
   it("sends one room request for each view change", async () => {
     const urls: string[] = [];
     vi.stubGlobal("fetch", fetchBySeat(urls));
