@@ -34,6 +34,24 @@ function row(db: Database.Database, format = "ffa4", status = "completed", kind 
 }
 const saved = (db: Database.Database, id: number) => db.prepare("select * from duels where id=?").get(id) as any;
 
+it("does not backfill a later row that restarts before its snapshot is fetched", async () => {
+  const { db, duels } = fixture();
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0");
+  row(db);
+  const restarted = row(db, "ffa4", "interrupted");
+  let changed = false;
+  await runDuelSnapshotRetention(db, { now, pause: async milliseconds => {
+    if (milliseconds !== 0 || changed) return;
+    changed = true;
+    db.prepare(`update duels set status='active',ended_at=null,turn_count=null,snapshot_compacted_at=null,
+      snapshot_public_json=null,snapshot_seat0_json=null,snapshot_seat1_json=null,snapshot_seats_json=null,
+      clock_json='{"turn":2}' where id=?`).run(restarted);
+  } });
+  expect(saved(db, restarted)).toMatchObject({ status: "active", turn_count: null, snapshot_compacted_at: null });
+  duels.cancel(saved(db, restarted).web_slug, "retention-test", 1, 9);
+  expect(saved(db, restarted).turn_count).toBe(9);
+});
+
 it("compresses one bounded batch and resumes idempotently without dropping events or logs", async () => {
   const { db } = fixture();
   const ids = Array.from({ length: 3 }, () => row(db));

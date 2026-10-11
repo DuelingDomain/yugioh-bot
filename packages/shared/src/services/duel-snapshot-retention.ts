@@ -78,7 +78,9 @@ export async function runDuelSnapshotRetention(db: Database.Database, options: D
     else console.warn("[duel] storage maintenance error", { phase, code: (error as { code?: string })?.code ?? "unknown",
       name: error instanceof Error ? error.name : "Unknown" });
   };
-  const fetch = db.prepare<[number], RetentionRow>(`select id,format,status,kind,ended_at,clock_json,${STORED_BOARD_COLUMNS} from duels where id=?`);
+  // A later selected row can restart while an earlier row yields. Fetch only
+  // terminal rows; each write then rechecks the fetched status and original data.
+  const fetch = db.prepare<[number], RetentionRow>(`select id,format,status,kind,ended_at,clock_json,${STORED_BOARD_COLUMNS} from duels where id=? and ${terminalGuard}`);
 
   // The host retains the ID cursor across passes, including unreadable turns. No age or
   // compaction guard: deployment must preserve recent history and repaired old rows.
