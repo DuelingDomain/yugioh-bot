@@ -164,12 +164,20 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
   // Replay forks only: Follow prompt, Reveal hands and the seat the creator picked. Ordinary tables never leave the defaults,
   // and the room key then stays the plain one.
-  const forkView = useForkViewState();
+  const { mutate: purgeCache } = useSWRConfig();
+  // Each fork view (seat and Reveal choice) has its own cache key. All of them go together, so a key used earlier
+  // never shows its old room when it is asked for again.
+  const purgeForkViews = useCallback(() => {
+    const own = `/api/duels/${slug}`;
+    return purgeCache((key) => typeof key === "string" && (key === own || key.startsWith(`${own}?`)), undefined, { revalidate: false });
+  }, [purgeCache, slug]);
+  const forkView = useForkViewState(() => { void purgeForkViews(); });
+  const forkViewNow = useRef(forkView.view);
+  forkViewNow.current = forkView.view;
   const forkSeenFor = useRef<string | null>(null);
   // Set while a fork view is refused (access lost). It holds until a room that arrived after the refusal is on screen, so a
   // cached or laggy view never comes back by itself.
   const [accessLostAt, setAccessLostAt] = useState<{ slug: string; at: number } | null>(null);
-  const { mutate: purgeCache } = useSWRConfig();
   const { data: rawData, error, isLoading, mutate } = useSWR(
     slug ? duelRoomKey(slug, spectate, forkView.view) : null,
     async () => {
@@ -212,10 +220,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     if (!forkRefused) return;
     setAccessLostAt((current) => (current?.slug === slug ? current : { slug, at: performance.now() }));
     // Every cached view of this table goes (each seat and Reveal choice has its own key), not only the one on screen.
-    const own = `/api/duels/${slug}`;
-    void purgeCache((key) => typeof key === "string" && (key === own || key.startsWith(`${own}?`)), undefined, { revalidate: false });
+    void purgeForkViews();
     void mutate(undefined, { revalidate: false });
-  }, [forkRefused, slug, purgeCache, mutate]);
+  }, [forkRefused, slug, purgeForkViews, mutate]);
   const roomState = forkRoomState(visibleRoom);
   const forkControl = roomState.kind === "fork" ? roomState.control : null;
   const forkMode = forkControl != null;
@@ -229,7 +236,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     () => (visibleRoom && forkControl ? { ...visibleRoom, mySeat: forkControl.actingSeat } : visibleRoom),
     [visibleRoom, forkControl],
   );
-  const forkSettled = roomState.kind !== "unusable" && (forkControl == null || forkViewSettled(forkControl, forkView.view));
+  const forkSettled = roomState.kind !== "unusable" && (forkControl == null
+    || forkViewSettled(forkControl, forkView.view, { receivedAt: rawData?.receivedAt, changedAt: forkView.changedAt() }));
   // The duel host answers with the last view it built when its queue is blocked (stale). Ask again until it is fresh.
   const roomStale = data?.stale === true;
   useEffect(() => {
@@ -590,6 +598,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     setAimHoverKey(null);
   }, [forkDraftKey, closeHud]);
 
+  // A fork reply is projected for the seat that acted, with every hand shown. When the creator chose another seat or
+  // hid the hands, the reply is not the view on screen: it is dropped and the current view is read again. It never
+  // reaches the board and the table is never left waiting for it.
+  const applyReply = useCallback(async (result: Parameters<typeof applyAnswerResult>[1]) => {
+    if (result && "engine" in result && result.fork && !forkViewSettled(result.fork, forkViewNow.current)) {
+      await mutate();
+      return;
+    }
+    await applyAnswerResult(mutate, result);
+  }, [mutate]);
   const run = useCallback(
     async (work: () => Promise<DuelRoom | { session: unknown } | void>, kind?: "seat-pick") => {
       // A coin toss is playing: nothing is sent, and the open menu stays as it is.
@@ -605,7 +623,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setActionError(null);
       try {
         const result = await work();
-        if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
+        if (seq === mutationSeq.current) await applyReply(result);
       } catch (err) {
         setActionError(duelActionErrorText(err, { seatPick: kind === "seat-pick" }));
         await mutate();
@@ -615,7 +633,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         setBusy(false);
       }
     },
-    [mutate, echo],
+    [mutate, echo, applyReply],
   );
 
   // A series moves on to its next game by itself: follow it, keeping the duel window. Players always
@@ -844,7 +862,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     suspended: confirmSurrender || confirmCancel || deckMenuOpen || (forkMode && (busy || catchingUp || Boolean(error))),
     send: async (mode) => {
       const now = latestRoom.current;
-      if (now?.fork && (busy || catchingUp || error || !forkViewSettled(now.fork, forkView.view))) return;
+      if (now?.fork && (busy || catchingUp || error || !forkViewSettled(now.fork, forkView.view, { receivedAt: (now as { receivedAt?: number }).receivedAt, changedAt: forkView.changedAt() }))) return;
       const seq = ++mutationSeq.current;
       if (now?.fork) setForkChainBusy(true);
       try {
@@ -852,7 +870,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           ? { as: now.fork.actingSeat, revision: now.engine.revision, ...(now.engine.prompt ? { promptId: now.engine.prompt.id } : {}) }
           : undefined;
         const result = await (binding ? setChainResponseMode(slug, mode, binding) : setChainResponseMode(slug, mode));
-        if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
+        if (seq === mutationSeq.current) await applyReply(result);
       } catch (err) {
         // An answer that was sent meanwhile may have had its reply dropped for this request: read the room again.
         void mutate().catch(() => {});

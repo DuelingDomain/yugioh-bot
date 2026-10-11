@@ -549,6 +549,59 @@ describe("the live room of a fork", () => {
     expect(seat).not.toBeDisabled();
   });
 
+  it("never puts a reply that shows every hand on a table that hides them, and does not lock the table", async () => {
+    const initial = forkRoom();
+    initial.engine!.chainMode = "auto";
+    swr.data = initial;
+    // The host projects every reply with all hands shown, whatever the view asked for.
+    const reply = forkRoom({}, control({ revealHands: true }));
+    reply.engine!.chainMode = "off";
+    const fetch = vi.fn(async () => json(reply));
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    fireEvent.click(screen.getByLabelText("Reveal hands"));
+    expect(swr.keys.at(-1)).toBe("/api/duels/fork-1?reveal=0");
+    const hidden = forkRoom({ engine: { ...initial.engine!, chainMode: "auto" } }, control({ revealHands: false }));
+    swr.data = hidden;
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    swr.mutate.mockClear();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(document.querySelector("[role='dialog'][aria-modal='true']")).toBeNull());
+    await act(async () => { fireEvent.keyDown(window, { key: "r" }); });
+    expect(fetch).toHaveBeenCalledWith("/api/duels/fork-1/chain-mode?as=0", expect.anything());
+    const written = swr.mutate.mock.calls.filter(([value]) => value != null && typeof value === "object");
+    expect(written).toHaveLength(0);
+    // The current view is read again instead.
+    expect(swr.mutate).toHaveBeenCalledWith();
+  });
+
+  it("drops the cached views when the seat changes, and holds answers until a room newer than the change arrives", async () => {
+    const initial = forkRoom();
+    initial.engine!.chainMode = "auto";
+    swr.data = { ...initial, receivedAt: 100 };
+    const fetch = vi.fn(async () => json(initial));
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<DuelRoomView slug="fork-1" />);
+    swr.mutate.mockClear();
+    fireEvent.click(within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name: /Bo/ }));
+    // Every cached view of the table is purged before the key changes.
+    const purge = swr.mutate.mock.calls.find(([filter]) => typeof filter === "function");
+    expect(purge).toBeTruthy();
+    const filter = purge![0] as (key: unknown) => boolean;
+    expect([filter("/api/duels/fork-1"), filter("/api/duels/fork-1?as=1&reveal=0"), filter("/api/duels/fork-2"), filter("/api/duels/fork-10")])
+      .toEqual([true, true, false, false]);
+    // An old cache entry of the new key names seat 1 but came from before the change: it is not accepted.
+    swr.data = { ...forkRoom({ engine: { ...initial.engine!, chainMode: "auto" } }, control({ actingSeat: 1 })), receivedAt: 100 };
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    await act(async () => { fireEvent.keyDown(window, { key: "r" }); });
+    expect(fetch).not.toHaveBeenCalled();
+    swr.data = { ...forkRoom({ engine: { ...initial.engine!, chainMode: "auto" } }, control({ actingSeat: 1 })), receivedAt: performance.now() + 5000 };
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    await act(async () => { fireEvent.keyDown(window, { key: "r" }); });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves a finished fork without a cancel call, and shows no End fork", async () => {
     const done = forkRoom({ session: session("1v1", { slug: "fork-1", kind: "replay-fork", status: "completed", endedAt: "2026-10-10T10:00:00Z" }) });
     done.engine = { ...done.engine!, result: { winnerSeat: 0, reason: "Life points" } as never, prompt: null };

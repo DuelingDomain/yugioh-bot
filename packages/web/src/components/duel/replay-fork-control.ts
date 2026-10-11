@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useMemo, useState } from "react";
+import { createContext, useCallback, useMemo, useRef, useState } from "react";
 import type { DuelChainMode, DuelEngineView, DuelRoom, ReplayForkControl } from "@yugidraft/shared/duels";
 import type { ForkSearchBinding, ForkViewControl } from "./api";
 
@@ -17,8 +17,17 @@ export function forkRoomState(room: Pick<DuelRoom, "session" | "fork"> | null | 
   return { kind: "ordinary" };
 }
 
-/** True when the room shows what the view asked for. While it does not, answers and seat changes wait. */
-export function forkViewSettled(control: Pick<ReplayForkControl, "actingSeat" | "revealHands">, view: ForkViewControl | null): boolean {
+/**
+ * True when the room shows what the view asked for. While it does not, answers and seat changes wait.
+ * `fresh` adds the time check: a room that was received before the last change of the view is an old cache entry of a
+ * key that was used earlier, so it is never settled, whatever seat it names. A room without a time counts as received.
+ */
+export function forkViewSettled(
+  control: Pick<ReplayForkControl, "actingSeat" | "revealHands">,
+  view: ForkViewControl | null,
+  fresh?: { receivedAt?: number; changedAt: number },
+): boolean {
+  if (fresh && fresh.receivedAt != null && fresh.receivedAt < fresh.changedAt) return false;
   if (control.revealHands !== (view?.reveal ?? true)) return false;
   return view?.as == null || control.actingSeat === view.as;
 }
@@ -61,19 +70,41 @@ export interface ForkViewState {
   setReveal: (next: boolean) => void;
   /** Show another seat. Follow prompt takes over again at the next prompt. */
   pickSeat: (seat: number | null) => void;
+  /** `performance.now()` of the last change of the view; 0 before the first. Used with `forkViewSettled`. */
+  changedAt: () => number;
 }
 
-/** Follow prompt and Reveal hands are on by default. */
-export function useForkViewState(): ForkViewState {
+/**
+ * Follow prompt and Reveal hands are on by default. `onViewChange` runs, before the key changes, when the seat or the
+ * reveal choice really changes: the room drops the cached views there, so a key used earlier never shows its old room.
+ */
+export function useForkViewState(onViewChange?: () => void): ForkViewState {
   const [follow, setFollowState] = useState(true);
-  const [reveal, setReveal] = useState(true);
-  const [seat, setSeat] = useState<number | null>(null);
+  const [reveal, setRevealState] = useState(true);
+  const [seat, setSeatState] = useState<number | null>(null);
   const view = useMemo<ForkViewControl | null>(() => (seat == null && reveal ? null : { as: seat, reveal }), [seat, reveal]);
+  const latest = useRef({ seat, reveal });
+  const changed = useRef(0);
+  const notify = useRef(onViewChange);
+  notify.current = onViewChange;
+  const change = useCallback((next: { seat?: number | null; reveal?: boolean }) => {
+    const seatNext = next.seat !== undefined ? next.seat : latest.current.seat;
+    const revealNext = next.reveal !== undefined ? next.reveal : latest.current.reveal;
+    if (seatNext === latest.current.seat && revealNext === latest.current.reveal) return;
+    latest.current = { seat: seatNext, reveal: revealNext };
+    changed.current = performance.now();
+    notify.current?.();
+    setSeatState(seatNext);
+    setRevealState(revealNext);
+  }, []);
   const setFollow = useCallback((next: boolean, actingSeat: number) => {
     setFollowState(next);
-    setSeat(next ? null : actingSeat);
-  }, []);
-  return { follow, reveal, seat, view, setFollow, setReveal, pickSeat: setSeat };
+    change({ seat: next ? null : actingSeat });
+  }, [change]);
+  const setReveal = useCallback((next: boolean) => change({ reveal: next }), [change]);
+  const pickSeat = useCallback((next: number | null) => change({ seat: next }), [change]);
+  const changedAt = useCallback(() => changed.current, []);
+  return { follow, reveal, seat, view, setFollow, setReveal, pickSeat, changedAt };
 }
 
 /** The announce-card search of a fork needs the acting seat, prompt and revision it searches for. Null on ordinary tables. */
