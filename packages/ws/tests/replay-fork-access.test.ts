@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { canReadDuel, findDuelEventTarget } from "@yugidraft/shared/services";
+import { canReadDuel, findDuelEventTarget, createDuelService, createDuelAccessReader } from "@yugidraft/shared/services";
 import { createDuelConnectionToken, type DuelConnectionTokenClaims, type DuelJoinAck } from "@yugidraft/shared/ws";
 import { forkEventFixture } from "./helpers/replay-fork-events.js";
 import { registerDuelEventHandlers } from "../src/duel-events.js";
@@ -105,4 +105,59 @@ it.each(["leave", "disconnecting", "expiry"])("prunes a revoked creator before %
   if (action === "disconnecting") first.emit("disconnecting");
   if (action === "expiry") await vi.advanceTimersByTimeAsync(300_000);
   expect(presence).not.toHaveBeenCalled(); expect(first.rooms.size).toBe(0); expect(second.rooms.size).toBe(0);
+});
+
+it.each(["1v1", "ffa3", "ffa4"] as const)("keeps subscribed players through a real %s opening seat move", async format => {
+  const players = [app.sourcePlayer, app.owner, app.dev, app.alpha].slice(0, format === "1v1" ? 2 : format === "ffa3" ? 3 : 4);
+  const rolls = [3, 6, 1, 4];
+  const duels = createDuelService(app.db, { rollDie: () => rolls.shift()! });
+  const duel = duels.create({ guildId: app.guildId, organizerPlayerId: players[0]!.playerId, name: "Opening", mode: "normal", format });
+  for (const [seat, player] of players.entries()) {
+    if (seat) duels.takeSeat(duel.slug, app.guildId, player.playerId, seat);
+    duels.setDeck(duel.slug, app.guildId, player.playerId, { main: Array(40).fill(100 + seat), extra: [], side: [] });
+  }
+  const room = server();
+  const sockets = players.map((player, seat) => {
+    const socket = room.connect();
+    expect(join(socket, token(duel.slug, player.playerId, seat))?.ok).toBe(true);
+    return socket;
+  });
+  const changed = sockets.map(socket => { const spy = vi.fn(); socket.on("duel:changed", spy); return spy; });
+  const expired = vi.fn(); sockets.forEach(socket => socket.on("duel:subscription-expired", expired));
+  const now = Date.now();
+  duels.startOpening(duel.slug, app.guildId, players[0]!.playerId, now);
+  if (format === "1v1") {
+    duels.submitOpeningPick(duel.slug, app.guildId, 0, "scissors", now + 100);
+    const choice = duels.submitOpeningPick(duel.slug, app.guildId, 1, "rock", now + 200);
+    duels.settleOpening(duel.slug, app.guildId, choice.deadline);
+  } else duels.settleOpening(duel.slug, app.guildId, now + 3000);
+  expect(duels.get(duel.slug, app.guildId).seats[0]?.playerId).toBe(players[1]!.playerId);
+  expect((await room.change(duel.slug)).status).toBe(204);
+  expect(expired).not.toHaveBeenCalled();
+  for (const [index, socket] of sockets.entries()) {
+    expect(socket.rooms.has(`duel:${app.guildId}:${duel.slug}`)).toBe(true);
+    expect(changed[index]).toHaveBeenCalledWith({ slug: duel.slug });
+  }
+});
+
+it("returns 503 with the real target reader when the DB is unavailable", async () => {
+  const room = server(), owner = room.connect();
+  join(owner, token());
+  const changed = vi.fn(); owner.on("duel:changed", changed);
+  app.db.close();
+  expect((await room.change()).status).toBe(503);
+  expect(changed).not.toHaveBeenCalled();
+});
+it("returns 503 with a real reader when its DB cannot be opened", async () => {
+  const reader = createDuelAccessReader("/missing-ws-test/test.sqlite");
+  const emit = vi.fn();
+  const handle = createInternalHttpHandler({ secret: SECRET, io: { to: () => ({ emit }) } as unknown as TypedServer,
+    beforeDuelBroadcast: (slug, guild) => reader.findDuelEventTarget(slug, guild) !== null });
+  const body = JSON.stringify({ slug: app.forkSlug, guildId: app.guildId });
+  try {
+    const response = await handle(new Request("http://test/internal/duel/changed", { method: "POST", body,
+      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex") } }));
+    expect(response.status).toBe(503);
+    expect(emit).not.toHaveBeenCalled();
+  } finally { reader.close(); }
 });

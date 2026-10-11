@@ -71,6 +71,23 @@ beforeEach(() => {
 afterEach(() => db.close());
 
 describe("deleteUserAccount", () => {
+  it("scrubs fork names even when the source is gone and the user has no history", () => {
+    exec("insert into users(id,username,display_name) values(3,'three','Gone Source');");
+    const setup = { replayFork: { ownerUserId: 2, control: "all-manual", origin: {
+      sourceSlug: "removed-source", sourceVersion: "v1", frameId: "frame", step: 0,
+      prefixCount: 0, prefixHash: "a".repeat(64),
+      sourceSeats: [{ seat: 0, displayName: "Gone Source" }, { seat: 1, displayName: "Other Name" }],
+    } } };
+    db.prepare(`insert into duels(guild_id,web_slug,name,organizer_player_id,mode,status,kind,setup_json)
+      values('g','fork','Fork',2,'normal','active','replay-fork',?)`).run(JSON.stringify(setup));
+    expect(deleteUserAccount(db, 3)).toMatchObject({ mode: "removed", counts: { replay_fork_names: 1 } });
+    const saved = db.prepare("select setup_json from duels where web_slug='fork'").get() as { setup_json: string };
+    expect(saved.setup_json).not.toContain("Gone Source");
+    expect(JSON.parse(saved.setup_json).replayFork.origin.sourceSeats).toEqual([
+      { seat: 0, displayName: "Seat 1" }, { seat: 1, displayName: "Seat 2" },
+    ]);
+  });
+
   it("removes a user holding only invite grants and cascades those grants", () => {
     exec(`insert into users(id,clerk_user_id,username,display_name) values(3,'user_three','three','Three');
       insert into draft_invite_grants(draft_id,user_id) values(1,2),(1,3);`);
