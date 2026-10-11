@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { createTournamentService } from "@yugidraft/shared/services";
+import { createTournamentService, DuelInviteRefusalError } from "@yugidraft/shared/services";
 import { forkEventFixture } from "../../shared/tests/helpers/replay-fork-events.js";
 
 const mocks = vi.hoisted(() => ({ db: vi.fn(), actor: vi.fn(), session: vi.fn(), notify: vi.fn(),
@@ -17,10 +17,13 @@ vi.mock("@/lib/draft-deck-codes", () => ({ mapDraftTournamentDecks: vi.fn(async 
 import { POST as challenge } from "../app/api/duels/route";
 import { POST as tournamentDuel } from "../app/api/tournaments/[slug]/matches/[tmId]/duel/route";
 import { sendDuelInvite } from "../src/lib/announce-bot";
+import { duelErrorResponse } from "../src/lib/duel-host";
+import { env } from "../src/lib/env";
 
 let app: ReturnType<typeof forkEventFixture>;
 beforeEach(() => {
   vi.clearAllMocks(); app = forkEventFixture(); mocks.db.mockReturnValue(app.db);
+  env.webUrl = "https://duel.example/app";
   vi.spyOn(console, "error").mockImplementation(() => {});
   mocks.actor.mockResolvedValue({ ok: true, ...app.owner, duels: app.duels });
   mocks.session.mockResolvedValue({ ok: true, userId: app.owner.userId });
@@ -72,6 +75,72 @@ it("creates a real tournament duel and returns the same duel on retry with a WEB
   expect(duelRows()).toHaveLength(before + 1); expect(seriesRows()).toHaveLength(1);
   expect(mocks.notify).toHaveBeenCalledTimes(2); expect(mocks.tournament).toHaveBeenCalledTimes(2);
   expect(mocks.announce).toHaveBeenCalledTimes(1);
+});
+
+const refusedWebUrls = [
+  "not-a-url",
+  "ftp://duel.example/app",
+  "https://duel.example/app?view=private",
+  "https://duel.example/app#private",
+  "https://user:password@duel.example/app",
+];
+
+it.each(refusedWebUrls)("refuses a challenge before saving for WEB_URL %s and succeeds after correction", async webUrl => {
+  env.webUrl = webUrl;
+  const before = duelRows();
+  const request = () => new Request("https://duel.example/api/duels", { method: "POST",
+    body: JSON.stringify({ mode: "normal", opponentPlayerId: app.alpha.playerId }) }) as never;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await challenge(request());
+    expect(duelRows()).toEqual(before); expect(seriesRows()).toEqual([]);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "Invalid duel invite reference", code: "DUEL_INVITE_REFUSED" });
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  }
+  expect(mocks.announce).not.toHaveBeenCalled(); expect(mocks.notify).not.toHaveBeenCalled();
+  expect(mocks.identity).not.toHaveBeenCalled();
+
+  env.webUrl = "https://duel.example/app";
+  expect((await challenge(request())).status).toBe(201);
+  expect(duelRows()).toHaveLength(before.length + 1); expect(seriesRows()).toHaveLength(1);
+  expect(mocks.announce).toHaveBeenCalledTimes(1);
+});
+
+it.each(refusedWebUrls)("refuses a tournament duel before saving for WEB_URL %s and succeeds after correction", async webUrl => {
+  env.webUrl = webUrl;
+  const context = tournamentSlot();
+  const before = duelRows();
+  const participants = () => app.db.prepare("select * from tournament_participants order by player_id").all();
+  const beforeParticipants = participants();
+  const request = () => new Request("https://duel.example/api/tournaments/cup", { method: "POST" });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await tournamentDuel(request(), context);
+    expect(duelRows()).toEqual(before); expect(seriesRows()).toEqual([]);
+    expect(participants()).toEqual(beforeParticipants);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "Invalid duel invite reference", code: "DUEL_INVITE_REFUSED" });
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  }
+  expect(mocks.announce).not.toHaveBeenCalled(); expect(mocks.notify).not.toHaveBeenCalled();
+  expect(mocks.tournament).not.toHaveBeenCalled(); expect(mocks.identity).not.toHaveBeenCalled();
+
+  env.webUrl = "https://duel.example/app";
+  const created = await tournamentDuel(request(), context);
+  expect(created.status).toBe(201);
+  expect((await tournamentDuel(request(), context)).status).toBe(200);
+  expect(duelRows()).toHaveLength(before.length + 1); expect(seriesRows()).toHaveLength(1);
+  expect(mocks.announce).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  new DuelInviteRefusalError(),
+  Object.assign(new Error("Duel invites are unavailable"), { code: "DUEL_INVITE_REFUSED", status: 500 }),
+  { code: "DUEL_INVITE_REFUSED" },
+])("maps the runtime invite refusal code to 409 with the real handler: %j", async error => {
+  const response = duelErrorResponse(error);
+  expect(response.status).toBe(409);
+  expect(await response.json()).toEqual({ error: "Duel invites are unavailable", code: "DUEL_INVITE_REFUSED" });
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
 });
 
 it("uses the real error handler for a rejected tournament start and writes no duel or series", async () => {

@@ -74,6 +74,12 @@ export async function requireDuelActor(): Promise<DuelActor> {
 }
 
 export function duelErrorResponse(error: unknown) {
+  if (error && typeof error === "object" && "code" in error && error.code === "DUEL_INVITE_REFUSED") {
+    return NextResponse.json({
+      error: "message" in error && typeof error.message === "string" ? error.message : "Duel invites are unavailable",
+      code: error.code,
+    }, { status: 409, headers: { "cache-control": "private, no-store" } });
+  }
   // Missing slugs and hidden replay forks must have the same response.
   if (error instanceof DuelServiceError && error.status === 404) error = new ReplayAccessError(404);
   if (error instanceof ReplayAccessError) {

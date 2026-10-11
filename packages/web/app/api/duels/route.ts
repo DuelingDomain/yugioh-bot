@@ -2,7 +2,7 @@ import { isDuelFormat, MULTI_CORE_UNAVAILABLE_MESSAGE, multiDomainBlockReason, m
 import { NextRequest, NextResponse } from "next/server";
 import { createDuelSeriesService } from "@yugidraft/shared/services";
 import { env } from "@/lib/env";
-import { duelUrl, sendDuelInvite } from "@/lib/announce-bot";
+import { assertDuelInviteUrl, duelUrl, sendDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
@@ -95,6 +95,7 @@ export async function POST(request: NextRequest) {
 
   try {
     if (opponentPlayerId !== null) {
+      assertDuelInviteUrl(actor.guildId, request);
       const { series, duel } = createDuelSeriesService(getDb()).createChallenge({
         guildId: actor.guildId,
         challengerPlayerId: actor.playerId,

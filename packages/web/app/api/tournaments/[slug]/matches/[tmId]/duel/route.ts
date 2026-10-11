@@ -2,7 +2,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { NextResponse } from "next/server";
 import { createDuelSeriesService, findTournamentReadAccess } from "@yugidraft/shared/services";
 import { env } from "@/lib/env";
-import { duelUrl, announceDuelInvite } from "@/lib/announce-bot";
+import { assertDuelInviteUrl, duelUrl, announceDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
 import { mapDraftTournamentDecks } from "@/lib/draft-deck-codes";
 import { linkDraftDeck } from "@/lib/draft-decks";
@@ -60,6 +60,7 @@ export async function POST(
       return NextResponse.json({ error: "Tournament is not active" }, { status: 409 });
     }
 
+    assertDuelInviteUrl(actor.guildId, request);
     const playerIds = [slot.player_one_id, slot.player_two_id];
     // A player who joined from the Discord button and never opened the page has no deck on the
     // entry yet: register their draft deck first.
