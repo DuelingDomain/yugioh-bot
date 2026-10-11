@@ -113,6 +113,26 @@ describe("atomic replay fork storage", () => {
     expect(app.db.pragma("foreign_key_check")).toEqual([]);
   });
 
+  it.each([false, true])("scrubs a deleted source player's copied name after rename=%s", renamed => {
+    const app = fixture(), { session } = app.forks.create(app.input);
+    const oldName = app.source.session.seats[0]!.displayName!;
+    if (renamed) {
+      app.db.prepare("update players set display_name='New Name' where id=?").run(app.players[0]!.playerId);
+      app.db.prepare("update users set display_name='New Name' where id=?").run(app.players[0]!.userId);
+    }
+    services.deleteUserAccount(app.db, app.players[0]!.userId);
+    const stored = app.db.prepare("select setup_json from duels where id = ?").get(session.id) as { setup_json: string };
+    expect(stored.setup_json).not.toContain(oldName);
+    expect(app.forks.privateState(session.slug, app.actor).setup?.replayFork?.origin.sourceSeats[0]?.displayName)
+      .toBe(services.DELETED_PLAYER_NAME);
+    expect(JSON.stringify(app.duels.room(session.slug, app.actor.guildId, app.actor.playerId))).not.toContain(oldName);
+    // The deletion path can scrub names; normal setup writes still cannot change the origin.
+    const setup = app.forks.privateState(session.slug, app.actor).setup!;
+    expect(() => app.duels.setSetup(session.slug, app.actor.guildId, {
+      ...setup, replayFork: { ...setup.replayFork!, origin: app.input.origin },
+    })).toThrow(/immutable/);
+  });
+
   it("keeps loss commands from the prefix without copying final surrendered seats", () => {
     const app = fixture("ffa4");
     app.input.origin.prefixCount = 3;
