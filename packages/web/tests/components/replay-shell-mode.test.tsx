@@ -268,22 +268,25 @@ describe("FFA3 camera across a seek", () => {
   });
 });
 
-describe("Tag camera lock", () => {
+describe("Tag camera in a replay", () => {
   const [, set, kind] = CASES[2];
   const attack = (id: number): DuelEvent => ({ id, kind: "attack", seat: 0, text: "attack", target: { seat: 1 } } as unknown as DuelEvent);
-  const locked = (container: HTMLElement) => container.querySelector("[data-camera-dock]")?.getAttribute("data-locked");
+  const dock = (container: HTMLElement) => container.querySelector("[data-camera-dock]");
   const seatPressed = (container: HTMLElement, seat: number) => container.querySelector(`[data-seat-btn='${seat}']`)?.getAttribute("aria-pressed");
 
-  it("locks for a new event in forward play and clears the lock history on a seek", () => {
+  it("never locks or moves by itself, in forward play or after a seek", () => {
     const view = render(<View set={set} kind={kind} reducedMotion={false} resetKey={1} />);
-    expect(locked(view.container)).toBe("false");
+    expect(dock(view.container)?.getAttribute("data-locked")).toBe("false");
     press("4");
     expect(seatPressed(view.container, 3)).toBe("true");
+    // Forward play: an attack event does not send the camera to the overview.
     view.rerender(<View set={set} kind={kind} reducedMotion={false} resetKey={1} more={[attack(900)]} />);
-    expect(locked(view.container)).toBe("true");
-    // The seek keeps the frame's events but starts clean: no lock for them, and the chosen seat is still the camera.
+    expect(dock(view.container)?.getAttribute("data-locked")).toBe("false");
+    expect(dock(view.container)?.getAttribute("data-cam")).toBe("focus");
+    expect(seatPressed(view.container, 3)).toBe("true");
+    // A seek keeps the frame's events: still no lock, and the chosen seat is still the camera.
     view.rerender(<View set={set} kind={kind} reducedMotion={false} resetKey={2} more={[attack(900)]} />);
-    expect(locked(view.container)).toBe("false");
+    expect(dock(view.container)?.getAttribute("data-locked")).toBe("false");
     expect(seatPressed(view.container, 3)).toBe("true");
   });
 });

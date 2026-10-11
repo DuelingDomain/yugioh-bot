@@ -217,16 +217,17 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
 
   // The FX lock follows engine events newer than the last one handled. With reduced motion, or while the connection is
   // down (the FX replay nothing), no lock starts but the cursor still moves, so old events never lock the camera later.
+  // A replay never locks: its camera never moves or zooms by itself, so forward play leaves it where the viewer put it.
   const lastEvent = useRef<number>(lastEventId(engine.events, 0));
   useEffect(() => {
-    const lock = fxActive ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
+    const lock = fxActive && !replay ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
     if (!lock) {
       lastEvent.current = lastEventId(engine.events, lastEvent.current);
       return;
     }
     lastEvent.current = lock.lastId;
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
-  }, [engine.events, fxActive, controller.reducedMotion]);
+  }, [engine.events, fxActive, replay, controller.reducedMotion]);
 
   // An aim holds the camera where it is: a close-up goes back to the overview, and no click zooms in until the aim ends.
   useEffect(() => {
