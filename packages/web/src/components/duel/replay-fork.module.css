@@ -3,12 +3,17 @@
 .group[data-replay-owner-tools] { flex-wrap: nowrap; position: relative; }
 /* A refused Jump in: a small box drawn through the body (see ReplayForkButton), so it wraps and never widens the header. */
 .failureBox {
-  position: fixed; top: 56px; right: 12px; z-index: var(--duel-z-menu);
-  width: max-content; max-width: min(52ch, calc(100vw - 24px)); padding: 6px 10px;
+  position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: var(--duel-z-menu);
+  display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
+  width: max-content; max-width: min(52ch, calc(100vw - 24px)); padding: 6px 8px 6px 10px;
   border: 1px solid #8f4a4a; border-radius: 6px; background: rgb(10 14 24 / 0.96);
   color: #ffb2b9; font-size: 12px; overflow-wrap: anywhere; white-space: normal;
 }
-@media (max-width: 640px) { .failureBox { left: 12px; width: auto; max-width: none; } }
+.failureBox > span { flex: 1 1 auto; min-width: 0; }
+.failureClose { order: 1; margin-left: auto; padding: 2px; border: 0; background: transparent; color: inherit; cursor: pointer; line-height: 0; }
+/* The classic dock is at the bottom: the box hangs just above it (the inline bottom is measured from the button). */
+.failureBox[data-low] { top: auto; bottom: 12px; left: auto; right: 12px; transform: none; }
+@media (max-width: 640px) { .failureBox, .failureBox[data-low] { left: 12px; right: 12px; transform: none; width: auto; max-width: none; } }
 
 /* The over-cap state screen has room: let the cluster wrap there. */
 [data-replay-tools-wrap] .group[data-replay-owner-tools] { flex-wrap: wrap; }
@@ -111,8 +116,9 @@
     position: absolute; top: calc(100% + 6px); right: 0; z-index: var(--duel-z-menu);
     background: rgb(10 14 24 / 0.96);
   }
+  .group[data-replay-owner-tools][data-tools-low] > select { top: auto; bottom: calc(100% + 6px); }
   [data-replay-tools-wrap] .group[data-replay-owner-tools] > select { position: static; }
-  .failureBox { top: 92px; }
+  .failureBox:not([data-low]) { top: 92px; }
   /* The over-cap note is long: keep it for screen readers (the select has a title) so the header never overflows. */
   .group[data-replay-owner-tools] > .note { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   [data-replay-tools-wrap] .group[data-replay-owner-tools] > .note { position: static; width: auto; height: auto; overflow: visible; clip: auto; white-space: normal; }

@@ -222,11 +222,12 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
   }
   // Keep the checkpoint selection in this page across private projection loading/remounts.
   // Fail closed: the controls need both the page's owner hint and the capabilities the server put in this answer.
-  const ownerTools = ownerAnswer ? (
+  const renderOwnerTools = (low: boolean) => ownerAnswer ? (
     <ReplayOwnerTools slug={slug} model={model} frame={model.frames[index]} busy={!settled}
       view={ownerView} onViewChange={changeOwnerView} onReload={reload} openForks={openForks} fork={fork}
-      selectedStep={forkStepId} onSelectStep={setForkStepId} />
+      selectedStep={forkStepId} onSelectStep={setForkStepId} low={low} />
   ) : null;
+  const ownerTools = renderOwnerTools(false);
   if (!model || !timeline || !engine || timeline.length === 0) {
     return (
       <div className={replayStyles.state}>
@@ -444,7 +445,7 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
                     ))}
                   </div>
                 ) : null}
-                {ownerTools}
+                {renderOwnerTools(true)}
               </div>
               {notice ? <p role="alert" className={replayStyles.note}>{notice}</p> : null}
               {model.mySeat == null || model.visibility === "public"

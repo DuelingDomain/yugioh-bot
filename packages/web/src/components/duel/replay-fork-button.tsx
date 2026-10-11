@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { GitFork, Eye } from "lucide-react";
+import { GitFork, Eye, X } from "lucide-react";
 import type { ReplayFrameV2, ReplayForkStep } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
 import { isDuelAccessError, postReplayFork } from "./api";
@@ -134,7 +134,7 @@ export function useForkStart({ slug, model, frame, onReload, onPause, openForks 
 }
 
 /** "Jump in here". The request state comes from `useForkStart`, which the replay view owns. */
-export function ReplayForkButton({ slug, model, frame, busy = false, onReload, fork, openForks }: {
+export function ReplayForkButton({ slug, model, frame, busy = false, onReload, fork, openForks, low = false }: {
   slug: string;
   model: ReplayModel;
   frame: ReplayForkStep | undefined;
@@ -144,14 +144,24 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, f
   fork: ForkStartState;
   /** The owner's open forks. When Jump in is refused for the limit, they show in a sheet so one can be cancelled. */
   openForks?: OpenForksState;
+  /** The tools sit in the classic bottom dock: the failure box hangs just above the button, not at the top. */
+  low?: boolean;
 }) {
   const { pending, failure, limitOpen } = fork;
+  const groupRef = useRef<HTMLSpanElement>(null);
+  const [anchorBottom, setAnchorBottom] = useState<number | null>(null);
+  // The limit sheet already says why Jump in was refused, and the failure box would sit over its first row.
+  const showFailure = failure != null && !limitOpen;
+  useLayoutEffect(() => {
+    if (!low || !showFailure || !groupRef.current) return;
+    setAnchorBottom(Math.max(12, window.innerHeight - groupRef.current.getBoundingClientRect().top + 6));
+  }, [low, showFailure]);
   if (!canOfferFork(model)) return null;
   const reason = forkDisabledReason(frame);
   const disabled = pending || busy || reason != null;
 
   return (
-    <span className={styles.group} data-replay-fork>
+    <span ref={groupRef} className={styles.group} data-replay-fork>
       <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={disabled} aria-busy={pending || undefined}
         title={reason ?? "Make a private copy from this move and play every seat"}
         aria-describedby={reason ? `fork-reason-${slug}` : undefined}
@@ -160,14 +170,18 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, f
         <span>{pending ? "Starting…" : <>Jump in<span className={styles.wide}> here</span></>}</span>
       </button>
       {reason && !pending ? <span id={`fork-reason-${slug}`} className="sr-only">{reason}</span> : null}
-      {failure ? (
+      {failure && showFailure ? (
         // Through the body: the HUD pill has a backdrop-filter, which would trap a fixed box inside the pill.
         <BodyPortal>
-          <span role="alert" className={styles.failureBox} data-fork-failure>
-            {failure.message}{" "}
+          <span role="alert" className={styles.failureBox} data-fork-failure data-low={low || undefined}
+            style={low && anchorBottom != null ? { bottom: anchorBottom } : undefined}>
+            <span>{failure.message}</span>
             {failure.code === "SOURCE_CHANGED" && onReload ? (
               <button type="button" className={styles.btn} onClick={() => { fork.clearFailure(); onReload(); }}>Reload replay</button>
             ) : null}
+            <button type="button" className={styles.failureClose} aria-label="Dismiss" onClick={() => fork.clearFailure()}>
+              <X size={14} aria-hidden />
+            </button>
           </span>
         </BodyPortal>
       ) : null}
@@ -252,7 +266,7 @@ export function forkTarget(model: ReplayModel | null, frame: ReplayFrameV2 | und
  * The owner cluster for every replay layout: private view, open forks, then Jump in. The open forks list and the Jump in
  * request are passed in: this cluster is remounted by every seek in the table shells and holds no state that must last.
  */
-export function ReplayOwnerTools({ model, frame, busy, view, onViewChange, onReload, slug, selectedStep, onSelectStep, openForks, fork }: {
+export function ReplayOwnerTools({ model, frame, busy, view, onViewChange, onReload, slug, selectedStep, onSelectStep, openForks, fork, low = false }: {
   slug: string;
   model: ReplayModel;
   frame: ReplayFrameV2 | undefined;
@@ -264,12 +278,14 @@ export function ReplayOwnerTools({ model, frame, busy, view, onViewChange, onRel
   onReload?: () => void;
   openForks: OpenForksState;
   fork: ForkStartState;
+  /** True in the classic bottom dock: popovers open upward. */
+  low?: boolean;
 }) {
   if (!isOwnerModel(model)) return null;
   const steps = model.forkSteps;
   const checkpoint = forkTarget(model, frame, selectedStep);
   return (
-    <span className={styles.group} data-replay-owner-tools>
+    <span className={styles.group} data-replay-owner-tools data-tools-low={low || undefined}>
       {steps ? <>
         <span className={styles.note}>{model.frames.length ? "Final board preview." : "No board preview."} Choose a move to Jump in.</span>
         <select className={styles.btn} aria-label="Jump in at move" title="Choose a move to Jump in" disabled={busy} value={checkpoint?.frameId ?? ""}
@@ -281,7 +297,7 @@ export function ReplayOwnerTools({ model, frame, busy, view, onViewChange, onRel
       </> : null}
       <ReplayOwnerView model={model} view={view} busy={busy} onChange={onViewChange} />
       <OpenForksButton state={openForks} currentSlug={slug} />
-      <ReplayForkButton slug={slug} model={model} frame={checkpoint} busy={busy} onReload={onReload} fork={fork} openForks={openForks} />
+      <ReplayForkButton slug={slug} model={model} frame={checkpoint} busy={busy} onReload={onReload} fork={fork} openForks={openForks} low={low} />
     </span>
   );
 }
