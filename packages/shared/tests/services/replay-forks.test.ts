@@ -306,6 +306,22 @@ describe("atomic replay fork storage", () => {
     expect(() => app.forks.create(app.input)).toThrowError(expect.objectContaining({ code: "NOT_PLAYABLE", status: 409 }));
   });
 
+  it.each(["completed", "interrupted"] as const)("refuses a fork of a %s fork", status => {
+    const app = fixture(), first = app.forks.create(app.input);
+    app.db.prepare("update duels set status=? where id=?").run(status, first.session.id);
+    const state = app.forks.privateState(first.session.slug, app.actor);
+    const { engineIdentity, replayFork: _fork, ...setup } = state.setup!;
+    const source: ReplaySource = { session: state.session, decks: state.decks, seed: state.seed as ReplaySource["seed"],
+      commands: state.commands, bundleVersion: state.bundleVersion!, engineIdentity: engineIdentity!, setup };
+    const origin = { ...app.input.origin, sourceSlug: first.session.slug,
+      sourceSeats: source.session.seats.map(seat => ({ seat: seat.seat, displayName: seat.displayName })) };
+    expect(() => app.forks.create({ ...app.input, requestId: "nested-fork", source, origin }))
+      .toThrowError(expect.objectContaining({ code: "NOT_PLAYABLE", status: 409, message: "A replay fork cannot be forked" }));
+    expect(app.db.prepare("select count(*) as n from duels where kind='replay-fork'").get()).toEqual({ n: 1 });
+    expect(app.db.prepare("select count(*) as n from replay_fork_requests").get()).toEqual({ n: 1 });
+    expect(app.forks.retry(app.retry)?.session.id).toBe(first.session.id);
+  });
+
   it("copies game-2 sided decks in the resolved seat order without series links", () => {
     const app = fixture(), series = createDuelSeriesService(app.db), guild = app.actor.guildId;
     const [p0, p1] = app.players;

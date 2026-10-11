@@ -5,7 +5,7 @@ import {
   type OwnerPlayerActor, type ResolvedOwnerActor,
 } from "../access/owner-access.js";
 import {
-  isDuelKindSetup, isEngineIdentity, isReplayForkRequest, isReplayForkSetup, isReplaySeed, seatCountFor,
+  isDuelKindSetup, isReplayFork, isEngineIdentity, isReplayForkRequest, isReplayForkSetup, isReplaySeed, seatCountFor,
   REPLAY_SOURCE_SLUG_MAX_LENGTH,
   type DuelSession, type ForkOrigin, type ReplayForkSetup, type ReplayJournalEntry, type ReplaySource,
 } from "../duels/index.js";
@@ -177,7 +177,8 @@ export function createReplayForkService(db: Database.Database): ReplayForkServic
     if (saved) return saved;
 
     // Access and the snapshot are checked under the same write lock as the insert. The source is read-only.
-    assertOwnerReplaySourceAccess(db, input.origin.sourceSlug, owner);
+    const sourceAccess = assertOwnerReplaySourceAccess(db, input.origin.sourceSlug, owner);
+    if (isReplayFork(sourceAccess)) throw new ReplayForkStorageError("A replay fork cannot be forked", "NOT_PLAYABLE");
     let current: DuelPrivateState;
     try { current = duels.privateState(input.origin.sourceSlug, owner.guildId); }
     catch (error) {
