@@ -29,16 +29,15 @@ async function request(host: DuelHost, body: Record<string, unknown>, expectedSt
   return data;
 }
 
-// Node 22 + built cores reproduce two callbacks at base 9c1fe2119 as well:
-// its six engine cases and strict retry fail the stale count: 1 expectation.
-// Both failures belong to one command, with distinct engine ordinals 1 and 2.
-// Recovery/replay/retry must preserve those exact occurrence keys.
+// The prepared bundle patches Sabersaurus's own direct-attack error, leaving
+// only the synthetic callback. Recovery/replay/retry must preserve its exact
+// occurrence key without recording it again.
 function expectRuntimeOccurrences(db: Database.Database, duelId: number) {
   const rows = db.prepare("select command_hash, error_index from card_script_error_occurrences where duel_id = ? and code = 3743515 order by error_index").all(duelId);
-  expect(rows).toHaveLength(2);
+  expect(rows).toHaveLength(1);
   const [first] = rows as Array<{ command_hash: string; error_index: number }>;
   expect(first!.command_hash).toMatch(/^[a-f0-9]{64}$/);
-  expect(rows).toEqual([1, 2].map(error_index => ({ command_hash: first!.command_hash, error_index })));
+  expect(rows).toEqual([{ command_hash: first!.command_hash, error_index: 1 }]);
   return rows;
 }
 
@@ -148,7 +147,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
       expect(live[0]!.events.some((event) => event.kind === "script-error")).toBe(true);
       expect(live[0]!.result).toBeNull();
       expect(duels.privateState(session.slug, "g").commands.length).toBeGreaterThan(0);
-      expect(topScriptErrors(db)).toEqual([expect.objectContaining({ code: 3743515, count: 2, last_duel_id: session.id })]);
+      expect(topScriptErrors(db)).toEqual([expect.objectContaining({ code: 3743515, count: 1, last_duel_id: session.id })]);
       expect(log).toHaveBeenCalledWith(expect.stringContaining('"event":"card_script_error"'));
       // Server setting changes affect new duels; a recovery keeps the saved policy.
       await host.close(); hosts.splice(hosts.indexOf(host), 1);
@@ -156,13 +155,13 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
       host = makeHost();
       expect(await views()).toEqual(live);
       expect(expectRuntimeOccurrences(db, session.id)).toEqual(occurrences);
-      expect(topScriptErrors(db)[0]?.count).toBe(2);
+      expect(topScriptErrors(db)[0]?.count).toBe(1);
       duels.complete(session.slug, "g", 0, "Test replay completion");
       const replay = await request(host, { ...base, op: "replay", playerId: players[0] });
       expect(JSON.stringify(replay)).toContain("Card script error:");
       expect(expectRuntimeOccurrences(db, session.id)).toEqual(occurrences);
-      expect(topScriptErrors(db)[0]?.count).toBe(2);
-      expect(log.mock.calls.filter(([line]) => typeof line === "string" && line.includes('"event":"card_script_error"'))).toHaveLength(2);
+      expect(topScriptErrors(db)[0]?.count).toBe(1);
+      expect(log.mock.calls.filter(([line]) => typeof line === "string" && line.includes('"event":"card_script_error"'))).toHaveLength(1);
     } finally {
       await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close();
     }
@@ -199,13 +198,13 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
         expect(await views()).toEqual(before);
         expectRuntimeOccurrences(db, session.id);
         expect(duels.privateState(session.slug, "g").commands).toHaveLength(commandsBefore);
-        expect(topScriptErrors(db)[0]?.count).toBe(2);
+        expect(topScriptErrors(db)[0]?.count).toBe(1);
         const retry = await request(host, body, 400);
         expect(JSON.stringify(retry)).toContain("Card script error (strict mode)");
         expect(JSON.stringify(retry)).not.toContain("3743515");
         expect(await views()).toEqual(before);
         expectRuntimeOccurrences(db, session.id);
-        expect(topScriptErrors(db)[0]?.count).toBe(2);
+        expect(topScriptErrors(db)[0]?.count).toBe(1);
         return;
       }
       throw new Error("Synthetic card condition did not fail");
