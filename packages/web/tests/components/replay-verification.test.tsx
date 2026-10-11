@@ -39,6 +39,7 @@ import { rememberHistorySearch, savedHistoryHref } from "@/components/duel/histo
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const MISMATCH = "This replay no longer matches the saved duel, because card data changed after it was played.";
 const NO_BOARD = "This duel has no saved final board, so its replay cannot be checked.";
+const ALSO_FAILED = "The unchecked replay also failed: the saved moves no longer fit the current card data.";
 const PARTIAL = "This replay cannot be checked, because part of the saved final board is missing.";
 const BANNER = "Unchecked replay — this replay was not checked against the saved final board. Moves can be wrong if card data changed.";
 
@@ -172,6 +173,31 @@ describe("Open unchecked replay", () => {
     await waitFor(() => expect(document.activeElement).toBe(document.querySelector("[data-replay-failure]")));
   });
 
+  it("moves focus to the empty page when the unchecked answer has no moves", async () => {
+    server((url) => url.searchParams.get("unchecked") === "1"
+      ? json({ ...replayV2({ frames: [] }), verification: "unverified" })
+      : json(unverifiedBody({ canOpenUnchecked: true }), 409));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open unchecked replay" }));
+    const empty = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-replay-empty]");
+      expect(el).toBeTruthy();
+      return el!;
+    });
+    await waitFor(() => expect(document.activeElement).toBe(empty));
+  });
+
+  it("says that the unchecked replay also failed, when the unchecked request is refused", async () => {
+    server((url) => json(url.searchParams.get("unchecked") === "1"
+      ? unverifiedBody({ reason: "command_mismatch", canOpenUnchecked: false })
+      : unverifiedBody({ canOpenUnchecked: true }), 409));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    expect((await screen.findByRole("alert")).textContent).toBe(MISMATCH);
+    fireEvent.click(screen.getByRole("button", { name: "Open unchecked replay" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(ALSO_FAILED));
+    expect(screen.queryByRole("button", { name: "Open unchecked replay" })).toBeNull();
+  });
+
   it("keeps unchecked when the card view changes", async () => {
     window.history.replaceState(null, "", "/duels/game-1/replay?unchecked=1");
     server(() => json({ ...replayV2(), verification: "unverified" }));
@@ -291,6 +317,27 @@ describe("Back to checked view", () => {
     render(<DuelReplayView slug="game-1" canInspectSource />);
     const link = await screen.findByRole("link", { name: "Back to checked view" });
     expect(link.getAttribute("href")).toBe("/duels/game-1/replay?frame=step-2");
+  });
+});
+
+describe("an unchecked request answered exact", () => {
+  it("shows no banner and no back link, and Jump in sends no unchecked flag", async () => {
+    window.history.replaceState(null, "", "/duels/game-1/replay?unchecked=1");
+    server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
+      ? json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: {} })
+      : json({ ...replayV2(), capabilities: { canFork: true, privateSeats: [0, 1] }, verification: "exact" }));
+    render(<DuelReplayView slug="game-1" canInspectSource />);
+    await screen.findByRole("group", { name: "Replay controls" });
+    expect(calls[0]!.url.searchParams.get("unchecked")).toBe("1");
+    expect(document.querySelector("[data-replay-unchecked]")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Back to checked view" })).toBeNull();
+    expect(document.querySelector("[data-replay-verified]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Next move" }));
+    fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/duels/fork-9"));
+    const body = JSON.parse(String(calls.find((call) => call.init?.method === "POST")!.init!.body)) as Record<string, unknown>;
+    expect("unchecked" in body).toBe(false);
+    expect(document.querySelector("[data-fork-unchecked-mark]")).toBeNull();
   });
 });
 

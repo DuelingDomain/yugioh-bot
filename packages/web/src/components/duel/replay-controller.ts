@@ -217,6 +217,8 @@ export const UNVERIFIED_COPY = {
   noBoard: "This duel has no saved final board, so its replay cannot be checked.",
   /** no_saved_board while the viewer's own final board exists: another seat's saved board is missing. */
   partialBoard: "This replay cannot be checked, because part of the saved final board is missing.",
+  /** The owner already asked for the unchecked replay, and the moves still cannot run. */
+  uncheckedFailed: "The unchecked replay also failed: the saved moves no longer fit the current card data.",
 } as const;
 
 /** The line under a failure when the server has no final board at all. */
@@ -238,14 +240,15 @@ export const UNCHECKED_BANNER_COPY = "Unchecked replay — this replay was not c
 /** The link in that banner: the same address without ?unchecked=1. */
 export const BACK_TO_CHECKED_COPY = "Back to checked view";
 
-export function replayFailure(error: unknown, fallback = "Could not load this replay."): ReplayFailure {
+/** `unchecked`: the failed request was the owner's unchecked one, so a REPLAY_UNVERIFIED says that it also failed. */
+export function replayFailure(error: unknown, fallback = "Could not load this replay.", unchecked = false): ReplayFailure {
   if (error instanceof DuelRequestError) {
     const unverified = error.code === "REPLAY_UNVERIFIED";
     const reason = error.detail?.reason;
     // no_saved_board: the copy follows finalBoard, so the text never says "no final board" above a Final board link.
     const noBoardCopy = error.finalBoard === "available" ? UNVERIFIED_COPY.partialBoard : UNVERIFIED_COPY.noBoard;
     const typed = unverified
-      ? (reason === "no_saved_board" ? noBoardCopy : UNVERIFIED_COPY.mismatch)
+      ? (reason === "no_saved_board" ? noBoardCopy : unchecked ? UNVERIFIED_COPY.uncheckedFailed : UNVERIFIED_COPY.mismatch)
       : error.code ? FAILURE_COPY[error.code] : undefined;
     const message = typed ?? (error.message || fallback);
     const reasonFinalBoard = error.code === "ENGINE_UNAVAILABLE_FOR_SOURCE" || error.code === "REPLAY_MISMATCH"

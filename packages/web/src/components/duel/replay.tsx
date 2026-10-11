@@ -169,11 +169,15 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const refocus = useRef(false);
   useEffect(() => {
     if (!refocus.current) return;
-    const target = model && settled
-      ? document.querySelector<HTMLElement>('[role="group"][aria-label="Replay controls"]')
-      : error && !model ? document.querySelector<HTMLElement>("[data-replay-failure]") : null;
-    if (!target) return;
+    const answered = model != null && settled;
+    const failed = !answered && error != null && model == null;
+    if (!answered && !failed) return;
+    // The first answer or error ends the hand-over, also when the answer has no moves (then the empty page takes focus).
     refocus.current = false;
+    const target = answered
+      ? document.querySelector<HTMLElement>('[role="group"][aria-label="Replay controls"]') ?? document.querySelector<HTMLElement>("[data-replay-empty]")
+      : document.querySelector<HTMLElement>("[data-replay-failure]");
+    if (!target) return;
     target.tabIndex = -1;
     target.focus({ preventScroll: true });
   }, [model, settled, error]);
@@ -246,7 +250,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
 
   if (!model && !error) return <div className="p-6 text-sm text-text-secondary" aria-busy="true">Loading replay…</div>;
   if (error && !model) {
-    const failure = replayFailure(error);
+    const failure = replayFailure(error, undefined, unchecked);
     return (
       <div className={replayStyles.state} data-replay-failure tabIndex={-1}>
         <p role="alert" className="text-accent-cta">{failure.message}</p>
@@ -273,7 +277,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const ownerTools = renderOwnerTools(false);
   if (!model || !timeline || !engine || timeline.length === 0) {
     return (
-      <div className={replayStyles.state}>
+      <div className={replayStyles.state} data-replay-empty tabIndex={-1}>
         <p role="alert" className="text-accent-cta">{ownerTools && model?.forkSteps
           ? "Move views exceed the size limit. Choose a move to Jump in."
           : model ? "This replay has no recorded moves." : "Could not load this replay."}</p>
