@@ -25,20 +25,44 @@ import type {
 } from "@yugidraft/shared/duels";
 import { EMPTY_HISTORY_FILTERS, historyQuery, type HistoryFilters } from "./history-filters";
 
+/**
+ * How a replay was checked. "exact": the engine package of the duel. "verified": the current package, and the
+ * result matches the saved final board. "unverified": the owner opened it without a check. Absent on older servers
+ * (the same as "exact").
+ */
+export type ReplayVerification = "exact" | "verified" | "unverified";
+
+export type ReplayUnverifiedReason = "board_mismatch" | "command_mismatch" | "no_saved_board";
+
+/** The extra fields of a REPLAY_UNVERIFIED (409) answer. All are optional: an older server sends none of them. */
+export interface ReplayErrorDetail {
+  /** True only for the owner, and only when the server can open the replay without the check. */
+  canOpenUnchecked?: boolean;
+  reason?: ReplayUnverifiedReason;
+}
+
+/** A replay answer with the check result. The shared type does not carry it yet, so it is added here (optional). */
+export type CheckedReplayV2 = DuelReplayV2 & { verification?: ReplayVerification };
+
 export class DuelRequestError extends Error {
   readonly status: number;
   readonly code?: string;
   /** Replay errors only: whether the saved final board can still be opened. Absent on older servers. */
   readonly finalBoard?: "available" | "none";
+  /** Replay errors only: why the replay could not be checked, and whether the owner may open it anyway. */
+  readonly detail?: ReplayErrorDetail;
 
-  constructor(message: string, status: number, code?: string, finalBoard?: "available" | "none") {
+  constructor(message: string, status: number, code?: string, finalBoard?: "available" | "none", detail?: ReplayErrorDetail) {
     super(message);
     this.name = "DuelRequestError";
     this.status = status;
     this.code = code;
     this.finalBoard = finalBoard;
+    this.detail = detail;
   }
 }
+
+const UNVERIFIED_REASONS: readonly string[] = ["board_mismatch", "command_mismatch", "no_saved_board"];
 
 /** Access failures invalidate cached private views, including expired sessions without an error code. */
 export function isDuelAccessError(error: unknown): error is DuelRequestError {
@@ -61,6 +85,15 @@ function errorMessage(body: unknown, status: number): string {
   return `Request failed (${status})`;
 }
 
+function replayErrorDetail(body: unknown): ReplayErrorDetail | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const raw = body as Record<string, unknown>;
+  const detail: ReplayErrorDetail = {};
+  if (typeof raw.canOpenUnchecked === "boolean") detail.canOpenUnchecked = raw.canOpenUnchecked;
+  if (typeof raw.reason === "string" && UNVERIFIED_REASONS.includes(raw.reason)) detail.reason = raw.reason as ReplayUnverifiedReason;
+  return Object.keys(detail).length > 0 ? detail : undefined;
+}
+
 async function parseBody<T>(res: Response): Promise<T> {
   if (res.redirected) throw new DuelRequestError("Your session expired. Sign in again to return to this table.", 401);
   const body: unknown = await res.json().catch(() => null);
@@ -68,7 +101,7 @@ async function parseBody<T>(res: Response): Promise<T> {
     const code = body && typeof body === "object" && "code" in body && typeof body.code === "string" ? body.code : undefined;
     const finalBoard = body && typeof body === "object" && "finalBoard" in body
       && (body.finalBoard === "available" || body.finalBoard === "none") ? body.finalBoard : undefined;
-    throw new DuelRequestError(errorMessage(body, res.status), res.status, code, finalBoard);
+    throw new DuelRequestError(errorMessage(body, res.status), res.status, code, finalBoard, replayErrorDetail(body));
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new DuelRequestError("The server returned an invalid response. Your last game state is unchanged.", 502);
@@ -136,16 +169,18 @@ export async function getDuelReplay(slug: string): Promise<DuelReplay> {
  * overrides and reveal flags never travel: the server rejects them for ordinary viewers. A server that
  * does not know version 2 yet answers with the v1 shape, which the replay controller converts.
  */
-export function duelReplayUrl(slug: string, visibility: ReplayVisibility): string {
-  return `${duelReplayKey(slug)}?version=2&visibility=${visibility}`;
+export function duelReplayUrl(slug: string, visibility: ReplayVisibility, unchecked = false): string {
+  return `${duelReplayKey(slug)}?version=2&visibility=${visibility}${unchecked ? "&unchecked=1" : ""}`;
 }
 
+/** `unchecked` asks the server to open a replay it could not check. It is the owner's choice; the server refuses anyone else. */
 export async function getDuelReplayFrames(
   slug: string,
   visibility: ReplayVisibility,
   signal?: AbortSignal,
-): Promise<DuelReplay | DuelReplayV2> {
-  return parseBody(await fetch(duelReplayUrl(slug, visibility), { cache: "no-store", signal }));
+  unchecked = false,
+): Promise<DuelReplay | CheckedReplayV2> {
+  return parseBody(await fetch(duelReplayUrl(slug, visibility, unchecked), { cache: "no-store", signal }));
 }
 
 /** The private views an owner may ask for. `seat` shows that seat's cards; `reveal` fills every hand. */
@@ -153,12 +188,15 @@ export interface OwnerReplayView {
   visibility: ReplayVisibility;
   seat?: number | null;
   reveal?: boolean;
+  /** Open the replay without the check against the saved final board. */
+  unchecked?: boolean;
 }
 
 export function ownerReplayUrl(slug: string, view: OwnerReplayView): string {
   const query = new URLSearchParams({ version: "2", visibility: view.visibility });
   if (view.seat != null) query.set("seat", String(view.seat));
   if (view.reveal) query.set("reveal", "1");
+  if (view.unchecked) query.set("unchecked", "1");
   return `/api/admin/duels/${encodeURIComponent(slug)}/replay?${query.toString()}`;
 }
 
@@ -167,12 +205,12 @@ export async function getOwnerReplayFrames(
   slug: string,
   view: OwnerReplayView,
   signal?: AbortSignal,
-): Promise<DuelReplayV2> {
+): Promise<CheckedReplayV2> {
   return parseBody(await fetch(ownerReplayUrl(slug, view), { cache: "no-store", signal }));
 }
 
 /** Owner only. The retry key in `request` makes a repeated click or a network retry one fork. */
-export async function postReplayFork(slug: string, request: ReplayForkRequest): Promise<ReplayForkResult> {
+export async function postReplayFork(slug: string, request: ReplayForkRequest & { unchecked?: boolean }): Promise<ReplayForkResult> {
   return parseBody(await fetch(`/api/admin/duels/${encodeURIComponent(slug)}/replay/fork`, {
     method: "POST",
     cache: "no-store",

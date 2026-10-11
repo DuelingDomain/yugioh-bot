@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { GitFork, Eye, X } from "lucide-react";
+import { GitFork, Eye, TriangleAlert, X } from "lucide-react";
 import type { ReplayFrameV2, ReplayForkStep } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
 import { isDuelAccessError, postReplayFork } from "./api";
@@ -99,14 +99,16 @@ export function useForkStart({ slug, model, frame, onReload, onPause, openForks 
     onPause?.();
     setPending(true);
     setFailure(null);
-    const key = `${slug}:${frame.frameId}:${cursor}:${sourceVersion}`;
+    // A fork of an unchecked replay is asked for as such: the server refuses it otherwise. It is part of the retry key.
+    const unchecked = model.verification === "unverified";
+    const key = `${slug}:${frame.frameId}:${cursor}:${sourceVersion}${unchecked ? ":unchecked" : ""}`;
     let requestId = requestIds.current.get(key);
     if (!requestId) {
       requestId = newForkRequestId();
       requestIds.current.set(key, requestId);
     }
     try {
-      const result = await postReplayFork(slug, { cursor, sourceVersion, requestId });
+      const result = await postReplayFork(slug, unchecked ? { cursor, sourceVersion, requestId, unchecked: true } : { cursor, sourceVersion, requestId });
       // Pending and the request id both stay until the page has left.
       navigating.current = setTimeout(() => {
         navigating.current = null;
@@ -159,15 +161,20 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, f
   if (!canOfferFork(model)) return null;
   const reason = forkDisabledReason(frame);
   const disabled = pending || busy || reason != null;
+  const unchecked = model.verification === "unverified";
 
   return (
     <span ref={groupRef} className={styles.group} data-replay-fork>
       <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={disabled} aria-busy={pending || undefined}
-        title={reason ?? "Make a private copy from this move and play every seat"}
+        title={reason ?? (unchecked
+          ? "Unchecked replay: the copy can differ from the saved duel. Make a private copy from this move and play every seat"
+          : "Make a private copy from this move and play every seat")}
         aria-describedby={reason ? `fork-reason-${slug}` : undefined}
         onClick={() => void fork.start()}>
         <GitFork size={14} aria-hidden />
         <span>{pending ? "Starting…" : <>Jump in<span className={styles.wide}> here</span></>}</span>
+        {unchecked ? <TriangleAlert size={13} aria-hidden data-fork-unchecked-mark className={styles.warnMark} /> : null}
+        {unchecked ? <span className="sr-only">Unchecked replay</span> : null}
       </button>
       {reason && !pending ? <span id={`fork-reason-${slug}`} className="sr-only">{reason}</span> : null}
       {failure && showFailure ? (

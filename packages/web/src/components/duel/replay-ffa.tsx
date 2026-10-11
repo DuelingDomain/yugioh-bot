@@ -18,6 +18,8 @@ import {
 } from "./replay-controller";
 import type { ReplayLogEntry } from "./replay-timeline";
 import { ReplayStatus } from "./replay-status";
+import { ReplayVerificationNote } from "./replay-verification";
+import type { ReplayVerification } from "./api";
 import { TableShell } from "./table/table-shell";
 import type { ReplayShellMode } from "./table/types";
 import replayStyles from "./replay.module.css";
@@ -65,6 +67,7 @@ interface TransportProps {
   onVisibility: (next: ReplayVisibility) => void;
   onCamera: (seat: number) => void;
   notice: string | null;
+  verification?: ReplayVerification;
 }
 
 /**
@@ -72,7 +75,7 @@ interface TransportProps {
  * from and the card visibility. It sits in the shell's transport slot; it never sends an action.
  */
 export function ReplayTableTransport({
-  slug, controller, seatCount, playerName, caption, newLines, result, visibility, hiddenNote, canSwitchCards, onVisibility, onCamera, notice,
+  slug, controller, seatCount, playerName, caption, newLines, result, visibility, hiddenNote, canSwitchCards, onVisibility, onCamera, notice, verification = "exact",
 }: TransportProps) {
   const { index, last, playing, speed, camera } = controller;
   const atEnd = index >= last;
@@ -92,6 +95,7 @@ export function ReplayTableTransport({
         <span className={styles.say} aria-live="off" title={said ? `${caption}. ${said}` : caption}>
           <b>{caption}</b>{said ? <> · {said}</> : null}
         </span>
+        <ReplayVerificationNote verification={verification} strip />
         {hiddenNote ? <span className={styles.hidden} title="Public view — hidden cards stay hidden">Public view — hidden cards stay hidden</span> : null}
         {notice ? <p role="alert" className={styles.note} title={notice}>{notice}</p> : null}
         <Link href={`/duels/${slug}`} className={replayStyles.link}>Final board</Link>
@@ -220,6 +224,7 @@ export function ReplayFfa({
       onVisibility={onVisibility}
       onCamera={(seat) => { onCamera?.(seat); controller.setCamera(seat); }}
       notice={notice}
+      verification={model.verification}
     />
   );
   const replay: ReplayShellMode = { transport, resetKey, tools };
