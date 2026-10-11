@@ -5,23 +5,24 @@ import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
 import { eliminationCodeOf } from "./engine.js";
 import { JournalRunnerError, runJournalPrefix, type JournalResources } from "./journal-runner.js";
 import { replayFrameId, replayPrefixHashes, type ReplayCursorCodec, type ReplayCursorClaims } from "./replay-cursor.js";
+import { ReplayJsonEncoder, type SerializedReplayView } from "./replay-json.js";
 import type { DuelGameWorker } from "./worker-client.js";
 
 export const REPLAY_MAX_BUILD_BYTES = 16 * 1024 * 1024;
 export const REPLAY_BUILD_TIMEOUT_MS = 25_000;
 
-/** Keep build time below the host request deadline (28s) and web transport (30s).
- * Allow 64 KiB per seat per accepted command above the startup byte allowance.
- */
-export function replayBuildLimits(commandCount: number, seatCount: number) {
-  return { timeoutMs: REPLAY_BUILD_TIMEOUT_MS,
-    maxBytes: REPLAY_MAX_BUILD_BYTES + commandCount * seatCount * 64 * 1024 };
+/** Fixed caps protect live duels regardless of journal/deck length. */
+export function replayBuildLimits(_commandCount: number, _seatCount: number) {
+  return { timeoutMs: REPLAY_BUILD_TIMEOUT_MS, maxBytes: REPLAY_MAX_BUILD_BYTES };
 }
+
+// Local extension: the web/client preserve unknown error codes and show their clear server message.
+export type ReplayBuildErrorCode = ReplayErrorCode | "REPLAY_TOO_LARGE";
 
 export class ReplayBuildError extends Error {
   readonly status: number;
-  constructor(message: string, readonly code: ReplayErrorCode) {
-    super(message); this.status = code === "ENGINE_BUSY" ? 503 : 409;
+  constructor(message: string, readonly code: ReplayBuildErrorCode) {
+    super(message); this.status = code === "REPLAY_TOO_LARGE" ? 413 : code === "ENGINE_BUSY" ? 503 : 409;
   }
 }
 
@@ -50,6 +51,7 @@ export interface ReplayBuildOptions {
   maxBytes?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  encodeView?: (view: DuelEngineView) => Promise<SerializedReplayView>;
 }
 
 /** An old host-only loss has no safe location in the prefix. Never apply final setup loss flags to early views. */
@@ -77,27 +79,37 @@ export function projectReplayFrames(frames: ReplayFrameData[], codec: ReplayCurs
 
 /** Standalone builder used by engine tools/tests; the host projects its shared cache per viewer. */
 export async function buildReplayFrames(options: ReplayBuildOptions): Promise<ReplayFrameV2[]> {
-  return projectReplayFrames(await buildReplayData(options), options.codec, true);
+  return projectReplayFrames((await buildReplayData(options)).frames, options.codec, true);
+}
+
+export interface ReplayBuildData {
+  frames: ReplayFrameData[];
+  viewJson: string[];
+  /** Conservative wire/cache size including sealed cursor growth, serialized views and envelope. */
+  bytes: number;
 }
 
 /** Detached read-only re-run. Each call has its own projection delta positions and closes its worker. */
-export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">): Promise<ReplayFrameData[]> {
+export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">): Promise<ReplayBuildData> {
   const { source, sourceVersion, dataSeat } = options;
   options.signal?.throwIfAborted();
   if (source.session.status !== "completed" && source.session.status !== "interrupted") {
     throw new ReplayBuildError("Replays are available after the duel ends", "NOT_PLAYABLE");
   }
   const frames: ReplayFrameData[] = [];
+  const viewJson: string[] = [];
+  const encoder = options.encodeView ? undefined : new ReplayJsonEncoder();
+  const encodeView = options.encodeView ?? (view => encoder!.encode(view));
   const seen = { log: 0, events: 0 };
   const limits = replayBuildLimits(source.commands.length, source.decks.length);
-  const maxBytes = options.maxBytes ?? limits.maxBytes;
-  let bytes = 2;
+  const maxBytes = Math.min(REPLAY_MAX_BUILD_BYTES, options.maxBytes ?? limits.maxBytes);
+  let bytes = 64 * 1024; // Envelope/session allowance; frame metadata and cursor growth counted below.
   let worker: DuelGameWorker | undefined;
   let expired = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const playable = !replayHasUnsequencedLoss(source);
   const prefixHashes = replayPrefixHashes(source);
-  const append = (view: DuelEngineView, kind: ReplayFrameV2["kind"], actorSeat: number | null, prefixCount: number) => {
+  const append = async (view: DuelEngineView, kind: ReplayFrameV2["kind"], actorSeat: number | null, prefixCount: number) => {
     const log = view.log.filter(entry => entry.id > seen.log);
     const events = view.events.filter(entry => entry.id > seen.events);
     for (const entry of log) seen.log = Math.max(seen.log, entry.id);
@@ -110,9 +122,13 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
         sourceVersion, frameId, step, prefixCount, prefixHash: prefixHashes[prefixCount]!, revision: view.revision,
       } : null,
       view: toOrdinaryReplayView({ ...view, log, events, result }) } as ReplayFrameData;
-    bytes += Buffer.byteLength(JSON.stringify(frame)) + 1;
-    if (bytes > maxBytes) throw new ReplayBuildError("Replay exceeds the response size limit.", "ENGINE_BUSY");
-    frames.push(frame);
+    const serialized = await encodeView(frame.view);
+    const { view: _view, ...metadata } = frame;
+    // Twice the small claims JSON plus 128 bytes bounds the base64url encrypted cursor.
+    // Cache accounting also includes both the view object and its reusable JSON string.
+    bytes += serialized.bytes * 2 + Buffer.byteLength(JSON.stringify(metadata)) * 2 + 128;
+    if (bytes > maxBytes) throw new ReplayBuildError("Replay is too large to load safely (16 MiB limit). Open the saved final board.", "REPLAY_TOO_LARGE");
+    frames.push(frame); viewJson.push(serialized.json);
   };
   const check = () => { options.signal?.throwIfAborted(); };
   const work = async () => {
@@ -128,7 +144,7 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
           for (let seat = 0; seat < source.decks.length; seat++) seats.push(seat === dataSeat ? view : await worker!.view(seat));
           view = revealReplayHands(view, seats);
         }
-        append(view, view.result ? "result" : prefixCount === 0 ? "opening" : "engine", actorSeat, prefixCount);
+        await append(view, view.result ? "result" : prefixCount === 0 ? "opening" : "engine", actorSeat, prefixCount);
       },
     });
     if (expired) throw new ReplayBuildError("Replay timed out.", "ENGINE_BUSY");
@@ -140,9 +156,9 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
         reason: session.resultReason ?? "Duel ended" } };
       // A saved final snapshot can have a host-only result. Its reveal projection is supplied by the authorized caller.
       if (options.reveal && !options.finalView) final = revealReplayHands(final, result.views.seats);
-      append(final, "result", null, source.commands.length);
+      await append(final, "result", null, source.commands.length);
     }
-    return frames;
+    return { frames, viewJson, bytes };
   };
   let onAbort: (() => void) | undefined;
   try {
@@ -155,6 +171,7 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
   } catch (error) { throw replayBuildError(error); }
   finally {
     clearTimeout(timer);
+    await encoder?.close();
     if (onAbort) options.signal?.removeEventListener("abort", onAbort);
     if (worker?.running) { try { await worker.close(); } catch { /* The detached worker may already have exited. */ } }
   }
@@ -164,16 +181,19 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
 export class ReplayBuildCache<T = unknown> {
   private readonly entries = new Map<string, { value: T; bytes: number }>();
   private readonly pending = new Map<string, Promise<T>>();
+  private readonly rejected = new Map<string, ReplayBuildError>();
   private totalBytes = 0;
   private active = 0;
   private readonly waiting: Array<() => void> = [];
-  constructor(private readonly limits: { maxBytes: number; maxEntries: number; maxConcurrent: number; maxWaiting?: number }
+  constructor(private readonly sizeOf: (value: T) => number, private readonly limits: { maxBytes: number; maxEntries: number; maxConcurrent: number; maxWaiting?: number }
     = { maxBytes: 64 * 1024 * 1024, maxEntries: 16, maxConcurrent: 2, maxWaiting: 8 }) {}
   get size() { return this.entries.size; }
   get bytes() { return this.totalBytes; }
   async getOrBuild(key: string, build: () => Promise<T>): Promise<T> {
     const cached = this.entries.get(key);
     if (cached) { this.entries.delete(key); this.entries.set(key, cached); return cached.value; }
+    const rejected = this.rejected.get(key);
+    if (rejected) { this.rejected.delete(key); this.rejected.set(key, rejected); throw rejected; }
     const pending = this.pending.get(key); if (pending) return pending;
     let ready: Promise<void>;
     if (this.active < this.limits.maxConcurrent) { this.active++; ready = Promise.resolve(); }
@@ -184,9 +204,8 @@ export class ReplayBuildCache<T = unknown> {
       ready = new Promise(resolve => this.waiting.push(resolve));
     }
     const job = ready.then(build).then(value => {
-      const bytes = Buffer.byteLength(JSON.stringify(value));
-      // Serving a long replay must not depend on whether it fits the memory cache.
-      if (bytes > this.limits.maxBytes) return value;
+      const bytes = this.sizeOf(value);
+      if (bytes > this.limits.maxBytes) throw new ReplayBuildError("Replay is too large to load safely. Open the saved final board.", "REPLAY_TOO_LARGE");
       if (this.limits.maxEntries > 0) {
         while (this.entries.size && (this.entries.size >= this.limits.maxEntries || this.totalBytes + bytes > this.limits.maxBytes)) {
           const oldest = this.entries.keys().next().value!; this.totalBytes -= this.entries.get(oldest)!.bytes; this.entries.delete(oldest);
@@ -194,6 +213,13 @@ export class ReplayBuildCache<T = unknown> {
         this.entries.set(key, { value, bytes }); this.totalBytes += bytes;
       }
       return value;
+    }).catch(error => {
+      // Size failures are deterministic for this source/resource/projection key. Transient failures retry.
+      if (error instanceof ReplayBuildError && error.code === "REPLAY_TOO_LARGE" && this.limits.maxEntries > 0) {
+        while (this.rejected.size >= this.limits.maxEntries) this.rejected.delete(this.rejected.keys().next().value!);
+        this.rejected.set(key, error);
+      }
+      throw error;
     }).finally(() => {
       this.pending.delete(key);
       const next = this.waiting.shift();
@@ -202,5 +228,5 @@ export class ReplayBuildCache<T = unknown> {
     this.pending.set(key, job); return job;
   }
   async settle(): Promise<void> { await Promise.allSettled(this.pending.values()); }
-  clear(): void { this.entries.clear(); this.totalBytes = 0; }
+  clear(): void { this.entries.clear(); this.rejected.clear(); this.totalBytes = 0; }
 }

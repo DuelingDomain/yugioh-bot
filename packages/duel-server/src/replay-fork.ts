@@ -5,9 +5,9 @@ import { assertOwnerReplaySourceAccess, assertReplayForkAccess, resolveOwnerPlay
 import { createDuelService, createReplayForkService, hashReplayForkPrefix, ReplayForkStorageError,
   type DuelPrivateState } from "@yugidraft/shared/services";
 import { isReplayForkRequest, type DuelCommand, type DuelEngineView, type DuelRoom, type DuelSession, type ReplayForkRequest,
-  type ReplayForkResult, type ReplaySource, type ReplayErrorCode } from "@yugidraft/shared/duels";
+  type ReplayForkResult, type ReplaySource } from "@yugidraft/shared/duels";
 import { runJournalPrefix, type JournalResources, type JournalRunResult } from "./journal-runner.js";
-import { replayBuildError, replayHasUnsequencedLoss } from "./replay-builder.js";
+import { replayBuildError, replayHasUnsequencedLoss, type ReplayBuildErrorCode } from "./replay-builder.js";
 import { replayFrameId, replaySourceVersion, resolveReplayCursor, ReplayCursorError, type ReplayCursorCodec } from "./replay-cursor.js";
 import type { DuelGameWorker } from "./worker-client.js";
 
@@ -42,7 +42,7 @@ export function listActiveReplayForks(db: Database.Database, actor: OwnerPlayerA
 export class ReplayForkLaunchError extends Error {
   readonly status: number;
   readonly recovery?: { limit: number; forksUrl: string };
-  constructor(message: string, readonly code: ReplayErrorCode) {
+  constructor(message: string, readonly code: ReplayBuildErrorCode) {
     super(message); this.status = code === "INVALID_CURSOR" ? 400 : code === "FORK_LIMIT" ? 429 : code === "ENGINE_BUSY" ? 503 : 409;
     if (code === "FORK_LIMIT") this.recovery = { limit: REPLAY_FORK_ACTIVE_LIMIT, forksUrl: "/api/admin/duels/forks" };
   }

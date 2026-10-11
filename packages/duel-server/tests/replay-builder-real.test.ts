@@ -65,8 +65,8 @@ describeWithCores("real replay frame projections", [needs.cards(DATA), needs.scr
         const workers: GameWorker[] = [];
         const data = await buildReplayData({ source, sourceVersion, resources, dataSeat, finalView: null,
           createWorker: () => { const worker = new GameWorker(); workers.push(worker); return worker; } });
-        const frames = projectReplayFrames(data, codec, true);
-        const ordinary = projectReplayFrames(data, codec, false);
+        const frames = projectReplayFrames(data.frames, codec, true);
+        const ordinary = projectReplayFrames(data.frames, codec, false);
         expect(ordinary.every(frame => frame.cursor === null)).toBe(true);
         expect(ordinary.map(frame => frame.view)).toEqual(frames.map(frame => frame.view));
         expect(workers.every(worker => !worker.running)).toBe(true);

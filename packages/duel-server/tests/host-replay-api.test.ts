@@ -9,6 +9,7 @@ import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelReplayV2 } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createReplayCursorCodec } from "../src/replay-cursor.js";
+import * as replayJson from "../src/replay-json.js";
 import { seedIdentity } from "./helpers/identity.js";
 import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
 
@@ -20,6 +21,7 @@ const secret = "host-replay-test-secret";
 let db: Database.Database; let dir: string; let host: DuelHost; let slug: string;
 let workers: ReplayWorker[]; let onChange: ReturnType<typeof vi.fn<(slug: string, guildId: string) => void>>;
 let beforeCreate = () => {};
+let configureWorker = (_worker: ReplayWorker) => {};
 const owner = { guildId: "test-guild", playerId: 61, userId: 101 };
 beforeEach(() => {
   vi.stubEnv("OWNER_USER_IDS", "101,102");
@@ -39,9 +41,9 @@ beforeEach(() => {
     .run(JSON.stringify(source.seed), source.bundleVersion, JSON.stringify(source.setup), session.id);
   for (const entry of source.commands) db.prepare("insert into duel_commands(duel_id, seq, seat, command_json) values(?,?,?,?)")
     .run(session.id, entry.storedSeq, entry.seat, JSON.stringify(entry.command));
-  workers = []; onChange = vi.fn(); beforeCreate = () => {};
+  workers = []; onChange = vi.fn(); beforeCreate = () => {}; configureWorker = () => {};
   host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000, onChange,
-    createWorker: () => { beforeCreate(); const worker = new ReplayWorker(); workers.push(worker); return worker; } });
+    createWorker: () => { beforeCreate(); const worker = new ReplayWorker(); configureWorker(worker); workers.push(worker); return worker; } });
 });
 afterEach(async () => { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs(); });
 async function post(input: Record<string, unknown>, signed = true) {
@@ -121,6 +123,49 @@ it("binds no-op cursor prefixes and invalidates cached source versions after a s
 it("deduplicates concurrent detached replay requests", async () => {
   const results = await Promise.all([post({ version: 2 }), post({ version: 2 }), post({ version: 2 })]);
   expect(results.every(r => r.response.status === 200)).toBe(true); expect(workers).toHaveLength(1);
+});
+it("keeps the host deadline active while assembling a cached replay response", async () => {
+  await host.close();
+  const options = { db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000, replayRequestTimeoutMs: 28_000,
+    createWorker: () => { const worker = new ReplayWorker(); workers.push(worker); return worker; } };
+  host = createDuelHost(options);
+  expect((await post({ version: 2 })).response.status).toBe(200);
+  options.replayRequestTimeoutMs = 20;
+  const render = vi.spyOn(replayJson, "replayJsonResponse").mockImplementation(() => new Response(new ReadableStream({
+    async start(controller) {
+      await new Promise(resolve => setTimeout(resolve, 60));
+      controller.enqueue(new TextEncoder().encode("{}")); controller.close();
+    },
+  })));
+  try {
+    const result = await post({ version: 2 });
+    expect(render).toHaveBeenCalledOnce();
+    expect(result.response.status).toBe(503); expect(result.body.code).toBe("ENGINE_BUSY");
+    expect(workers).toHaveLength(1);
+  } finally { render.mockRestore(); }
+});
+it("rejects oversized replays once, keeps a clear size error and offers the saved final board", async () => {
+  const finalWorker = new ReplayWorker();
+  await finalWorker.create({ mode: "normal", decks: replaySource().decks, seed: replaySource().seed, dataDirectory: dir });
+  const board = await finalWorker.view(null);
+  db.prepare("update duels set snapshot_public_json = ?, snapshot_seat0_json = ? where web_slug = ?")
+    .run(JSON.stringify(board), JSON.stringify(await finalWorker.view(0)), slug);
+  const before = rows();
+  configureWorker = worker => {
+    const view = worker.view.bind(worker);
+    worker.view = async seat => ({ ...await view(seat), log: [{ id: 1, kind: "message", text: "x".repeat(9 * 1024 * 1024) }] });
+  };
+  const results = await Promise.all([post({ version: 2, visibility: "public" }), post({ version: 2, visibility: "public" })]);
+  results.push(await post({ version: 2, visibility: "public" }));
+  for (const result of results) {
+    expect(result.response.status).toBe(413);
+    expect(result.body).toMatchObject({ code: "REPLAY_TOO_LARGE", finalBoard: "available" });
+    expect((result.body as unknown as { error: string }).error).toContain("16 MiB limit");
+    expect(result.body).not.toHaveProperty("frames");
+  }
+  expect(workers).toHaveLength(1); expect(workers[0]!.running).toBe(false);
+  expect(rows()).toEqual(before);
+  expect(createDuelService(db).room(slug, owner.guildId, 64).engine).toMatchObject({ seats: board.seats });
 });
 it("keeps public, own-seat, private-seat and reveal cache entries separate", async () => {
   const mine = await post({ version: 2 }); const publicView = await post({ version: 2, visibility: "public" });
