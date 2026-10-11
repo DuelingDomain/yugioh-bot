@@ -243,7 +243,8 @@ function TableShellBody({
   const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
-  useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
+  // A replay suspends input while another card view loads: the open flyout stays (the table is hidden and inert meanwhile).
+  useEffect(() => { if (inputSuspended && !replay) closeHud(); }, [inputSuspended, replay, closeHud]);
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
