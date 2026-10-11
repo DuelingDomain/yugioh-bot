@@ -148,7 +148,7 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   if (!/^https:\/\/\S+\/pull\/\d+$/.test(prUrl)) throw new Error("gh did not return a pull request URL");
   const labels = gh("api", "--paginate", `repos/${repo}/labels?per_page=100`, "--jq", ".[].name").trim().split("\n");
   if (labels.includes("engine-data")) gh("pr", "edit", prUrl, "--repo", repo, "--add-label", "engine-data");
-  if (env.HAS_PR_TOKEN !== "true") gh("workflow", "run", "test.yml", "--repo", repo, "--ref", branch, "-f", "nightly=false");
+  if (env.HAS_PR_TOKEN !== "true") gh("workflow", "run", "test.yml", "--repo", repo, "--ref", branch, "-f", "nightly=false", "-f", "new_card_smoke=true");
   log(`Engine data update published: ${prUrl}`);
   return { status: "published", pushed: true, prUrl };
 }
