@@ -263,6 +263,49 @@ describe("atomic replay fork storage", () => {
     expect(app.db.prepare("select count(*) as n from duels where kind = 'replay-fork'").get()).toEqual({ n: 0 });
   });
 
+  it.each(["null-seed", "noncanonical-seed", "seat-order", "journal", "engine-identity"])
+    ("uses REPLAY_MISMATCH for bad saved source data: %s", fault => {
+      const app = fixture();
+      if (fault === "null-seed" || fault === "noncanonical-seed") {
+        const seed = fault === "null-seed" ? null : ["01", "2", "3", "4"];
+        app.db.prepare("update duels set seed_json=? where id=?").run(JSON.stringify(seed), app.source.session.id);
+        app.input.source.seed = seed as unknown as ReplaySource["seed"];
+      }
+      if (fault === "seat-order") {
+        app.db.prepare("update duel_seats set seat=2 where duel_id=? and seat=0").run(app.source.session.id);
+        const current = app.duels.privateState(app.source.session.slug, app.actor.guildId);
+        app.input.source = { ...app.source, session: current.session, decks: current.decks };
+      }
+      if (fault === "journal") {
+        app.input.source.commands[0]!.command.revision = -1;
+        app.db.prepare("update duel_commands set command_json=? where duel_id=? and seq=2")
+          .run(JSON.stringify(app.input.source.commands[0]!.command), app.source.session.id);
+        app.input.origin.prefixHash = services.hashReplayForkPrefix(app.input.source.commands.slice(0, 2));
+      }
+      if (fault === "engine-identity") {
+        const identity = { ...app.source.engineIdentity!, wrapperVersion: "" };
+        app.input.source.engineIdentity = identity;
+        app.db.prepare("update duels set setup_json=json_set(setup_json,'$.engineIdentity',json(?)) where id=?")
+          .run(JSON.stringify(identity), app.source.session.id);
+      }
+      expect(() => app.forks.create(app.input)).toThrowError(expect.objectContaining({ code: "REPLAY_MISMATCH", status: 409 }));
+      expect(app.db.prepare("select count(*) as n from duels where kind='replay-fork'").get()).toEqual({ n: 0 });
+    });
+
+  it.each(["request", "cursor", "prefix-count"])("keeps INVALID_CURSOR for bad request syntax: %s", field => {
+    const app = fixture();
+    if (field === "request") app.input.requestId = "bad key";
+    if (field === "cursor") app.input.cursorDigest = "bad";
+    if (field === "prefix-count") app.input.origin.prefixCount = -1;
+    expect(() => app.forks.create(app.input)).toThrowError(expect.objectContaining({ code: "INVALID_CURSOR", status: 400 }));
+  });
+  it("uses NOT_PLAYABLE for a live source", () => {
+    const app = fixture();
+    app.db.prepare("update duels set status='active' where id=?").run(app.source.session.id);
+    app.input.source.session.status = "active";
+    expect(() => app.forks.create(app.input)).toThrowError(expect.objectContaining({ code: "NOT_PLAYABLE", status: 409 }));
+  });
+
   it("copies game-2 sided decks in the resolved seat order without series links", () => {
     const app = fixture(), series = createDuelSeriesService(app.db), guild = app.actor.guildId;
     const [p0, p1] = app.players;
