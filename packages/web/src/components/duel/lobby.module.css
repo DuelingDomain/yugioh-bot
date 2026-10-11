@@ -47,11 +47,11 @@
 .more { display: flex; justify-content: center; padding-top: 4px; }
 .adminHint { color: var(--duel-pen-ink); font-size: 12.5px; }
 
-/* Match history filters: 6-column grid, one column on phones. */
-.filters { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; padding: 14px; border: 1px solid var(--duel-rule-lo); border-radius: 12px; background: rgb(10 17 32 / 0.5); }
-.fieldFrom, .fieldTo { grid-column: span 3; min-width: 0; }
-.fieldFormat { grid-column: span 3; min-width: 0; }
-.fieldText { grid-column: span 3; min-width: 0; display: block; }
+/* Match history filters: 12-column grid (dates 4, selects 2, text 6), two columns on tablets, one on phones. */
+.filters { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; padding: 14px; border: 1px solid var(--duel-rule-lo); border-radius: 12px; background: rgb(10 17 32 / 0.5); }
+.fieldFrom, .fieldTo { grid-column: span 4; min-width: 0; }
+.fieldFormat { grid-column: span 2; min-width: 0; }
+.fieldText { grid-column: span 6; min-width: 0; display: block; }
 .presets { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .dateInput { color-scheme: dark; }
 .preset { cursor: pointer; background: none; font-family: inherit; transition: border-color 160ms, background-color 160ms, color 160ms; }
@@ -61,6 +61,7 @@
 .reconnect { color: var(--duel-chain-ink); font-size: 13.5px; }
 
 @media (max-width: 720px) {
+  .fieldFrom, .fieldTo, .fieldFormat { grid-column: span 6; }
 }
 
 @media (max-width: 560px) {
