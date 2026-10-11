@@ -2,13 +2,15 @@
 import React, { useMemo } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DuelEvent } from "@yugidraft/shared/duels";
+import type { DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+import { DuelField } from "@/components/duel/field";
+import { newBoard } from "@/components/duel/fx-lab/board";
 import { setAnimationSpeed } from "@/components/duel/animation-speed";
 import { duelFxClock } from "@/components/duel/fx-clock";
 import { ForkLabelsContext } from "@/components/duel/table/fork-labels";
@@ -112,6 +114,43 @@ describe("a fork table keeps its camera when the acting seat changes", () => {
     rerender(<ForkTable set={FFA4_FIXTURES} acting={1} resetKey="1:true" />);
     expect(container.querySelector("[data-grid-focus]")).toBe(root);
     expect(container.querySelector("[role='menu']")).toBeNull();
+  });
+});
+
+describe("a seat switch in a HUD layout", () => {
+  it("FFA4: keeps the open Log flyout", () => {
+    const { container, rerender } = render(<ForkTable set={FFA4_FIXTURES} acting={0} resetKey="0:true" />);
+    const dock = container.querySelector("[data-testid='hud-dock']");
+    expect(dock).not.toBeNull();
+    const tabs = Array.from(dock!.querySelectorAll("button"));
+    const named = (re: RegExp) => tabs.find((tab) => re.test(tab.getAttribute("aria-label") ?? tab.textContent ?? ""));
+    const flyout = () => container.querySelector("[data-testid='hud-flyout']");
+    const log = named(/log/i)!;
+    expect(log).toBeTruthy();
+    if (log.getAttribute("aria-pressed") !== "true") fireEvent.click(log);
+    expect(flyout()).not.toBeNull();
+    rerender(<ForkTable set={FFA4_FIXTURES} acting={1} resetKey="1:true" />);
+    expect(flyout()).not.toBeNull();
+    expect(named(/log/i)!.getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+describe("a 1v1 fork board", () => {
+  it("tags the acting seat on its tally and names both seats", () => {
+    const engine = { revision: 1, turn: 1, turnSeat: 0, phase: "main1", seats: newBoard().seats, prompt: null, chain: [], events: [], log: [], result: null } as DuelEngineView;
+    const board = (fork: boolean) => (
+      <ForkLabelsContext.Provider value={fork}>
+        <DuelField engine={engine} mySeat={1} named masterRule={5} reducedMotion legalKeys={new Set()} selectedKeys={new Set()}
+          onActivate={() => {}} onInspect={() => {}} bottomName="Bo" topName="Ada" />
+      </ForkLabelsContext.Provider>
+    );
+    const { container, rerender } = render(board(true));
+    const tags = container.querySelectorAll("[data-acting]");
+    expect(tags).toHaveLength(1);
+    expect(tags[0].closest("[data-lp-seat]")?.getAttribute("data-lp-seat")).toBe("1");
+    expect(container.textContent).not.toMatch(/\bYour\b|Opponent/);
+    rerender(board(false));
+    expect(container.querySelectorAll("[data-acting]")).toHaveLength(0);
   });
 });
 

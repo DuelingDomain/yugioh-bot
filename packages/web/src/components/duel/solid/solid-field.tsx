@@ -209,6 +209,7 @@ export function SolidField(props: SolidFieldProps) {
             seatKey={view?.seat}
             active={activity.turnSeat === index}
             priorityLabel={priorityLabel(index, name)}
+            acting={model.actingSeat === index}
             spectator={spectator}
             reducedMotion={reducedMotion}
           />

@@ -515,6 +515,7 @@ export function Tally({
   priorityLabel,
   spectator,
   reducedMotion,
+  acting = false,
 }: {
   side: "opp" | "you";
   name: string;
@@ -524,6 +525,8 @@ export function Tally({
   priorityLabel: string | null;
   spectator: boolean;
   reducedMotion: boolean;
+  /** A replay fork: the seat that answers. Tagged "Acting" next to the name. */
+  acting?: boolean;
 }) {
   const styles = useSkinStyles(baseStyles, "field");
   const priority = priorityLabel ? (
@@ -538,6 +541,7 @@ export function Tally({
       <div className={styles.tHead}>
         <span className={styles.tIdentity}>
           <span className={styles.tWho} aria-hidden={spectator && priorityLabel ? true : undefined}>{name}</span>
+          {acting ? <span className={styles.tActing} data-acting>Acting</span> : null}
           {spectator ? priority : null}
         </span>
         {active ? (
@@ -887,7 +891,7 @@ export function DuelField(props: DuelFieldProps) {
     showExtraZones = true } = props;
   const boardRef = useRef<HTMLElement | null>(null);
   const { bottomIndex, topIndex, bottom, top, callbacks, topLabel, bottomLabel, battle, activity, priorityLabel,
-    leftEmz, rightEmz, leftEmzKeys, rightEmzKeys, emzOff, equipLinks } = useDuelFieldModel({ ...props, boardRef });
+    leftEmz, rightEmz, leftEmzKeys, rightEmzKeys, emzOff, equipLinks, actingSeat } = useDuelFieldModel({ ...props, boardRef });
 
   return (
     <EquipLinksContext.Provider value={equipLinks}>
@@ -912,6 +916,7 @@ export function DuelField(props: DuelFieldProps) {
             seatKey={top?.seat}
             active={activity.turnSeat === topIndex}
             priorityLabel={priorityLabel(topIndex, topName)}
+            acting={actingSeat === topIndex}
             spectator={mySeat == null || props.named === true}
             reducedMotion={reducedMotion}
           />
@@ -972,6 +977,7 @@ export function DuelField(props: DuelFieldProps) {
             seatKey={bottom?.seat}
             active={activity.turnSeat === bottomIndex}
             priorityLabel={priorityLabel(bottomIndex, bottomName)}
+            acting={actingSeat === bottomIndex}
             spectator={mySeat == null || props.named === true}
             reducedMotion={reducedMotion}
           />

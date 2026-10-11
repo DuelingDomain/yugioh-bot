@@ -8,6 +8,7 @@ import { deriveFieldActivity } from "./field-activity";
 import { extraMonster, extraMonsterKeys, withExact, type DuelActivateHandler, type DuelHoverHandler, type FieldCallbacks } from "./field-keys";
 import { useFieldPriorityReady } from "./field-priority";
 import { useFieldTurnSeat } from "./field-turn";
+import { useForkLabels } from "./table/fork-labels";
 import type { InspectTarget } from "./inspector";
 import { disabledZones } from "./multi-seat";
 
@@ -63,6 +64,8 @@ export function useDuelFieldModel(props: DuelFieldProps & { boardRef: RefObject<
   const topLabel = topLabelOverride ?? (mySeat == null || named ? topName : "Opponent");
   const bottomLabel = mySeat == null || named ? bottomName : "Your";
   const battle = isBattlePhase(engine.phase);
+  // In a replay fork the seat that answers is tagged "Acting" on its tally (there is no "Your").
+  const actingSeat = useForkLabels() && mySeat != null ? mySeat : null;
   const pending = deriveFieldActivity(engine);
   // The room owns local reveal. The parent also contains sibling board effects, which gate
   // private opponent prompts and standalone previews.
@@ -96,7 +99,7 @@ export function useDuelFieldModel(props: DuelFieldProps & { boardRef: RefObject<
   const equipLinks = useMemo(() => resolveEquipLinks(engine.seats), [engine.seats]);
 
   return {
-    bottomIndex, topIndex, bottom, top, callbacks, topLabel, bottomLabel, spectator: mySeat == null || named, battle,
+    bottomIndex, topIndex, bottom, top, callbacks, topLabel, bottomLabel, spectator: mySeat == null || named, actingSeat, battle,
     activity, priorityLabel, leftEmz, rightEmz, leftEmzKeys, rightEmzKeys, emzOff, equipLinks,
   };
 }

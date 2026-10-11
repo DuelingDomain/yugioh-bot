@@ -179,7 +179,7 @@ export function TagSide({
       onHoverCard={controller.onHoverCard}
       onInspect={controller.onInspect}
       rivals={partner == null ? [] : [{ seat: partner, title: `${nameOf(partner)}'s Master` }]}
-      selfTitle={viewerSeat == null ? `${nameOf(0)}'s Master` : undefined}
+      selfTitle={viewerSeat == null ? `${nameOf(0)}'s Master` : forkLabels ? `${nameOf(viewerSeat)}'s Master` : undefined}
     />
   ) : null;
 
