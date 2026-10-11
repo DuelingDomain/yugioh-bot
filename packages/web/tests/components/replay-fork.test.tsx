@@ -58,7 +58,7 @@ vi.mock("@/components/duel/destroy-fx", () => ({ DestroyFx: () => null }));
 import {
   askAllState, followSeat, forkRoomState, forkViewSettled, livingSeats,
 } from "@/components/duel/replay-fork-control";
-import { ReplayForkBar, sourceReplayHref } from "@/components/duel/replay-fork-bar";
+import { ReplayForkBar, ReplayForkResult, sourceReplayHref } from "@/components/duel/replay-fork-bar";
 import { canOfferFork, forkDisabledReason } from "@/components/duel/replay-fork-button";
 import {
   DuelRequestError, duelRoomKey, getDuelRoom, getOwnerReplayFrames, searchDuelCards, sendDuelAction, setChainResponseMode,
@@ -245,7 +245,7 @@ describe("ReplayForkBar", () => {
     expect(within(dialog).getByRole("status").textContent).toMatch(/Some seats skip|not known|Every seat/);
     fireEvent.click(within(dialog).getByRole("button", { name: "Ask at all response windows" }));
     expect(p.onAskAll).toHaveBeenCalledTimes(1);
-    expect(within(dialog).getByRole("link", { name: "Open the source replay" }).getAttribute("href")).toBe("/duels/game-1/replay?frame=f2");
+    expect(within(dialog).getByRole("link", { name: "Close fork and open the source replay" }).getAttribute("href")).toBe("/duels/game-1/replay?frame=f2");
   });
 
   it("says when every seat already asks at every window", () => {
@@ -731,13 +731,29 @@ describe("the live room of a fork", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("ends an open fork when the creator goes back to the source replay by a link", async () => {
+  it("asks before an open fork is closed by the source replay link, and a new-tab click keeps it", async () => {
     swr.data = forkRoom();
     const fetch = vi.fn(async () => json({ session: forkRoom().session }));
     vi.stubGlobal("fetch", fetch);
     render(<DuelRoomView slug="fork-1" />);
     fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
-    await act(async () => { fireEvent.click(screen.getByRole("link", { name: "Open the source replay" })); });
+    const links = () => screen.getAllByRole("link", { name: "Close fork and open the source replay" });
+    const link = () => links()[0]!;
+    const confirmLink = () => links().at(-1)!;
+    // Ctrl, Cmd, Shift and a middle click open a new tab: the link is not stopped and the fork stays open.
+    for (const mods of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { button: 1 }]) {
+      await act(async () => { fireEvent.click(link(), mods); });
+    }
+    expect(fetch).not.toHaveBeenCalled();
+    // A plain click only asks.
+    await act(async () => { fireEvent.click(link()); });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getByText("This closes the fork and opens the source replay.")).toBeTruthy();
+    // The confirm link closes the fork, but not for a new-tab click.
+    expect(links()).toHaveLength(2);
+    await act(async () => { fireEvent.click(confirmLink(), { ctrlKey: true }); });
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(confirmLink()); });
     expect(fetch).toHaveBeenCalledWith("/api/duels/fork-1/fork/cancel", expect.objectContaining({ method: "POST" }));
   });
 
@@ -748,8 +764,23 @@ describe("the live room of a fork", () => {
     vi.stubGlobal("fetch", fetch);
     render(<DuelRoomView slug="fork-1" />);
     fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
-    await act(async () => { fireEvent.click(screen.getByRole("link", { name: "Open the source replay" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("link", { name: "Close fork and open the source replay" })); });
+    await act(async () => { fireEvent.click(screen.getAllByRole("link", { name: "Close fork and open the source replay" }).at(-1)!); });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("asks before Back to replay on the result panel, and a new-tab click does not end the fork", async () => {
+    const onLeave = vi.fn();
+    render(<ReplayForkResult headline="Seat 1 wins" reason={null} sourceHref="/duels/game-1/replay?frame=f2" disabled={false}
+      onRestart={vi.fn()} onClose={vi.fn()} onLeave={onLeave} />);
+    fireEvent.click(screen.getByRole("link", { name: "Back to replay" }), { ctrlKey: true });
+    expect(onLeave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("link", { name: "Back to replay" }));
+    expect(onLeave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("link", { name: "Close fork and open the source replay" }), { metaKey: true });
+    expect(onLeave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("link", { name: "Close fork and open the source replay" }));
+    expect(onLeave).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed on a fork row without its seat control", async () => {

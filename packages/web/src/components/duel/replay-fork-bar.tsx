@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { GitFork, SlidersHorizontal } from "lucide-react";
 import type { ReplayForkControl } from "@yugidraft/shared/duels";
@@ -13,6 +13,11 @@ import styles from "./replay-fork.module.css";
 export function sourceReplayHref(origin: Pick<ReplayForkControl["origin"], "sourceSlug" | "sourceFrameId">): string {
   const query = new URLSearchParams({ [FRAME_PARAM]: origin.sourceFrameId });
   return `/duels/${encodeURIComponent(origin.sourceSlug)}/replay?${query.toString()}`;
+}
+
+/** A click that opens the link in this tab. Ctrl, Cmd, Shift and non-primary buttons open a new tab or window and keep this page. */
+function isPlainClick(event: MouseEvent): boolean {
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }
 
 const ASK_COPY: Record<AskState, string> = {
@@ -55,7 +60,7 @@ export function ReplayForkBar({
   onShowResult?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [confirm, setConfirm] = useState<"restart" | "end" | null>(null);
+  const [confirm, setConfirm] = useState<"restart" | "end" | "source" | null>(null);
   const ask = askAllState(fork.chainModes, living);
   const close = () => { setOpen(false); setConfirm(null); };
   return (
@@ -105,7 +110,11 @@ export function ReplayForkBar({
           </div>
           <p className={styles.hint}>
             Copied from the replay at move {fork.origin.sourceStep}.{" "}
-            <Link href={sourceReplayHref(fork.origin)} className="underline" onClick={onLeave}>Open the source replay</Link>
+            {/* A plain click asks first: the link closes the fork. A click for a new tab keeps this page and the fork. */}
+            <Link href={sourceReplayHref(fork.origin)} className="underline"
+              onClick={(event) => { if (isPlainClick(event)) { event.preventDefault(); setConfirm("source"); } }}>
+              Close fork and open the source replay
+            </Link>
           </p>
           {confirm === null ? (
             <div className={styles.group}>
@@ -115,12 +124,20 @@ export function ReplayForkBar({
           ) : (
             <div className={styles.group} role="group" aria-label="Confirm">
               <span className={styles.note}>
-                {confirm === "restart" ? "This drops every move played in the fork." : "This closes the fork and goes back to the replay."}
+                {confirm === "restart" ? "This drops every move played in the fork."
+                  : confirm === "source" ? "This closes the fork and opens the source replay." : "This closes the fork and goes back to the replay."}
               </span>
-              <button type="button" className={`${styles.action} ${styles.danger}`} disabled={disabled}
-                onClick={() => { const next = confirm; close(); if (next === "restart") onRestart(); else onEnd(); }}>
-                {confirm === "restart" ? "Restart" : "End fork"}
-              </button>
+              {confirm === "source" ? (
+                <Link href={sourceReplayHref(fork.origin)} className={`${styles.action} ${styles.danger}`}
+                  onClick={(event) => { if (isPlainClick(event)) { onLeave?.(); close(); } }}>
+                  Close fork and open the source replay
+                </Link>
+              ) : (
+                <button type="button" className={`${styles.action} ${styles.danger}`} disabled={disabled}
+                  onClick={() => { const next = confirm; close(); if (next === "restart") onRestart(); else onEnd(); }}>
+                  {confirm === "restart" ? "Restart" : "End fork"}
+                </button>
+              )}
               <button type="button" className={styles.action} onClick={() => setConfirm(null)}>Keep playing</button>
             </div>
           )}
@@ -140,13 +157,24 @@ export function ReplayForkResult({ headline, reason, sourceHref, disabled, onRes
   onClose: () => void;
   onLeave?: () => void;
 }) {
+  // A plain click on "Back to replay" asks first: it closes the fork when it is still open. A click for a new tab does not.
+  const [confirming, setConfirming] = useState(false);
   return (
     <div className={styles.result} role="status" data-replay-fork-result>
       <strong>{headline}</strong>
       {reason ? <span>{reason}</span> : null}
+      {confirming ? <span className={styles.note}>This closes the fork and opens the source replay.</span> : null}
       <span className={styles.group}>
         <button type="button" className={styles.btn} disabled={disabled} onClick={onRestart}>Restart from start point</button>
-        <Link href={sourceHref} className={styles.btn} onClick={onLeave}>Back to replay</Link>
+        {confirming ? (
+          <>
+            <Link href={sourceHref} className={styles.btn} onClick={(event) => { if (isPlainClick(event)) onLeave?.(); }}>Close fork and open the source replay</Link>
+            <button type="button" className={styles.btn} onClick={() => setConfirming(false)}>Stay here</button>
+          </>
+        ) : (
+          <Link href={sourceHref} className={styles.btn}
+            onClick={(event) => { if (isPlainClick(event)) { event.preventDefault(); setConfirming(true); } }}>Back to replay</Link>
+        )}
         <button type="button" className={styles.btn} onClick={onClose}>Show board</button>
       </span>
     </div>
