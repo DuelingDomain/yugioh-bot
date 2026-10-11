@@ -369,3 +369,10 @@ it("launches an open cursor after the source is archived and players are renamed
   db.prepare("update players set display_name = 'Renamed' where id = 64").run();
   expect((await post({ op: "replay-fork", ...input })).response.status).toBe(200);
 });
+it("serializes launch retry recovery with a normal view and keeps one fork worker", async () => {
+  const input = request(), launch = await post({ op: "replay-fork", ...input });
+  expect(launch.response.status).toBe(200); await workers[0]!.close();
+  const results = await Promise.all([post({ op: "replay-fork", ...input }), post({ op: "view", slug: launch.body.slug })]);
+  expect(results.map(result => result.response.status)).toEqual([200, 200]);
+  expect(workers).toHaveLength(2); expect(workers.filter(worker => worker.running)).toHaveLength(1);
+});

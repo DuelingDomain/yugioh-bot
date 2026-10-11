@@ -1278,14 +1278,14 @@ export function createDuelHost(options: {
       if (previous) void safeClose(previous.game);
       return room;
     },
-    room: async (slug, actor) => {
+    room: (slug, actor) => enqueue(slug, async () => {
       assertReplayForkAccess(options.db, slug, actor);
       const session = service.get(slug, actor.guildId);
       const game = session.status === "active" ? await recover(slug, actor.guildId) : undefined;
       const room = await project(slug, actor.guildId, actor.playerId, game);
       assertReplayForkAccess(options.db, slug, actor);
       return room;
-    },
+    }),
   });
 
   /**
