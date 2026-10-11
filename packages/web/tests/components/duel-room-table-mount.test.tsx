@@ -285,6 +285,29 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     });
   });
 
+  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("answers a required $format fork prompt while loss is pending", async (fixtures) => {
+    room(fixtures.states.main.room);
+    state.room!.session.kind = "replay-fork";
+    state.room!.fork = {
+      identitySeat: 0, actingSeat: 0, manualSeats: state.room!.session.seats.map((seat) => seat.seat),
+      revealHands: true, chainModes: {},
+      origin: { sourceSlug: "source", sourceFrameId: "f1", sourceStep: 1, sourceSeats: [] },
+    };
+    state.room!.engine!.seats = state.room!.engine!.seats.map((seat) => ({
+      ...seat, pendingElimination: seat.seat === 0, eliminated: false,
+    }));
+    state.room!.engine!.prompt = { id: "pending-materials", seat: 0, kind: "toggle", title: "Select Synchro Material",
+      options: [{ id: "select:0", label: "Material", controller: 0, location: 4, sequence: 0 }] };
+    state.room!.engine!.prioritySeat = 0;
+    const { container } = mount();
+    const card = container.querySelector("[data-zones='0:4:0']")!;
+    await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "pending-materials", revision: state.room!.engine!.revision, answer: { choice: "select:0" },
+    }, 0);
+    expect(state.replace).not.toHaveBeenCalled();
+  });
+
   // A field pick is never held back by the reveal beat (field-gate.ts): its zones glow from the first frame, so the
   // first click answers. A hidden panel prompt still blocks the field (next test).
   it("takes a material card click during the reveal beat, exactly once", async () => {

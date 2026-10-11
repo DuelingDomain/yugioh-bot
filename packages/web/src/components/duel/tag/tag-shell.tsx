@@ -179,7 +179,9 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const session = room.session;
   const domain = mode === "domain";
   const spectator = viewerSeat == null;
-  const viewerOut = engine.seats.some((seat) => seat.seat === viewerSeat && (seat.eliminated || seat.pendingElimination));
+  // A pending loss can still require an answer in a fork. Only elimination ends that seat's control.
+  const viewerOut = engine.seats.some((seat) => seat.seat === viewerSeat &&
+    (seat.eliminated || (session.kind !== "replay-fork" && seat.pendingElimination)));
   const terminal = session.status !== "active";
   const hasResult = engine.result != null || terminal;
   const resultReady = useResultGate({

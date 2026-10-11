@@ -319,7 +319,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     if (view.mode === "3d") void import("./solid/solid-room");
   }, [view.mode]);
   const viewerOut = isMultiSeat(data?.engine) && data?.engine?.seats.some((seat) =>
-    seat.seat === data.mySeat && (seat.eliminated === true || seat.pendingElimination === true)) === true;
+    seat.seat === data.mySeat && (seat.eliminated === true || (!forkMode && seat.pendingElimination === true))) === true;
   // The server flips to active before it answers Start duel; the pop-up already has the duel then.
   const ownWindowGate = data && !viewerOut ? ownWindowGateVisible({
     status: data.session.status, mySeat: data.mySeat, inDuelWindow, playHere,

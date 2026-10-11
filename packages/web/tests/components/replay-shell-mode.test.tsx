@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 
@@ -77,6 +77,28 @@ function View({ set, kind, id = "main", resetKey = 0, more, reducedMotion = true
 
 const press = (key: string) => act(() => void fireEvent.keyDown(window, { key }));
 const fixtureAnswers = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.filter((call) => call[0] === "[table-preview] answer");
+
+describe("pending-loss fork prompts", () => {
+  function PendingFork({ set, kind, onAnswer }: { set: TableFixtureSet; kind: Kind; onAnswer: TableController["onAnswer"] }) {
+    const base = useFixtureController(set.states.main, { reducedMotion: true });
+    const engine = { ...base.engine, seats: base.engine.seats.map((seat) => ({
+      ...seat, pendingElimination: seat.seat === base.viewerSeat, eliminated: false,
+    })) };
+    const controller = { ...base, engine, onAnswer,
+      room: { ...base.room, engine, session: { ...base.room.session, kind: "replay-fork" as const } },
+    };
+    return kind === "tag"
+      ? <TagShell controller={controller} teamNames={[...TAG_TEAM_NAMES]} noResultScreen />
+      : <TableShell controller={controller} noResultScreen />;
+  }
+
+  it.each(CASES)("%s keeps the acting seat's offered phase command", (_name, set, kind) => {
+    const onAnswer = vi.fn();
+    render(<PendingFork set={set} kind={kind} onAnswer={onAnswer} />);
+    fireEvent.click(screen.getByRole("button", { name: /Battle Phase/ }));
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({ choice: expect.any(String) });
+  });
+});
 
 describe("readOnlyReplayController", () => {
   it("strips every way to act, whatever controller it gets", () => {

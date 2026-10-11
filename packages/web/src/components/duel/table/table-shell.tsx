@@ -300,7 +300,9 @@ function TableShellBody({
   // The wide table keeps the History, Card, Log, Master and Settings panes behind a 72px rail; the phone layout keeps its sheet.
   const drawer = useTableDrawer(ui, { domain, reducedMotion: controller.reducedMotion, enabled: !narrow && !hud });
   const spectator = viewerSeat == null;
-  const viewerOut = engine.seats.some((seat) => seat.seat === viewerSeat && (seat.eliminated || seat.pendingElimination));
+  // A pending loss can still require an answer in a fork. Only elimination ends that seat's control.
+  const viewerOut = engine.seats.some((seat) => seat.seat === viewerSeat &&
+    (seat.eliminated || (session.kind !== "replay-fork" && seat.pendingElimination)));
   const terminal = session.status !== "active";
   const hasResult = engine.result != null || terminal;
   const resultReady = useResultGate({
