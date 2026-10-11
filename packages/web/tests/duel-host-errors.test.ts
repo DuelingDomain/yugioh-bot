@@ -94,6 +94,44 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "Invalid answer" });
   });
 
+  it.each(["replay-fork", "fork-restart"] as const)("preserves only the recovery contract for a %s fork-limit error", async op => {
+    const body = { error: "Replay fork limit reached. Cancel a fork and try again.", code: "FORK_LIMIT",
+      limit: 4, forksUrl: "/api/admin/duels/forks" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, forks: [{ private: "fixture" }] }, { status: 429 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(429); expect(await result.response.json()).toEqual(body);
+    expect(result.response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it.each([0, -1, 4.5, "4"])("ignores an invalid fork quota %s", async limit => {
+    const body = { error: "Fork limit", code: "FORK_LIMIT" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, limit, forksUrl: "/api/admin/duels/forks" }, { status: 429 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "replay-fork" });
+    if (result.ok) throw new Error("expected failure");
+    expect(await result.response.json()).toEqual(body);
+  });
+
+  it.each(["https://example.test/forks", "/api/other", null])("ignores an unexpected fork list URL %s", async forksUrl => {
+    const body = { error: "Fork limit", code: "FORK_LIMIT" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, limit: 4, forksUrl }, { status: 429 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "replay-fork" });
+    if (result.ok) throw new Error("expected failure");
+    expect(await result.response.json()).toEqual(body);
+  });
+
+  it("does not attach fork recovery data to an engine-busy error", async () => {
+    const body = { error: "A replay fork is still launching", code: "ENGINE_BUSY" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, limit: 4, forksUrl: "/api/admin/duels/forks" }, { status: 503 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "replay-fork" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(503); expect(await result.response.json()).toEqual(body);
+  });
+
   it("preserves a restart as a retryable 503 for duel answers", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "restarting" }, { status: 503 })));
     const { callDuelHost } = await loadHost();

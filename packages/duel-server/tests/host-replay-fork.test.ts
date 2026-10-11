@@ -86,6 +86,8 @@ async function post(input: Record<string, unknown>, signed = true) {
 const sourceRows = () => [db.prepare("select * from duels where web_slug = ?").get(slug),
   db.prepare("select * from duel_seats where duel_id = (select id from duels where web_slug = ?)").all(slug),
   db.prepare("select * from duel_commands where duel_id = (select id from duels where web_slug = ?)").all(slug)];
+const forkLimitBody = { error: "Replay fork limit reached. Cancel a fork and try again.", code: "FORK_LIMIT",
+  limit: 4, forksUrl: "/api/admin/duels/forks" };
 beforeEach(() => {
   vi.stubEnv("OWNER_USER_IDS", "101,102"); vi.stubEnv("MULTIPLAYER_TABLES", "1");
   db = new Database(":memory:"); migrate(db);
@@ -350,13 +352,37 @@ it("limits active forks, permits exact retries at the limit, and allows a new fo
     const result = await post({ op: "replay-fork", ...input, requestId: `limit-${i}` });
     expect(result.response.status).toBe(200); first ??= result.body;
   }
-  expect((await post({ op: "replay-fork", ...input, requestId: "limit-4" })).body.code).toBe("FORK_LIMIT");
+  const limited = await post({ op: "replay-fork", ...input, requestId: "limit-4" });
+  expect(limited.response.status).toBe(429); expect(limited.body).toEqual(forkLimitBody);
   expect((await post({ op: "replay-fork", ...input, requestId: "limit-0" })).body.slug).toBe(first.slug);
-  await post({ op: "fork-cancel", slug: first.slug });
+  const listed = (await post({ op: "fork-list", slug: undefined })).body.forks;
+  expect(listed).toHaveLength(4);
+  await post({ op: "fork-cancel", slug: listed.find((fork: any) => fork.slug === first.slug).slug });
+  expect((await post({ op: "fork-list", slug: undefined })).body.forks).toHaveLength(3);
   expect((await post({ op: "replay-fork", ...input, requestId: "limit-4" })).response.status).toBe(200);
-  expect((await post({ op: "fork-restart", slug: first.slug })).body.code).toBe("FORK_LIMIT");
+  const restart = await post({ op: "fork-restart", slug: first.slug });
+  expect(restart.response.status).toBe(429); expect(restart.body).toEqual(forkLimitBody);
   const active = db.prepare("select web_slug as slug from duels where kind = 'replay-fork' and status = 'active' limit 1").get() as { slug: string };
   expect((await post({ op: "fork-restart", slug: active.slug })).response.status).toBe(200);
+});
+it.each(["replay-fork", "fork-restart"])("returns fork recovery data when the quota fills during detached %s", async op => {
+  const input = request(); let first: string | undefined;
+  for (let i = 0; i < 4; i++) {
+    const result = await post({ op: "replay-fork", ...input, requestId: `race-${i}` });
+    expect(result.response.status).toBe(200); first ??= result.body.slug;
+  }
+  await post({ op: "fork-cancel", slug: first });
+  const state = createReplayForkService(db).privateState(first!, owner);
+  makeWorker = () => {
+    createReplayForkService(db).create({ actor: owner, requestId: "concurrent-quota", cursorDigest: "b".repeat(64),
+      source: sourceState(), origin: state.setup!.replayFork!.origin });
+    return new ForkWorker();
+  };
+  const result = await post(op === "replay-fork" ? { op, ...input, requestId: "late-quota" } : { op, slug: first });
+  expect(result.response.status).toBe(429); expect(result.body).toEqual(forkLimitBody);
+  expect((await post({ op: "fork-list", slug: undefined })).body.forks).toHaveLength(4);
+  expect(workers.at(-1)!.running).toBe(false);
+  expect(createReplayForkService(db).privateState(first!, owner)).toEqual(state);
 });
 it("keeps the fork's previous journal and worker if restart validation fails", async () => {
   const launch = await post({ op: "replay-fork", ...request() });

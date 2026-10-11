@@ -95,12 +95,16 @@ export function redactDuelResult<T>(data: T, guildId: string, playerId: number):
   return redactDuelTournamentMetadata(getDb, data, guildId, playerId);
 }
 
-function hostErrorBody(text: string): { error: string; code?: string; finalBoard?: "available" | "none" } {
+function hostErrorBody(text: string): { error: string; code?: string; finalBoard?: "available" | "none"; limit?: number; forksUrl?: string } {
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") {
+      const recovery = "code" in parsed && parsed.code === "FORK_LIMIT"
+        && "limit" in parsed && typeof parsed.limit === "number" && Number.isSafeInteger(parsed.limit) && parsed.limit > 0
+        && "forksUrl" in parsed && parsed.forksUrl === "/api/admin/duels/forks"
+        ? { limit: parsed.limit, forksUrl: parsed.forksUrl } : {};
       return { error: parsed.error, ...("code" in parsed && typeof parsed.code === "string" ? { code: parsed.code } : {}),
-        ...("finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}) };
+        ...("finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery };
     }
   } catch {
     // Host may return a plain-text error body.

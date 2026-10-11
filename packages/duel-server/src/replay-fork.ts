@@ -41,8 +41,10 @@ export function listActiveReplayForks(db: Database.Database, actor: OwnerPlayerA
 
 export class ReplayForkLaunchError extends Error {
   readonly status: number;
+  readonly recovery?: { limit: number; forksUrl: string };
   constructor(message: string, readonly code: ReplayErrorCode) {
     super(message); this.status = code === "INVALID_CURSOR" ? 400 : code === "FORK_LIMIT" ? 429 : code === "ENGINE_BUSY" ? 503 : 409;
+    if (code === "FORK_LIMIT") this.recovery = { limit: REPLAY_FORK_ACTIVE_LIMIT, forksUrl: "/api/admin/duels/forks" };
   }
 }
 
@@ -191,7 +193,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
         }
         const owner = resolveOwnerPlayer(db, actor)!;
         if (activeCount(owner, owner.userId) >= REPLAY_FORK_ACTIVE_LIMIT) {
-          throw new ReplayForkLaunchError("Replay fork limit reached.", "FORK_LIMIT");
+          throw new ReplayForkLaunchError("Replay fork limit reached. Cancel a fork and try again.", "FORK_LIMIT");
         }
         const saved = store.create({ actor, requestId: request.requestId, cursorDigest, source, origin });
         if (!saved.reused) for (const { seat, command } of defaults) duels.recordCommand(saved.session.slug, actor.guildId, seat, command, null);
@@ -209,7 +211,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
         if (sourceVersion !== replaySourceVersion(options.sourceOf(current))) throw new ReplayCursorError("SOURCE_CHANGED");
         const owner = resolveOwnerPlayer(db, actor)!;
         if (current.session.status !== "active" && activeCount(owner, owner.userId) >= REPLAY_FORK_ACTIVE_LIMIT) {
-          throw new ReplayForkLaunchError("Replay fork limit reached.", "FORK_LIMIT");
+          throw new ReplayForkLaunchError("Replay fork limit reached. Cancel a fork and try again.", "FORK_LIMIT");
         }
         // Keep the previous branch and final board if the replacement worker cannot be registered.
         const row = db.prepare("select * from duels where id = ?").get(state.session.id) as Record<string, unknown>;

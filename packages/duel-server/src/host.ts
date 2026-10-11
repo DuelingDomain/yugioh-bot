@@ -3020,6 +3020,7 @@ export function createDuelHost(options: {
         }
         return Response.json({ error: unexpected ? "Duel server error" : error instanceof Error ? error.message : "Duel request failed",
           ...((error instanceof RequestError || error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError || error instanceof ReplayForkStorageError) && error.code ? { code: error.code } : {}),
+          ...(error instanceof ReplayForkLaunchError ? error.recovery : {}),
           ...(error instanceof RequestError && error.finalBoard ? { finalBoard: error.finalBoard } : {}) }, { status: unexpected ? 500 : status });
       }
     },

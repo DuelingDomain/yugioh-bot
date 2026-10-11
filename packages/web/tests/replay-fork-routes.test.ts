@@ -98,6 +98,15 @@ it.each(["revoked", "session-changed"])("drops a fork list if access is %s durin
   expect(await response.json()).toMatchObject({ code: "ACCESS_DENIED" });
   expect(response.headers.get("cache-control")).toBe("private, no-store");
 });
+it.each(["launch", "restart"])("preserves the fork-limit recovery route for %s", async operation => {
+  const body = { error: "Replay fork limit reached. Cancel a fork and try again.", code: "FORK_LIMIT",
+    limit: 4, forksUrl: "/api/admin/duels/forks" };
+  state.fetch.mockResolvedValueOnce(Response.json(body, { status: 429 }));
+  const response = operation === "launch" ? await launch() : await (await import("../app/api/duels/[slug]/fork/restart/route"))
+    .POST(new Request(`http://localhost/api/duels/${fork}/fork/restart`, { method: "POST" }), params(fork));
+  expect(response.status).toBe(429); expect(await response.json()).toEqual(body);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+});
 it.each([101, 102])("allows owner %s to launch from a private production source without a source grant", async id => {
   signIn(id);
   // This route does not use normal room access. The host checks source and retry access.
