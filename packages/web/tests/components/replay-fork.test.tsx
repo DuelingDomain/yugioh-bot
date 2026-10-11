@@ -50,6 +50,7 @@ import {
   askAllState, followSeat, forkRoomState, forkViewSettled, livingSeats,
 } from "@/components/duel/replay-fork-control";
 import { ReplayForkBar, sourceReplayHref } from "@/components/duel/replay-fork-bar";
+import { useBugReportHeaderHosted } from "@/components/bug-report/room-store";
 import { canOfferFork, forkDisabledReason } from "@/components/duel/replay-fork-button";
 import {
   DuelRequestError, duelRoomKey, getDuelRoom, getOwnerReplayFrames, searchDuelCards, sendDuelAction, setChainResponseMode,
@@ -219,6 +220,27 @@ describe("ReplayForkBar", () => {
     expect((within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name: /Bo/ }) as HTMLButtonElement).disabled).toBe(true);
     rerender(<ReplayForkBar {...p} living={[0, 1]} disabled />);
     for (const button of within(screen.getByRole("group", { name: "Acting seat" })).getAllByRole("button")) expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps the floating Report bug button off the table while it is mounted", () => {
+    const Probe = () => <output data-testid="fab-hosted">{String(useBugReportHeaderHosted())}</output>;
+    const view = render(<><Probe /><ReplayForkBar {...props()} /></>);
+    expect(screen.getByTestId("fab-hosted").textContent).toBe("true");
+    view.rerender(<Probe />);
+    expect(screen.getByTestId("fab-hosted").textContent).toBe("false");
+  });
+
+  it("can be driven from outside, so the sheet survives a rebuilt table", () => {
+    const p = { ...props(), onOpenChange: vi.fn() };
+    const view = render(<ReplayForkBar {...p} open={false} />);
+    fireEvent.click(screen.getByRole("button", { name: /Fork controls/ }));
+    expect(p.onOpenChange).toHaveBeenCalledWith(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    view.unmount();
+    render(<ReplayForkBar {...p} open />);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Close/ }));
+    expect(p.onOpenChange).toHaveBeenLastCalledWith(false);
   });
 
   it("keeps Follow prompt, Reveal hands and ask-all in the controls sheet", () => {
@@ -431,6 +453,16 @@ describe("the live room of a fork", () => {
     fireEvent.click(within(group).getByRole("button", { name: /Bo/ }));
     expect(swr.keys.at(-1)).toBe("/api/duels/fork-1?as=1");
     act(() => { swr.keys = []; });
+  });
+
+  it("names fork seats after the source duel's players", () => {
+    const base = forkRoom();
+    swr.data = forkRoom({ session: { ...base.session, seats: base.session.seats.map((entry) => ({ ...entry, displayName: `Practice Bot ${entry.seat}` })) } });
+    render(<DuelRoomView slug="fork-1" />);
+    const group = screen.getByRole("group", { name: "Acting seat" });
+    expect(within(group).getByRole("button", { name: /Ada/ })).toBeTruthy();
+    expect(within(group).getByRole("button", { name: /Bo/ })).toBeTruthy();
+    expect(within(group).queryByRole("button", { name: /Practice Bot/ })).toBeNull();
   });
 
   it("clears an open private pile when another acting seat is requested", () => {
