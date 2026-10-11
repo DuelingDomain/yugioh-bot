@@ -16,7 +16,7 @@ import {
   type ReplayOwnerCapabilities,
   type ReplayVisibility,
 } from "@yugidraft/shared/duels";
-import { DuelRequestError, getDuelReplayFrames, getOwnerReplayFrames } from "./api";
+import { DuelRequestError, getDuelReplayFrames, getOwnerReplayFrames, isDuelAccessError } from "./api";
 import { useCoinPlaying } from "./coin-toss-lock";
 import { seatTeamLabel } from "./table-format";
 import type { PromptDraft, TableController } from "./table/types";
@@ -219,6 +219,8 @@ export function useReplayData(
     const view: ReplayRequestView = { visibility, seat, reveal };
     const load = ownerOn
       ? getOwnerReplayFrames(slug, view, abort.signal).catch((error: unknown) => {
+          // The old privileged answer must disappear before an ordinary fallback can load.
+          if (isDuelAccessError(error) && mine === generation.current && !abort.signal.aborted) setModel(null);
           if (error instanceof DuelRequestError && error.code === "ACCESS_DENIED" && !abort.signal.aborted) {
             return getDuelReplayFrames(slug, visibility, abort.signal);
           }
@@ -234,12 +236,13 @@ export function useReplayData(
       })
       .catch((error: unknown) => {
         if (mine !== generation.current || abort.signal.aborted) return;
+        if (isDuelAccessError(error)) setModel(null);
         setFailure({ slug, key: requestKey, error });
       });
     return () => abort.abort();
   }, [slug, visibility, seat, reveal, ownerOn, requestKey, nonce]);
 
-  const current = model && model.slug === slug ? model : null;
+  const current = model && model.slug === slug && (ownerOn || !model.requestKey.startsWith("owner:")) ? model : null;
   const error = failure && failure.slug === slug && failure.key === requestKey ? failure.error : null;
   return {
     model: current,

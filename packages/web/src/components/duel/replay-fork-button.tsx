@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { GitFork, Eye } from "lucide-react";
 import type { ReplayFrameV2 } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
-import { postReplayFork } from "./api";
+import { isDuelAccessError, postReplayFork } from "./api";
 import { replayFailure, type ReplayModel } from "./replay-controller";
 import styles from "./replay-fork.module.css";
 
@@ -83,6 +83,7 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, o
       requestIds.current.delete(key);
       router.push(`/duels/${encodeURIComponent(result.slug)}`);
     } catch (error) {
+      if (isDuelAccessError(error)) onReload?.();
       const text = replayFailure(error, "Could not start a fork.");
       const code = (error as { code?: string } | null)?.code;
       if (code === "REQUEST_CONFLICT" || code === "SOURCE_CHANGED") requestIds.current.clear();

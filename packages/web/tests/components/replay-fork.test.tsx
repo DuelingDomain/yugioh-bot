@@ -17,9 +17,9 @@ vi.mock("next/link", () => ({
 const nav = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => nav, usePathname: () => "/", useSearchParams: () => new URLSearchParams() }));
 
-const swr = vi.hoisted(() => ({ data: null as unknown, keys: [] as unknown[], mutate: vi.fn() }));
+const swr = vi.hoisted(() => ({ data: null as unknown, error: undefined as unknown, keys: [] as unknown[], mutate: vi.fn() }));
 vi.mock("swr", () => ({
-  default: (key: unknown) => { swr.keys.push(key); return { data: swr.data, error: undefined, isLoading: false, mutate: swr.mutate }; },
+  default: (key: unknown) => { swr.keys.push(key); return { data: swr.data, error: swr.error, isLoading: false, mutate: swr.mutate }; },
 }));
 const ws = vi.hoisted(() => ({ seats: [] as unknown[] }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({
@@ -30,7 +30,11 @@ vi.mock("@/lib/hooks/use-duel-websocket", () => ({
 }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
 vi.mock("@/components/duel/field", () => ({
-  DuelField: (props: { mySeat: number | null }) => <div data-testid="field" data-my-seat={props.mySeat ?? ""} />,
+  DuelField: (props: { mySeat: number | null; onInspect?: (target: { type: "pile"; title: string; cards: [] }) => void }) => (
+    <div data-testid="field" data-my-seat={props.mySeat ?? ""}>
+      <button type="button" onClick={() => props.onInspect?.({ type: "pile", title: "Private hand", cards: [] })}>Inspect fixture hand</button>
+    </div>
+  ),
   DeckMasterRail: () => null,
 }));
 vi.mock("@/components/duel/feedback", () => ({ DuelFeedback: () => null }));
@@ -48,7 +52,7 @@ import {
 import { ReplayForkBar, sourceReplayHref } from "@/components/duel/replay-fork-bar";
 import { canOfferFork, forkDisabledReason } from "@/components/duel/replay-fork-button";
 import {
-  duelRoomKey, getDuelRoom, getOwnerReplayFrames, searchDuelCards, sendDuelAction, setChainResponseMode,
+  DuelRequestError, duelRoomKey, getDuelRoom, getOwnerReplayFrames, searchDuelCards, sendDuelAction, setChainResponseMode,
 } from "@/components/duel/api";
 import { DuelReplayView } from "@/components/duel/replay";
 import { DuelRoomView } from "@/components/duel/room";
@@ -78,6 +82,8 @@ beforeEach(() => {
   nav.push.mockReset();
   nav.replace.mockReset();
   swr.keys = [];
+  swr.error = undefined;
+  swr.mutate.mockClear();
   ws.seats = [];
   window.localStorage.clear();
   window.history.replaceState(null, "", "/duels/game-1/replay");
@@ -305,6 +311,23 @@ describe("Jump in on the replay viewer", () => {
     expect(screen.queryByRole("button", { name: /Jump in/ })).toBeNull();
   });
 
+  it("removes owner controls and the private inspector when Jump in loses access", async () => {
+    let revoked = false;
+    server((url) => url.pathname.startsWith("/api/admin")
+      ? revoked ? json({ error: "No access", code: "ACCESS_DENIED" }, 404) : json(ownerReplay())
+      : json(replayV2({ visibility: "mine" })));
+    await open(true);
+    fireEvent.click(screen.getByRole("button", { name: "Inspect fixture hand" }));
+    expect(screen.getByText("Private hand")).toBeTruthy();
+    revoked = true;
+    fireEvent.click(screen.getByRole("button", { name: "Next move" }));
+    fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
+    await waitFor(() => expect(document.querySelector("[data-replay-owner-tools]")).toBeNull());
+    await screen.findByRole("group", { name: "Replay controls" });
+    expect(screen.queryByText("Private hand")).toBeNull();
+    expect(document.querySelector("[data-replay-owner-tools]")).toBeNull();
+  });
+
   it("disables Jump in on a frame without a cursor and starts a fork from one with a cursor", async () => {
     server((url, init) => url.pathname.endsWith("/replay/fork") && init?.method === "POST"
       ? json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: forkRoom() })
@@ -369,6 +392,19 @@ describe("Jump in on the replay viewer", () => {
 });
 
 describe("the live room of a fork", () => {
+  it.each([
+    ["ACCESS_DENIED", 404], ["ACCESS_UNAVAILABLE", 503], [undefined, 401], [undefined, 403],
+  ] as const)("clears a cached private fork on %s (HTTP %s)", (code, status) => {
+    swr.data = forkRoom();
+    const view = render(<DuelRoomView slug="fork-1" />);
+    expect(screen.getByTestId("field")).toBeTruthy();
+    swr.error = new DuelRequestError("Cannot access fork", status, code);
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    expect(screen.queryByTestId("field")).toBeNull();
+    expect(document.querySelector("[data-replay-fork-bar]")).toBeNull();
+    expect(swr.mutate).toHaveBeenCalledWith(undefined, { revalidate: false });
+  });
+
   it("keeps the websocket identity at seat 0 and draws the table for the acting seat", () => {
     swr.data = forkRoom({}, control({ actingSeat: 1 }));
     render(<DuelRoomView slug="fork-1" />);
@@ -397,12 +433,63 @@ describe("the live room of a fork", () => {
     act(() => { swr.keys = []; });
   });
 
-  it("fails closed on a fork row without its seat control", () => {
-    swr.data = forkRoom({}, null);
+  it("clears an open private pile when another acting seat is requested", () => {
+    swr.data = forkRoom();
+    render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Inspect fixture hand" }));
+    expect(screen.getByText("Private hand")).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name: /Bo/ }));
+    expect(screen.queryByText("Private hand")).toBeNull();
+  });
+
+  it("holds response-mode commands until the requested fork seat arrives", async () => {
+    const initial = forkRoom();
+    initial.engine!.chainMode = "auto";
+    swr.data = initial;
+    const fetch = vi.fn(async () => json(initial));
+    vi.stubGlobal("fetch", fetch);
+    const view = render(<DuelRoomView slug="fork-1" />);
+    fireEvent.click(within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name: /Bo/ }));
+    await act(async () => { fireEvent.keyDown(window, { key: "r" }); });
+    expect(fetch).not.toHaveBeenCalled();
+    swr.data = forkRoom({ engine: { ...initial.engine!, chainMode: "auto" } }, control({ actingSeat: 1 }));
+    view.rerender(<DuelRoomView slug="fork-1" />);
+    await act(async () => { fireEvent.keyDown(window, { key: "r" }); });
+    expect(fetch).toHaveBeenCalledWith("/api/duels/fork-1/chain-mode?as=1", expect.objectContaining({
+      body: JSON.stringify({ mode: "off", revision: initial.engine!.revision }),
+    }));
+  });
+
+  it("holds fork seat changes while a response-mode command is in flight", async () => {
+    const initial = forkRoom();
+    initial.engine!.chainMode = "auto";
+    swr.data = initial;
+    let resolve!: (response: Response) => void;
+    const fetch = vi.fn(() => new Promise<Response>((done) => { resolve = done; }));
+    vi.stubGlobal("fetch", fetch);
+    render(<DuelRoomView slug="fork-1" />);
+    await act(async () => { fireEvent.keyDown(window, { key: "r" }); });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const seat = within(screen.getByRole("group", { name: "Acting seat" })).getByRole("button", { name: /Bo/ });
+    expect(seat).toBeDisabled();
+    fireEvent.click(seat);
+    expect(swr.keys.at(-1)).toBe("/api/duels/fork-1");
+    await act(async () => { resolve(json(initial)); });
+    expect(seat).not.toBeDisabled();
+  });
+
+  it("fails closed on a fork row without its seat control", async () => {
+    const unusable = forkRoom({}, null);
+    unusable.engine!.chainMode = "auto";
+    swr.data = unusable;
+    const fetch = vi.fn(async () => json(unusable));
+    vi.stubGlobal("fetch", fetch);
     render(<DuelRoomView slug="fork-1" />);
     expect(document.querySelector("[data-replay-fork-unusable]")).not.toBeNull();
     expect(screen.queryByTestId("field")).toBeNull();
     expect(screen.queryByText("Replay fork")).toBeNull();
+    await act(async () => { fireEvent.keyDown(window, { key: "r" }); });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("shows no fork controls on an ordinary duel", () => {

@@ -133,6 +133,13 @@ export function DuelReplayView({ slug, canInspectSource = false }: { slug: strin
     setHover(null);
   }, [slug]);
 
+  useEffect(() => {
+    if (canInspectSource && model?.capabilities) return;
+    setInspect(null);
+    setHover(null);
+    setMobileInspect(false);
+  }, [canInspectSource, model?.capabilities]);
+
   // A failed switch of card visibility keeps what is on screen and says why.
   useEffect(() => {
     if (!error || !model) return;

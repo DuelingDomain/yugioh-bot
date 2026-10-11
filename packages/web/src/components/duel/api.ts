@@ -38,6 +38,12 @@ export class DuelRequestError extends Error {
   }
 }
 
+/** Access failures invalidate cached private views, including expired sessions without an error code. */
+export function isDuelAccessError(error: unknown): error is DuelRequestError {
+  return error instanceof DuelRequestError && (error.code === "ACCESS_DENIED" || error.code === "ACCESS_UNAVAILABLE"
+    || error.status === 401 || error.status === 403 || error.status === 404);
+}
+
 /** The room left the lobby while a deck check was pending. Refresh the room; no report applies. */
 export class DeckValidationSkippedError extends Error {
   constructor() {

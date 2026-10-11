@@ -201,4 +201,43 @@ describe("useReplayData", () => {
     expect(result.current.model?.version).toBe(1);
     expect(result.current.model?.frames[0]!.frameId).toBe("step-0");
   });
+
+  it("clears the private replay before an access-denied fallback loads", async () => {
+    const calls = stubFetch();
+    const { result } = renderHook(() => useReplayData("game-1", "mine", { enabled: true, seat: 1, reveal: true }));
+    await act(async () => { calls[0]!.reply.resolve(json({ ...replayV2(), capabilities: { canFork: true, privateSeats: [0, 1] } })); });
+    await waitFor(() => expect(result.current.model?.capabilities?.canFork).toBe(true));
+    act(() => result.current.reload());
+    await act(async () => { calls[1]!.reply.resolve(json({ error: "No access", code: "ACCESS_DENIED" }, 404)); });
+    await waitFor(() => expect(calls).toHaveLength(3));
+    expect(result.current.model).toBeNull();
+    await act(async () => { calls[2]!.reply.resolve(json({ error: "No access", code: "ACCESS_DENIED" }, 403)); });
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.model).toBeNull();
+  });
+
+  it("clears private data when owner access cannot be checked", async () => {
+    const calls = stubFetch();
+    const { result } = renderHook(() => useReplayData("game-1", "mine", { enabled: true, seat: 1, reveal: true }));
+    await act(async () => { calls[0]!.reply.resolve(json({ ...replayV2(), capabilities: { canFork: true, privateSeats: [0, 1] } })); });
+    await waitFor(() => expect(result.current.model).not.toBeNull());
+    act(() => result.current.reload());
+    await act(async () => { calls[1]!.reply.resolve(json({ error: "Cannot check access", code: "ACCESS_UNAVAILABLE" }, 503)); });
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.model).toBeNull();
+  });
+
+  it("hides a private replay as soon as the owner hint is removed", async () => {
+    const calls = stubFetch();
+    const { result, rerender } = renderHook(({ enabled }) => useReplayData("game-1", "mine", { enabled, seat: 1, reveal: true }), {
+      initialProps: { enabled: true },
+    });
+    await act(async () => { calls[0]!.reply.resolve(json({ ...replayV2(), capabilities: { canFork: true, privateSeats: [0, 1] } })); });
+    await waitFor(() => expect(result.current.model).not.toBeNull());
+    rerender({ enabled: false });
+    expect(result.current.model).toBeNull();
+    await act(async () => { calls[1]!.reply.resolve(json(replayV2())); });
+    await waitFor(() => expect(result.current.settled).toBe(true));
+    expect(result.current.model?.capabilities).toBeUndefined();
+  });
 });

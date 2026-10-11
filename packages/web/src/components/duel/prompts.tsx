@@ -215,7 +215,7 @@ function waitingCopy(prompt: DuelPrompt | null, mySeat: number | null, seatName?
   return "Waiting for a response.";
 }
 
-export function usePromptDraft(prompt: DuelPrompt | null): PromptDraft {
+export function usePromptDraft(prompt: DuelPrompt | null, resetKey?: string): PromptDraft {
   const [selected, setSelected] = useState<string[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [value, setValue] = useState(0);
@@ -228,7 +228,7 @@ export function usePromptDraft(prompt: DuelPrompt | null): PromptDraft {
     setValue(prompt?.min ?? 0);
     setCardCode(null);
     setHighlight(0);
-  }, [prompt?.id]);
+  }, [prompt?.id, resetKey]);
 
   return {
     selected,
