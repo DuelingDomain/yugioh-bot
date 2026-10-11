@@ -47,6 +47,7 @@ describe("open forks in the owner replay controls", () => {
   let calls: Array<{ url: URL; init?: RequestInit }>;
   let forks: Array<{ slug: string; sourceSlug: string; format: string; createdAt: string; lastActivityAt: string }>;
   let limitHit: boolean;
+  let forkRefused: boolean;
   let listStatus: number;
 
   beforeEach(() => {
@@ -54,6 +55,7 @@ describe("open forks in the owner replay controls", () => {
     window.localStorage.clear();
     nav.push.mockClear();
     limitHit = false;
+    forkRefused = false;
     listStatus = 200;
     forks = [
       { slug: "fork-a", sourceSlug: "game-1", format: "1v1", createdAt: utc(125 * MIN), lastActivityAt: utc(5 * MIN) },
@@ -74,6 +76,7 @@ describe("open forks in the owner replay controls", () => {
         return json({ session: { slug } });
       }
       if (url.pathname.endsWith("/replay/fork") && init?.method === "POST") {
+        if (forkRefused) return json({ error: "The server could not start the fork.", code: "FORK_FAILED" }, 500);
         return limitHit
           ? json({ error: "Replay fork limit reached. Cancel a fork and try again.", code: "FORK_LIMIT", limit: 4, forksUrl: "/api/admin/duels/forks" }, 429)
           : json({ slug: "fork-9", sourceFrameId: "f1", initialSeat: 0, room: {} });
@@ -130,6 +133,8 @@ describe("open forks in the owner replay controls", () => {
     fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText(/Cancel one to start another/)).toBeTruthy();
+    // The sheet says why; the failure box would sit over its first row.
+    expect(document.querySelector("[data-fork-failure]")).toBeNull();
     const retry = within(dialog).getByRole("button", { name: "Jump in again" }) as HTMLButtonElement;
     expect(retry.disabled).toBe(true);
     const row = dialog.querySelector("[data-open-fork='fork-4']") as HTMLElement;
@@ -138,6 +143,21 @@ describe("open forks in the owner replay controls", () => {
     await waitFor(() => expect((within(dialog).getByRole("button", { name: "Jump in again" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(within(dialog).getByRole("button", { name: "Jump in again" }));
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/duels/fork-9"));
+  });
+
+  it("shows a refused Jump in in a box with a Dismiss button", async () => {
+    forkRefused = true;
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Next move" }));
+    fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
+    const box = await waitFor(() => {
+      const found = document.querySelector("[data-fork-failure]") as HTMLElement | null;
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(box.textContent).toContain("The server could not start the fork.");
+    fireEvent.click(within(box).getByRole("button", { name: "Dismiss" }));
+    expect(document.querySelector("[data-fork-failure]")).toBeNull();
   });
 
   it("fails closed for a user who is not the owner: no entry, no list call", async () => {
