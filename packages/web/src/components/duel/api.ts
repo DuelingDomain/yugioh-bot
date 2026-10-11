@@ -22,6 +22,7 @@ import type {
   DuelSession,
   DuelSettings,
 } from "@yugidraft/shared/duels";
+import { EMPTY_HISTORY_FILTERS, historyQuery, type HistoryFilters } from "./history-filters";
 
 export class DuelRequestError extends Error {
   readonly status: number;
@@ -98,11 +99,43 @@ export function duelRoomKey(slug: string, spectate = false, fork: ForkViewContro
   return `/api/duels/${slug}${text ? `?${text}` : ""}`;
 }
 
+/** A history seat. `team` (0-based, Tag only) and `result` come from the history API. */
+export type DuelListSeat = DuelListItem["seats"][number] & { team?: number | null; result?: string | null };
+
+/**
+ * A list row. The fields after `private` come from the history API; older servers omit them and the
+ * row shows only what it has. `engine` is the core family, or an object that holds it.
+ */
+export type DuelListEntry = Omit<DuelListItem, "seats"> & {
+  seats: DuelListSeat[];
+  private?: boolean;
+  startedAt?: string | null;
+  durationMs?: number | null;
+  turnCount?: number | null;
+  engine?: string | { coreFamily?: string | null } | null;
+};
+
+export interface DuelListPage {
+  duels: DuelListEntry[];
+  nextCursor?: string | null;
+  canSeeAll?: boolean;
+}
+
+export function duelHistoryKey(
+  scope: DuelHistoryScope = "mine",
+  filters: HistoryFilters = EMPTY_HISTORY_FILTERS,
+  cursor?: string | null,
+): string {
+  return `${DUEL_LIST_KEY}?${historyQuery(scope, filters, cursor)}`;
+}
+
 export async function listDuels(
   archived = false,
   scope: DuelHistoryScope = "mine",
-): Promise<{ duels: DuelListItem[] }> {
-  const url = archived ? `${DUEL_LIST_KEY}?archived=1&scope=${scope}` : DUEL_LIST_KEY;
+  filters: HistoryFilters = EMPTY_HISTORY_FILTERS,
+  cursor?: string | null,
+): Promise<DuelListPage> {
+  const url = archived ? duelHistoryKey(scope, filters, cursor) : DUEL_LIST_KEY;
   return parseBody(await fetch(url, { cache: "no-store" }));
 }
 

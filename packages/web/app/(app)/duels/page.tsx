@@ -1,10 +1,13 @@
 import { DuelLobby } from "@/components/duel/lobby";
+import { parseHistoryParams } from "@/components/duel/history-filters";
 
 export default async function DuelsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string | string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { view } = await searchParams;
-  return <DuelLobby initialView={view === "history" ? "history" : "live"} />;
+  const params = await searchParams;
+  const { scope, filters } = parseHistoryParams(params);
+  const view = Array.isArray(params.view) ? params.view[0] : params.view;
+  return <DuelLobby initialView={view === "history" ? "history" : "live"} initialScope={scope} initialFilters={filters} />;
 }
