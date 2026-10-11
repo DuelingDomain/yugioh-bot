@@ -90,7 +90,7 @@ export function replayV2(options: {
     frame({ step: 3, format, kind: "result", actorSeat: null, result: { winnerSeat: 0, reason: "Surrender" } }),
   ];
   return {
-    version: 2,
+    verification: "exact", version: 2,
     sourceVersion: "src-1",
     visibility,
     session: session(format, options.sessionOver),
@@ -105,6 +105,7 @@ export function replayV2(options: {
 export function replayV1(format: DuelFormat = "1v1", mySeat: number | null = 0): DuelReplay {
   const v2 = replayV2({ format, mySeat });
   return {
+    verification: v2.verification,
     session: v2.session,
     role: v2.role,
     mySeat,

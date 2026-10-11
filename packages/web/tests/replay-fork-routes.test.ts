@@ -56,6 +56,13 @@ async function launch(body: unknown = input) {
   const { POST } = await import("../app/api/admin/duels/[slug]/replay/fork/route");
   return POST(new Request("http://localhost/api/admin/duels/source/replay/fork", { method: "POST", body: JSON.stringify(body) }), params(slug));
 }
+it("forwards an explicit unchecked fork request for the owner", async () => {
+  expect((await launch({ ...input, unchecked: true })).status).toBe(200);
+  expect(payload()).toMatchObject({ ...input, unchecked: true, userId: 101 });
+});
+it.each([1, "true", null])("rejects a malformed unchecked fork flag %s", async unchecked => {
+  expect((await launch({ ...input, unchecked })).status).toBe(400); expect(state.fetch).not.toHaveBeenCalled();
+});
 it.each([101, 102])("lets admin %s discover a private replay and use the existing owner-only Jump in route", async userId => {
   signIn(userId);
   state.db!.prepare("update duels set status='completed' where web_slug=?").run(fork);

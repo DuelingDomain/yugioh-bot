@@ -34,7 +34,7 @@ export async function savedReplayBoardResponse(response: NextResponse, input: {
       text: `${message} Showing the saved final board.`,
     }] });
     const frame = { step: 0, actorSeat: null, view };
-    const common = { session: input.session, role: ownSeat === null ? "spectator" : "player", mySeat: ownSeat };
+    const common = { verification: "unverified" as const, session: input.session, role: ownSeat === null ? "spectator" : "player", mySeat: ownSeat };
     return NextResponse.json(input.version === 2 || input.owner ? {
       ...common, version: 2, sourceVersion: `saved-board-${input.session.id}`, visibility, dataSeat,
       ...(input.owner ? { reveal: input.reveal ?? false, capabilities: { canFork: false, privateSeats: [] } } : {}),
