@@ -178,6 +178,30 @@ export async function cancelReplayFork(slug: string): Promise<{ session: DuelSes
   );
 }
 
+/** One open replay fork of the owner, as the list route answers it. The times are UTC, "YYYY-MM-DD HH:MM:SS". */
+export interface OpenReplayFork {
+  slug: string;
+  sourceSlug: string;
+  format: DuelFormat;
+  createdAt: string;
+  lastActivityAt: string;
+}
+
+export interface OpenReplayForkList {
+  forks: OpenReplayFork[];
+  /** How many forks an owner may keep open. */
+  limit: number;
+}
+
+/** Owner only. The server checks the owner list; any other user gets an access error. */
+export async function getOpenReplayForks(signal?: AbortSignal): Promise<OpenReplayForkList> {
+  const body = await parseBody<Partial<OpenReplayForkList>>(await fetch("/api/admin/duels/forks", { cache: "no-store", signal }));
+  if (!Array.isArray(body.forks) || typeof body.limit !== "number") {
+    throw new DuelRequestError("The server returned an invalid list of forks.", 502);
+  }
+  return { forks: body.forks, limit: body.limit };
+}
+
 export interface CreateDuelOptions {
   /** A named opponent makes a private challenge; empty is an open table. */
   opponentPlayerId?: number | null;

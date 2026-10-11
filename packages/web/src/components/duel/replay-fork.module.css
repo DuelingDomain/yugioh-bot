@@ -1,5 +1,6 @@
 /* Owner replay controls and the fork bar. They sit in the shell header (a --duel-unit scope), so sizes use it. */
 .group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.group[data-replay-owner-tools] { flex-wrap: nowrap; }
 .btn {
   display: inline-flex;
   align-items: center;
@@ -91,6 +92,8 @@
   .waiting .note { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 }
 .group[data-replay-fork-bar] .btn .wide { display: none; }
+/* Three owner buttons share a header that is already full on a laptop: the long words give way to icons and the short names. */
+@media (max-width: 1400px) { .group[data-replay-owner-tools] .btn .wide { display: none; } }
 .group[data-replay-fork-bar] .btn { padding: 0 8px; }
 .result {
   position: fixed;
@@ -112,3 +115,28 @@
 .result strong { font-size: 18px; }
 .result span { color: #c5d0de; font-size: 13px; }
 .result a { text-decoration: none; }
+
+/* Open forks: the owner's list in a sheet (Open, confirmed Cancel). */
+a.btn { text-decoration: none; }
+.dangerBtn { border-color: #8f4a4a; color: #ffc9c9; }
+.forkCount { display: inline; font-size: 12px; font-variant-numeric: tabular-nums; }
+.forkList { display: grid; gap: 10px; min-width: 0; }
+.forkItems { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.forkRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid #3a4a5e;
+  border-radius: 8px;
+  background: #0f1b29;
+}
+.forkInfo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; flex: 1 1 220px; }
+.forkFormat { font-weight: 600; color: #e7edf6; }
+.forkSource { color: #c9d6e6; font-size: 13px; text-decoration: underline; overflow-wrap: anywhere; }
+.forkTimes { color: #9db0c4; font-size: 12px; }
+.forkActions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.forkRow .alert { flex: 1 1 100%; }
+.forkRow .note { max-width: none; }

@@ -166,7 +166,7 @@ const FAILURE_COPY: Record<string, string> = {
   ENGINE_BUSY: "The duel engine is busy. Try again in a moment.",
   SOURCE_CHANGED: "The source duel changed after this replay was loaded. Reload the replay and pick the move again.",
   REQUEST_CONFLICT: "That start request was already used for another move. Try again.",
-  FORK_LIMIT: "You have too many replay forks open. End one first, then try again.",
+  FORK_LIMIT: "Replay fork limit reached. Cancel a fork and try again.",
   INVALID_CURSOR: "That move cannot be a start point. Reload the replay and pick the move again.",
   ACCESS_UNAVAILABLE: "Access to this duel cannot be checked right now. Try again in a moment.",
 };

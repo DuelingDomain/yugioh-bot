@@ -7,6 +7,7 @@ import type { ReplayFrameV2 } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
 import { isDuelAccessError, postReplayFork } from "./api";
 import { replayFailure, type ReplayModel } from "./replay-controller";
+import { OpenForksButton, OpenForksSheet, useOpenForks, type OpenForksState } from "./replay-open-forks";
 import styles from "./replay-fork.module.css";
 
 /** How long Jump in stays shut after the fork was made, while the page loads it. */
@@ -39,7 +40,7 @@ export function forkDisabledReason(frame: Pick<ReplayFrameV2, "cursor" | "kind">
  * "Jump in here": makes a private fork of the selected frame and opens it. One retry key is kept for each frame
  * until the fork is made, so a second click or a network retry cannot make a second fork.
  */
-export function ReplayForkButton({ slug, model, frame, busy = false, onReload, onPause }: {
+export function ReplayForkButton({ slug, model, frame, busy = false, onReload, onPause, openForks }: {
   slug: string;
   model: ReplayModel;
   frame: ReplayFrameV2 | undefined;
@@ -47,9 +48,12 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, o
   busy?: boolean;
   onReload?: () => void;
   onPause?: () => void;
+  /** The owner's open forks. When Jump in is refused for the limit, they show in a sheet so one can be cancelled. */
+  openForks?: OpenForksState;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const [limitOpen, setLimitOpen] = useState(false);
   const [failure, setFailure] = useState<{ message: string; code?: string } | null>(null);
   const requestIds = useRef(new Map<string, string>());
   const inFlight = useRef(false);
@@ -103,6 +107,10 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, o
       const text = replayFailure(error, "Could not start a fork.");
       const code = (error as { code?: string } | null)?.code;
       if (code === "REQUEST_CONFLICT" || code === "SOURCE_CHANGED") requestIds.current.clear();
+      if (code === "FORK_LIMIT" && openForks && !openForks.denied) {
+        void openForks.refresh();
+        if (mounted.current) setLimitOpen(true);
+      }
       if (mounted.current) setFailure({ message: text.message, code });
     }
     inFlight.current = false;
@@ -126,6 +134,10 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, o
             <button type="button" className={styles.btn} onClick={() => { setFailure(null); onReload(); }}>Reload replay</button>
           ) : null}
         </span>
+      ) : null}
+      {openForks ? (
+        <OpenForksSheet open={limitOpen} onClose={() => setLimitOpen(false)} state={openForks} limitHit retryBusy={disabled}
+          onRetry={() => { setLimitOpen(false); setFailure(null); void start(); }} />
       ) : null}
     </span>
   );
@@ -194,11 +206,15 @@ export function ReplayOwnerTools({ model, frame, busy, view, onViewChange, onRel
   onReload?: () => void;
   onPause?: () => void;
 }) {
-  if (model.version !== 2 || !model.capabilities) return null;
+  // Only an owner answer carries capabilities. For anyone else the list route is never called.
+  const owner = model.version === 2 && Boolean(model.capabilities);
+  const openForks = useOpenForks(owner);
+  if (!owner) return null;
   return (
     <span className={styles.group} data-replay-owner-tools>
       <ReplayOwnerView model={model} view={view} busy={busy} onChange={onViewChange} />
-      <ReplayForkButton slug={slug} model={model} frame={frame} busy={busy} onReload={onReload} onPause={onPause} />
+      <OpenForksButton state={openForks} />
+      <ReplayForkButton slug={slug} model={model} frame={frame} busy={busy} onReload={onReload} onPause={onPause} openForks={openForks} />
     </span>
   );
 }
