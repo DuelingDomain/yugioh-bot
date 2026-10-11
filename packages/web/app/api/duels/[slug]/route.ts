@@ -39,7 +39,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   });
   if (!result.ok) return result.response;
   if (fork) {
-    try { actor.duels.room(slug, actor.guildId, actor.playerId); }
+    try { actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false }); }
     catch (error) { return duelErrorResponse(error); }
   }
   return NextResponse.json(result.data, { headers: { "cache-control": "private, no-store" } });

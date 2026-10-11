@@ -60,3 +60,6 @@ export type { BugReportService, BugReport, BugReportInput, BugReportLimit } from
 export { createWaitlistService } from "./waitlist.js";
 export type { WaitlistService, WaitlistMeta } from "./waitlist.js";
 export * from "./duel-access.js";
+
+export * from "./stored-duel-snapshots.js";
+export * from "./duel-snapshot-retention.js";

@@ -44,7 +44,7 @@ export async function buildReportContext(input: ServerContextInput): Promise<Ser
 
   let room: ReturnType<DuelService["room"]>;
   try {
-    room = input.duels.room(input.duelSlug, input.guildId, input.playerId);
+    room = input.duels.room(input.duelSlug, input.guildId, input.playerId, { includeStoredBoard: false });
   } catch {
     return { context, duelVerified: false };
   }

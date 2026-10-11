@@ -1,3 +1,4 @@
+import { readStoredBoard, freezeStoredBoard, encodeStoredSnapshot, storedTurnCount, type StoredSnapshot } from "./stored-duel-snapshots.js";
 import type { DuelScriptErrorMode } from "../duels/index.js";
 import type Database from "better-sqlite3";
 import { generateWebSlug } from "../util/web-slug.js";
@@ -197,7 +198,7 @@ export interface DuelService {
   removePracticeBot(slug: string, guildId: string, organizerPlayerId: number, seat?: number): SandboxDuelSession;
   setDeck(slug: string, guildId: string, playerId: number, deck: DuelDeck): SandboxDuelSession;
   /** Mutation prechecks must disable the owner-only read grant. Fork creator checks always apply. */
-  room(slug: string, guildId: string, playerId: number, options?: { ownerRead?: boolean }): SandboxDuelRoom;
+  room(slug: string, guildId: string, playerId: number, options?: { ownerRead?: boolean; includeStoredBoard?: boolean }): SandboxDuelRoom;
   privateState(slug: string, guildId: string): DuelPrivateState;
   /**
    * Marks a seated player ready with the deck already in the seat (a
@@ -240,7 +241,7 @@ export interface DuelService {
     snapshots?: DuelFinalSnapshots,
   ): SandboxDuelSession;
   interrupt(slug: string, guildId: string, reason: string, snapshots?: DuelFinalSnapshots): SandboxDuelSession;
-  cancel(slug: string, guildId: string, organizerPlayerId: number): SandboxDuelSession;
+  cancel(slug: string, guildId: string, organizerPlayerId: number, liveTurn?: number): SandboxDuelSession;
   archive(slug: string, guildId: string, organizerPlayerId: number): SandboxDuelSession;
   archiveDue(limit: number, archiveAfterMs: number): SandboxDuelSession[];
   admit(slug: string, guildId: string, playerId: number, inviteCode: string): void;
@@ -290,10 +291,10 @@ type DuelRow = {
   winner_player_id: number | null;
   winner_seat: number | null;
   result_reason: string | null;
-  snapshot_public_json: string | null;
-  snapshot_seat0_json: string | null;
-  snapshot_seat1_json: string | null;
-  snapshot_seats_json?: string | null;
+  snapshot_public_json: StoredSnapshot;
+  snapshot_seat0_json: StoredSnapshot;
+  snapshot_seat1_json: StoredSnapshot;
+  snapshot_seats_json?: StoredSnapshot;
   format?: string | null;
   setup_json?: string | null;
   settings_json: string | null;
@@ -401,39 +402,6 @@ function parseSeed(raw: string | null): string[] | null {
     return seed;
   } catch {
     return null;
-  }
-}
-
-function parseEngineView(raw: string | null): DuelEngineView | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as DuelEngineView;
-    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.seats)) return null;
-    return { ...parsed, prompt: null, prioritySeat: null };
-  } catch {
-    return null;
-  }
-}
-
-function freezeSnapshot(
-  view: DuelEngineView,
-  result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string },
-): string {
-  const frozen: DuelEngineView = { ...view, prompt: null, prioritySeat: null, result };
-  return JSON.stringify(frozen);
-}
-
-function parseSeatSnapshots(raw: string | null | undefined): Array<DuelEngineView | null> {
-  if (!raw) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((entry) => {
-      if (!entry || typeof entry !== "object" || !Array.isArray((entry as DuelEngineView).seats)) return null;
-      return { ...(entry as DuelEngineView), prompt: null, prioritySeat: null };
-    });
-  } catch {
-    return [];
   }
 }
 
@@ -582,16 +550,6 @@ function rowFormat(row: Pick<DuelRow, "format">): DuelFormat {
   const value = row.format ?? DEFAULT_DUEL_FORMAT;
   if (!isDuelFormat(value)) throw new DuelServiceError("Duel record is invalid", 500);
   return value;
-}
-
-function snapshotForRole(row: DuelRow, mySeat: number | null): DuelEngineView | null {
-  if (mySeat !== null) {
-    const fromList = parseSeatSnapshots(row.snapshot_seats_json)[mySeat];
-    if (fromList) return fromList;
-  }
-  if (mySeat === 0) return parseEngineView(row.snapshot_seat0_json);
-  if (mySeat === 1) return parseEngineView(row.snapshot_seat1_json);
-  return parseEngineView(row.snapshot_public_json);
 }
 
 function mapSeat(row: SeatRow): DuelSeat {
@@ -1311,26 +1269,28 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         reason,
       };
       if (format === "tag") result.winnerTeam = winnerTeam;
-      const publicJson = snapshots ? freezeSnapshot(snapshots.public, result) : null;
+      const publicJson = snapshots ? freezeStoredBoard(snapshots.public, result) : null;
       const seatCount = seatCountFor(rowFormat(row));
       const seatViews: Array<DuelEngineView | undefined> = [];
       for (let index = 0; index < seatCount; index += 1) {
         seatViews.push(snapshots?.seats?.[index] ?? (index === 0 ? snapshots?.seat0 : index === 1 ? snapshots?.seat1 : undefined));
       }
-      const seat0Json = seatViews[0] ? freezeSnapshot(seatViews[0], result) : null;
-      const seat1Json = seatViews[1] ? freezeSnapshot(seatViews[1], result) : null;
       const seatsJson =
         snapshots && seatCount > 2 && seatViews.every((view) => view)
-          ? JSON.stringify(seatViews.map((view) => JSON.parse(freezeSnapshot(view as DuelEngineView, result)) as unknown))
+          ? encodeStoredSnapshot(seatViews.map((view) => JSON.parse(freezeStoredBoard(view as DuelEngineView, result)) as unknown))
           : null;
+      const seat0Json = !seatsJson && seatViews[0] ? freezeStoredBoard(seatViews[0], result) : null;
+      const seat1Json = !seatsJson && seatViews[1] ? freezeStoredBoard(seatViews[1], result) : null;
+      const turnCount = [snapshots?.public.turn, ...seatViews.map(view => view?.turn), parseStoredDuelClock(row.clock_json)?.turn]
+        .find(turn => typeof turn === "number" && Number.isSafeInteger(turn) && turn >= 0) ?? null;
 
       db.prepare<
-        ["completed" | "interrupted", number | null, number | null, string, string | null, string | null, string | null, string | null, number]
+        ["completed" | "interrupted", number | null, number | null, string, string | null, string | null, string | null, string | null, number | null, number]
       >(
         `
           update duels
           set status = ?, ended_at = datetime('now'), archived_at = case when sandbox = 1 then archived_at else coalesce(archived_at, datetime('now')) end, winner_player_id = ?, winner_seat = ?, result_reason = ?,
-              snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ?, snapshot_seats_json = ?, clock_json = null
+              snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ?, snapshot_seats_json = ?, turn_count = ?, snapshot_compacted_at = null, clock_json = null
           where id = ? and status = 'active'
         `,
       ).run(
@@ -1342,6 +1302,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         seat0Json,
         seat1Json,
         seatsJson,
+        turnCount,
         row.id,
       );
       const updated = selectDuelById.get(row.id);
@@ -1351,7 +1312,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     },
   );
 
-  const cancelTx = db.transaction((slug: string, guildId: string, organizerPlayerId: number) => {
+  const cancelTx = db.transaction((slug: string, guildId: string, organizerPlayerId: number, liveTurn?: number) => {
     const row = loadDuelRow(slug, guildId);
     assertPlayerGuild(organizerPlayerId, guildId);
     assertRoomAccess(row, organizerPlayerId);
@@ -1386,14 +1347,14 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       throw new DuelServiceError("Only a lobby or an active unranked duel can be cancelled", 409);
     }
 
-    db.prepare<[number]>(
+    db.prepare<[number | null, number]>(
       `
         update duels
         set status = 'cancelled', ended_at = datetime('now'), archived_at = case when sandbox = 1 then archived_at else coalesce(archived_at, datetime('now')) end, winner_player_id = null, winner_seat = null,
-            result_reason = 'Cancelled', clock_json = null
+            result_reason = 'Cancelled', turn_count = coalesce(turn_count, ?), clock_json = null
         where id = ? and status in ('lobby', 'active')
       `,
-    ).run(row.id);
+    ).run(row.status === "active" && typeof liveTurn === "number" && Number.isSafeInteger(liveTurn) && liveTurn >= 0 ? liveTurn : storedTurnCount(row), row.id);
     const updated = selectDuelById.get(row.id);
     if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
     return mapSession(updated);
@@ -1531,7 +1492,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       const role: DuelActorRole = seated ? "player" : "spectator";
       const mySeat = seated ? seated.seat : null;
       const terminal = isTerminalStatus(session.status);
-      const engine = terminal ? snapshotForRole(row, mySeat) : null;
+      const engine = terminal && options?.includeStoredBoard !== false ? readStoredBoard(row, mySeat) : null;
       const room: SandboxDuelRoom = {
         session,
         role,
@@ -1602,8 +1563,8 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       return finalizeTx(slug, guildId, "interrupted", null, reason, snapshots);
     },
 
-    cancel(slug, guildId, organizerPlayerId) {
-      return cancelTx(slug, guildId, organizerPlayerId);
+    cancel(slug, guildId, organizerPlayerId, liveTurn) {
+      return cancelTx(slug, guildId, organizerPlayerId, liveTurn);
     },
 
     startOpening(slug, guildId, actorPlayerId, at) {

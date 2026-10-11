@@ -9,7 +9,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   const { slug } = await params;
-  try { assertNormalDuelRequest(request, actor.duels.room(slug, actor.guildId, actor.playerId)); }
+  try { assertNormalDuelRequest(request, actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false })); }
   catch (error) { return duelErrorResponse(error); }
 
   try {

@@ -10,7 +10,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { slug } = await params;
 
   const inLobby = () => {
-    const room = actor.duels.room(slug, actor.guildId, actor.playerId);
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
     assertNormalDuelRequest(request, room);
     return room.session.status === "lobby";
   };

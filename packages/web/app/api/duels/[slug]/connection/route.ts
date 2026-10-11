@@ -26,7 +26,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     if (fork && !canReadDuel(getDb(), { slug, guildId: actor.guildId, playerId: actor.playerId, seat: 0 })) {
       throw new ReplayAccessError();
     }
-    let room: DuelRoom = actor.duels.room(slug, actor.guildId, actor.playerId);
+    let room: DuelRoom = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
     if ("sandbox" in room.session && room.session.sandbox) {
       const sandboxActor = await requireSandboxActor();
       if (!sandboxActor.ok) return sandboxActor.response;

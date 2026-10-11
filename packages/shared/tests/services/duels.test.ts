@@ -743,6 +743,7 @@ describe("duel snapshots archive and cancel", () => {
     expect(cancelled.endedAt).toBeTruthy();
     expect(cancelled.archivedAt).toBeTruthy();
     expect(app.duels.room(session.slug, "g1", app.p1).clock).toBeNull();
+    expect(app.db.prepare("select turn_count from duels where id=?").get(session.id)).toEqual({ turn_count: 5 });
     expect(app.duels.cancel(session.slug, "g1", app.p1)).toEqual(cancelled);
     app.db.close();
   });
@@ -1259,5 +1260,28 @@ describe("rock-paper-scissors opening", () => {
     duels.activate(slug, "g1", p1, ["1", "2", "3", "4"], "bundle", null);
     expect(duels.openingState(slug, "g1")).toBeNull();
     expect(duels.room(slug, "g1", p1).opening).toBeNull();
+  });
+});
+
+describe("terminal turn counts", () => {
+  it("stores a 1v1 complete turn before clearing the live clock", () => {
+    const app = setup(); const duel = readyDuel(app); start(app, duel.slug);
+    app.duels.complete(duel.slug, "g1", 0, "Finished", { public: { ...board(null), turn: 8 }, seat0: board(0), seat1: board(1) });
+    expect(app.db.prepare("select turn_count,clock_json from duels where id=?").get(duel.id)).toEqual({ turn_count: 8, clock_json: null });
+    app.db.close();
+  });
+  it("stores an interrupted turn when only a clock exists", () => {
+    const app = setup(); const duel = readyDuel(app); start(app, duel.slug);
+    app.db.prepare("update duels set clock_json=? where id=?").run(JSON.stringify({ turn: 9, remainingMs: [60000, 60000], activeSeat: 0, startedAt: Date.now() }), duel.id);
+    app.duels.interrupt(duel.slug, "g1", "Interrupted");
+    expect(app.db.prepare("select turn_count,clock_json from duels where id=?").get(duel.id)).toEqual({ turn_count: 9, clock_json: null });
+    app.db.close();
+  });
+  it("stores the supplied live turn on untimed active cancellation", () => {
+    const app = setup(); const duel = readyDuel(app); start(app, duel.slug);
+    app.db.prepare("update duels set series_id=null,ranked=0,clock_json=null where id=?").run(duel.id);
+    app.duels.cancel(duel.slug, "g1", app.p1, 10);
+    expect(app.db.prepare("select turn_count,clock_json from duels where id=?").get(duel.id)).toEqual({ turn_count: 10, clock_json: null });
+    app.db.close();
   });
 });

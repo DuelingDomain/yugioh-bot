@@ -1,6 +1,7 @@
+import { createStoredBoardReader, STORED_BOARD_COLUMNS, type StoredDuelBoards } from "@yugidraft/shared/services";
 import type Database from "better-sqlite3";
 import { NextResponse } from "next/server";
-import { toOrdinaryReplayView, type DuelEngineView, type DuelSession, type ReplayVisibility } from "@yugidraft/shared/duels";
+import { toOrdinaryReplayView, type DuelSession, type ReplayVisibility } from "@yugidraft/shared/duels";
 
 /** Call only after the route rechecks current source access. The host still rejects oversized
  * move-by-move data; the viewer can render this single saved result using its existing contract.
@@ -9,26 +10,22 @@ export async function savedReplayBoardResponse(response: NextResponse, input: {
   db: Database.Database; session: DuelSession; playerId: number; owner: boolean;
   version?: 1 | 2; visibility?: ReplayVisibility; seat?: number; reveal?: boolean;
 }): Promise<NextResponse | null> {
-  if (response.status !== 413) return null;
+  if (response.status !== 413 && response.status !== 409) return null;
   const failure = await response.clone().json().catch(() => null);
-  if (failure?.code !== "REPLAY_TOO_LARGE" || !["completed", "interrupted"].includes(input.session.status)) return null;
-  const row = input.db.prepare<[number], {
-    snapshot_public_json: string | null; snapshot_seat0_json: string | null;
-    snapshot_seat1_json: string | null; snapshot_seats_json: string | null;
-  }>("select snapshot_public_json, snapshot_seat0_json, snapshot_seat1_json, snapshot_seats_json from duels where id = ?").get(input.session.id);
+  const recoverable = (response.status === 413 && failure?.code === "REPLAY_TOO_LARGE")
+    || (response.status === 409 && failure?.code === "ENGINE_UNAVAILABLE_FOR_SOURCE");
+  if (!recoverable || !["completed", "interrupted"].includes(input.session.status)) return null;
+  const row = input.db.prepare<[number], StoredDuelBoards>(`select ${STORED_BOARD_COLUMNS} from duels where id = ?`).get(input.session.id);
   if (!row) return null;
   const ownSeat = input.session.seats.find(seat => seat.playerId === input.playerId)?.seat ?? null;
   const visibility = input.visibility ?? "mine";
   const dataSeat = input.owner && input.seat !== undefined ? input.seat : visibility === "public" ? null : ownSeat;
   try {
-    const seats = row.snapshot_seats_json && (dataSeat !== null || (input.owner && input.reveal))
-      ? JSON.parse(row.snapshot_seats_json) as Array<DuelEngineView | null> : [];
-    const savedSeat = (seat: number) => seats[seat] ?? (seat < 2
-      ? JSON.parse((seat === 0 ? row.snapshot_seat0_json : row.snapshot_seat1_json) ?? "null") as DuelEngineView | null : null);
-    let board = dataSeat === null ? JSON.parse(row.snapshot_public_json ?? "null") as DuelEngineView | null : savedSeat(dataSeat);
+    const readSaved = createStoredBoardReader(row);
+    let board = readSaved(dataSeat);
     if (!board) return null;
     if (input.owner && input.reveal) board = { ...board, seats: board.seats.map(seat => {
-      const own = savedSeat(seat.seat)?.seats.find(candidate => candidate.seat === seat.seat);
+      const own = readSaved(seat.seat)?.seats.find(candidate => candidate.seat === seat.seat);
       return own ? { ...seat, hand: own.hand, extra: own.extra } : seat;
     }) };
     const message = typeof failure.error === "string" ? failure.error : "Move-by-move replay exceeds the size limit.";
@@ -42,8 +39,8 @@ export async function savedReplayBoardResponse(response: NextResponse, input: {
       ...common, version: 2, sourceVersion: `saved-board-${input.session.id}`, visibility, dataSeat,
       ...(input.owner ? { reveal: input.reveal ?? false, capabilities: { canFork: false, privateSeats: [] } } : {}),
       frames: [{ ...frame, frameId: "saved-final-board", kind: "result", cursor: null }],
-      replayError: { code: "REPLAY_TOO_LARGE", error: message },
-    } : { ...common, frames: [frame], replayError: { code: "REPLAY_TOO_LARGE", error: message } },
+      replayError: { code: failure.code, error: message },
+    } : { ...common, frames: [frame], replayError: { code: failure.code, error: message } },
     { headers: { "cache-control": "private, no-store" } });
   } catch { return null; }
 }

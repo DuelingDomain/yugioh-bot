@@ -34,6 +34,16 @@ it("keeps the v1 normal request and forwards v2 visibility with trusted identity
   expect((await get(false, "version=2&visibility=public")).status).toBe(200);
   expect(payload()).toMatchObject({ op: "replay", version: 2, visibility: "public" });
 });
+it.each([200, 409])("decodes stored boards only for the saved-board fallback (host status %s)", async status => {
+  signIn(201);
+  const board = JSON.stringify({ turn: 8, seats: [], log: [] });
+  state.db!.prepare("update duels set status='completed',snapshot_seat0_json=? where web_slug=?").run(board, slug);
+  state.fetch.mockImplementation(async () => Response.json(status === 200 ? { version: 2, frames: [] }
+    : { error: "No replay", code: "ENGINE_UNAVAILABLE_FOR_SOURCE" }, { status }));
+  const parse = vi.spyOn(JSON, "parse");
+  expect((await get(false, "version=2")).status).toBe(200);
+  expect(parse.mock.calls.filter(([raw]) => raw === board)).toHaveLength(status === 200 ? 0 : 1);
+});
 it.each(["seat=1", "reveal=0", "as=1", "version=3", "visibility=private", "version=2&version=1", "seat=", "isOwner=true"])
 ("rejects normal private or malformed query %s before host calls", async query => {
   const response = await get(false, query); expect(response.status).toBe(400); expect(state.fetch).not.toHaveBeenCalled();

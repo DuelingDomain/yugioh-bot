@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import { multiplayerSeatsBlockReason, multiplayerTablesEnabled, parseSandboxRun, SandboxBoardError,
   seatCountFor, type DuelAnswer, type DuelEngineView, type DuelPrompt, type DuelFormat, type SandboxStartPhase, type SandboxBoard, type SandboxRun } from "@yugidraft/shared/duels";
-import type { DuelService } from "@yugidraft/shared/services";
+import { createStoredBoardReader, readStoredBoard, STORED_BOARD_COLUMNS, type StoredDuelBoards, type DuelService } from "@yugidraft/shared/services";
 import { defaultAnswer } from "./scripted-bot.js";
 import { botTableOf } from "./practice-bot.js";
 import { multiStartProblem } from "./multi-domain-guard.js";
@@ -211,16 +211,17 @@ export function prepareSandboxRoom(db: Database.Database, service: DuelService,
   // Keep builder and control metadata on the room for the sandbox toolbar.
   Object.assign(room, { sandbox: info });
   if (!live) {
-    const snapshots = db.prepare<[string, string], {
-      snapshot_seat0_json: string | null; snapshot_seat1_json: string | null; snapshot_seats_json: string | null;
-    }>("select snapshot_seat0_json, snapshot_seat1_json, snapshot_seats_json from duels where web_slug = ? and guild_id = ?").get(slug, guildId);
-    const views = snapshots?.snapshot_seats_json ? JSON.parse(snapshots.snapshot_seats_json) as Array<DuelEngineView | null> : [];
-    for (const [seat, json] of [[0, snapshots?.snapshot_seat0_json], [1, snapshots?.snapshot_seat1_json]] as const) {
-      if (!views[seat] && json) views[seat] = JSON.parse(json) as DuelEngineView;
+    const snapshots = db.prepare<[string, string], StoredDuelBoards>(
+      `select ${STORED_BOARD_COLUMNS} from duels where web_slug = ? and guild_id = ?`).get(slug, guildId);
+    const readSaved = sandboxView.reveal === true ? createStoredBoardReader(snapshots)
+      : (seat: number | null) => readStoredBoard(snapshots, seat);
+    room.engine = readSaved(room.mySeat!);
+    room.metadataOnly = room.engine === null;
+    if (room.engine && sandboxView.reveal === true) {
+      const views = Array.from({ length: seatCountFor(room.session.format) }, (_, seat) => readSaved(seat));
+      room.engine = mergeRevealedHands(room.engine,
+        new Map(views.flatMap((view, seat) => view ? [[seat, view] as const] : [])));
     }
-    room.engine = views[room.mySeat!] ?? null;
-    if (room.engine && sandboxView.reveal === true) room.engine = mergeRevealedHands(room.engine,
-      new Map(views.flatMap((view, seat) => view ? [[seat, view] as const] : [])));
   }
 }
 

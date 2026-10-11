@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib";
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -201,6 +202,29 @@ describe("sandbox seat control", () => {
     const revealed = (await t.post("view", { slug, as: 0, reveal: true })).data;
     expect(revealed.engine.seats.every((s: any) => s.hand[0]?.code && s.extra[0]?.code)).toBe(true);
     expect(revealed.engine.prompt).toBeNull();
+  });
+  it.each(["legacy", "seat-list"])("loads a gzip sandbox snapshot through sandbox.ts (%s)", async storage => {
+    const t = setup(), slug = await t.start({ run: manualRun });
+    expect((await t.post("surrender", { slug, as: 1 })).status).toBe(200);
+    const saved = t.db.prepare("select snapshot_seat0_json, snapshot_seat1_json from duels where web_slug=?").get(slug) as { snapshot_seat0_json: string; snapshot_seat1_json: string };
+    if (storage === "seat-list") {
+      t.db.prepare("update duels set snapshot_seat0_json=null, snapshot_seat1_json=null, snapshot_seats_json=? where web_slug=?")
+        .run(gzipSync(JSON.stringify([JSON.parse(saved.snapshot_seat0_json), JSON.parse(saved.snapshot_seat1_json)])), slug);
+    } else {
+      t.db.prepare("update duels set snapshot_seat0_json=?, snapshot_seat1_json=? where web_slug=?")
+        .run(gzipSync(saved.snapshot_seat0_json), gzipSync(saved.snapshot_seat1_json), slug);
+    }
+    const own = await t.post("view", { slug, as: 1, reveal: false });
+    expect(own.status, own.data.error).toBe(200);
+    expect(own.data.mySeat).toBe(1);
+    expect(own.data.metadataOnly).toBe(false);
+    expect(own.data.engine.seats[0].hand[0].code).toBeUndefined();
+    expect(own.data.engine.seats[1].hand[0].code).toBe(15025844);
+    expect(own.data.engine.prompt).toBeNull();
+    const revealed = await t.post("view", { slug, as: 0, reveal: true });
+    expect(revealed.status, revealed.data.error).toBe(200);
+    expect(revealed.data.engine.seats.every((seat: any) => seat.hand[0]?.code && seat.extra[0]?.code)).toBe(true);
+    expect((await t.post("view", { slug, playerId: t.other })).status).toBe(403);
   });
   it("rejects unauthorized overrides, reveal, control, and phase operations", async () => {
     const t = setup(), slug = await t.start();

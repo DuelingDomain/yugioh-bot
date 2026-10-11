@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
   let fork = false;
   let control: ReturnType<typeof readDuelControl>;
   try {
-    const room = slug ? actor.duels.room(slug, actor.guildId, actor.playerId) : undefined;
+    const room = slug ? actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false }) : undefined;
     if (room?.session.sandbox) {
       const allowed = await requireSandboxActor();
       if (!allowed.ok) return allowed.response;
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
   });
   if (!result.ok) return result.response;
   if (fork && slug) {
-    try { actor.duels.room(slug, actor.guildId, actor.playerId); }
+    try { actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false }); }
     catch (error) { return duelErrorResponse(error); }
   }
   const data = result.data as { cards: DuelCardInfo[] };

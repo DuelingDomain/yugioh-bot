@@ -657,6 +657,8 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "invite_code", "text");
   addColumnIfMissing(db, "duels", "format", "text not null default '1v1'");
   addColumnIfMissing(db, "duels", "snapshot_seats_json", "text");
+  addColumnIfMissing(db, "duels", "turn_count", "integer");
+  addColumnIfMissing(db, "duels", "snapshot_compacted_at", "text");
   addColumnIfMissing(db, "duels", "setup_json", "text");
   addColumnIfMissing(db, "duels", "kind", "text not null default 'play' check (kind in ('play', 'replay-fork'))");
   db.exec(`
@@ -666,6 +668,8 @@ export function migrate(db: Database.Database) {
     begin
       select raise(abort, 'Duel kind is immutable');
     end;
+    create index if not exists duels_snapshot_retention_idx on duels (julianday(ended_at), id)
+      where snapshot_compacted_at is null and status in ('completed','interrupted','cancelled');
     create table if not exists replay_fork_requests (
       owner_user_id text not null,
       request_id text not null,
@@ -676,6 +680,7 @@ export function migrate(db: Database.Database) {
       created_at text not null default current_timestamp,
       primary key (owner_user_id, request_id)
     );
+    create index if not exists replay_fork_requests_duel_idx on replay_fork_requests (fork_duel_id);
   `);
 
   db.transaction(() => {
@@ -804,6 +809,8 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "best_of", "integer not null default 1");
   addColumnIfMissing(db, "duels", "ranked", "integer not null default 0");
   db.exec("create index if not exists duels_series_idx on duels (series_id, game_number) where series_id is not null");
+  db.exec(`create index if not exists duels_cancelled_fork_retention_idx on duels (julianday(ended_at), id)
+    where status='cancelled' and kind='replay-fork' and series_id is null`);
   // Rock-paper-scissors before game 1: the opening state (JSON) while it runs, null otherwise.
   addColumnIfMissing(db, "duels", "opening_json", "text");
   // Between games the loser chooses to go first or second (index into the series players, and 'first' | 'second').

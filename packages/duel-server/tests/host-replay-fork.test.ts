@@ -662,3 +662,66 @@ it("preserves a committed fork when shutdown interrupts its restart", async () =
   makeWorker = () => new ForkWorker(); startHost();
   expect((await post({ op: "view", slug: forkSlug })).response.status).toBe(200);
 });
+
+it.each(["fork-restart", "replay-fork"])("keeps an expired cancelled fork while %s is queued", async op => {
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "1");
+  db.pragma("foreign_keys=on");
+  const jobs = await import("@yugidraft/shared/services");
+  const job = vi.spyOn(jobs, "runDuelSnapshotRetention");
+  const input = request();
+  const launched = await post({ op: "replay-fork", ...input });
+  const forkSlug = launched.body.slug;
+  expect((await post({ op: "fork-cancel", slug: forkSlug })).response.status).toBe(200);
+  db.prepare("update duels set ended_at=datetime('now','-8 days'),turn_count=12,snapshot_compacted_at='2026-10-01' where web_slug=?").run(forkSlug);
+  const control = await post({ op: "replay-fork", ...request(), playerId: 62, userId: "102", requestId: "retention-control" });
+  expect(control.response.status).toBe(200);
+  expect((await post({ op: "fork-cancel", slug: control.body.slug, playerId: 62, userId: "102" })).response.status).toBe(200);
+  db.prepare("update duels set ended_at=datetime('now','-8 days'),turn_count=12 where web_slug=?").run(control.body.slug);
+  await host.close();
+  vi.useFakeTimers();
+  startHost();
+  await vi.advanceTimersByTimeAsync(59_000);
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  makeWorker = () => {
+    const worker = new ForkWorker(), create = worker.create.bind(worker);
+    worker.create = async options => { await create(options); started(); await gate; };
+    return worker;
+  };
+  if (op === "replay-fork") onChange.mockImplementation(async eventSlug => { if (eventSlug === forkSlug) { started(); await gate; } });
+  const restarting = op === "fork-restart" ? post({ op, slug: forkSlug }) : post({ op, ...input });
+  try {
+    await Promise.race([ready, restarting.then(result => { throw new Error(`Queued request finished early: ${JSON.stringify(result.body)}`); })]);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(job).toHaveBeenCalledTimes(1);
+    expect(db.prepare("select id from duels where web_slug=?").get(control.body.slug)).toBeUndefined();
+    expect(db.prepare("select status from duels where web_slug=?").get(forkSlug)).toEqual({ status: "cancelled" });
+    expect(db.prepare("select * from replay_fork_requests where fork_duel_id=(select id from duels where web_slug=?)").all(forkSlug)).toHaveLength(1);
+    release();
+    expect((await restarting).response.status).toBe(200);
+    expect(createDuelService(db).get(forkSlug, owner.guildId).status).toBe(op === "fork-restart" ? "active" : "cancelled");
+    expect(db.prepare("select turn_count,snapshot_compacted_at from duels where web_slug=?").get(forkSlug))
+      .toEqual(op === "fork-restart" ? { turn_count: null, snapshot_compacted_at: null } : { turn_count: 12, snapshot_compacted_at: "2026-10-01" });
+  } finally {
+    release(); await restarting; await host.close(); job.mockRestore(); vi.useRealTimers();
+  }
+});
+
+it.each(["ffa4", "tag"] as const)("decodes a gzip %s fork seat list once for a terminal reveal", async format => {
+  const { gzipSync } = await import("node:zlib");
+  source(format); const launched = await post({ op: "replay-fork", ...request() });
+  expect(launched.response.status).toBe(200);
+  const forkSlug = launched.body.slug, worker = workers.at(-1)!;
+  const views = await Promise.all(Array.from({ length: seatCountFor(format) }, (_, seat) => worker.view(seat)));
+  createDuelService(db).complete(forkSlug, owner.guildId, 0, "Finished", { public: await worker.view(null), seats: views });
+  const row = db.prepare("select snapshot_public_json,snapshot_seats_json from duels where web_slug=?").get(forkSlug) as { snapshot_public_json: string; snapshot_seats_json: string };
+  db.prepare("update duels set snapshot_public_json=?,snapshot_seats_json=? where web_slug=?").run(gzipSync(row.snapshot_public_json), gzipSync(row.snapshot_seats_json), forkSlug);
+  const parse = vi.spyOn(JSON, "parse");
+  try {
+    const result = await post({ op: "view", slug: forkSlug, as: 3, reveal: true });
+    expect(result.response.status, JSON.stringify(result.body)).toBe(200);
+    expect(result.body.engine.seats.map((s: any) => s.hand[0].code)).toEqual([900, 901, 902, 903]);
+    expect(parse.mock.calls.filter(([raw]) => raw === row.snapshot_seats_json)).toHaveLength(1);
+  } finally { parse.mockRestore(); }
+});

@@ -9,6 +9,7 @@ import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelReplayV2 } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createReplayCursorCodec } from "../src/replay-cursor.js";
+import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import * as replayJson from "../src/replay-json.js";
 import { seedIdentity } from "./helpers/identity.js";
 import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
@@ -25,6 +26,7 @@ let configureWorker = (_worker: ReplayWorker) => {};
 const owner = { guildId: "test-guild", playerId: 61, userId: "101" };
 beforeEach(() => {
   vi.stubEnv("OWNER_USER_IDS", "101,102");
+  vi.stubEnv("DUEL_TURN_BACKFILL_ENABLED", "1");
   db = new Database(":memory:"); migrate(db);
   dir = mkdtempSync(join(tmpdir(), "host-replay-"));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "test-bundle" }));
@@ -311,4 +313,164 @@ it("keeps owner checkpoints even when a single final board exceeds the cap", asy
     expect(result.body.capabilities?.canFork).toBe(true);
     expect(result.body.forkSteps?.filter(step => step.cursor !== null)).toHaveLength(3);
   } finally { encode.mockRestore(); }
+});
+
+it.each(["plain", "gzip"])("reads %s final boards for result, admin reveal, bug context, and cache", async encoding => {
+  const { gzipSync } = await import("node:zlib");
+  const finalWorker = new ReplayWorker();
+  await finalWorker.create({ mode: "normal", decks: replaySource().decks, seed: replaySource().seed, dataDirectory: dir });
+  const publicBoard = { ...await finalWorker.view(null), revision: 100, turn: 12, log: [{ id: 1, text: "Final public log" }], result: { winnerSeat: 0, reason: "Finished" } };
+  const own = await Promise.all([finalWorker.view(0), finalWorker.view(1)]);
+  const encode = (v: unknown) => encoding === "plain" ? JSON.stringify(v) : gzipSync(JSON.stringify(v));
+  db.prepare("update duels set snapshot_public_json=?,snapshot_seat0_json=?,snapshot_seat1_json=?,snapshot_seats_json=? where web_slug=?")
+    .run(encode(publicBoard), encode(own[0]), encode(own[1]), null, slug);
+  const result = await post({ version: 2, visibility: "public" });
+  expect(result.response.status).toBe(200);
+  expect(result.body.frames.at(-1)?.view).toMatchObject({ turn: 12, result: publicBoard.result });
+  const reveal = await post({ op: "owner-replay", ...owner, reveal: true });
+  expect(reveal.response.status).toBe(200);
+  expect(reveal.body.frames.at(-1)?.view.seats.map(s => s.hand[0]?.code)).toEqual([900, 901]);
+  const bug = await post({ op: "bug-context" });
+  expect(bug.response.status).toBe(200);
+  expect(bug.body).toMatchObject({ turn: 12, log: ["Final public log"] });
+  const count = workers.length;
+  await post({ version: 2, visibility: "public" });
+  expect(workers).toHaveLength(count);
+  db.prepare("update duels set snapshot_public_json=? where web_slug=?").run(encode({ ...publicBoard, turn: 13 }), slug);
+  const changed = await post({ version: 2, visibility: "public" });
+  expect(workers).toHaveLength(count + 1);
+  expect(changed.body.frames.at(-1)?.view.turn).toBe(13);
+});
+
+it("schedules one retention sweep at a time and waits for it during shutdown", async () => {
+  const jobs = await import("@yugidraft/shared/services");
+  await host.close();
+  vi.useFakeTimers();
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_INTERVAL_MS", "60000");
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let stoppedAtRelease: boolean | undefined;
+  const job = vi.spyOn(jobs, "runDuelSnapshotRetention").mockImplementation(async (_db, options) => {
+    await gate;
+    stoppedAtRelease = options?.stopped?.();
+    return { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false, turnCursor: 0, turnBackfillDone: false, turnBackfillResumeAt: 0 };
+  });
+  try {
+    host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(job).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(job).toHaveBeenCalledTimes(1);
+    let closed = false;
+    const closing = host.close().then(() => { closed = true; });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    release(); await closing;
+    expect(stoppedAtRelease).toBe(true);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(job).toHaveBeenCalledTimes(1);
+  } finally { release(); job.mockRestore(); vi.useRealTimers(); }
+});
+
+it.each(["ffa3", "ffa4", "tag"] as const)("reads gzip deduped %s host result and reveal boards once per request", async format => {
+  const { gzipSync } = await import("node:zlib");
+  const source = replaySource(format), duels = createDuelService(db);
+  const session = duels.get(slug, owner.guildId);
+  db.prepare("update duels set format=?,bundle_version=? where id=?").run(format, pinnedEngineVersion("test-bundle", source.decks.length, activeMultiScriptsHash(dir)), session.id);
+  for (let seat = 2; seat < source.decks.length; seat++) db.prepare("insert into duel_seats(duel_id,seat,player_id,deck_json,ready) values(?,?,?,?,1)")
+    .run(session.id, seat, seat === 2 ? 63 : 62, JSON.stringify(source.decks[seat]));
+  const finalWorker = new ReplayWorker(); await finalWorker.create({ mode: "normal", format, decks: source.decks, seed: source.seed, dataDirectory: dir });
+  const final = { ...await finalWorker.view(null), turn: 12, result: { winnerSeat: 0, reason: "Finished", ...(format === "tag" ? { winnerTeam: 0 } : {}) } };
+  const own = await Promise.all(source.decks.map((_, seat) => finalWorker.view(seat)));
+  const list = JSON.stringify(own);
+  db.prepare("update duels set snapshot_public_json=?,snapshot_seats_json=?,snapshot_seat0_json=null,snapshot_seat1_json=null where id=?")
+    .run(gzipSync(JSON.stringify(final)), gzipSync(list), session.id);
+  const publicResult = await post({ version: 2, visibility: "public" });
+  expect(publicResult.response.status, JSON.stringify(publicResult.body)).toBe(200); expect(publicResult.body.frames.at(-1)?.view).toMatchObject({ turn: 12, result: final.result });
+  expect(publicResult.body.frames.at(-1)?.view.seats.map(s => s.hand[0]?.code)).toEqual(source.decks.map(() => undefined));
+  const parse = vi.spyOn(JSON, "parse");
+  try {
+    const reveal = await post({ op: "owner-replay", ...owner, seat: source.decks.length - 1, reveal: true });
+    expect(reveal.response.status).toBe(200);
+    expect(reveal.body.frames.at(-1)?.view.seats.map(s => s.hand[0]?.code)).toEqual(source.decks.map((_, seat) => 900 + seat));
+    expect(parse.mock.calls.filter(([raw]) => raw === list)).toHaveLength(1);
+  } finally { parse.mockRestore(); }
+});
+it("backfills history while retention is disabled and logs pass progress", async () => {
+  await host.close(); vi.useFakeTimers(); vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0");
+  db.prepare("update duels set snapshot_public_json=?,turn_count=null where web_slug=?").run('{"turn":8}', slug);
+  const log = vi.spyOn(console, "info").mockImplementation(() => {});
+  try {
+    host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(db.prepare("select turn_count,typeof(snapshot_public_json) as storage,snapshot_compacted_at from duels where web_slug=?").get(slug))
+      .toEqual({ turn_count: 8, storage: "text", snapshot_compacted_at: null });
+    expect(log).toHaveBeenCalledWith("[duel] snapshot retention pass", expect.objectContaining({ backfilled: 1, compacted: 0 }));
+    expect(log).toHaveBeenCalledWith("[duel] snapshot retention pass", expect.objectContaining({ turnBackfillDone: true, backlogDone: true }));
+  } finally { await host.close(); log.mockRestore(); vi.useRealTimers(); }
+});
+
+it("passes turn scan state to later host sweeps and logs only error names and codes", async () => {
+  const jobs = await import("@yugidraft/shared/services");
+  await host.close(); vi.useFakeTimers(); vi.stubEnv("DUEL_SNAPSHOT_RETENTION_INTERVAL_MS", "120000");
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const job = vi.spyOn(jobs, "runDuelSnapshotRetention").mockImplementation(async (_db, options) => {
+    options?.onError?.("turn-backfill", Object.assign(new TypeError("Synthetic private payload"), { code: "SYNTHETIC_FAILURE" }));
+    return { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false, turnCursor: 7, turnBackfillDone: false, turnBackfillResumeAt: 3_600_000 };
+  });
+  try {
+    host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(job).toHaveBeenCalledTimes(2);
+    expect(job.mock.calls[0]![1]).toMatchObject({ now: expect.any(Function), turnCursor: 0, turnBackfillResumeAt: 0 });
+    expect(job.mock.calls[1]![1]).toMatchObject({ turnCursor: 7, turnBackfillResumeAt: 3_600_000 });
+    expect(warn).toHaveBeenCalledWith("[duel] storage maintenance error", {
+      phase: "turn-backfill", code: "SYNTHETIC_FAILURE", name: "TypeError",
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("Synthetic private payload");
+  } finally { await host.close(); job.mockRestore(); warn.mockRestore(); vi.useRealTimers(); }
+});
+
+it("logs only the name and code when the retention job rejects", async () => {
+  const jobs = await import("@yugidraft/shared/services");
+  await host.close(); vi.useFakeTimers();
+  const error = Object.assign(new TypeError("Synthetic private payload"), { code: "SYNTHETIC_FAILURE" });
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const job = vi.spyOn(jobs, "runDuelSnapshotRetention").mockRejectedValue(error);
+  try {
+    host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(job).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("[duel] snapshot retention sweep failed", { name: "TypeError", code: "SYNTHETIC_FAILURE" });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(error.message);
+  } finally { await host.close(); job.mockRestore(); warn.mockRestore(); vi.useRealTimers(); }
+});
+
+it("passes the live turn when cancelling an untimed active casual duel", async () => {
+  db.prepare("update duels set status='active',ended_at=null,clock_json=null,series_id=null,ranked=0 where web_slug=?").run(slug);
+  configureWorker = worker => {
+    const view = worker.view.bind(worker);
+    worker.view = async seat => ({ ...await view(seat), turn: 10 });
+  };
+  const live = await post({ op: "view" });
+  expect(live.response.status, JSON.stringify(live.body)).toBe(200);
+  const cancelled = await post({ op: "cancel" });
+  expect(cancelled.response.status, JSON.stringify(cancelled.body)).toBe(200);
+  expect(db.prepare("select status,turn_count,clock_json from duels where web_slug=?").get(slug))
+    .toEqual({ status: "cancelled", turn_count: 10, clock_json: null });
+});
+
+it.each(["rejects", "stalls"])("cancels an active duel when the live view %s", async failure => {
+  db.prepare("update duels set status='active',ended_at=null,clock_json=null,series_id=null,ranked=0 where web_slug=?").run(slug);
+  expect((await post({ op: "view" })).response.status).toBe(200);
+  const worker = workers.at(-1)!;
+  worker.view = failure === "rejects" ? async () => { throw new Error("Worker stopped"); } : () => new Promise(() => {});
+  vi.useFakeTimers();
+  try {
+    const pending = post({ op: "cancel" });
+    await vi.advanceTimersByTimeAsync(2100);
+    const cancelled = await pending;
+    expect(cancelled.response.status, JSON.stringify(cancelled.body)).toBe(200);
+    expect(db.prepare("select status,turn_count from duels where web_slug=?").get(slug)).toEqual({ status: "cancelled", turn_count: null });
+  } finally { vi.useRealTimers(); }
 });
