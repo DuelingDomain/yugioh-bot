@@ -75,9 +75,10 @@ export function ReplayForkBar({
         ))}
       </span>
       {held && waitingSeat != null && waitingSeat !== fork.actingSeat && living.includes(waitingSeat) && !ended ? (
-        <span className={styles.group} role="status" data-replay-fork-waiting>
+        <span className={`${styles.group} ${styles.waiting}`} role="status" data-replay-fork-waiting>
           <span className={styles.note}>{seatName(waitingSeat)} must answer</span>
-          <button type="button" className={styles.btn} disabled={disabled} onClick={() => onPickSeat(waitingSeat)}>Switch</button>
+          <button type="button" className={styles.btn} disabled={disabled} aria-label={`Switch to ${seatName(waitingSeat)}`}
+            onClick={() => onPickSeat(waitingSeat)}>Switch</button>
         </span>
       ) : null}
       {onShowResult ? <button type="button" className={styles.btn} onClick={onShowResult}>Show result</button> : null}

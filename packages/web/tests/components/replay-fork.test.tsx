@@ -645,7 +645,7 @@ describe("the live room of a fork", () => {
     expect(notice.textContent).toContain("Ada must answer");
     // The hold stops Follow prompt from moving the seat by itself.
     expect(reads()).toBe(0);
-    fireEvent.click(within(notice).getByRole("button", { name: "Switch" }));
+    fireEvent.click(within(notice).getByRole("button", { name: "Switch to Ada" }));
     expect(swr.keys.at(-1)).toBe("/api/duels/fork-1?as=0");
   });
 
