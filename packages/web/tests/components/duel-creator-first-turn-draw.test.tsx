@@ -64,8 +64,10 @@ describe("DuelCreator first-turn draw setting", () => {
     expect(screen.queryByRole("radiogroup", { name: TOGGLE })).toBeNull();
   });
 
-  it.each(["1v1", "tag"])("sends no firstTurnDraw after ffa3 -> Domain -> %s", async (end) => {
+  it.each(["1v1", "tag"])("sends no firstTurnDraw after ffa3 (Standard) -> Domain -> %s", async (end) => {
     const fetchMock = renderCreator();
+    fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "ffa3" } });
+    expect(screen.queryByRole("radiogroup", { name: TOGGLE })).toBeNull();
     fireEvent.click(screen.getByLabelText("Domain"));
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "ffa3" } });
     expect(screen.queryByRole("radiogroup", { name: TOGGLE })).not.toBeNull();
@@ -81,5 +83,18 @@ describe("DuelCreator first-turn draw setting", () => {
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "ffa3" } });
     fireEvent.click(screen.getByLabelText("Standard duel"));
     expect((await submitBody(fetchMock)).settings).not.toHaveProperty("firstTurnDraw");
+  });
+
+  it("shows the setting in the summary only where it applies", () => {
+    renderCreator();
+    const summary = () => screen.queryAllByText(TOGGLE).filter((node) => node.closest("[role='radiogroup']") === null && node.tagName !== "LEGEND");
+    expect(summary()).toHaveLength(0);
+    fireEvent.click(screen.getByLabelText("Domain"));
+    fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "ffa3" } });
+    expect(summary()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("radiogroup", { name: TOGGLE }).querySelectorAll("label")[1].querySelector("input")!);
+    expect(summary()[0].parentElement?.textContent).toContain("Off");
+    fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "tag" } });
+    expect(summary()).toHaveLength(0);
   });
 });

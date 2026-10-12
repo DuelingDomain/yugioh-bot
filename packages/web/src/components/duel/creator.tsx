@@ -169,6 +169,9 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
     ["Turn clock", settings.turnSeconds === 0 ? "Unlimited" : settings.timeout === "loss" ? "Lose on timeout" : "Play on at zero"],
     ["Deck check", settings.validateDeck ? "Enforced" : "Off"],
     ["Opening order", settings.shuffleDeck ? "Shuffled" : "Not shuffled"],
+    ...(firstTurnDrawOffered
+      ? [["First player draws on turn 1", (settings.firstTurnDraw ?? DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT) ? "On" : "Off"] as [string, string]]
+      : []),
   ];
 
   return (
