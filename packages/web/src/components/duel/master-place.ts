@@ -20,10 +20,10 @@ export function useMasterSeats(): readonly DuelSeatView[] {
 }
 
 /**
- * The Deck Master card as the seat view lists it outside its zone (field, Graveyard, banished, hand, Extra Deck). With
- * `seats`, a face-up card with the same code on another seat's field counts too (the master was taken).
+ * The Deck Master card as the seat view lists it outside its zone (field, Graveyard, banished, hand, Extra Deck). Only
+ * this seat's own zones: a plate that glows or selects a card must never hand out another seat's card.
  */
-export function findMasterCard(view: DuelSeatView, code: number, seats: readonly DuelSeatView[] = []): DuelCard | null {
+export function findMasterCard(view: DuelSeatView, code: number): DuelCard | null {
   const zones: Array<DuelCard | null | undefined> = [
     ...view.monsters,
     ...view.spells,
@@ -35,6 +35,11 @@ export function findMasterCard(view: DuelSeatView, code: number, seats: readonly
   for (const card of zones) {
     if (card?.code === code) return card;
   }
+  return null;
+}
+
+/** A face-up card with the master's code on another seat's field (the master was taken). For the status text only. */
+function takenMasterCard(view: DuelSeatView, code: number, seats: readonly DuelSeatView[]): DuelCard | null {
   for (const other of seats) {
     if (other.seat === view.seat) continue;
     for (const card of [...other.monsters, ...other.spells]) {
@@ -48,7 +53,7 @@ export function masterPlace(view: DuelSeatView | undefined, seats: readonly Duel
   const master = view?.deckMaster;
   if (!view || !master) return "none";
   if (master.inZone) return "zone";
-  const card = findMasterCard(view, master.card.code, seats);
+  const card = findMasterCard(view, master.card.code) ?? takenMasterCard(view, master.card.code, seats);
   if (card && (card.location === LOCATION_MZONE || card.location === LOCATION_SZONE || card.location === LOCATION_FZONE)) return "field";
   return "elsewhere";
 }

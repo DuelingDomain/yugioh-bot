@@ -728,6 +728,9 @@
   gap: calc(5 * var(--u));
 }
 
+/* One grid cell per member: the chip and, beside it, the rival's Deck Master thumb. */
+.mchipWrap { position: relative; min-width: 0; }
+
 .mchip {
   position: relative;
   min-width: 0;

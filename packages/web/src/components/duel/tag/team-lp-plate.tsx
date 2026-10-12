@@ -87,7 +87,7 @@ function MasterThumb({ member, master, onInspect }: { member: PlateMember; maste
       data-in-use={master.inUse ? "true" : undefined}
       aria-label={text}
       title={text}
-      onClick={(event) => { event.stopPropagation(); onInspect?.(master.card); }}
+      onClick={() => onInspect?.(master.card)}
     >
       {master.inUse ? null : <img src={cardArtUrl(master.card.code, "small")} alt="" draggable={false} />}
     </button>
@@ -106,40 +106,44 @@ function Chip({ member, onPick, onInspectMaster }: { member: PlateMember; onPick
       pick();
     }
   };
+  // The Deck Master thumb is a sibling of the chip, not inside it: a button in a pickable chip would nest controls, and its
+  // Enter key would bubble into the chip and pick the seat.
   return (
-    <div
-      className={styles.mchip}
-      data-lp-seat={member.seat}
-      data-member-seat={member.seat}
-      data-now={member.now ? "true" : undefined}
-      data-pickable={member.pickable ? "true" : undefined}
-      data-locked={member.locked ? "true" : undefined}
-      role={member.pickable ? "button" : undefined}
-      tabIndex={member.pickable ? 0 : undefined}
-      aria-label={member.pickable ? `Choose ${member.name}` : undefined}
-      style={style}
-      onClick={pick}
-      onKeyDown={onKey}
-    >
-      <span className={styles.pickring} aria-hidden="true" />
-      {member.pickable && member.hotkey != null ? <kbd className={styles.keyhint}>{member.hotkey}</kbd> : null}
+    <div className={styles.mchipWrap} style={style}>
+      <div
+        className={styles.mchip}
+        data-lp-seat={member.seat}
+        data-member-seat={member.seat}
+        data-now={member.now ? "true" : undefined}
+        data-pickable={member.pickable ? "true" : undefined}
+        data-locked={member.locked ? "true" : undefined}
+        role={member.pickable ? "button" : undefined}
+        tabIndex={member.pickable ? 0 : undefined}
+        aria-label={member.pickable ? `Choose ${member.name}` : undefined}
+        style={style}
+        onClick={pick}
+        onKeyDown={onKey}
+      >
+        <span className={styles.pickring} aria-hidden="true" />
+        {member.pickable && member.hotkey != null ? <kbd className={styles.keyhint}>{member.hotkey}</kbd> : null}
+        <div className={styles.m1}>
+          <span className={styles.code}>{member.code}</span>
+          <b title={member.name} aria-hidden="true">{member.name.split(" ")[0]}</b>
+          <span className={styles.srOnly}>{member.name}</span>
+          {member.you ? <span className={styles.you}>YOU</span> : null}
+          {member.response ? (
+            <span className={styles.st2} data-k={member.response} title={member.response}>
+              {RESPONSE_TEXT[member.response]}
+            </span>
+          ) : null}
+        </div>
+        <div className={styles.m2}>
+          <span title="Hand"><HandIcon />{member.hand}</span>
+          <span title="Deck"><DeckIcon />{member.deck}</span>
+          {clock ? <span className={styles.clk} data-tick={member.clockRuns ? "true" : undefined}>{clock}</span> : null}
+        </div>
+      </div>
       {member.master ? <MasterThumb member={member} master={member.master} onInspect={onInspectMaster} /> : null}
-      <div className={styles.m1}>
-        <span className={styles.code}>{member.code}</span>
-        <b title={member.name} aria-hidden="true">{member.name.split(" ")[0]}</b>
-        <span className={styles.srOnly}>{member.name}</span>
-        {member.you ? <span className={styles.you}>YOU</span> : null}
-        {member.response ? (
-          <span className={styles.st2} data-k={member.response} title={member.response}>
-            {RESPONSE_TEXT[member.response]}
-          </span>
-        ) : null}
-      </div>
-      <div className={styles.m2}>
-        <span title="Hand"><HandIcon />{member.hand}</span>
-        <span title="Deck"><DeckIcon />{member.deck}</span>
-        {clock ? <span className={styles.clk} data-tick={member.clockRuns ? "true" : undefined}>{clock}</span> : null}
-      </div>
     </div>
   );
 }
