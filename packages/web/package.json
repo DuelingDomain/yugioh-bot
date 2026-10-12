@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@clerk/nextjs": "7.9.11",
+    "@sentry/nextjs": "^10.76.2",
     "@tanstack/react-virtual": "^3.13.24",
     "@yugidraft/shared": "*",
     "class-variance-authority": "^0.7.1",

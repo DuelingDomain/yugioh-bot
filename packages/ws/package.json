@@ -17,6 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@sentry/node": "^10.76.2",
     "@yugidraft/shared": "*",
     "dotenv": "latest",
     "socket.io": "^4.8.0"

@@ -26,6 +26,7 @@
     "scan:multiplayer": "tsx scripts/scan-multiplayer-scripts.ts"
   },
   "dependencies": {
+    "@sentry/node": "^10.76.2",
     "@yugidraft/shared": "*",
     "better-sqlite3": "latest",
     "dotenv": "latest",
