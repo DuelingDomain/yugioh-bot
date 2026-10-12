@@ -120,6 +120,11 @@
   align-items: center;
 }
 
+/* An out seat's plate adds its place and may be taller than its box in a small stage: it grows down, over its empty place, never up under the top bar. */
+.lp[data-out="true"] {
+  align-items: flex-start;
+}
+
 /* View control: all fields. */
 .controls {
   position: absolute;
