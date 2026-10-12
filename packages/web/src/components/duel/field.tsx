@@ -40,6 +40,7 @@ import {
   zoneKey,
 } from "./constants";
 import { disabledZones } from "./multi-seat";
+import { findMasterCard, masterInUse, masterPlace, type MasterPlace } from "./master-place";
 import type { InspectTarget } from "./inspector";
 import { RivalHand } from "./table/rival-hand";
 import { hexToRgbTriplet, isStraight, labelTurnDeg, normalizeDeg, textScale } from "./table/seat-angle";
@@ -73,21 +74,6 @@ type CssVars = CSSProperties & Record<`--${string}`, string | number>;
 // DuelField, SeatField and the row components keep the base styles; the skinned primitives below read the skin.
 const styles = baseStyles;
 
-function findByCode(view: DuelSeatView, code: number): DuelCard | null {
-  const zones: Array<DuelCard | null | undefined> = [
-    ...view.monsters,
-    ...view.spells,
-    ...view.graveyard,
-    ...view.banished,
-    ...view.hand,
-    ...view.extra,
-  ];
-  for (const card of zones) {
-    if (card?.code === code) return card;
-  }
-  return null;
-}
-
 export function masterCard(view: DuelSeatView): DuelCard | null {
   const master = view.deckMaster;
   if (!master) return null;
@@ -108,18 +94,18 @@ export function masterCard(view: DuelSeatView): DuelCard | null {
       race: master.card.race,
     };
   }
-  return findByCode(view, master.card.code);
+  return findMasterCard(view, master.card.code);
 }
 
+const PLACE_STATUS: Record<MasterPlace, string> = {
+  none: "No Deck Master",
+  zone: "In Deck Master Zone",
+  field: "On field",
+  elsewhere: "Elsewhere",
+};
+
 export function masterStatus(view: DuelSeatView): string {
-  const master = view.deckMaster;
-  if (!master) return "No Deck Master";
-  if (master.inZone) return "In Deck Master Zone";
-  const card = findByCode(view, master.card.code);
-  if (card && (card.location === LOCATION_MZONE || card.location === LOCATION_SZONE || card.location === LOCATION_FZONE)) {
-    return "On field";
-  }
-  return "Elsewhere";
+  return PLACE_STATUS[masterPlace(view)];
 }
 
 /** Two short lines for a dock: "DARK · Level 7" and "Spellcaster". */
@@ -1215,6 +1201,7 @@ export function MasterDock({
   onChooseAction,
   onInspect,
   onHoverCard,
+  showInUse = false,
 }: {
   title: string;
   view: DuelSeatView | undefined;
@@ -1227,9 +1214,12 @@ export function MasterDock({
   onChooseAction: (option: DuelPromptOption) => void;
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
+  /** Multi-seat tables: draw the zone empty ("In use") while the master is out of it. 1v1 keeps the dimmed card. */
+  showInUse?: boolean;
 }) {
   const styles = useSkinStyles(baseStyles, "field");
   const master = view?.deckMaster;
+  const inUse = showInUse && masterInUse(view);
   const card = view ? masterCard(view) : null;
   const keys = view ? withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]) : [];
   const legal = anyLegal(keys, legalKeys);
@@ -1250,6 +1240,7 @@ export function MasterDock({
       data-local={local ? "true" : "false"}
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
+      data-in-use={inUse ? "true" : undefined}
     >
       <h2 className={styles.masterTitle}>{title}</h2>
       {master && view ? (
@@ -1257,7 +1248,7 @@ export function MasterDock({
           <button
             type="button"
             className={styles.masterHit}
-            aria-label={`${title}: ${master.card.name}`}
+            aria-label={`${title}: ${master.card.name}${inUse ? `, in use (${status})` : ""}`}
             aria-pressed={selected}
             onClick={(event) => {
               if (card) onActivate(keys, card, event.currentTarget);
@@ -1268,8 +1259,8 @@ export function MasterDock({
             onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
             onBlur={() => onHoverCard?.(null, null)}
           >
-            <div className={styles.masterArt} data-master-dock={view.seat} data-away={status === "Elsewhere" ? "true" : "false"}>
-              <img src={cardArtUrl(master.card.code, "full")} alt="" draggable={false} />
+            <div className={styles.masterArt} data-master-dock={view.seat} data-master-source={showInUse ? view.seat : undefined} data-in-use={inUse ? "true" : undefined} data-away={status === "Elsewhere" && !inUse ? "true" : "false"}>
+              {inUse ? <span className={styles.masterInUse} data-testid="master-dock-in-use">In use</span> : <img src={cardArtUrl(master.card.code, "full")} alt="" draggable={false} />}
               <ZoneMarks legal={legal} selected={selected} />
             </div>
             <div className={styles.masterId}>
@@ -1293,6 +1284,8 @@ export function MasterDock({
               <dt>Next surcharge</dt>
               <dd>{master.nextCost} LP</dd>
             </div>
+            {/* Room for the "Summon: costs N LP" row; it stays out of the layout until a view field feeds it. */}
+            {showInUse ? <div className={styles.masterSummon} data-testid="master-dock-summon" /> : null}
           </dl>
           {local ? (
             <div className={styles.masterActions}>
@@ -1337,6 +1330,7 @@ export function DeckMasterRail({
   bottomSeat,
   rivals,
   selfTitle,
+  showInUse = false,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -1359,6 +1353,8 @@ export function DeckMasterRail({
   rivals?: ReadonlyArray<{ seat: number; title: string }>;
   /** The heading of the bottom dock, for example "Mika's Master" to a spectator of a table of 3. Default: "Your Master" / "Seat 1 Master". */
   selfTitle?: string;
+  /** 3 and 4 seat tables and Tag: the docks draw an empty "In use" zone while a master is out of it. */
+  showInUse?: boolean;
 }) {
   const styles = useSkinStyles(baseStyles, "field");
   const bottomIndex = bottomSeat ?? mySeat ?? 0;
@@ -1385,6 +1381,7 @@ export function DeckMasterRail({
           onChooseAction={onChooseAction}
           onInspect={onInspect}
           onHoverCard={onHoverCard}
+          showInUse={showInUse}
         />
       ))}
       <MasterDock
@@ -1399,6 +1396,7 @@ export function DeckMasterRail({
         onChooseAction={onChooseAction}
         onInspect={onInspect}
         onHoverCard={onHoverCard}
+        showInUse={showInUse}
       />
     </div>
   );

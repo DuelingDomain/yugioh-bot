@@ -2,6 +2,7 @@
 
 import type { DuelSeatView } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
+import { masterInUse } from "../master-place";
 import styles from "./master-chip.module.css";
 
 /**
@@ -11,19 +12,26 @@ import styles from "./master-chip.module.css";
 export function MasterChip({ view, label, onOpen }: { view: DuelSeatView; label: string; onOpen: () => void }) {
   const master = view.deckMaster;
   if (!master) return null;
+  // Out of its zone the master is "in use": the chip keeps its place and shows an empty slot instead of the art.
+  const inUse = masterInUse(view);
   return (
     <button
       type="button"
       className={styles.chip}
       data-testid="master-chip"
-      aria-label={`${label}: ${master.card.name}. Returns ${master.returns}, next ${master.nextCost} LP. Open the Master tab`}
+      data-in-use={inUse ? "true" : undefined}
+      aria-label={`${label}: ${master.card.name}${inUse ? " (in use)" : ""}. Returns ${master.returns}, next ${master.nextCost} LP. Open the Master tab`}
       onClick={onOpen}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className={styles.art} src={cardArtUrl(master.card.code, "small")} alt="" draggable={false} />
+      {inUse ? (
+        <span className={styles.art} data-in-use="true" aria-hidden="true" />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className={styles.art} src={cardArtUrl(master.card.code, "small")} alt="" draggable={false} />
+      )}
       <span className={styles.text}>
         <b>{master.card.name}</b>
-        <small>Master · Returns {master.returns} · Next <em>{master.nextCost.toLocaleString("en-US")} LP</em></small>
+        <small>{inUse ? "In use · " : ""}Master · Returns {master.returns} · Next <em>{master.nextCost.toLocaleString("en-US")} LP</em></small>
       </span>
     </button>
   );

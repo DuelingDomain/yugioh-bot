@@ -435,6 +435,7 @@ function TableShellBody({
       onInspect={controller.onInspect}
       rivals={[]}
       selfTitle={spectator ? `${nameOf(layout.anchorSeat)}'s Master` : forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)}'s Master` : undefined}
+      showInUse
     />
   ) : null;
 
@@ -930,6 +931,7 @@ function TableShellBody({
               engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
               !spectator && !replay,
               spectator || replay ? `${nameOf(viewerSeat ?? layout.anchorSeat)}'s Master` : forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)}'s Master` : "Your Master",
+              true,
             ),
             wide: plazaHud,
           } : null}

@@ -3,6 +3,7 @@
 import { createContext, useContext } from "react";
 import type { DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
+import { masterPlace } from "../master-place";
 import { useIsNarrow } from "../side-panel";
 import docks from "./docks.module.css";
 import { SvIcon } from "./icons";
@@ -23,12 +24,8 @@ type Status = "zone" | "field" | "away";
 
 /** Where the master is: in the Deck Master Zone, on the field, or somewhere else (hand, graveyard ...). */
 function chipStatus(view: DuelSeatView): Status {
-  const master = view.deckMaster;
-  if (!master) return "away";
-  if (master.inZone) return "zone";
-  const code = master.card.code;
-  const onField = [...view.monsters, ...view.spells].some((card) => card?.code === code);
-  return onField ? "field" : "away";
+  const place = masterPlace(view);
+  return place === "zone" ? "zone" : place === "field" ? "field" : "away";
 }
 
 const STATUS_TEXT: Record<Status, string> = { zone: "In DM Zone", field: "On field", away: "Away" };

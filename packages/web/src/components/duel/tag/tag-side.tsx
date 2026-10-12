@@ -180,6 +180,7 @@ export function TagSide({
       onInspect={controller.onInspect}
       rivals={partner == null ? [] : [{ seat: partner, title: `${nameOf(partner)}'s Master` }]}
       selfTitle={viewerSeat == null ? `${nameOf(0)}'s Master` : forkLabels ? `${nameOf(viewerSeat)}'s Master` : undefined}
+      showInUse
     />
   ) : null;
 
@@ -219,8 +220,8 @@ export function TagSide({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          master={domain ? hudMasterProps(source, engine.seats.find((view) => view.seat === seat), viewerSeat != null && !replay, viewerSeat == null || replay || forkLabels ? `${nameOf(seat)}'s Master` : "Your Master") : null}
-          otherMaster={domain && partner != null ? hudMasterProps(source, engine.seats.find((view) => view.seat === partner), false, `${nameOf(partner)}'s Master`) : null}
+          master={domain ? hudMasterProps(source, engine.seats.find((view) => view.seat === seat), viewerSeat != null && !replay, viewerSeat == null || replay || forkLabels ? `${nameOf(seat)}'s Master` : "Your Master", true) : null}
+          otherMaster={domain && partner != null ? hudMasterProps(source, engine.seats.find((view) => view.seat === partner), false, `${nameOf(partner)}'s Master`, true) : null}
           onInspect={ui.setInspect}
           preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hud.state.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}

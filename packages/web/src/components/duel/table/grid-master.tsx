@@ -5,6 +5,7 @@ import { Search, X } from "lucide-react";
 import type { DuelCard, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { cardArtUrl, cardStatsText, LOCATION_DMZONE, zoneKey } from "../constants";
 import { masterCard, masterDetailLines, masterStatus, withExact } from "../field";
+import { masterInUse } from "../master-place";
 import { anyLegal, anySelected, type DuelHoverHandler } from "../field-keys";
 import type { InspectTarget } from "../inspector";
 import type { DuelActivateHandler } from "./types";
@@ -126,6 +127,7 @@ export function GridMasterToken({
   title,
   slot = "own",
   wide = false,
+  showInUse = false,
   onToggle,
   onClose,
   onChooseAction,
@@ -149,6 +151,11 @@ export function GridMasterToken({
    * flies out of it and the return flies back into it (data-master-dock, data-master-source).
    */
   wide?: boolean;
+  /**
+   * Draw the Deck Master Zone empty ("In use") while the master is on the field or anywhere out of its zone. The
+   * multi-seat tables set it; the card comes back into the plate when the return flight lands (see MasterReturnFx).
+   */
+  showInUse?: boolean;
   onToggle: () => void;
   onClose: () => void;
   onChooseAction: (option: DuelPromptOption) => void;
@@ -169,6 +176,9 @@ export function GridMasterToken({
   const selected = anySelected(keys, selectedKeys);
   const actions = local && canAct ? legalActionsFor(card, keys) : [];
   const status = masterStatus(view);
+  const inUse = showInUse && masterInUse(view);
+  // A multi-seat plate is the zone of its seat; the 1v1 HUD keeps its rail as the anchor.
+  const zoneAnchor = wide || showInUse;
   const stats = cardStatsText(master.card);
   const details = masterDetailLines(master.card);
   const ability = master.card.description?.trim() ?? "";
@@ -215,13 +225,14 @@ export function GridMasterToken({
         data-selected={selected ? "true" : "false"}
         data-open={open ? "true" : "false"}
         data-away={status === "Elsewhere" ? "true" : "false"}
+        data-in-use={inUse ? "true" : "false"}
       >
         <div className={styles.masterFace}>
           <button
             type="button"
             className={styles.masterToken}
             data-testid={id("hud-master-token")}
-            aria-label={`${title}: ${master.card.name}`}
+            aria-label={`${title}: ${master.card.name}${inUse ? `, in use (${status})` : ""}`}
             aria-expanded={pickable ? undefined : open}
             onClick={(event) => (pickable ? onActivate(keys, card, event.currentTarget) : onToggle())}
             onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
@@ -229,20 +240,26 @@ export function GridMasterToken({
             onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
             onBlur={() => onHoverCard?.(null, null)}
           >
-            <span ref={artRef} className={styles.masterArt}
-              data-master-dock={wide ? view.seat : undefined} data-master-source={wide ? view.seat : undefined}
-              style={{ backgroundImage: whole
+            {/* The plate is the Deck Master Zone of this seat: a summon flies out of it and a return flies back into it. */}
+            <span ref={artRef} className={styles.masterArt} data-in-use={inUse ? "true" : undefined}
+              data-master-dock={zoneAnchor ? view.seat : undefined} data-master-source={zoneAnchor ? view.seat : undefined}
+              style={inUse ? undefined : { backgroundImage: whole
               // The small art sits under the full art, so the plate is never blank when the full image fails.
               ? `url(${cardArtUrl(master.card.code, "full")}), url(${cardArtUrl(master.card.code, "small")})`
-              : `url(${cardArtUrl(master.card.code, "small")})` }} aria-hidden="true" />
+              : `url(${cardArtUrl(master.card.code, "small")})` }} aria-hidden="true">
+              {inUse ? <span className={styles.masterInUse} data-testid={id("hud-master-in-use")}>In use</span> : null}
+            </span>
             <span className={styles.masterId}>
               <small>{local ? (forkLabels ? "Acting Master" : "Your Master") : "Deck Master"}</small>
               <b title={master.card.name}>{master.card.name}</b>
+              {inUse && !wide ? <span className={styles.masterUse} data-testid={id("hud-master-use")}>In use · {status}</span> : null}
               {wide ? (
                 <span className={styles.masterFacts} data-testid={id("hud-master-facts")}>
                   {details.map((line) => <span key={line}>{line}</span>)}
                   {stats ? <span>{stats}</span> : null}
                   <span data-status={status === "Elsewhere" ? "away" : "home"}>{status}</span>
+                  {/* Room for the "Summon: costs N LP" line (the next Deck Master Zone summon cost); it stays empty until that view field exists. */}
+                  <span className={styles.masterSummon} data-testid={id("hud-master-summon")} />
                 </span>
               ) : null}
             </span>

@@ -230,6 +230,8 @@ export interface HudMasterProps {
   onHoverCard?: DuelHoverHandler;
   /** The wide plate of the 3-way plaza (grid-master.tsx): the ability text shows, and the plate is the Deck Master Zone anchor. */
   wide?: boolean;
+  /** Multi-seat tables: the plate shows an empty "In use" slot while the master is out of its zone, and is the zone anchor of its seat. */
+  showInUse?: boolean;
 }
 
 export interface HudLayerProps {
