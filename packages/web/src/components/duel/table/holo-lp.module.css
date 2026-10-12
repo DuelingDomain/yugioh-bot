@@ -212,6 +212,11 @@
   color: #efe7d5;
 }
 
+.meta .clock[data-low="true"] {
+  border-color: rgb(255 148 137 / 0.7);
+  color: var(--duel-loss-ink, #ff9489);
+}
+
 .state {
   margin-top: calc(5px * var(--lpk));
   color: var(--ink-3);

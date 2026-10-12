@@ -1,6 +1,9 @@
 import type { CSSProperties, KeyboardEvent } from "react";
 import { LifePoints } from "../life-points";
+import type { DuelClock } from "@yugidraft/shared/duels";
 import { formatClock } from "../table/holo-lp";
+import { LOW_CLOCK_MS } from "../clock-beep";
+import { useLiveClockMs } from "../use-live-clock";
 import type { ResponderState } from "./tag-logic";
 import styles from "./tag-stage.module.css";
 
@@ -16,6 +19,8 @@ export interface PlateMember {
   hand: number;
   deck: number;
   clockMs: number | null;
+  /** The duel clock: with it the chip shows this seat's live time instead of `clockMs`. */
+  clock?: DuelClock | null;
   clockRuns: boolean;
   now: boolean; // on the baton
   response: ResponderState | null; // set while this team answers a chain
@@ -71,7 +76,10 @@ const RESPONSE_TEXT: Record<ResponderState, string> = { choosing: "…", waiting
 
 function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number) => void }) {
   const style = { ["--seat" as string]: member.rgb, ["--seat-ink" as string]: member.ink } as CSSProperties;
-  const clock = formatClock(member.clockMs);
+  const liveMs = useLiveClockMs(member.clock, member.seat);
+  const shownMs = member.clock ? liveMs : member.clockMs;
+  const clock = formatClock(shownMs);
+  const lowClock = shownMs != null && shownMs <= LOW_CLOCK_MS;
   const pick = () => {
     if (member.pickable) onPick?.(member.seat);
   };
@@ -112,7 +120,7 @@ function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number)
       <div className={styles.m2}>
         <span title="Hand"><HandIcon />{member.hand}</span>
         <span title="Deck"><DeckIcon />{member.deck}</span>
-        {clock ? <span className={styles.clk} data-tick={member.clockRuns ? "true" : undefined}>{clock}</span> : null}
+        {clock ? <span className={styles.clk} data-tick={member.clockRuns ? "true" : undefined} data-low={lowClock ? "true" : undefined}>{clock}</span> : null}
       </div>
     </div>
   );
