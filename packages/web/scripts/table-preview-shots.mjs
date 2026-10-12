@@ -19,7 +19,7 @@ const sizes = (process.env.SIZES ?? "1440x900,1280x720").split(",").map((part) =
   const [width, height] = part.trim().split("x").map(Number);
   return { width, height };
 });
-const allStates = ["main", "battle-aim", "chain-2", "target-pick", "direct-attack", "elimination", "spectator", "result"];
+const allStates = ["main", "battle-aim", "chain-2", "target-pick", "choose-opponent", "direct-attack", "elimination", "spectator", "result"];
 const states = (process.env.STATES ?? allStates.join(",")).split(",").map((part) => part.trim()).filter(Boolean);
 const cam = process.env.CAM ?? "home";
 const camSlug = cam.replace(/[^a-z0-9]+/gi, "-");

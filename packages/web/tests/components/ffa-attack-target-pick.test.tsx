@@ -35,7 +35,7 @@ it.each(["1v1", "tag"])("does not treat a native %s effect choice as a combined 
 });
 
 it("ignores an incomplete zone option instead of assuming it has a direct-seat option", () => {
-  const state = FFA3_FIXTURES.states["direct-attack"];
+  const state = FFA3_FIXTURES.states["choose-opponent"];
   const incomplete: DuelPrompt = { ...prompt, options: [
     { id: "card:0", label: "Battle Ox", controller: 1, location: 4 },
   ] };
@@ -65,7 +65,7 @@ it.each(["direct", "monster"])("one board click selects a %s target when the sam
   const root = document.createElement("div");
   root.innerHTML = '<div data-seat-field="1"><div data-zones="1:4:0">Monster</div><button data-lp-seat="1">LP</button></div>';
   document.body.append(root);
-  const state = FFA3_FIXTURES.states["direct-attack"];
+  const state = FFA3_FIXTURES.states["choose-opponent"];
   const fixture = { ...state, room: { ...state.room, engine: { ...state.room.engine!, prompt } } };
   const { result } = renderHook(() => {
     const base = useFixtureController(fixture);
@@ -80,7 +80,7 @@ it.each(["direct", "monster"])("one board click selects a %s target when the sam
 
 it.each(["direct:1", "card:0"])("the aiming panel can lock and confirm %s", (id) => {
   const submit = vi.fn();
-  const state = FFA3_FIXTURES.states["direct-attack"];
+  const state = FFA3_FIXTURES.states["choose-opponent"];
   const fixture = { ...state, room: { ...state.room, engine: { ...state.room.engine!, prompt } } };
   const { result } = renderHook(() => {
     const base = useFixtureController(fixture);

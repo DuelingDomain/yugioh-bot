@@ -13,10 +13,9 @@ import { PromptTray, usePromptDraft } from "@/components/duel/prompts";
 
 afterEach(cleanup);
 
-// A direct-attack list under another id scheme (the engine no longer sends a "choose an opponent" prompt).
 const opponentPrompt: DuelPrompt = {
-  id: "opp", seat: 0, kind: "choice", title: "Select a duelist to attack",
-  options: [1, 2, 3].map((seat) => ({ id: `opp-${seat}`, controller: seat, label: `Attack Player ${seat + 1} directly` })),
+  id: "opp", seat: 0, kind: "choice", title: "Choose an opponent", context: { type: "opponent" },
+  options: [1, 2, 3].map((seat) => ({ id: `opp-${seat}`, controller: seat, label: `Player ${seat + 1}` })),
 };
 const directPrompt: DuelPrompt = {
   id: "direct", seat: 0, kind: "choice", title: "Select a duelist to attack",
@@ -40,7 +39,7 @@ const highlight = () => Number(screen.getByTestId("highlight").textContent);
 const rows = () => screen.getAllByRole("button").filter((button) => button.hasAttribute("data-index"));
 
 describe("outSeatOptionIds", () => {
-  it("marks out seats while a living row remains, in direct-attack lists", () => {
+  it("marks out seats while a living row remains, in opponent and direct-attack lists", () => {
     expect([...outSeatOptionIds(opponentPrompt, new Set([2]))]).toEqual(["opp-2"]);
     expect([...outSeatOptionIds(directPrompt, new Set([1, 3]))]).toEqual(["direct-1", "direct-3"]);
   });
@@ -87,8 +86,8 @@ describe("PromptCenter outSeats", () => {
     render(<Panel prompt={opponentPrompt} outSeats={new Set([1, 2])} leavingSeats={new Set([1])} />);
     expect(screen.getByText("Leaving")).toBeVisible();
     expect(screen.getByText("Out")).toBeVisible();
-    expect(rows()[0]).toHaveAccessibleName("Attack Duelist 2 directly, leaving");
-    expect(rows()[1]).toHaveAccessibleName("Attack Duelist 3 directly, out");
+    expect(rows()[0]).toHaveAccessibleName("Choose Duelist 2 as the opponent, leaving");
+    expect(rows()[1]).toHaveAccessibleName("Choose Duelist 3 as the opponent, out");
   });
 
   it("says Leaving on a direct-attack row of a leaving seat", () => {

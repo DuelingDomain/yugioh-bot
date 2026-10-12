@@ -350,8 +350,8 @@ describe("Tag overview camera: a tap on a zone", () => {
 });
 
 describe("Tag overview camera: action clicks never move the camera", () => {
-  it("a click on a pickable seat chip of a direct attack aims and and does not focus", () => {
-    const root = mount("direct-attack");
+  it("a click on a pickable seat chip answers the pick and does not focus", () => {
+    const root = mount("choose-opponent");
     const pickable = root.querySelector<HTMLElement>('[data-member-seat][data-pickable="true"]');
     expect(pickable).toBeTruthy();
     fireEvent.click(pickable!);

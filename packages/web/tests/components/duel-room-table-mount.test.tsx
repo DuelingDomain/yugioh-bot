@@ -333,6 +333,15 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     expect(state.send).not.toHaveBeenCalled();
   });
 
+  it("answers a live opponent pick from the seat strip exactly once", async () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    mount();
+    await act(async () => { fireEvent.click(screen.getByTestId("seat-strip-pick-2")); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-2" },
+    });
+  });
+
   it("locks a live direct attack in OpponentBar and confirms one room action", async () => {
     room(FFA3_FIXTURES.states["direct-attack"].room);
     state.room!.engine!.prompt!.options[0].id = "opt:0";
@@ -380,7 +389,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
   });
 
   it.each(["spectator", "eliminated self"])("does not offer or send actions for an %s", async (role) => {
-    room(FFA3_FIXTURES.states["direct-attack"].room);
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
     if (role === "spectator") state.room!.mySeat = null;
     else state.room!.engine!.seats = state.room!.engine!.seats.map((seat) => ({ ...seat, eliminated: seat.seat === 0 }));
     const { container } = mount();
@@ -572,12 +581,58 @@ describe("live room table mount", { timeout: 30_000 }, () => {
 
   it("shows Leaving and blocks stale response prompts in the legacy view", () => {
     window.history.replaceState(null, "", "/duels/live?stage=legacy");
-    room(FFA3_FIXTURES.states.main.room);
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
     state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, pendingElimination: true } : seat);
     mount();
     expect(screen.getByTestId("self-leaving")).toBeVisible();
     expect(screen.queryAllByRole("button", { name: /as the opponent$/ })).toHaveLength(0);
     expect(state.replace).not.toHaveBeenCalled();
+  });
+
+  it("does not offer a Leaving opponent in the live LP panel while a living opponent remains", async () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 2 ? { ...seat, pendingElimination: true } : seat);
+    mount();
+    expect(screen.queryByTestId("holo-pick-2")).toBeNull();
+    expect(screen.getByTestId("holo-pick-1")).toBeVisible();
+    await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-1")); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-1" },
+    });
+  });
+
+  it("reads key 1 as the first living rival when seat 1 is Leaving, and keys 2 and 3 answer nothing", async () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 1 ? { ...seat, pendingElimination: true } : seat);
+    mount();
+    await act(async () => { fireEvent.keyDown(window, { key: "2" }); fireEvent.keyDown(window, { key: "3" }); });
+    expect(state.send).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.keyDown(window, { key: "1" }); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-2" },
+    });
+  });
+
+  it("labels a Leaving opponent row Leaving, not Out, in the live prompt", () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 1 ? { ...seat, pendingElimination: true } : seat);
+    const { container } = mount();
+    const row = container.querySelector("[data-prompt-panel] [data-seat='1'][data-out='true']");
+    expect(row).not.toBeNull();
+    expect(row!.textContent).toContain("Leaving");
+    expect(row!.textContent).not.toContain("Out");
+  });
+
+  it("answers a Leaving opponent from the live LP panel when every offered seat is leaving", async () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 1 || seat.seat === 2 ? { ...seat, pendingElimination: true } : seat);
+    mount();
+    expect(screen.getByTestId("holo-pick-1")).toBeVisible();
+    expect(screen.getByTestId("holo-pick-2")).toBeVisible();
+    await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-2")); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-2" },
+    });
   });
 
   it("explains a multiplayer surrender without promising to end everyone's duel", () => {
@@ -605,7 +660,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
   });
 
   it("does not answer seat hotkeys behind the room's surrender modal", async () => {
-    room(FFA3_FIXTURES.states["direct-attack"].room);
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
     mount();
     fireEvent.click(screen.getByRole("button", { name: "Surrender" }));
     await act(async () => { fireEvent.keyDown(screen.getByRole("dialog", { name: "Surrender" }), { key: "1" }); });
@@ -613,7 +668,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
   });
 
   it.each(["dialog button", "window"])("pauses seat and camera keys while Report is open (%s)", async (target) => {
-    room(FFA3_FIXTURES.states["direct-attack"].room);
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
     state.reportEnabled.mockResolvedValue(true);
     const { container } = mount();
     fireEvent.click(await screen.findByRole("button", { name: "Report" }));
@@ -626,14 +681,13 @@ describe("live room table mount", { timeout: 30_000 }, () => {
       fireEvent.keyDown(keyTarget, { key: "o" });
     });
     expect(state.send).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("aim-confirm")).toBeNull();
     expect(camera).toHaveAttribute("data-camera-mode", mode);
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Report a problem" })).toBeNull());
     fireEvent.keyDown(window, { key: "o" });
     expect(camera).toHaveAttribute("data-camera-mode", "fly");
     await act(async () => { fireEvent.keyDown(window, { key: "1" }); });
-    expect(screen.getByTestId("aim-confirm")).toBeVisible();
+    expect(state.send).toHaveBeenCalledTimes(1);
   });
 
   it("restores ordered placings from the live log on a completed room", () => {
