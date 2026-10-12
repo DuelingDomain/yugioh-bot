@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { DuelClock } from "@yugidraft/shared/duels";
-import { liveClockMs } from "./clock-beep";
+import { clockReceivedAt, liveClockMs } from "./clock-beep";
 
 const TICK_MS = 250;
 
@@ -17,8 +17,8 @@ export function useLiveClockMs(clock: DuelClock | null | undefined, seat: number
   const running = clock != null && clock.activeSeat === seat && clock.startedAt != null;
   useEffect(() => {
     if (!clock || !running) return;
-    const receivedAt = performance.now();
-    setTick({ clock, elapsed: 0 });
+    const receivedAt = clockReceivedAt(clock);
+    setTick({ clock, elapsed: performance.now() - receivedAt });
     const timer = window.setInterval(() => setTick({ clock, elapsed: performance.now() - receivedAt }), TICK_MS);
     return () => window.clearInterval(timer);
   }, [clock, running]);

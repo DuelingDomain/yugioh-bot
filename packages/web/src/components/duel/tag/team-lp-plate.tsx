@@ -5,7 +5,7 @@ import { LifePoints } from "../life-points";
 import { useForkLabels } from "../table/fork-labels";
 import type { DuelClock } from "@yugidraft/shared/duels";
 import { formatClock } from "../table/holo-lp";
-import { LOW_CLOCK_MS } from "../clock-beep";
+import { isLowClock } from "../clock-beep";
 import { useLiveClockMs } from "../use-live-clock";
 import type { ResponderState } from "./tag-logic";
 import styles from "./tag-stage.module.css";
@@ -106,7 +106,7 @@ function Chip({ member, onPick, onInspectMaster }: { member: PlateMember; onPick
   const liveMs = useLiveClockMs(member.clock, member.seat);
   const shownMs = member.clock ? liveMs : member.clockMs;
   const clock = formatClock(shownMs);
-  const lowClock = shownMs != null && shownMs <= LOW_CLOCK_MS;
+  const lowClock = shownMs != null && isLowClock(shownMs);
   const pick = () => {
     if (member.pickable) onPick?.(member.seat);
   };

@@ -3,7 +3,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Link2 } from "lucide-react";
 import type { DuelCardInfo, DuelClock } from "@yugidraft/shared/duels";
-import { LOW_CLOCK_MS } from "../clock-beep";
+import { clockSeconds, isLowClock } from "../clock-beep";
 import { useLiveClockMs } from "../use-live-clock";
 import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
@@ -87,7 +87,7 @@ const STATE_LABEL: Partial<Record<SeatStatus, string>> = {
 
 export function formatClock(ms: number | null): string | null {
   if (ms == null || !Number.isFinite(ms)) return null;
-  const total = Math.max(0, Math.round(ms / 1000));
+  const total = clockSeconds(ms);
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
@@ -157,7 +157,7 @@ export function HoloLp({
   const liveMs = useLiveClockMs(duelClock, seat);
   const shownMs = duelClock ? liveMs : clockMs;
   const clock = formatClock(shownMs);
-  const lowClock = shownMs != null && shownMs <= LOW_CLOCK_MS;
+  const lowClock = shownMs != null && isLowClock(shownMs);
   const follows = follow && !floating && fit == null;
   const style: CSSProperties & Record<string, string | number> = {
     "--t": hexToRgbTriplet(hex.main),

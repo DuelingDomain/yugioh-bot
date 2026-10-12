@@ -8,7 +8,7 @@ import { formatLabel } from "./table-format";
 import styles from "./room.module.css";
 import own from "./room-settings.module.css";
 import clockStyles from "./room-clock.module.css";
-import { LOW_CLOCK_MS } from "./clock-beep";
+import { LOW_CLOCK_MS, clockReceivedAt, clockSeconds } from "./clock-beep";
 
 export function DuelSettingsSummary({ session }: { session: DuelSession }) {
   const { settings } = session;
@@ -157,7 +157,8 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, bank =
   const [pops, setPops] = useState<(ClockPop | null)[]>(() => carriedPops(memoryKey, clock.remainingMs.length));
   useEffect(() => {
     if (clock.activeSeat == null || clock.startedAt == null) return;
-    const receivedAt = performance.now();
+    const receivedAt = clockReceivedAt(clock);
+    setElapsed(performance.now() - receivedAt);
     const timer = window.setInterval(() => setElapsed(performance.now() - receivedAt), 250);
     return () => window.clearInterval(timer);
   }, [clock.activeSeat, clock.startedAt]);
@@ -185,7 +186,7 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, bank =
         {clock.remainingMs.map((remaining, seat) => {
           if (seats && !seats.includes(seat)) return null;
           const active = clock.activeSeat === seat && clock.startedAt != null;
-          const seconds = Math.ceil(Math.max(0, remaining - (active ? Math.max(0, clock.serverNow + elapsed - clock.startedAt!) : 0)) / 1000);
+          const seconds = clockSeconds(remaining - (active ? Math.max(0, clock.serverNow + elapsed - clock.startedAt!) : 0));
           const time = formatClock(seconds);
           const low = seconds <= LOW_CLOCK_MS / 1000;
           const name = session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;
@@ -211,7 +212,7 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, bank =
       {clock.remainingMs.map((remaining, seat) => {
         if (seats && !seats.includes(seat)) return null;
         const active = clock.activeSeat === seat && clock.startedAt != null;
-        const seconds = Math.ceil(Math.max(0, remaining - (active ? Math.max(0, clock.serverNow + elapsed - clock.startedAt!) : 0)) / 1000);
+        const seconds = clockSeconds(remaining - (active ? Math.max(0, clock.serverNow + elapsed - clock.startedAt!) : 0));
         const time = formatClock(seconds);
         const low = seconds <= LOW_CLOCK_MS / 1000;
         const name = session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;

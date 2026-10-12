@@ -9,6 +9,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+import { DuelClockDisplay } from "@/components/duel/room-settings";
 import { HoloLp, type HoloLpProps } from "@/components/duel/table/holo-lp";
 import { TeamLpPlate, type PlateMember } from "@/components/duel/tag/team-lp-plate";
 
@@ -66,6 +67,26 @@ describe("HoloLp live clock", () => {
     expect(container.querySelector('[data-low="true"]')?.textContent).toBe("01:00");
   });
 
+  it("rounds up like the HUD bank: 239.25 s left shows 04:00, not 03:59", () => {
+    const clock = clockOf([240_000, 240_000], 0);
+    const { container } = render(<HoloLp {...holo({ seat: 0, clock })} />);
+    act(() => { vi.advanceTimersByTime(750); });
+    expect(container.textContent).toContain("04:00");
+    act(() => { vi.advanceTimersByTime(250); });
+    expect(container.textContent).toContain("03:59");
+  });
+
+  it("decides low on the shown seconds: 60.25 s shows 01:01 and is not red, 60.0 s shows 01:00 and is red", () => {
+    const clock = clockOf([61_000, 240_000], 0);
+    const { container } = render(<HoloLp {...holo({ seat: 0, clock })} />);
+    act(() => { vi.advanceTimersByTime(750); });
+    expect(container.textContent).toContain("01:01");
+    expect(container.querySelector('[data-low="true"]')).toBeNull();
+    act(() => { vi.advanceTimersByTime(250); });
+    expect(container.textContent).toContain("01:00");
+    expect(container.querySelector('[data-low="true"]')?.textContent).toBe("01:00");
+  });
+
   it("falls back to the given clockMs without a duel clock, and hides a duel without a clock", () => {
     const { container } = render(<HoloLp {...holo({ clockMs: 192_000 })} />);
     expect(container.textContent).toContain("03:12");
@@ -95,9 +116,29 @@ describe("Tag plate live clock", () => {
     expect(times).toEqual(["03:53", "04:00"]);
   });
 
+  it("rounds up like the HUD bank", () => {
+    const clock = clockOf([240_000, 240_000], 0);
+    const { container } = render(plate([member({ seat: 0, clock })]));
+    act(() => { vi.advanceTimersByTime(750); });
+    expect(container.querySelector("[data-member-seat]")?.textContent).toContain("04:00");
+  });
+
   it("marks a low clock", () => {
     const clock = clockOf([50_000, 240_000], 0);
     const { container } = render(plate([member({ seat: 0, clock })]));
     expect(container.querySelector('[data-low="true"]')?.textContent).toBe("00:50");
+  });
+});
+
+describe("plates and the HUD bank show the same time", () => {
+  it("agree at every sub-second step", () => {
+    const clock = clockOf([240_000, 240_000], 0);
+    const hud = render(<DuelClockDisplay clock={clock} session={{ slug: "t", seats: [] } as never} bank />);
+    const plate = render(<HoloLp {...holo({ seat: 0, clock })} />);
+    for (const step of [100, 400, 500, 1_000, 3_300]) {
+      act(() => { vi.advanceTimersByTime(step); });
+      const [m, s] = hud.container.querySelector('[data-testid="clock-cell"] span')!.textContent!.split(":");
+      expect(plate.container.querySelector("[data-lp-seat]")!.parentElement!.textContent).toContain(`${m.padStart(2, "0")}:${s}`);
+    }
   });
 });
