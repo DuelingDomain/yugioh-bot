@@ -42,17 +42,18 @@ describe("transactional resolved list writes", () => {
       { id: 1, copies: 3, pool: "main" }, { id: 1, copies: 2, pool: "extra" },
       { id: 2, copies: 2, pool: "main" }, { id: 3, copies: 1 },
     ]);
-    expect(result).toEqual({ added: 3, copies: 5, movedToMain: 1 });
+    expect(result).toMatchObject({ added: 3, copies: 5, movedToMain: 1, moves: expect.any(Array), messages: expect.any(Array) });
+    expect(result.moves).toHaveLength(4);
     expect(cubes.getCubePools(cubeId)).toMatchObject({ main: [{ catalogCardId: 1, maxCopies: 99 }, { catalogCardId: 3, maxCopies: 1 }], extra: [
       { catalogCardId: 2, maxCopies: 2 },
     ] });
-    expect(cubes.importResolvedCards(cubeId, [{ id: 1, copies: 2, pool: "extra" }])).toEqual({ added: 1, copies: 0, movedToMain: 1 });
+    expect(cubes.importResolvedCards(cubeId, [{ id: 1, copies: 2, pool: "extra" }])).toMatchObject({ added: 1, copies: 0, movedToMain: 1, moves: expect.any(Array), messages: expect.any(Array) });
   });
 
-  it("creates from resolved entries in both pools, with frame placement overriding explicit main", () => {
+  it("creates from resolved entries with real type overriding both supplied pools", () => {
     const cube = cubes.createWithCards("g", "Imported", seedUser(db, "owner").userId, [{ id: 1, copies: 3, pool: "extra" }, { id: 2, copies: 1, pool: "main" }]);
-    expect(cubes.getCubePools(cube.id).main).toEqual([]);
-    expect(cubes.getCubePools(cube.id).extra.map((c) => [c.catalogCardId, c.maxCopies])).toEqual([[1, 3], [2, 1]]);
+    expect(cubes.getCubePools(cube.id).main.map((c) => [c.catalogCardId, c.maxCopies])).toEqual([[1, 3]]);
+    expect(cubes.getCubePools(cube.id).extra.map((c) => [c.catalogCardId, c.maxCopies])).toEqual([[2, 1]]);
   });
 
   it("rolls back every row and timestamp when a later write fails", () => {

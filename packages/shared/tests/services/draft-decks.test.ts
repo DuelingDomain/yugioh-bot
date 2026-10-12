@@ -49,7 +49,7 @@ function playDraft(db: Database.Database, playerIds: number[], hostId: string) {
 }
 
 it("leaves the fourth copy in the pool across all deck sections", () => {
-  expect(buildDraftDeck([{ catalogId: 1, extra: false }, { catalogId: 1, extra: false }, { catalogId: 1, extra: true }, { catalogId: 1, extra: true }])).toEqual({ main: [1, 1], extra: [1], side: [] });
+  expect(buildDraftDeck(Array.from({ length: 4 }, () => ({ catalogId: 1, type: "Effect Monster", extra: false })))).toEqual({ main: [1, 1, 1], extra: [], side: [] });
 });
 
 it("rejects a fourth copy when saved against a draft pool", () => {
@@ -66,11 +66,18 @@ describe("buildDraftDeck", () => {
       .toEqual([1, 1, 1, 2]);
   });
 
+  it("keeps the artwork copy identity when only one artwork has engine type bits", () => {
+    const original = { catalogId: 901, name: "Test Card", type: "Effect Monster", deckType: 0x21, extra: false };
+    const artwork = { ...original, catalogId: 902, deckType: "Effect Monster" };
+    expect(buildDraftDeck([original, original, original, artwork]).main).toEqual([901, 901, 901]);
+    expect(buildDraftDeck([original, original, original, { ...artwork, forced: true }]).main).toEqual([901, 901, 901, 902]);
+  });
+
   it("puts main picks in main, extra deck monsters in extra, and keeps copies", () => {
     const deck = buildDraftDeck([
       { catalogId: 1, extra: false },
       { catalogId: 1, extra: false },
-      { catalogId: 11, extra: true },
+      { catalogId: 11, type: "Fusion Monster", extra: true },
     ]);
     expect(deck).toEqual({ main: [1, 1], extra: [11], side: [] });
   });
@@ -78,7 +85,7 @@ describe("buildDraftDeck", () => {
   it("moves overflow to side so the deck stays one the duel start accepts", () => {
     const cards = [
       ...Array.from({ length: 80 }, (_, i) => ({ catalogId: i + 1, extra: false })),
-      ...Array.from({ length: 16 }, (_, i) => ({ catalogId: 1000 + i, extra: true })),
+      ...Array.from({ length: 16 }, (_, i) => ({ catalogId: 1000 + i, type: "Fusion Monster", extra: true })),
     ];
     const deck = buildDraftDeck(cards);
     expect(deck.main).toHaveLength(60);

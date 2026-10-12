@@ -1,6 +1,6 @@
 import type { DuelDeck } from "./index.js";
 
-export type DeckCardType = { type?: string | number | null; frameType?: string | null; name?: string };
+export type DeckCardType = { type?: string | number | null; frameType?: string | null; name?: string | null };
 const EXTRA_TYPES = 0x40 | 0x2000 | 0x800000 | 0x4000000;
 const EXCLUDED_TYPES = 0x2 | 0x4 | 0x4000 | 0x8000000;
 

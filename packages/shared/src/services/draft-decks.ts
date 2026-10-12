@@ -1,6 +1,7 @@
+import { isExtraDeckCard } from "../duels/extra-deck.js";
 import type Database from "better-sqlite3";
 import type { DuelDeck } from "../duels/index.js";
-import { isExtraDeckFrame } from "./card-catalog.js";
+import { createDeckTypeLookup } from "./deck-sections.js";
 import { createSavedDeckService } from "./saved-decks.js";
 import { createTournamentDuelService, TournamentDuelError } from "./tournament-duels.js";
 
@@ -25,7 +26,7 @@ export function isTestBotDiscordId(discordUserId: string | null | undefined): bo
   return typeof discordUserId === "string" && discordUserId.startsWith(TEST_BOT_DISCORD_PREFIX);
 }
 
-type DraftDeckCard = { catalogId: number; extra: boolean; name?: string | null; type?: string | null; forced?: boolean };
+type DraftDeckCard = { catalogId: number; extra: boolean; name?: string | null; type?: string | number | null; deckType?: string | number | null; forced?: boolean };
 
 /** Match artwork identity using the catalog's name and type; unknown ids stay separate. */
 function cardIdentity(card: DraftDeckCard): string {
@@ -66,7 +67,7 @@ export function buildDraftDeck(cards: DraftDeckCard[]): DuelDeck {
     const count = copies.get(identity) ?? 0;
     if (count >= 3 + (forced.get(identity) ?? 0)) continue;
     copies.set(identity, count + 1);
-    if (card.extra) {
+    if (isExtraDeckCard({ type: card.deckType ?? card.type })) {
       if (extra.length < DRAFT_DECK_EXTRA_MAX) extra.push(card.catalogId);
       else overflow(card.catalogId);
     } else if (main.length < DRAFT_DECK_MAIN_MAX) main.push(card.catalogId);
@@ -153,6 +154,7 @@ export function draftDeckName(draft: { name: string; ended_at?: string | null; c
 }
 
 export function createDraftDeckService(db: Database.Database): DraftDeckService {
+  const findType = createDeckTypeLookup(db);
   const selectDraft = db.prepare<[number], DraftRow>(
     "select id, guild_id, name, tournament_id, ended_at, created_at from drafts where id = ? and status = 'completed'",
   );
@@ -213,9 +215,10 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
       catalogId: row.catalog_card_id,
       name: row.name,
       type: row.type,
+      deckType: findType(row.catalog_card_id)?.type ?? row.type,
       forced: row.forced === 1,
       // A card missing from the catalog counts as Main, like the web pool loader.
-      extra: row.type != null && isExtraDeckFrame({ type: row.type, frameType: row.frame_type ?? "" }),
+      extra: isExtraDeckCard(findType(row.catalog_card_id)),
     }));
 
   const service: DraftDeckService = {
