@@ -66,6 +66,45 @@ describe("the Deck Master plate token", () => {
   });
 });
 
+describe("an Extra Deck Deck Master that can be summoned from its zone", () => {
+  // The engine offers `spsummon:` for the Synchro, Xyz or Link Deck Master in the zone; its key makes the plate legal.
+  const special = { id: "spsummon:0", label: "Special Summon Stardust Dragon", controller: 0, location: LOCATION_DMZONE, sequence: 0 } as DuelPromptOption;
+
+  it("glows with a small tag on top and keeps the Summon button", () => {
+    plate({ legal: true, actions: [special] });
+    expect(screen.getByTestId("hud-master").querySelector("section")?.getAttribute("data-legal")).toBe("true");
+    expect(document.querySelector("[data-usable='true']")).not.toBeNull();
+    expect(screen.getByTestId("hud-master-usable").getAttribute("data-state")).toBe("usable");
+    expect(screen.getByTestId("hud-master-action")).toHaveTextContent(/^Summon$/);
+  });
+
+  it("shows the Summon cost on a multi-seat table", () => {
+    const paid = { seat: 0, deckMaster: { card: info, inZone: true, returns: 1, nextCost: 500 } } as unknown as DuelSeatView;
+    render(<GridMasterToken view={paid} local legalKeys={new Set([zone])} selectedKeys={new Set()} canAct legalActionsFor={() => [special]} showInUse
+      open={false} title="Your Master" onToggle={vi.fn()} onClose={vi.fn()} onChooseAction={vi.fn()} onInspect={vi.fn()} />);
+    expect(screen.getByTestId("hud-master-action")).toHaveTextContent("Summon");
+    expect(screen.getByTestId("hud-master-action")).toHaveTextContent("500 LP");
+    expect(screen.getByTestId("hud-master-usable")).toBeTruthy();
+  });
+
+  it("turns the tag into a check state when the card is picked, and has none when nothing is legal", () => {
+    render(<GridMasterToken view={view} local legalKeys={new Set([zone])} selectedKeys={new Set([zone])} canAct legalActionsFor={() => []}
+      open={false} title="Your Master" onToggle={vi.fn()} onClose={vi.fn()} onChooseAction={vi.fn()} onInspect={vi.fn()} />);
+    expect(screen.getByTestId("hud-master-usable").getAttribute("data-state")).toBe("picked");
+    cleanup();
+    plate({ legal: false, actions: [] });
+    expect(screen.queryByTestId("hud-master-usable")).toBeNull();
+    expect(document.querySelector("[data-usable]")).toBeNull();
+  });
+
+  it("can be picked from the plate in a Fusion or material prompt", () => {
+    const onActivate = vi.fn();
+    plate({ legal: true, onActivate });
+    fireEvent.click(screen.getByTestId("hud-master-token"));
+    expect(onActivate).toHaveBeenCalledWith([zone], expect.objectContaining({ code: 9, location: LOCATION_DMZONE }), expect.anything());
+  });
+});
+
 describe("the wide Deck Master plate of the 3-way plaza", () => {
   const summon = { id: "summon:0", label: "Normal Summon Dark Magician" } as DuelPromptOption;
 

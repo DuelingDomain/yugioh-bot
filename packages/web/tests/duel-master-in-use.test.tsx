@@ -285,3 +285,21 @@ describe("the plate buttons", () => {
     expect(screen.getAllByTestId("hud-master-action").map((b) => b.textContent)).toEqual(["Summon", "Set", `Activate ${info.name}: Place this card in your Pendulum Zone`]);
   });
 });
+
+describe("the 1v1 Deck Master dock with a legal summon from the zone", () => {
+  it("glows (a usable mark on the card) when the zone can be summoned from or picked, and shows the Summon button", () => {
+    const view = seatView({ inZone: true });
+    const key = `0:${LOCATION_DMZONE}:0`;
+    const option = { id: "spsummon:0", label: "Special Summon Dark Magician", controller: 0, location: LOCATION_DMZONE, sequence: 0 } as DuelPromptOption;
+    const dock = (legal: boolean) => (
+      <MasterDock title="Your Master" view={view} local legalKeys={new Set(legal ? [key] : [])} selectedKeys={new Set()} canAct
+        legalActionsFor={() => (legal ? [option] : [])} onActivate={noop} onChooseAction={noop} onInspect={noop} />
+    );
+    const { container, rerender } = render(dock(true));
+    expect(container.querySelector("section")?.getAttribute("data-legal")).toBe("true");
+    expect(container.querySelector("[data-master-dock] [data-state='usable']")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Special Summon Dark Magician/ })).toBeTruthy();
+    rerender(dock(false));
+    expect(container.querySelector("[data-master-dock] [data-state]")).toBeNull();
+  });
+});
