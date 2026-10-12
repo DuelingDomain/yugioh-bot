@@ -5,6 +5,7 @@ import { ChevronDown, CircleAlert, TriangleAlert } from "lucide-react";
 import { SvButton } from "@/components/sheet";
 import { MAX_NAME_LENGTH } from "./model";
 import { duplicateLabel, hasErrors, importModeLabel, isLookupLimited, omittedCount, realIssues, selectedItems, type PreviewItem } from "./bulk-import";
+import { CardStrip, MasterLabel, RowIcon, useCardPreview, type CardInfoMap, type ThumbBind } from "./import-cards";
 import styles from "./library.module.css";
 
 function plural(count: number, word: string): string {
@@ -20,8 +21,10 @@ function detailsOf(item: PreviewItem): Detail[] {
   ];
 }
 
-function PreviewRow({ item, items, disabled, onRename, onToggle, onRecheck }: {
+function PreviewRow({ item, items, cards, bind, disabled, onRename, onToggle, onRecheck }: {
   item: PreviewItem;
+  cards: CardInfoMap;
+  bind: ThumbBind;
   items: PreviewItem[];
   disabled: boolean;
   onRename: (name: string) => void;
@@ -38,6 +41,8 @@ function PreviewRow({ item, items, disabled, onRename, onToggle, onRecheck }: {
   const errorCount = realIssues(row.errors).length;
   const warningCount = realIssues(row.warnings).length;
   const omitted = omittedCount(row);
+  // The first problem reads inline while the list is closed: an error first, else the first warning.
+  const lead = details.find((detail) => detail.tone === "error") ?? details[0];
   return (
     <li className={styles.pvRow} data-blocked={blocked ? "" : undefined} data-selected={item.selected ? "" : undefined}>
       <input
@@ -49,22 +54,28 @@ function PreviewRow({ item, items, disabled, onRename, onToggle, onRecheck }: {
         onChange={onToggle}
       />
       <div className={styles.pvMain}>
-        <input
-          type="text"
-          className={`input ${styles.pvName}`}
-          value={item.name}
-          maxLength={MAX_NAME_LENGTH}
-          disabled={disabled}
-          aria-label={`Deck name for ${row.name}`}
-          onChange={(event) => onRename(event.target.value)}
-        />
-        <p className={styles.counts}>
-          <span>{importModeLabel(item.mode)}</span>
-          <span>Main <b>{row.counts.main}</b></span>
-          <span>Extra <b>{row.counts.extra}</b></span>
-          <span>Side <b>{row.counts.side}</b></span>
-          {row.deck.deckMaster != null ? <span>Master</span> : null}
-        </p>
+        <div className={styles.pvTop}>
+          <RowIcon row={row} cards={cards} bind={bind} />
+          <div className={styles.pvHead}>
+            <input
+              type="text"
+              className={`input ${styles.pvName}`}
+              value={item.name}
+              maxLength={MAX_NAME_LENGTH}
+              disabled={disabled}
+              aria-label={`Deck name for ${row.name}`}
+              onChange={(event) => onRename(event.target.value)}
+            />
+            <p className={styles.counts}>
+              <span>{importModeLabel(item.mode)}</span>
+              <span>Main <b>{row.counts.main}</b></span>
+              <span>Extra <b>{row.counts.extra}</b></span>
+              <span>Side <b>{row.counts.side}</b></span>
+              <MasterLabel code={row.deck.deckMaster} cards={cards} bind={bind} />
+            </p>
+          </div>
+        </div>
+        <CardStrip row={row} cards={cards} bind={bind} label={label} />
         {isLookupLimited(row) ? (
           <p className={styles.pvFail}>
             The card check hit its limit for this deck. Check it again in a moment.{" "}
@@ -89,6 +100,7 @@ function PreviewRow({ item, items, disabled, onRename, onToggle, onRecheck }: {
                 <ChevronDown size={14} aria-hidden="true" className={styles.pvCaret} />
               </button>
             ) : null}
+            {lead && !open ? <span className={styles.pvLead} data-tone={lead.tone}>{lead.text}</span> : null}
           </p>
         ) : null}
         {open && (details.length > 0 || omitted > 0) ? (
@@ -108,8 +120,9 @@ function PreviewRow({ item, items, disabled, onRename, onToggle, onRecheck }: {
   );
 }
 
-export function ImportPreviewList({ items, maxDecks, busy, onRename, onToggle, onToggleAll, onRecheck, onImport, onCancel }: {
+export function ImportPreviewList({ items, cards, maxDecks, busy, onRename, onToggle, onToggleAll, onRecheck, onImport, onCancel }: {
   items: PreviewItem[];
+  cards: CardInfoMap;
   maxDecks: number;
   busy: boolean;
   onRename: (rowId: string, name: string) => void;
@@ -124,6 +137,7 @@ export function ImportPreviewList({ items, maxDecks, busy, onRename, onToggle, o
   const allChosen = usable.length > 0 && chosen === usable.length;
   const blockedCount = items.length - usable.length;
   const tooMany = maxDecks > 0 && chosen > maxDecks;
+  const { bind, overlay } = useCardPreview(cards);
 
   if (items.length === 0) {
     return (
@@ -166,6 +180,8 @@ export function ImportPreviewList({ items, maxDecks, busy, onRename, onToggle, o
             key={item.row.rowId}
             item={item}
             items={items}
+            cards={cards}
+            bind={bind}
             disabled={busy}
             onRename={(name) => onRename(item.row.rowId, name)}
             onToggle={() => onToggle(item.row.rowId)}
@@ -173,6 +189,7 @@ export function ImportPreviewList({ items, maxDecks, busy, onRename, onToggle, o
           />
         ))}
       </ul>
+      {overlay}
     </div>
   );
 }

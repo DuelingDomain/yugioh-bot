@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { DeckCardInfo } from "@yugidraft/shared/duels";
 import {
   IMPORT_MAX_DECKS,
   bulkImportDecks,
@@ -9,8 +10,9 @@ import {
   type ImportPreview,
   type ImportSource,
 } from "./import-api";
-import { DeckRequestError } from "./api";
+import { DeckRequestError, getDeckCards } from "./api";
 import {
+  deckCodes,
   hasErrors,
   highestImportedNumber,
   pasteSource,
@@ -21,9 +23,13 @@ import {
   tagSources,
   toBulkRows,
   toItems,
+  withMasterNames,
   type PreviewItem,
   type SourceBatch,
 } from "./bulk-import";
+
+/** Passcodes per card lookup request. */
+const CARD_CHUNK = 500;
 
 export type ImportTab = "files" | "paste";
 
@@ -86,6 +92,46 @@ export function useBulkImport(onImported: () => void) {
   modeNow.current = mode;
   shown.current = view;
   useEffect(() => () => { epoch.current += 1; }, []);
+
+  /**
+   * Card details for every card in the list (names, text), loaded in batches of one request per 500 new
+   * passcodes. They give the Deck Master its name and fill the card previews. A failed lookup is not an error:
+   * the art still shows by passcode, and the next pick tries the missing cards again.
+   */
+  const [cards, setCards] = useState<ReadonlyMap<number, DeckCardInfo>>(() => new Map());
+  const asked = useRef(new Set<number>());
+  const listed = view.phase === "idle" || view.phase === "done" ? [] : view.items;
+  const codesKey = deckCodes(listed).join(",");
+  const rowsKey = listed.map((item) => item.row.rowId).join(",");
+  useEffect(() => {
+    const need = codesKey ? codesKey.split(",").map(Number).filter((code) => !asked.current.has(code)) : [];
+    if (need.length === 0) return;
+    for (const code of need) asked.current.add(code);
+    const chunks: number[][] = [];
+    for (let at = 0; at < need.length; at += CARD_CHUNK) chunks.push(need.slice(at, at + CARD_CHUNK));
+    void Promise.all(chunks.map((chunk) => getDeckCards(chunk))).then(
+      (parts) => {
+        const found = parts.flatMap((part) => part.cards);
+        if (found.length === 0) return;
+        setCards((prev) => {
+          const next = new Map(prev);
+          for (const card of found) next.set(card.code, card);
+          return next;
+        });
+      },
+      () => { for (const code of need) asked.current.delete(code); },
+    );
+  }, [codesKey]);
+  // A YDKE deck with a Deck Master and no name of its own takes the Master's name.
+  useEffect(() => {
+    const names = new Map<number, string>();
+    for (const [code, info] of cards) if (info.name && info.name !== `Card ${code}`) names.set(code, info.name);
+    setView((state) => {
+      if (state.phase === "idle" || state.phase === "done" || state.phase === "importing") return state;
+      const items = withMasterNames(state.items, names);
+      return items === state.items ? state : { ...state, items };
+    });
+  }, [cards, rowsKey]);
 
   /**
    * Work that calls the server runs one task after the other, so a second pick never throws the first away.
@@ -315,7 +361,7 @@ export function useBulkImport(onImported: () => void) {
   }, []);
 
   return {
-    tab, setTab, mode, setMode, view, error, notes, heldCount,
+    tab, setTab, mode, setMode, view, error, notes, heldCount, cards,
     previewFiles, previewPaste, retryHeld, dropHeld, recheck, rename, toggle, toggleAll, importSelected, reset,
   };
 }
