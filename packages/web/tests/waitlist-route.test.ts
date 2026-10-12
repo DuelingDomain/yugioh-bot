@@ -85,11 +85,11 @@ describe("POST /api/waitlist", () => {
     expect(state.events).toEqual(["join committed", "Clerk called"]);
   });
 
-  it("returns exists for case/whitespace variants", async () => {
+  it("returns the same success for case/whitespace variants", async () => {
     await post(json());
     const response = await post(json({ email: " PLAYER@EXAMPLE.COM " }));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: "exists" });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ status: "joined" });
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(rows()).toHaveLength(1);
     expect(state.join).toHaveBeenCalledTimes(2);
@@ -160,21 +160,31 @@ describe("POST /api/waitlist", () => {
     expect((await post(json({ email: "next@example.com" }))).status).toBe(201);
   });
 
-  it("bounds the IP map without evicting a client's active limit", async () => {
+  it("evicts the oldest IP window so a new client can join", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     // Honeypots exercise the limiter without 10,000 database writes.
     for (let i = 0; i < 10_000; i++) {
       expect((await post(json({ company: "bot" }, `client-${i}`))).status).toBe(201);
     }
-    expect((await post(json({ company: "bot" }, "overflow"))).status).toBe(429);
+    expect((await post(json({ company: "bot" }, "overflow"))).status).toBe(201);
     vi.setSystemTime(600_000);
     expect((await post(json(undefined, "overflow"))).status).toBe(201);
   });
 
+  it.each([
+    ["2001:db8:1:2::1", "2001:0db8:0001:0002:ffff::2"],
+    ["::ffff:192.0.2.1", "192.0.2.1"],
+    ["::ffff:c000:201", "192.0.2.1"],
+  ])("shares a client window between %s and %s", async (first, second) => {
+    for (let i = 0; i < 5; i++) await post(json({ company: "filled" }, first));
+    expect((await post(json({ company: "filled" }, second))).status).toBe(429);
+    expect((await post(json({ company: "filled" }, "2001:db8:1:3::1"))).status).toBe(201);
+  });
+
   it("redirects form joins and duplicates to a relative marketing URL", async () => {
     redirect(await post(form()), "joined");
-    redirect(await post(form("email=+PLAYER%40EXAMPLE.COM+")), "exists");
+    redirect(await post(form("email=+PLAYER%40EXAMPLE.COM+")), "joined");
     expect(rows()).toEqual([expect.objectContaining({ email: "player@example.com", source: "footer" })]);
     expect(state.createWaitlistEntry).toHaveBeenCalledTimes(2);
     expect(state.createWaitlistEntry).toHaveBeenNthCalledWith(2, { emailAddress: "player@example.com", notify: true });
@@ -263,7 +273,7 @@ describe("POST /api/waitlist", () => {
     state.createWaitlistEntry.mockRejectedValueOnce(new ClerkBackendError("unavailable", 503, null, null));
     expect((await post(json({ email: "player@example.com", source: "hero" }))).status).toBe(503);
     const response = await post(form());
-    redirect(response, "exists");
+    redirect(response, "joined");
     expect(rows()).toEqual([expect.objectContaining({ email: "player@example.com", source: "hero", user_agent: "test-browser" })]);
     expect(state.events).toEqual(["join committed", "join committed", "Clerk called"]);
     expect(state.createWaitlistEntry).toHaveBeenCalledTimes(2);
@@ -303,8 +313,8 @@ describe("POST /api/waitlist", () => {
     expect((await post(json())).status).toBe(503);
     vi.stubEnv("CLERK_SECRET_KEY", "restored-test-secret");
     const response = await post(json());
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: "exists" });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ status: "joined" });
     expect(state.createBackend).toHaveBeenCalledExactlyOnceWith({ secretKey: "restored-test-secret" });
     expect(rows()).toHaveLength(1);
   });

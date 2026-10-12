@@ -7,7 +7,7 @@ import { callDuelHost } from "@/lib/duel-host";
 /** What stops a series from starting: the HTTP status, the message, and the check report if any. */
 export type DraftDeckMapResult =
   | { ok: true }
-  | { ok: false; status: 400 | 409 | 503; error: string; report?: DuelDeckValidation };
+  | { ok: false; status: 400 | 409 | 503; error: string; report?: DuelDeckValidation; playerId?: number };
 
 /** One attempt per registration change: a newer registration made during the host call is mapped again. */
 const MAX_ATTEMPTS = 3;
@@ -96,7 +96,7 @@ export async function mapDraftTournamentDecks(
         const { deck, report } = checked.data as { deck?: DuelDeck; report?: DuelDeckValidation };
         if (!deck || !report || !Array.isArray(report.issues)) return unavailable;
         if (report.issues.length > 0) {
-          return { ok: false, status: 400, error: "A deck in this match is not legal for the tournament.", report };
+          return { ok: false, status: 400, error: "A deck in this match is not legal for the tournament.", report, playerId };
         }
         const mapped = JSON.stringify(deck);
         settled = mapped === row.deck_json || update.run(mapped, input.tournamentId, playerId, row.deck_json).changes > 0;

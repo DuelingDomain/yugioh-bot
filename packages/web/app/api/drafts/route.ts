@@ -138,7 +138,7 @@ async function handlePOST(request: NextRequest) {
   const player = players.findOrCreate(guildId, actor.userId, actor.userName);
   const drafts = createDraftService(db);
 
-  const cards = createCardCatalogService(db);
+  const cards = createCardCatalogService(db, { memberId: actor.userId });
   const lookupBudget = createCardLookupBudget();
   await cards.syncDraftPool({
     setNames: config.setNames ?? [],
