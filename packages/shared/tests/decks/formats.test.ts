@@ -93,6 +93,12 @@ describe("YDK", () => {
 });
 
 describe("splitImportText", () => {
+  it("clamps filename names without splitting Unicode pairs or keeping trailing spaces", () => {
+    expect(splitImportText("#main\n1", `${"a".repeat(99)}😀.ydk`)[0].name).toBe("a".repeat(99));
+    expect(splitImportText("#main\n1", `${"a".repeat(98)}😀.ydk`)[0].name).toBe(`${"a".repeat(98)}😀`);
+    expect(splitImportText("#main\n1", `${"a".repeat(99)} more.ydk`)[0].name).toBe("a".repeat(99));
+  });
+
   it("keeps a whole YDK source and cleans its filename", () => {
     const text = "#main\r\n1\r\n#extra\r\n2";
     expect(splitImportText(text, "folder\\Blue_Eyes.ydk")).toEqual([{ name: "Blue Eyes", text, kind: "ydk" }]);

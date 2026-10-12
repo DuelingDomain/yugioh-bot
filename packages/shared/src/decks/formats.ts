@@ -128,8 +128,14 @@ export function splitImportText(text: string, sourceName?: string): Array<{ name
   if (lines.some(line => /^ydke:\/\//i.test(line))) {
     return lines.map((line, index) => ({ name: `Imported deck ${index + 1}`, text: line, kind: "ydke" }));
   }
-  const name = (sourceName ?? "Untitled deck").split(/[\\/]/).pop()!
+  const base = (sourceName ?? "Untitled deck").split(/[\\/]/).pop()!
     .replace(/\.(ydk|ydke|txt)$/i, "").replace(/[\u0000-\u001f\u007f]/g, "")
-    .replace(/_+/g, " ").replace(/\s+/g, " ").trim().slice(0, 100) || "Untitled deck";
-  return [{ name, text, kind: "ydk" }];
+    .replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+  let name = "";
+  // Match the library's 100 UTF-16-unit limit without splitting a surrogate pair.
+  for (const char of base) {
+    if (name.length + char.length > 100) break;
+    name += char;
+  }
+  return [{ name: name.trimEnd() || "Untitled deck", text, kind: "ydk" }];
 }
