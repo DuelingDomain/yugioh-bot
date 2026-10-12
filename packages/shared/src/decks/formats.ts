@@ -67,6 +67,8 @@ export function parseYdk(text: string): { deck: DeckSections; issues: FormatIssu
   let masterLine: number | undefined;
   let masterCards = 0;
   let sawHeader = false;
+  const seenSections = new Set<string>();
+  let lastSection = -1;
   const issue = (code: string, message: string, line?: number) => issues.push({ code, message, ...(line === undefined ? {} : { line }) });
   const finishMaster = () => {
     if (section === "deckmaster" && masterCards !== 1) {
@@ -80,15 +82,21 @@ export function parseYdk(text: string): { deck: DeckSections; issues: FormatIssu
     if (["#main", "#extra", "!side", "#deckmaster"].includes(header)) {
       finishMaster();
       sawHeader = true;
-      section = header.slice(1) as typeof section;
+      section = header.slice(1) as typeof sections[number] | "deckmaster";
       if (section === "deckmaster") {
         if (masterLine !== undefined) issue("invalid_deck_master", "YDK contains multiple #deckmaster sections.", index + 1);
         masterLine = index + 1;
         masterCards = 0;
+      } else {
+        const order = sections.indexOf(section);
+        if (seenSections.has(section)) issue("duplicate_section", `YDK contains multiple ${header} sections.`, index + 1);
+        else if (order < lastSection) issue("section_order", "YDK sections must follow Main, Extra, Side order.", index + 1);
+        seenSections.add(section);
+        lastSection = Math.max(lastSection, order);
       }
       return;
     }
-    if (line.startsWith("#") || line.startsWith("!")) return;
+    if (line.startsWith("#") || line.startsWith("!") || line.startsWith("//")) return;
     const code = Number(line);
     if (!/^\d{1,10}$/.test(line) || !validCode(code)) {
       issue("invalid_passcode", `Invalid card passcode: ${line}`, index + 1);

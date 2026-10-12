@@ -1,9 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { decodeYdke, encodeYdke, parseYdk, serializeYdk, splitImportText } from "../../src/decks/formats.js";
 
 const empty = { main: [], extra: [], side: [] };
 
 describe("YDKE", () => {
+  it("encodes and decodes with browser globals and no Node Buffer", () => {
+    vi.stubGlobal("Buffer", undefined);
+    try {
+      expect(encodeYdke({ ...empty, main: [89631139] })).toBe("ydke://o6lXBQ==!!!");
+      expect(decodeYdke("ydke://o6lXBQ==!!!")).toEqual({ deck: { ...empty, main: [89631139] } });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("uses the external Blue-Eyes byte vector and explicit little-endian order", () => {
     expect(encodeYdke({ ...empty, main: [89631139] })).toBe("ydke://o6lXBQ==!!!");
     expect(decodeYdke("ydke://o6lXBQ==!!!")).toEqual({ deck: { ...empty, main: [89631139] } });
@@ -39,6 +49,20 @@ describe("YDKE", () => {
 });
 
 describe("YDK", () => {
+  it("accepts full-line slash comments without dropping card copies", () => {
+    expect(parseYdk("// exported deck\r\n#main\r\n1\r\n// card name\r\n1\r\n#extra\r\n!side\r\n")).toEqual({
+      deck: { main: [1, 1], extra: [], side: [] }, issues: [],
+    });
+  });
+
+  it.each([
+    ["#main\n1\n#main\n2", "duplicate_section", 3],
+    ["#extra\n2\n#main\n1", "section_order", 3],
+    ["!side\n3\n#extra\n2", "section_order", 3],
+  ])("reports repeated or reversed section headers in %s", (text, code, line) => {
+    expect(parseYdk(text as string).issues).toContainEqual(expect.objectContaining({ code, line }));
+  });
+
   it("reads comments, CRLF, BOM, empty sections and explicit Deck Master", () => {
     expect(parseYdk("\uFEFF#created by someone\r\n#deckmaster\r\n9\r\n#main\r\n1\r\n1\r\n# comment\r\n#extra\r\n2\r\n!side\r\n")).toEqual({
       deck: { main: [1, 1], extra: [2], side: [], deckMaster: 9 }, issues: [],
