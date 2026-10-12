@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import * as filesystem from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -220,6 +221,40 @@ describe("engine data update", () => {
       return download(commit, ...args);
     });
     await expect(runUpdate({ root, overrides: nextPins, request, validate: false })).rejects.toThrow("Download failed (500)");
+    expect(await readPins(root)).toEqual(oldPins);
+  });
+
+  it("settles an in-flight candidate download before cleaning up a failed update", async () => {
+    const { root, request } = await loadedDataFixture("identical");
+    const download = releasedData.downloadReleasedCardData;
+    let release!: () => void, started!: () => void, finished!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const candidateStarted = new Promise<void>(resolve => { started = resolve; });
+    const candidateFinished = new Promise<void>(resolve => { finished = resolve; });
+    let candidateDirectory = "";
+    const cleanup = vi.spyOn(filesystem, "rm");
+    vi.spyOn(releasedData, "downloadReleasedCardData").mockImplementation((commit, ...args) => {
+      if (commit === oldPins.database) throw new Error("Download failed (500)");
+      candidateDirectory = args[0];
+      return (async () => {
+        started();
+        try { await gate; return await download(commit, ...args); }
+        finally { finished(); }
+      })();
+    });
+    const outcome = runUpdate({ root, overrides: nextPins, request, validate: false })
+      .then(() => null, error => error);
+    try {
+      await candidateStarted;
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(cleanup).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await candidateFinished;
+      await outcome;
+      await rm(candidateDirectory, { recursive: true, force: true });
+    }
+    expect(await outcome).toMatchObject({ message: "Download failed (500)" });
     expect(await readPins(root)).toEqual(oldPins);
   });
 
