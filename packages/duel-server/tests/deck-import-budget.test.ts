@@ -1,5 +1,4 @@
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
 import { rmSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -8,6 +7,7 @@ import { normalizeCardCodes } from "../src/deck-import.js";
 import { createDuelHost } from "../src/host.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
+import { signedHeaders } from "./helpers/signed-request.js";
 
 let directory: string;
 let db: Database.Database;
@@ -79,10 +79,10 @@ describe("import lookup budget", () => {
     vi.stubGlobal("fetch", fetch);
     const secret = "budget-test";
     const host = createDuelHost({ db, dataDirectory: directory, secret, searchCards: () => [] });
-    const post = (fields: object) => {
+    const post = async (fields: object) => {
       const body = JSON.stringify({ op: "normalize-codes", guildId: "g", playerId, ...fields });
       return host.handle(new Request("http://test/internal/duel", { method: "POST", body,
-        headers: { "x-announce-signature": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` } }));
+        headers: { ...await signedHeaders(body, secret, "http://test/internal/duel", "duel-host") } }));
     };
     try {
       const pending = post({ codes: unknown, lookupLimit: 50, includeCanonical: true, preserveArtwork: true });
