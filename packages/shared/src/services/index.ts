@@ -43,7 +43,7 @@ export {
   TEST_BOT_DISCORD_PREFIX,
 } from "./draft-decks.js";
 export type { DraftDeckNote, DraftDeckService } from "./draft-decks.js";
-export { createSavedDeckService, SavedDeckServiceError } from "./saved-decks.js";
+export { createSavedDeckService, validateSavedDeckWrite, SavedDeckServiceError } from "./saved-decks.js";
 export type { SavedDeckService, SavedDeckWrite } from "./saved-decks.js";
 export { createSandboxScenarioService, SandboxScenarioServiceError, SANDBOX_SCENARIO_LIMIT } from "./sandbox-scenarios.js";
 export type { SandboxScenarioService, SandboxScenario, SandboxScenarioWrite } from "./sandbox-scenarios.js";

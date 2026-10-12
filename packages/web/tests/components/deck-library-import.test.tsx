@@ -14,16 +14,20 @@ vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));
 
-const created: Array<{ name: string; mode: string }> = [];
+const sections = { main: [], extra: [], side: [], deckMaster: null };
+let previewBody: { sources: Array<{ id: string; name: string; text: string }> } | null = null;
 
 function stubApi() {
-  let nextId = 1;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/decks" && init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as Omit<SavedDeck, "id" | "createdAt" | "updatedAt">;
-      created.push({ name: body.name, mode: body.mode });
-      const deck: SavedDeck = { ...body, id: nextId++, createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00" };
-      return Response.json({ deck }, { status: 201 });
+    if (url === "/api/decks/import/preview") {
+      previewBody = JSON.parse(String(init?.body));
+      return Response.json({
+        maxDecks: 50,
+        rows: previewBody!.sources.map((source) => ({
+          rowId: `${source.id}#0`, sourceId: source.id, name: source.name.replace(/\.ydk$/, ""),
+          deck: { ...sections, main: [89631139] }, counts: { main: 1, extra: 0, side: 0 }, errors: [], warnings: [], duplicateOf: null,
+        })),
+      });
     }
     return Response.json({ decks: [] });
   }));
@@ -34,7 +38,7 @@ function ydkFile(name: string, text: string) {
 }
 
 afterEach(() => {
-  created.length = 0;
+  previewBody = null;
   vi.unstubAllGlobals();
 });
 
@@ -68,32 +72,41 @@ describe("SavedDeckLibrary", () => {
     }
   });
 
-  it("saves every chosen file as its own deck and lists it", async () => {
+  it("previews every chosen file as its own deck before anything saves", async () => {
     stubApi();
     render(<SavedDeckLibrary />);
     await screen.findByText(/No saved decks yet/);
 
-    fireEvent.click(screen.getByRole("button", { name: /Import YDK$/ }));
-    fireEvent.change(screen.getByLabelText("YDK files"), {
+    fireEvent.click(screen.getByRole("button", { name: "Import decks" }));
+    fireEvent.change(screen.getByLabelText("Deck files"), {
       target: {
         files: [
           ydkFile("Blue_Eyes.ydk", "#main\n89631139\n#extra\n!side\n"),
-          ydkFile("Notes.txt", "nothing here"),
           ydkFile("Master.ydk", "#deckmaster\n14558127\n#main\n89631139\n#extra\n!side\n"),
         ],
       },
     });
 
-    await waitFor(() => expect(screen.getAllByText(/^Saved as/)).toHaveLength(2));
-    expect(created).toEqual([
-      { name: "Blue Eyes", mode: "normal" },
-      { name: "Master", mode: "domain" },
-    ]);
-    expect(screen.getByText("No cards found. Is this a YDK file?")).toBeInTheDocument();
+    const list = await screen.findByRole("list", { name: "Decks to import" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(previewBody!.sources.map((source) => source.name)).toEqual(["Blue_Eyes.ydk", "Master.ydk"]);
+    expect(fetch).not.toHaveBeenCalledWith("/api/decks/import/bulk", expect.anything());
+  });
 
-    const list = screen.getAllByRole("list").find((el) => el.querySelector("a[href='/decks/1']") && el.textContent?.includes("Updated"));
-    expect(list).toBeDefined();
-    expect(within(list!).getByText("Blue Eyes")).toBeInTheDocument();
-    expect(within(list!).getByRole("link", { name: "Master" })).toBeInTheDocument();
+  it("copies a library deck as a YDKE code", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [{
+      id: 1, name: "One", mode: "normal", deck: { main: [89631139, 89631139], extra: [23995346], side: [14558127] },
+      createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00",
+    }] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "One" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy One as YDKE" }));
+    const section = (codes: number[]) => Buffer.from(Uint32Array.from(codes).buffer).toString("base64");
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(
+      `ydke://${section([89631139, 89631139])}!${section([23995346])}!${section([14558127])}!`,
+    ));
+    expect(await screen.findByRole("status")).toHaveTextContent("YDKE code copied.");
   });
 });

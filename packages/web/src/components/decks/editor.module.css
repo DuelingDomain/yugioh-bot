@@ -257,7 +257,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
   .de-status { grid-column: 2; grid-row: 2; margin: 0 0 4px 7px; font-size: 12px; gap: 6px; }
   .de-status[data-tone="bad"] { max-width: none; }
   .de-acts { display: contents; }
-  .de-acts > .de-hist, .de-import, :global(.ms) :global(.sv-btn).de-export { display: none; }
+  .de-acts > .de-hist, .de-import, .de-export { display: none; }
   .de-more { grid-column: 3; grid-row: 1 / 3; }
   .de-menu { grid-column: 3; grid-row: 1 / 3; display: grid; align-self: center; justify-items: end; }
   .de-save { grid-column: 4; grid-row: 1 / 3; }

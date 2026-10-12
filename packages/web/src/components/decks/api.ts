@@ -28,7 +28,7 @@ function errorMessage(body: unknown, status: number): string {
   return `Request failed (${status})`;
 }
 
-async function parseBody<T>(res: Response): Promise<T> {
+export async function parseBody<T>(res: Response): Promise<T> {
   if (res.redirected) {
     throw new DeckRequestError("Your session expired. Sign in again to open your decks.", 401);
   }

@@ -58,6 +58,11 @@
       "types": "./dist/notify/index.d.ts",
       "source": "./src/notify/index.ts",
       "default": "./dist/notify/index.js"
+    },
+    "./decks": {
+      "types": "./dist/decks/index.d.ts",
+      "source": "./src/decks/index.ts",
+      "default": "./dist/decks/index.js"
     }
   },
   "scripts": {
