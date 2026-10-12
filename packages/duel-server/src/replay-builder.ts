@@ -22,7 +22,7 @@ export type ReplayBuildErrorCode = ReplayErrorCode | "REPLAY_TOO_LARGE";
 
 export class ReplayBuildError extends Error {
   readonly status: number;
-  constructor(message: string, readonly code: ReplayBuildErrorCode) {
+  constructor(message: string, readonly code: ReplayBuildErrorCode, readonly familyFailed = false) {
     super(message); this.status = code === "REPLAY_TOO_LARGE" ? 413 : code === "ENGINE_BUSY" ? 503 : 409;
   }
 }
@@ -36,7 +36,8 @@ export function replayBuildError(error: unknown): ReplayBuildError {
     return new ReplayBuildError("Replay could not reproduce this duel. Use the saved final board if available.", "REPLAY_MISMATCH");
   }
   // Worker and filesystem errors may contain private paths. Keep the external message fixed.
-  return new ReplayBuildError(error instanceof EngineLoopError ? "Replay engine stopped at its process limit." : "Replay engine is temporarily unavailable.", "ENGINE_BUSY");
+  return new ReplayBuildError(error instanceof EngineLoopError ? "Replay engine stopped at its process limit." : "Replay engine is temporarily unavailable.", "ENGINE_BUSY",
+    error instanceof EngineLoopError || (error instanceof JournalRunnerError && error.familyFailed));
 }
 
 export interface ReplayBuildOptions {
@@ -233,11 +234,14 @@ export class ReplayBuildCache<T = unknown> {
     = { maxBytes: 64 * 1024 * 1024, maxEntries: 16, maxConcurrent: 2, maxWaiting: 8 }) {}
   get size() { return this.entries.size; }
   get bytes() { return this.totalBytes; }
-  async getOrBuild(key: string, build: () => Promise<T>): Promise<T> {
+  async getOrBuild(key: string, build: () => Promise<T>, cacheFamilyFailures = false): Promise<T> {
     const cached = this.entries.get(key);
     if (cached) { this.entries.delete(key); this.entries.set(key, cached); return cached.value; }
     const rejected = this.rejected.get(key);
-    if (rejected) { this.rejected.delete(key); this.rejected.set(key, rejected); throw rejected; }
+    if (rejected) {
+      this.rejected.delete(key);
+      if (rejected.code === "REPLAY_TOO_LARGE" || cacheFamilyFailures) { this.rejected.set(key, rejected); throw rejected; }
+    }
     const pending = this.pending.get(key); if (pending) return pending;
     let ready: Promise<void>;
     if (this.active < this.limits.maxConcurrent) { this.active++; ready = Promise.resolve(); }
@@ -258,8 +262,9 @@ export class ReplayBuildCache<T = unknown> {
       }
       return value;
     }).catch(error => {
-      // Size failures are deterministic for this source/resource/projection key. Transient failures retry.
-      if (error instanceof ReplayBuildError && error.code === "REPLAY_TOO_LARGE" && this.limits.maxEntries > 0) {
+      // The first checked family's mismatch survives a budget retry. Other families and transient failures retry.
+      if (error instanceof ReplayBuildError && this.limits.maxEntries > 0 && (error.code === "REPLAY_TOO_LARGE"
+        || (cacheFamilyFailures && (error.code === "REPLAY_MISMATCH" || error.code === "REPLAY_UNVERIFIED")))) {
         while (this.rejected.size >= this.limits.maxEntries) this.rejected.delete(this.rejected.keys().next().value!);
         this.rejected.set(key, error);
       }

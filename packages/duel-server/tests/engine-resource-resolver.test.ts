@@ -105,8 +105,9 @@ describe("current engine identity", () => {
       hash.update(`shared/${name}\0`).update(fingerprintSource(readFileSync(new URL(`../../shared/src/duels/${name}.ts`, import.meta.url), "utf8")));
     }
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
-    // Local version 3 keeps sandbox rules. The source engine-choice helper and retry
-    // metadata do not change command behavior; refresh only the version 3 fingerprint.
+    // Local version 3 keeps sandbox rules. Refresh only its fingerprint for trusted
+    // replay-only selection of an unknown 1v1 family and failure metadata. Saved-choice
+    // and identity guards, live recovery, command application and Manual loss timing are unchanged.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 

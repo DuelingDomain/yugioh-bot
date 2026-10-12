@@ -8,6 +8,7 @@ import { defaultDuelSettings, seatCountFor, type DuelEngineView } from "@yugidra
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
 import { chooseSurrenderedAnswer } from "../src/practice-bot.js";
+import { GameWorker } from "../src/worker-client.js";
 import { seedIdentity } from "./helpers/identity.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
@@ -24,7 +25,11 @@ describeWithCores(TWO_BUNDLES ? "real cross-version replay (two bundles)" : "rea
   [needs.cards(DATA), needs.scripts(DATA, `official/c${POT_OF_GREED}.lua`), needs.standard(DATA),
   needs.installedMulti(DATA), needs.cards(SOURCE_DATA), needs.scripts(SOURCE_DATA, `official/c${POT_OF_GREED}.lua`), needs.standard(SOURCE_DATA),
   needs.installedMulti(SOURCE_DATA), needs.file("engine manifest", join(DATA, "manifest.json"))], () => {
-  it.each(["1v1", "ffa3"] as const)("verifies an original live %s engine win and refuses a changed board", async format => {
+  it.each([
+    { format: "1v1", unknown: false, label: "recorded pinned 1v1" },
+    { format: "ffa3", unknown: false, label: "recorded multi FFA3" },
+    { format: "1v1", unknown: true, label: "unknown 1v1 choice on legacy" },
+  ] as const)("verifies a live $label win and refuses an edited final board", async ({ format, unknown }) => {
     const db = new Database(":memory:"); migrate(db);
     let host: DuelHost | undefined;
     try {
@@ -92,15 +97,35 @@ describeWithCores(TWO_BUNDLES ? "real cross-version replay (two bundles)" : "rea
       host = createDuelHost({ db, dataDirectory: DATA, secret, searchCards: () => [], pollIntervalMs: 60_000 });
       const sourceBundleVersion = TWO_BUNDLES ? original.bundleVersion : "older-live-fixture-label";
       if (!TWO_BUNDLES) db.prepare("update duels set bundle_version=? where id=?").run(sourceBundleVersion, session.id);
+      const families: Array<string | undefined> = [];
+      if (unknown) {
+        db.prepare("update duels set setup_json=json_remove(setup_json,'$.engine','$.engineIdentity') where id=?").run(session.id);
+        await host.close();
+        host = createDuelHost({ db, dataDirectory: DATA, secret, searchCards: () => [], pollIntervalMs: 60_000,
+          createWorker: () => {
+            const worker = new GameWorker(), create = worker.create.bind(worker);
+            worker.create = options => { families.push(options.engine); return create(options); };
+            return worker;
+          } });
+      }
       expect(await post({ op: "replay", version: 2 })).toMatchObject({ status: 200, body: { verification: "verified" } });
       expect(db.prepare("select result,reason from duel_replay_verifications where duel_id=?").get(session.id))
         .toEqual({ result: "verified", reason: null });
+      if (unknown) {
+        // This pinned-made journal also verifies on legacy. It does not prove a legacy failure followed by a pinned pass.
+        expect(families).toEqual(["legacy"]);
+        expect(db.prepare("select core_family from duel_replay_verifications where duel_id=?").get(session.id)).toEqual({ core_family: "legacy" });
+        // A different projection builds directly on the persisted family.
+        expect((await post({ op: "replay", version: 2, visibility: "public" })).status).toBe(200);
+        expect(families).toEqual(["legacy", "legacy"]);
+      }
       const changed = JSON.parse(board.snapshot_public_json); changed.seats[0].lp--;
       db.prepare("update duels set snapshot_public_json=? where id=?").run(JSON.stringify(changed), session.id);
       expect(await post({ op: "replay", version: 2 })).toMatchObject({ status: 409, body: {
         code: "REPLAY_UNVERIFIED", reason: "board_mismatch" } });
       expect(db.prepare("select result,reason from duel_replay_verifications where duel_id=?").get(session.id))
         .toEqual({ result: "unverified", reason: "board_mismatch" });
+      if (unknown) expect(families).toEqual(["legacy", "legacy", "legacy", "pinned"]);
       expect(service.privateState(session.slug, guildId).bundleVersion).toBe(sourceBundleVersion);
     } finally { await host?.close(); db.close(); }
   }, 30_000);

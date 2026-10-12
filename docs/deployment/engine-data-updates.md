@@ -166,6 +166,34 @@ The first line is `Needs review: N conflicts, M risks, K shared-script changes, 
 
 **Live-duel warning:** a merged data bump changes `bundleVersion`. Active duels with a different bundle version are interrupted on recovery. Drain active duels and **merge at a quiet time**; deploy preflight can refuse while duels remain active. **Replay compatibility:** earlier journals are rebuilt with current resources from their saved engine family and checked against the saved public and every own-seat final board. Ordinary replay and fork use are refused when resources or boards are missing, commands cannot be reproduced, or the rebuilt boards differ. Null-identity records require this check even at the current version label. The owner must account for live recovery and replay compatibility when deciding cadence; see the [VM runbook](vm-runbook.md) and the real cross-version check below.
 
+## Unknown source engine family
+
+Checked replay of an old 1v1 source with no saved engine choice, identity or
+startup scripts starts on legacy. Complete saved public and own-seat boards
+permit one pinned attempt after a command mismatch, board mismatch, worker
+crash or process loop limit. Startup-script rows remain pinned-only. Saved
+choices and recorded identities keep their family.
+
+Crashes and process loop limits only permit that alternate attempt. If no
+family verifies and either attempt crashed or hit the loop limit, return
+503 `ENGINE_BUSY` without writing a lasting verdict, including when pinned
+is not installed.
+
+Both attempts share the existing 25-second verification budget and the
+28-second request deadline. If the second attempt needs a fresh request,
+`REPLAY_VERIFIED_RETRY` retains the first failure in the bounded checked-build
+cache, so the retry builds pinned without repeating the slow legacy build.
+Queue pressure, timeouts and aborted requests remain transient and are not
+retained as family failures.
+
+Later checked views and forks use the recorded passing `core_family`. If both
+families fail with command or board mismatches, prefer a family's board-mismatch
+reason over a command failure and record that family for owner-only unchecked views and forks. Explicit
+unchecked views otherwise use the historical default, including after a
+pinned pass, and never replace a checked verdict. See [the engine-choice
+rules](duel-engine-switch.md#the-engine-of-a-duel-is-recorded) and replay-fork
+spec section 7.6.
+
 ## Real cross-version replay check
 
 `packages/duel-server/tests/host-replay-cross-version-real.test.ts` plays live 1v1
@@ -173,6 +201,12 @@ and FFA3 duels through the host, activates Pot of Greed and checks that its Lua
 effect draws two cards for every seat. It saves the original final boards through
 live completion, then verifies the journal with the current bundle and refuses
 a changed saved board.
+
+The unknown-choice real-engine case removes the recorded choice and identity
+from a pinned-made 1v1 journal. Legacy verifies first, and another projection
+reuses that recorded family. After an edited saved board, both real families
+fail the board check. It does not prove a real legacy failure followed by a
+pinned pass; that fallback is covered by synthetic worker regressions.
 
 CI uses one prepared bundle and changes only the saved version label. For a true
 cross-version check, set `DUEL_REPLAY_SOURCE_DATA_DIR` to a second prepared bundle.
@@ -196,7 +230,7 @@ DUEL_REQUIRE_CORES=1 NSEAT_LIVE=1 \
 ```
 
 Omit `DUEL_REPLAY_SOURCE_DATA_DIR` for the CI single-bundle label check. Each mode
-runs two tests. Remove the generated `packages/shared/dist` after local validation.
+runs three tests. Remove the generated `packages/shared/dist` after local validation.
 
 ## Re-record golden hashes
 

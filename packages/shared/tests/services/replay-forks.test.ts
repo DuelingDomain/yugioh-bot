@@ -81,6 +81,40 @@ function sourceRows(app: ReturnType<typeof fixture>) {
 }
 
 describe("atomic replay fork storage", () => {
+  it("pins the authorized family for an unknown source while preserving the original row", () => {
+    const app = fixture(), selected = { ...app.source.engineIdentity!, coreFamily: "pinned" as const };
+    app.source.engineIdentity = null; delete app.source.setup!.engine; delete app.source.setup!.startupScripts;
+    app.db.prepare("update duels set setup_json=json_remove(setup_json,'$.engine','$.engineIdentity','$.startupScripts') where id=?").run(app.source.session.id);
+    const before = sourceRows(app);
+    const { session } = app.forks.create({ ...app.input, resources: {
+      engineIdentity: selected, bundleVersion: "current-bundle", firstTurnDraw: true, scriptErrorMode: "strict" } });
+    expect(app.forks.privateState(session.slug, app.actor)).toMatchObject({ bundleVersion: "current-bundle",
+      setup: { engine: "pinned", engineIdentity: selected } });
+    expect(sourceRows(app)).toEqual(before);
+  });
+  it("refuses legacy resources for a startup-script source without a saved choice", () => {
+    const app = fixture(), selected = app.source.engineIdentity!;
+    app.source.engineIdentity = null; delete app.source.setup!.engine;
+    app.db.prepare("update duels set setup_json=json_remove(setup_json,'$.engine','$.engineIdentity') where id=?").run(app.source.session.id);
+    expect(() => app.forks.create({ ...app.input, resources: {
+      engineIdentity: selected, bundleVersion: "current-bundle", firstTurnDraw: true, scriptErrorMode: "strict" } }))
+      .toThrowError(expect.objectContaining({ code: "REPLAY_MISMATCH" }));
+    expect(app.db.prepare("select * from replay_fork_requests").all()).toEqual([]);
+  });
+  it.each(["saved-choice", "recorded-identity"] as const)("refuses a different selected fork family for a %s", kind => {
+    const app = fixture(), selected = { ...app.source.engineIdentity!, coreFamily: "pinned" as const };
+    if (kind === "saved-choice") {
+      app.source.engineIdentity = null;
+      app.db.prepare("update duels set setup_json=json_remove(setup_json,'$.engineIdentity') where id=?").run(app.source.session.id);
+    } else {
+      delete app.source.setup!.engine;
+      app.db.prepare("update duels set setup_json=json_remove(setup_json,'$.engine') where id=?").run(app.source.session.id);
+    }
+    expect(() => app.forks.create({ ...app.input, resources: {
+      engineIdentity: selected, bundleVersion: "current-bundle", firstTurnDraw: true, scriptErrorMode: "strict" } }))
+      .toThrowError(expect.objectContaining({ code: "REPLAY_MISMATCH" }));
+    expect(app.db.prepare("select * from replay_fork_requests").all()).toEqual([]);
+  });
   it("exports a dedicated fork storage service", () => {
     expect(services).toHaveProperty("createReplayForkService", expect.any(Function));
     expect(services).toHaveProperty("hashReplayForkPrefix", expect.any(Function));

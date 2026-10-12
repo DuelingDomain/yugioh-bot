@@ -87,6 +87,30 @@ function identity(): EngineIdentity { return { version: 1, coreFamily: "legacy",
   domainScriptHash: null, multiOverlayHash: null, hostRuleVersion: "1" }; }
 
 describe("journal prefix runner", () => {
+  it("uses the trusted selected family for an unknown 1v1 cross-version source", async () => {
+    const input = source(), before = structuredClone(input), worker = new TestWorker();
+    await runJournalPrefix({ source: input, prefixCount: 1, resources: { ...resources(),
+      engineIdentity: { ...identity(), coreFamily: "pinned" }, allowVersionMismatch: true }, createWorker: () => worker });
+    expect(worker.created?.engine).toBe("pinned"); expect(input).toEqual(before);
+    await worker.close();
+  });
+  it.each(["saved-choice", "recorded-identity", "unauthorized"] as const)("refuses a different selected family for %s before spawning", async kind => {
+    const input = source(), createWorker = vi.fn(() => new TestWorker());
+    if (kind === "saved-choice") input.setup!.engine = "legacy";
+    if (kind === "recorded-identity") input.engineIdentity = identity();
+    await expect(runJournalPrefix({ source: input, prefixCount: 0, resources: { ...resources(),
+      engineIdentity: { ...identity(), coreFamily: "pinned" }, allowVersionMismatch: kind !== "unauthorized" }, createWorker }))
+      .rejects.toMatchObject({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE" });
+    expect(createWorker).not.toHaveBeenCalled();
+  });
+  it("refuses legacy for a startup-script source without a saved choice before spawning", async () => {
+    const input = source(), createWorker = vi.fn(() => new TestWorker());
+    input.setup!.startupScripts = ["-- fixture startup"];
+    await expect(runJournalPrefix({ source: input, prefixCount: 0, resources: { ...resources(),
+      engineIdentity: identity(), allowVersionMismatch: true }, createWorker }))
+      .rejects.toMatchObject({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE" });
+    expect(createWorker).not.toHaveBeenCalled();
+  });
   it("uses selected current resources for an authorized cross-version run without changing the source", async () => {
     const input = source(); input.bundleVersion = "old-bundle"; input.engineIdentity = { ...identity(), cardScriptsHash: "e".repeat(64) };
     const before = structuredClone(input), worker = new TestWorker();
