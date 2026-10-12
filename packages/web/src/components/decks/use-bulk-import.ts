@@ -14,6 +14,7 @@ import {
   hasErrors,
   highestImportedNumber,
   pasteSource,
+  rowSource,
   renumberImported,
   readSources,
   selectedItems,
@@ -175,6 +176,7 @@ export function useBulkImport(onImported: () => void) {
 
   /** Sends the picks again that the server turned down, one after the other, in their first order. */
   const retryHeld = useCallback(() => {
+    if (importing.current) return;
     const again = held.current;
     held.current = [];
     setHeldCount(0);
@@ -182,24 +184,47 @@ export function useBulkImport(onImported: () => void) {
     for (const { picked, mode: was } of again) void preview(() => picked, was);
   }, [preview]);
 
-  /** Checks one row again by sending its source, for a row that stopped at the lookup limit. */
+  /** Gives up the picks the server turned down. */
+  const dropHeld = useCallback(() => {
+    held.current = [];
+    setHeldCount(0);
+  }, []);
+
+  /**
+   * Checks one row again, for a row that stopped at the lookup limit. Only that row's own text goes to the
+   * server, not the rest of its source.
+   */
   const recheck = useCallback((rowId: string) => {
     const item = current(shown.current).items.find((entry) => entry.row.rowId === rowId);
-    const source = item ? known.current.get(item.row.sourceId) : undefined;
-    if (!item || !source || importing.current) return Promise.resolve(false);
+    const whole = item ? known.current.get(item.row.sourceId) : undefined;
+    if (!item || !whole || importing.current) return Promise.resolve(false);
+    const { source, line } = rowSource(whole, rowId);
     return enqueue(async (live) => {
       const found = await previewDeckImport([source]);
       if (!live()) return false;
-      const fresh = found.rows.find((row) => row.rowId === rowId);
-      if (!fresh) return false;
-      // Only the checked data changes. The name, the mode and a box the person set stay as they are.
+      const only = found.rows[0];
+      if (!only) return false;
+      const withLine = <T extends { line?: number }>(issues: T[]): T[] => (
+        line == null ? issues : issues.map((issue) => (issue.line == null ? issue : { ...issue, line }))
+      );
+      // Only the checked data changes. The row keeps its id, name and mode, and the person's checkbox stays.
+      const fresh = {
+        ...only,
+        rowId,
+        sourceId: item.row.sourceId,
+        name: item.row.name,
+        errors: withLine(only.errors),
+        warnings: withLine(only.warnings),
+        duplicateOf: only.duplicateOf ?? item.row.duplicateOf ?? null,
+      };
       setView((state) => {
         const kept = current(state);
-        const items = kept.items.map((entry) => {
-          if (entry.row.rowId !== rowId) return entry;
-          const row = { ...fresh, name: entry.row.name };
-          return { ...entry, row, selected: entry.selected || (!hasErrors(row) && !row.duplicateOf), failure: null };
-        });
+        const items = kept.items.map((entry) => (entry.row.rowId !== rowId ? entry : {
+          ...entry,
+          row: fresh,
+          selected: entry.selected || (!hasErrors(fresh) && !fresh.duplicateOf),
+          failure: null,
+        }));
         return { phase: "loading", ...kept, items };
       });
       return true;
@@ -239,7 +264,8 @@ export function useBulkImport(onImported: () => void) {
   }, [update]);
 
   const importSelected = useCallback(async () => {
-    if (view.phase !== "preview" || importing.current) return;
+    // One call to the server at a time: never import while a preview is still running.
+    if (view.phase !== "preview" || importing.current || pending.current > 0) return;
     const { items, maxDecks } = view;
     const chosen = selectedItems(items);
     if (chosen.length === 0) return;
@@ -290,6 +316,6 @@ export function useBulkImport(onImported: () => void) {
 
   return {
     tab, setTab, mode, setMode, view, error, notes, heldCount,
-    previewFiles, previewPaste, retryHeld, recheck, rename, toggle, toggleAll, importSelected, reset,
+    previewFiles, previewPaste, retryHeld, dropHeld, recheck, rename, toggle, toggleAll, importSelected, reset,
   };
 }
