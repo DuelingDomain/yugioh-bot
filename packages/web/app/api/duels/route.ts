@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
     name?: unknown;
     mode?: unknown;
     masterRule?: unknown;
+    /** settings.firstTurnDraw: boolean, Domain ffa3/ffa4 only; omission defaults ON. */
     settings?: unknown;
     format?: unknown;
     opponentPlayerId?: unknown;

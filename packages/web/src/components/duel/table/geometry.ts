@@ -10,8 +10,7 @@ import type { Arrangement, CameraState, Compass, FlyPose, PoseSlot, SeatPose, Se
  * Look, focus, overview and fly pick the place of each seat from them. The Tag table draws its home pose in
  * every camera mode until its own step adds more.
  *
- * On a 3-way table the places follow the seats still in the duel (`aliveLayout`): 2 alive are a face to face pair
- * (`duo`: one near, one far, as in a 1v1). A 4-way table keeps its places.
+ * The places never change when a seat leaves: the place of a seat that is out stays empty.
  */
 
 export const STAGE = { width: 1100, height: 860 } as const;
@@ -72,14 +71,6 @@ const FFA3_SLOTS: Readonly<Record<PoseSlot, HomeSlot>> = {
   oN: { x: 327, y: 301, rotateDeg: 120, scale: 0.58, tiltDeg: 0 },
   oR: { x: 773, y: 301, rotateDeg: 240, scale: 0.58, tiltDeg: 0 },
 };
-/**
- * The places of a face-off (a 3-way table with two seats left). The far seat is a little smaller and lower than the 3-way
- * focus place, so its hand backs (about 288 stage px above the field centre at scale 1) stay inside the table box at the top.
- */
-const DUO_SLOTS: Readonly<Record<PoseSlot, HomeSlot>> = {
-  ...FFA3_SLOTS,
-  focus: { x: 550, y: 234, rotateDeg: 180, scale: 0.78, tiltDeg: 9 },
-};
 /** The eleven named places of a 4-way table (the prototype's `4ffa-b` geometry at a 860 px stage). */
 const FFA4_SLOTS: Readonly<Record<PoseSlot, HomeSlot>> = {
   home: FFA4_HOME[0],
@@ -101,7 +92,7 @@ const FFA4_RING_ANGLE: Readonly<Record<PoseSlot, number>> = { home: 90, oHome: 9
 
 /**
  * How the seats of a layout are placed. A layout made by `tableLayout` has no `arrangement`: it follows its format.
- * `aliveLayout` sets one when seats are out. Tag has none.
+ * Tag has none.
  */
 export function arrangementOf(layout: Pick<TableLayout, "format" | "arrangement">): Arrangement | null {
   if (layout.arrangement) return layout.arrangement;
@@ -110,20 +101,7 @@ export function arrangementOf(layout: Pick<TableLayout, "format" | "arrangement"
 
 function slotTable(layout: Pick<TableLayout, "format" | "arrangement">): Readonly<Record<PoseSlot, HomeSlot>> {
   const arrangement = arrangementOf(layout);
-  return arrangement === "ffa4" ? FFA4_SLOTS : arrangement === "duo" ? DUO_SLOTS : FFA3_SLOTS;
-}
-
-/**
- * The layout of the seats that are still in the duel. Only a 3-way table regroups: when one seat leaves, the two that
- * stay face each other (`duo`) and keep their order and tones. A 4-way table keeps its places for the whole duel (the
- * place of a seat that left stays empty), and Tag is never respaced: both give the same layout back.
- */
-export function aliveLayout(layout: TableLayout, out: ReadonlySet<number> | readonly number[]): TableLayout {
-  if (layout.format !== "ffa3") return layout;
-  const gone = out instanceof Set ? out : new Set(out);
-  const slots = layout.slots.filter((slot) => !gone.has(slot.seat));
-  if (slots.length === layout.slots.length || slots.length >= 3) return layout;
-  return { ...layout, slots, arrangement: "duo" };
+  return arrangement === "ffa4" ? FFA4_SLOTS : FFA3_SLOTS;
 }
 
 type CompassSlot = { compass: Compass; baseAngleDeg: number };
@@ -188,12 +166,6 @@ export function isOwnFocus(layout: Pick<TableLayout, "format" | "arrangement" | 
 export function slotPlan(layout: TableLayout, camera: CameraView): PoseSlot[] | null {
   const count = layout.slots.length;
   const arrangement = arrangementOf(layout);
-  if (arrangement === "duo") {
-    if (count < 1 || count > 2) return null;
-    // Face to face whatever the camera does. A viewer who is out watches: the first living seat goes far, the next near.
-    const spectating = layout.viewerSeat != null && layout.slots[0]?.seat !== layout.viewerSeat;
-    return count === 1 ? ["home"] : spectating ? ["focus", "home"] : ["home", "focus"];
-  }
   if (!((arrangement === "ffa3" && count === 3) || (arrangement === "ffa4" && count === 4))) return null;
   const four = count === 4;
   const home: PoseSlot[] = four ? ["home", "vL", "vN", "vR"] : ["home", "vL", "vR"];
@@ -237,8 +209,7 @@ export function seatPoses(
   const plan = slotPlan(layout, camera);
   const home = homeTable(layout.format);
   const table = slotTable(layout);
-  const duo = arrangementOf(layout) === "duo" && camera.mode !== "fly" && viewport ? duoFinaleSlots(stageSpread(viewport)) : null;
-  const wide = duo ?? (viewport && arrangementOf(layout) !== "duo" ? wideHomeSlots(layout.format, stageSpread(viewport), plazaView(viewport)) : null);
+  const wide = viewport ? wideHomeSlots(layout.format, stageSpread(viewport), plazaView(viewport)) : null;
   const poses = new Map<number, SeatPose>();
   layout.slots.forEach((slot, place) => {
     const name = plan?.[place];
@@ -327,20 +298,6 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
  * 4-way: the side rivals grow up to .9 of your size and sit at the outer edges, the far one grows a little.
  * 3-way: the two rivals grow to about .78 and move apart so their boards stay clear of each other.
  */
-/**
- * The FINAL DUEL board of a 3-way table on a wide screen (two seats left, as the 4-way finale): the 1v1 composition. Both
- * fields are the wide ones (full-size Defense cards), face to face on the centre line; the far one is tilted away and
- * smaller (.76, the size that keeps its hand backs inside the stage and about 30 stage px of air above yours). The turn ring moves to
- * the open stage left of both fields (`ringPose`). Null where the box is too narrow: the classic face-off stays.
- */
-export function duoFinaleSlots(spread: number): Partial<Record<PoseSlot, HomeSlot>> | null {
-  if (!(spread >= FULL_DEF_SPREAD)) return null;
-  return {
-    home: { ...FFA3_HOME[0], width: SEAT_BOX_FULL_DEF },
-    focus: { x: 550, y: 218, rotateDeg: 180, scale: 0.76, tiltDeg: 9, width: SEAT_BOX_FULL_DEF },
-  };
-}
-
 export function wideHomeSlots(format: TableFormat, spread: number, view?: PlazaView): Partial<Record<PoseSlot, HomeSlot>> | null {
   if (!(spread > 0) || (format !== "ffa3" && format !== "ffa4")) return null;
   const t = clamp01(spread / 250);
@@ -563,8 +520,7 @@ export function wideHoloAnchors(
   corner?: { hint: { width: number; height: number }; hud?: { width: number; height: number } },
 ): Map<number, HoloAnchor> | null {
   const plan = slotPlan(layout, camera);
-  const finale = arrangementOf(layout) === "duo" && camera.mode !== "fly" && duoFinaleSlots(spread) != null;
-  if (!(spread > 0) || !plan || !plan.every((name) => HOME_PLACES.has(name) || (finale && name === "focus"))) return null;
+  if (!(spread > 0) || !plan || !plan.every((name) => HOME_PLACES.has(name))) return null;
   const four = layout.slots.length === 4;
   const boards = new Map<number, Bounds>();
   for (const slot of layout.slots) {
@@ -575,7 +531,7 @@ export function wideHoloAnchors(
   const right = STAGE.width + spread - 6;
   // The turn ring in the middle is never covered.
   const ringHalf = 62;
-  const ringAt = finale ? ringPose(layout, camera, spread) : ARENA_CENTER;
+  const ringAt = ARENA_CENTER;
   const taken: Bounds[] = [{ l: ringAt.x - ringHalf, r: ringAt.x + ringHalf, t: ringAt.y - 62, b: ringAt.y + 76 }];
   // Your hand fans along the bottom edge under your board: up to ten cards, about 660 stage px.
   taken.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: 960 });
@@ -662,7 +618,7 @@ export function wideHoloAnchors(
       const y = board.b - plate.height;
       at = settle([[board.r + 14, y + 34], [board.r + 14, y + 22], [board.r + 14, y - 30], [board.r + 14, board.t + 20]], size, -1, isMine && meFooter ? { width: plate.width, height: size.height } : undefined);
     } else if (name === "focus") {
-      // The far field of the FINAL DUEL board: beside its top left corner (the classic face-off place), else its right one.
+      // The far field of a focused board: beside its top left corner, else its right one.
       at = settle([[board.l - 14 - size.width, board.t + 6], [board.l - 14 - size.width, board.b - size.height], [board.r + 14, board.t + 6]], size, slot.seat);
     } else if (four && name === "vL") {
       // Hugging the lower inner corner of its own board: under it, else beside it, else under its far end.
@@ -803,7 +759,7 @@ export function promptRooms(input: {
   const panelMax = Math.min(320, Math.max(220, box.width * 0.27));
   const base = { layout: input.layout, camera: input.camera, poses: input.poses, anchors: input.anchors, spread: input.spread, meFooter: input.meFooter, hint };
   const hub = hubPose(input.layout, input.camera, { box: { width: box.width, height: k * STAGE.height }, meFooter: input.meFooter });
-  const ring = ringPose(input.layout, input.camera, input.spread);
+  const ring = ringPose(input.layout, input.camera);
   const furniture: PromptRoom[] = [
     { x: hub.x - hub.width / 2, y: hub.y - hub.height / 2, width: hub.width, height: hub.height },
     { x: ring.x - 70 * ring.scale, y: ring.y - 70 * ring.scale, width: 140 * ring.scale, height: 154 * ring.scale },
@@ -923,11 +879,6 @@ function ffa4Anchor(slot: PoseSlot): Omit<HoloAnchor, "me"> {
   }
 }
 
-/** Holo anchor of the two places of a face to face pair: the near panel bottom right, the far one top left (clear of the far hand). */
-function duoAnchor(slot: PoseSlot): Omit<HoloAnchor, "me"> {
-  return slot === "home" ? { x: 882, y: 686, beam: "none" } : { x: 8, y: 8, beam: "down" };
-}
-
 /**
  * Anchor of the holo LP panel of one seat. Home: bottom right for you, top corners for rivals. With a camera
  * the panel follows its seat to the corner of the place that seat now stands at.
@@ -939,7 +890,7 @@ export function holoAnchor(layout: TableLayout, seat: number, camera?: CameraVie
   if (plan && place >= 0) {
     const focusPlace = layout.slots.findIndex((slot) => slot.seat === camera?.focusSeat);
     const arrangement = arrangementOf(layout);
-    const at = arrangement === "duo" ? duoAnchor(plan[place]) : (arrangement === "ffa4" ? ffa4Anchor(plan[place]) : ffa3Anchor(plan[place], focusPlace));
+    const at = arrangement === "ffa4" ? ffa4Anchor(plan[place]) : ffa3Anchor(plan[place], focusPlace);
     const mine = place === 0 && layout.viewerSeat === seat && camera?.mode !== "look";
     return { ...at, me: mine };
   }
@@ -952,13 +903,7 @@ export function holoAnchor(layout: TableLayout, seat: number, camera?: CameraVie
 }
 
 /** Where the turn ring stands in a camera mode: it keeps clear of every field. */
-export function ringPose(layout: TableLayout, camera: CameraView, spread = 0): { x: number; y: number; scale: number } {
-  if (arrangementOf(layout) === "duo") {
-    if (camera.mode === "fly") return { x: 550, y: 430, scale: 1 };
-    // The FINAL DUEL board: left of both wide fields, level with the gap between them.
-    if (duoFinaleSlots(spread)) return { x: 60, y: 392, scale: 1 };
-    return { x: 550, y: 322, scale: 1 };
-  }
+export function ringPose(layout: TableLayout, camera: CameraView): { x: number; y: number; scale: number } {
   if (arrangementOf(layout) === "ffa4") {
     if (camera.mode === "fly") return { x: 550, y: 410, scale: 1 };
     if (camera.mode === "overview") return { x: 550, y: 395, scale: 0.9 };
@@ -1121,7 +1066,7 @@ function wideHubPose(
   fallback: HubPose,
   hud?: { width: number; height: number },
 ): HubPose {
-  const ring = ringPose(layout, camera, spread);
+  const ring = ringPose(layout, camera);
   const obstacles = hubObstacles(layout, poses, plates, meFooter, hint, spread, ring);
   if (hud) {
     const right = STAGE.width + spread;

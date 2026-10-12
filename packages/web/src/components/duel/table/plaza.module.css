@@ -151,20 +151,7 @@
   }
 }
 
-/* The seats regroup: the pads wait for the crumble and the beat (2.2 s), then glide with the boards (rival-field.module.css). */
-.plaza[data-glide="true"] .pad:not(.padOut) {
-  transition:
-    left 1.4s cubic-bezier(0.5, 0, 0.2, 1) 2.2s,
-    top 1.4s cubic-bezier(0.5, 0, 0.2, 1) 2.2s,
-    rotate 1.4s cubic-bezier(0.5, 0, 0.2, 1) 2.2s,
-    scale 1.4s cubic-bezier(0.5, 0, 0.2, 1) 2.2s;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .plaza[data-glide="true"] .pad:not(.padOut) {
-    transition: none;
-  }
-
   .padOut {
     animation-duration: 0.42s;
     animation-delay: 0s;
@@ -172,10 +159,6 @@
 }
 
 /* The in-app reduced motion setting (the media query above covers the system one). */
-:global([data-reduced="true"]) .plaza[data-glide="true"] .pad:not(.padOut) {
-  transition: none;
-}
-
 :global([data-reduced="true"]) .padOut {
   animation-duration: 0.42s;
   animation-delay: 0s;

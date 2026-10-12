@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
+import { Link2 } from "lucide-react";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
@@ -50,13 +51,11 @@ export interface HoloLpProps {
   /** A rival's Deck Master: a small art thumb at the top right of the panel. A click inspects it. */
   master?: DuelCardInfo | null;
   onInspectMaster?: (card: DuelCardInfo) => void;
-  /** The seat just left the duel: the LP is struck out, a chip says its place ("Eliminated, 3rd"), and the panel fades away. */
-  exiting?: boolean;
   /** The seat is out but its board still waits for the battle to end (crumble-gate.ts): the plate keeps its LP and hides the elimination marks. */
   held?: boolean;
   placeLabel?: string | null;
-  /** The seats regroup after an elimination: the panel waits, then glides to its new corner. */
-  glide?: boolean;
+  /** The name of the facing seat this one shares its Extra Monster Zones and columns with (a plaza pair): a small link glyph with a tooltip. */
+  linkedWith?: string | null;
   /** Hangs under the panel (your Deck Master chip). It sits outside the panel body, so it never changes the panel's own box. */
   footer?: ReactNode;
   /** The footer chip stays within the panel's width. */
@@ -127,10 +126,9 @@ export function HoloLp({
   master = null,
   onInspectMaster,
   lastDamage = null,
-  exiting = false,
   held = false,
   placeLabel = null,
-  glide = false,
+  linkedWith = null,
   footer = null,
   footerTight = false,
   reducedMotion,
@@ -156,6 +154,11 @@ export function HoloLp({
       <div className={styles.top} data-holo-text="true">
         <i aria-hidden="true" />
         <b>{me ? `${name} (you)` : name}</b>
+        {linkedWith ? (
+          <span className={styles.linked} title={`Shares Extra Monster Zones and columns with ${linkedWith}`} aria-label={`Shares Extra Monster Zones and columns with ${linkedWith}`} role="img" data-pair-badge="">
+            <Link2 size={12} strokeWidth={2.2} aria-hidden="true" />
+          </span>
+        ) : null}
         {turn ? <span className={styles.turnChip}>Turn</span> : null}
       </div>
       <div className={styles.main} data-lp-seat={seat} data-holo-text="true">
@@ -178,7 +181,7 @@ export function HoloLp({
         </span>
         {clock ? <span className={styles.clock}>{clock}</span> : null}
       </div>
-      {stateLabel && !exiting ? <div className={styles.state}>{out && placeLabel ? `Eliminated, ${placeLabel}` : stateLabel}</div> : null}
+      {stateLabel ? <div className={styles.state}>{out && placeLabel ? `Eliminated, ${placeLabel}` : stateLabel}</div> : null}
       {status === "choosing" ? <div className={styles.think}>choosing...</div> : null}
     </>
   );
@@ -194,9 +197,7 @@ export function HoloLp({
       data-turn={turn ? "true" : undefined}
       data-active={turn || status === "choosing" ? "true" : undefined}
       data-elim={out ? "true" : undefined}
-      data-exiting={exiting ? "true" : undefined}
       data-held={held ? "true" : undefined}
-      data-glide={glide ? "true" : undefined}
       data-leaving={status === "leaving" ? "true" : undefined}
       data-legal={legal ? "true" : undefined}
       data-beam={beam}
@@ -234,7 +235,6 @@ export function HoloLp({
           <img src={cardArtUrl(master.code, "small")} alt="" draggable={false} />
         </button>
       ) : null}
-      {exiting ? <span className={styles.exitChip} data-exit-chip>{placeLabel ? `Eliminated, ${placeLabel}` : "Eliminated"}</span> : null}
       <span className={styles.beam} aria-hidden="true" />
       {footer ? <div className={styles.footer} data-tight={footerTight ? "true" : undefined}>{footer}</div> : null}
     </div>

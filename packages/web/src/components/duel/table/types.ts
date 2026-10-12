@@ -33,11 +33,11 @@ export interface SeatSlot {
   code: string | null; // tag: "1A" | "2A" | "1B" | "2B" (tagSeatCode); ffa: null
   turnOrder: number; // 0-based order in the turn ring
 }
-/** How the seats still in the duel are placed: the 4-way places, the 3-way places, or a face to face pair. */
-export type Arrangement = "ffa4" | "ffa3" | "duo";
+/** How the seats are placed: the 4-way places or the 3-way places. */
+export type Arrangement = "ffa4" | "ffa3";
 export interface TableLayout {
   format: TableFormat;
-  /** Set by `aliveLayout` when seats are out. Absent: the places follow the format. */
+  /** The places of the seats. Absent: they follow the format. */
   arrangement?: Arrangement;
   viewerSeat: number | null;
   anchorSeat: number; // anchor = viewer, or 0 for spectator
@@ -129,6 +129,11 @@ export interface SeatFieldProps {
   emz: "own" | "shared-bottom" | "shared-top" | "pair" | "none";
   /** `framed`: the stage draws one frame round the pair (see grid-stage.tsx `pairFrameRect`), so this field draws no mat. */
   pair?: { other: number | null; left: number; right: number; gap: number; joined: boolean; framed?: boolean };
+  /**
+   * The plaza draws this seat's own two Extra Monster Zones, but the engine shares one row with the facing seat `other`
+   * (`sharedExtraWith`): the zones draw as linked, and a card of `other` in the mirrored zone shows as a taken ghost.
+   */
+  emzLink?: { other: number; otherName: string };
   showTally: boolean; // false when a holo LP panel owns data-lp-seat
   usable: boolean; // false: legal ring only, no USE glow (partner, spectator)
   name?: string; // display name of the seat (labels and aria text); default "Player <n>"

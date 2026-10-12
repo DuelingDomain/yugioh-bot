@@ -26,44 +26,56 @@ static void ffa4_unbound() {
  EXPECT(sd::stray_logs==0,"FFA4 Lua assertions must pass");
  OCG_DestroyDuel(d);
 }
-static void ffa3_bound_and_losing() {
+static void fixed_facing() {
+ for(int n : {3,4}) {
+  auto d=sd::create(n==3 ? "Debug.SetupDuelists(3,0,1,2)" : "Debug.SetupDuelists(4,0,1,2,3)",1,true);
+  auto* lua=static_cast<duel*>(d)->lua;
+  auto& f=sd::F(d);
+  for(int mask=0;mask<(1<<n);++mask) {
+   for(uint8_t p=0;p<n;++p) f.player[p].eliminated=(mask&(1<<p))!=0;
+   for(uint8_t p=0;p<n;++p) {
+    const uint8_t q=p^1;
+    const uint8_t want=q<n && f.is_alive(p) && f.is_alive(q) ? q : DUELIST_NONE;
+    EXPECT(f.across_of(p)==want,"EMZ and Links must keep the original living facing seat");
+    EXPECT(f.column_peer_of(p)==want,"columns must match the same fixed facing seat for every elimination mask");
+   }
+  }
+  for(uint8_t p=0;p<n;++p) f.player[p].eliminated=false;
+  uint8_t bound=2;
+  lua->push_scope(0,&bound);
+  EXPECT(f.column_peer_of(0)==1,"a non-facing activation binding must not change columns");
+  EXPECT(bound==2 && !lua->current_scope()->touched,"a physical peer read must not request or alter an opponent pick");
+  lua->pop_scope();
+  f.player[1].eliminated=true;
+  EXPECT(f.column_peer_of(0)==DUELIST_NONE,"the surviving seat must never face seat 2");
+  EXPECT(sd::stray_logs==0,"fixed facing checks must have no Lua errors");
+  OCG_DestroyDuel(d);
+ }
+}
+static void full_column() {
  auto d=sd::create("Debug.SetupDuelists(3,0,1,2)",1,true);
- auto* engine=static_cast<duel*>(d);
- auto* lua=engine->lua;
- auto& f=sd::F(d);
- sd::lua(d,"source=Debug.AddCard(1,0,0,LOCATION_MZONE,1,POS_FACEUP_ATTACK); survivor=Debug.AddCard(2,2,2,LOCATION_MZONE,3,POS_FACEUP_ATTACK)");
- effect first(engine),second(engine);
- first.type=second.type=EFFECT_TYPE_ACTIVATE|EFFECT_TYPE_ACTIONS;
- first.column_peer=second.column_peer=true;
- uint8_t bound=1, response=2;
- lua->push_scope(0,&bound,false,false,&first);
- EXPECT(f.column_peer_of(0)==1,"first link must read peer 1");
- EXPECT(lua->current_scope()->touched && bound==1,"column reads must mark the probe without changing its binding");
- lua->push_scope(0,&response,false,false,&second);
- EXPECT(f.column_peer_of(0)==2,"nested response must read peer 2");
- lua->pop_scope();
- EXPECT(f.column_peer_of(0)==1,"return to first link must restore peer 1");
- f.player[1].eliminated=true;
- EXPECT(lua->scope_bound_opp()==1,"ordinary reads must retain departed peer");
- EXPECT(f.column_peer_of(0)==1,"column reads must retain departed peer");
- sd::lua(d,"Duel.MPWindow(0); assert(Duel.GetFieldGroupCount(0,0,LOCATION_MZONE)==0,'ordinary read must see the departed peer empty'); assert(source:GetColumnGroupCount()==0,'departed peer must not expose survivor cards'); Duel.MPWindowEnd()");
- lua->pop_scope();
- EXPECT(f.column_peer_of(0)==2,"outside the link the survivor becomes the peer");
- f.player[1].eliminated=false;
- f.player[1].pending_loss=true;
- uint8_t choices[MAX_DUELISTS];
- EXPECT(f.pick_opponents(0,choices)==1 && choices[0]==2,"pick must exclude the pending loser");
- EXPECT(f.column_peer_of(0)==2,"unbound column must use the same eligible survivor as the pick");
- // A pending loss must not redirect an already bound operation either.
- lua->push_scope(0,&bound,false,false,&first);
- EXPECT(f.column_peer_of(0)==1,"pending loss must preserve the bound peer");
- lua->pop_scope();
- EXPECT(sd::stray_logs==0,"FFA3 Lua assertions must pass");
+ sd::lua(d,R"(
+ local own=Debug.AddCard(1,0,0,LOCATION_MZONE,1,POS_FACEUP_ATTACK)
+ local emz=Debug.AddCard(1,0,0,LOCATION_MZONE,5,POS_FACEUP_ATTACK)
+ local source=Debug.AddCard(1,0,0,LOCATION_SZONE,1,POS_FACEUP_ATTACK)
+ Debug.AddCard(1,1,1,LOCATION_MZONE,3,POS_FACEUP_ATTACK)
+ Debug.AddCard(1,1,1,LOCATION_SZONE,3,POS_FACEUP_ATTACK)
+ assert(source:GetColumnGroupCount()==4, 'shared full column has four other cards')
+ assert(source:IsAllColumn(), 'the shared EMZ is one physical position')
+ assert(emz:GetColumnZone(LOCATION_MZONE)==0x80002, 'EMZ origin excludes both mirrored EMZ bits')
+ local solo=Debug.AddCard(1,2,2,LOCATION_SZONE,1,POS_FACEUP_ATTACK)
+ Debug.AddCard(1,2,2,LOCATION_MZONE,1,POS_FACEUP_ATTACK)
+ Debug.AddCard(1,2,2,LOCATION_MZONE,5,POS_FACEUP_ATTACK)
+ assert(solo:GetColumnGroupCount()==2, 'unpaired column has only own cards')
+ assert(solo:IsAllColumn(), 'unpaired full column counts only own positions')
+ )");
+ EXPECT(sd::stray_logs==0,"full-column Lua assertions must pass");
  OCG_DestroyDuel(d);
 }
 int main() {
  ffa4_unbound();
- ffa3_bound_and_losing();
+ fixed_facing();
+ full_column();
  std::printf("%s: %d failure(s)\n",failures ? "FAIL" : "PASS",failures);
  return failures ? 1 : 0;
 }

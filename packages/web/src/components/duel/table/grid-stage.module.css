@@ -120,9 +120,9 @@
   align-items: center;
 }
 
-/* In the finale your plate sits left of the board: it hugs the board's edge. */
-.lp[data-lp-side="left"] {
-  justify-content: flex-end;
+/* An out seat's plate adds its place and may be taller than its box in a small stage: it grows down, over its empty place, never up under the top bar. */
+.lp[data-out="true"] {
+  align-items: flex-start;
 }
 
 /* View control: all fields. */
@@ -178,8 +178,7 @@
 
 /*
  * Every prompt sits in the middle of YOUR pair, as the 1v1 room puts it in the middle of the board (grid-stage.tsx sets
- * --pr-cx/--pr-cy, the middle of the pair, and --pr-w/--pr-h, its size, in board px; on the finale board they are the
- * middle of that board). Without them (a spectator who looks at all fields) the middle of the table. The "Activate its
+ * --pr-cx/--pr-cy, the middle of the pair, and --pr-w/--pr-h, its size, in board px). Without them (a spectator who looks at all fields) the middle of the table. The "Activate its
  * effect?" bar, the effect and option lists, the card grid, positions, numbers, seat choices and the collapsed pill
  * may cover the middle of that pair; the pick bar places itself from `data-bar-room` (off every target) and the
  * tribute dock by your hand.
@@ -446,17 +445,6 @@
     0 0 56px -8px rgb(217 141 82 / 0.36),
     0 0 130px -26px rgb(217 141 82 / 0.28),
     inset 0 0 60px -30px rgb(217 141 82 / 0.2);
-}
-
-/* The finale: the frame of the pair that is not on the board fades with its fields. */
-.frame[data-gone="true"],
-.lp[data-gone="true"] {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.lp {
-  transition: opacity 0.6s;
 }
 
 /* The break of a pair: a crack of light on the edge where the field that went out was joined, then nothing. */
