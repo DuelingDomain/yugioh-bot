@@ -15,7 +15,7 @@ beforeEach(() => {
   insert.run(1, "Dark Hole", "Spell Card", "spell");
   insert.run(2, "Shooting Star Dragon", "Synchro Monster", "synchro");
   insert.run(3, "Maxx C", "Effect Monster", "effect");
-  cubes = createCubeService(db, createCardCatalogService(db, { identityCatalog: new Map() }));
+  cubes = createCubeService(db, createCardCatalogService(db, { identityCatalog: new Map() }), new Map());
   cubeId = cubes.createBlank("g", "Cube", seedUser(db, "owner").userId).id;
 });
 afterEach(() => db.close());

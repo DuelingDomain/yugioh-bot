@@ -50,7 +50,7 @@ describe("cube and draft Extra type safety", () => {
   });
   it("uses engine bits for writes and reports when catalog text is stale", async () => {
     db.prepare("update card_catalog set type='Fusion Monster' where ygoprodeck_id=901").run();
-    const authoritative = createCubeService(db, createCardCatalogService(db), new Map([[901, { name: "Test Spell", type: 0x2 }]]));
+    const authoritative = createCubeService(db, createCardCatalogService(db, { identityCatalog: new Map() }), new Map([[901, { name: "Test Spell", type: 0x2 }]]));
     const cube = authoritative.createBlank("test-g", "Test cube", 1);
     const result = await authoritative.importPasscodeGroups(cube.id, [{ codes: [901], pool: "extra" }]);
     expect(result.messages).toContain("1 card moved from Extra Deck to Main Deck: Test Spell.");

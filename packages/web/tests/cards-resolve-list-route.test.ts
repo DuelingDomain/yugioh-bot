@@ -1,5 +1,8 @@
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { migrate } from "@yugidraft/shared/db";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
@@ -9,7 +12,9 @@ vi.mock("@/lib/session-identity", async () => {
   return sessionFixture(auth);
 });
 vi.mock("@/lib/db", () => ({ getDb }));
+
 let db: Database.Database;
+let engineDirectory: string;
 let upstream: Mock<typeof globalThis.fetch>;
 let before: ReturnType<typeof cubeRows>;
 const resolve = async (body: unknown) => (await import("../app/api/cards/resolve/route")).POST(
@@ -28,6 +33,9 @@ function seed(id: number, name: string, type = "Spell Card", frame = "spell") {
 
 beforeEach(() => {
   vi.resetModules();
+  // An empty temporary directory makes the default engine map deterministic.
+  engineDirectory = mkdtempSync(join(tmpdir(), "list-import-empty-engine-"));
+  vi.stubEnv("DUEL_DATA_DIR", engineDirectory);
   vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
   auth.mockReset(); getDb.mockReset();
   auth.mockResolvedValue({ user: { id: String(fixtureUserId("owner")), discordUserId: fixtureDiscordId("owner") } });
@@ -49,7 +57,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   try { expect(cubeRows()).toEqual(before); }
-  finally { db.close(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
+  finally { db.close(); rmSync(engineDirectory, { recursive: true, force: true }); vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
 });
 
 describe("POST /api/cards/resolve listText", () => {
