@@ -328,6 +328,7 @@ describe("series game lobby ops", () => {
     expect(ownerView.data.startBlocked).toEqual({ reason: expect.stringContaining("card 999"), cardNames: ["card 999"] });
     const opponentView = await post(host, { op: "view", slug, playerId: app.p2 });
     expect(opponentView.status).toBe(200);
+    expect(opponentView.data.startBlockedByOther).toBe(true);
     expect(opponentView.data.startBlocked).toBeUndefined();
     expect(JSON.stringify(opponentView.data)).not.toContain("card 999");
   });
@@ -464,6 +465,33 @@ describe("series game lobby ops", () => {
     const view = await post(host, { op: "view", slug: response.data.nextSlug, playerId: app.p2 });
     expect(view.status).toBe(200);
     expect(view.data.session.status).toBe("lobby");
+    expect(view.data).not.toHaveProperty("startBlockedByOther");
+    expect(view.data).not.toHaveProperty("startBlocked");
+  });
+  it.each(["start", "ready", "deck"] as const)("clears an earlier deck block when %s fails for an engine reason", async op => {
+    const app = setup();
+    const { host, workers } = openHost(app, { createWorker: () => new class extends FakeWorker {
+      override async create() { throw new Error("Fixture engine unavailable"); }
+    }() });
+    const { duel } = challenge(app, 3);
+    const ownDeck = deckWithSide();
+    app.duels.setDeck(duel.slug, GUILD, app.p1, { ...ownDeck, extra: [903, 903, 903, 903] });
+    app.duels.setDeck(duel.slug, GUILD, app.p2, ownDeck);
+    const first = await post(host, { op: "start", slug: duel.slug, playerId: app.p2 });
+    expect(first.status).toBe(200);
+    expect(first.data.startBlockedByOther).toBe(true);
+    expect(workers).toHaveLength(0);
+    const before = app.duels.privateState(duel.slug, GUILD).decks;
+    // A rule change makes the old blocker inapplicable without changing any deck, seat or Ready flag.
+    app.db.prepare("update duels set settings_json=json_set(settings_json, '$.validateDeck', json('false')) where id=?")
+      .run(duel.id);
+    const second = await post(host, { op, slug: duel.slug, playerId: app.p2,
+      ...(op === "deck" ? { deck: ownDeck } : {}) });
+    expect(second.status).toBe(op === "start" ? 500 : 200);
+    expect(workers).toHaveLength(1);
+    expect(app.duels.privateState(duel.slug, GUILD).decks).toEqual(before);
+    const view = await post(host, { op: "view", slug: duel.slug, playerId: app.p2 });
+    expect(view.status).toBe(200);
     expect(view.data).not.toHaveProperty("startBlockedByOther");
     expect(view.data).not.toHaveProperty("startBlocked");
   });

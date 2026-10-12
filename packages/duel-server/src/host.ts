@@ -147,7 +147,7 @@ class RequestError extends Error {
 
 /** Start checks can fail on a different player's private deck. */
 class SeatDeckLegalityError extends DeckLegalityError {
-  constructor(readonly playerId: number, readonly legalityError: DeckLegalityError, readonly startState: string) {
+  constructor(readonly slug: string, readonly playerId: number, readonly legalityError: DeckLegalityError, readonly startState: string) {
     super(legalityError.message);
     this.name = "SeatDeckLegalityError";
   }
@@ -386,8 +386,9 @@ export function createDuelHost(options: {
   const startBackoff = new Map<string, {
     failures: number;
     retryAt: number;
-    deckBlock?: { playerId: number; state: string };
   }>();
+  /** Last deck-blocked start, including casual tables and the first attempt of an auto-start. */
+  const deckStartBlocks = new Map<string, { playerId: number; state: string }>();
   const pacedBot = typeof options.botStepDelayMs === "function" || (options.botStepDelayMs ?? 0) > 0;
   const envStall = Number(process.env.DUEL_STALL_MS);
   // The watchdog is a test tool (it reads every seat's view and writes report folders): on only where DUEL_SCENARIOS=1,
@@ -1454,9 +1455,10 @@ export function createDuelHost(options: {
         console.warn("[duel] could not check the viewer's start blocker", error);
       }
     }
-    const deckBlock = startBackoff.get(slug)?.deckBlock;
+    const deckBlock = deckStartBlocks.get(slug);
     if (deckBlock) {
       if (room.session.status !== "lobby" || deckBlock.state !== startDeckState(service.privateState(slug, guildId))) {
+        deckStartBlocks.delete(slug);
         startBackoff.delete(slug);
       } else if (room.role === "player" && room.mySeat !== null && playerId !== deckBlock.playerId && !room.startBlocked) {
         room.startBlockedByOther = true;
@@ -2118,7 +2120,7 @@ export function createDuelHost(options: {
         await validateSessionDeck(state.session.mode, deck, settings, state.session.format,
           { session: state.session, playerId });
       } catch (error) {
-        if (error instanceof DeckLegalityError) throw new SeatDeckLegalityError(playerId, error, startDeckState(state));
+        if (error instanceof DeckLegalityError) throw new SeatDeckLegalityError(slug, playerId, error, startDeckState(state));
         throw error;
       }
     }
@@ -2152,6 +2154,7 @@ export function createDuelHost(options: {
       service.activate(slug, guildId, organizer, seed, pinnedVersionFor(state.session.format), clock, {
         ...(state.setup ?? {}), firstTurnDraw, scriptErrorMode, ...(engine ? { engine } : {}),
       });
+      deckStartBlocks.delete(slug);
       startBackoff.delete(slug);
       games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
       await emitChange(slug, guildId);
@@ -2251,6 +2254,7 @@ export function createDuelHost(options: {
     } catch (error) {
       const session = service.get(slug, guildId);
       if (!session.seriesId && session.status === "lobby") {
+        recordDeckStartBlock(slug, error);
         // Nobody retries a start for a table. Give the lobby back to its players, and show them the error.
         service.abortOpening(slug, guildId);
         const reason = error instanceof Error ? error.message : String(error);
@@ -2269,19 +2273,24 @@ export function createDuelHost(options: {
    * opening first (when enabled). Every FFA3/FFA4 game rolls dice; Tag starts at once. Returns the live game, or null while the opening runs.
    */
   async function beginGame(slug: string, guildId: string, actor: number | null): Promise<DuelGameWorker | null> {
-    const existing = service.openingState(slug, guildId);
-    if (existing) {
-      // A settled opening waits only for the duel to start; a running one waits for the players.
+    try {
+      const existing = service.openingState(slug, guildId);
+      if (existing) {
+        // A settled opening waits only for the duel to start; a running one waits for the players.
+        await driveOpening(slug, guildId);
+        return games.get(slug)?.game ?? null;
+      }
+      const { session } = await assertStartable(slug, guildId);
+      const dice = session.format === "ffa3" || session.format === "ffa4";
+      const rps = options.openingRps && session.format === "1v1" && (session.gameNumber ?? 1) === 1;
+      if (!dice && !rps) return await startGame(slug, guildId, actor);
+      service.startOpening(slug, guildId, actor ?? session.organizerPlayerId, now());
       await driveOpening(slug, guildId);
       return games.get(slug)?.game ?? null;
+    } catch (error) {
+      recordDeckStartBlock(slug, error);
+      throw error;
     }
-    const { session } = await assertStartable(slug, guildId);
-    const dice = session.format === "ffa3" || session.format === "ffa4";
-    const rps = options.openingRps && session.format === "1v1" && (session.gameNumber ?? 1) === 1;
-    if (!dice && !rps) return startGame(slug, guildId, actor);
-    service.startOpening(slug, guildId, actor ?? session.organizerPlayerId, now());
-    await driveOpening(slug, guildId);
-    return games.get(slug)?.game ?? null;
   }
 
   /** Runs inside the duel queue. Starts a series game that sits in lobby with both seats ready. */
@@ -2317,13 +2326,20 @@ export function createDuelHost(options: {
     });
   }
 
+  function recordDeckStartBlock(slug: string, error: unknown): void {
+    if (error instanceof SeatDeckLegalityError) {
+      deckStartBlocks.set(slug, { playerId: error.playerId, state: error.startState });
+    } else {
+      deckStartBlocks.delete(slug);
+    }
+  }
+
   /** Records a failed start of a series game and logs it once. The tick sweep skips the slug for a growing wait. */
   function noteStartFailure(slug: string, error: unknown): void {
     const failures = (startBackoff.get(slug)?.failures ?? 0) + 1;
     const waitMs = START_BACKOFF_MS[Math.min(failures, START_BACKOFF_MS.length) - 1]!;
-    startBackoff.set(slug, { failures, retryAt: now() + waitMs,
-      ...(error instanceof SeatDeckLegalityError
-        ? { deckBlock: { playerId: error.playerId, state: error.startState } } : {}) });
+    startBackoff.set(slug, { failures, retryAt: now() + waitMs });
+    recordDeckStartBlock(slug, error);
     const reason = error instanceof Error ? error.message : String(error);
     console.warn(`[duel] series game ${slug} did not start (attempt ${failures}, next retry in ${waitMs / 1000}s): ${reason}`);
   }
@@ -2366,6 +2382,7 @@ export function createDuelHost(options: {
       return await operateForActor(body, guildId, actor, ctl);
     } catch (error) {
       if (!(error instanceof SeatDeckLegalityError)) throw error;
+      recordDeckStartBlock(error.slug, error);
       // A room read must still show the lobby after an opening's start attempt fails.
       if (op === "view") return project(body.slug as string, guildId, actor, undefined, body.spectate === true);
       if (error.playerId === actor) throw error.legalityError;
@@ -2859,7 +2876,10 @@ export function createDuelHost(options: {
       // An entry no sweep touched for a full backoff cap belongs to a game that is gone.
       const cap = START_BACKOFF_MS[START_BACKOFF_MS.length - 1]!;
       for (const [slug, entry] of startBackoff) {
-        if (t - entry.retryAt > cap) startBackoff.delete(slug);
+        if (t - entry.retryAt > cap) {
+          startBackoff.delete(slug);
+          deckStartBlocks.delete(slug);
+        }
       }
       // Ask for extra rows so games that wait out a backoff do not crowd out others.
       let attempts = 0;

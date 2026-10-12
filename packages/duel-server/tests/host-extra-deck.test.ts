@@ -46,6 +46,63 @@ function room() {
     settings: { ...defaultDuelSettings("normal"), validateDeck: false, banlist: "none" } });
 }
 describe("duel Extra Deck safety with competitive checks off", () => {
+  it("records a casual Start blocked by another deck for every other seated player", async () => {
+    const owner = seedIdentity(db, { name: "Fixture deck owner" }).playerId;
+    const other = seedIdentity(db, { name: "Fixture third player" }).playerId;
+    const spectator = seedIdentity(db, { name: "Fixture spectator" }).playerId;
+    const session = duels.create({ guildId: "g", organizerPlayerId: playerId, name: "Fixture casual table",
+      mode: "normal", format: "ffa3",
+      settings: { ...defaultDuelSettings("normal"), validateDeck: false, banlist: "none" } });
+    duels.takeSeat(session.slug, "g", owner);
+    duels.takeSeat(session.slug, "g", other);
+    for (const seated of [playerId, owner, other]) {
+      duels.setDeck(session.slug, "g", seated, deck(seated === owner ? 901 : 903));
+    }
+    expect((await (await post({ op: "view", slug: session.slug })).json())).not.toHaveProperty("startBlockedByOther");
+    const response = await post({ op: "start", slug: session.slug });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ session: { status: "lobby", seriesId: null },
+      startBlocked: "Start blocked: another player's deck needs attention.", startBlockedByOther: true });
+    for (const viewer of [playerId, other]) {
+      const view = await post({ op: "view", slug: session.slug, playerId: viewer });
+      expect(view.status).toBe(200);
+      const result = await view.json();
+      expect(result.startBlockedByOther).toBe(true);
+      expect(result).not.toHaveProperty("startBlocked");
+      expect(JSON.stringify(result)).not.toContain("Test Spell");
+    }
+    const ownerView = await (await post({ op: "view", slug: session.slug, playerId: owner })).json();
+    expect(ownerView.startBlocked).toEqual({ reason: expect.stringContaining("Test Spell"), cardNames: ["Test Spell"] });
+    expect(ownerView).not.toHaveProperty("startBlockedByOther");
+    const spectatorView = await (await post({ op: "view", slug: session.slug, playerId: spectator })).json();
+    expect(spectatorView).not.toHaveProperty("startBlockedByOther");
+    expect(spectatorView).not.toHaveProperty("startBlocked");
+    duels.markUnready(session.slug, "g", other);
+    for (const viewer of [playerId, other]) {
+      expect(await (await post({ op: "view", slug: session.slug, playerId: viewer })).json())
+        .not.toHaveProperty("startBlockedByOther");
+    }
+  });
+  it("records the first Ready auto-start deck block before any retry", async () => {
+    const owner = seedIdentity(db, { name: "Fixture deck owner" }).playerId;
+    const { duel } = createDuelSeriesService(db).createChallenge({ guildId: "g", challengerPlayerId: playerId,
+      opponentPlayerId: owner, bestOf: 3, ranked: false, mode: "normal",
+      settings: { ...defaultDuelSettings("normal"), validateDeck: false, banlist: "none" } });
+    duels.setDeck(duel.slug, "g", owner, deck(999));
+    duels.setDeck(duel.slug, "g", playerId, deck(903));
+    duels.markUnready(duel.slug, "g", playerId);
+    expect(await (await post({ op: "view", slug: duel.slug })).json()).not.toHaveProperty("startBlockedByOther");
+    const ready = await post({ op: "ready", slug: duel.slug });
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toMatchObject({ session: { status: "lobby" },
+      startBlocked: "Start blocked: another player's deck needs attention." });
+    const view = await post({ op: "view", slug: duel.slug });
+    expect(view.status).toBe(200);
+    const result = await view.json();
+    expect(result.startBlockedByOther).toBe(true);
+    expect(result).not.toHaveProperty("startBlocked");
+    expect(JSON.stringify(result)).not.toContain("card 999");
+  });
   it.each(["validation", "inspection"] as const)("keeps room reads available when the optional blocker %s fails", async stage => {
     const session = room();
     duels.setDeck(session.slug, "g", playerId, deck(stage === "validation" ? 903 : 901));
@@ -124,6 +181,9 @@ describe("duel Extra Deck safety with competitive checks off", () => {
     expect(result.code).toBeUndefined();
     expect(duels.room(duel.slug, "g", playerId).myDeck).toEqual(deck(903));
     expect(duels.room(duel.slug, "g", playerId).session.seats.find(seat => seat.playerId === playerId)?.ready).toBe(true);
+    const view = await post({ op: "view", slug: duel.slug });
+    expect(view.status).toBe(200);
+    expect(await view.json()).toMatchObject({ startBlockedByOther: true });
     const ownerResponse = await post({ op: "start", slug: duel.slug, playerId: opponent });
     expect(ownerResponse.status).toBe(400);
     expect(await ownerResponse.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("card 999") });
