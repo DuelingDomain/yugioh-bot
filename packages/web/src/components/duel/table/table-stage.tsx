@@ -26,7 +26,6 @@ import { ROOF_ZOOM_MS } from "../tag/roof-camera";
 import { zoneKey } from "../constants";
 import { sameRects, type Rect } from "./rect-util";
 import { useStripRoom } from "./use-strip-room";
-import { PairLink } from "./pair-link";
 import { ViewReset } from "./view-reset";
 import { clearRoom, FOLLOW_ATTR, fitItemRect, fitRoom, followShift, VIEW_IDENTITY, type FitItem, type View } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
@@ -665,6 +664,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-portrait={portrait ? "true" : undefined}
       data-prompt-scope
       data-table-stage={layout.format}
+      data-emz-pair={pairA != null && pairB != null ? `${pairA}-${pairB}` : undefined}
       data-format={format}
       data-camera-mode={viewCamera.mode}
       data-camera-want={wantMode ?? viewCamera.mode}
@@ -765,7 +765,6 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
             </div>
           </div>
         </div>
-        {pairA != null && pairB != null ? <PairLink a={pairA} b={pairB} label="Linked columns" stamp={`${camera.mode}|${camera.focusSeat ?? ""}|${camera.lookSeat ?? ""}|${camera.fly.targetSeat ?? ""}|${camera.fly.free ? 1 : 0}|${Math.round(camera.fly.yawDeg)}|${Math.round(camera.fly.tiltDeg)}|${camera.fly.zoom.toFixed(2)}|${box.width}x${box.height}|${outKey}|${zoom.zoomed ? 1 : 0}`} /> : null}
         <svg ref={tetherRef} className={styles.tethers} viewBox="0 0 1100 860" aria-hidden="true" />
         {[
           // A seat that left keeps its panel where its place stays.
@@ -804,6 +803,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               onPick={() => picks?.onPick(slot.seat)}
               onHover={(hover) => controller.onAim?.(hover ? { lpSeat: slot.seat } : null)}
               placeLabel={placeLabels?.get(slot.seat) ?? null}
+              linkedWith={emzLinks?.get(slot.seat)?.otherName ?? null}
               footer={anchor.me ? masterChip : null}
               footerTight={anchor.footerTight}
               reducedMotion={reducedMotion}

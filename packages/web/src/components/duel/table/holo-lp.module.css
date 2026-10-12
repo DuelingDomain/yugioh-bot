@@ -101,6 +101,23 @@
   white-space: nowrap;
 }
 
+/* The pair badge: a small chain link beside the name; low alpha, no motion. */
+.linked {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: rgb(var(--t) / 0.85);
+  opacity: 0.8;
+  cursor: help;
+}
+
+.linked svg {
+  width: calc(12px * var(--lpk));
+  height: calc(12px * var(--lpk));
+  min-width: 11px;
+  min-height: 11px;
+}
+
 .turnChip {
   padding: calc(2px * var(--lpk)) calc(5px * var(--lpk));
   border-radius: 3px;

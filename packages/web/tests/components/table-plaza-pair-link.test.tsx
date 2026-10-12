@@ -35,13 +35,17 @@ function Shell({ state }: { state: TableFixtureState }) {
 const paired = ffa3Variant(FFA3_FIXTURES, { out: [], pair: true });
 const asSeat = (state: TableFixtureState, seat: number): TableFixtureState => ({ ...state, room: { ...state.room, mySeat: seat } }) as TableFixtureState;
 
-describe("the 3-way plaza links the facing pair 0 and 1", () => {
-  it("keeps the plaza (no grid) and draws one link between seats 0 and 1 for the viewer, a rival and a spectator", () => {
+describe("the 3-way plaza marks the facing pair 0 and 1", () => {
+  it("keeps the plaza (no grid) and marks the pair 0 and 1 (tint, plate badges) for the viewer, a rival and a spectator", () => {
     for (const state of [paired.states.main, asSeat(paired.states.main, 2), paired.states.spectator]) {
       const { container, unmount } = render(<Shell state={state} />);
       expect(container.querySelector("[data-grid-stage]")).toBeNull();
-      expect(container.querySelectorAll("[data-pair-link]")).toHaveLength(1);
-      expect(container.querySelector("[data-pair-link]")!.getAttribute("data-pair-link")).toBe("0-1");
+      expect(container.querySelector("[data-pair-link]")).toBeNull();
+      expect(container.querySelector("[data-emz-pair]")!.getAttribute("data-emz-pair")).toBe("0-1");
+      // One chain badge on each plate of the pair, naming the other seat; seat 2 has none.
+      const badges = [...container.querySelectorAll("[data-pair-badge]")].map((node) => node.getAttribute("aria-label"));
+      expect(badges).toHaveLength(2);
+      expect(badges.every((label) => /^Shares Extra Monster Zones and columns with \S/.test(label ?? ""))).toBe(true);
       // Both Extra Monster Zones of the two seats say they are linked; seat 2 shares nothing.
       expect(container.querySelectorAll('[data-testid="seat-field-0"] [data-link]')).toHaveLength(2);
       expect(container.querySelectorAll('[data-testid="seat-field-1"] [data-link]')).toHaveLength(2);
@@ -52,12 +56,14 @@ describe("the 3-way plaza links the facing pair 0 and 1", () => {
 
   it("shows no link on an older core without sharedExtraWith, or when one seat of the pair is out", () => {
     const plain = render(<Shell state={FFA3_FIXTURES.states.main} />);
-    expect(plain.container.querySelector("[data-pair-link]")).toBeNull();
+    expect(plain.container.querySelector("[data-emz-pair]")).toBeNull();
+    expect(plain.container.querySelector("[data-pair-badge]")).toBeNull();
     expect(plain.container.querySelector("[data-link]")).toBeNull();
     plain.unmount();
     const out = ffa3Variant(FFA3_FIXTURES, { out: [1], pair: true });
     const dead = render(<Shell state={out.states.main} />);
-    expect(dead.container.querySelector("[data-pair-link]")).toBeNull();
+    expect(dead.container.querySelector("[data-emz-pair]")).toBeNull();
+    expect(dead.container.querySelector("[data-pair-badge]")).toBeNull();
     expect(dead.container.querySelector("[data-link]")).toBeNull();
   });
 
