@@ -1,4 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from "react";
+import type { DuelCardInfo } from "@yugidraft/shared/duels";
+import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
 import { useForkLabels } from "../table/fork-labels";
 import { formatClock } from "../table/holo-lp";
@@ -23,6 +25,8 @@ export interface PlateMember {
   pickable: boolean; // the viewer may choose this rival
   hotkey: number | null;
   locked: boolean; // the attack aims at this member
+  /** A rival's Deck Master (Domain only): a small thumb on the chip. In use, it is an empty well where the return lands. */
+  master?: { card: DuelCardInfo; inUse: boolean; summon: string | null };
 }
 
 export interface TeamPlateProps {
@@ -38,6 +42,7 @@ export interface TeamPlateProps {
   hang?: boolean; // the rival plate hangs from cords above its strip
   reducedMotion: boolean;
   onPick?: (seat: number) => void;
+  onInspectMaster?: (card: DuelCardInfo) => void;
   plateRef?: (node: HTMLDivElement | null) => void;
   style?: CSSProperties;
 }
@@ -70,7 +75,27 @@ function DeckIcon() {
 
 const RESPONSE_TEXT: Record<ResponderState, string> = { choosing: "…", waiting: "·", passed: "✓" };
 
-function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number) => void }) {
+/** What the thumb says: whose master it is, whether it is in use, and what the next summon from the zone costs. */
+function MasterThumb({ member, master, onInspect }: { member: PlateMember; master: NonNullable<PlateMember["master"]>; onInspect?: (card: DuelCardInfo) => void }) {
+  const text = `${member.name}'s Master: ${master.card.name}${master.inUse ? " (in use)" : master.summon ? `. ${master.summon}` : ""}`;
+  return (
+    <button
+      type="button"
+      className={styles.mthumb}
+      data-master-thumb={member.seat}
+      data-master-dock={member.seat}
+      data-master-source={member.seat}
+      data-in-use={master.inUse ? "true" : undefined}
+      aria-label={text}
+      title={text}
+      onClick={(event) => { event.stopPropagation(); onInspect?.(master.card); }}
+    >
+      {master.inUse ? null : <img src={cardArtUrl(master.card.code, "small")} alt="" draggable={false} />}
+    </button>
+  );
+}
+
+function Chip({ member, onPick, onInspectMaster }: { member: PlateMember; onPick?: (seat: number) => void; onInspectMaster?: (card: DuelCardInfo) => void }) {
   const forkLabels = useForkLabels();
   const style = { ["--seat" as string]: member.rgb, ["--seat-ink" as string]: member.ink } as CSSProperties;
   const clock = formatClock(member.clockMs);
@@ -100,6 +125,7 @@ function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number)
     >
       <span className={styles.pickring} aria-hidden="true" />
       {member.pickable && member.hotkey != null ? <kbd className={styles.keyhint}>{member.hotkey}</kbd> : null}
+      {member.master ? <MasterThumb member={member} master={member.master} onInspect={onInspectMaster} /> : null}
       <div className={styles.m1}>
         <span className={styles.code}>{member.code}</span>
         <b title={member.name} aria-hidden="true">{member.name.split(" ")[0]}</b>
@@ -121,7 +147,7 @@ function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number)
 }
 
 /** Team life plate: the shared LP once, then one chip per member. Each chip carries the data-lp-seat hook of its seat. */
-export function TeamLpPlate({ teamName, glyph, near, lp, startLp, state, cracked, damage, members, hang, reducedMotion, onPick, plateRef, style }: TeamPlateProps) {
+export function TeamLpPlate({ teamName, glyph, near, lp, startLp, state, cracked, damage, members, hang, reducedMotion, onPick, onInspectMaster, plateRef, style }: TeamPlateProps) {
   return (
     <div
       ref={plateRef}
@@ -146,7 +172,7 @@ export function TeamLpPlate({ teamName, glyph, near, lp, startLp, state, cracked
       </div>
       <div className={styles.mchips}>
         {members.map((m) => (
-          <Chip key={m.seat} member={m} onPick={onPick} />
+          <Chip key={m.seat} member={m} onPick={onPick} onInspectMaster={onInspectMaster} />
         ))}
       </div>
       {cracked ? (

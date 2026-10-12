@@ -6,6 +6,7 @@ import { ChainRoomContext, type ChainStripSize } from "../table/chain-room";
 import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
 import { zoneKey } from "../constants";
+import { masterInUse, masterSummonLine } from "../master-place";
 import { isChainStripPrompt } from "../prompt-center";
 import { useStripRoom } from "../table/use-strip-room";
 import { hexToRgbTriplet } from "../table/seat-angle";
@@ -652,6 +653,10 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         pickable: pickIndex >= 0,
         hotkey: pickIndex >= 0 ? pickIndex + 1 : null,
         locked: aimedSeat === seat,
+        // The rival team's Deck Masters (Domain only; a Standard seat view has none). Your side keeps its master panels.
+        master: !near && room.session.mode === "domain" && view?.deckMaster
+          ? { card: view.deckMaster.card, inUse: masterInUse(view, engine.seats), summon: masterSummonLine(view) }
+          : undefined,
       };
     });
     const out = loss.lostTeam === team;
@@ -669,6 +674,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         hang={!near}
         reducedMotion={reducedMotion}
         onPick={onPick}
+        onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
         plateRef={near ? (node) => { ownPlateRef.current = node; } : (node) => { farPlateRef.current = node; }}
       />
     );
