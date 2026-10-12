@@ -336,6 +336,10 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-deck[data-fit] .de-master .masterText > button { order: 1; }
 .de-deck[data-fit] .de-master .masterText > p { order: 2; flex: 0 0 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .de-deck[data-fit] .de-master .masterText:has(> [role="alert"]) > p:not([role="alert"]) { display: none; }
+/* The test hand never takes more than a small, fixed height from the tiles: its cards are small and the area scrolls when more are drawn. */
+.de-deck[data-fit] .de-hand { gap: 4px; padding: 4px 0; }
+/* The list scrolls, not the section: a scrolling grid item would be squeezed to nothing when the pane is short. */
+.de-deck[data-fit] .de-hand-g { grid-template-columns: repeat(auto-fill, 38px); gap: 5px; max-height: 58px; overflow-y: auto; scrollbar-width: thin; }
 /* Wide desktops keep the side panes narrower, so the deck gets the room. */
 @container de-editor (1200px <= width < 1500px) {
   .de-body { grid-template-columns: 230px minmax(0, 1fr) 320px; }
