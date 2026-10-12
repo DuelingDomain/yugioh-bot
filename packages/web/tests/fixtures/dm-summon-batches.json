@@ -236,5 +236,78 @@
     }
    }
   ]
+ },
+ "sageChainBatch": {
+  "duel": 67,
+  "seat": 0,
+  "deckMasterCode": 8240199,
+  "events": [
+   {
+    "id": 13,
+    "kind": "phase",
+    "text": "Main Phase 1"
+   },
+   {
+    "id": 14,
+    "kind": "summon",
+    "text": "Player 1 Normal Summons Sage with Eyes of Blue",
+    "seat": 0,
+    "zone": {
+     "controller": 0,
+     "location": 4,
+     "sequence": 2
+    },
+    "summonKind": "normal",
+    "card": {
+     "code": 8240199,
+     "name": "Sage with Eyes of Blue",
+     "type": 4129,
+     "attack": 0,
+     "defense": 1500,
+     "level": 1,
+     "attribute": 16,
+     "race": "spellcaster"
+    }
+   },
+   {
+    "id": 15,
+    "kind": "activate",
+    "text": "Sage with Eyes of Blue is activating",
+    "seat": 0,
+    "chainIndex": 1,
+    "zone": {
+     "controller": 0,
+     "location": 4,
+     "sequence": 2
+    },
+    "card": {
+     "code": 8240199,
+     "name": "Sage with Eyes of Blue",
+     "type": 4129,
+     "attack": 0,
+     "defense": 1500,
+     "level": 1,
+     "attribute": 16,
+     "race": "spellcaster"
+    }
+   },
+   {
+    "id": 16,
+    "kind": "chain-resolving",
+    "text": "Chain link 1 (Sage with Eyes of Blue) is resolving",
+    "seat": 0,
+    "chainIndex": 1,
+    "card": {
+     "code": 8240199,
+     "name": "Sage with Eyes of Blue",
+     "type": 4129,
+     "attack": 0,
+     "defense": 1500,
+     "level": 1,
+     "attribute": 16,
+     "race": "spellcaster"
+    }
+   }
+  ]
  }
 }

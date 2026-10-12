@@ -347,7 +347,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
           <DeckMasterRail engine={engine} mySeat={data.mySeat} legalKeys={EMPTY_KEYS}
             selectedKeys={EMPTY_KEYS} canAct={false} legalActionsFor={noActions}
             onActivate={onActivate} onChooseAction={noop}
-            onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
+            onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} showInUse />
         </aside> : null}
       </div>
       <div className={styles.mobileBar}>{tabs(true)}</div>

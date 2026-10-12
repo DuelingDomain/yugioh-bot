@@ -1213,7 +1213,7 @@ export function MasterDock({
   onChooseAction: (option: DuelPromptOption) => void;
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
-  /** Multi-seat tables: draw the zone empty ("In use") while the master is out of it. 1v1 keeps the dimmed card. */
+  /** Draw the zone empty ("In use") while the master is out of it, with the summon line; also the plate a summon flies out of. Every table passes it. */
   showInUse?: boolean;
 }) {
   const styles = useSkinStyles(baseStyles, "field");
@@ -1226,7 +1226,7 @@ export function MasterDock({
   const selected = anySelected(keys, selectedKeys);
   const actions = local && canAct ? legalActionsFor(card, keys) : [];
   const status = view ? masterStatus(view, seats) : "";
-  // The rail of a multi-seat table says the cost once, in the summon line; 1v1 keeps "Next surcharge".
+  // The rail says the cost once, in the summon line; without showInUse it keeps "Next surcharge".
   const summonLine = showInUse ? masterSummonLine(view) : null;
   const stats = master ? cardStatsText(master.card) : null;
   const details = master ? masterDetailLines(master.card) : [];
