@@ -10,6 +10,7 @@ export interface JoinRequestNotice {
 }
 
 const TIMEOUT_MS = 2000;
+const MAX_RETRY_SECONDS = 30;
 const CLERK_DASHBOARD = "https://dashboard.clerk.com/";
 const escapeMarkdown = (value: string) => value.replace(/[\\`*_{}\[\]()<>#+\-.!|~:/]/g, "\\$&");
 
@@ -44,10 +45,10 @@ async function post(url: string, body: string): Promise<number | null> {
       const header = response.headers.get("Retry-After");
       const seconds = typeof payload?.retry_after === "number" ? payload.retry_after
         : header !== null && /^\d+(?:\.\d+)?$/.test(header.trim()) ? Number(header) : NaN;
-      // Reject invalid/overflowing timers rather than retrying before Discord permits it.
-      if (!controller.signal.aborted && Number.isFinite(seconds) && seconds >= 0 && seconds * 1000 <= 2_147_483_647) return seconds * 1000;
+      // Long delays would retain timers and deliver stale alerts.
+      if (!controller.signal.aborted && Number.isFinite(seconds) && seconds >= 0 && seconds <= MAX_RETRY_SECONDS) return seconds * 1000;
     }
-    if (!response.ok) console.warn("[join-alert] Discord rejected an alert");
+    if (!response.ok) console.warn(`[join-alert] Discord rejected an alert (HTTP ${response.status})`);
     return null;
   } finally { clearTimeout(timer); }
 }

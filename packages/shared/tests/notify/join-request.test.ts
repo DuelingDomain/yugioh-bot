@@ -195,6 +195,8 @@ describe("join request notifications", () => {
     fetcher.mockResolvedValue(new Response(null, { status }));
     await expect(notifyJoinRequest(db, notice)).resolves.toBeUndefined();
     expect(fetcher).toHaveBeenCalledOnce();
+    expect(console.warn).toHaveBeenCalledWith(`[join-alert] Discord rejected an alert (HTTP ${status})`);
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain(webhook);
   });
 
   it("aborts a slow HTTP request after two seconds", async () => {
@@ -247,6 +249,31 @@ describe("join request notifications", () => {
     await vi.advanceTimersByTimeAsync(1);
     await pending;
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["body", "header"])("does not retry a delay above 30 seconds from the %s", async source => {
+    vi.useFakeTimers();
+    fetcher.mockResolvedValueOnce(source === "body"
+      ? Response.json({ retry_after: 30.001 }, { status: 429 })
+      : new Response("unavailable", { status: 429, headers: { "Retry-After": "30.001" } }));
+    const pending = notifyJoinRequest(db, notice);
+    await vi.advanceTimersByTimeAsync(31_000);
+    await pending;
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(console.warn).toHaveBeenCalledWith("[join-alert] Discord rejected an alert (HTTP 429)");
+  });
+
+  it("permits one retry at the 30-second delay boundary", async () => {
+    vi.useFakeTimers();
+    fetcher.mockResolvedValueOnce(Response.json({ retry_after: 30 }, { status: 429 }));
+    const pending = notifyJoinRequest(db, notice);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(fetcher).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("does not retry a 429 with no valid delay", async () => {
