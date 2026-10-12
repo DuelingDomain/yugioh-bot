@@ -1,5 +1,5 @@
 import type { DuelCardInfo, DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
-import { applyEdits, edit, ev, EXTRA, GY, HAND, link, MZ, SZ, withHandIds, type Edit, type EventSpec, type LabBoard, type LabStep } from "../../fx-lab/board";
+import { applyEdits, DECK, edit, ev, EXTRA, GY, HAND, link, MZ, SZ, withHandIds, type Edit, type EventSpec, type LabBoard, type LabStep } from "../../fx-lab/board";
 import { TABLE_CARDS as C } from "./common";
 import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK } from "../../constants";
 
@@ -8,10 +8,13 @@ import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK } from "../../constants";
  * 1v1 board: events and board edits arrive together, as one engine batch does. The preview harness feeds them into a
  * fixture state, so the real table layers (MoveFx, ChainFx, BattleFx, the crumble) play them on a grid seat.
  */
-export type SceneId = "smf" | "ko" | "mirror" | PlaySceneId | MasterSceneId;
+export type SceneId = "smf" | "ko" | "mirror" | PlaySceneId | MasterSceneId | DeckSceneId;
 
 /** `master-<seat>`: that seat's Deck Master is summoned out of its zone, falls to the Graveyard, and returns to the zone (`?scene=master-1`). */
 export type MasterSceneId = `master-${0 | 1 | 2 | 3}`;
+
+/** `<deckset|deckup>-<seat>`: that seat puts a Trap from its Deck into its Spell/Trap zone 2, face-down (Set) or face-up, as True Light does (`?scene=deckset-0`). */
+export type DeckSceneId = `deck${"set" | "up"}-${0 | 1 | 2 | 3}`;
 
 /** `<play>-<seat>`: that seat Normal Summons, Special Summons, Fusion Summons, Sets or Flip Summons a monster in its zone 4 (`?scene=normal-1`). */
 export type PlaySceneId = `${"normal" | "special" | "fusion" | "set" | "flip"}-${0 | 1 | 2 | 3}`;
@@ -176,13 +179,32 @@ function playMonster(play: "normal" | "special" | "fusion" | "set" | "flip", sea
   ];
 }
 
+const DECK_SCENE = /^deck(set|up)-([0-3])$/;
+
+/** One seat puts a Trap from its Deck into Spell/Trap zone 2 (True Light's effect): the flight must land at the zone's own size, at any camera zoom. */
+function deckToSpellZone(kind: "set" | "up", seat: number): LabStep[] {
+  const info = C.torrential;
+  const zone = SZ(seat, 2);
+  const down = kind === "set";
+  return [
+    { at: 0, edits: [] },
+    {
+      at: 600,
+      events: [ev.move(seat, info, DECK(seat), zone, "set", down ? { faceDown: true } : {})],
+      edits: [down ? edit.setSpell(seat, 2, info) : edit.spell(seat, 2, info)],
+    },
+  ];
+}
+
 export function isSceneId(value: string | null | undefined): value is SceneId {
-  return value === "smf" || value === "ko" || value === "mirror" || (value != null && (PLAY_SCENE.test(value) || MASTER_SCENE.test(value)));
+  return value === "smf" || value === "ko" || value === "mirror" || (value != null && (PLAY_SCENE.test(value) || MASTER_SCENE.test(value) || DECK_SCENE.test(value)));
 }
 
 export function sceneSteps(id: SceneId): LabStep[] {
   const master = MASTER_SCENE.exec(id);
   if (master) return masterCycle(Number(master[1]));
+  const deck = DECK_SCENE.exec(id);
+  if (deck) return deckToSpellZone(deck[1] as "set" | "up", Number(deck[2]));
   const play = PLAY_SCENE.exec(id);
   if (play) return playMonster(play[1] as "normal" | "special" | "fusion" | "set" | "flip", Number(play[2]));
   return id === "smf" ? smf() : id === "ko" ? knockOut() : mirror();

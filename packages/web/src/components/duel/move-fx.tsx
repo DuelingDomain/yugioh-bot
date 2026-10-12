@@ -24,7 +24,7 @@ import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, isDefenseAt, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED, TYPE_PENDULUM } from "./constants";
-import { collectFreshEvents, departureTurn, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation } from "./event-queue";
+import { collectFreshEvents, departureTurn, destinationCardSize, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation } from "./event-queue";
 import {
   getMovePlan,
   planMoves,
@@ -352,8 +352,11 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
       doneRef.current();
       return undefined;
     }
-    const h = dest?.offsetHeight || z.height;
-    const w = plan.event.zone?.location === LOCATION_HAND ? dest?.offsetWidth || z.width : Math.min(z.width, h * CARD_ASPECT);
+    // The flight lives in the overlay, in screen px: the zone as large as it looks now (camera zoom and all), not its layout size.
+    const toHand = plan.event.zone?.location === LOCATION_HAND;
+    const shown = destinationCardSize(dest, { width: toHand ? dest?.offsetWidth || z.width : z.width, height: dest?.offsetHeight || z.height });
+    const h = shown.height;
+    const w = toHand ? shown.width : Math.min(shown.width, h * CARD_ASPECT);
     const cx = z.left - o.left + z.width / 2;
     const cy = z.top - o.top + z.height / 2;
     el.style.left = `${cx - w / 2}px`;

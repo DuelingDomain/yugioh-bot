@@ -2,7 +2,7 @@ import { reportDuelClientError } from "./client-error";
 import type { SceneCueName } from "./fx3d/scene-plan";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import type { BattleSoundPlan } from "./attack-audio";
-import { screenPose } from "./attack-fx";
+import { screenPose, screenSize } from "./attack-fx";
 import { BANNER_TIMING, CHAIN_TIMING, PHASE_TIMING } from "./duel-timing";
 import {
   isDefenseAt,
@@ -291,6 +291,21 @@ export function moveDestinationRect(dest: HTMLElement): { left: number; top: num
   const translate = card ? getComputedStyle(card).translate : undefined;
   const [x, y] = translate?.split(/\s+/).map((value) => Number.parseFloat(value) || 0) ?? [0, 0];
   return { left: rect.left - x, top: rect.top - (y ?? 0), width: rect.width, height: rect.height };
+}
+
+/**
+ * The size a flying card must have to land on `dest` as large as the zone looks: `layout` (the zone's own box) on a 1v1
+ * table, where layout and screen agree and no probe is made. A seat field of the Tag Rooftop or a grid table is scaled
+ * as a whole (camera zoom, field scale, tilt), so there the layout size is far smaller than the zone on screen and
+ * the on-screen size is read instead. Falls back to `layout` when it is unreadable.
+ */
+export function destinationCardSize(
+  dest: HTMLElement | null,
+  layout: { width: number; height: number },
+): { width: number; height: number } {
+  if (!dest?.closest("[data-seat-field]")) return layout;
+  const shown = screenSize(dest);
+  return shown ? { width: shown.w, height: shown.h } : layout;
 }
 
 /** Brings `angle` to the equal angle nearest to `near` (a flight must turn the short way, never through upright). */
