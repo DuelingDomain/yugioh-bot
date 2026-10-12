@@ -302,3 +302,29 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-legend ul { margin: 0; padding: 0; list-style: none; }
 .de-legend kbd { padding: 1px 5px; border-radius: 4px; background: rgb(5 8 15 / 0.7); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.16); color: rgb(239 231 213 / 0.9); font: inherit; font-size: 11.5px; }
 .de-legend-phone { margin: 0 0 8px; font-size: 12px; color: rgb(239 231 213 / 0.55); }
+
+/* Desktop fit. `useDeckFit` sizes the tiles (--fit-*) so the Deck Master, Main, Extra and Side all show in the pane without scrolling.
+   Each tile area keeps the height of its reserved rows, so adding a card never moves the sections below it. */
+.de-deck[data-fit] { gap: 10px; padding: 8px 14px 10px; }
+.de-deck[data-fit] .de-dbar { min-height: 30px; }
+.de-deck[data-fit] .de-sec-b { gap: 6px; }
+.de-deck[data-fit] .de-sh { flex-wrap: nowrap; min-height: 28px; gap: 10px; padding-bottom: 4px; }
+.de-deck[data-fit] .de-st { font-size: 16px; }
+.de-deck[data-fit] .de-n { font-size: 20px; }
+.de-deck[data-fit] .de-tg { overflow: hidden; text-overflow: ellipsis; }
+.de-deck[data-fit] .de-sec-b[data-section="main"] { --rows: var(--fit-rows-main); }
+.de-deck[data-fit] .de-sec-b[data-section="extra"] { --rows: var(--fit-rows-extra); }
+.de-deck[data-fit] .de-sec-b[data-section="side"] { --rows: var(--fit-rows-side); }
+.de-deck[data-fit] .de-sec-b > [data-fit-area] { --fit-th: calc(var(--fit-tw) * 614 / 421); min-height: calc(var(--rows) * var(--fit-th) + (var(--rows) - 1) * var(--fit-gap)); }
+.de-deck[data-fit] .de-sec-b > .de-grid { grid-template-columns: repeat(var(--fit-cols), var(--fit-tw)); align-content: start; gap: var(--fit-gap); }
+.de-deck[data-fit] .de-sec-b > .de-empty { padding: 0; }
+/* The Side section of a format without one keeps its header and drops the empty area. */
+.de-deck[data-fit] .de-sec-b[data-unused] > .de-empty { display: none; }
+.de-deck[data-fit] .de-master { --fit-th: calc(var(--fit-tw) * 614 / 421); grid-template-columns: var(--fit-tw) minmax(0, 1fr); gap: 12px; height: var(--fit-th); padding: 0; border: 0; }
+.de-deck[data-fit] .de-mslot { width: var(--fit-tw); min-height: 0; }
+.de-deck[data-fit] .de-mslot img { width: var(--fit-tw); }
+.de-deck[data-fit] .de-master .de-st { margin-bottom: 0; }
+/* Wide desktops keep the side panes narrower, so the deck gets the room. */
+@container de-editor (1200px <= width < 1500px) {
+  .de-body { grid-template-columns: 230px minmax(0, 1fr) 320px; }
+}
