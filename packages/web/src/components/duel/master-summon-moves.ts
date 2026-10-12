@@ -69,12 +69,18 @@ export function withMasterSummonMoves(
     const named = event.card != null && event.card.code > 0;
     if (event.kind === "summon" && !(named && event.card!.code === code)) return;
     if (named && event.card!.code !== code) return;
-    // Any earlier move into that zone of the batch is the card's own: look back to the start. Another card of a known name is not.
-    for (let back = 0; back < index; back += 1) {
+    // The card's own move into that zone is the latest one before the summon. Look back from the summon to the first move that
+    // leaves the zone: older moves into it were other cards, which left since (a hidden Set that went to the Graveyard).
+    // A move into the zone whose card is hidden or the same counts as the card's own; another known card does not.
+    let own = false;
+    for (let back = index - 1; back >= 0; back -= 1) {
       const other = events[back];
-      if (other.kind !== "move" || !sameZone(other.zone, zone)) continue;
-      if (!named || other.card == null || other.card.code <= 0 || other.card.code === event.card!.code) return;
+      if (other.kind !== "move") continue;
+      if (sameZone(other.from, zone)) break;
+      if (!sameZone(other.zone, zone)) continue;
+      if (!named || other.card == null || other.card.code <= 0 || other.card.code === event.card!.code) { own = true; break; }
     }
+    if (own) return;
     made.set(event.id, {
       id: moveIdOf(event),
       kind: "move",

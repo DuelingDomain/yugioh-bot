@@ -89,6 +89,23 @@ describe("withMasterSummonMoves", () => {
     expect(withMasterSummonMoves(alien, ...pair(update(1, code))).filter((event) => event.kind === "move")).toHaveLength(2);
   });
 
+  it("adds the flight when a hidden Set stood in that zone before and left it (Set, to the Graveyard, then the master)", () => {
+    // The server hides the card of a move the viewer may not see, so the Set arrives without a card.
+    const code = 4242;
+    const zone = { controller: 1, location: LOCATION_MZONE, sequence: 2 };
+    const set: DuelEvent = { id: 10, kind: "move", text: "", seat: 1, zone, from: { controller: 1, location: 2, sequence: 0 }, faceDown: true, reason: "set" };
+    const toGrave: DuelEvent = { id: 11, kind: "move", text: "", seat: 1, card: { code: 7, name: "Other" } as never, zone: { controller: 1, location: 16, sequence: 0 }, from: zone, reason: "destroy" };
+    const summon: DuelEvent = { id: 12, kind: "summon", text: "", seat: 1, card: { code, name: "Master" } as never, zone, summonKind: "normal" } as DuelEvent;
+    const batch = [set, toGrave, summon];
+    const out = withMasterSummonMoves(batch, ...pair(update(1, code)));
+    expect(out).toHaveLength(4);
+    expect(out[2]).toMatchObject({ kind: "move", zone, from: { controller: 1, location: LOCATION_DMZONE } });
+    expect(out[3]).toBe(summon);
+    // Without the move that leaves, the hidden Set is still on the zone and counts as the card's own move.
+    const stuck = [set, summon];
+    expect(withMasterSummonMoves(stuck, ...pair(update(1, code)))).toBe(stuck);
+  });
+
   it("adds a face-down move for a Set from the zone, also when the card is hidden from the viewer", () => {
     const set: DuelEvent = { id: 40, kind: "set", text: "Player 2 Sets a card", seat: 1, zone: { controller: 1, location: LOCATION_MZONE, sequence: 1 } };
     const out = withMasterSummonMoves([{ id: 39, kind: "phase", text: "Main Phase 1" }, set], ...pair(update(1, 77)));
