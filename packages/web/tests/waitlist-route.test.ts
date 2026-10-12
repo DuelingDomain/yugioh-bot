@@ -154,6 +154,32 @@ describe("POST /api/waitlist", () => {
     expect((await post(json({ email: "a".repeat(248) + "@b.com" }))).status).toBe(201);
   });
 
+  it.each([
+    "x@https://evil.example.test/claim",
+    "x@example.test/path",
+    "x@example.test:443",
+    "x@example.test?claim",
+    "x@example.test#claim",
+    "x@example_test.test",
+    "x@-example.test",
+    "x@example-.test",
+    "x@" + "a".repeat(64) + ".test",
+  ])("rejects a non-host email domain in %s before any effects", async email => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetcher);
+    expect((await post(json({ email }))).status).toBe(400);
+    expect(rows()).toEqual([]);
+    expect(state.join).not.toHaveBeenCalled();
+    expect(state.createBackend).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each(["player@sub.example.test", "player@xn--bcher-kva.test", "player@host-1.test"])
+    ("accepts host labels in %s", async email => {
+      expect((await post(json({ email }))).status).toBe(201);
+    });
+
   it.each([{ body: null }, { body: [] }, { body: "string" }])("rejects a non-object JSON body $body", async ({ body }) => {
     const response = await post(json(body));
     expect(response.status).toBe(400);

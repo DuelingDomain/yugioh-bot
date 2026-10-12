@@ -96,7 +96,9 @@ export async function POST(request: Request): Promise<Response> {
 
   if (typeof data.company === "string" && data.company.length > 0) return respond("joined");
   const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
-  if (email.length > 254 || !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)) return respond("invalid");
+  // Host labels permit ASCII and punycode, with no URL syntax or edge hyphens.
+  const hostLabel = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+  if (email.length > 254 || !new RegExp(`^[^\\s@]+@${hostLabel}(?:\\.${hostLabel})+$`).test(email)) return respond("invalid");
 
   let result: { status: "joined" | "exists" };
   try {

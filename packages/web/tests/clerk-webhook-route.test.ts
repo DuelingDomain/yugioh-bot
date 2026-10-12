@@ -59,7 +59,7 @@ describe("POST /api/webhooks/clerk", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(receipts()).toEqual([{ svix_id: "msg_placeholder", received_at: expect.any(String) }]);
     expect(messages()[0]).toMatchObject({ allowed_mentions: { parse: [] }, embeds: [{ title: "New join request", timestamp: new Date(createdAt).toISOString(),
-      fields: [{ name: "Email", value: "p\\*\\*\\*@example\\.test" }, { name: "Source", value: "Clerk waitlist" }] }] });
+      fields: [{ name: "Email", value: "`p\\*\\*\\*@example\\.test`" }, { name: "Source", value: "Clerk waitlist" }] }] });
   });
 
   it("rejects an invalid signature before database or Discord effects", async () => {
@@ -145,14 +145,14 @@ describe("POST /api/webhooks/clerk", () => {
     await POST(signed(signup, "msg_signup_placeholder"));
     await POST(signed(signup, "msg_signup_placeholder"));
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(messages()[0].embeds[0]).toMatchObject({ title: "New user sign-up", fields: [{ name: "Email", value: "p\\*\\*\\*@example\\.test" }, { name: "Source", value: "sign\\-up" }] });
+    expect(messages()[0].embeds[0]).toMatchObject({ title: "New user sign-up", fields: [{ name: "Email", value: "`p\\*\\*\\*@example\\.test`" }, { name: "Source", value: "sign\\-up" }] });
   });
 
   it("supports an email-less user and a missing primary email", async () => {
     vi.stubEnv("DISCORD_SIGNUP_ALERTS_ENABLED", "1");
     await POST(signed({ ...signup, data: { ...signup.data, email_addresses: [] } }));
     await POST(signed({ ...signup, data: { ...signup.data, id: "user_other_placeholder", primary_email_address_id: null } }, "msg_other_placeholder"));
-    expect(messages().map(message => message.embeds[0].fields[0].value)).toEqual(["Email unavailable", "o\\*\\*\\*@example\\.test"]);
+    expect(messages().map(message => message.embeds[0].fields[0].value)).toEqual(["Email unavailable", "`o\\*\\*\\*@example\\.test`"]);
   });
 
   it("returns 2xx while Discord is pending and after Discord fails", async () => {

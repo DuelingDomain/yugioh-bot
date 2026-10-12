@@ -11,7 +11,13 @@ export interface JoinRequestNotice {
 
 const TIMEOUT_MS = 2000;
 const CLERK_DASHBOARD = "https://dashboard.clerk.com/";
-const escapeMarkdown = (value: string) => value.replace(/[\\`*_{}\[\]()<>#+\-.!|~]/g, "\\$&");
+const escapeMarkdown = (value: string) => value.replace(/[\\`*_{}\[\]()<>#+\-.!|~:/]/g, "\\$&");
+
+function emailCode(value: string): string {
+  // Backslashes do not escape backticks inside code. Replace user delimiters
+  // and line breaks so even unvalidated Clerk text stays in one code span.
+  return "`" + escapeMarkdown(value.replace(/`/g, "\u02cb").replace(/[\r\n\u2028\u2029]/g, " ")) + "`";
+}
 
 function dashboardUrl(): string {
   try {
@@ -77,7 +83,7 @@ export async function notifyJoinRequest(db: Database.Database, notice: JoinReque
         title: signup ? "New user sign-up" : "New join request",
         url: dashboardUrl(), timestamp: notice.createdAt ?? now,
         fields: [
-          { name: "Email", value: escapeMarkdown(emailText) },
+          { name: "Email", value: email ? emailCode(emailText) : emailText },
           { name: "Source", value: escapeMarkdown(notice.source) },
         ],
       }],

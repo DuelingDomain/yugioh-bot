@@ -43,7 +43,7 @@ describe("join request notifications", () => {
     expect(payload()).toEqual({
       allowed_mentions: { parse: [] },
       embeds: [{ title: "New join request", url: "https://dashboard.clerk.com/", timestamp: notice.createdAt,
-        fields: [{ name: "Email", value: "p\\*\\*\\*@example\\.test" }, { name: "Source", value: "marketing waitlist" }] }],
+        fields: [{ name: "Email", value: "`p\\*\\*\\*@example\\.test`" }, { name: "Source", value: "marketing waitlist" }] }],
     });
     expect(JSON.stringify(payload())).not.toContain(notice.email);
     expect(claims()).toEqual([{ kind: "join", subject_hash: createHash("sha256").update("email:player@example.test").digest("hex"), attempted_at: expect.any(String) }]);
@@ -75,14 +75,36 @@ describe("join request notifications", () => {
   it("shows and escapes the full email only with the explicit flag", async () => {
     vi.stubEnv("DISCORD_ADMIN_SHOW_FULL_EMAIL", "1");
     await notifyJoinRequest(db, { ...notice, email: "*`_[x](y)~|+\\<>@example.test" });
-    expect(payload().embeds[0].fields[0].value).toBe("\\*\\`\\_\\[x\\]\\(y\\)\\~\\|\\+\\\\\\<\\>@example\\.test");
+    expect(payload().embeds[0].fields[0].value).toBe("`\\*\u02cb\\_\\[x\\]\\(y\\)\\~\\|\\+\\\\\\<\\>@example\\.test`");
     expect(payload().allowed_mentions).toEqual({ parse: [] });
+  });
+
+  it.each(["0", "1"])("keeps URL-like Clerk email text inside inline code with full-email mode %s", async mode => {
+    vi.stubEnv("DISCORD_ADMIN_SHOW_FULL_EMAIL", mode);
+    await notifyJoinRequest(db, { ...notice, email: "a@https://evil.example.test/claim" });
+    const value = payload().embeds[0].fields[0].value;
+    expect(value).toContain("https\\:");
+    expect(value).toContain("\\/\\/");
+    expect(value.startsWith("`")).toBe(true);
+    expect(value.endsWith("`")).toBe(true);
+    expect(value.match(/`/g)).toHaveLength(2);
+  });
+
+  it("keeps URLs in the full local part inside code even with backticks and newlines", async () => {
+    vi.stubEnv("DISCORD_ADMIN_SHOW_FULL_EMAIL", "1");
+    await notifyJoinRequest(db, { ...notice, email: "`https://evil.example.test/claim`\n@example.test" });
+    const value = payload().embeds[0].fields[0].value;
+    expect(value).toContain("https\\:");
+    expect(value.match(/`/g)).toHaveLength(2);
+    expect(value).not.toMatch(/[\r\n]/);
+    expect(value.startsWith("`")).toBe(true);
+    expect(value.endsWith("`")).toBe(true);
   });
 
   it.each(["0", "true"])("keeps emails masked when the full-email flag is %s", async value => {
     vi.stubEnv("DISCORD_ADMIN_SHOW_FULL_EMAIL", value);
     await notifyJoinRequest(db, notice);
-    expect(payload().embeds[0].fields[0].value).toBe("p\\*\\*\\*@example\\.test");
+    expect(payload().embeds[0].fields[0].value).toBe("`p\\*\\*\\*@example\\.test`");
   });
 
   it("uses the configured HTTPS dashboard page", async () => {
