@@ -763,7 +763,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
             </div>
           </div>
         </div>
-        {facingPair ? <PairLink a={facingPair[0].seat} b={facingPair[1].seat} label={`${nameOf(facingPair[0].seat)} + ${nameOf(facingPair[1].seat)} linked`} /> : null}
+        {facingPair ? <PairLink a={facingPair[0].seat} b={facingPair[1].seat} label="Linked columns" /> : null}
         <svg ref={tetherRef} className={styles.tethers} viewBox="0 0 1100 860" aria-hidden="true" />
         {[
           // A seat that left keeps its panel where its place stays.
