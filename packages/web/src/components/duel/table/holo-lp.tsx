@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
+import { Link2 } from "lucide-react";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
@@ -53,6 +54,8 @@ export interface HoloLpProps {
   /** The seat is out but its board still waits for the battle to end (crumble-gate.ts): the plate keeps its LP and hides the elimination marks. */
   held?: boolean;
   placeLabel?: string | null;
+  /** The name of the facing seat this one shares its Extra Monster Zones and columns with (a plaza pair): a small link glyph with a tooltip. */
+  linkedWith?: string | null;
   /** Hangs under the panel (your Deck Master chip). It sits outside the panel body, so it never changes the panel's own box. */
   footer?: ReactNode;
   /** The footer chip stays within the panel's width. */
@@ -125,6 +128,7 @@ export function HoloLp({
   lastDamage = null,
   held = false,
   placeLabel = null,
+  linkedWith = null,
   footer = null,
   footerTight = false,
   reducedMotion,
@@ -150,6 +154,11 @@ export function HoloLp({
       <div className={styles.top} data-holo-text="true">
         <i aria-hidden="true" />
         <b>{me ? `${name} (you)` : name}</b>
+        {linkedWith ? (
+          <span className={styles.linked} title={`Shares Extra Monster Zones and columns with ${linkedWith}`} aria-label={`Shares Extra Monster Zones and columns with ${linkedWith}`} role="img" data-pair-badge="">
+            <Link2 size={12} strokeWidth={2.2} aria-hidden="true" />
+          </span>
+        ) : null}
         {turn ? <span className={styles.turnChip}>Turn</span> : null}
       </div>
       <div className={styles.main} data-lp-seat={seat} data-holo-text="true">
