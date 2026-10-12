@@ -7,7 +7,7 @@
      whole at any window size, with the next one peeking in to say there are more. */
   --cs-w: calc(132 * var(--cs-u));
   --cs-gap: calc(12 * var(--cs-u));
-  /* Room inside the scroller for the lift, the check mark and the ring: overflow-x: auto clips y as well. */
+  /* Room inside the scroller for the lift (4), the pick ring (5) and the badges that hang off a corner (10): overflow-x: auto clips y as well. Every host's pad below stays above 14 on the sides and 18 on top. */
   --cs-pad-x: calc(24 * var(--cs-u));
   --cs-pad-top: calc(24 * var(--cs-u));
   --cs-pad-bottom: calc(12 * var(--cs-u));
@@ -171,13 +171,14 @@
 
 .num {
   position: absolute;
-  top: calc(5 * var(--cs-u));
-  left: calc(5 * var(--cs-u));
+  /* Hangs off the top left corner, as the pick mark does off the top right: inside the art it covered the card's printed name. It sits above the name line and only 6 off the side, so it keeps off the pick mark of the card before it. The scroller's padding leaves room for it. */
+  top: calc(-10 * var(--cs-u));
+  left: calc(-6 * var(--cs-u));
   display: grid;
   place-items: center;
-  min-width: calc(22 * var(--cs-u));
-  height: calc(22 * var(--cs-u));
-  padding: 0 calc(4 * var(--cs-u));
+  min-width: calc(18 * var(--cs-u));
+  height: calc(18 * var(--cs-u));
+  padding: 0 calc(3 * var(--cs-u));
   border: 1.5px solid var(--duel-pen, #9b7eff);
   border-radius: 999px;
   background: rgb(7 11 21 / 0.86);
@@ -191,9 +192,10 @@
 
 .mark {
   position: absolute;
-  /* Hangs only a little off the corner; the scroller's padding leaves room for it. */
+  /* Hangs only a little off the corner, above the number badge of the next card; the scroller's padding leaves room for it. */
+  z-index: 1;
   top: calc(-8 * var(--cs-u));
-  right: calc(-8 * var(--cs-u));
+  right: calc(-6 * var(--cs-u));
   display: grid;
   place-items: center;
   min-width: calc(28 * var(--cs-u));
@@ -252,7 +254,7 @@
   .wrap {
     --cs-w: calc(88 * var(--cs-u));
     --cs-gap: calc(10 * var(--cs-u));
-    --cs-pad-x: calc(16 * var(--cs-u));
+    --cs-pad-x: max(14px, calc(16 * var(--cs-u)));
     --cs-fade: calc(28 * var(--cs-u));
   }
   .hint { display: none; }
@@ -266,8 +268,8 @@
 :global([data-prompt-dense]) .wrap {
   --cs-w: calc(92 * var(--cs-u));
   --cs-gap: calc(10 * var(--cs-u));
-  --cs-pad-x: calc(16 * var(--cs-u));
-  --cs-pad-top: calc(14 * var(--cs-u));
+  --cs-pad-x: max(14px, calc(16 * var(--cs-u)));
+  --cs-pad-top: max(18px, calc(20 * var(--cs-u)));
   --cs-pad-bottom: calc(8 * var(--cs-u));
 }
 :global([data-prompt-dense]) .caption { min-height: 0; }
@@ -284,8 +286,8 @@
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) {
     --cs-w: clamp(70px, calc((var(--pr-strip-h, 300px) - 170px * var(--tt, 1)) / 1.46), max(112px, calc(128 * var(--cs-u))));
     --cs-gap: calc(10 * var(--cs-u));
-    --cs-pad-x: 14px;
-    --cs-pad-top: 10px;
+    --cs-pad-x: 16px;
+    --cs-pad-top: 20px;
     --cs-pad-bottom: 4px;
     --cs-fade: 28px;
     flex: 1 1 auto;
@@ -311,7 +313,7 @@
     flex-wrap: wrap;
     align-content: start;
     justify-content: center;
-    /* A row gap above the lift (4px) and the pick mark (8px) that hangs off the corner. */
+    /* A row gap above the lift (4px) and the badges (10px) that hang off the corners. */
     row-gap: 18px;
     overflow-x: hidden;
     overflow-y: auto;
@@ -319,7 +321,7 @@
     scrollbar-width: none;
     overscroll-behavior: contain;
     scroll-snap-type: none;
-    scroll-padding-block: 14px;
+    scroll-padding-block: 20px;
     -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 var(--cs-fade-t), #000 calc(100% - var(--cs-fade-b)), transparent 100%);
     mask-image: linear-gradient(180deg, transparent 0, #000 var(--cs-fade-t), #000 calc(100% - var(--cs-fade-b)), transparent 100%);
   }
@@ -330,8 +332,8 @@
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .cell:first-child,
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .cell:last-child { margin-inline: 0; }
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .num {
-    min-width: max(20px, calc(22 * var(--cs-u)));
-    height: max(20px, calc(22 * var(--cs-u)));
+    min-width: max(18px, calc(18 * var(--cs-u)));
+    height: max(18px, calc(18 * var(--cs-u)));
   }
   /* The panel's height is short: the "hover to read" line gives its row to the cards (the peek still opens on hover and focus). */
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .hint { display: none; }
@@ -346,8 +348,8 @@
   --cs-u: 1px;
   --cs-w: var(--sr-card, 130px);
   --cs-gap: 12px;
-  --cs-pad-x: 14px;
-  --cs-pad-top: 12px;
+  --cs-pad-x: 16px;
+  --cs-pad-top: 20px;
   --cs-pad-bottom: 4px;
   --cs-fade: 28px;
   flex: 1 1 auto;
@@ -376,7 +378,7 @@
   scrollbar-width: none;
   overscroll-behavior: contain;
   scroll-snap-type: none;
-  scroll-padding-block: 14px;
+  scroll-padding-block: 20px;
   --cs-fade-t: 0px;
   --cs-fade-b: 0px;
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 var(--cs-fade-t), #000 calc(100% - var(--cs-fade-b)), transparent 100%);

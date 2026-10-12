@@ -108,3 +108,43 @@ describe("card strip in a dense host (3-way, Tag, 4-way)", () => {
   });
 
 });
+
+// jsdom: no layout, so the css itself is checked. The owner's screenshot of "Select a card": the first row of the grid sat 10px under the top of the
+// scroller (overflow clips the pick mark and the lift), and the number badge sat over the printed card name.
+describe("card strip: nothing is cut at the top, and the number badge keeps off the card name", () => {
+  const px = (value: string) => Number(/(-?\d+(?:\.\d+)?)px/.exec(value)?.[1] ?? NaN);
+  const decls = (css: string, name: string) => [...css.matchAll(new RegExp(`${name}:\\s*([^;]+);`, "g"))].map((match) => match[1]);
+
+  it("hangs the number badge off the top left corner, above the printed name", () => {
+    const badge = rule(strip, ".num");
+    expect(badge).toMatch(/top:\s*calc\(-\d+ \* var\(--cs-u\)\);/);
+    expect(badge).toMatch(/left:\s*calc\(-\d+ \* var\(--cs-u\)\);/);
+  });
+
+  it("draws the pick mark over the number badge of the next card", () => {
+    expect(rule(strip, ".mark")).toMatch(/z-index:\s*1;/);
+  });
+
+  it("leaves room at the top for the lift (4px), the hanging badge (10px) and the ring: no host sets less than 18px", () => {
+    const tops = decls(strip, "--cs-pad-top");
+    expect(tops.length).toBeGreaterThanOrEqual(4);
+    for (const value of tops) {
+      // A scaled value (calc(N * unit)) is floored in px: max(18px, ...).
+      const floor = value.startsWith("max(") ? px(value) : value.startsWith("calc(") ? Number(/calc\((\d+) \*/.exec(value)?.[1]) : px(value);
+      expect(floor, value).toBeGreaterThanOrEqual(18);
+    }
+  });
+
+  it("leaves room at the sides for the hanging badge and the ring: no host sets less than 14px", () => {
+    const sides = decls(strip, "--cs-pad-x");
+    expect(sides.length).toBeGreaterThanOrEqual(4);
+    for (const value of sides) {
+      const floor = value.startsWith("max(") ? px(value) : value.startsWith("calc(") ? Number(/calc\((\d+) \*/.exec(value)?.[1]) : px(value);
+      expect(floor, value).toBeGreaterThanOrEqual(14);
+    }
+  });
+
+  it("keeps a followed row clear of the top edge by the same room", () => {
+    for (const value of decls(strip, "scroll-padding-block")) expect(px(value), value).toBeGreaterThanOrEqual(20);
+  });
+});
