@@ -33,16 +33,18 @@ class ProductionActivityTests(unittest.TestCase):
             create table duel_series (status text);
         """)
 
-    def run_guard(self, force="false", target=None):
+    def run_guard(self, force="false", target=None, live_only=False):
         command = ["python3", str(GUARD), str(self.path), "--force", force]
         if target:
             command.extend(["--target", target])
+        if live_only:
+            command.append("--live-only")
         return subprocess.run(
             command,
             text=True, capture_output=True, timeout=10,
         )
 
-    def run_waiting_guard(self, wait, sleep_action=None, force="false"):
+    def run_waiting_guard(self, wait, sleep_action=None, force="false", live_only=False):
         spec = importlib.util.spec_from_file_location("activity_guard", GUARD)
         guard = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(guard)
@@ -54,7 +56,10 @@ class ProductionActivityTests(unittest.TestCase):
                 sleep_action()
 
         out, err = io.StringIO(), io.StringIO()
-        with patch("sys.argv", [str(GUARD), str(self.path), "--wait-seconds", str(wait), "--force", force]), \
+        command = [str(GUARD), str(self.path), "--wait-seconds", str(wait), "--force", force]
+        if live_only:
+            command.append("--live-only")
+        with patch("sys.argv", command), \
                 patch("time.monotonic", side_effect=lambda: clock[0]), \
                 patch("time.sleep", side_effect=sleep) as slept, \
                 redirect_stdout(out), redirect_stderr(err):
@@ -155,6 +160,66 @@ class ProductionActivityTests(unittest.TestCase):
                 result = self.run_guard()
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn("tournament_rounds=2", result.stdout)
+
+    def test_live_only_reports_open_rounds_and_series_without_blocking(self):
+        self.db.executescript("""
+            insert into tournaments values (1, 'active');
+            insert into tournament_matches values (1, 1, 'open'), (1, 2, 'pending_approval');
+            insert into duel_series values ('active'), ('between_games');
+        """)
+        before = self.path.read_bytes()
+        result = self.run_guard(live_only=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("duels=0 drafts=0 (not blocking: tournament_rounds=2 series=2)", result.stdout)
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(self.run_guard().returncode, 1)
+
+    def test_live_only_still_refuses_live_duels_openings_and_drafts(self):
+        for statement in [
+            "insert into duels (status) values ('active')",
+            "insert into duels values ('lobby', '{\"phase\":\"rps\"}')",
+            "insert into duels values ('lobby', '{\"phase\":\"dice\"}')",
+            "insert into drafts values ('active')",
+        ]:
+            with self.subTest(statement=statement):
+                self.db.execute(statement)
+                self.db.commit()
+                result = self.run_guard(live_only=True)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("Production deploy refused: gameplay is active", result.stderr)
+                for table in ("duels", "drafts"):
+                    self.db.execute(f"delete from {table}")
+                self.db.commit()
+
+    def test_live_only_wait_finishes_after_live_game_even_with_open_series(self):
+        self.db.execute("pragma journal_mode=wal")
+        self.db.executescript("""
+            insert into duels (status) values ('active');
+            insert into duel_series values ('between_games');
+        """)
+
+        def finish_game():
+            self.db.execute("update duels set status='completed'")
+            self.db.commit()
+
+        result, out, err, slept = self.run_waiting_guard(3600, finish_game, live_only=True)
+        self.assertEqual(result, 0, err)
+        slept.assert_called_once_with(120)
+        self.assertIn("duels=1", out)
+        self.assertIn("duels=0 drafts=0 (not blocking: tournament_rounds=0 series=1)", out)
+
+    def test_live_only_fails_closed_when_any_activity_count_cannot_be_read(self):
+        for table in ("duels", "drafts", "tournaments", "tournament_matches", "duel_series"):
+            with self.subTest(table=table):
+                schema = self.db.execute("select sql from sqlite_master where name=?", (table,)).fetchone()[0]
+                self.db.execute(f"drop table {table}")
+                self.db.commit()
+                result, _, err, slept = self.run_waiting_guard(3600, live_only=True)
+                self.assertEqual(result, 1)
+                self.assertIn("cannot read gameplay activity", err)
+                slept.assert_not_called()
+                self.db.execute(schema)
+                self.db.commit()
 
     def test_committed_wal_activity_is_seen(self):
         self.db.execute("pragma journal_mode=wal")

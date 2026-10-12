@@ -5,7 +5,8 @@ production. Its data, services and Clerk instance are separate. It shares VM mem
 People can test trusted branches there before merging them for automatic production deployment.
 
 Production follows merge to `main` → all regular **Test** suites pass → **Deploy** uses that exact SHA,
-waiting for idle gameplay up to 60 minutes. It requires no environment approval; the `production`
+waiting only for live duels/openings and active drafts up to 60 minutes. Open rounds and series are logged without blocking.
+It requires no environment approval; the `production`
 environment keeps its main-only branch policy and scoped secrets. Manual retry/rollback remains available.
 Staging is optional and does not gate production. After owner setup and `STAGING_AUTO_DEPLOY=1`, main
 pushes also run **Deploy Staging** independently. Leave the variable unset or `0` to disable staging push deploys.
