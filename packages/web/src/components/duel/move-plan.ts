@@ -712,7 +712,10 @@ export function captureZoneSnapshots(root: ParentNode = document): void {
   });
   // The Deck Master plate of a floating HUD stands in for the Deck Master Zone: a Deck Master summoned from it flies
   // out of the plate. The core names that zone 0x4000, or location 0 in a byte-sized MOVE; a real zone cell wins.
-  root.querySelectorAll<HTMLElement>("[data-master-source]").forEach((el) => {
+  // The plate can sit outside `root`: the HUD of a multi-seat table is a layer over the board, not inside it. Search the whole
+  // page then, or the pre-commit capture (scoped to the board) drops the plate and the summon fades in at its zone.
+  const masterScope: ParentNode = root instanceof Element && root.isConnected ? root.ownerDocument : root;
+  masterScope.querySelectorAll<HTMLElement>("[data-master-source]").forEach((el) => {
     const seat = Number(el.dataset.masterSource);
     const r = moveDestinationRect(el);
     if (!Number.isInteger(seat) || r.width < 4 || r.height < 4) return;
