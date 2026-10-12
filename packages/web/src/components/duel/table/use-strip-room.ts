@@ -134,8 +134,9 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
       setMeasured((current) => (current && sameRects(current.key, next.key) && sameRects(current.controls, next.controls) && sameRects(current.soft, next.soft) && sameRects(current.zones, next.zones) && sameRects(current.source, next.source) && ((current.hand === null && next.hand === null) || (current.hand !== null && next.hand !== null && sameRects([current.hand], [next.hand]))) ? current : next));
       // The panel's real height besides its cards, once the room is applied: it only grows, so a text that wraps differently in a new room cannot make the room flip back and forth.
       const panel = root.querySelector<HTMLElement>('[data-prompt-panel][data-tone="chain"][data-strip="true"]');
-      const wrap = panel?.querySelector<HTMLElement>("[data-strip-wrap]");
+      const wrap = panel?.querySelector<HTMLElement>("[data-strip-wrap] > [data-strip-frame]");
       if (panel && wrap && roomed.current) {
+        // Measured against the scrolling frame, not the whole strip block: the strip's own bar above the frame is chrome too (it is not a row).
         const real = Math.ceil((panel.getBoundingClientRect().height - wrap.getBoundingClientRect().height) / CHROME_STEP) * CHROME_STEP;
         if (real > 0) setChrome((current) => (current === null || real > current ? real : current));
       }

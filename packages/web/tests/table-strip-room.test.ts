@@ -113,6 +113,47 @@ describe("planStripRoom on the measured tables", () => {
   });
 });
 
+describe("planStripRoom: the first row's names stay above the fade", () => {
+  // Measured at 1280x720 (ffa3) and 1366x768 / 1280x720 (tag): the strip's own bar (22 px) sits above the scrolling frame, so the chrome is
+  // the panel minus the frame (254 px or more), and a room of chrome + one row + the fade shows the whole first row clear of the fade.
+  it("counts the strip's own bar in the chrome estimate", () => {
+    expect(STRIP_ROOM.chrome).toBeGreaterThanOrEqual(254);
+  });
+
+  it("leaves the frame one whole row (art, name, padding) plus the 28 px fade, on every measured table, with the estimate and with a measured chrome", () => {
+    for (const name of Object.keys(REAL)) {
+      for (const chrome of [undefined, 254, 296]) {
+        const { input, room } = plan(name, chrome === undefined ? {} : { chrome });
+        const rows = Math.ceil(input.count / room.cols);
+        if (rows < 2) continue;
+        const wanted = Math.min(input.box.height - 2 * STRIP_ROOM.edge, (input.chrome ?? STRIP_ROOM.chrome) + Math.round((room.card * 86) / 59) + STRIP_ROOM.rowExtra + STRIP_ROOM.fade);
+        expect(room.height, `${name} chrome ${chrome}`).toBeGreaterThanOrEqual(wanted);
+      }
+    }
+  });
+
+  it("measures the real chrome against the scrolling frame, so the strip's own bar counts as chrome", () => {
+    const hook = readFileSync(join(__dirname, "../src/components/duel/table/use-strip-room.ts"), "utf8");
+    const card = readFileSync(join(__dirname, "../src/components/duel/card-strip.tsx"), "utf8");
+    expect(hook).toContain("[data-strip-wrap] > [data-strip-frame]");
+    expect(card).toMatch(/className=\{styles\.frame\} data-strip-frame/);
+  });
+
+  it("a phone box too low for one row of 130 px tiles plus the fade steps down to tiles that fit", () => {
+    const box = { width: 374, height: 488 };
+    const input: StripRoomInput = { box, count: 14, chrome: 253, anchor: { x: 187, y: 244 } };
+    const room = planStripRoom(input)!;
+    expect(room.card).toBeLessThan(STRIP_ROOM.card);
+    expect(room.height - 253).toBeGreaterThanOrEqual(Math.round((room.card * 86) / 59) + STRIP_ROOM.rowExtra + STRIP_ROOM.fade);
+    expect(inside(room, box)).toBe(true);
+  });
+
+  it("stripRoomSize keeps that least height as minHeight when more rows wait", () => {
+    const size = stripRoomSize(14, { width: 1252, height: 635 }, STRIP_ROOM.maxCols, 96, 254);
+    expect(size.minHeight).toBe(254 + Math.round((96 * 86) / 59) + STRIP_ROOM.rowExtra + STRIP_ROOM.fade);
+  });
+});
+
 describe("planStripRoom: a room that shows too few tiles steps down in tile size", () => {
   it("FFA4 zoom, 10 cards: the 130 px room shows 2 tiles at a time (fewer than STRIP_ROOM.minShown), so 112 or 96 px tiles are taken where they show more", () => {
     const name = "ffa4-respond-10-1366x768-focus2";
