@@ -1,4 +1,4 @@
-import type { DuelEngineView, DuelMasterRule } from "@yugidraft/shared/duels";
+import { sharedExtraSeatOf, type DuelEngineView, type DuelMasterRule } from "@yugidraft/shared/duels";
 import type { TableFormat, TableLayout } from "./types";
 
 /**
@@ -36,11 +36,10 @@ export interface GridCell {
 export type GridFormat = "ffa3" | "ffa4";
 
 /**
- * The partner of a seat. The ONE place that knows the pairing: the facing seats, 0+1 and 2+3 (3-way: 0+1, and seat 2
- * has none). (The engine's own "across" seat for the shared Extra Monster Zone is a different rule that the engine owns;
- * the grid draws this one.)
+ * The partner of a seat: the facing seat, 0+1 and 2+3 (3-way: 0+1, and seat 2 has none). It is the engine's fixed pairing
+ * (`sharedExtraSeatOf` of shared), for the whole duel; the grid asks that one helper and keeps no copy of the rule.
  */
-export const gridPartnerOf = (seat: number, format: GridFormat = "ffa4"): number | null => (format === "ffa3" && seat === 2 ? null : seat ^ 1);
+export const gridPartnerOf = (seat: number, format: GridFormat = "ffa4"): number | null => sharedExtraSeatOf(format, seat);
 
 /**
  * Who sits where, seen from `viewer` (a spectator sees the table from seat 0). You are always bottom-left; a seat with a
@@ -78,14 +77,14 @@ export type GridSeatLike = Pick<DuelEngineView["seats"][number], "seat" | "elimi
  * core that shares across (0+2, 1+3) or not at all fails, because the grid would draw two seats' cards in one shared cell.
  */
 export function gridExtraZonesFit(seats: readonly GridSeatLike[], format: GridFormat = "ffa4"): boolean {
-  const live = new Set(seats.filter((view) => view.eliminated !== true).map((view) => view.seat));
+  const out = new Set(seats.filter((view) => view.eliminated === true).map((view) => view.seat));
   return seats.every((view) => {
     if (view.eliminated === true) return true;
     // A 4-way view without the field is a fixture or an older view and does not count against the grid. The 3-way table
     // draws the grid only when the engine says how it shares: without it the plaza stage stays.
     if (view.sharedExtraWith === undefined) return format !== "ffa3";
-    const facing = gridPartnerOf(view.seat, format);
-    return view.sharedExtraWith === (facing != null && live.has(facing) ? facing : null);
+    // The engine's answer: the fixed facing seat while it is in the duel, else nobody.
+    return view.sharedExtraWith === sharedExtraSeatOf(format, view.seat, out);
   });
 }
 
