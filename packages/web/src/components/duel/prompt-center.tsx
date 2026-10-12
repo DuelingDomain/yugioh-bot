@@ -32,7 +32,7 @@ import {
   POS_FACEUP_ATTACK,
   POS_FACEUP_DEFENSE,
 } from "./constants";
-import { isDirectAttackRow, nextEnabledIndex, opponentPickLabel, outSeatOptionIds } from "./multi-seat";
+import { isDirectAttackRow, nextEnabledIndex, outSeatOptionIds } from "./multi-seat";
 import { chainCardName } from "./chain-state";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import { CardBack } from "./card-face";
@@ -953,14 +953,14 @@ function ResponseBody({
           const directAttack = seatTones != null && isDirectAttackRow(option);
           const out = outRows.has(option.id);
           const exit = !out ? null : option.controller != null && leavingSeats?.has(option.controller) ? "leaving" : "out";
-          const seatName = (context?.type === "opponent" || directAttack) && option.controller != null ? nameOf?.(option.controller) : undefined;
+          const seatName = directAttack && option.controller != null ? nameOf?.(option.controller) : undefined;
           const label = directAttack && seatName ? `Attack ${seatName} directly`
             : seatName ?? humanizeLabel(fillPlaceholders(option.label, option.card?.name ?? source?.name));
           return (
             <div
               key={option.id}
               className={styles.row}
-              data-seat={context?.type === "opponent" || directAttack ? option.controller : undefined}
+              data-seat={directAttack ? option.controller : undefined}
               data-out={out ? "true" : undefined}
               data-plain={option.card ? undefined : "true"}
               data-active={draft.highlight === index}
@@ -972,7 +972,7 @@ function ResponseBody({
                 data-primary={index === draft.highlight ? true : undefined}
                 data-index={index}
                 disabled={busy || out}
-                aria-label={rowLabel(context?.type === "opponent" ? opponentPickLabel(label) : directAttack && seatName ? label : undefined, exit)}
+                aria-label={rowLabel(directAttack && seatName ? label : undefined, exit)}
                 onClick={() => choose(option.id)}
                 onMouseEnter={() => {
                   draft.setHighlight(index);
@@ -1395,7 +1395,7 @@ export interface PromptCenterProps {
   revealed?: boolean;
   /** Hovering or focusing a card in a grid or a response row shows it in the left inspector. */
   onInspectCard?: InspectCardHandler;
-  /** Display name of a seat. An opponent pick shows the name instead of the engine's "Player N". */
+  /** Display name of a seat. A direct-attack row shows the name instead of the engine's "Player N". */
   nameOf?: (seat: number) => string;
   /**
    * Tones of the seats of a table of 3 or 4 (with `nameOf`). Chain rows then name their owner ("You" or the player's

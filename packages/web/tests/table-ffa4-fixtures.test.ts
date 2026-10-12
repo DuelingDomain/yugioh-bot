@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { FFA4_FIXTURES, ffa4Variant } from "@/components/duel/table/fixtures/ffa4";
 
-const ids = ["main", "battle-aim", "chain-2", "target-pick", "choose-opponent", "direct-attack", "elimination", "spectator", "result"] as const;
+const ids = ["main", "battle-aim", "chain-2", "target-pick", "direct-attack", "elimination", "spectator", "result"] as const;
 
 describe("4-way fixtures", () => {
-  it("has the nine states, each with four seats", () => {
+  it("has the eight states, each with four seats", () => {
     for (const id of ids) {
       const state = FFA4_FIXTURES.states[id];
       expect(state.id).toBe(id);
@@ -27,11 +27,6 @@ describe("4-way fixtures", () => {
   it("makes a two-link chain with Sakuretsu Armor then Mystical Space Typhoon", () => {
     const chain = FFA4_FIXTURES.states["chain-2"].room.engine!.chain!;
     expect(chain.map((entry) => entry.seat)).toEqual([2, 3]);
-  });
-
-  it("offers the three rivals as opponents", () => {
-    const options = FFA4_FIXTURES.states["choose-opponent"].room.engine!.prompt!.options;
-    expect(options.map((option) => option.controller)).toEqual([1, 2, 3]);
   });
 
   it("clears Juniper in the elimination state and gives the exit order in the result", () => {

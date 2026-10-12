@@ -186,10 +186,10 @@ describe("TagStage chain and response", () => {
     expect(line?.textContent).toContain("waiting");
   });
 
-  it("offers the rival choice on both rivals", () => {
-    const root = mount("choose-opponent");
+  it("offers the direct-attack choice on the rival", () => {
+    const root = mount("direct-attack");
     const picks = root.querySelectorAll("[data-pick-bar] [data-seatpick]");
-    expect(picks.length).toBe(2);
+    expect(picks.length).toBe(1);
   });
 });
 

@@ -1,7 +1,6 @@
 import { opponentSeatsOf, seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
 import type { DuelCard, DuelChainLink, DuelEngineView, DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
 import { isFacedown } from "../constants";
-import { opponentPickOptions } from "../multi-seat";
 import { tagSeatCode } from "../table-format";
 
 /** Pure rules of the 2v2 Rooftop: team LP, team loss, response window, chain labels, baton. */
@@ -131,13 +130,13 @@ export function responseWindow(
 }
 
 /**
- * Rivals the viewer can click on the team plate. An opponent pick gives its own options. A direct attack is a choice
+ * Rivals the viewer can click on the team plate. A direct attack is a choice
  * whose every option is "Attack ... directly" for a rival seat (`controller`, no card zone); a choice among cards is no
  * seat pick, even when the cards belong to rivals. Eliminated rivals are left out.
  */
 export function rivalPickOptions(engine: DuelEngineView, prompt: DuelPrompt | null): Map<number, string> {
-  const picks = opponentPickOptions(prompt, engine);
-  if (picks.size > 0 || !prompt || prompt.kind !== "choice") return picks;
+  const picks = new Map<number, string>();
+  if (!prompt || prompt.kind !== "choice") return picks;
   const type = prompt.context?.type;
   if (type === "chain" || type === "action") return picks;
   const rivals = opponentSeatsOf(TAG, prompt.seat);

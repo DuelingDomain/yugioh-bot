@@ -3,9 +3,9 @@
 import type { DuelEngineView, DuelMasterRule } from "@yugidraft/shared/duels";
 import { DuelField, type DuelActivateHandler, type DuelHoverHandler } from "./field";
 import type { InspectTarget } from "./inspector";
-import { FocusedSeatPick, SeatBoard, SeatExtras, SharedExtraZones, type SeatBoardCallbacks } from "./opponent-board";
+import { SeatBoard, SeatExtras, SharedExtraZones, type SeatBoardCallbacks } from "./opponent-board";
 import { SeatStrip } from "./seat-strip";
-import { engineFormat, isEliminated, railGroups, seatDisabledMask, seatRelation, sharedExtraPairs, withoutSeatExtraKeys, withoutSeatExtraZones, type SeatPick } from "./multi-seat";
+import { engineFormat, isEliminated, railGroups, seatDisabledMask, seatRelation, sharedExtraPairs, withoutSeatExtraKeys, withoutSeatExtraZones } from "./multi-seat";
 import styles from "./opponent-board.module.css";
 
 /**
@@ -27,7 +27,6 @@ export function MultiSeatStage({
   promptSeat,
   focusSeat,
   onFocusSeat,
-  seatPick,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -42,8 +41,6 @@ export function MultiSeatStage({
   promptSeat: number | null;
   focusSeat: number | null;
   onFocusSeat: (seat: number) => void;
-  /** An opponent pick is open: the boards and strip entries of the offered seats answer it. */
-  seatPick?: SeatPick | null;
 }) {
   const format = engineFormat(engine);
   const spectator = mySeat == null;
@@ -61,9 +58,9 @@ export function MultiSeatStage({
   const fieldSelected = withoutSeatExtraKeys(selectedKeys, effectiveFocus, sharedSeats);
   return (
     <div className={styles.stage} data-testid="multi-seat-stage" data-format={format} data-spectator={spectator ? "true" : "false"}
-      data-self-eliminated={selfOut ? "true" : "false"} data-picking={seatPick ? "true" : undefined}>
+      data-self-eliminated={selfOut ? "true" : "false"}>
       <SeatStrip engine={engine} mySeat={mySeat} nameOf={nameOf} promptSeat={promptSeat}
-        focusSeat={effectiveFocus} onFocusSeat={spectator ? undefined : onFocusSeat} pick={seatPick} />
+        focusSeat={effectiveFocus} onFocusSeat={spectator ? undefined : onFocusSeat} />
       {selfOut ? <p className={styles.selfOut} role="status" data-testid="self-eliminated">You are eliminated.</p> : null}
       {groups.length > 0 ? (
         <div className={styles.rails} data-spectator={spectator ? "true" : "false"} data-testid="seat-rails">
@@ -76,8 +73,7 @@ export function MultiSeatStage({
                   active={engine.turnSeat === view.seat} answering={promptSeat === view.seat}
                   callbacks={callbacks} reducedMotion={reducedMotion}
                   focusable={!spectator} onFocusSeat={onFocusSeat} masterRule={masterRule} format={format}
-                  showExtraZones={!sharedSeats.has(view.seat)}
-                  pick={seatPick} />
+                  showExtraZones={!sharedSeats.has(view.seat)} />
               ))}
             </div>
           ))}
@@ -88,7 +84,6 @@ export function MultiSeatStage({
           {extraPairs.map((pair) => <SharedExtraZones key={pair[0].seat} pair={pair} viewerSeat={mySeat} nameOf={nameOf} callbacks={callbacks} />)}
         </div>
       ) : null}
-      {focusView ? <FocusedSeatPick view={focusView} name={nameOf(focusView.seat)} pick={seatPick} /> : null}
       {focusView ? (
         <SeatExtras view={focusView} name={nameOf(focusView.seat)} masterRule={masterRule} showExtraZones={!sharedSeats.has(focusView.seat)} callbacks={callbacks} />
       ) : null}

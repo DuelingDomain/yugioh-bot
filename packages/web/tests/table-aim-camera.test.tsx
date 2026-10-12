@@ -214,11 +214,6 @@ describe("attack aim on the 3-way shell", () => {
     act(() => void fireEvent.click(rival));
     expect(container.querySelector("[data-attack-line]")?.getAttribute("data-attack-line")).toBe("locked");
   });
-
-  it("a choose-opponent prompt marks the legal LP panels", () => {
-    const { container } = render(<Shell id="choose-opponent" />);
-    expect(container.querySelectorAll("[data-holo][data-legal='true']").length).toBeGreaterThan(0);
-  });
 });
 
 describe("pieces", () => {

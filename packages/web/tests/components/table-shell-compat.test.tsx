@@ -33,24 +33,17 @@ describe("table compatibility with live multiplayer selectors", () => {
     expect(screen.getAllByRole("list", { name: "Turn order" })).toHaveLength(1);
   });
 
-  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("answers offered seat picks on $format", (set) => {
-    const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    render(<Shell room={set.states["choose-opponent"].room} />);
-    expect(screen.queryByTestId("seat-strip-pick-0")).toBeNull();
-    const pick = screen.getByTestId("seat-strip-pick-2");
-    fireEvent.click(pick);
-    expect(info.mock.calls.filter((call) => call[0] === "[table-preview] answer")).toHaveLength(1);
-  });
-
   it("uses the displayed seat hotkey order for a nonzero viewer and sends one answer", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    const source = FFA4_FIXTURES.states["choose-opponent"].room;
+    const source = FFA4_FIXTURES.states["direct-attack"].room;
     const room = { ...source, mySeat: 2, engine: { ...source.engine!, prompt: { ...source.engine!.prompt!, seat: 2,
-      options: [0, 1, 3].map((seat) => ({ id: `opponent:${seat}`, label: `Player ${seat + 1}`, controller: seat })) } } };
+      options: [0, 1, 3].map((seat) => ({ id: `opponent:${seat}`, label: `Attack Player ${seat + 1} directly`, controller: seat })) } } };
     const view = render(<Shell room={room} />);
     const pick = [...view.container.querySelectorAll("[data-testid^='holo-pick-']")].find((node) => node.textContent?.includes("1"))!;
     expect(pick).toHaveAttribute("data-testid", "holo-pick-3");
     fireEvent.keyDown(window, { key: "1" });
+    expect(info.mock.calls.filter((call) => call[0] === "[table-preview] answer")).toHaveLength(0);
+    fireEvent.keyDown(window, { key: "Enter" });
     const answers = info.mock.calls.filter((call) => call[0] === "[table-preview] answer");
     expect(answers).toHaveLength(1);
     expect(answers[0][1]).toMatchObject({ answer: { choice: "opponent:3" } });
@@ -67,8 +60,8 @@ describe("table compatibility with live multiplayer selectors", () => {
   });
 
   it("withholds seat-pick buttons while busy", () => {
-    render(<Shell room={FFA3_FIXTURES.states["choose-opponent"].room} busy />);
-    expect(screen.queryByTestId("seat-strip-pick-2")).toBeNull();
+    render(<Shell room={FFA3_FIXTURES.states["direct-attack"].room} busy />);
+    expect(screen.queryByTestId("seat-strip-pick-1")).toBeNull();
   });
 
   it("shows Leaving before the seat is out, and keeps the self-eliminated status after loss", () => {

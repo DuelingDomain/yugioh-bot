@@ -50,15 +50,7 @@ export function seatTeam(format: DuelFormat, view: Pick<DuelSeatView, "seat" | "
   return view.team ?? teamOfSeat(format, view.seat);
 }
 
-/**
- * An opponent pick: the activating seat chooses the one opponent that a hand, Deck, draw or LP effect binds.
- * The engine marks the prompt `context.type === "opponent"` and gives every option `controller: seat`.
- */
-export function isOpponentPick(prompt: DuelPrompt | null | undefined): prompt is DuelPrompt {
-  return prompt?.kind === "choice" && prompt.context?.type === "opponent";
-}
-
-/** What the table needs to let the player click a seat to answer an opponent pick. */
+/** What the table needs to let the player click a seat: the aim of a direct attack. */
 export interface SeatPick {
   /** Seat to option id of the pick. Only seats that can be chosen. */
   options: ReadonlyMap<number, string>;
@@ -66,40 +58,7 @@ export interface SeatPick {
   onPick: (seat: number) => void;
 }
 
-/**
- * Seat to option id of an opponent pick. Options with no seat are left out. A Leaving or eliminated seat
- * cannot be picked while a living seat is offered; when none is living, all offered seats stay (same as the server).
- */
-export function opponentPickOptions(
-  prompt: DuelPrompt | null | undefined,
-  engine?: Pick<DuelEngineView, "seats"> | null,
-): Map<number, string> {
-  const picks = new Map<number, string>();
-  if (!isOpponentPick(prompt)) return picks;
-  for (const option of prompt.options) {
-    if (option.controller == null || picks.has(option.controller)) continue;
-    picks.set(option.controller, option.id);
-  }
-  const living = [...picks.keys()].filter((seat) => !isOutOrLeaving(engine?.seats.find((view) => view.seat === seat)));
-  if (living.length === 0) return picks;
-  for (const seat of picks.keys()) if (!living.includes(seat)) picks.delete(seat);
-  return picks;
-}
-
-export function seatPickFor(
-  prompt: DuelPrompt | null | undefined,
-  engine: Pick<DuelEngineView, "seats"> | null | undefined,
-  onAnswer: (answer: DuelAnswer) => void,
-): SeatPick | null {
-  const options = opponentPickOptions(prompt, engine);
-  if (!options.size) return null;
-  return { options, onPick: (seat) => {
-    const choice = options.get(seat);
-    if (choice != null) onAnswer({ choice });
-  } };
-}
-
-/** The option label shown for one seat of an opponent pick: the seat's display name. */
+/** The label of the button that picks one seat (the aim of a direct attack): the seat's display name. */
 export function opponentPickLabel(name: string): string {
   return `Choose ${name} as the opponent`;
 }
@@ -128,7 +87,7 @@ export function isOutOrLeaving(view: Pick<DuelSeatView, "eliminated" | "pendingE
   return view?.eliminated === true || view?.pendingElimination === true;
 }
 
-/** Seats that are out or leaving: their rows in an opponent or direct-attack pick are not answerable. */
+/** Seats that are out or leaving: their rows in a direct-attack pick are not answerable. */
 export function outOrLeavingSeats(seats: ReadonlyArray<Pick<DuelSeatView, "seat" | "eliminated" | "pendingElimination">>): Set<number> {
   return new Set(seats.filter((view) => isOutOrLeaving(view)).map((view) => view.seat));
 }
@@ -146,16 +105,13 @@ export function isDirectAttackRow(option: DuelPromptOption): boolean {
 const NO_ROWS: ReadonlySet<string> = new Set();
 
 /**
- * Rows of a seat pick (opponent pick or direct attack) that name a seat which is out or leaving. They are disabled
+ * Rows of a direct attack that name a seat which is out or leaving. They are disabled
  * only while at least one other seat row is still living; with none living every row stays (same rule as the server,
  * prompts.ts). Option ids and order never change.
  */
 export function outSeatOptionIds(prompt: DuelPrompt | null | undefined, outSeats: ReadonlySet<number> | undefined): ReadonlySet<string> {
   if (!prompt || !outSeats || outSeats.size === 0) return NO_ROWS;
-  const seatRow = prompt.context?.type === "opponent"
-    ? (option: DuelPromptOption) => option.controller != null
-    : isDirectAttackRow;
-  const rows = prompt.options.filter(seatRow);
+  const rows = prompt.options.filter(isDirectAttackRow);
   if (rows.length === 0 || !rows.some((option) => !outSeats.has(option.controller as number))) return NO_ROWS;
   return new Set(rows.filter((option) => outSeats.has(option.controller as number)).map((option) => option.id));
 }
