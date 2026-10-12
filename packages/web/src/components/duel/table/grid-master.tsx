@@ -266,13 +266,19 @@ export function GridMasterToken({
             onBlur={() => onHoverCard?.(null, null)}
           >
             {/* The plate is the Deck Master Zone of this seat: a summon flies out of it and a return flies back into it. */}
-            <span ref={artRef} className={styles.masterArt} data-in-use={inUse ? "true" : undefined}
+            <span ref={artRef} className={styles.masterArt} data-in-use={inUse ? "true" : undefined} data-usable={legal && !inUse ? "true" : undefined}
               data-master-dock={zoneAnchor ? view.seat : undefined} data-master-source={zoneAnchor ? view.seat : undefined}
               style={inUse ? undefined : { backgroundImage: whole
               // The small art sits under the full art, so the plate is never blank when the full image fails.
               ? `url(${cardArtUrl(master.card.code, "full")}), url(${cardArtUrl(master.card.code, "small")})`
               : `url(${cardArtUrl(master.card.code, "small")})` }} aria-hidden="true">
               {inUse ? <span className={styles.masterInUse} data-testid={id("hud-master-in-use")}>In use</span> : null}
+              {/* A summon, or a pick, is legal from the zone now: a small tag on top of the card, not colour alone. */}
+              {legal && !inUse ? (
+                <span className={styles.masterUsable} data-state={selected ? "picked" : "usable"} data-testid={id("hud-master-usable")} aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="M12 21.5 6.8 11 12 2.5 17.2 11Z" /><path d="M12 21.5V13" /><circle cx="12" cy="11" r="1.4" /></svg>
+                </span>
+              ) : null}
             </span>
             <span className={styles.masterId}>
               <small>{local ? (forkLabels ? "Acting Master" : "Your Master") : "Deck Master"}</small>
