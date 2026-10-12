@@ -193,3 +193,30 @@ describe("the stage css gives the response panel its room", () => {
     expect(read("card-strip.module.css")).toContain("--cs-w: var(--sr-card, 130px)");
   });
 });
+
+describe("planStripRoom with a fixed box: the panel stays in the middle of it", () => {
+  const box = { width: 1892, height: 995 };
+  const fixed = { x: 0, y: 40, width: 1892, height: 900 };
+  const middle = (r: Rect) => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
+
+  it("centres the room on the fixed box, whatever the HUD and the anchor", () => {
+    const hud = [{ x: 700, y: 400, width: 500, height: 200 }];
+    const room = planStripRoom({ box, count: 4, anchor: { x: 200, y: 100 }, hud, soft: [], zones: [], source: [], fixed })!;
+    expect(room).toBeDefined();
+    expect(Math.abs(middle(room).x - 946)).toBeLessThan(2);
+    expect(Math.abs(middle(room).y - 490)).toBeLessThan(2);
+  });
+
+  it("is the same room under a zoom and at home (nothing it reads moves it)", () => {
+    const home = planStripRoom({ box, count: 4, anchor: { x: 946, y: 500 }, hud: [], soft: [], zones: [], source: [], fixed })!;
+    const zoomed = planStripRoom({ box, count: 4, anchor: { x: 1500, y: 200 }, hud: [{ x: 1200, y: 100, width: 600, height: 300 }], soft: [], zones: [], source: [{ x: 900, y: 450, width: 80, height: 110 }], fixed })!;
+    expect(zoomed).toEqual(home);
+  });
+
+  it("keeps the room inside the box and shrinks the tiles when the fixed box is low", () => {
+    const low = { x: 0, y: 300, width: 1366, height: 160 };
+    const room = planStripRoom({ box: { width: 1366, height: 640 }, count: 10, anchor: { x: 683, y: 380 }, hud: [], soft: [], zones: [], source: [], fixed: low })!;
+    expect(room).toBeDefined();
+    expect(inside(room, { width: 1366, height: 640 })).toBe(true);
+  });
+});

@@ -179,6 +179,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   }, []);
   const stripCount = !phone && promptCenter && prompt && isChainStripPrompt(prompt) ? prompt.options.length : 0;
   const stripAnchor = useMemo(() => ({ x: viewBox.width / 2, y: viewBox.height / 2 }), [viewBox.width, viewBox.height]);
+  // The panel is fixed to the middle of the viewport in every view (overview, focus, close-up): the camera moves the world, never this room.
+  const stripFixed = useMemo(() => ({ x: 0, y: 0, width: viewBox.width, height: viewBox.height }), [viewBox.width, viewBox.height]);
   const stripSources = useMemo(() => engine.chain.flatMap((link) => (link.zone ? [zoneKey(link.zone.controller, link.zone.location, link.zone.sequence)] : [])), [engine.chain]);
   const { room: stripRoom, pending: stripPending } = useStripRoom({
     rootRef,
@@ -187,6 +189,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     count: stripCount,
     box: viewBox,
     anchor: stripAnchor,
+    fixed: stripFixed,
     keyHud: STRIP_KEY_HUD,
     softHud: STRIP_SOFT_HUD,
     hand: STRIP_OWN_HAND,

@@ -86,13 +86,14 @@ describe("TableShell on the 3-way fixtures", () => {
     expect(parseFloat(slot.style.getPropertyValue("--pr-unit"))).toBeGreaterThan(0);
   });
 
-  it("moves the prompt off your field while a declared attack targets a monster of it", () => {
+  it("keeps the prompt in the middle of your field while an attack is declared on it", () => {
     const { container, rerender } = render(<Shell id="chain-2" attackOn={0} />);
-    // The ring on the target and the end of the arrow stay clear: the prompt takes the free room, not the middle of your field.
-    expect(container.querySelector("[data-prompt-center]")).toBeNull();
-    // An attack on a rival's monster leaves the prompt where it is.
+    const middle = (node: ParentNode) => parseFloat(node.querySelector<HTMLElement>('[data-slot="prompt"]')!.style.getPropertyValue("--pr-cx"));
+    expect(container.querySelector("[data-prompt-center]")).not.toBeNull();
+    const own = middle(container);
     rerender(<Shell id="chain-2" attackOn={1} />);
     expect(container.querySelector("[data-prompt-center]")).not.toBeNull();
+    expect(middle(container)).toBe(own);
   });
 
   it("draws one LP panel per seat and one seat field per seat", () => {

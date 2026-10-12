@@ -38,7 +38,9 @@ import { zoneKey } from "../constants";
 import { isChainStripPrompt } from "../prompt-center";
 import { ViewReset } from "./view-reset";
 import { sameRects } from "./rect-util";
-import { FOLLOW_ATTR, followShift, followTransform, visibleRect } from "./view-zoom";
+import { FOLLOW_ATTR, followShift, followTransform } from "./view-zoom";
+import { centeredPromptBox } from "./prompt-box";
+import { usePromptDodge } from "./prompt-dodge";
 import zoomStyles from "./view-zoom.module.css";
 import type { TableStageViewProps } from "./table-stage";
 import styles from "./grid-stage.module.css";
@@ -549,24 +551,29 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     return { ...fit, left: band.rect.x, top: band.rect.y, translate: followShift(band.rect.x, band.rect.y), scale: "var(--vz-s, 1)", transformOrigin: "0 0" };
   })();
 
-  // Every prompt sits in the middle of YOUR pair (the half of the table where your field is), as the 1v1 room puts it in
-  // the middle of the board; a spectator's, the pair in focus (else the middle of the table). The prompt slot carries that box as --pr-* (board px) for the panels and the yes/no bar.
+  // Every prompt sits in the middle of the screen: the middle of the board across, and the middle of the fields' band
+  // (both pairs, under the plates and over your hand) down, so no plate is under it. It is the same at home, in a focus
+  // and under a zoom (the prompt is not part of the zoomed world); only a new layout of the fields moves it. The pair that
+  // is yours (a spectator's, the pair in focus) only gives the size unit. The prompt slot carries the box as --pr-* (board px)
+  // for the panels and the yes/no bar.
   const promptColumn: 0 | 1 | null = viewerSeat != null ? homeColumn : focusCell?.column ?? null;
-  const pairFrame = promptColumn != null ? frames[promptColumn] : null;
-  // Under a zoom the prompts keep their size and sit in the part of that pair that is on the screen (the whole board
-  // when none of it is); the pick bar plans its room there too, from the targets as they show after the zoom.
-  const promptPair = pairFrame && zoom.zoomed ? visibleRect(zoom.view, pairFrame, box) ?? { x: 0, y: 0, width: box.width, height: box.height } : pairFrame;
+  const pairFrame = (promptColumn != null ? frames[promptColumn] : null) ?? frames[0] ?? frames[1];
+  const promptPair = pairFrame ? centeredPromptBox(box, frames) : null;
+  // The phase hub can stand in the middle band: a prompt that would cover it steps sideways off it (never leaves the middle row).
+  const slotRef = useRef<HTMLDivElement>(null);
+  const dodge = usePromptDodge(rootRef, slotRef, promptCenter != null && promptPair != null, `${controller.prompt?.id ?? ""}|${frameKey}|${box.width}x${box.height}|${zoom.zoomed ? 1 : 0}|${hubPlace}`);
   const promptStyle = promptPair && pairFrame
     ? ({
+        ["--pr-dx" as string]: `${dodge}px`,
         ["--pr-cx" as string]: `${Math.round(promptPair.x + promptPair.width / 2)}px`,
         ["--pr-cy" as string]: `${Math.round(promptPair.y + promptPair.height / 2)}px`,
-        ["--pr-w" as string]: `${Math.round(promptPair.width)}px`,
+        ["--pr-w" as string]: `${Math.round(Math.min(promptPair.width, pairFrame.width))}px`,
         ["--pr-h" as string]: `${Math.round(promptPair.height)}px`,
         ["--pr-unit" as string]: `${promptUnit(pairFrame.height)}px`,
       } as CSSProperties)
     : undefined;
 
-  // The pick bar (zone and card picks) is in that pair too, near its middle, and never over a target: the boxes of the
+  // The pick bar (zone and card picks) is near that middle too, and never over a target: the boxes of the
   // legal zones and cards are measured when the targets change and again once the fields stand still (a FLIP moves them). The prompt reads `data-bar-room` as "x,y,width,height" in board pixels and follows it.
   const [targets, setTargets] = useState<readonly GridRect[]>([]);
   const [zones, setZones] = useState<readonly GridRect[]>([]);
@@ -609,6 +616,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     count: stripCount,
     box,
     anchor: stripAnchor,
+    fixed: promptPair,
     keyHud: KEY_HUD,
     controlsHud: STRIP_CONTROLS_HUD,
     softHud: STRIP_SOFT_HUD,
@@ -873,7 +881,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       </div>
       <ViewReset zoomed={zoom.zoomed} scale={zoom.view.s} onReset={zoom.reset} board={rootRef} style={{ right: 10, top: 44 }} />
       {fx ? <div className={styles.slot} data-slot="fx">{fx}</div> : null}
-      {promptCenter ? <div className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-pair={promptPair ? promptColumn ?? undefined : undefined} data-prompt-dense={promptPair ? "true" : undefined} style={promptStyle}>{promptCenter}</div> : null}
+      {promptCenter ? <div ref={slotRef} className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-pair={promptPair ? promptColumn ?? undefined : undefined} data-prompt-dense={promptPair ? "true" : undefined} style={promptStyle}>{promptCenter}</div> : null}
       {overlay ? <div className={styles.slot} data-slot="overlay">{overlay}</div> : null}
     </div>
   );
