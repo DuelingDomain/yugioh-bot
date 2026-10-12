@@ -26,7 +26,7 @@ const request = (body: unknown, headers?: HeadersInit) => new Request("http://te
   method: "POST", headers, body: JSON.stringify(body),
 });
 const row = (name = "Blue-Eyes", value: unknown = deck()) => ({ name, deck: value });
-const previewRows = async (sources = [source()]) => (await (await preview(request({ sources }))).json()).rows;
+const previewRows = async (sources: unknown[] = [source()]) => (await (await preview(request({ sources }))).json()).rows;
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -90,6 +90,49 @@ describe("import request boundary", () => {
 });
 
 describe("preview", () => {
+  it("accepts an omitted source name and defaults to Standard", async () => {
+    const response = await preview(request({ sources: [{ id: "paste", text: "#main\n89631139" }] }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).rows[0]).toMatchObject({ sourceId: "paste", name: "Untitled deck", mode: "standard", errors: [] });
+  });
+
+  it.each(["normal", "invalid", null, 1])("rejects invalid source mode %s before resolution", async mode => {
+    expect((await preview(request({ sources: [{ ...source(), mode }] }))).status).toBe(400);
+    expect(mocks.callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it("echoes Standard and retains its lone Side card", async () => {
+    const [shown] = await previewRows([{ ...source("#main\n89631139\n!side\n46986414"), mode: "standard" }]);
+    expect(shown).toMatchObject({ mode: "standard", deck: { ...deck(), side: [46986414] }, counts: { main: 1, extra: 0, side: 1 } });
+    expect(mocks.callDuelHost).not.toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck-master" }));
+  });
+
+  it.each([
+    "#main\n89631139\n!side\n101402052",
+    encodeYdke({ ...deck(), side: [101402052] }),
+  ])("moves and resolves a lone Domain Side card into Deck Master for %s", async text => {
+    const [shown] = await previewRows([{ ...source(text), mode: "domain" }]);
+    expect(shown).toMatchObject({ mode: "domain", deck: { ...deck(), deckMaster: 40235813 }, counts: { main: 1, extra: 0, side: 0 }, errors: [] });
+    expect(shown.warnings).toContainEqual(expect.objectContaining({ code: "remapped", from: 101402052, to: 40235813 }));
+    expect(mocks.callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck-master", deck: { main: [], extra: [], side: [], deckMaster: 40235813 } }));
+  });
+
+  it("keeps Domain mode for each split line, including a malformed line", async () => {
+    const rows = await previewRows([{ ...source("ydke://!!!\r\nydke://broken\r\nydke://!!!"), mode: "domain" }]);
+    expect(rows.map((shown: { mode: string }) => shown.mode)).toEqual(["domain", "domain", "domain"]);
+    expect(rows[1].errors.length).toBeGreaterThan(0);
+  });
+
+  it("selects Domain for an explicit #deckmaster as the existing library importer does", async () => {
+    const [shown] = await previewRows([{ ...source("#deckmaster\n46986414\n#main\n89631139\n!side\n14558127"), mode: "standard" }]);
+    expect(shown).toMatchObject({ mode: "domain", deck: { ...deck(), deckMaster: 46986414, side: [14558127] }, errors: [] });
+  });
+
+  it("keeps an unfinished Domain deck with multiple Side cards for editing", async () => {
+    const [shown] = await previewRows([{ ...source("#main\n89631139\n!side\n46986414\n14558127"), mode: "domain" }]);
+    expect(shown).toMatchObject({ mode: "domain", deck: { ...deck(), side: [46986414, 14558127] }, errors: [] });
+  });
+
   it("returns contract fields, normalized names, counts and size warnings", async () => {
     const response = await preview(request({ sources: [source()] }));
     expect(response.status).toBe(200);
@@ -180,6 +223,53 @@ describe("preview", () => {
 });
 
 describe("bulk", () => {
+  it("saves Standard by default, explicit Domain, and unfinished Domain without a master", async () => {
+    const response = await bulk(request({ rows: [
+      row("Default", { ...deck(), side: [46986414] }),
+      { ...row("Domain", { ...deck(), side: [101402052] }), mode: "domain" },
+      { ...row("Unfinished"), mode: "domain" },
+      { ...row("Standard"), mode: "standard" },
+    ] }));
+    const { created, failed } = await response.json();
+    expect(failed).toEqual([]);
+    expect(created).toHaveLength(4);
+    const stored = decks.list("g", 1);
+    expect(stored.find(d => d.name === "Default")).toMatchObject({ mode: "normal", deck: { side: [46986414] } });
+    expect(stored.find(d => d.name === "Domain")).toMatchObject({ mode: "domain", deck: { side: [], deckMaster: 40235813 } });
+    expect(stored.find(d => d.name === "Unfinished")?.mode).toBe("domain");
+    expect(stored.find(d => d.name === "Standard")?.mode).toBe("normal");
+  });
+
+  it("rechecks a Domain row whose master was moved back into Side after preview", async () => {
+    const [shown] = await previewRows([{ ...source("#main\n89631139\n!side\n46986414"), mode: "domain" }]);
+    const response = await bulk(request({ rows: [{ name: shown.name, mode: shown.mode, deck: { ...shown.deck, deckMaster: null, side: [55144522] } }] }));
+    // The edited Side card must become the master and pass the ordinary library save check.
+    expect((await response.json()).failed).toEqual([]);
+    expect(decks.list("g", 1)[0]).toMatchObject({ mode: "domain", deck: { side: [], deckMaster: 55144522 } });
+    expect(mocks.callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck-master", deck: { main: [], extra: [], side: [], deckMaster: 55144522 } }));
+  });
+
+  it("rejects forged modes per row and still saves an independent valid row", async () => {
+    const response = await bulk(request({ rows: [
+      { ...row("Bad mode"), mode: "normal" },
+      { ...row("Missing mode"), mode: null },
+      { ...row("Good"), mode: "domain" },
+    ] }));
+    const { created, failed } = await response.json();
+    expect(created).toEqual([{ id: expect.any(Number), name: "Good" }]);
+    expect(failed.map((f: { index: number }) => f.index)).toEqual([0, 1]);
+    expect(decks.list("g", 1)[0].mode).toBe("domain");
+  });
+
+  it("does not save a Domain lone Side card rejected by Deck Master validation", async () => {
+    mocks.callDuelHost.mockImplementation(async (input: { op: string; codes?: number[] }) => input.op === "validate-deck-master"
+      ? { ok: false, response: NextResponse.json({ error: "Spell cannot be Deck Master" }, { status: 400 }) }
+      : { ok: true, data: { codes: Object.fromEntries(input.codes!.map(id => [id, id])) } });
+    const response = await bulk(request({ rows: [{ ...row("Spell", { ...deck(), side: [55144522] }), mode: "domain" }] }));
+    expect((await response.json()).failed[0]).toMatchObject({ index: 0, errors: [{ code: "invalid_deck_master" }] });
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+
   it("revalidates each row and saves independent rows with remaps and artwork intact", async () => {
     const response = await bulk(request({ rows: [row("Good", deck([101402052, 89631133])), row("Unknown", deck([999])), row("Edited", deck([0])), row("Also good", deck([44508094]))] }));
     expect(response.status).toBe(200);

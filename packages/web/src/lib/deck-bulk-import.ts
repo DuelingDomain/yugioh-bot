@@ -10,12 +10,14 @@ export const MAX_IMPORT_DECKS = 50;
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_SOURCE_BYTES = 64 * 1024;
 type Actor = Extract<SavedDeckActor, { ok: true }>;
+export type ImportMode = "standard" | "domain";
 export type ImportIssue = FormatIssue & { passcode?: number; from?: number; to?: number };
 type Duplicate = { kind: "saved"; deckId: number; name: string } | { kind: "row"; rowId: string; name: string };
 export type ImportPreviewRow = {
   rowId: string;
   sourceId: string;
   name: string;
+  mode: ImportMode;
   deck: DeckSections;
   counts: { main: number; extra: number; side: number };
   errors: ImportIssue[];
@@ -25,6 +27,8 @@ export type ImportPreviewRow = {
 const emptyDeck = (): DeckSections => ({ main: [], extra: [], side: [], deckMaster: null });
 const errorResponse = (error: string, status = 400) => NextResponse.json({ error }, { status });
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+const isImportMode = (value: unknown): value is ImportMode => value === "standard" || value === "domain";
+const importMode = (mode: DuelMode): ImportMode => mode === "domain" ? "domain" : "standard";
 
 /** Enforce the actual streamed JSON byte count, including requests without Content-Length. */
 export async function readImportBody(request: Request): Promise<
@@ -64,19 +68,26 @@ export function checkImportList(value: unknown): value is unknown[] {
 }
 export const importListError = (label: string) => errorResponse(`Provide between 1 and ${MAX_IMPORT_DECKS} ${label}`);
 
-/** null is the public no-master value; storage uses an omitted property. Mode follows the existing file importer. */
+/** Match prepareDeckImport/importForLibrary: explicit master selects Domain; a lone Domain Side card becomes the master. */
 export function validateImportRow(value: unknown):
   | { ok: true; name: string; mode: DuelMode; deck: DuelDeck }
   | { ok: false; errors: ImportIssue[] } {
   try {
     if (!isRecord(value)) throw new SavedDeckServiceError("Expected a deck row", 400);
+    if (value.mode !== undefined && !isImportMode(value.mode)) {
+      throw new SavedDeckServiceError("Import mode must be standard or domain", 400);
+    }
     let deck = value.deck;
-    const mode: DuelMode = isRecord(deck) && deck.deckMaster != null ? "domain" : "normal";
+    const mode: DuelMode = value.mode === "domain" || (isRecord(deck) && deck.deckMaster != null) ? "domain" : "normal";
     if (isRecord(deck) && deck.deckMaster === null) {
       const { deckMaster: _master, ...rest } = deck;
       deck = rest;
     }
-    return { ok: true, ...validateSavedDeckWrite({ name: value.name, mode, deck }) };
+    const valid = validateSavedDeckWrite({ name: value.name, mode, deck });
+    if (valid.mode === "domain" && valid.deck.deckMaster == null && valid.deck.side.length === 1) {
+      valid.deck = { ...valid.deck, side: [], deckMaster: valid.deck.side[0] };
+    }
+    return { ok: true, ...valid };
   } catch (error) {
     if (!(error instanceof SavedDeckServiceError)) throw error;
     return { ok: false, errors: [{ code: "invalid_deck", message: error.message }] };
@@ -89,9 +100,13 @@ export function parseImportSources(sources: unknown[]): { ok: true; rows: Import
   let ydkeNumber = 0;
   for (const source of sources) {
     if (!isRecord(source) || typeof source.id !== "string" || !source.id.trim() || ids.has(source.id)
-      || typeof source.name !== "string" || typeof source.text !== "string") {
-      return { ok: false, response: errorResponse("Each source needs a unique string id, name and text") };
+      || (source.name !== undefined && typeof source.name !== "string") || typeof source.text !== "string") {
+      return { ok: false, response: errorResponse("Each source needs a unique string id and text, with an optional string name") };
     }
+    if (source.mode !== undefined && !isImportMode(source.mode)) {
+      return { ok: false, response: errorResponse("Import mode must be standard or domain") };
+    }
+    const sourceMode: ImportMode = source.mode ?? "standard";
     const sourceId = source.id;
     ids.add(sourceId);
     if (Buffer.byteLength(source.text, "utf8") > MAX_SOURCE_BYTES) {
@@ -101,6 +116,8 @@ export function parseImportSources(sources: unknown[]): { ok: true; rows: Import
     if (rows.length + inputs.length > MAX_IMPORT_DECKS) return { ok: false, response: importListError("decks") };
     inputs.forEach((input, index) => {
       let deck: DeckSections = emptyDeck();
+      // The current library picker defaults to Standard; there is no persisted user mode preference.
+      let mode: ImportMode = sourceMode;
       let errors: ImportIssue[] = [];
       if (input.kind === "ydke") {
         const parsed = decodeYdke(input.text);
@@ -113,10 +130,14 @@ export function parseImportSources(sources: unknown[]): { ok: true; rows: Import
       }
       const name = input.kind === "ydke" ? `Imported deck ${++ydkeNumber}` : input.name;
       if (errors.length === 0) {
-        const valid = validateImportRow({ name, deck });
+        const valid = validateImportRow({ name, deck, mode });
         if (!valid.ok) errors = valid.errors;
+        else {
+          mode = importMode(valid.mode);
+          deck = { ...valid.deck, deckMaster: valid.deck.deckMaster ?? null };
+        }
       }
-      rows.push({ rowId: `${sourceId}#${index}`, sourceId, name, deck,
+      rows.push({ rowId: `${sourceId}#${index}`, sourceId, name, mode, deck,
         counts: { main: deck.main.length, extra: deck.extra.length, side: deck.side.length }, errors, warnings: [] });
     });
   }
@@ -214,7 +235,7 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
       continue;
     }
     // Validate the resolved deck too. The service remains the authority for storage rules.
-    const final = validateImportRow({ name: row.name, deck: mapped.deck });
+    const final = validateImportRow({ name: row.name, deck: mapped.deck, mode: importMode(row.mode) });
     if (!final.ok) {
       failed.push({ index, errors: final.errors });
       continue;
