@@ -24,7 +24,7 @@ import {
 } from "./grid-layout";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
-import { ExitingSeat, RivalField } from "./rival-field";
+import { CRUMBLE_UNIT, ExitingSeat, RivalField } from "./rival-field";
 import { useSeatExits } from "./use-seat-exits";
 import { LOCATION_HAND } from "../constants";
 import { SEAT_Z } from "./geometry";
@@ -316,11 +316,15 @@ function moveFrame(el: HTMLElement, tracks: Map<string, FrameTrack>, key: string
   rest.anim = el.animate([px(from), px(next)], { duration, easing });
 }
 
-/** The pose of a seat that left, for its crumble: the centre of its box, upright size, turned like its field. */
-const exitPose = (seat: number, spot: GridCellRect, rotateDeg: 0 | 180): SeatPose => ({
+/**
+ * The pose of a seat that left, for its crumble: the centre of its box, upright size, turned like its field. The board has
+ * the width of the box the field had (a grid field is wider than a Master Rule 4 board), so it does not shrink before it shatters.
+ */
+export const exitPose = (seat: number, spot: GridCellRect, rotateDeg: 0 | 180): SeatPose => ({
   seat,
   x: spot.rect.x + spot.rect.width / 2,
   y: spot.rect.y + spot.rect.height / 2,
+  width: (spot.rect.width * CRUMBLE_UNIT) / spot.z,
   scale: 1,
   rotateDeg,
   z: spot.z,
