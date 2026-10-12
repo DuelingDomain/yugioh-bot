@@ -11,7 +11,7 @@ vi.mock("next/font/google", () => {
 
 import { LOCATION_DMZONE, LOCATION_MZONE } from "@/components/duel/constants";
 import { MasterDock, masterStatus } from "@/components/duel/field";
-import { masterInUse, masterPlace, masterSummonLine } from "@/components/duel/master-place";
+import { masterActionText, masterInUse, masterPlace, masterSummonLine } from "@/components/duel/master-place";
 import { detectMasterReturns } from "@/components/duel/master-return";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
@@ -188,5 +188,45 @@ describe("the Summon cost line", () => {
         onActivate={noop} onChooseAction={noop} onInspect={noop} showInUse />,
     );
     expect(screen.getByTestId("master-dock-summon").textContent).toBe("Summon: free");
+  });
+});
+
+describe("the Deck Master action text", () => {
+  const view = (nextCost: number) => seatView({ inZone: true, deckMaster: { card: info, inZone: true, returns: nextCost / 500, nextCost } });
+
+  it("adds the next cost to Summon and Set, and Free for the first", () => {
+    expect(masterActionText("Normal Summon Dark Magician Girl", view(500), true)).toBe("Summon · 500 LP");
+    expect(masterActionText("Set Dark Magician Girl", view(0), true)).toBe("Set · Free");
+    expect(masterActionText("Normal Summon Dark Magician Girl", view(1000), false)).toBe("Normal Summon Dark Magician Girl · 1,000 LP");
+  });
+
+  it("shows the cost once when the server label already ends in it", () => {
+    expect(masterActionText("Normal Summon Dark Magician Girl (costs 500 LP)", view(500), true)).toBe("Summon · 500 LP");
+    expect(masterActionText("Normal Summon Dark Magician Girl (costs 500 LP)", view(500), false)).toBe("Normal Summon Dark Magician Girl · 500 LP");
+    expect(masterActionText("Set Dark Magician Girl (costs 0 LP)", view(0), true)).toBe("Set · Free");
+  });
+
+  it("keeps the key words of an Activate label and drops the master's own name on the plate", () => {
+    const label = `Activate ${info.name}: Draw 1 card`;
+    expect(masterActionText(label, view(500), true)).toBe("Activate: Draw 1 card");
+    expect(masterActionText(label, view(500), false)).toBe(label);
+    expect(masterActionText(`${label} (costs 500 LP)`, view(500), true)).toBe("Activate: Draw 1 card · 500 LP");
+  });
+});
+
+describe("the plate buttons", () => {
+  it("show the cost, keep the full option text as the accessible name and never shorten an Activate label to an ellipsis", () => {
+    const options = [
+      { id: "s", label: "Normal Summon Dark Magician Girl", key: "s" },
+      { id: "a", label: `Activate ${info.name}: Draw 1 card, then discard 1 card` , key: "a" },
+    ] as never;
+    const dm = seatView({ inZone: true, deckMaster: { card: info, inZone: true, returns: 1, nextCost: 500 } });
+    render(
+      <GridMasterToken view={dm} local legalKeys={new Set()} selectedKeys={new Set()} canAct legalActionsFor={() => options} open={false}
+        title="Your Master" onToggle={noop} onClose={noop} onChooseAction={noop} onInspect={noop} showInUse />,
+    );
+    const buttons = screen.getAllByTestId("hud-master-action");
+    expect(buttons.map((b) => b.textContent)).toEqual(["Summon · 500 LP", "Activate: Draw 1 card, then discard 1 card"]);
+    expect(buttons[0].getAttribute("aria-label")).toBe("Normal Summon Dark Magician Girl");
   });
 });

@@ -478,10 +478,9 @@
   justify-content: center;
   gap: 5px;
   min-width: 0;
-  height: 30px;
-  padding: 0 4px;
+  min-height: 30px;
+  padding: 2px 4px;
   overflow: hidden;
-  white-space: nowrap;
   border: 1px solid var(--duel-rule);
   border-radius: 8px;
   background: rgb(239 231 213 / 0.04);
@@ -490,8 +489,17 @@
   font-size: calc(12px * var(--tt, 1));
   cursor: pointer;
 }
-/* A long label ends in an ellipsis at the right; the full text stays in the title and the accessible name. */
-.masterActionText { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* A long label wraps (three lines at most, then an ellipsis); the full text stays in the title and the accessible name. */
+.masterActionText {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-align: center;
+  line-height: 1.15;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
 .masterActions .masterInspect { flex: none; width: 30px; padding: 0; }
 .masterInspectText { display: none; }
 /* With no summon legal, Inspect is alone in the row: it fills it and shows its word. */

@@ -151,7 +151,7 @@ describe("the Deck Master token", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     render(<Shell state={masterState()} />);
     const actions = screen.getAllByTestId("hud-master-action");
-    expect(actions.map((button) => button.textContent)).toEqual(["Summon", "Set"]);
+    expect(actions.map((button) => button.textContent)).toEqual(["Summon · 1,000 LP", "Set · 1,000 LP"]);
     fireEvent.click(actions[1]);
     expect(info).toHaveBeenCalledWith("[table-preview] answer", expect.objectContaining({ answer: { choice: "dm-set" } }));
   });
@@ -159,10 +159,10 @@ describe("the Deck Master token", () => {
   it("shows short labels on the buttons and keeps the full option text as the accessible name", () => {
     render(<Shell state={masterState()} />);
     const [summon, set] = screen.getAllByTestId("hud-master-action");
-    expect(summon.textContent).toBe("Summon");
+    expect(summon.textContent).toBe("Summon · 1,000 LP");
     expect(summon.getAttribute("aria-label")).toBe("Normal Summon Sage with Eyes of Blue");
     expect(summon.getAttribute("title")).toBe("Normal Summon Sage with Eyes of Blue");
-    expect(set.textContent).toBe("Set");
+    expect(set.textContent).toBe("Set · 1,000 LP");
     expect(set.getAttribute("aria-label")).toBe("Set monster Sage with Eyes of Blue");
     expect(screen.getByRole("button", { name: "Normal Summon Sage with Eyes of Blue" })).toBe(summon);
     expect(screen.getByRole("button", { name: "Set monster Sage with Eyes of Blue" })).toBe(set);

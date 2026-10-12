@@ -40,7 +40,7 @@ import {
   zoneKey,
 } from "./constants";
 import { disabledZones } from "./multi-seat";
-import { findMasterCard, masterInUse, masterPlace, masterSummonLine, type MasterPlace } from "./master-place";
+import { findMasterCard, masterActionText, masterInUse, masterPlace, masterSummonLine, type MasterPlace } from "./master-place";
 import type { InspectTarget } from "./inspector";
 import { RivalHand } from "./table/rival-hand";
 import { hexToRgbTriplet, isStraight, labelTurnDeg, normalizeDeg, textScale } from "./table/seat-angle";
@@ -1295,9 +1295,10 @@ export function MasterDock({
                   className={styles.masterAction}
                   data-primary={index === 0 ? "true" : "false"}
                   disabled={!canAct}
+                  title={showInUse ? option.label : undefined}
                   onClick={() => onChooseAction(option)}
                 >
-                  {option.label}
+                  {showInUse ? masterActionText(option.label, view, false) : option.label}
                 </button>
               ))}
               <button type="button" className={styles.masterInspect} onClick={inspect}>
