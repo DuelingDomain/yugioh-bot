@@ -12,8 +12,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   try {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId);
     const pending = room.session.status === "lobby" || room.series?.status === "between_games";
-    // Only seated players need the host's repair and optional future-deck blocker.
-    if ((pending && room.mySeat === null) || (!pending && room.session.status !== "active" && !spectate)) {
+    const openingDue = room.session.status === "lobby" && room.opening
+      && Date.parse(room.opening.deadlineAt) <= Date.now();
+    // Spectators need the host only when an opening deadline has arrived.
+    if ((pending && room.mySeat === null && !openingDue) || (!pending && room.session.status !== "active" && !spectate)) {
       return NextResponse.json(redactDuelResult(room, actor.guildId, actor.playerId));
     }
     try {
@@ -22,7 +24,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
         ...(spectate ? { spectate: true } : {}),
       });
       if (result.ok) return NextResponse.json(result.data);
-      if (!pending) return result.response;
+      if (!pending || result.response.status < 500 || result.response.status >= 600) return result.response;
     } catch (error) {
       if (!pending) throw error;
     }
