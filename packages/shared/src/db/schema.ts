@@ -951,6 +951,7 @@ export function migrate(db: Database.Database) {
       check ((result='verified' and reason is null) or (result='unverified' and reason is not null))
     );
   `);
+  addColumnIfMissing(db, "duel_replay_verifications", "core_family", "text check (core_family in ('legacy','pinned','multi'))");
 
   db.transaction(() => {
     const seatInfo = db.prepare<[], { name: string; notnull: number }>("pragma table_info(duel_seats)").all();

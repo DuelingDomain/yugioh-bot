@@ -65,6 +65,153 @@ function changeSaved(seat: number | null, change: (view: DuelEngineView) => void
   db.prepare(`update duels set ${column}=? where id=?`).run(JSON.stringify(view), duelId);
 }
 
+function unknownChoice() {
+  db.prepare("update duels set setup_json=json_remove(setup_json,'$.engine','$.engineIdentity') where id=?").run(duelId);
+  vi.mocked(EngineResourceCache.prototype.get).mockImplementation(async (_directory, choice) => ({ dataDirectory: dir,
+    bundleVersion: currentBundleVersion, rawBundleVersion: currentBundleVersion,
+    identity: { ...identity, coreFamily: choice.engine ?? "legacy" } }));
+}
+function failFamily(worker: ReplayWorker, family: "legacy" | "pinned", reason: "command_mismatch" | "board_mismatch") {
+  const view = worker.view.bind(worker);
+  worker.view = async seat => {
+    const state = await view(seat);
+    if (worker.created?.engine === family) {
+      if (reason === "board_mismatch") state.seats[0]!.lp--;
+      else if (state.prompt) state.prompt.id = "different-prompt";
+    }
+    return state;
+  };
+}
+
+it.each(["command_mismatch", "board_mismatch"] as const)("verifies an unknown choice on pinned after legacy %s", async reason => {
+  unknownChoice(); configure = worker => failFamily(worker, "legacy", reason);
+  const before = createDuelService(db).privateState(slug, owner.guildId);
+  const results = await Promise.all([post(), post(), post()]);
+  expect(results.every(result => result.status === 200 && result.body.verification === "verified")).toBe(true);
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy", "pinned"]);
+  expect(workers.every(worker => !worker.running)).toBe(true);
+  expect(db.prepare("select result,reason,core_family from duel_replay_verifications where duel_id=?").get(duelId))
+    .toEqual({ result: "verified", reason: null, core_family: "pinned" });
+  expect(createDuelService(db).privateState(slug, owner.guildId)).toEqual(before);
+});
+it.each(["command_mismatch", "board_mismatch"] as const)("refuses an unknown choice when both families have %s", async reason => {
+  unknownChoice(); configure = worker => { failFamily(worker, "legacy", reason); failFamily(worker, "pinned", reason); };
+  for (let request = 0; request < 2; request++) {
+    expect(await post()).toMatchObject({ status: 409, body: { code: "REPLAY_UNVERIFIED", reason } });
+  }
+  await host.close(); start();
+  expect((await post()).body.code).toBe("REPLAY_UNVERIFIED");
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy", "pinned"]);
+  expect(checks()).toHaveLength(1);
+});
+it.each(["legacy", "pinned"] as const)("never tries another family for saved choice %s without an identity", async engine => {
+  unknownChoice(); db.prepare("update duels set setup_json=json_set(setup_json,'$.engine',?) where id=?").run(engine, duelId);
+  configure = worker => failFamily(worker, engine, "board_mismatch");
+  expect(await post()).toMatchObject({ status: 409, body: { code: "REPLAY_UNVERIFIED", reason: "board_mismatch" } });
+  expect(workers.map(worker => worker.created?.engine)).toEqual([engine]);
+});
+it("never tries another family for a recorded identity without a saved choice", async () => {
+  cross(); configure = worker => failFamily(worker, "legacy", "command_mismatch");
+  expect(await post()).toMatchObject({ status: 409, body: { code: "REPLAY_UNVERIFIED", reason: "command_mismatch" } });
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy"]);
+});
+it("does not try either family for an unknown choice without all saved boards", async () => {
+  unknownChoice(); db.prepare("update duels set snapshot_seat1_json=null where id=?").run(duelId);
+  expect(await post()).toMatchObject({ status: 409, body: { code: "REPLAY_UNVERIFIED", reason: "no_saved_board" } });
+  expect(workers).toHaveLength(0);
+});
+it("reuses the recorded family for another projection, after restart, and for a fork", async () => {
+  unknownChoice(); configure = worker => failFamily(worker, "legacy", "command_mismatch");
+  const replay = await post({ op: "owner-replay", ...owner }); expect(replay.status).toBe(200);
+  expect((await post({ visibility: "public" })).status).toBe(200);
+  await host.close(); start();
+  expect((await post()).status).toBe(200);
+  const fork = await post({ op: "replay-fork", ...owner, cursor: replay.body.frames[1].cursor,
+    sourceVersion: replay.body.sourceVersion, requestId: "unknown-choice-fork" });
+  expect(fork.status).toBe(200);
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy", "pinned", "pinned", "pinned", "pinned"]);
+  expect(createDuelService(db).privateState(fork.body.slug, owner.guildId).setup)
+    .toMatchObject({ engine: "pinned", engineIdentity: { coreFamily: "pinned" } });
+  expect((await post({ op: "fork-restart", slug: fork.body.slug, ...owner })).status).toBe(200);
+});
+it.each(["command_mismatch", "board_mismatch"] as const)("keeps unchecked unknown-choice views on default legacy after %s without replacing a stored pinned pass", async reason => {
+  unknownChoice(); configure = worker => failFamily(worker, "legacy", reason);
+  expect((await post()).status).toBe(200);
+  expect(await post({ op: "owner-replay", ...owner, unchecked: true }))
+    .toMatchObject(reason === "command_mismatch" ? { status: 409, body: { code: "REPLAY_UNVERIFIED", reason } }
+      : { status: 200, body: { verification: "unverified" } });
+  expect((await post()).status).toBe(200);
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy", "pinned", "legacy"]);
+  expect(checks()[0]).toMatchObject({ result: "verified" });
+});
+it("returns the retry code without storing a failure if a second family risks the shared time budget", async () => {
+  unknownChoice();
+  const realNow = Date.now.bind(Date); let elapsed = 0;
+  vi.spyOn(Date, "now").mockImplementation(() => realNow() + elapsed);
+  configure = worker => {
+    const create = worker.create.bind(worker);
+    worker.create = async options => { await create(options); if (options.engine === "legacy") elapsed += 14_000; };
+    failFamily(worker, "legacy", "command_mismatch");
+  };
+  expect(await post()).toMatchObject({ status: 503, body: { code: "REPLAY_VERIFIED_RETRY" } });
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy"]);
+  expect(checks()).toEqual([]);
+});
+it("invalidates the recorded family when its installed identity changes under the same bundle", async () => {
+  unknownChoice(); configure = worker => failFamily(worker, "legacy", "command_mismatch");
+  expect((await post()).status).toBe(200);
+  const before = db.prepare("select resource_stamp from duel_replay_verifications where duel_id=?").get(duelId);
+  vi.mocked(EngineResourceCache.prototype.get).mockImplementation(async (_directory, choice) => ({ dataDirectory: dir,
+    bundleVersion: currentBundleVersion, rawBundleVersion: currentBundleVersion,
+    identity: { ...identity, coreFamily: choice.engine ?? "legacy", ...(choice.engine === "pinned" ? { wasmHash: "e".repeat(64) } : {}) } }));
+  expect((await post()).status).toBe(200);
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy", "pinned", "legacy", "pinned"]);
+  expect(db.prepare("select resource_stamp from duel_replay_verifications where duel_id=?").get(duelId)).not.toEqual(before);
+});
+it("does not retry transient worker failures on the other family", async () => {
+  unknownChoice(); configure = worker => { worker.create = async () => { throw new Error("Worker unavailable"); }; };
+  expect(await post()).toMatchObject({ status: 503, body: { code: "ENGINE_BUSY" } });
+  expect(workers).toHaveLength(1); expect(workers[0]!.running).toBe(false); expect(checks()).toEqual([]);
+});
+it("rechecks a failed unknown choice when the other family becomes installed", async () => {
+  unknownChoice(); const get = vi.mocked(EngineResourceCache.prototype.get).getMockImplementation()!;
+  vi.mocked(EngineResourceCache.prototype.get).mockImplementation(async (directory, choice) => {
+    if (choice.engine === "pinned") throw new EngineResourceUnavailableError("fixture family is not installed");
+    return get(directory, choice);
+  });
+  configure = worker => failFamily(worker, "legacy", "command_mismatch");
+  expect(await post()).toMatchObject({ status: 409, body: { code: "REPLAY_UNVERIFIED", reason: "command_mismatch" } });
+  expect(workers).toHaveLength(1);
+  vi.mocked(EngineResourceCache.prototype.get).mockImplementation(get);
+  expect((await post()).status).toBe(200);
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy", "legacy", "pinned"]);
+});
+it("checks both families before a cold fork and launches pinned only on retry", async () => {
+  unknownChoice(); configure = worker => failFamily(worker, "legacy", "command_mismatch");
+  const state = createDuelService(db).privateState(slug, owner.guildId);
+  const { engineIdentity, ...setup } = state.setup!;
+  const source: ReplaySource = { session: state.session, decks: state.decks, seed: state.seed as ReplaySource["seed"],
+    bundleVersion: state.bundleVersion!, engineIdentity: engineIdentity ?? null, setup, commands: state.commands };
+  const sourceVersion = replaySourceVersion(source);
+  const cursor = createReplayCursorCodec(secret).seal({ sourceId: duelId, sourceSlug: slug, guildId: owner.guildId,
+    sourceVersion, frameId: replayFrameId(sourceVersion, 0), step: 0, prefixCount: 0, prefixHash: replayPrefixHash(source, 0), revision: 1 });
+  const input = { op: "replay-fork", ...owner, cursor, sourceVersion, requestId: "cold-unknown-choice-fork" };
+  expect(await post(input)).toMatchObject({ status: 503, body: { code: "REPLAY_VERIFIED_RETRY" } });
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy", "pinned"]);
+  expect(db.prepare("select * from replay_fork_requests").all()).toEqual([]);
+  const fork = await post(input); expect(fork.status).toBe(200);
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy", "pinned", "pinned"]);
+  expect(createDuelService(db).privateState(fork.body.slug, owner.guildId).setup?.engine).toBe("pinned");
+});
+it("uses the recorded verified family for a fork even when unchecked is requested", async () => {
+  unknownChoice(); configure = worker => failFamily(worker, "legacy", "command_mismatch");
+  const replay = await post({ op: "owner-replay", ...owner }); expect(replay.status).toBe(200);
+  const fork = await post({ op: "replay-fork", ...owner, cursor: replay.body.frames[1].cursor,
+    sourceVersion: replay.body.sourceVersion, requestId: "verified-unknown-unchecked-fork", unchecked: true });
+  expect(fork.status).toBe(200);
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy", "pinned", "pinned"]);
+});
+
 it("keeps the exact v1/v2 path and does not store a check", async () => {
   for (const version of [1, 2]) expect(await post({ version })).toMatchObject({ status: 200, body: { verification: "exact" } });
   expect(checks()).toEqual([]); expect(workers).toHaveLength(1);

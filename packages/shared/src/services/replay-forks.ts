@@ -195,8 +195,10 @@ export function createReplayForkService(db: Database.Database): ReplayForkServic
     const setup = forkSetup(input.source, replayFork), source = input.source;
     if (input.resources) {
       const identity = input.resources.engineIdentity;
+      const unknownChoice = source.session.format === "1v1" && source.engineIdentity === null && source.setup?.engine == null;
       if (!isEngineIdentity(identity) || identity.mode !== source.session.mode
-        || identity.coreFamily !== (source.session.format === "1v1" ? sourceEngineChoice(source) : "multi")
+        || (unknownChoice ? identity.coreFamily === "multi"
+          : identity.coreFamily !== (source.session.format === "1v1" ? sourceEngineChoice(source) : "multi"))
         || !input.resources.bundleVersion.trim() || typeof input.resources.firstTurnDraw !== "boolean"
         || (input.resources.scriptErrorMode !== "strict" && input.resources.scriptErrorMode !== "tolerant")) mismatch("Invalid selected fork resources");
       setup.engineIdentity = identity;

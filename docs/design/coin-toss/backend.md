@@ -73,6 +73,11 @@ FFA4 and Tag. Neither depends on the viewer's hidden cards.
 Replay and recovery run the saved answers and seed through the same event path.
 They reproduce the toss results, source, event ID and log link. Replay deltas keep
 each event once; `buildReplayTimeline` retains the link through seeking.
+Checked replay of an old 1v1 source with no saved engine choice or identity may
+try the other installed family once after a command or board mismatch, only
+with complete saved boards. Later checked views and forks use the family that
+verified. Unchecked views keep the shared default family. Both attempts share
+the existing verification budget; see replay-fork spec section 7.6.
 Snapshots retain the normal 400-event/400-line window. Repeated reads do not
 create events. Follow MoveFx's `collectFreshEvents`, `replayFrom` and `skipThrough`
 rules: on an ordinary mount, start the cursor at `maxEventId(events)`; on an
