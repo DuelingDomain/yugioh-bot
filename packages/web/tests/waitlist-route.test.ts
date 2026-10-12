@@ -54,6 +54,8 @@ beforeEach(async () => {
   vi.resetModules();
   vi.resetAllMocks();
   vi.stubEnv("CLERK_SECRET_KEY", "test-secret");
+  vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", undefined);
+  vi.stubEnv("DISCORD_JOIN_REQUEST_ALERTS_ENABLED", "1");
   state.events = [];
   state.createBackend.mockReturnValue({ createWaitlistEntry: state.createWaitlistEntry });
   state.createWaitlistEntry.mockImplementation(async ({ emailAddress }: { emailAddress: string }) => {
@@ -70,9 +72,48 @@ afterEach(() => {
   if (state.db?.open) state.db.close();
   vi.useRealTimers();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("POST /api/waitlist", () => {
+  it("alerts once for duplicate marketing or app requests", async () => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    expect((await post(json({ email: "player@example.test", source: "hero" }))).status).toBe(201);
+    expect((await post(json({ email: " PLAYER@EXAMPLE.TEST ", source: "app-not-invited" }))).status).toBe(200);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(state.createWaitlistEntry).toHaveBeenCalledTimes(2);
+  });
+
+  it("succeeds with Discord still pending and after Discord fails", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, options) => new Promise((_resolve, reject) => {
+      options!.signal!.addEventListener("abort", () => reject(new Error("private webhook data")));
+    }));
+    vi.stubGlobal("fetch", fetcher);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect((await post(json())).status).toBe(201);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0][1]!.signal!.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetcher.mock.calls[0][1]!.signal!.aborted).toBe(true);
+    expect((await post(json())).status).toBe(200);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("alerts a saved request even when Clerk needs a retry, without a duplicate on recovery", async () => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    state.createWaitlistEntry.mockRejectedValueOnce(new Error("Clerk unavailable"));
+    expect((await post(json())).status).toBe(503);
+    expect((await post(json())).status).toBe(200);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("joins anonymously and never echoes the email", async () => {
     const response = await post(json({ email: " Player@Example.COM ", source: "hero" }));
     expect(response.status).toBe(201);

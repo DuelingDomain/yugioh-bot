@@ -1,5 +1,8 @@
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { notifyJoinRequest } from "../../src/notify/index.js";
@@ -106,6 +109,28 @@ describe("join request notifications", () => {
     expect(claims()).toHaveLength(1);
   });
 
+  it("deduplicates separate database connections and retains claims after reopening", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "join-alert-test-"));
+    const file = join(directory, "test.sqlite");
+    const first = new Database(file);
+    let second: Database.Database | undefined;
+    try {
+      migrate(first);
+      second = new Database(file);
+      await Promise.all([notifyJoinRequest(first, notice), notifyJoinRequest(second, notice)]);
+      second.close();
+      first.close();
+      second = new Database(file);
+      migrate(second);
+      await notifyJoinRequest(second, notice);
+      expect(fetcher).toHaveBeenCalledOnce();
+    } finally {
+      if (first.open) first.close();
+      if (second?.open) second.close();
+      rmSync(directory, { recursive: true });
+    }
+  });
+
   it("keeps join and sign-up alerts separate for the same person", async () => {
     vi.stubEnv("DISCORD_SIGNUP_ALERTS_ENABLED", "1");
     await notifyJoinRequest(db, notice);
@@ -175,6 +200,19 @@ describe("join request notifications", () => {
     await pending;
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls[1][1]!.body).toBe(fetcher.mock.calls[0][1]!.body);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("also bounds reading a slow 429 body with the HTTP timeout", async () => {
+    vi.useFakeTimers();
+    fetcher.mockImplementation(async (_url, options) => ({
+      status: 429, ok: false, headers: new Headers(),
+      json: () => new Promise((_resolve, reject) => options!.signal!.addEventListener("abort", () => reject(new Error("timeout")))),
+    } as Response));
+    const pending = notifyJoinRequest(db, notice);
+    await vi.advanceTimersByTimeAsync(2000);
+    await expect(pending).resolves.toBeUndefined();
+    expect(fetcher).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
   });
 
