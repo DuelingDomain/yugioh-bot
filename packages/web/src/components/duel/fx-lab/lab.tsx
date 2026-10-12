@@ -486,6 +486,7 @@ export function FxLab() {
                     onActivate={noop}
                     onChooseAction={noop}
                     onInspect={noop}
+                    showInUse
                   />
                 </aside>
               ) : null}
