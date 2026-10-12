@@ -61,6 +61,22 @@ afterEach(() => {
 });
 
 describe("POST /api/cards/resolve listText", () => {
+  it("shares one engine map across all entries in a list preview", async () => {
+    const services = await import("@yugidraft/shared/services");
+    const engine = new Map([
+      [1, { name: "Fixture Spell", type: 2 }], [2, { name: "Fixture Synchro", type: 0x2001 }],
+      [3, { name: "Fixture Monster", type: 0x21 }],
+    ]);
+    const load = vi.spyOn(services, "loadArtworkIdentityCatalog").mockReturnValue(engine);
+    const create = vi.spyOn(services, "createDeckTypeLookup");
+    try {
+      const response = await resolve({ listText: "1\n2\n3" });
+      expect(response.status).toBe(200);
+      expect((await response.json()).entries.map((entry: { pool: string }) => entry.pool)).toEqual(["main", "extra", "main"]);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(create).toHaveBeenCalledWith(db, engine);
+    } finally { load.mockRestore(); create.mockRestore(); }
+  });
   it("reports a 20,000 character line as unknown without a lookup and resolves the other lines", async () => {
     const long = `Dark Hole ${"(note) ".repeat(3300)}`;
     const started = performance.now();

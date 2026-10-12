@@ -2,7 +2,7 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
-import { createDraftService, createDeckTypeLookup, createCardCatalogService, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
+import { createDraftService, createDeckTypeLookup, createCardCatalogService, loadArtworkIdentityCatalog, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { CardListError } from "@/lib/card-list-parser";
@@ -73,10 +73,11 @@ async function handlePOST(request: Request) {
     }
     try {
       // This preparation only resolves/warm-caches cards; it never opens a cube write transaction.
-      const resolved = await prepareCubeListImport(catalog, body.listText);
+      const engine = loadArtworkIdentityCatalog();
+      const resolved = await prepareCubeListImport(catalog, body.listText, engine);
       const cards = catalog.findByIds(resolved.entries.map((entry) => entry.id));
       const byId = new Map(cards.map((card) => [card.ygoprodeckId, card]));
-      const findType = createDeckTypeLookup(db);
+      const findType = createDeckTypeLookup(db, engine).snapshot();
       let movedToMain = 0;
       const entries = resolved.entries.map((entry) => {
         const extra = isExtraDeckFrame(findType(entry.id) ?? byId.get(entry.id));

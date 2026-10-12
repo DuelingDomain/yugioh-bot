@@ -211,14 +211,16 @@ export function createDraftDeckService(db: Database.Database, engine?: CardIdent
      from tournaments t where t.id = ?`,
   );
 
-  const picksOf = (draftId: number, playerId: number) =>
-    selectPicks.all(draftId, playerId).map((row) => ({
+  const picksOf = (draftId: number, playerId: number) => {
+    const lookup = findType.snapshot();
+    return selectPicks.all(draftId, playerId).map((row) => ({
       catalogId: row.catalog_card_id,
       name: row.name,
       type: row.type,
-      deckType: findType(row.catalog_card_id)?.type ?? row.type,
+      deckType: lookup(row.catalog_card_id)?.type ?? row.type,
       forced: row.forced === 1,
     }));
+  };
 
   const service: DraftDeckService = {
     mainPoolCount(draftId, playerId) {

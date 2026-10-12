@@ -6,6 +6,29 @@ import { join } from "node:path";
 import { migrate } from "../../src/db/index.js";
 import { createDeckTypeLookup } from "../../src/services/deck-sections.js";
 import { assertExtraDeckCards } from "../../src/duels/extra-deck.js";
+import * as artworks from "../../src/services/card-artworks.js";
+import { createSavedDeckService } from "../../src/services/saved-decks.js";
+
+it("loads engine data once for a whole library check and refreshes on the next read", () => {
+  const db = new Database(":memory:");
+  try {
+    migrate(db);
+    db.exec("insert into users(id,username,display_name) values (1,'fixture','Fixture')");
+    const insert = db.prepare("insert into saved_decks(guild_id,owner_user_id,name,mode,deck_json) values ('fixture',1,'Fixture','normal',?)");
+    for (let i = 0; i < 10; i++) insert.run(JSON.stringify({ main: [], extra: [901, 903, 901], side: [] }));
+    const load = vi.spyOn(artworks, "loadArtworkIdentityCatalog").mockReturnValue(new Map([
+      [901, { name: "Fixture Fusion", type: 65 }], [903, { name: "Fixture Xyz", type: 0x800001 }],
+    ]));
+    const decks = createSavedDeckService(db);
+    load.mockClear();
+    expect(decks.list("fixture", 1).every(row => row.deck.extra.length === 3)).toBe(true);
+    expect(load).toHaveBeenCalledTimes(1);
+    load.mockReturnValue(new Map([[901, { name: "Fixture Spell", type: 2 }], [903, { name: "Fixture Xyz", type: 0x800001 }]]));
+    load.mockClear();
+    expect(decks.list("fixture", 1).every(row => row.deck.extra.join() === "903" && row.deck.main.join() === "901,901")).toBe(true);
+    expect(load).toHaveBeenCalledTimes(1);
+  } finally { vi.restoreAllMocks(); db.close(); }
+});
 
 it("refreshes default engine types after the card database changes", () => {
   const directory = mkdtempSync(join(tmpdir(), "deck-type-refresh-"));

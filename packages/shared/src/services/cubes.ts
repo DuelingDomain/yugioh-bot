@@ -142,20 +142,21 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       }>).map((r) => r.catalog_card_id),
     );
 
-  const findType = createDeckTypeLookup(db, engine);
-  const isCubeExtra = (card: Card | undefined) => card !== undefined && isExtraDeckFrame(findType(card.ygoprodeckId) ?? card);
+  const deckTypes = createDeckTypeLookup(db, engine);
+  const isCubeExtra = (card: Card | undefined, findType: ReturnType<typeof deckTypes.snapshot>) => card !== undefined && isExtraDeckFrame(findType(card.ygoprodeckId) ?? card);
   const selectPools = db.prepare("select catalog_card_id, pool, max_copies, source from cube_cards where cube_id = ? order by rowid asc");
   const repairPool = db.prepare("update cube_cards set pool = ? where cube_id = ? and catalog_card_id = ? and pool = ?");
-  const inspectPools = (cubeId: number) => selectPools.all(cubeId).map(mapCubeCard).map(card => {
+  const inspectPools = (cubeId: number, findType: ReturnType<typeof deckTypes.snapshot>) => selectPools.all(cubeId).map(mapCubeCard).map(card => {
     const type = findType(card.catalogCardId);
     const actual = hasKnownDeckCardType(type) ? (isExtraDeckFrame(type) ? "extra" : "main") : card.pool;
     return { card, actual };
   });
   const getCubePools = (cubeId: number): CubePools => {
-    let entries = inspectPools(cubeId);
+    const findType = deckTypes.snapshot();
+    let entries = inspectPools(cubeId, findType);
     if (entries.some(({ card, actual }) => card.pool !== actual)) {
       entries = db.transaction(() => {
-        const current = inspectPools(cubeId);
+        const current = inspectPools(cubeId, findType);
         for (const { card, actual } of current) {
           if (card.pool === actual) continue;
           repairPool.run(actual, cubeId, card.catalogCardId, card.pool);
@@ -198,6 +199,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       else if (!cards.has(id)) unknown.push(id);
     }
 
+    const findType = deckTypes.snapshot();
     const written = new Set<number>();
     db.transaction(() => {
       for (const { codes } of groups) {
@@ -209,7 +211,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
           upsertCard.run(
             cubeId,
             id,
-            isCubeExtra(card) ? "extra" : "main",
+            isCubeExtra(card, findType) ? "extra" : "main",
             Math.min(count, MAX_CUBE_COPIES),
             null,
           );
@@ -228,6 +230,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         const cube = findCube(cubeId);
         if (entries.length === 0) return { added: 0, copies: 0 };
         const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((card) => [card.ygoprodeckId, card]));
+        const findType = deckTypes.snapshot();
         const totals = new Map<number, { copies: number; pool: CubePool }>();
         const movedToMain = new Set<number>();
         for (const { id, copies, pool } of entries) {
@@ -235,7 +238,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
           const card = cards.get(id);
           if (!card || !catalog.hasCatalogRow(id)) throw new Error(`Card ${id} is missing from the catalog`);
           const previous = totals.get(id);
-          const extra = isCubeExtra(card);
+          const extra = isCubeExtra(card, findType);
           if (pool === "extra" && !extra) movedToMain.add(id);
           totals.set(id, {
             copies: Math.min(MAX_CUBE_COPIES, (previous?.copies ?? 0) + copies),
@@ -318,13 +321,14 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       assertCubeCopies(maxCopies);
 
       const { main, extra } = await catalog.syncByArchetype(archetype, { banlist });
+      const findType = deckTypes.snapshot();
       const cubeId = insertCubeRow(guildId, name, createdByUserId, archetype, banlist ?? null);
 
       for (const card of main) {
-        upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card) ? "extra" : "main", maxCopies, null);
+        upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
       }
       for (const card of extra) {
-        upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card) ? "extra" : "main", maxCopies, null);
+        upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
       }
 
       bump(cubeId);
@@ -349,10 +353,11 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         if (clash) throw new CubeNameTakenError(name);
         const cubeId = insertCubeRow(guildId, name, createdByUserId, null, null);
         const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((c) => [c.ygoprodeckId, c]));
+        const findType = deckTypes.snapshot();
         for (const { id, copies } of entries) {
           const card = cards.get(id);
           if (!card) continue;
-          upsertCard.run(cubeId, id, isCubeExtra(card) ? "extra" : "main", assertCubeCopies(copies), null);
+          upsertCard.run(cubeId, id, isCubeExtra(card, findType) ? "extra" : "main", assertCubeCopies(copies), null);
         }
         if (opts.copyExtraFromCubeId !== undefined) {
           const rows = db
@@ -364,7 +369,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
             .all(opts.copyExtraFromCubeId, guildId) as Array<{ catalog_card_id: number; max_copies: number }>;
           for (const r of rows) {
             const card = catalog.findByIds([r.catalog_card_id])[0];
-            upsertCard.run(cubeId, r.catalog_card_id, isCubeExtra(card) ? "extra" : "main", r.max_copies, null);
+            upsertCard.run(cubeId, r.catalog_card_id, isCubeExtra(card, findType) ? "extra" : "main", r.max_copies, null);
           }
         }
         bump(cubeId);
@@ -384,6 +389,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       findCube(cubeId);
       for (const e of entries) assertCubeCopies(e.copies);
       const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((c) => [c.ygoprodeckId, c]));
+      const findType = deckTypes.snapshot();
       let skippedExtra = 0;
       const unknownIds: number[] = [];
       db.transaction(() => {
@@ -396,7 +402,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
             unknownIds.push(id);
             continue;
           }
-          if (isCubeExtra(card)) {
+          if (isCubeExtra(card, findType)) {
             skippedExtra += 1;
             continue;
           }
@@ -436,7 +442,8 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       assertCubeCopies(maxCopies);
       const card = catalog.findByIds([catalogCardId])[0];
       if (!card) throw new Error(`Card ${catalogCardId} is missing from the catalog`);
-      upsertCard.run(cubeId, catalogCardId, isCubeExtra(card) ? "extra" : "main", maxCopies, source);
+      const findType = deckTypes.snapshot();
+      upsertCard.run(cubeId, catalogCardId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, source);
       bump(cubeId);
     },
 
@@ -471,19 +478,20 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       opts: { banlist?: string; maxCopies?: number } = {},
     ): Promise<{ added: number }> {
       const { main, extra } = await catalog.syncByArchetype(archetype, { banlist: opts.banlist });
+      const findType = deckTypes.snapshot();
       const present = existingCardIds(cubeId);
       const maxCopies = assertCubeCopies(opts.maxCopies ?? DEFAULT_CUBE_COPIES);
       let added = 0;
       for (const card of main) {
         if (!present.has(card.ygoprodeckId)) {
-          upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card) ? "extra" : "main", maxCopies, null);
+          upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
           present.add(card.ygoprodeckId);
           added += 1;
         }
       }
       for (const card of extra) {
         if (!present.has(card.ygoprodeckId)) {
-          upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card) ? "extra" : "main", maxCopies, null);
+          upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
           present.add(card.ygoprodeckId);
           added += 1;
         }

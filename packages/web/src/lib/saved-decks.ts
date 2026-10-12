@@ -71,7 +71,7 @@ export async function checkSavedDeckMaster(mode: unknown, deck: unknown, engine?
   if (!deck || typeof deck !== "object" || Array.isArray(deck)) return { ok: true };
   const extra = (deck as { extra?: unknown }).extra;
   if (Array.isArray(extra) && extra.length && extra.every(code => typeof code === "number" && Number.isInteger(code) && code > 0 && code <= 0xffff_ffff)) {
-    try { assertExtraDeckCards({ extra }, createDeckTypeLookup(getDb(), engine)); }
+    try { assertExtraDeckCards({ extra }, createDeckTypeLookup(getDb(), engine).snapshot()); }
     catch (error) {
       if (error instanceof ExtraDeckCardError) return { ok: false, response: NextResponse.json({ error: error.message, code: error.code }, { status: 400 }) };
       throw error;

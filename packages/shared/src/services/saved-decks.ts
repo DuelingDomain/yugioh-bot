@@ -169,16 +169,16 @@ function mapSavedDeck(row: SavedDeckRow): SavedDeck {
 export function createSavedDeckService(db: Database.Database, engine?: CardIdentityCatalog): SavedDeckService {
   const findCard = createDeckTypeLookup(db, engine);
   const validateExtra = (deck: DuelDeck) => {
-    try { assertExtraDeckCards(deck, findCard); }
+    try { assertExtraDeckCards(deck, findCard.snapshot()); }
     catch (error) {
       if (error instanceof ExtraDeckCardError) throw new SavedDeckServiceError(error.message, error.status, error.code);
       throw error;
     }
   };
   // Inspect without a lock. Unknown codes stay put until type evidence is available.
-  const inspectRow = (row: SavedDeckRow): { saved: SavedDeck; repairedJson?: string } => {
+  const inspectRow = (row: SavedDeckRow, lookup: ReturnType<typeof findCard.snapshot>): { saved: SavedDeck; repairedJson?: string } => {
     const saved = mapSavedDeck(row);
-    const cards = new Map([...new Set(saved.deck.extra)].map(code => [code, findCard(code)]));
+    const cards = new Map([...new Set(saved.deck.extra)].map(code => [code, lookup(code)]));
     const extra: number[] = [];
     const moves: DeckSectionMove[] = [];
     for (const code of saved.deck.extra) {
@@ -236,8 +236,8 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
   );
 
   const guardedRepair = db.prepare("update saved_decks set deck_json = ? where id = ? and deck_json = ?");
-  const repairRow = (row: SavedDeckRow): SavedDeck => {
-    const { saved, repairedJson } = inspectRow(row);
+  const repairRow = (row: SavedDeckRow, lookup: ReturnType<typeof findCard.snapshot>): SavedDeck => {
+    const { saved, repairedJson } = inspectRow(row, lookup);
     if (repairedJson !== undefined) {
       const result = guardedRepair.run(repairedJson, row.id, row.deck_json);
       if (result.changes !== 1) throw new SavedDeckServiceError("Deck changed during repair; read it again", 409);
@@ -248,20 +248,22 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
   const loadOwned = (id: number, guildId: string, ownerUserId: number): SavedDeck => {
     const row = selectOwned.get(id, guildId, ownerUserId);
     if (!row) throw new SavedDeckServiceError("Deck not found", 404);
-    const inspection = inspectRow(row);
+    const lookup = findCard.snapshot();
+    const inspection = inspectRow(row, lookup);
     if (inspection.repairedJson === undefined) return inspection.saved;
     return db.transaction(() => {
       const current = selectOwned.get(id, guildId, ownerUserId);
       if (!current) throw new SavedDeckServiceError("Deck not found", 404);
-      return repairRow(current);
+      return repairRow(current, lookup);
     }).immediate();
   };
 
   return {
     list(guildId: string, ownerUserId: number): SavedDeck[] {
-      const inspections = selectList.all(guildId, ownerUserId).map(inspectRow);
+      const lookup = findCard.snapshot();
+      const inspections = selectList.all(guildId, ownerUserId).map(row => inspectRow(row, lookup));
       if (inspections.every(result => result.repairedJson === undefined)) return inspections.map(result => result.saved);
-      return db.transaction(() => selectList.all(guildId, ownerUserId).map(repairRow)).immediate();
+      return db.transaction(() => selectList.all(guildId, ownerUserId).map(row => repairRow(row, lookup))).immediate();
     },
 
     get(id: number, guildId: string, ownerUserId: number): SavedDeck {
@@ -319,11 +321,12 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
     findByDraft(guildId: string, ownerUserId: number, draftId: number): SavedDeck | null {
       const row = selectByDraft.get(guildId, ownerUserId, draftId);
       if (!row) return null;
-      const inspection = inspectRow(row);
+      const lookup = findCard.snapshot();
+      const inspection = inspectRow(row, lookup);
       if (inspection.repairedJson === undefined) return inspection.saved;
       return db.transaction(() => {
         const current = selectByDraft.get(guildId, ownerUserId, draftId);
-        return current ? repairRow(current) : null;
+        return current ? repairRow(current, lookup) : null;
       }).immediate();
     },
   };
