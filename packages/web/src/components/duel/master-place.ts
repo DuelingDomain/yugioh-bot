@@ -80,6 +80,11 @@ export function masterSummonLine(view: DuelSeatView | undefined): string | null 
  */
 export const COST_SUFFIX = /\s*\(costs ([\d,]+) LP\)\s*$/i;
 
+/** The "Next surcharge" row of the details: the plain number of LP, or "Free" when the next summon costs nothing. */
+export function surchargeText(cost: number): string {
+  return cost > 0 ? `${cost} LP` : "Free";
+}
+
 function costText(cost: number): string {
   return cost > 0 ? `${cost.toLocaleString("en-US")} LP` : "Free";
 }

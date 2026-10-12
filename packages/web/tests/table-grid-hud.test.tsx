@@ -224,6 +224,15 @@ describe("the Deck Master token", () => {
     fireEvent.click(screen.getByTestId("hud-master-close"));
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
   });
+
+  it("says Free in the details flyout when the next summon costs nothing", () => {
+    const state = structuredClone(stateOf("main"));
+    const seat = state.room.engine!.seats.find((entry) => entry.seat === 0)!;
+    seat.deckMaster = { ...seat.deckMaster!, nextCost: 0 };
+    render(<Shell state={state} />);
+    fireEvent.click(screen.getByTestId("hud-master-token"));
+    expect(screen.getByTestId("hud-master-cost").textContent).toBe("Free");
+  });
 });
 
 describe("the hover card preview", () => {
