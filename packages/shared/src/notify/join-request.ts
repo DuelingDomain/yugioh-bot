@@ -11,6 +11,9 @@ export interface JoinRequestNotice {
 
 const TIMEOUT_MS = 2000;
 const MAX_RETRY_SECONDS = 30;
+const ALERT_WINDOW_MS = 60 * 60 * 1000;
+const MAX_ALERTS_PER_WINDOW = 30;
+let alertWindow = { expiresAt: 0, count: 0, warned: false };
 const CLERK_DASHBOARD = "https://dashboard.clerk.com/";
 const escapeMarkdown = (value: string) => value.replace(/[\\`*_{}\[\]()<>#+\-.!|~:/]/g, "\\$&");
 
@@ -18,6 +21,20 @@ function emailCode(value: string): string {
   // Backslashes do not escape backticks inside code. Replace user delimiters
   // and line breaks so even unvalidated Clerk text stays in one code span.
   return "`" + escapeMarkdown(value.replace(/`/g, "\u02cb").replace(/[\r\n\u2028\u2029]/g, " ")) + "`";
+}
+
+function takeAlertSlot(): boolean {
+  const now = Date.now();
+  if (now >= alertWindow.expiresAt) alertWindow = { expiresAt: now + ALERT_WINDOW_MS, count: 0, warned: false };
+  if (alertWindow.count < MAX_ALERTS_PER_WINDOW) {
+    alertWindow.count++;
+    return true;
+  }
+  if (!alertWindow.warned) {
+    alertWindow.warned = true;
+    console.warn("[join-alert] Process limit reached (30 alerts/hour); further alerts dropped");
+  }
+  return false;
 }
 
 function dashboardUrl(): string {
@@ -75,6 +92,8 @@ export async function notifyJoinRequest(db: Database.Database, notice: JoinReque
       on conflict(kind, subject_hash) do nothing
     `).run(signup ? "signup" : "join", createHash("sha256").update(subject).digest("hex"), now);
     if (claim.changes === 0) return;
+    // Retain dropped claims so replays cannot turn a flood into a later burst.
+    if (!takeAlertSlot()) return;
 
     const emailText = !email ? "Email unavailable"
       : process.env.DISCORD_ADMIN_SHOW_FULL_EMAIL === "1" ? email : maskedEmail(email);

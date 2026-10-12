@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
-import { notifyJoinRequest } from "../../src/notify/index.js";
+
+let notifyJoinRequest: typeof import("../../src/notify/join-request.js").notifyJoinRequest;
 
 let db: Database.Database;
 let fetcher: ReturnType<typeof vi.fn<typeof fetch>>;
@@ -14,7 +15,9 @@ const webhook = "https://discord.example.test/webhook-placeholder";
 function payload() { return JSON.parse(String(fetcher.mock.calls[0][1]?.body)); }
 function claims() { return db.prepare("select * from join_request_notifications").all(); }
 
-beforeEach(() => {
+beforeEach(async () => {
+  vi.resetModules();
+  ({ notifyJoinRequest } = await import("../../src/notify/join-request.js"));
   db = new Database(":memory:");
   migrate(db);
   vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", webhook);
@@ -289,6 +292,57 @@ describe("join request notifications", () => {
     await vi.advanceTimersByTimeAsync(100);
     await pending;
     expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("limits concurrent alerts to 30 per process across databases and alert types", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DISCORD_SIGNUP_ALERTS_ENABLED", "1");
+    const other = new Database(":memory:");
+    try {
+      migrate(other);
+      await Promise.all(Array.from({ length: 35 }, (_, index) => notifyJoinRequest(index % 2 ? other : db, {
+        ...notice, email: `player${index}@example.test`, source: index % 2 ? "sign-up" : "Clerk waitlist",
+      })));
+      expect(fetcher).toHaveBeenCalledTimes(30);
+      expect(claims().length + other.prepare("select * from join_request_notifications").all().length).toBe(35);
+      expect(console.warn).toHaveBeenCalledOnce();
+      expect(console.warn).toHaveBeenCalledWith("[join-alert] Process limit reached (30 alerts/hour); further alerts dropped");
+      expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toMatch(/player|example\.test/);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { other.close(); }
+  });
+
+  it("does not charge disabled alerts or duplicate claims to the process limit", async () => {
+    for (let index = 0; index < 40; index++) await notifyJoinRequest(db, notice);
+    vi.stubEnv("DISCORD_JOIN_REQUEST_ALERTS_ENABLED", "0");
+    for (let index = 0; index < 40; index++) await notifyJoinRequest(db, { ...notice, email: `disabled${index}@example.test` });
+    vi.stubEnv("DISCORD_JOIN_REQUEST_ALERTS_ENABLED", "1");
+    for (let index = 0; index < 29; index++) await notifyJoinRequest(db, { ...notice, email: `player${index}@example.test` });
+    expect(fetcher).toHaveBeenCalledTimes(30);
+    expect(console.warn).not.toHaveBeenCalled();
+    await notifyJoinRequest(db, { ...notice, email: "over-limit@example.test" });
+    expect(fetcher).toHaveBeenCalledTimes(30);
+    expect(console.warn).toHaveBeenCalledOnce();
+  });
+
+  it("resets the process limit after one hour without replaying dropped alerts", async () => {
+    vi.useFakeTimers();
+    const start = Date.parse(notice.createdAt);
+    vi.setSystemTime(start);
+    for (let index = 0; index < 32; index++) await notifyJoinRequest(db, { ...notice, email: `first${index}@example.test` });
+    expect(fetcher).toHaveBeenCalledTimes(30);
+    expect(console.warn).toHaveBeenCalledOnce();
+    vi.setSystemTime(start + 3_600_000 - 1);
+    await notifyJoinRequest(db, { ...notice, email: "before-expiry@example.test" });
+    expect(fetcher).toHaveBeenCalledTimes(30);
+    expect(console.warn).toHaveBeenCalledOnce();
+    vi.setSystemTime(start + 3_600_000);
+    await notifyJoinRequest(db, { ...notice, email: "first31@example.test" });
+    expect(fetcher).toHaveBeenCalledTimes(30);
+    for (let index = 0; index < 31; index++) await notifyJoinRequest(db, { ...notice, email: `second${index}@example.test` });
+    expect(fetcher).toHaveBeenCalledTimes(60);
+    expect(console.warn).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
   });
 });
