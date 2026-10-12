@@ -52,15 +52,11 @@ const layoutOf3 = (viewer: number | null, out: number[] = []) => tableLayout("ff
 const quadrants3 = (viewer: number | null) => Object.fromEntries(gridCells(layoutOf3(viewer)).map((cell) => [cell.seat, cell.quadrant]));
 
 describe("the 3-way grid", () => {
-  it("is on only when the engine reports the facing pair 0+1 and nothing for seat 2", () => {
-    expect(usesGridLayout("ffa3", trio())).toBe(true);
-    // Seat 1 is out: seat 0 shares with nobody, and that is the engine's own answer.
-    expect(usesGridLayout("ffa3", trio([null, null, null], [1]))).toBe(true);
-    // A core that shares nothing, or across (0+2), keeps the plaza stage; so does a view without the field.
+  it("never uses the grid: the 3-way table keeps the plaza and links the facing pair there", () => {
+    expect(usesGridLayout("ffa3", trio())).toBe(false);
+    expect(usesGridLayout("ffa3", trio([null, null, null], [1]))).toBe(false);
     expect(usesGridLayout("ffa3", trio([null, null, null]))).toBe(false);
-    expect(usesGridLayout("ffa3", trio([2, null, 0]))).toBe(false);
     expect(usesGridLayout("ffa3", trio([undefined, undefined, undefined]))).toBe(false);
-    expect(usesGridLayout("ffa3", trio().slice(0, 2))).toBe(false);
     expect(gridExtraZonesFit(trio([1, 0, null]), "ffa3")).toBe(true);
     expect(gridExtraZonesFit(trio([1, 0, 1]), "ffa3")).toBe(false);
   });

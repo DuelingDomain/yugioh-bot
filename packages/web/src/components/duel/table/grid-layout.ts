@@ -95,7 +95,7 @@ export function gridExtraZonesFit(seats: readonly GridSeatLike[], format: GridFo
  */
 export function usesGridLayout(format: TableFormat | "1v1", seats: readonly GridSeatLike[]): boolean {
   if (format === "ffa4") return seats.length === 4 && gridExtraZonesFit(seats, "ffa4");
-  if (format === "ffa3") return seats.length === 3 && gridExtraZonesFit(seats, "ffa3");
+  // The owner kept the 3-way plaza (2026-10-11): a facing pair is drawn there as a link between its two fields, not as a grid.
   return false;
 }
 
