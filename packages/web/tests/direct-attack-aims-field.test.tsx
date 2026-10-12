@@ -27,6 +27,8 @@ import { directTargetNode } from "@/components/duel/direct-target";
 import { AimArrow } from "@/components/duel/table/aim-arrow";
 import { AttackLine } from "@/components/duel/table/attack-line";
 import { PlaneSvg } from "@/components/duel/solid/plane-svg";
+import { SolidField } from "@/components/duel/solid/solid-field";
+import { solidEngine } from "./helpers/solid-board";
 
 /**
  * A tiny board: the attacker (seat 0), and for the defender (seat 1) the field row and the LP plate. `data-rect` is the
@@ -82,6 +84,11 @@ describe("the node a direct attack aims at", () => {
   it("is the monster row of the seat, before its field mat and its LP plate", () => {
     board();
     expect(directTargetNode(1)?.getAttribute("data-monster-row")).toBe("1");
+  });
+
+  it("prefers a node that meets the screen over a row the camera moved out of view", () => {
+    board(1, rect(5000, 5000, 300, 70));
+    expect(directTargetNode(1)?.hasAttribute("data-seat-field")).toBe(true);
   });
 
   it("falls back to the field mat, then to the LP plate, when the row is not on screen", () => {
@@ -187,29 +194,81 @@ describe("the attack animation of a direct attack (BattleFx)", () => {
   });
 });
 
-describe("the solid 1v1 plane", () => {
+describe("the solid 1v1 plane (the real SolidField markup)", () => {
   /** jsdom has no layout: give a node the offset box that the plane reads. */
   const lay = (el: HTMLElement, parent: HTMLElement, x: number, y: number, w: number, h: number) => {
     for (const [name, value] of Object.entries({ offsetParent: parent, offsetLeft: x, offsetTop: y, offsetWidth: w, offsetHeight: h })) {
       Object.defineProperty(el, name, { configurable: true, value });
     }
   };
+  const fieldProps = {
+    engine: solidEngine(), mySeat: 0, masterRule: 5 as const, reducedMotion: false, priorityLive: true,
+    legalKeys: new Set<string>(), selectedKeys: new Set<string>(), onActivate: () => {}, onInspect: () => {}, bottomName: "Yugi", topName: "Kaiba",
+  };
+  /** The token of the first Monster Zone of the bottom half (the attacker). */
+  const attackerToken = (root: ParentNode) => root.querySelector<HTMLElement>('[data-field-seat="0"] [data-cell="mz"] [data-zones]')!.getAttribute("data-zones")!.split(" ")[0];
+
+  it("holds one monster row node per seat, over the five Monster Zones, that takes no clicks", () => {
+    const { container } = render(<SolidField {...fieldProps} />);
+    for (const [seat, gridRow] of [[1, "2"], [0, "4"]] as const) {
+      const row = container.querySelector<HTMLElement>(`[data-monster-row="${seat}"]`);
+      expect(row).not.toBeNull();
+      expect(row!.closest(`[data-field-seat="${seat}"]`)).not.toBeNull();
+      expect(row!.style.gridColumn).toMatch(/^2 \/ 7$/);
+      expect(row!.style.gridRow).toBe(gridRow);
+      expect(row!.style.pointerEvents).toBe("none");
+      expect(row!.getAttribute("aria-hidden")).toBe("true");
+    }
+    expect(container.querySelectorAll("[data-monster-row]")).toHaveLength(2);
+  });
+
+  it("is the node a direct attack aims at, before the LP plate", () => {
+    const { container } = render(<SolidField {...fieldProps} />);
+    const row = container.querySelector('[data-monster-row="1"]')!;
+    row.setAttribute("data-rect", rect(300, 100, 400, 60));
+    container.querySelector('[data-lp-seat="1"]')!.setAttribute("data-rect", rect(40, 700, 120, 40));
+    expect(directTargetNode(1)).toBe(row);
+  });
 
   it("lands on the near edge of the defender's monster row, like a card target, and rings the row", async () => {
-    const { container } = render(
-      <div data-plane ref={(el) => { if (el) Object.defineProperties(el, { offsetWidth: { configurable: true, value: 600 }, offsetHeight: { configurable: true, value: 400 } }); }}>
-        <div data-zones="0:4:2" ref={(el) => { if (el) lay(el, el.parentElement!, 270, 300, 60, 60); }} />
-        <div data-monster-row="1" ref={(el) => { if (el) lay(el, el.parentElement!, 100, 40, 400, 60); }} />
-        <PlaneSvg aim={{ mode: "aim", from: "0:4:2", to: { lpSeat: 1 } }} />
-      </div>,
-    );
+    const view = render(<SolidField {...fieldProps} />);
+    const plane = view.container.querySelector<HTMLElement>("[data-sv-plane]")!;
+    Object.defineProperties(plane, { offsetWidth: { configurable: true, value: 600 }, offsetHeight: { configurable: true, value: 400 } });
+    const from = attackerToken(view.container);
+    lay(view.container.querySelector<HTMLElement>(`[data-zones~="${from}"]`)!, plane, 270, 300, 60, 60);
+    lay(view.container.querySelector<HTMLElement>('[data-monster-row="1"]')!, plane, 100, 40, 400, 60);
+    view.rerender(<SolidField {...fieldProps} battleAim={{ mode: "aim", from, to: { lpSeat: 1 } }} />);
     await frame();
-    const path = container.querySelector("svg path[marker-end]")?.getAttribute("d") ?? "";
+    const path = plane.querySelector("svg path[marker-end]")?.getAttribute("d") ?? "";
     // The row's middle is x 300; the path ends at its near (lower) edge, inside the plane, not past the far edge.
     const tip = tipOf(path);
     expect(tip.x).toBe(300);
     expect(tip.y).toBeGreaterThan(0);
-    expect(container.querySelectorAll("svg rect").length).toBeGreaterThanOrEqual(2);
+    expect(plane.querySelectorAll("svg rect").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("strikes the monster row of the defender in the plane, with the damage on the LP plate", async () => {
+    const view = render(<SolidField {...fieldProps} />);
+    const from = attackerToken(view.container);
+    // The real zone holds a card: its art and every node inside share the zone's box (jsdom has no layout).
+    const zone = view.container.querySelector(`[data-zones~="${from}"]`)!;
+    for (const node of [zone, ...zone.querySelectorAll("*")]) node.setAttribute("data-rect", rect(300, 500, 60, 84));
+    view.container.querySelector('[data-monster-row="1"]')!.setAttribute("data-rect", rect(FIELD.l, FIELD.t, FIELD.w, FIELD.h));
+    const plate = view.container.querySelector('[data-lp-seat="1"]')!;
+    for (const node of [plate, ...plate.querySelectorAll("*")]) node.setAttribute("data-rect", rect(PLATE.l, PLATE.t, PLATE.w, PLATE.h));
+    const seats = [{ seat: 0, monsters: [], spells: [] }, { seat: 1, monsters: [], spells: [] }] as unknown as DuelSeatView[];
+    const fx = render(<BattleFx events={[]} seats={seats} reducedMotion active />);
+    const [controller, location, sequence] = from.split(":").map(Number);
+    fx.rerender(<BattleFx events={[
+      { id: 1, kind: "attack", seat: 0, zone: { controller, location, sequence }, text: "attack" } as DuelEvent,
+      { id: 2, kind: "damage", seat: 1, amount: 1800, text: "damage" } as DuelEvent,
+    ]} seats={seats} reducedMotion active />);
+    await frame();
+    await frame();
+    expect(plans).toHaveLength(1);
+    expect(near(centreOf(plans[0].hit), fieldCentre)).toBe(true);
+    expect(plans[0].lpHits).toHaveLength(1);
+    expect(near(centreOf(plans[0].lpHits[0].box), plateCentre, 120)).toBe(true);
   });
 
   it("keeps the old far-edge pointer when the plane holds no field row", async () => {

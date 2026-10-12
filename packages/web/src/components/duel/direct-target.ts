@@ -15,9 +15,16 @@ const sized = (node: Element): boolean => {
   return r.width > 0 && r.height > 0;
 };
 
+/** The node has a box that meets the screen (a field the camera moved out of view does not). */
+const onScreen = (node: Element): boolean => {
+  const r = node.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0)) return false;
+  return r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight;
+};
+
 /**
  * The node that stands for the field of a seat: its row of Monster Zones, else its field mat, else (a board that is not
- * on screen) its LP plate. The first one that has a box on the screen wins; with none on screen, the first one that exists.
+ * on screen) its LP plate. The first one that is on the screen wins; then the first one that has a box; with none, the first one that exists.
  */
 export function directTargetNode(seat: number, scope: ParentNode = document): Element | null {
   const chain = [
@@ -25,12 +32,14 @@ export function directTargetNode(seat: number, scope: ParentNode = document): El
     `[data-seat-field="${seat}"]`,
     `[data-holo="${seat}"], [data-lp-seat="${seat}"]`,
   ];
+  let sizedNode: Element | null = null;
   let fallback: Element | null = null;
   for (const selector of chain) {
     const node = findShown(scope, selector);
     if (!node) continue;
-    if (sized(node)) return node;
+    if (onScreen(node)) return node;
+    if (!sizedNode && sized(node)) sizedNode = node;
     fallback ??= node;
   }
-  return fallback;
+  return sizedNode ?? fallback;
 }
