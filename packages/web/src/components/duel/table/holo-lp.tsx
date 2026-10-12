@@ -50,6 +50,8 @@ export interface HoloLpProps {
   /** A rival's Deck Master: a small art thumb at the top right of the panel. A click inspects it. */
   master?: DuelCardInfo | null;
   onInspectMaster?: (card: DuelCardInfo) => void;
+  /** The rival's master is out of its zone: the thumb is an empty "in use" slot until the card returns (master-place.ts). */
+  masterInUse?: boolean;
   /** The seat just left the duel: the LP is struck out, a chip says its place ("Eliminated, 3rd"), and the panel fades away. */
   exiting?: boolean;
   /** The seat is out but its board still waits for the battle to end (crumble-gate.ts): the plate keeps its LP and hides the elimination marks. */
@@ -126,6 +128,7 @@ export function HoloLp({
   fit,
   master = null,
   onInspectMaster,
+  masterInUse = false,
   lastDamage = null,
   exiting = false,
   held = false,
@@ -227,11 +230,14 @@ export function HoloLp({
           type="button"
           className={styles.master}
           data-master-thumb={seat}
-          aria-label={`${name}'s Master: ${master.name}`}
-          title={`${name}'s Master: ${master.name}`}
+          data-master-dock={seat}
+          data-master-source={seat}
+          data-in-use={masterInUse ? "true" : undefined}
+          aria-label={`${name}'s Master: ${master.name}${masterInUse ? " (in use)" : ""}`}
+          title={`${name}'s Master: ${master.name}${masterInUse ? " (in use)" : ""}`}
           onClick={() => onInspectMaster?.(master)}
         >
-          <img src={cardArtUrl(master.code, "small")} alt="" draggable={false} />
+          {masterInUse ? null : <img src={cardArtUrl(master.code, "small")} alt="" draggable={false} />}
         </button>
       ) : null}
       {exiting ? <span className={styles.exitChip} data-exit-chip>{placeLabel ? `Eliminated, ${placeLabel}` : "Eliminated"}</span> : null}

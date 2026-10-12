@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent } from "react";
 import { engineFormat } from "../multi-seat";
+import { masterInUse } from "../master-place";
 import { AttackLine } from "./attack-line";
 import { crumbleWaiting, onCrumbleStart } from "./crumble-gate";
 import { boxOf, cancelTracks, FLIP_EASING, FLIP_MS, playFlip, type FlipTrack } from "./grid-flip";
@@ -887,6 +888,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   fit={lpFit(lp)}
                   beam="none"
                   master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
+                  masterInUse={masterInUse(view)}
                   onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
                   lastDamage={lastSeatDamage(engine.events, cell.seat)}
                   legal={pickable}

@@ -364,6 +364,7 @@ function TableShellBody({
       onInspect={controller.onInspect}
       rivals={[]}
       selfTitle={spectator ? `${nameOf(layout.anchorSeat)}'s Master` : undefined}
+      showInUse
     />
   ) : null;
 
@@ -838,6 +839,7 @@ function TableShellBody({
               engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
               !spectator,
               spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
+              true,
             ),
             wide: plazaHud,
           } : null}
