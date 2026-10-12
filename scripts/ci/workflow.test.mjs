@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { parse } from "yaml";
+import { changedLayers } from "./changed-layers.mjs";
 
 const workflow = parse(readFileSync(new URL("../../.github/workflows/test.yml", import.meta.url), "utf8"));
 const evaluate = (expression, needs) => Function("needs", "always", `return (${expression
@@ -123,4 +124,18 @@ test("pull requests and main pushes run the engine jobs only when engine=true; u
   }
   for (const id of ["core-cache", "native", "rule-coverage"]) assert.equal(run(id, "workflow_dispatch", "true"), true, id);
   assert.equal(run("core-cache", "schedule", "true"), true);
+});
+
+test("every main push enables all regular release suites; nightly fuzz never joins a push", () => {
+  for (const files of [[], ["docs/readme.md"], ["packages/web/src/app/page.tsx"]]) {
+    assert.equal(changedLayers(files, "push").engine, true);
+    assert.equal(changedLayers(files, "push").tests_only, false);
+  }
+  const job = workflow.jobs["nduel-nightly"];
+  const run = (event, nightly) => Function("needs", "github", "inputs", "cancelled", `return (${job.if.replace(/^\$\{\{\s*|\s*\}\}$/g, "")});`)(
+    { cores: { result: "success" } }, { event_name: event }, { nightly }, () => false);
+  assert.equal(run("push", true), false);
+  assert.equal(run("pull_request", true), false);
+  assert.equal(run("schedule", false), true);
+  assert.equal(run("workflow_dispatch", true), true);
 });
