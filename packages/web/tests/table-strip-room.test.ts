@@ -220,3 +220,23 @@ describe("planStripRoom with a fixed box: the panel stays in the middle of it", 
     expect(inside(room, { width: 1366, height: 640 })).toBe(true);
   });
 });
+
+describe("planStripRoom fixed to the band between the Tag plates and your hand", () => {
+  // Tag at 1366x768: the viewport is 1046x688; the far plate ends at 61, the near plate and your hand start at 525 (10 px of air each side).
+  const box = { width: 1046, height: 688 };
+  const band = { x: 0, y: 71, width: 1046, height: 515 - 71 };
+  const farPlate = { x: 328, y: 6, width: 392, height: 55 };
+  const nearPlate = { x: 12, y: 550, width: 330, height: 55 };
+  const hand = { x: 370, y: 525, width: 300, height: 140 };
+
+  it.each([2, 8, 14])("shows %i options without crossing a team plate or your hand", (count) => {
+    const room = planStripRoom({ box, count, anchor: { x: 523, y: 344 }, hud: [farPlate, nearPlate], soft: [], zones: [], source: [], hand, fixed: band })!;
+    expect(room).toBeDefined();
+    expect(room.y).toBeGreaterThanOrEqual(band.y);
+    expect(room.y + room.height).toBeLessThanOrEqual(band.y + band.height);
+    expect(overlap(room, farPlate)).toBe(0);
+    expect(overlap(room, nearPlate)).toBe(0);
+    expect(overlap(room, hand)).toBe(0);
+    expect(Math.abs(room.x + room.width / 2 - box.width / 2)).toBeLessThan(2);
+  });
+});

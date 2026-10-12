@@ -91,9 +91,12 @@ describe("TableShell on the 3-way fixtures", () => {
     const middle = (node: ParentNode) => parseFloat(node.querySelector<HTMLElement>('[data-slot="prompt"]')!.style.getPropertyValue("--pr-cx"));
     expect(container.querySelector("[data-prompt-center]")).not.toBeNull();
     const own = middle(container);
+    expect(Number.isFinite(own)).toBe(true);
+    expect(own).toBeGreaterThan(300);
     rerender(<Shell id="chain-2" attackOn={1} />);
     expect(container.querySelector("[data-prompt-center]")).not.toBeNull();
     expect(middle(container)).toBe(own);
+    expect(Number.isFinite(middle(container))).toBe(true);
   });
 
   it("draws one LP panel per seat and one seat field per seat", () => {
