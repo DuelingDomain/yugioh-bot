@@ -30,6 +30,7 @@ import {
   isPositionEvent,
   maxEventId,
   positionChangeOf,
+  SCALED_FIELD,
   type DuelFxCue,
   type DuelFxCueDetail,
   type PositionChange,
@@ -85,13 +86,13 @@ export function flipCopyBase(geo: Pick<Geo, "side" | "turn">): number {
   return (geo.side === "opp" ? 180 : 0) + geo.turn;
 }
 
-function measure(overlay: HTMLElement, zone: HTMLElement): Geo | null {
+export function measure(overlay: HTMLElement, zone: HTMLElement): Geo | null {
   const o = overlay.getBoundingClientRect();
   const z = zone.getBoundingClientRect();
   if (z.width < 4 || z.height < 4 || o.width < 4) return null;
   // A turned seat field: the zone's bounding box is not the card's box, its edges and angle are. Any other table (1v1,
   // Tag, a perspective view) keeps the box, so its copy does not change by a few pixels.
-  const pose = zone.closest("[data-seat-field]") ? screenPose(zone) : null;
+  const pose = zone.closest(SCALED_FIELD) ? screenPose(zone) : null;
   const h = pose?.h ?? z.height;
   const w = Math.min(pose?.w ?? z.width, h * CARD_ASPECT);
   const cx = z.left - o.left + z.width / 2;
