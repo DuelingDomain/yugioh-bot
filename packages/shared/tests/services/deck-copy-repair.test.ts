@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createDeckCopyRepairService } from "../../src/services/deck-copy-repair.js";
 import { createDuelSeriesService } from "../../src/services/duel-series.js";
+import { createTournamentDuelService } from "../../src/services/tournament-duels.js";
 import { seedIdentity } from "../helpers/identity.js";
 
 const databases: Database.Database[] = [];
@@ -27,6 +28,17 @@ function setup() {
   db.prepare("update duel_seats set deck_json=?, ready=1 where duel_id=?").run(JSON.stringify(legacy), duel.id);
   return { db, series, duel, repair: createDeckCopyRepairService(db, engine) };
 }
+
+it.each(["series", "tournament"] as const)("defers repair statement preparation until the %s service needs it", kind => {
+  const { db, series } = setup();
+  const prepare = vi.spyOn(db, "prepare");
+  const service = kind === "series" ? createDuelSeriesService(db, engine) : createTournamentDuelService(db, engine);
+  const repairUpdates = () => prepare.mock.calls.filter(([sql]) => /update .* set .* where rowid=\? and /i.test(sql));
+  expect(repairUpdates()).toHaveLength(0);
+  if ("registration" in service) service.registration(999, 999);
+  else service.createNextGame(series.id, "fixture");
+  expect(repairUpdates()).toHaveLength(6);
+});
 
 it("repairs every future copy once while preserving unknowns, order, metadata and readiness", () => {
   const { db, series, duel, repair } = setup();

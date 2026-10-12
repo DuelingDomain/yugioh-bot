@@ -754,7 +754,8 @@ export function createSeriesStore(db: Database.Database) {
 export type DuelSeriesStore = ReturnType<typeof createSeriesStore>;
 
 export function createDuelSeriesService(db: Database.Database, engine?: CardIdentityCatalog): DuelSeriesService {
-  const deckCopies = createDeckCopyRepairService(db, engine);
+  let deckCopies: ReturnType<typeof createDeckCopyRepairService> | undefined;
+  const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(db, engine);
   const store = createSeriesStore(db);
   const duels = createDuelService(db);
 
@@ -945,7 +946,7 @@ export function createDuelSeriesService(db: Database.Database, engine?: CardIden
       };
       // An open series already exists: return it, giving it game 1 first if it has none.
       const resumeOpenSeries = (seriesId: number): SeriesGameStart => {
-        deckCopies.series(seriesId);
+        repairDeckCopies().series(seriesId);
         const series = store.requireSeries(seriesId);
         const latest = store.latestGame(seriesId);
         if (!latest) {
@@ -981,8 +982,8 @@ export function createDuelSeriesService(db: Database.Database, engine?: CardIden
       }
       if (slot.status !== "open") throw new DuelServiceError("This match is already complete", 409);
 
-      deckCopies.registration(slot.tournament_id, slot.player_one_id);
-      deckCopies.registration(slot.tournament_id, playerTwoId);
+      repairDeckCopies().registration(slot.tournament_id, slot.player_one_id);
+      repairDeckCopies().registration(slot.tournament_id, playerTwoId);
       const deck0 = selectParticipantDeck.get(slot.tournament_id, slot.player_one_id)?.deck_json ?? null;
       const deck1 = selectParticipantDeck.get(slot.tournament_id, playerTwoId)?.deck_json ?? null;
       if (!deck0 || !deck1) {
@@ -1110,7 +1111,7 @@ export function createDuelSeriesService(db: Database.Database, engine?: CardIden
   const createNextGameTx = db.transaction((seriesId: number, guildId: string): DuelSession | null => {
     // A future game and its side-deck base must agree on placement before copying either deck.
     store.requireSeries(seriesId, guildId);
-    deckCopies.series(seriesId);
+    repairDeckCopies().series(seriesId);
     const row = store.requireSeries(seriesId, guildId);
     if (row.status === "completed" || row.status === "cancelled") {
       throw new DuelServiceError("This series is over", 409);

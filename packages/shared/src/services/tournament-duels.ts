@@ -196,7 +196,8 @@ function copyDeck(deck: DuelDeck): DuelDeck {
 }
 
 export function createTournamentDuelService(db: Database.Database, engine?: CardIdentityCatalog): TournamentDuelService {
-  const deckCopies = createDeckCopyRepairService(db, engine);
+  let deckCopies: ReturnType<typeof createDeckCopyRepairService> | undefined;
+  const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(db, engine);
   const selectRules = db.prepare<[number], TournamentRulesRow>(`
     select t.best_of, t.duel_rules_json,
       (select d.id from drafts d where d.tournament_id = t.id order by d.id limit 1) as draft_id
@@ -446,7 +447,7 @@ export function createTournamentDuelService(db: Database.Database, engine?: Card
     },
 
     registration(tournamentId, playerId) {
-      deckCopies.registration(tournamentId, playerId);
+      repairDeckCopies().registration(tournamentId, playerId);
       const row = selectRegistration.get(tournamentId, playerId);
       if (!row || row.deck_json === null || row.deck_registered_at === null) return null;
       return {

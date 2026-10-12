@@ -11,7 +11,7 @@ export function hasKnownDeckCardType(card: DeckCardType | undefined): boolean {
 }
 
 /** Resolve a saved catalog/engine passcode, including artwork-family members, without a network request. */
-export function createDeckTypeLookup(db: Database.Database, engine: CardIdentityCatalog = loadArtworkIdentityCatalog()): (code: number) => DeckCardType | undefined {
+export function createDeckTypeLookup(db: Database.Database, engine?: CardIdentityCatalog): (code: number) => DeckCardType | undefined {
   const find = db.prepare<[number, number], { type: string; name: string; frame_type: string }>(
     `select type, name, frame_type from card_catalog where ygoprodeck_id = ?
      union all
@@ -21,7 +21,7 @@ export function createDeckTypeLookup(db: Database.Database, engine: CardIdentity
   );
   return code => {
     // Engine bits are authoritative for an engine passcode, even when its catalog row is absent or stale.
-    const engineCard = engine.get(code);
+    const engineCard = (engine ?? loadArtworkIdentityCatalog()).get(code);
     if (engineCard) return engineCard;
     const card = find.get(code, code);
     return card ? { type: card.type, name: card.name, frameType: card.frame_type } : undefined;
