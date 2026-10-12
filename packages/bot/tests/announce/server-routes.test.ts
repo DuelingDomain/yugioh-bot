@@ -1,10 +1,7 @@
-import { createHmac } from "node:crypto";
+import { signedHeaders } from "../helpers/signed-request.js";
 import { describe, expect, it, vi } from "vitest";
 import { createAnnounceServer } from "../../src/announce/server.js";
 
-function sign(body: string, secret: string) {
-  return "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
-}
 
 describe("announce server new routes", () => {
   it("dispatches match-report-pending and match-resolved", async () => {
@@ -31,7 +28,7 @@ describe("announce server new routes", () => {
       new Request("http://x/internal/announce/match-resolved", {
         method: "POST",
         body: body1,
-        headers: { "x-announce-signature": sign(body1, "s") },
+        headers: { ...await signedHeaders(body1, "s", "http://x/internal/announce/match-resolved", "bot-announce") },
       }),
     );
     expect(res1.status).toBe(204);
@@ -42,7 +39,7 @@ describe("announce server new routes", () => {
       new Request("http://x/internal/announce/match-report-pending", {
         method: "POST",
         body: body2,
-        headers: { "x-announce-signature": sign(body2, "s") },
+        headers: { ...await signedHeaders(body2, "s", "http://x/internal/announce/match-report-pending", "bot-announce") },
       }),
     );
     expect(res2.status).toBe(204);
@@ -71,12 +68,11 @@ describe("announce server new routes", () => {
       },
     });
     const body = JSON.stringify({ tournamentId: 7 });
-    const sig = sign(body, "s");
     const res = await server.handle(
       new Request("http://x/internal/announce/tournament-completed", {
         method: "POST",
         body,
-        headers: { "x-announce-signature": sig },
+        headers: { ...await signedHeaders(body, "s", "http://x/internal/announce/tournament-completed", "bot-announce") },
       }),
     );
     expect(res.status).toBe(204);
@@ -116,7 +112,7 @@ describe("announce server new routes", () => {
       new Request("http://x/internal/announce/duel-invite", {
         method: "POST",
         body,
-        headers: { "x-announce-signature": sign(body, "s") },
+        headers: { ...await signedHeaders(body, "s", "http://x/internal/announce/duel-invite", "bot-announce") },
       }),
     );
     expect(res.status).toBe(204);
@@ -135,15 +131,15 @@ it("dispatches signed Nudge requests and reports delivery failure", async () => 
   } });
   const payload = { draftId: 1, channelId: "stored", name: "Night", webSlug: "abc", mentionUserIds: ["123456789012345678"] };
   const body = JSON.stringify(payload);
-  const request = (signature = sign(body, "s")) => new Request("http://x/internal/announce/draft-nudge", {
-    method: "POST", body, headers: { "x-announce-signature": signature },
+  const request = async (signature?: string) => new Request("http://x/internal/announce/draft-nudge", {
+    method: "POST", body, headers: { ...await signedHeaders(body, "s", "http://x/internal/announce/draft-nudge", "bot-announce"), ...(signature ? { "x-internal-signature": signature } : {}) },
   });
-  expect((await server.handle(request("sha256=00"))).status).toBe(401);
+  expect((await server.handle(await request("sha256=00"))).status).toBe(401);
   expect(onDraftNudge).not.toHaveBeenCalled();
-  expect((await server.handle(request())).status).toBe(204);
+  expect((await server.handle(await request())).status).toBe(204);
   expect(onDraftNudge).toHaveBeenCalledWith(payload);
   onDraftNudge.mockRejectedValue(new Error("Cannot send"));
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
-  expect((await server.handle(request())).status).toBe(500);
+  expect((await server.handle(await request())).status).toBe(500);
   error.mockRestore();
 });

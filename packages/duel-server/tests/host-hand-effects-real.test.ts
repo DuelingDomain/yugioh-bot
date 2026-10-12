@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -57,7 +57,7 @@ describeWithCores("host routes real hand/GY destruction triggers", [needs.cards(
       const post = async (seat: number, body: Record<string, unknown>): Promise<{ status: number; data: { engine: DuelEngineView } }> => {
         const raw = JSON.stringify({ slug: room.slug, guildId: "fixture", playerId: players[seat], ...body });
         const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-          headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
+          headers: { "content-type": "application/json", ...await signedHeaders(raw, secret, "http://localhost/internal/duel", "duel-host") } }));
         return finishTestDiceOpening(host, { slug: room.slug, ...body },
           { status: response.status, data: await response.json() as { engine: DuelEngineView } }, (next) => post(seat, next));
       };

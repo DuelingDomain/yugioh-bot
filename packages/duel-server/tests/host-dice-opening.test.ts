@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -90,7 +90,7 @@ function table(format: DuelFormat, values: number[], botSeat?: number, keepFixtu
   const post = async (op: string, playerId = players[0]!, extra: Record<string, unknown> = {}): Promise<{ status: number; data: Record<string, any> }> => {
     const raw = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId, ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+      headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") } }));
     const result = { status: response.status, data: await response.json() as Record<string, any> };
     return keepFixtureSeats ? finishTestDiceOpening(host, JSON.parse(raw), result,
       (body) => post(String(body.op), playerId, body)) : result;

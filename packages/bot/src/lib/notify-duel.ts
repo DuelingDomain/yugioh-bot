@@ -1,4 +1,5 @@
-import { httpTransport, type SignedPostTransport } from "@yugidraft/shared/notify";
+import { signedTransport } from "@yugidraft/shared/internal-auth";
+import type { SignedPostTransport } from "@yugidraft/shared/internal-auth";
 
 export type NotifyDuelChange = (slug: string, guildId: string) => Promise<void>;
 
@@ -22,5 +23,5 @@ export function createNotifyDuelChange(transport: SignedPostTransport): NotifyDu
 }
 
 export function createHttpNotifyDuelChange(cfg: { url: string; secret: string }): NotifyDuelChange {
-  return createNotifyDuelChange(httpTransport(cfg));
+  return createNotifyDuelChange(signedTransport({ ...cfg, purpose: "ws-broadcast" }));
 }

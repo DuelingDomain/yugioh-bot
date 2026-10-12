@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 import { afterEach, expect, it, vi } from "vitest";
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
@@ -9,7 +9,7 @@ it("sends the typed status operation with the configured guild actor and HMAC si
     expect(url).toBe("https://private-host.example/internal/duel");
     const raw = String(init?.body);
     expect(JSON.parse(raw)).toEqual({ op: "engine-data-status", guildId: "g", playerId: 7 });
-    expect(new Headers(init?.headers).get("x-announce-signature")).toBe(`sha256=${createHmac("sha256", "test-secret").update(raw).digest("hex")}`);
+    expect(await readSignedRequest(new Request(url, init), { secret: "test-secret", purpose: "duel-host" })).toEqual({ ok: true, body: JSON.parse(raw) });
     return Response.json({ generatedAt: "2026-10-01T00:00:00Z", engine: { bundleVersion: "v1" } });
   });
   vi.stubGlobal("fetch", fetch);

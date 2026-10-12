@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedHeaders } from "./helpers/signed-request.js";
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -43,7 +43,7 @@ describeWithCores("FFA dice order with real workers, recovery and replay", [need
     const post = async (op: string, playerId = players[2]!, extra: Record<string, unknown> = {}) => {
       const raw = JSON.stringify({ op, guildId: "g", slug: session.slug, playerId, ...extra });
       const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-        headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+        headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") } }));
       expect(response.status, await response.clone().text()).toBe(200);
       return await response.json() as DuelRoom & DuelReplay;
     };

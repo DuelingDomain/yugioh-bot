@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { findDraftReadAccess } from "@yugidraft/shared/services";
@@ -47,7 +47,7 @@ describe("draft socket access without starting a server", () => {
     const body = JSON.stringify({ slug: "test-draft", status: "active", playerId: 1, packRound: 1, pickStep: 1 });
     return handle(new Request(`http://internal/internal/draft/${kind}`, {
       method: "POST",
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(body).digest("hex") },
+      headers: { ...await signedHeaders(body, secret, `http://internal/internal/draft/${kind}`, "ws-broadcast") },
       body,
     }));
   }

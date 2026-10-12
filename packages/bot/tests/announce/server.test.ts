@@ -1,11 +1,8 @@
+import { signedHeaders } from "../helpers/signed-request.js";
 import { describe, expect, it, vi } from "vitest";
-import { createHmac } from "node:crypto";
 import { createAnnounceServer } from "../../src/announce/server.js";
 
 const secret = "shh";
-function sign(body: string) {
-  return "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
-}
 
 describe("announce server", () => {
   it("rejects requests without a valid signature", async () => {
@@ -44,7 +41,7 @@ describe("announce server", () => {
     const body = JSON.stringify({ draftId: 1, channelId: "c1", name: "Test", webSlug: "abcd1234" });
     const res = await app.handle(new Request("http://x/internal/announce/draft-created", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-announce-signature": sign(body) },
+      headers: { "content-type": "application/json", ...await signedHeaders(body, secret, "http://x/internal/announce/draft-created", "bot-announce") },
       body,
     }));
     expect(res.status).toBe(204);
@@ -58,6 +55,6 @@ it("dispatches signed draft-status", async () => {
     onDraftStatus:handler,onTournamentCreated:handler,onTournamentStarted:handler,onMatchReportPending:handler,
     onMatchResolved:handler,onTournamentCompleted:handler,onDuelInvite:handler}});
   const body=JSON.stringify({draftId:13});
-  const response=await app.handle(new Request("http://x/internal/announce/draft-status",{method:"POST",headers:{"x-announce-signature":sign(body)},body}));
+  const response=await app.handle(new Request("http://x/internal/announce/draft-status",{method:"POST",headers:{...await signedHeaders(body, secret, "http://x/internal/announce/draft-status", "bot-announce")},body}));
   expect(response.status).toBe(204); expect(handler).toHaveBeenCalledWith({draftId:13});
 });

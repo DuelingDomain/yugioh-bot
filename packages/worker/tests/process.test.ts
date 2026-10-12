@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHmac } from "node:crypto";
+import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
@@ -84,7 +84,7 @@ it("SIGTERM waits for an in-flight signed broadcast and starts no new tick", asy
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
-    received.push({path: req.url!, body, signature: String(req.headers["x-announce-signature"])});
+    received.push({path: req.url!, body, signature: String(req.headers["x-internal-signature"])});
     pending = res; // Hold the real worker HTTP effect until after SIGTERM.
   });
   let worker: ReturnType<typeof startWorker> | undefined;
@@ -100,7 +100,9 @@ it("SIGTERM waits for an in-flight signed broadcast and starts no new tick", asy
     expect(pending, worker.output()).toBeDefined();
     expect(received).toHaveLength(1);
     expect(received[0].path).toBe("/internal/draft/resync");
-    expect(received[0].signature).toBe("sha256=" + createHmac("sha256", secret).update(received[0].body).digest("hex"));
+    expect(await readSignedRequest(new Request(`http://127.0.0.1:${address.port}${received[0].path}`, {
+      method: "POST", body: received[0].body, headers: { "x-internal-signature": received[0].signature },
+    }), { secret, purpose: "ws-broadcast" })).toEqual({ ok: true, body: JSON.parse(received[0].body) });
     expect(drafts.findById(draft.id).currentPickStep).toBe(2);
     // A broken stop that leaves intervals running would now expire this again.
     db.prepare("update drafts set pick_deadline_at=? where id=?").run(new Date(Date.now() - 60000).toISOString(), draft.id);

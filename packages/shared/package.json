@@ -58,6 +58,11 @@
       "types": "./dist/notify/index.d.ts",
       "source": "./src/notify/index.ts",
       "default": "./dist/notify/index.js"
+    },
+    "./internal-auth": {
+      "types": "./dist/internal-auth/index.d.ts",
+      "source": "./src/internal-auth/index.ts",
+      "default": "./dist/internal-auth/index.js"
     }
   },
   "scripts": {

@@ -153,6 +153,15 @@ A later bare `docker compose ... --build` has no such context and fails. Startin
 with `docker compose -f docker-compose.yml up -d` needs no build context. For an isolated manual build,
 use the complete preparation commands in [the staging runbook](staging.md#local-verification-without-starting-services).
 
+### Internal signing cutover
+
+Deploy web, WS, duel and worker together (and update any separately enabled bot). The v2 internal signing format
+has no compatibility period with the previous format. Keep the existing internal secrets and synchronize service
+clocks; signed requests must be within 60 seconds of the receiving service's clock. Draft and tournament room
+tokens remain valid. Previously issued duel connection tokens are replaced: open duel tabs fetch fresh credentials
+and retry once when a join is rejected. After deployment, check that an open duel tab reconnects and that draft
+updates still arrive. Roll back all communicating services together if needed.
+
 ### Before a deploy that changes the engine bundle
 
 The multiplayer merge changes the Standard and Domain cores, so its first deploy replaces the bundle. Before it:

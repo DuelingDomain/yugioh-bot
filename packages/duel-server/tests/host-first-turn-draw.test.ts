@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,7 +52,7 @@ async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterR
   const post = async (op: string, seat = 0, extra: Record<string, unknown> = {}): Promise<{ status: number; data: DuelRoom & DuelReplay & { error?: string } }> => {
     const raw = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId: players[seat], ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+      headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") } }));
     return finishTestDiceOpening(host, { op, slug: session.slug },
       { status: response.status, data: await response.json() as DuelRoom & DuelReplay & { error?: string } }, () => post("view", seat, extra));
   };

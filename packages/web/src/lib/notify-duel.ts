@@ -1,9 +1,9 @@
-import { httpTransport } from "@yugidraft/shared/notify";
+import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { env } from "./env";
 
 export async function notifyDuelChange(slug: string, guildId: string): Promise<void> {
   try {
-    const result = await httpTransport({
+    const result = await signedTransport({ purpose: "ws-broadcast",
       url: env.wsInternalUrl,
       secret: env.wsInternalSecret,
     }).post("/internal/duel/changed", JSON.stringify({ slug, guildId }));

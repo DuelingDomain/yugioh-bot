@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { recordingTransport } from "../../src/notify/signed-post.js";
+import { recordingTransport } from "../../src/internal-auth/index.js";
 import { createBroadcaster } from "../../src/notify/broadcaster.js";
 
 describe("createBroadcaster", () => {

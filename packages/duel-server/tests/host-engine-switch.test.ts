@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -56,10 +56,10 @@ afterEach(async () => {
 
 async function post(host: DuelHost, body: Record<string, unknown>): Promise<{ status: number; data: Record<string, any> }> {
   const raw = JSON.stringify(body);
-  const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
+
   const response = await host.handle(new Request("http://localhost/internal/duel", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-announce-signature": signature },
+    headers: { "content-type": "application/json", ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") },
     body: raw,
   }));
   return finishTestDiceOpening(host, body, { status: response.status, data: (await response.json()) as Record<string, any> },

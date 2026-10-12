@@ -17,11 +17,11 @@ vi.mock("@/lib/session-identity", async () => {
 });
 vi.mock("@/lib/notify", () => ({ announcer: { announce }, broadcaster: { draft, tournament } }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange: duelChange }));
-vi.mock("@yugidraft/shared/notify", async (original) => {
-  const actual = await original<typeof import("@yugidraft/shared/notify")>();
-  return { ...actual, httpTransport: (...args: Parameters<typeof actual.httpTransport>) => {
+vi.mock("@yugidraft/shared/internal-auth", async (original) => {
+  const actual = await original<typeof import("@yugidraft/shared/internal-auth")>();
+  return { ...actual, signedTransport: (...args: Parameters<typeof actual.signedTransport>) => {
     transport(...args);
-    return actual.httpTransport(...args);
+    return actual.signedTransport(...args);
   } };
 });
 

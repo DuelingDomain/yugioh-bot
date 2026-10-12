@@ -1,6 +1,6 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { readFileSync } from "node:fs";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
-import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -21,8 +21,8 @@ afterEach(async () => { for (const host of hosts.splice(0)) await host.close(); 
 
 async function request(host: DuelHost, body: Record<string, unknown>, expectedStatus = 200) {
   const raw = JSON.stringify(body);
-  const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
-  const response = await host.handle(new Request("http://local/internal/duel", { method: "POST", headers: { "content-type": "application/json", "x-announce-signature": signature }, body: raw }));
+
+  const response = await host.handle(new Request("http://local/internal/duel", { method: "POST", headers: { "content-type": "application/json", ...await signedHeaders(raw, SECRET, "http://local/internal/duel", "duel-host") }, body: raw }));
   const data = await response.json() as any;
   expect(response.status, JSON.stringify(data)).toBe(expectedStatus);
   return data;

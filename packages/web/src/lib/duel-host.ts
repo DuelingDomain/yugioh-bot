@@ -1,5 +1,5 @@
+import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { NextResponse } from "next/server";
-import { httpTransport } from "@yugidraft/shared/notify";
 import {
   createDuelService,
   createPlayerService,
@@ -122,7 +122,7 @@ export async function callDuelHost(input: {
     console.error(`[duel-host] ${configProblem}`);
     return { ok: false, response: NextResponse.json({ error: configProblem }, { status: 503 }) };
   }
-  const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 } : {}) });
+  const transport = signedTransport({ ...cfg, purpose: "duel-host", ...(input.op === "engine-data-status" ? { timeoutMs: 5000 } : {}) });
   const payload: Record<string, unknown> = {
     op: input.op,
     guildId: input.guildId,

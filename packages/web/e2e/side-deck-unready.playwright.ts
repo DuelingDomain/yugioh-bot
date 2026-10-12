@@ -14,7 +14,7 @@
  *     node --import tsx packages/web/e2e/side-deck-unready.playwright.ts
  * Exits 1 when any step's check fails; screenshots and evidence.json are written either way.
  */
-import { createHmac } from "node:crypto";
+import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -57,12 +57,18 @@ const host = createDuelHost({ db, dataDirectory, secret: SECRET, searchCards: ()
 
 async function callHost(body: Record<string, unknown>): Promise<{ status: number; data: any }> {
   const raw = JSON.stringify({ guildId: GUILD, ...body });
-  const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
-  const response = await host.handle(new Request("http://duel/internal/duel", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-announce-signature": signature },
-    body: raw,
-  }));
+  let request!: Request;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    request = new Request(url, init);
+    return new Response(null, { status: 204 });
+  };
+  try {
+    await signedTransport({ url: "http://duel", secret: SECRET, purpose: "duel-host" }).post("/internal/duel", raw);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+  const response = await host.handle(request);
   return { status: response.status, data: await response.json().catch(() => null) };
 }
 

@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedHeaders } from "../helpers/signed-request.js";
 import Database from "better-sqlite3";
 import { ChannelType } from "discord.js";
 import { expect, it, vi } from "vitest";
@@ -30,7 +30,7 @@ it("worker status and duplicate completion reach signed bot HTTP and send once",
       async post(path: string, body: string) {
         const response = await app.handle(new Request(`http://bot${path}`, {
           method: "POST", body,
-          headers: {"x-announce-signature": "sha256=" + createHmac("sha256", secret).update(body).digest("hex")},
+          headers: {...await signedHeaders(body, secret, `http://bot${path}`, "bot-announce")},
         }));
         statuses.push(response.status);
         return {ok: response.ok, status: response.status, text: await response.text()};

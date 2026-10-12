@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -72,7 +72,7 @@ function fixture(format: DuelFormat, state: "eliminated" | "pendingElimination" 
     const raw = JSON.stringify({ op: "respond", slug: session.slug, guildId: "g1", playerId: players[0],
       command: { revision: 0, promptId: "p1", answer: { choice } } });
     return host!.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+      headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") } }));
   }
   return { post, service, slug: session.slug, worker };
 }

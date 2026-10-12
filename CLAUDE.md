@@ -115,12 +115,12 @@ The bot wraps all discord.js interactions into framework-agnostic `*Like` types 
 
 ### Inter-service communication
 
-- Internal HTTP uses `httpTransport` in `packages/shared/src/notify/signed-post.ts`: HMAC-SHA256 over the exact serialized JSON body, sent as `x-announce-signature: sha256=<hex>`. Receivers verify the raw body with the matching secret before parsing JSON.
+- Internal HTTP uses `signedTransport` and `readSignedRequest` in `packages/shared/src/internal-auth`: purpose-derived HMAC-SHA256 over the version, method, path with query, timestamp and exact JSON body. The header is `x-internal-signature: t=<unix seconds>,v2=<hex>`; receivers enforce a 60-second timestamp window and a 64 KB body limit before parsing JSON. Purposes are `ws-broadcast`, `duel-host` and `bot-announce`; existing secrets stay unchanged.
 - **Bot/web/duel-server/worker → ws**: `createBroadcaster` posts draft/tournament events to `/internal/draft/*` and `/internal/tournament/*`; duel invalidations use `/internal/duel/changed`. Uses `WS_INTERNAL_URL` / `WS_INTERNAL_SECRET` on port 4002 (`packages/ws/src/internal-http.ts`).
 - **Discord effects**: Compose fixes `DISCORD_BOT_ENABLED=0` on web and worker. Mutations commit and publish WS updates without bot HTTP or Discord REST. `/api/discord/channels` and `/api/tournaments/[slug]/announce` return 404 `{ "error": "discord_disabled" }`. Discord capability reaches UI through server-rendered props.
 
 - **Web → duel-server**: `packages/web/src/lib/duel-host.ts` posts operations to `/internal/duel` with `DUEL_INTERNAL_URL` / `DUEL_INTERNAL_SECRET` on port 4003. URL defaults to `http://127.0.0.1:4003`; Compose uses `http://duel:4003`. Browsers use authenticated web API routes.
-- **Browser → ws**: Socket.IO connects to `NEXT_PUBLIC_WS_URL` (falls back to the page origin). Draft/tournament joins use slugs. Duel joins require a 5-minute token from `/api/duels/[slug]/connection`, signed with `WS_INTERNAL_SECRET` over JSON claims (`slug`, `guildId`, `playerId`, `seat`, `expiresAt`); ws verifies it in `src/duel-events.ts`. See `packages/shared/src/ws/duel-token.ts`.
+- **Browser → ws**: Socket.IO connects to `NEXT_PUBLIC_WS_URL` (falls back to the page origin). Draft/tournament joins use slugs. Duel joins require a 5-minute token from `/api/duels/[slug]/connection`, signed with a `duel-room` key derived from `WS_INTERNAL_SECRET` over JSON claims (`slug`, `guildId`, `playerId`, `seat`, `expiresAt`); ws verifies it in `src/duel-events.ts`. See `packages/shared/src/ws/duel-token.ts`. Duel hooks fetch fresh credentials and retry once on token rejection. Draft/tournament token labels remain unchanged.
 
 ### Web access model
 
