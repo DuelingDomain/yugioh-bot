@@ -262,9 +262,9 @@ export class ReplayBuildCache<T = unknown> {
       }
       return value;
     }).catch(error => {
-      // The first checked family's failure survives a budget retry. Other families and transient failures retry.
+      // The first checked family's mismatch survives a budget retry. Other families and transient failures retry.
       if (error instanceof ReplayBuildError && this.limits.maxEntries > 0 && (error.code === "REPLAY_TOO_LARGE"
-        || (cacheFamilyFailures && (error.code === "REPLAY_MISMATCH" || error.code === "REPLAY_UNVERIFIED" || error.familyFailed)))) {
+        || (cacheFamilyFailures && (error.code === "REPLAY_MISMATCH" || error.code === "REPLAY_UNVERIFIED")))) {
         while (this.rejected.size >= this.limits.maxEntries) this.rejected.delete(this.rejected.keys().next().value!);
         this.rejected.set(key, error);
       }

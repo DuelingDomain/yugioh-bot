@@ -205,7 +205,7 @@ it.each(["crash", "loop-limit"] as const)("tries pinned after a legacy %s", asyn
 });
 it.each((["crash", "loop-limit"] as const).flatMap(failure =>
   (["command_mismatch", "board_mismatch", "crash", "missing", "unavailable"] as const).map(alternateFailure => ({ failure, alternateFailure }))))(
-  "keeps a legacy $failure transient after pinned $alternateFailure", async ({ failure, alternateFailure }) => {
+  "retries legacy in the same host after a legacy $failure and pinned $alternateFailure", async ({ failure, alternateFailure }) => {
   unknownChoice();
   const get = vi.mocked(EngineResourceCache.prototype.get).getMockImplementation()!;
   vi.mocked(EngineResourceCache.prototype.get).mockImplementation(async (directory, choice) => {
@@ -234,7 +234,7 @@ it.each((["crash", "loop-limit"] as const).flatMap(failure =>
   expect(checks()).toEqual([]);
   expect(workers.map(worker => worker.created?.engine)).toEqual(alternateFailure === "missing" ? ["legacy"] : ["legacy", "pinned"]);
   expect(workers.every(worker => !worker.running)).toBe(true);
-  await host.close(); workers = []; start();
+  workers = [];
   vi.mocked(EngineResourceCache.prototype.get).mockImplementation(get); configure = () => {};
   expect(await post()).toMatchObject({ status: 200, body: { verification: "verified" } });
   expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy"]);
