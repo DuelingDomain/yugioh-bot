@@ -58,3 +58,7 @@
     animation: none;
   }
 }
+
+:global([data-reduced="true"]) .line {
+  animation: none;
+}
