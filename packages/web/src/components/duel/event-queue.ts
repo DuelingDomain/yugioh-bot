@@ -293,8 +293,11 @@ export function moveDestinationRect(dest: HTMLElement): { left: number; top: num
   return { left: rect.left - x, top: rect.top - (y ?? 0), width: rect.width, height: rect.height };
 }
 
-/** Where a zone is scaled as a whole: a seat field (the Tag Rooftop, a grid table) and the band of Extra Monster Zones the Tag facing seats share. */
-const SCALED_FIELD = "[data-seat-field],[data-shared-band]";
+/**
+ * Where a zone is scaled and turned as a whole: a seat field (the Tag Rooftop, a grid table) and the band of Extra Monster
+ * Zones the Tag facing seats share. Every FX that reads a zone's on-screen size or turn asks for this one selector.
+ */
+export const SCALED_FIELD = "[data-seat-field],[data-shared-band]";
 
 /**
  * The size a flying card must have to land on `dest` as large as the zone looks: `layout` (the zone's own box) on a 1v1
@@ -323,12 +326,12 @@ export function nearestTurn(angle: number, near: number): number {
 }
 
 /**
- * The live screen turn of the seat field around `dest` (0 outside a seat field and for a hand card). Only a seat field
- * of a multiplayer table is turned as a whole; the DOM probe behind it is skipped everywhere else, so a 1v1 flight
+ * The live screen turn of the seat field (or shared band) around `dest` (0 outside both and for a hand card). Only a seat
+ * field of a multiplayer table is turned as a whole; the DOM probe behind it is skipped everywhere else, so a 1v1 flight
  * adds no layout read.
  */
 export function seatFieldTurn(dest: HTMLElement): number {
-  if (dest.closest("[data-hand-card]") || !dest.closest("[data-seat-field]")) return 0;
+  if (dest.closest("[data-hand-card]") || !dest.closest(SCALED_FIELD)) return 0;
   return screenPose(dest)?.turn ?? 0;
 }
 
@@ -339,7 +342,7 @@ export function seatFieldTurn(dest: HTMLElement): number {
  * its own side/Defense turn, so `sideTurn` is that turn without the seat.
  */
 export function departureTurn(from: DuelZoneRef | undefined | null, sideTurn: number): number | null {
-  if (!from || typeof document === "undefined" || !document.querySelector("[data-seat-field]")) return null;
+  if (!from || typeof document === "undefined" || !document.querySelector(SCALED_FIELD)) return null;
   if (from.location === LOCATION_HAND) {
     const rail = document.querySelector<HTMLElement>(`[data-hand-seat="${from.controller}"]`);
     return rail && rail.dataset.side === "opp" ? screenPose(rail)?.turn ?? null : null;
