@@ -130,9 +130,9 @@ export function DeckImportPanel({
                       <span>{modeLabel(row.deck.mode)}</span>
                       <span>Main <b>{row.deck.deck.main.length}</b></span>
                       <span>Extra <b>{row.deck.deck.extra.length}</b></span>
-                      {row.messages.map((message, index) => <span key={index}>{message}</span>)}
                     </span>
                     <Link href={`/decks/${row.deck.id}`} className={styles.resLink}>Open</Link>
+                    {row.messages.map((message, index) => <StatusLine key={index} tone="warn" className={styles.resNote}>{message}</StatusLine>)}
                   </>
                 ) : null}
                 {row.state === "failed" ? <StatusLine tone="block">{row.error}</StatusLine> : null}

@@ -76,6 +76,7 @@ import {
   altArtCount,
   chooseMaster,
   clearSection,
+  cardKind,
   cloneDeck,
   copyCounts,
   copyKey,
@@ -83,10 +84,13 @@ import {
   copyProblems,
   defaultAddSection,
   downloadYdkFile,
+  fixMisplaced,
   guidanceNotes,
   importForLibrary,
   isNewDeckDirty,
+  misplacedCards,
   placeCard, placeCardAt,
+  placementBlock,
   removeCard,
   shuffled,
   snapshotOf,
@@ -112,7 +116,7 @@ import {
   remainingCopies,
   type DraftDeckPool,
 } from "./pool-model";
-import { DeckSectionGrid, type HoveredCopy } from "./section-grid";
+import { DeckSectionGrid, type HoveredCopy, type SectionWarning } from "./section-grid";
 import styles from "./editor.module.css";
 
 const MODE_CHOICES = [
@@ -493,6 +497,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const poolMap = useMemo(() => (pool ? poolCounts(pool.cards, catalog) : null), [pool, catalog]);
   const forcedMap = useMemo(() => forcedCounts(pool?.forcedCopies, catalog), [pool, catalog]);
   const usage = useMemo(() => deckUsage(deck, catalog), [deck, catalog]);
+  const misplaced = useMemo(() => misplacedCards(deck, catalog), [deck, catalog]);
   const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
   const archetypes = facets?.archetypes ?? [];
 
@@ -624,13 +629,6 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     hoverTimer.current = window.setTimeout(() => setHover(target), target ? HOVER_IN_MS : HOVER_OUT_MS);
   }
 
-  /** Main and Extra only take the cards that belong there; the Side Deck takes any card. */
-  function sectionFor(code: number, wanted: DeckSection): DeckSection {
-    const card = catalog.get(code);
-    if (!card || wanted === "side") return wanted;
-    return defaultAddSection(card);
-  }
-
   /** A draft deck holds at most 3 copies of a card, plus one per forced pick, and no more than the player drafted. */
   function poolRoomFor(code: number): boolean {
     code = poolCode(code);
@@ -671,29 +669,32 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   function addFromList(card: DeckCardInfo, wanted?: DeckSection) {
     rememberCatalog([card]);
     if (!roomFor(card)) return;
+    // An add goes to the section the card belongs in; Side is the only other choice.
     const to = wanted === "side" ? "side" : defaultAddSection(card);
     commit(placeCard(selection, { code: card.code, from: "list" }, to));
+    const why = wanted && wanted !== to ? placementBlock(card, wanted) : null;
+    if (why) setNotice(why);
   }
 
-  function dropCard(source: CardSource, wanted: DeckSection, at?: number) {
-    const to = sectionFor(source.code, wanted);
-    // A card dropped on the wrong section of its own home stays where it is.
-    if (to !== wanted && source.from === to) {
-      setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "extra" : "main"} deck.`);
+  /**
+   * A drop, or a move by key. Main takes the cards that belong there, Extra takes only Fusion, Synchro, Xyz and
+   * Link monsters, and Side takes any card. A card the section does not take stays where it is, with the reason.
+   */
+  function dropCard(source: CardSource, to: DeckSection, at?: number) {
+    const why = placementBlock(catalog.get(source.code), to, source.from);
+    if (why) {
+      setNotice(why);
       return;
     }
     if (source.from === "list") {
       const card = catalog.get(source.code);
       if (card ? !roomFor(card) : !poolRoomFor(source.code)) return;
     }
-    const placed = placeCardAt(selection, source, to, to === wanted ? at : undefined);
+    const placed = placeCardAt(selection, source, to, at);
     commit(placed.selection);
     // The placed copy is the selection, so the art picker swaps that copy.
     setSelected(placed.index >= 0 ? { section: to, code: source.code, index: placed.index } : { section: to, code: source.code });
     setInspectCode(source.code);
-    if (to !== wanted) {
-      setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "extra" : "main"} deck.`);
-    }
   }
 
   function removeCopy(source: CardSource) {
@@ -739,6 +740,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       return;
     }
     const card = catalog.get(source.code);
+    // A copy of a card that sits in a section that does not take it (an old save) would be one more in the wrong place.
+    const why = placementBlock(card, source.section, source.section);
+    if (why) {
+      setNotice(why);
+      return;
+    }
     if (card) {
       if (!roomFor(card)) return;
     } else if (poolMap) {
@@ -859,6 +866,11 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       setSaveError("Deck name is required.");
       return;
     }
+    // The server rejects a bad Extra card (INVALID_EXTRA_DECK_CARD); stop it here with a clearer way out.
+    if (misplaced.inExtra.length > 0) {
+      setSaveError("Some cards in the Extra Deck are not Extra Deck monsters. Use Move to Main Deck in the warning first.");
+      return;
+    }
     if (pool && deck.main.length < draftMainMinimum(pool.mainPoolCount)) {
       setSaveError(`A draft deck needs at least ${draftMainMinimum(pool.mainPoolCount)} main deck cards.`);
       return;
@@ -938,6 +950,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   }, []);
 
   const notes = pool ? draftDeckNotes(deck, pool.mainPoolCount) : guidanceNotes(mode, deck);
+  if (misplaced.inExtra.length > 0) notes.unshift(`Extra holds ${misplaced.inExtra.length} ${misplaced.inExtra.length === 1 ? "card" : "cards"} that ${misplaced.inExtra.length === 1 ? "is" : "are"} not Extra Deck monsters. Use Move to Main Deck.`);
+  if (misplaced.inMain.length > 0) notes.unshift(`Main holds ${misplaced.inMain.length} Extra Deck ${misplaced.inMain.length === 1 ? "monster" : "monsters"}. Use Move to Extra Deck.`);
   const mainMinimum = pool ? draftMainMinimum(pool.mainPoolCount) : 40;
   const inspected = inspectCode == null ? undefined : catalog.get(inspectCode);
   const swapTarget: { section: "main" | "extra" | "side" | "deckMaster"; index: number } | null =
@@ -1025,6 +1039,27 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     onArtMenu: openArtMenu,
     artMenu,
   };
+  /** One click moves the cards of this section that it does not take; one undo step. */
+  function fixSection(from: "main" | "extra") {
+    if (busy) return;
+    const moved = (from === "extra" ? misplaced.inExtra : misplaced.inMain).length;
+    commit(fixMisplaced(selection, catalog, from));
+    setSelected(null);
+    setNotice(`Moved ${moved} ${moved === 1 ? "card" : "cards"} to the ${from === "extra" ? "Main" : "Extra"} Deck. Press Ctrl+Z to undo.`);
+  }
+  const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
+  const extraWarning: SectionWarning | undefined = misplaced.inExtra.length > 0 ? {
+    message: `${misplaced.inExtra.length} ${plural(misplaced.inExtra.length, "card here is", "cards here are")} not ${plural(misplaced.inExtra.length, "an Extra Deck monster", "Extra Deck monsters")}. Only Fusion, Synchro, Xyz and Link monsters go in the Extra Deck.`,
+    actionLabel: "Move to Main Deck",
+    onAction: () => fixSection("extra"),
+    disabled: busy,
+  } : undefined;
+  const mainWarning: SectionWarning | undefined = misplaced.inMain.length > 0 ? {
+    message: `${misplaced.inMain.length} ${plural(misplaced.inMain.length, "card here is an Extra Deck monster", "cards here are Extra Deck monsters")}. Fusion, Synchro, Xyz and Link monsters cannot go in the Main Deck.`,
+    actionLabel: "Move to Extra Deck",
+    onAction: () => fixSection("main"),
+    disabled: busy,
+  } : undefined;
   const clearButton = (section: DeckSection, label: string) => (
     <SvButton
       variant="quiet"
@@ -1227,12 +1262,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onDragOver={(event) => { if (hasCardDrag(event)) { event.preventDefault(); setMasterDropping(true); } }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
                 onDrop={(event) => { setMasterDropping(false); const drag = readCardDrag(event); if (!drag || drag.from === "master") return; event.preventDefault(); makeMaster(drag.code, drag.from === "list" ? undefined : drag.from); }}>
-                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}${masterArts > 0 ? `, ${artCountLabel(masterArts)}` : ""}`} aria-keyshortcuts="ContextMenu Shift+F10" aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /><ArtChip otherArts={masterArts} corner open={artMenu?.section === "deckMaster"} onOpen={(anchor) => openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor })} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
+                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}${masterArts > 0 ? `, ${artCountLabel(masterArts)}` : ""}`} aria-keyshortcuts="ContextMenu Shift+F10" aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); const master = catalog.get(deck.deckMaster!); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }, master ? cardKind(master) : undefined); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /><ArtChip otherArts={masterArts} corner open={artMenu?.section === "deckMaster"} onOpen={(anchor) => openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor })} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
                 <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, or select one and press Use as Deck Master.</p>{masterIsSpellTrap ? <p role="alert" className={styles.errorText}>{SPELL_TRAP_MASTER_MESSAGE}</p> : null}{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Clear</SvButton> : null}</div>
               </section>
             ) : null}
-            <DeckSectionGrid {...sectionProps} title="Main" section="main" codes={deck.main} minimum={mainLow} maximum={DRAFT_MAIN_MAX} target={mode === "domain" ? "60" : `${mainLow}–${DRAFT_MAIN_MAX}`} emptyHint="Add cards from the list on the right." actions={clearButton("main", "Main")} />
-            <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} />
+            <DeckSectionGrid {...sectionProps} title="Main" section="main" codes={deck.main} minimum={mainLow} maximum={DRAFT_MAIN_MAX} target={mode === "domain" ? "60" : `${mainLow}–${DRAFT_MAIN_MAX}`} emptyHint="Add cards from the list on the right." actions={clearButton("main", "Main")} warning={mainWarning} />
+            <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} warning={extraWarning} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, Ctrl+click a deck card, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
           <CardBrowser mode={mode} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
