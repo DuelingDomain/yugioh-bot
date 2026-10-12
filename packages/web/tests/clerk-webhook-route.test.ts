@@ -225,6 +225,50 @@ describe("POST /api/webhooks/clerk", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("prunes at most 100 receipts older than seven days per new receipt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(createdAt);
+    const cutoff = createdAt - 7 * 24 * 60 * 60 * 1000;
+    const insert = state.db!.prepare("insert into clerk_webhook_receipts (svix_id, received_at) values (?, ?)");
+    state.db!.transaction(() => {
+      for (let index = 0; index < 150; index++) {
+        insert.run(`msg_old_placeholder_${index}`, new Date(cutoff - 150_000 + index * 1000).toISOString());
+      }
+      insert.run("msg_boundary_placeholder", new Date(cutoff).toISOString());
+      insert.run("msg_recent_placeholder", new Date(cutoff + 1).toISOString());
+    })();
+    const event = { type: "future.event", data: {} };
+    expect((await POST(signed(event))).status).toBe(200);
+    expect(receipts()).toHaveLength(53);
+    expect(state.db!.prepare("select svix_id from clerk_webhook_receipts where received_at < ? order by received_at")
+      .all(new Date(cutoff).toISOString())).toEqual(Array.from({ length: 50 }, (_, index) => ({ svix_id: `msg_old_placeholder_${index + 100}` })));
+    // A replay must not add another cleanup batch to the same delivery.
+    expect((await POST(signed(event))).status).toBe(200);
+    expect(receipts()).toHaveLength(53);
+    expect((await POST(signed(event, "msg_next_placeholder"))).status).toBe(200);
+    expect(receipts()).toEqual(expect.arrayContaining([
+      { svix_id: "msg_boundary_placeholder", received_at: new Date(cutoff).toISOString() },
+      { svix_id: "msg_recent_placeholder", received_at: new Date(cutoff + 1).toISOString() },
+      { svix_id: "msg_placeholder", received_at: new Date(createdAt).toISOString() },
+      { svix_id: "msg_next_placeholder", received_at: new Date(createdAt).toISOString() },
+    ]));
+    expect(receipts()).toHaveLength(4);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rolls back a receipt when cleanup fails so a storage retry can still alert", async () => {
+    state.db!.prepare("insert into clerk_webhook_receipts values (?, ?)").run("msg_old_placeholder", "2020-01-01T00:00:00.000Z");
+    state.db!.exec(`create trigger reject_receipt_cleanup before delete on clerk_webhook_receipts
+      begin select raise(abort, 'cleanup unavailable'); end;`);
+    expect((await POST(signed())).status).toBe(503);
+    expect(receipts()).toEqual([{ svix_id: "msg_old_placeholder", received_at: "2020-01-01T00:00:00.000Z" }]);
+    expect(fetcher).not.toHaveBeenCalled();
+    state.db!.exec("drop trigger reject_receipt_cleanup");
+    expect((await POST(signed())).status).toBe(200);
+    expect(receipts()).toEqual([{ svix_id: "msg_placeholder", received_at: expect.any(String) }]);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("acknowledges events while Discord is unset without claiming an alert", async () => {
     vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", undefined);
     expect((await POST(signed())).status).toBe(200);

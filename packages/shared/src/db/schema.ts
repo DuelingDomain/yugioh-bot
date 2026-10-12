@@ -1116,6 +1116,8 @@ export function migrate(db: Database.Database) {
       svix_id text primary key not null,
       received_at text not null
     );
+    create index if not exists clerk_webhook_receipts_received_idx
+      on clerk_webhook_receipts (received_at, svix_id);
   `);
 
   addColumnIfMissing(db, "card_script_error_occurrences", "engine_kind", "text");
