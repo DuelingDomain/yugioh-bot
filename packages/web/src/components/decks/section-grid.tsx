@@ -128,6 +128,8 @@ export function DeckSectionGrid({
     <section
       className={styles["de-sec-b"]}
       aria-label={`${title} Deck`}
+      data-section={section}
+      data-unused={unused ? "" : undefined}
       data-dropping={dropping ? "true" : undefined}
       onDragOver={(event) => { if (allowDrop(event)) setDropping(true); }}
       onDragLeave={(event) => {
@@ -149,7 +151,7 @@ export function DeckSectionGrid({
       {children}
 
       {codes.length === 0 ? (
-        <div className={styles["de-empty"]}>
+        <div className={styles["de-empty"]} data-fit-area>
           <span className={styles["de-empty-zones"]} aria-hidden="true">
             <Zone state="empty" size="md" />
             <Zone state="empty" size="md" />
@@ -158,7 +160,7 @@ export function DeckSectionGrid({
           <p><span className={styles["de-empty-wide"]}>{emptyHint}</span><span className={styles["de-empty-phone"]}>Add cards from the Cards tab.</span></p>
         </div>
       ) : (
-        <ul ref={listRef} className={styles["de-grid"]}>
+        <ul ref={listRef} className={styles["de-grid"]} data-fit-area>
           {codes.map((code, index) => {
             const name = cardLabel(code, catalog);
             const missing = unknown.has(code);
