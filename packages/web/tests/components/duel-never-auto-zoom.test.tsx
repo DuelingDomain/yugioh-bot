@@ -222,7 +222,11 @@ describe("the duel never zooms in on a field by itself", () => {
     const base = TAG_FIXTURES.states.main;
     const { container, rerender } = render(<Tag state={base} />);
     zoomOn(container, 1);
-    rerender(<Tag state={later(base, 1, [ev(1001, "activate", { seat: 1, zone: { controller: 1, location: 8, sequence: 0 }, targets: [{ controller: 0, location: 4, sequence: 1 }] })])} />);
+    // The engine sends the activation with no targets and the targets in their own event after it.
+    const activation = ev(1001, "activate", { seat: 1, chainIndex: 1, zone: { controller: 1, location: 8, sequence: 0 } });
+    rerender(<Tag state={later(base, 1, [activation])} />);
+    expect(tagMode(container)).toBe("focus:1");
+    rerender(<Tag state={later(base, 1, [activation, ev(1002, "target", { seat: 1, chainIndex: 1, targets: [{ controller: 0, location: 4, sequence: 1 }] })])} />);
     expect(tagMode(container)).toBe("overview:-");
   });
 

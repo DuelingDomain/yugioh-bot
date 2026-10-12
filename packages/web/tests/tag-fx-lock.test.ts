@@ -59,7 +59,7 @@ describe("otherPlayerActed", () => {
 
   it("is false for the viewer's own actions", () => {
     expect(otherPlayerActed([ev(1, "activate", { seat: 0 }), ev(2, "attack", { seat: 0 })], 0, 0, 0)).toBe(false);
-    expect(otherPlayerActed([ev(1, "activate", { seat: 0, targets: [zone(2)] }), ev(2, "attack", { seat: 0, target: zone(2) })], 0, 0, 0)).toBe(false);
+    expect(otherPlayerActed([ev(1, "target", { seat: 0, targets: [zone(2)] }), ev(2, "attack", { seat: 0, target: zone(2) })], 0, 0, 0)).toBe(false);
   });
 
   it("is false for an action on the field in close-up only", () => {
@@ -128,13 +128,21 @@ describe("otherPlayerActed", () => {
       expect(otherPlayerActed([ev(1, "attack", { seat: 1, targetSeat: 1 })], 0, 0, 1)).toBe(false);
     });
 
-    it("an activation that targets a card on another field goes out", () => {
-      expect(otherPlayerActed([ev(1, "activate", { seat: 1, zone: zone(1, 8), targets: [zone(2)] })], 0, 0, 1)).toBe(true);
-      expect(otherPlayerActed([ev(1, "activate", { seat: 1, zone: zone(1, 8), targets: [zone(1)] })], 0, 0, 1)).toBe(false);
+    it("an activation with no targets, then a target event on another field of the same seat, goes out", () => {
+      // The engine sends the targets in their own event, after the activation (the activation has none).
+      const activate = ev(1, "activate", { seat: 1, zone: zone(1, 8), chainIndex: 1 });
+      expect(otherPlayerActed([activate], 0, 0, 1)).toBe(false);
+      expect(otherPlayerActed([activate, ev(2, "target", { seat: 1, chainIndex: 1, targets: [zone(2)] })], 0, 0, 1)).toBe(true);
+      expect(otherPlayerActed([activate, ev(2, "target", { seat: 1, chainIndex: 1, targets: [zone(1)] })], 0, 0, 1)).toBe(false);
+    });
+
+    it("a target event of the viewer, or one with an empty list, never zooms out", () => {
+      expect(otherPlayerActed([ev(1, "target", { seat: 0, targets: [zone(2)] })], 0, 0, 1)).toBe(false);
+      expect(otherPlayerActed([ev(1, "target", { seat: 1, targets: [] })], 0, 0, 0)).toBe(false);
     });
 
     it("a rival on another field who targets the close-up field goes out", () => {
-      expect(otherPlayerActed([ev(1, "activate", { seat: 2, zone: zone(2, 8), targets: [zone(0)] })], 0, 1, 0)).toBe(true);
+      expect(otherPlayerActed([ev(1, "activate", { seat: 2, zone: zone(2, 8), chainIndex: 1 }), ev(2, "target", { seat: 2, chainIndex: 1, targets: [zone(0)] })], 0, 1, 0)).toBe(true);
     });
   });
 });

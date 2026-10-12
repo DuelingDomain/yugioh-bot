@@ -35,7 +35,9 @@ function reasonOf(event: DuelEvent): CameraLockReason | null {
 /**
  * The seats an event touches and the seat that caused it, for a close-up that must go out when another player acts. Only an
  * activate, a summon, a set and an attack are actions; a destroy or a move names the owner of the card, not who acted.
- * - activate: the actor is `event.seat` (the activating player). It touches the field the card is on and the field of each target.
+ * - activate: the actor is `event.seat` (the activating player). It touches the field the card is on (the engine sends its
+ *   targets in a separate "target" event; an activation that already carries some counts them too).
+ * - target: the actor is `event.seat` (the owner of the chain link). It touches the field of each target in the link's list.
  * - attack: the actor is the attacking seat. It touches that field and the attacked one (the target zone, or `targetSeat` for a
  *   direct attack).
  * - summon / set: `event.seat` is the controller of the card, not the actor (a Kaiju goes to the rival's field, a token to
@@ -47,6 +49,8 @@ function actionOf(event: DuelEvent, resolvingSeat: number | null, turnSeat: numb
       const own = event.zone?.controller ?? event.seat;
       return { actor: event.seat ?? null, touched: [own, ...(event.targets ?? []).map((zone) => zone.controller)].filter((seat): seat is number => seat != null) };
     }
+    case "target":
+      return { actor: event.seat ?? null, touched: (event.targets ?? []).map((zone) => zone.controller) };
     case "attack": {
       const attacked = event.target?.controller ?? event.targetSeat;
       return { actor: event.seat ?? null, touched: [event.seat, attacked].filter((seat): seat is number => seat != null) };
