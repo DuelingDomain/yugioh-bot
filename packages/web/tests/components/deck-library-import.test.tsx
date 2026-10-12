@@ -110,6 +110,42 @@ describe("SavedDeckLibrary", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("YDKE code copied.");
   });
 
+  const savedWithMaster = {
+    id: 1, name: "Domain one", mode: "domain",
+    deck: { main: [89631139], extra: [], side: [], deckMaster: 14558127 },
+    createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00",
+  };
+
+  it("tells the person that the Deck Master is not in the YDKE code", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [savedWithMaster] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "Domain one" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy Domain one as YDKE" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("The Deck Master is not part of YDKE.");
+  });
+
+  it.each([
+    ["has no clipboard", undefined, /cannot use the clipboard/],
+    ["is refused the clipboard", { writeText: vi.fn(async () => { throw new Error("denied"); }) }, /did not allow the copy/],
+  ])("shows the code in a selectable box when the page %s", async (_label, clipboard, message) => {
+    vi.stubGlobal("navigator", { ...navigator, clipboard });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [savedWithMaster] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "Domain one" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy Domain one as YDKE" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(message)).toBeInTheDocument();
+    expect(within(dialog).getByText(/The Deck Master is not part of YDKE/)).toBeInTheDocument();
+    const box = within(dialog).getByRole("textbox", { name: "YDKE code" });
+    expect(box).toHaveAttribute("readonly");
+    expect((box as HTMLTextAreaElement).value).toMatch(/^ydke:\/\/.+!.*!.*!$/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("with no decks: one primary, Import YDK files opens the import panel, bar buttons are secondary", async () => {
     stubApi();
     const { container } = render(<SavedDeckLibrary />);

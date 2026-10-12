@@ -11,12 +11,12 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-type Detail = { key: string; tone: "error" | "warn"; code: string; text: string };
+type Detail = { key: string; tone: "error" | "warn"; code: string; text: string; line?: number };
 
 function detailsOf(item: PreviewItem): Detail[] {
   return [
-    ...item.row.errors.map((issue, i): Detail => ({ key: `e${i}`, tone: "error", code: issue.code, text: issue.message })),
-    ...item.row.warnings.map((issue, i): Detail => ({ key: `w${i}`, tone: "warn", code: issue.code, text: issue.message })),
+    ...item.row.errors.map((issue, i): Detail => ({ key: `e${i}`, tone: "error", code: issue.code, text: issue.message, line: issue.line })),
+    ...item.row.warnings.map((issue, i): Detail => ({ key: `w${i}`, tone: "warn", code: issue.code, text: issue.message, line: issue.line })),
   ];
 }
 
@@ -61,7 +61,7 @@ function PreviewRow({ item, items, disabled, onRename, onToggle }: {
           <span>Side <b>{row.counts.side}</b></span>
           {row.deck.deckMaster != null ? <span>Master</span> : null}
         </p>
-        {item.failure ? <p className={styles.pvFail} role="alert">Not imported. {item.failure}</p> : null}
+        {item.failure ? <p className={styles.pvFail}>Not imported. {item.failure}</p> : null}
         {duplicate || details.length > 0 ? (
           <p className={styles.pvChips}>
             {duplicate ? <span className={styles.pvDup}>{duplicate}</span> : null}
@@ -86,6 +86,7 @@ function PreviewRow({ item, items, disabled, onRename, onToggle }: {
             {details.map((detail) => (
               <li key={detail.key} data-tone={detail.tone}>
                 <span className={styles.pvCode}>{detail.code}</span>
+                {detail.line != null ? <span className={styles.pvLine}>Line {detail.line}</span> : null}
                 {detail.text}
               </li>
             ))}
