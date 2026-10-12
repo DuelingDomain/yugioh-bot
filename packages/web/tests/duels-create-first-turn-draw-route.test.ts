@@ -3,15 +3,11 @@ import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
-import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 
 const { requireDuelActor, callDuelHost, notifyDuelChange } = vi.hoisted(() => ({
   requireDuelActor: vi.fn(), callDuelHost: vi.fn(), notifyDuelChange: vi.fn(),
 }));
-vi.mock("@/lib/session-identity", async () => {
-  const { sessionFixture } = await import("./fixtures/session");
-  return sessionFixture(vi.fn());
-});
+vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/duel-host", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/duel-host")>()), requireDuelActor, callDuelHost,
 }));
@@ -23,10 +19,9 @@ beforeEach(() => {
   vi.stubEnv("MULTIPLAYER_TABLES", "1");
   db = new Database(":memory:");
   migrate(db);
-  seedFixtureUsers(db, ["u1"]);
   const playerId = Number(db.prepare(
-    "insert into players (guild_id, user_id, discord_user_id, display_name) values ('g1', ?, ?, 'P1')",
-  ).run(fixtureUserId("u1"), fixtureDiscordId("u1")).lastInsertRowid);
+    "insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'P1')",
+  ).run().lastInsertRowid);
   requireDuelActor.mockReset().mockResolvedValue({ ok: true, guildId: "g1", playerId, duels: createDuelService(db) });
   callDuelHost.mockReset().mockResolvedValue({ ok: true,
     data: { multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true } });
