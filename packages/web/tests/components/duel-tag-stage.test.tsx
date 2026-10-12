@@ -219,7 +219,8 @@ describe("TagStage chrome", () => {
       expect(name.getAttribute("title")?.toUpperCase()).toContain(name.textContent ?? "?");
       // The whole pill is the zoom toggle, with its own label and tooltip.
       expect(pill.tagName).toBe("BUTTON");
-      expect(pill.getAttribute("aria-label")).toBe(`Zoom in on ${name.getAttribute("title")}'s field`);
+      expect(pill.getAttribute("aria-label")).toBe(`${pill.querySelector("b")!.textContent} ${name.textContent}, zoom on field`);
+      expect(pill.getAttribute("title")).toBe(`Zoom in on ${name.getAttribute("title")}'s field`);
     }
   });
 

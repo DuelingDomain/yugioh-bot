@@ -186,13 +186,17 @@ describe("Tag overview camera: a click on a field never focuses it on a wide scr
     const pill = root.querySelector<HTMLButtonElement>('[data-field-focus="2"]')!;
     expect(pill.tagName).toBe("BUTTON");
     expect(pill.getAttribute("type")).toBe("button");
-    expect(pill.getAttribute("aria-label")).toMatch(/^Zoom in on .+'s field$/);
+    // One stable name that holds the pill text; the state is only aria-pressed.
+    const text = `${pill.querySelector("b")!.textContent} ${pill.querySelector("span")!.textContent}`;
+    expect(pill.getAttribute("aria-label")).toBe(`${text}, zoom on field`);
+    expect(pill.getAttribute("title")).toMatch(/^Zoom in on .+'s field$/);
     expect(pill.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(pill);
     expect(modeOf(root)).toBe("focus:2");
+    expect(pill.getAttribute("aria-label")).toBe(`${text}, zoom on field`);
     // The same pill stays in place and is now the way back; the others still zoom in.
     expect(root.querySelector('[data-field-focus="2"]')).toBe(pill);
-    expect(root.querySelector('[data-field-focus="0"]')!.getAttribute("aria-label")).toMatch(/^Zoom in on /);
+    expect(root.querySelector('[data-field-focus="0"]')!.getAttribute("aria-label")).toMatch(/, zoom on field$/);
   });
 
   it("the same pill toggles: pressed and Zoom out in the close-up, and a second press zooms out", () => {
@@ -200,7 +204,8 @@ describe("Tag overview camera: a click on a field never focuses it on a wide scr
     const pill = root.querySelector<HTMLButtonElement>('[data-field-focus="1"]')!;
     fireEvent.click(pill);
     expect(modeOf(root)).toBe("focus:1");
-    expect(pill.getAttribute("aria-label")).toBe("Zoom out");
+    const label = pill.getAttribute("aria-label");
+    expect(label).toMatch(/, zoom on field$/);
     expect(pill.getAttribute("aria-pressed")).toBe("true");
     expect(pill.getAttribute("data-zoomed")).toBe("true");
     expect(pill.getAttribute("title")).toMatch(/zoom out/i);
@@ -209,7 +214,7 @@ describe("Tag overview camera: a click on a field never focuses it on a wide scr
     fireEvent.click(pill);
     expect(modeOf(root)).toBe("overview:-");
     expect(pill.getAttribute("aria-pressed")).toBe("false");
-    expect(pill.getAttribute("aria-label")).toMatch(/^Zoom in on /);
+    expect(pill.getAttribute("aria-label")).toBe(label);
     expect(pill.hasAttribute("data-zoomed")).toBe(false);
   });
 
@@ -385,7 +390,8 @@ describe("Tag overview camera: action clicks never move the camera", () => {
     const seat = pickable.dataset.memberSeat!;
     const pill = root.querySelector<HTMLElement>(`[data-field-focus="${seat}"]`)!;
     expect(pill.getAttribute("data-pick")).toBe("true");
-    expect(pill.getAttribute("aria-label")).toMatch(/^Choose /);
+    expect(pill.getAttribute("aria-label")).toMatch(/, choose player$/);
+    expect(pill.getAttribute("title")).toMatch(/^Choose /);
     expect(pill.hasAttribute("aria-pressed")).toBe(false);
     fireEvent.click(pill);
     expect(modeOf(root)).toBe("overview:-");
@@ -416,7 +422,10 @@ describe("Tag close-up camera: a pick or an aim never moves it, a hint marks the
     expect(hinted(root)).not.toContain(focus);
     expect(modeOf(root)).toBe(`focus:${focus}`);
     const pill = root.querySelector<HTMLElement>(`[data-field-focus="${expected[0]}"]`)!;
-    expect(pill.getAttribute("aria-label")).toMatch(/has targets/);
+    // The name stays the same; the hint is a description and a tooltip.
+    expect(pill.getAttribute("aria-label")).toMatch(/, zoom on field$/);
+    expect(pill.getAttribute("aria-description")).toBe("has targets");
+    expect(pill.getAttribute("title")).toMatch(/has targets/);
     expect(pill.querySelector("[data-targets-hint]")).toBeTruthy();
     // The camera dock marks the same seats, so a field that is off screen still shows where the targets are.
     const dock = [...root.querySelectorAll<HTMLElement>("[data-camera-seat-button][data-targets]")].map((node) => Number(node.dataset.cameraSeatButton));
