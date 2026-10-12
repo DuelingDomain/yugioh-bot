@@ -123,6 +123,7 @@ export function useBulkImport(onImported: () => void) {
     );
   }, [codesKey]);
   // A YDKE deck with a Deck Master and no name of its own takes the Master's name.
+  const importingNow = view.phase === "importing";
   useEffect(() => {
     const names = new Map<number, string>();
     for (const [code, info] of cards) if (info.name && info.name !== `Card ${code}`) names.set(code, info.name);
@@ -131,7 +132,7 @@ export function useBulkImport(onImported: () => void) {
       const items = withMasterNames(state.items, names);
       return items === state.items ? state : { ...state, items };
     });
-  }, [cards, rowsKey]);
+  }, [cards, rowsKey, importingNow]);
 
   /**
    * Work that calls the server runs one task after the other, so a second pick never throws the first away.

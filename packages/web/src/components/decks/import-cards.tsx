@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type PointerEvent, type FocusEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type PointerEvent, type FocusEvent, type KeyboardEvent } from "react";
 import { ChevronDown } from "lucide-react";
 import type { DeckCardInfo } from "@yugidraft/shared/duels";
 import { SheetPortal } from "@/components/sheet";
@@ -31,6 +31,7 @@ export type ThumbBind = (code: number) => {
   onPointerLeave: () => void;
   onFocus: (event: FocusEvent<HTMLElement>) => void;
   onBlur: () => void;
+  onKeyDown: (event: KeyboardEvent<HTMLElement>) => void;
   onClick: () => void;
 };
 
@@ -42,6 +43,9 @@ export type ThumbBind = (code: number) => {
 export function useCardPreview(cards: CardInfoMap): { bind: ThumbBind; overlay: React.ReactNode } {
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [sheet, setSheet] = useState<number | null>(null);
+  // The newest card details, so a tap reads what is known now and never waits for a later lookup.
+  const known = useRef(cards);
+  known.current = cards;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancel = useCallback(() => {
     if (timer.current != null) clearTimeout(timer.current);
@@ -74,7 +78,10 @@ export function useCardPreview(cards: CardInfoMap): { bind: ThumbBind; overlay: 
     onPointerLeave: cancel,
     onFocus: (event) => { if (event.currentTarget.matches(":focus-visible")) show(code, event.currentTarget, 0); },
     onBlur: cancel,
-    onClick: () => { cancel(); setSheet(code); },
+    // Escape closes the card a focus opened, without moving the focus.
+    onKeyDown: (event) => { if (event.key === "Escape") cancel(); },
+    // The sheet opens only for a card that is known now. A tap before the lookup ends does nothing.
+    onClick: () => { cancel(); if (known.current.has(code)) setSheet(code); },
   }), [show, cancel]);
 
   const hovered = anchor ? cards.get(anchor.code) : undefined;
@@ -103,16 +110,17 @@ export function useCardPreview(cards: CardInfoMap): { bind: ThumbBind; overlay: 
   return { bind, overlay };
 }
 
-type ThumbProps = { code: number; copies?: number; cards: CardInfoMap; bind: ThumbBind };
+type ThumbProps = { code: number; copies?: number; cards: CardInfoMap; bind: ThumbBind; skipTab?: boolean };
 
 /** One card thumbnail. It is a button, so a keyboard or a tap can open the card; the art loads lazily. */
-function Thumb({ code, copies = 1, cards, bind }: ThumbProps) {
+function Thumb({ code, copies = 1, cards, bind, skipTab }: ThumbProps) {
   const name = cardLabel(code, cards);
   return (
     <button
       type="button"
       className={styles.thumb}
       aria-label={copies > 1 ? `${name}, ${copies} copies` : name}
+      tabIndex={skipTab ? -1 : undefined}
       {...bind(code)}
     >
       <CardArt code={code} name={name} />
@@ -159,7 +167,8 @@ const SECTIONS = [
 const STRIP_CARDS = 14;
 
 /**
- * A compact strip of the deck's cards (Main, then Extra, then Side). Expanded, the whole deck shows by
+ * A compact strip of the deck's cards (Main, then Extra, then Side). The strip is for the mouse and touch;
+ * "Show all cards" is the keyboard way to every card, so a long list has few Tab stops. Expanded, the whole deck shows by
  * section, one thumbnail per distinct card with its copy count.
  */
 export function CardStrip({ row, cards, bind, label }: { row: ImportPreviewRow; cards: CardInfoMap; bind: ThumbBind; label: string }) {
@@ -168,13 +177,14 @@ export function CardStrip({ row, cards, bind, label }: { row: ImportPreviewRow; 
   const groups = SECTIONS.map(({ key, label: title }) => ({ key, title, cards: groupCopies(row.deck[key]), total: row.deck[key].length }));
   const total = groups.reduce((sum, group) => sum + group.total, 0);
   if (total === 0) return null;
-  const flat = groups.flatMap((group) => group.cards).slice(0, STRIP_CARDS);
+  // One thumbnail per distinct card, even when a card is in more than one section.
+  const flat = [...new Map(groups.flatMap((group) => group.cards).map((card) => [card.code, card])).values()].slice(0, STRIP_CARDS);
   return (
     <div className={styles.cards}>
       <div className={styles.head}>
         {open ? null : (
           <div className={styles.strip} role="group" aria-label={`Cards in ${label}`}>
-            {flat.map(({ code }) => <Thumb key={code} code={code} cards={cards} bind={bind} />)}
+            {flat.map(({ code }) => <Thumb key={code} code={code} cards={cards} bind={bind} skipTab />)}
           </div>
         )}
         <button

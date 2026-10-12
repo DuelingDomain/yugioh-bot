@@ -670,6 +670,69 @@ describe("bulk deck import panel", () => {
       expect(within(sheet).getByText("Blue-Eyes White Dragon effect text.")).toBeInTheDocument();
     });
 
+    it("does not open the sheet later for a tap that came before the card lookup ended", async () => {
+      cardNames = new Map([[89631139, "Blue-Eyes White Dragon"], [55144522, "Pot of Greed"]]);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      cardsReply = async (codes) => {
+        await gate;
+        return Response.json({ cards: codes.map((code) => cardInfo(code, cardNames.get(code)!)), missing: [] });
+      };
+      previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Plain")] });
+      await openPaste("ydke://o6lXBQ==!!!");
+      const strip = await screen.findByRole("group", { name: /Cards in/ });
+      fireEvent.click(within(strip).getByRole("button", { name: "Card 89631139" }));
+      release();
+      await within(strip).findByRole("button", { name: "Blue-Eyes White Dragon" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      // A new tap now opens it.
+      fireEvent.click(within(strip).getByRole("button", { name: "Blue-Eyes White Dragon" }));
+      expect(await screen.findByRole("dialog", { name: "Blue-Eyes White Dragon" })).toBeInTheDocument();
+    });
+
+    it("shows a card that is in two sections once in the strip, with no key warning", async () => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      previewReply = () => Response.json({
+        maxDecks: 50,
+        rows: [row("b1-paste#0", "Twice", { deck: { main: [89631139, 55144522], extra: [], side: [89631139], deckMaster: null }, counts: { main: 2, extra: 0, side: 1 } })],
+      });
+      await openPaste("ydke://o6lXBQ==!!!");
+      const strip = await screen.findByRole("group", { name: /Cards in/ });
+      expect(within(strip).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Card 89631139", "Card 55144522"]);
+      expect(errors.mock.calls.flat().join(" ")).not.toMatch(/same key|unique "key"/);
+      errors.mockRestore();
+    });
+
+    it("keeps the strip out of the Tab order, and the open grid in it", async () => {
+      previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Plain")] });
+      await openPaste("ydke://o6lXBQ==!!!");
+      const strip = await screen.findByRole("group", { name: /Cards in/ });
+      for (const button of within(strip).getAllByRole("button")) expect(button).toHaveAttribute("tabindex", "-1");
+      fireEvent.click(screen.getByRole("button", { name: "Show all cards" }));
+      const main = screen.getByRole("region", { name: /^Main/ });
+      for (const button of within(main).getAllByRole("button")) expect(button).not.toHaveAttribute("tabindex");
+    });
+
+    it("closes the card a keyboard focus opened with Escape, and keeps the focus", async () => {
+      cardNames = new Map([[89631139, "Blue-Eyes White Dragon"], [55144522, "Pot of Greed"]]);
+      previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Plain")] });
+      await openPaste("ydke://o6lXBQ==!!!");
+      await screen.findByLabelText("Deck name for Plain");
+      fireEvent.click(screen.getByRole("button", { name: "Show all cards" }));
+      const main = screen.getByRole("region", { name: /^Main/ });
+      const thumb = await within(main).findByRole("button", { name: /Blue-Eyes White Dragon/ });
+      // jsdom has no keyboard focus ring, so the check for it answers yes here.
+      const matches = vi.spyOn(thumb, "matches").mockImplementation(() => true);
+      thumb.focus();
+      const popover = await screen.findByTestId("card-popover");
+      expect(within(popover).getByText("Blue-Eyes White Dragon")).toBeInTheDocument();
+      fireEvent.keyDown(thumb, { key: "Escape" });
+      expect(screen.queryByTestId("card-popover")).toBeNull();
+      expect(thumb).toHaveFocus();
+      matches.mockRestore();
+    });
+
     it("does not open the hover card for a touch", async () => {
       cardNames = new Map([[89631139, "Blue-Eyes White Dragon"]]);
       previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Plain")] });
