@@ -9,6 +9,8 @@ export const FIT_GAP = 5;
 const MIN_COLS = 10;
 const MAX_COLS = 20;
 const MAX_TILE = 150;
+/** Below this tile width the cards are too small to read or hit; the fit is dropped and the pane scrolls. */
+export const MIN_TILE = 32;
 /**
  * A full deck is reserved in every section, so tiles keep their size while the player adds cards.
  * A section only claims more rows than this when it holds more cards than the rules allow.
@@ -75,7 +77,7 @@ export interface DeckFitCounts {
  * Put the returned ref on the pane. The pane sits in the tree later than the hook (the editor shows a loading state first), so it is a callback ref.
  *
  * It writes `--fit-*` custom properties and `data-fit` on the element, which `editor.module.css` reads. Nothing is written
- * while `enabled` is false (the phone layout), when the pane has no size yet, or when there is no room left for cards.
+ * while `enabled` is false (the phone layout), when the pane has no size yet, or when there is no room left for cards (tiles under MIN_TILE px).
  * Everything that is not a tile area is measured, so notices, banners and the test hand take their space from the tiles.
  * Elements marked `data-fit-area` are the tile areas.
  */
@@ -110,7 +112,7 @@ export function useDeckFit(counts: DeckFitCounts, enabled: boolean) {
       // 2px of room keeps a rounding step from starting a scrollbar.
       const free = el.clientHeight - padY - (content - areas) - 2;
       const fit = fitDeckLayout({ width, free, main, extra, side, master, sideUsed });
-      if (fit.tile < 1) {
+      if (fit.tile < MIN_TILE) {
         clear();
         return;
       }

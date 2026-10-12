@@ -324,6 +324,18 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-deck[data-fit] .de-mslot { width: var(--fit-tw); min-height: 0; }
 .de-deck[data-fit] .de-mslot img { width: var(--fit-tw); }
 .de-deck[data-fit] .de-master .de-st { margin-bottom: 0; }
+/* Nothing in the deck pane may take height from the tiles: the notice floats over the bottom of the pane, and the flag stays on one line. */
+.de-deck[data-fit] { position: relative; }
+.de-deck[data-fit] > .notice { position: absolute; left: 14px; right: 14px; bottom: 8px; z-index: 5; padding: 6px 6px 6px 12px; border: 1px solid var(--rule-lo); border-radius: 8px; background: var(--panel-2); box-shadow: 0 6px 20px rgb(0 0 0 / 0.45); }
+.de-deck[data-fit] .de-flag { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; }
+.de-deck[data-fit] .de-dbar .de-tools { flex: none; }
+/* The Deck Master row is one tile tall: the heading and its Remove button share a line, and the hint keeps to one line. An alert takes the hint's place. */
+.de-deck[data-fit] .de-master { overflow: hidden; }
+.de-deck[data-fit] .de-master .masterText { display: flex; flex-wrap: wrap; align-items: center; align-content: center; justify-content: flex-start; gap: 2px 12px; height: 100%; overflow: hidden; }
+.de-deck[data-fit] .de-master .masterText > h2 { order: 0; }
+.de-deck[data-fit] .de-master .masterText > button { order: 1; }
+.de-deck[data-fit] .de-master .masterText > p { order: 2; flex: 0 0 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.de-deck[data-fit] .de-master .masterText:has(> [role="alert"]) > p:not([role="alert"]) { display: none; }
 /* Wide desktops keep the side panes narrower, so the deck gets the room. */
 @container de-editor (1200px <= width < 1500px) {
   .de-body { grid-template-columns: 230px minmax(0, 1fr) 320px; }
