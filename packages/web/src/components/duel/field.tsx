@@ -74,7 +74,7 @@ type CssVars = CSSProperties & Record<`--${string}`, string | number>;
 // DuelField, SeatField and the row components keep the base styles; the skinned primitives below read the skin.
 const styles = baseStyles;
 
-export function masterCard(view: DuelSeatView, seats: readonly DuelSeatView[] = []): DuelCard | null {
+export function masterCard(view: DuelSeatView): DuelCard | null {
   const master = view.deckMaster;
   if (!master) return null;
   if (master.inZone) {
@@ -94,7 +94,7 @@ export function masterCard(view: DuelSeatView, seats: readonly DuelSeatView[] = 
       race: master.card.race,
     };
   }
-  return findMasterCard(view, master.card.code, seats);
+  return findMasterCard(view, master.card.code);
 }
 
 const PLACE_STATUS: Record<MasterPlace, string> = {
@@ -1221,7 +1221,7 @@ export function MasterDock({
   const master = view?.deckMaster;
   const seats = useMasterSeats();
   const inUse = showInUse && masterInUse(view, seats);
-  const card = view ? masterCard(view, seats) : null;
+  const card = view ? masterCard(view) : null;
   const keys = view ? withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]) : [];
   const legal = anyLegal(keys, legalKeys);
   const selected = anySelected(keys, selectedKeys);

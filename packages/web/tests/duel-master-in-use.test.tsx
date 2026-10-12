@@ -240,7 +240,8 @@ describe("a master taken to another seat's field", () => {
     rival.monsters = [{ controller: 1, location: LOCATION_MZONE, sequence: 0, position: 1, code: info.code, name: info.name }];
     expect(masterPlace(mine)).toBe("elsewhere");
     expect(masterPlace(mine, [mine, rival])).toBe("field");
-    expect(findMasterCard(mine, info.code, [mine, rival])?.controller).toBe(1);
+    // The status text reads the other seat, but a plate never takes that card as its own (it would glow and select it).
+    expect(findMasterCard(mine, info.code)).toBeNull();
   });
 });
 

@@ -194,7 +194,7 @@ export function GridMasterToken({
   const form = useMasterForm(wrapRef, artRef, master != null && !wide);
   const seats = useMasterSeats();
   if (!view || !master) return null;
-  const card = masterCard(view, seats);
+  const card = masterCard(view);
   const keys = withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]);
   const legal = anyLegal(keys, legalKeys);
   const selected = anySelected(keys, selectedKeys);

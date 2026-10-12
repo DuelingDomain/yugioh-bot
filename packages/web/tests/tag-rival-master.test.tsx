@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -11,6 +11,7 @@ vi.mock("next/font/google", () => {
 import type { TableFixtureSet, TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { TAG_FIXTURES, tagDomainVariant } from "@/components/duel/tag/fixtures";
+import { TeamLpPlate, type PlateMember } from "@/components/duel/tag/team-lp-plate";
 import { TagShell } from "@/components/duel/tag/tag-shell";
 
 // Seats of the Tag fixtures: Aster (you, 0) and Corvin (2) are a team, Mirelle (1) and Juniper (3) the rivals.
@@ -68,5 +69,31 @@ describe("rival Deck Masters on the Tag table", () => {
     const { container } = render(<Shell set={TAG_FIXTURES} />);
     expect(thumbs(container)).toEqual([]);
     expect(container.querySelector("[data-master-thumb]")).toBeNull();
+  });
+});
+
+describe("a pickable rival chip and its Deck Master thumb", () => {
+  const member: PlateMember = {
+    seat: 3, name: "Juniper Rook", code: "2B", rgb: "120 200 90", ink: "#b8f08a", you: false, hand: 4, deck: 28, clockMs: null, clockRuns: false,
+    now: false, response: null, pickable: true, hotkey: 1, locked: false,
+    master: { card: { code: 1, name: "Gaia The Fierce Knight" } as never, inUse: false, summon: "Summon: free" },
+  };
+  const plate = (onPick: (seat: number) => void, onInspectMaster: (card: unknown) => void) =>
+    render(<TeamLpPlate teamName="Thornveil" glyph="●" near={false} lp={8000} startLp={8000} state="waiting" cracked={false} members={[member]} reducedMotion onPick={onPick} onInspectMaster={onInspectMaster} />);
+
+  it("the thumb is not inside the pickable chip, and Enter or a click on it inspects without picking the seat", () => {
+    const onPick = vi.fn();
+    const onInspect = vi.fn();
+    const { container } = plate(onPick, onInspect);
+    const thumb = container.querySelector<HTMLElement>("[data-master-thumb]")!;
+    const chip = container.querySelector<HTMLElement>("[data-lp-seat]")!;
+    expect(chip.contains(thumb)).toBe(false);
+    thumb.focus();
+    fireEvent.keyDown(thumb, { key: "Enter" });
+    fireEvent.click(thumb);
+    expect(onPick).not.toHaveBeenCalled();
+    expect(onInspect).toHaveBeenCalledTimes(1);
+    fireEvent.click(chip);
+    expect(onPick).toHaveBeenCalledWith(3);
   });
 });
