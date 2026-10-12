@@ -43,7 +43,7 @@ import { disabledZones } from "./multi-seat";
 import { findMasterCard, masterActionText, masterInUse, masterPlace, masterSummonLine, surchargeText, useMasterSeats, type MasterPlace } from "./master-place";
 import type { InspectTarget } from "./inspector";
 import { RivalHand } from "./table/rival-hand";
-import { hexToRgbTriplet, isStraight, labelTurnDeg, normalizeDeg, textScale } from "./table/seat-angle";
+import { hexToRgbTriplet, normalizeDeg, textScale } from "./table/seat-angle";
 import { SEAT_TONE_HEX, type SeatFieldProps } from "./table/types";
 import { useDuelFieldModel, type DuelFieldProps } from "./field-model";
 import {
@@ -1023,7 +1023,6 @@ export const SeatField = memo(function SeatField({
   side,
   dataSide,
   angleDeg,
-  upright,
   tone,
   density,
   hand,
@@ -1044,7 +1043,6 @@ export const SeatField = memo(function SeatField({
   const view = engine.seats.find((entry) => entry.seat === seat);
   const callbacks: FieldCallbacks = { legalKeys, selectedKeys, onActivate, onInspect, onHoverCard };
   const angle = normalizeDeg(angleDeg);
-  const straight = isStraight(angle, upright);
   const label = name ?? `Player ${seat + 1}`;
   const owner = viewerSeat === seat ? "Your" : label;
   const battle = isBattlePhase(engine.phase);
@@ -1056,7 +1054,6 @@ export const SeatField = memo(function SeatField({
   const vars: CssVars = {
     "--t": hexToRgbTriplet(toneHex.main),
     "--tink": toneHex.ink,
-    "--lab": `${labelTurnDeg(angle, upright)}deg`,
     // Without a scale the wrapper owns the text scale (--sf-ts): the 4-way grid sizes its fields from outside, and a
     // size change must not draw the whole field again.
     ...(scale != null ? { "--ts": textScale(scale).toFixed(2) } : {}),
@@ -1085,7 +1082,7 @@ export const SeatField = memo(function SeatField({
         legalKeys={legalKeys}
         selectedKeys={selectedKeys}
         showStats
-        flip={straight}
+        flip={false}
         onActivate={onActivate}
         onHoverCard={onHoverCard}
       />
@@ -1106,7 +1103,7 @@ export const SeatField = memo(function SeatField({
           card,
           keys: withExact(card, extraMonsterKeys(seat, pair?.other ?? seat, column)),
           offId,
-          flip: card != null && (card.controller === seat ? straight : !straight),
+          flip: card != null && (card.controller !== seat),
           callbacks,
         })}
         label={`Shared Extra monster zone, ${column}`}
@@ -1125,9 +1122,6 @@ export const SeatField = memo(function SeatField({
         data-seat-angle={Math.round(angle)}
         data-tone={tone}
         data-density={density}
-        data-upright={upright ? "true" : "false"}
-        data-straight={straight ? "true" : "false"}
-        data-quarter={Math.abs(Math.abs(labelTurnDeg(angle, upright)) - 90) < 15 ? "true" : undefined}
         data-turn={turn ? "true" : undefined}
         data-elim={eliminated ? "true" : undefined}
         data-usable={usable ? "true" : "false"}
@@ -1142,7 +1136,7 @@ export const SeatField = memo(function SeatField({
         <div className={styles.sfMat}>
           <span className={styles.sfRule} aria-hidden="true" />
           <div className={styles.sfGrid}>
-            <PileColumn view={view} opponent={false} flip={straight} side="left" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
+            <PileColumn view={view} opponent={false} flip={false} side="left" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
             <div className={styles.sfEmz}>
               {masterRule >= 4 && emz === "pair" ? (
                 <div className={styles.emzPair} style={{ "--pl": pair?.left ?? 0, "--pr": pair?.right ?? 0, "--pg": pair?.gap ?? 0.06 } as CssVars}>
@@ -1160,10 +1154,10 @@ export const SeatField = memo(function SeatField({
               ) : null}
             </div>
             <div className={styles.sfRows}>
-              <MonsterRow view={view} reversed={false} flip={straight} owner={owner} callbacks={callbacks} />
-              <SpellRow view={view} reversed={false} flip={straight} owner={owner} callbacks={callbacks} masterRule={masterRule} />
+              <MonsterRow view={view} reversed={false} flip={false} owner={owner} callbacks={callbacks} />
+              <SpellRow view={view} reversed={false} flip={false} owner={owner} callbacks={callbacks} masterRule={masterRule} />
             </div>
-            <PileColumn view={view} opponent={false} flip={straight} side="right" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
+            <PileColumn view={view} opponent={false} flip={false} side="right" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
           </div>
         </div>
         {density !== "compact" ? <span className={styles.sfName} data-seat-name>{label}</span> : null}

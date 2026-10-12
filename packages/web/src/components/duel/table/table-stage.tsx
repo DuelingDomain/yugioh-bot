@@ -676,7 +676,6 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-camera-want={wantMode ?? viewCamera.mode}
       data-camera-lock={locked ? "true" : undefined}
       data-fly={fly ? "true" : "false"}
-      data-upright={camera.upright ? "true" : "false"}
       data-stage-scale={k.toFixed(3)}
       data-stage-spread={spread}
       data-ready={k > 0 ? "true" : "false"}
@@ -746,7 +745,6 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
                   viewerSeat,
                   masterRule,
                   side: you ? "you" : "opp",
-                  upright: camera.upright,
                   tone: slot.tone,
                   density: you ? "full" : "rival",
                   hand: self && !looking ? "face" : "backs",

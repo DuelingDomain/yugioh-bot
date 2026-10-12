@@ -198,7 +198,7 @@ export function slotPlan(layout: TableLayout, camera: CameraView): PoseSlot[] | 
 }
 
 /**
- * Where every seat stands for a camera state. Upright only turns text, so it never moves a field. A lock is
+ * Where every seat stands for a camera state. A lock is
  * not read here: the caller passes the effective camera (see `effectiveCamera`).
  */
 export function seatPoses(

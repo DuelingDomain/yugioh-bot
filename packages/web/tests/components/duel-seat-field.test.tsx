@@ -41,7 +41,7 @@ function engine3(): DuelEngineView {
 
 function props(over: Partial<SeatFieldProps> = {}): SeatFieldProps {
   return {
-    engine: engine3(), seat: 1, viewerSeat: 0, masterRule: 4, side: "opp", angleDeg: 158, upright: true, tone: "ice",
+    engine: engine3(), seat: 1, viewerSeat: 0, masterRule: 4, side: "opp", angleDeg: 158, tone: "ice",
     density: "rival", hand: "backs", emz: "own", showTally: false, usable: true, name: "Ryo Sato",
     legalKeys: new Set(), selectedKeys: new Set(), reducedMotion: true, onActivate: vi.fn(), onInspect: vi.fn(),
     ...over,
@@ -77,7 +77,8 @@ describe("SeatField", () => {
     const root = container.querySelector("[data-seat-field]");
     expect(root?.getAttribute("data-side")).toBe("opp");
     expect(root?.getAttribute("data-seat-angle")).toBe("158");
-    expect(root?.getAttribute("data-straight")).toBe("true");
+    expect(root?.hasAttribute("data-straight")).toBe(false);
+    expect(root?.hasAttribute("data-upright")).toBe(false);
     const hand = container.querySelector("[data-hand-seat]");
     expect(hand?.getAttribute("data-hand-seat")).toBe("1");
     expect(hand?.getAttribute("data-count")).toBe("3");
@@ -90,13 +91,22 @@ describe("SeatField", () => {
     expect(container.querySelector("[data-lp-seat]")?.getAttribute("data-lp-seat")).toBe("1");
   });
 
-  it("shows your own hand face up and turns art only when the field is far off upright", () => {
+  it("shows your own hand face up", () => {
     const you = render(<SeatField {...props({ seat: 0, side: "you", angleDeg: 0, hand: "face", tone: "violet", name: "Ren" })} />);
     expect(you.container.querySelector("[data-hand-seat='0']")?.getAttribute("data-side")).toBe("you");
-    expect(you.container.querySelector("[data-seat-field]")?.getAttribute("data-straight")).toBe("false");
-    you.unmount();
-    const off = render(<SeatField {...props({ upright: false })} />);
-    expect(off.container.querySelector("[data-seat-field]")?.getAttribute("data-straight")).toBe("false");
+  });
+
+  it("keeps a rival field turned with its cards and text: nothing turns the art back or the labels level", () => {
+    const { container } = render(<SeatField {...props()} />);
+    const root = container.querySelector<HTMLElement>("[data-seat-field]")!;
+    expect(root.getAttribute("data-seat-angle")).toBe("158");
+    // The art is not turned back (data-side "opp" does it), and no label gets a counter-turn of its own.
+    const zone = container.querySelector('[data-zones~="1:4:6"]');
+    expect(zone?.querySelector("[data-card-art]")).not.toBeNull();
+    expect(zone?.getAttribute("data-side")).toBe("you");
+    // (The rival hand backs keep their own mark: a back has no top.)
+    for (const el of container.querySelectorAll("[data-zones]")) if (!el.closest("[data-hand-seat]")) expect(el.getAttribute("data-side")).not.toBe("opp");
+    expect(root.style.getPropertyValue("--lab")).toBe("");
   });
 
   it("greys an eliminated seat with a label and never dims cards", () => {
