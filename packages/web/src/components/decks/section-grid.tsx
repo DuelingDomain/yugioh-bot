@@ -253,7 +253,8 @@ export function DeckSectionGrid({
                       removeAndRefocus(code, index);
                     } else if (masterable && (event.key === "m" || event.key === "M")) {
                       event.preventDefault();
-                      onMaster({ code, section });
+                      // A held key repeats; one press sets the Master once.
+                      if (!event.repeat) onMaster({ code, section });
                     } else if (copyable && (event.key === "+" || event.key === "=")) {
                       event.preventDefault();
                       // A held key repeats; one press adds one copy.
