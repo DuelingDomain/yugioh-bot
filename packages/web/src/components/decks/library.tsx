@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
-import { Check, FileUp, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Check, Copy, FileUp, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { FloorList, FloorRow, SectionHead, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { cardArtUrl } from "@/components/duel/constants";
 import { deleteSavedDeck, listSavedDecks, type SavedDeckView } from "./api";
+import { useCopyYdke } from "./copy-ydke";
 import { DeckImportPanel } from "./import-panel";
 import { useBulkImport } from "./use-bulk-import";
 import { deckFanCodes, deckStatus } from "./library-status";
@@ -27,6 +28,7 @@ function DeckRow({
   onAskDelete,
   onDelete,
   onKeep,
+  onCopyYdke,
 }: {
   deck: SavedDeckView;
   confirming: boolean;
@@ -35,6 +37,7 @@ function DeckRow({
   onAskDelete: () => void;
   onDelete: () => void;
   onKeep: () => void;
+  onCopyYdke: () => void;
 }) {
   const confirmRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -100,6 +103,9 @@ function DeckRow({
           <Link className={`sv-btn quiet ${styles.openBtn}`} href={`/decks/${deck.id}`} aria-label={`Open ${deck.name}`}>
             Open
           </Link>
+          <button className={styles.iconAct} type="button" aria-label={`Copy ${deck.name} as YDKE`} title="Copy as YDKE" onClick={onCopyYdke}>
+            <Copy size={18} aria-hidden="true" />
+          </button>
           <button className={styles.trash} type="button" aria-label={`Delete ${deck.name}`} disabled={busy} onClick={onAskDelete}>
             <Trash2 size={18} aria-hidden="true" />
           </button>
@@ -141,6 +147,7 @@ export function SavedDeckLibrary() {
 
   // The import panel stays open on its result; the list behind it reloads to show the new decks.
   const importer = useBulkImport(load);
+  const { copyYdke, toast } = useCopyYdke();
 
   async function confirmDelete(deck: SavedDeckView) {
     if (busyId != null) return;
@@ -177,6 +184,7 @@ export function SavedDeckLibrary() {
             setPendingId(null);
             setDeleteError(null);
           }}
+          onCopyYdke={() => void copyYdke(deck.deck)}
         />
       ))}
     </FloorList>
@@ -264,6 +272,7 @@ export function SavedDeckLibrary() {
           <p className={styles.foot}>Sizes only. The table checks the banlist and copy limits when you ready up.</p>
         </>
       ) : null}
+      {toast}
     </PageFrame>
   );
 }

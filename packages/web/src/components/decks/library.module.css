@@ -46,10 +46,11 @@
 
 .acts { grid-area: acts; position: relative; z-index: 2; display: flex; align-items: center; gap: 8px; }
 .openBtn { position: relative; z-index: 2; }
-.trash { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink-3); cursor: pointer; }
+.iconAct, .trash { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink-3); cursor: pointer; }
+.iconAct:hover { color: var(--ink); background: rgb(var(--beam) / 0.12); }
 .trash:hover { color: var(--loss-ink); background: rgb(228 90 77 / 0.1); }
 .trash:disabled { opacity: 0.4; cursor: not-allowed; }
-.trash:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+.iconAct:focus-visible, .trash:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 
 .confirm { grid-area: confirm; position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 0 2px; color: var(--ink); font-size: 14.5px; }
 .confirmActs { display: inline-flex; gap: 8px; }
@@ -62,14 +63,14 @@
 /* Phone: the fan spans the first two lines; the status goes under the name. */
 @container (max-width: 620px) {
   :global(.ms) .row :global(.sv-row-in) {
-    grid-template-columns: 76px minmax(0, 1fr) 36px;
+    grid-template-columns: 76px minmax(0, 1fr) auto;
     grid-template-areas: "fan main acts" "fan status status" "confirm confirm confirm";
     gap: 6px 10px;
     padding: 12px 4px;
   }
   .fan { width: 76px; height: 84px; }
   .fanArt { transform: scale(0.78); }
-  .acts { align-self: start; }
+  .acts { align-self: start; gap: 0; }
   .statusRest { margin-left: 22px; }
 }
 

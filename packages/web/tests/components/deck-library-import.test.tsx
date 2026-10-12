@@ -93,6 +93,23 @@ describe("SavedDeckLibrary", () => {
     expect(fetch).not.toHaveBeenCalledWith("/api/decks/import/bulk", expect.anything());
   });
 
+  it("copies a library deck as a YDKE code", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [{
+      id: 1, name: "One", mode: "normal", deck: { main: [89631139, 89631139], extra: [23995346], side: [14558127] },
+      createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00",
+    }] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "One" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy One as YDKE" }));
+    const section = (codes: number[]) => Buffer.from(Uint32Array.from(codes).buffer).toString("base64");
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(
+      `ydke://${section([89631139, 89631139])}!${section([23995346])}!${section([14558127])}!`,
+    ));
+    expect(await screen.findByRole("status")).toHaveTextContent("YDKE code copied.");
+  });
+
   it("with no decks: one primary, Import YDK files opens the import panel, bar buttons are secondary", async () => {
     stubApi();
     const { container } = render(<SavedDeckLibrary />);
