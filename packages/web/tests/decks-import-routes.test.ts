@@ -17,6 +17,7 @@ vi.mock("@/lib/duel-host", () => ({ requireDuelActor: mocks.duelActor, callDuelH
 
 import { POST as preview } from "../app/api/decks/import/preview/route";
 import { POST as bulk } from "../app/api/decks/import/bulk/route";
+import { POST as createDeck } from "../app/api/decks/route";
 
 let db: Database.Database;
 let decks: ReturnType<typeof createSavedDeckService>;
@@ -92,8 +93,8 @@ describe("backend review fixes", () => {
     expect(mocks.callDuelHost).not.toHaveBeenCalled();
   });
 
-  it("rate limits preview and bulk together per user and refills a token each minute", async () => {
-    for (let i = 0; i < 6; i++) {
+  it("allows a shared burst of 20 preview and bulk requests per user and refills 10 each minute", async () => {
+    for (let i = 0; i < 20; i++) {
       const response = i % 2 ? await bulk(request({ rows: [row()] })) : await preview(request({ sources: [source()] }));
       expect(response.status).toBe(200);
     }
@@ -101,15 +102,41 @@ describe("backend review fixes", () => {
     for (const route of [preview, bulk]) {
       const response = await route(request(route === preview ? { sources: [source()] } : { rows: [row()] }));
       expect(response.status).toBe(429);
-      expect(response.headers.get("retry-after")).toBe("60");
-      expect(await response.json()).toHaveProperty("error");
+      expect(response.headers.get("retry-after")).toBe("6");
+      expect(await response.json()).toEqual({ error: "Too many deck imports, try again shortly", retryAfterSeconds: 6 });
     }
     expect(mocks.callDuelHost).toHaveBeenCalledTimes(calls);
     mocks.savedActor.mockResolvedValueOnce({ ok: true, guildId: "g", ownerUserId: 2, decks });
     expect((await preview(request({ sources: [source()] }))).status).toBe(200);
     vi.spyOn(Date, "now").mockReturnValue(testTime + 60000);
-    expect((await bulk(request({ rows: [row()] }))).status).toBe(200);
+    for (let i = 0; i < 10; i++) {
+      const response = i % 2 ? await bulk(request({ rows: [row()] })) : await preview(request({ sources: [source()] }));
+      expect(response.status).toBe(200);
+    }
     expect((await preview(request({ sources: [source()] }))).status).toBe(429);
+  });
+
+  it.each([preview, bulk])("rounds retry seconds up and refills one token after six seconds", async route => {
+    const body = route === preview ? { sources: [source()] } : { rows: [row()] };
+    for (let i = 0; i < 20; i++) expect((await route(request(body))).status).toBe(200);
+    for (const [elapsed, retryAfterSeconds] of [[0, 6], [1501, 5], [5999, 1]]) {
+      vi.spyOn(Date, "now").mockReturnValue(testTime + elapsed);
+      const response = await route(request(body));
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe(String(retryAfterSeconds));
+      expect(await response.json()).toEqual({ error: "Too many deck imports, try again shortly", retryAfterSeconds });
+    }
+    vi.spyOn(Date, "now").mockReturnValue(testTime + 6000);
+    expect((await route(request(body))).status).toBe(200);
+    expect((await route(request(body))).status).toBe(429);
+  });
+
+  it("counts only preview and bulk requests toward the import bucket", async () => {
+    const savedDeck = { ...row(), mode: "normal", deck: { main: [89631139], extra: [], side: [] } };
+    for (let i = 0; i < 21; i++) expect((await createDeck(request(savedDeck))).status).toBe(201);
+    for (let i = 0; i < 20; i++) expect((await preview(request({ sources: [source()] }))).status).toBe(200);
+    expect((await preview(request({ sources: [source()] }))).status).toBe(429);
+    expect((await createDeck(request(savedDeck))).status).toBe(201);
   });
 
   it("retains valid YDK cards and returns bad lines as warnings", async () => {

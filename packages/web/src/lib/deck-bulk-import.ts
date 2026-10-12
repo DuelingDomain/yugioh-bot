@@ -47,8 +47,8 @@ function boundIssues(errors: ImportIssue[], warnings: ImportIssue[] = []) {
 
 // One shared bucket for preview and bulk. Idle buckets expire without a background timer.
 const importBuckets = new Map<string, { tokens: number; updated: number }>();
-const IMPORT_BURST = 6;
-const IMPORT_REFILL_MS = 60000;
+const IMPORT_BURST = 20;
+const IMPORT_REFILL_MS = 6000;
 export function checkImportRateLimit(actor: Actor): NextResponse | null {
   const now = Date.now();
   for (const [key, bucket] of importBuckets) {
@@ -60,8 +60,8 @@ export function checkImportRateLimit(actor: Actor): NextResponse | null {
   bucket.updated = now;
   importBuckets.set(key, bucket);
   if (bucket.tokens < 1) {
-    const retryAfter = Math.ceil((1 - bucket.tokens) * IMPORT_REFILL_MS / 1000);
-    return NextResponse.json({ error: "Too many deck imports, try again shortly" }, { status: 429, headers: { "Retry-After": String(retryAfter) } });
+    const retryAfterSeconds = Math.ceil((1 - bucket.tokens) * IMPORT_REFILL_MS / 1000);
+    return NextResponse.json({ error: "Too many deck imports, try again shortly", retryAfterSeconds }, { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } });
   }
   bucket.tokens--;
   return null;
