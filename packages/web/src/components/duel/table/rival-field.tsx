@@ -114,7 +114,7 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement,
 }
 
 /** Card unit the crumble is drawn in (the board is 5.83 of them wide at this size). */
-const CRUMBLE_UNIT = 112;
+export const CRUMBLE_UNIT = 112;
 /** Height of a seat field in card units (see `.seatField` in field.module.css). */
 const FIELD_H = 3.393;
 
