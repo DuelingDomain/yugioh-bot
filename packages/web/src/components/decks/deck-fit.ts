@@ -95,17 +95,25 @@ export function useDeckFit(counts: DeckFitCounts, enabled: boolean) {
       return;
     }
 
+    let live = true;
     let frame = 0;
     let retry = 0;
     let retried = false;
     const measure = () => {
       frame = 0;
+      // The fixed part is measured with the fit spacing (smaller headers and gaps), so a pane that fits only with it is not given up on.
+      // The attribute goes on and, if there is no fit, off again in this same task, so nothing paints in between.
+      if (!el.hasAttribute("data-fit")) el.setAttribute("data-fit", "");
+      if (!place()) clear();
+    };
+    /** Reads the layout and writes the fit; false when there is no room (or no size yet), and nothing is written then. */
+    const place = (): boolean => {
       const style = getComputedStyle(el);
       const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
       const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
       const width = el.clientWidth - padX;
       const last = el.lastElementChild;
-      if (width <= 0 || el.clientHeight <= 0 || !last) return;
+      if (width <= 0 || el.clientHeight <= 0 || !last) return false;
       const top = el.getBoundingClientRect().top;
       // Everything the pane holds, tile areas included, then without the tile areas: what is left is the fixed part.
       const content = last.getBoundingClientRect().bottom - top + el.scrollTop;
@@ -115,13 +123,12 @@ export function useDeckFit(counts: DeckFitCounts, enabled: boolean) {
       const free = el.clientHeight - padY - (content - areas) - 2;
       const fit = fitDeckLayout({ width, free, main, extra, side, master, sideUsed });
       if (fit.tile < MIN_TILE) {
-        clear();
         // Fonts or images still loading can make the fixed part look taller than it is; look once more before giving up.
         if (!retried) {
           retried = true;
           retry = window.setTimeout(schedule, 400);
         }
-        return;
+        return false;
       }
       const values: Record<string, string> = {
         cols: String(fit.cols),
@@ -134,10 +141,10 @@ export function useDeckFit(counts: DeckFitCounts, enabled: boolean) {
       for (const [name, value] of Object.entries(values)) {
         if (el.style.getPropertyValue(`--fit-${name}`) !== value) el.style.setProperty(`--fit-${name}`, value);
       }
-      if (!el.hasAttribute("data-fit")) el.setAttribute("data-fit", "");
+      return true;
     };
     const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(measure);
+      if (live && !frame) frame = requestAnimationFrame(measure);
     };
 
     schedule();
@@ -148,6 +155,7 @@ export function useDeckFit(counts: DeckFitCounts, enabled: boolean) {
     const mutations = typeof MutationObserver === "undefined" ? null : new MutationObserver(schedule);
     mutations?.observe(el, { childList: true, subtree: true });
     return () => {
+      live = false;
       cancelAnimationFrame(frame);
       window.clearTimeout(retry);
       resize?.disconnect();
