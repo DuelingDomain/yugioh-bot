@@ -188,7 +188,7 @@ export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef, zoom }
           <line x1={seg[0][0]} y1={seg[0][1]} x2={seg[1][0]} y2={seg[1][1]} stroke={`rgb(${rgbOf(now!.seat)})`} strokeWidth={8} strokeLinecap="round" opacity={0.85} />
         ) : null}
       </svg>
-      <div ref={holderRef} className={styles.bpills} data-roof="baton-pills" style={{ left: 0, top: 0, transform: "translateZ(2px)" }}>
+      <div ref={holderRef} className={styles.bpills} data-roof="baton-pills" style={{ left: 0, top: 0, transform: "translateZ(3px)" }}>
         {[0, 1, 2, 3].map((seat) => {
           const k = notchOf(seat);
           const stop = stops.find((s) => s.seat === seat);
