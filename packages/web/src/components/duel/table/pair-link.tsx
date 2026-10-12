@@ -9,7 +9,7 @@ export interface PairLinkProps {
   /** The two seats of a facing pair (`sharedExtraWith`). Zone 5 of one is zone 6 of the other. */
   a: number;
   b: number;
-  /** Text on the link, e.g. "P1 + P2 linked". */
+  /** Text on the link, e.g. "Linked columns". */
   label: string;
 }
 
@@ -59,8 +59,11 @@ export function PairLink({ a, b, label }: PairLinkProps) {
         mids.push({ x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 });
       });
       if (mids.length === 0) return svg.setAttribute("data-found", "false");
-      const mid = mids.reduce((sum, p) => ({ x: sum.x + p.x / mids.length, y: sum.y + p.y / mids.length }), { x: 0, y: 0 });
-      labelRef.current?.setAttribute("transform", `translate(${mid.x} ${mid.y})`);
+      // The label rides on the first line, a fifth of the way from its start: the middle of both lines is where the turn hub sits.
+      const first = pathRefs.current[1];
+      const length = first?.getTotalLength?.() ?? 0;
+      const spot = first && length > 0 ? first.getPointAtLength(length * 0.2) : mids[0];
+      labelRef.current?.setAttribute("transform", `translate(${spot.x} ${spot.y})`);
       svg.setAttribute("data-found", "true");
     };
     draw();
@@ -79,7 +82,7 @@ export function PairLink({ a, b, label }: PairLinkProps) {
         <circle key={index} ref={(node) => void (nodeRefs.current[index] = node)} className={styles.node} r="5" />
       ))}
       <g ref={labelRef}>
-        <rect className={styles.tag} x="-44" y="-9" width="88" height="18" rx="9" />
+        <rect className={styles.tag} x="-46" y="-9" width="92" height="18" rx="9" />
         <text className={styles.text} textAnchor="middle" y="4">{label}</text>
       </g>
     </svg>
