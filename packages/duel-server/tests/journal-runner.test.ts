@@ -103,6 +103,14 @@ describe("journal prefix runner", () => {
       .rejects.toMatchObject({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE" });
     expect(createWorker).not.toHaveBeenCalled();
   });
+  it("refuses legacy for a startup-script source without a saved choice before spawning", async () => {
+    const input = source(), createWorker = vi.fn(() => new TestWorker());
+    input.setup!.startupScripts = ["-- fixture startup"];
+    await expect(runJournalPrefix({ source: input, prefixCount: 0, resources: { ...resources(),
+      engineIdentity: identity(), allowVersionMismatch: true }, createWorker }))
+      .rejects.toMatchObject({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE" });
+    expect(createWorker).not.toHaveBeenCalled();
+  });
   it("uses selected current resources for an authorized cross-version run without changing the source", async () => {
     const input = source(); input.bundleVersion = "old-bundle"; input.engineIdentity = { ...identity(), cardScriptsHash: "e".repeat(64) };
     const before = structuredClone(input), worker = new TestWorker();

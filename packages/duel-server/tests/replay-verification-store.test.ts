@@ -20,6 +20,8 @@ it("migrates twice and stores versioned outcomes with invalidation stamps and ca
     }
     store.set(key, "board_mismatch");
     expect(store.get(key)).toMatchObject({ result: "unverified", reason: "board_mismatch", coreFamily: null });
+    store.set(key, "board_mismatch", "pinned");
+    expect(store.get(key)).toMatchObject({ result: "unverified", reason: "board_mismatch", coreFamily: "pinned" });
     store.set({ ...key, bundleVersion: "bundle-next" }, "command_mismatch");
     store.set({ ...key, bundleVersion: "bundle-empty" }, "no_saved_board");
     expect(db.prepare("select * from duel_replay_verifications").all()).toHaveLength(3);

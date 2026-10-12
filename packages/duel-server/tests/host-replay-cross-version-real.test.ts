@@ -25,7 +25,11 @@ describeWithCores(TWO_BUNDLES ? "real cross-version replay (two bundles)" : "rea
   [needs.cards(DATA), needs.scripts(DATA, `official/c${POT_OF_GREED}.lua`), needs.standard(DATA),
   needs.installedMulti(DATA), needs.cards(SOURCE_DATA), needs.scripts(SOURCE_DATA, `official/c${POT_OF_GREED}.lua`), needs.standard(SOURCE_DATA),
   needs.installedMulti(SOURCE_DATA), needs.file("engine manifest", join(DATA, "manifest.json"))], () => {
-  it.each([["1v1", false], ["ffa3", false], ["1v1", true]] as const)("verifies an original live %s engine win and refuses a changed board (unknown choice=%s)", async (format, unknown) => {
+  it.each([
+    { format: "1v1", unknown: false, label: "recorded pinned 1v1" },
+    { format: "ffa3", unknown: false, label: "recorded multi FFA3" },
+    { format: "1v1", unknown: true, label: "unknown 1v1 choice on legacy" },
+  ] as const)("verifies a live $label win and refuses an edited final board", async ({ format, unknown }) => {
     const db = new Database(":memory:"); migrate(db);
     let host: DuelHost | undefined;
     try {
@@ -108,7 +112,7 @@ describeWithCores(TWO_BUNDLES ? "real cross-version replay (two bundles)" : "rea
       expect(db.prepare("select result,reason from duel_replay_verifications where duel_id=?").get(session.id))
         .toEqual({ result: "verified", reason: null });
       if (unknown) {
-        // This journal is equivalent on both cores: the first family that verifies must win.
+        // This pinned-made journal also verifies on legacy. It does not prove a legacy failure followed by a pinned pass.
         expect(families).toEqual(["legacy"]);
         expect(db.prepare("select core_family from duel_replay_verifications where duel_id=?").get(session.id)).toEqual({ core_family: "legacy" });
         // A different projection builds directly on the persisted family.

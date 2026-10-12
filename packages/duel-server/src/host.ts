@@ -60,7 +60,7 @@ import { createReplayForkLauncher, listActiveReplayForks, REPLAY_FORK_ACTIVE_LIM
 import { initialForkSeat, resolveReplayForkSeat, replayForkRoom } from "./replay-fork-seats.js";
 import { JournalRunnerError, runJournalPrefix, type JournalResources } from "./journal-runner.js";
 import { EngineResourceUnavailableError, resolveEngineResourcesForSource, type EngineResources } from "./engine-resource-resolver.js";
-import { isEngineIdentity, sourceEngineChoice, sameEngineIdentity, type ReplayVerification, type ReplayUnverifiedReason } from "@yugidraft/shared/duels";
+import { isEngineIdentity, sourceEngineChoice, sameEngineIdentity, type EngineIdentity, type ReplayVerification, type ReplayUnverifiedReason } from "@yugidraft/shared/duels";
 import { sameReplayBoard } from "./replay-board-comparator.js";
 import { createReplayVerificationStore, type ReplayVerificationKey } from "./replay-verification-store.js";
 import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
@@ -523,7 +523,7 @@ export function createDuelHost(options: {
     if (state.setup?.engineIdentity == null && purpose !== "replay") return undefined;
     try {
       if (engine !== undefined && (purpose !== "replay" || state.session.format !== "1v1"
-        || state.setup?.engineIdentity != null || state.setup?.engine != null)) {
+        || state.setup?.engineIdentity != null || state.setup?.engine != null || state.setup?.startupScripts?.length)) {
         throw new EngineResourceUnavailableError("only an unknown replay engine family can be selected");
       }
       const current = await engineResourceCache.get(options.dataDirectory, { mode: state.session.mode, format: state.session.format,
@@ -1289,7 +1289,8 @@ export function createDuelHost(options: {
     authorizeSource: async (state, actor, unchecked, signal) => {
       const source = journalSourceOf(state), resources = await resourcesOfSource(state);
       const crossVersion = isCrossVersion(source, resources);
-      const unknownChoice = source.session.format === "1v1" && source.engineIdentity === null && source.setup?.engine == null;
+      const unknownChoice = source.session.format === "1v1" && source.engineIdentity === null && source.setup?.engine == null
+        && !source.setup?.startupScripts?.length;
       const defaults = { ...journalResourcesOf(resources), ...(crossVersion ? { allowVersionMismatch: true } : {}) };
       if (!crossVersion || (unchecked && !unknownChoice)) return defaults;
       const owner = resolveOwnerPlayer(options.db, actor);
@@ -1298,7 +1299,7 @@ export function createDuelHost(options: {
       const selection = await replayVerificationSelection(state, source, resources!, saved);
       const previous = selection.previous;
       if (previous?.result === "verified") return { ...journalResourcesOf(selection.resources), allowVersionMismatch: true };
-      if (unchecked) return defaults;
+      if (unchecked) return { ...journalResourcesOf(selection.resources), allowVersionMismatch: true };
       if (previous?.result === "unverified") {
         throw new RequestError("Replay could not be verified against the saved final board.", 409, "REPLAY_UNVERIFIED",
           readStoredBoard(saved, null) ? "available" : "none", { canOpenUnchecked: previous.reason !== "command_mismatch", reason: previous.reason! });
@@ -1596,7 +1597,7 @@ export function createDuelHost(options: {
     saved: StoredDuelBoards | undefined, readSaved = createStoredBoardReader(saved)) {
     const key = verificationKeyOf(source, resources, saved, readSaved);
     let alternate: EngineResources | undefined;
-    if (source.session.format === "1v1" && source.engineIdentity === null && source.setup?.engine == null
+    if (source.session.format === "1v1" && source.engineIdentity === null && source.setup?.engine == null && !source.setup?.startupScripts?.length
       && readSaved(null) && source.session.seats.every(seat => readSaved(seat.seat))) {
       try {
         alternate = await resourcesOfSource(state, "replay", sourceEngineChoice(source) === "legacy" ? "pinned" : "legacy");
@@ -1608,7 +1609,7 @@ export function createDuelHost(options: {
       key.resourceStamp = createHash("sha256").update(JSON.stringify([resources.identity, alternate?.identity ?? null])).digest("hex");
     }
     const previous = replayVerifications.get(key);
-    if (previous?.result === "verified" && previous.coreFamily === alternate?.identity.coreFamily) {
+    if (previous?.coreFamily && previous.coreFamily === alternate?.identity.coreFamily) {
       return { key, resources: alternate!, previous, alternate: undefined };
     }
     return { key, resources, previous, alternate: previous ? undefined : alternate };
@@ -1641,17 +1642,24 @@ export function createDuelHost(options: {
       const crossVersion = isCrossVersion(source, resources);
       const unchecked = crossVersion && projection.unchecked === true;
       const verification: ReplayVerification = unchecked ? "unverified" : crossVersion ? "verified" : "exact";
+      const unknownChoice = source.session.format === "1v1" && source.engineIdentity === null && source.setup?.engine == null
+        && !source.setup?.startupScripts?.length;
       let alternate: EngineResources | undefined;
       if (crossVersion) {
         verificationKey = verificationKeyOf(source, resources!, saved, readSaved);
-        if (!unchecked) {
+        if (!unchecked || unknownChoice) {
           const selection = await replayVerificationSelection(state, source, resources!, saved, readSaved);
-          verificationKey = selection.key; resources = selection.resources; alternate = selection.alternate;
+          verificationKey = selection.key;
           const previous = selection.previous;
-          if (previous?.result === "unverified") refuseUnverified(previous.reason!);
-          if (!previous && (!readSaved(null) || source.session.seats.some(seat => !readSaved(seat.seat)))) {
-            replayVerifications.set(verificationKey, "no_saved_board");
-            refuseUnverified("no_saved_board");
+          if (unchecked) {
+            if (previous?.result === "unverified") resources = selection.resources;
+          } else {
+            resources = selection.resources; alternate = selection.alternate;
+            if (previous?.result === "unverified") refuseUnverified(previous.reason!);
+            if (!previous && (!readSaved(null) || source.session.seats.some(seat => !readSaved(seat.seat)))) {
+              replayVerifications.set(verificationKey, "no_saved_board");
+              refuseUnverified("no_saved_board");
+            }
           }
         }
       }
@@ -1668,7 +1676,8 @@ export function createDuelHost(options: {
         verifyFinalViews: crossVersion && !unchecked ? views => {
           const previous = replayVerifications.get(verificationKey!);
           if (previous?.result === "verified" && (previous.coreFamily === null || previous.coreFamily === resources!.identity.coreFamily)) return;
-          if (previous?.result === "unverified") throw new ReplayBuildError("Replay could not be verified.", "REPLAY_UNVERIFIED");
+          // A concurrent worker may have failed since this build started. This worker must
+          // still compare its boards so a valid pass can replace that failure.
           // Reproduce host finalization from the session after checking the engine winner.
           const expected: NonNullable<DuelEngineView["result"]> = {
             winnerSeat: source.session.winnerSeat, reason: source.session.resultReason ?? "Duel ended",
@@ -1691,20 +1700,23 @@ export function createDuelHost(options: {
         } : undefined,
         reveal: projection.reveal, retainStepsOnOverflow: true, finalView: unchecked ? null : finalView,
         timeoutMs: Math.max(1, buildDeadline - Date.now()),
-        signal, encodeView: view => replayJsonEncoder.encode(view), createWorker: () => spawn() }));
+        signal, encodeView: view => replayJsonEncoder.encode(view), createWorker: () => spawn() }), alternate !== undefined);
       let built: ReplayBuildData;
-      let firstMismatch: ReplayUnverifiedReason | undefined;
+      let firstFailure: { reason: ReplayUnverifiedReason; coreFamily: EngineIdentity["coreFamily"] } | undefined;
       for (;;) {
         const started = Date.now();
         try { built = await build(); break; }
         catch (error) {
           const failure = replayBuildError(error);
-          if (!verificationKey || (failure.code !== "REPLAY_MISMATCH" && failure.code !== "REPLAY_UNVERIFIED")) throw error;
+          if (!verificationKey || (failure.code !== "REPLAY_MISMATCH" && failure.code !== "REPLAY_UNVERIFIED"
+            && !(unknownChoice && !unchecked && failure.familyFailed))) throw error;
           signal?.throwIfAborted();
           if (sourceVersion !== replaySourceVersion(journalSourceOf(service.privateState(slug, guildId)))) {
             throw new RequestError("The source changed. Refresh the replay.", 409, "SOURCE_CHANGED");
           }
-          firstMismatch ??= failure.code === "REPLAY_MISMATCH" ? "command_mismatch" : "board_mismatch";
+          const currentFailure = { reason: failure.code === "REPLAY_UNVERIFIED" ? "board_mismatch" as const : "command_mismatch" as const,
+            coreFamily: resources!.identity.coreFamily };
+          firstFailure ??= currentFailure;
           if (alternate) {
             // Reserve at least the first attempt's duration for the second. Share the 25-second
             // budget and keep the existing 28-second request deadline, rather than doubling them.
@@ -1714,10 +1726,16 @@ export function createDuelHost(options: {
             resources = alternate; alternate = undefined;
             continue;
           }
-          // Unchecked uses the historical default. Its failure must not replace a checked pass
-          // discovered on another family. Report the default failure when both candidates fail.
-          if (!unchecked) replayVerifications.set(verificationKey, firstMismatch);
-          refuseUnverified(firstMismatch);
+          // Prefer a family that ran the commands, so the owner can open it unchecked.
+          // An unchecked failure must never replace a checked pass.
+          const preferred = firstFailure.reason === "command_mismatch" ? currentFailure : firstFailure;
+          if (!unchecked) {
+            // Another projection may have verified while this worker was running. Preserve its
+            // pass, and let this projection retry without retaining a second-family failure.
+            if (replayVerifications.get(verificationKey)?.result === "verified") throw failure;
+            replayVerifications.set(verificationKey, preferred.reason, preferred.coreFamily);
+          }
+          refuseUnverified(preferred.reason);
         }
       }
       if (sourceVersion !== replaySourceVersion(journalSourceOf(service.privateState(slug, guildId)))) {

@@ -30,7 +30,7 @@ export function createReplayVerificationStore(db: Database.Database) {
         resource_stamp=excluded.resource_stamp, board_stamp=excluded.board_stamp,
         result=excluded.result, reason=excluded.reason, core_family=excluded.core_family, checked_at=excluded.checked_at`)
         .run(key.duelId, key.bundleVersion, key.sourceVersion, key.resourceStamp, key.boardStamp,
-          reason === null ? "verified" : "unverified", reason, reason === null ? coreFamily : null);
+          reason === null ? "verified" : "unverified", reason, coreFamily);
     },
   };
 }

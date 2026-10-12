@@ -25,7 +25,8 @@ export interface JournalResources {
 }
 
 export class JournalRunnerError extends Error {
-  constructor(message: string, readonly code: "INVALID_CURSOR" | "ENGINE_UNAVAILABLE_FOR_SOURCE" | "REPLAY_MISMATCH" | "ENGINE_BUSY", cause?: unknown) {
+  constructor(message: string, readonly code: "INVALID_CURSOR" | "ENGINE_UNAVAILABLE_FOR_SOURCE" | "REPLAY_MISMATCH" | "ENGINE_BUSY", cause?: unknown,
+    readonly familyFailed = false) {
     super(message, { cause });
     this.name = "JournalRunnerError";
   }
@@ -114,7 +115,7 @@ function creationOptions({ source, resources, prefixCount, checkpointSeat, targe
   // A checked replay may discover the family of an old source. Preserve the source/cursor identity;
   // only trusted current resources can select the worker family, and only for unknown 1v1 choices.
   if (session.format === "1v1" && resources.allowVersionMismatch && source.engineIdentity === null
-    && setup?.engine == null && resources.engineIdentity && resources.engineIdentity.coreFamily !== "multi") {
+    && setup?.engine == null && !setup?.startupScripts?.length && resources.engineIdentity && resources.engineIdentity.coreFamily !== "multi") {
     engine = resources.engineIdentity.coreFamily;
   }
   if (engine !== undefined && engine !== "legacy" && engine !== "pinned") mismatch("Invalid saved 1v1 engine choice");
@@ -202,11 +203,12 @@ export async function runJournalPrefix(options: JournalRunOptions): Promise<Jour
       creationRules: { firstTurnDraw: created.firstTurnDraw!, scriptErrorMode: created.scriptErrorMode! } };
   } catch (error) {
     const code = stage === "command" && worker.running ? "REPLAY_MISMATCH" : "ENGINE_BUSY";
+    const familyFailed = !worker.running;
     try { await worker.close(); } catch { /* Keep the original failure if the worker already exited. */ }
-    if (error instanceof JournalRunnerError || error instanceof EngineLoopError || stage === "capture") throw error;
+    if (error instanceof JournalRunnerError || error instanceof EngineLoopError || (stage === "capture" && !familyFailed)) throw error;
     if (error instanceof EngineResourceUnavailableError) {
       throw new JournalRunnerError(error.message, error.code, error);
     }
-    throw new JournalRunnerError(error instanceof Error ? error.message : "Engine worker request failed", code, error);
+    throw new JournalRunnerError(error instanceof Error ? error.message : "Engine worker request failed", code, error, familyFailed);
   }
 }

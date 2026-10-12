@@ -195,7 +195,8 @@ export function createReplayForkService(db: Database.Database): ReplayForkServic
     const setup = forkSetup(input.source, replayFork), source = input.source;
     if (input.resources) {
       const identity = input.resources.engineIdentity;
-      const unknownChoice = source.session.format === "1v1" && source.engineIdentity === null && source.setup?.engine == null;
+      const unknownChoice = source.session.format === "1v1" && source.engineIdentity === null && source.setup?.engine == null
+        && !source.setup?.startupScripts?.length;
       if (!isEngineIdentity(identity) || identity.mode !== source.session.mode
         || (unknownChoice ? identity.coreFamily === "multi"
           : identity.coreFamily !== (source.session.format === "1v1" ? sourceEngineChoice(source) : "multi"))
