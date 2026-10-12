@@ -63,6 +63,11 @@
       "types": "./dist/internal-auth/index.d.ts",
       "source": "./src/internal-auth/index.ts",
       "default": "./dist/internal-auth/index.js"
+    },
+    "./decks": {
+      "types": "./dist/decks/index.d.ts",
+      "source": "./src/decks/index.ts",
+      "default": "./dist/decks/index.js"
     }
   },
   "scripts": {

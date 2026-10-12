@@ -2,6 +2,7 @@
 import React from "react";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import type { DuelChainLink } from "@yugidraft/shared/duels";
 import { PriorityChips, priorityOrder } from "@/components/duel/priority-chips";
 
 afterEach(cleanup);
@@ -16,6 +17,13 @@ describe("priorityOrder", () => {
   it("opens with the first seat after the last link and that activator answers last", () => {
     expect(priorityOrder(seats, 0, [{ seat: 1 }], null).map((slot) => slot.seat)).toEqual([2, 0, 1]);
     expect(priorityOrder(seats, 1, [{ seat: 0 }, { seat: 1 }], null).map((slot) => slot.seat)).toEqual([2, 0, 1]);
+  });
+
+  it("orders responses after the activator of another player's both-side card", () => {
+    const chain: DuelChainLink[] = [{ index: 1, seat: 0, name: "Mausoleum of the Emperor", zone: { controller: 1, location: 8, sequence: 5 } }];
+    expect(priorityOrder(seats, 0, chain, 1)).toEqual([
+      { seat: 1, choosing: true }, { seat: 2, choosing: false }, { seat: 0, choosing: false },
+    ]);
   });
 
   it("follows the last link in a four seat chain", () => {
