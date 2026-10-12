@@ -1,3 +1,4 @@
+import { log } from "../observability/index.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
 import { remapTargetMetadata } from "./engine-card-metadata.js";
 import Database from "better-sqlite3";
@@ -45,7 +46,7 @@ export function loadCardPasscodeRemaps(directory: string): ReadonlyMap<number, n
       for (const old of remaps.keys()) {
         const row = find.get(old) as { alias: number; type: number } | undefined;
         if (row && (row.alias || (row.type & 0x4000))) {
-          console.warn(`[card-remaps] Skipping retained ${row.alias ? "alternate artwork" : "token"} ${old}`);
+          log("warn", "[card-remaps] Skipping retained artwork or token");
           remaps.delete(old);
         }
       }
@@ -97,7 +98,7 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
     // lock as the rewrite, so an intervening sync cannot turn a source into real art.
     const artwork = db.prepare("SELECT 1 FROM card_artworks WHERE artwork_id=? AND card_id<>artwork_id");
     for (const old of remaps.keys()) if (artwork.get(old)) {
-      console.warn(`[card-remaps] Skipping alternate artwork ${old}`);
+      log("warn", "[card-remaps] Skipping alternate artwork");
       remaps.delete(old);
     }
     const columns = (db.prepare("PRAGMA table_info(card_catalog)").all() as { name: string }[]).map(row => row.name);
@@ -141,11 +142,11 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
         let value: unknown;
         try { value = JSON.parse(row.json); }
         catch {
-          console.warn(`[card-remaps] Skipping invalid saved JSON in ${table}.${column} row ${row.rid}: cannot parse JSON`);
+          log("warn", "[card-remaps] Skipping saved JSON that cannot be parsed");
           continue;
         }
         if (!value || typeof value !== "object" || Array.isArray(value)) {
-          console.warn(`[card-remaps] Skipping invalid saved JSON in ${table}.${column} row ${row.rid}: expected a JSON object`);
+          log("warn", "[card-remaps] Skipping saved JSON that is not an object");
           continue;
         }
         const next = transform(value as Record<string, unknown>);

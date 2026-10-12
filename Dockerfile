@@ -31,7 +31,20 @@ COPY . .
 # undeclared Clerk key, so pass the public key directly to the web build only.
 RUN npx turbo run build --filter='!@yugioh-discord-bot/web'
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
-RUN NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" npm run build --workspace=packages/web
+ARG NEXT_PUBLIC_SENTRY_DSN=
+ARG SENTRY_ENVIRONMENT=
+ARG SENTRY_RELEASE=
+ARG SENTRY_ORG=
+ARG SENTRY_PROJECT=
+ARG SENTRY_UPLOAD_SOURCEMAPS=0
+RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
+    SENTRY_AUTH_TOKEN="$(cat /run/secrets/SENTRY_AUTH_TOKEN 2>/dev/null || true)" \
+    SENTRY_UPLOAD_SOURCEMAPS="$SENTRY_UPLOAD_SOURCEMAPS" \
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \
+    NEXT_PUBLIC_SENTRY_DSN="$NEXT_PUBLIC_SENTRY_DSN" \
+    SENTRY_ENVIRONMENT="$SENTRY_ENVIRONMENT" SENTRY_RELEASE="$SENTRY_RELEASE" \
+    SENTRY_ORG="$SENTRY_ORG" SENTRY_PROJECT="$SENTRY_PROJECT" npm run build --workspace=packages/web
+RUN find packages/web/.next -type f -name '*.map' -delete
 RUN npm prune --omit=dev --ignore-scripts && npx patch-package --error-on-fail
 
 # ── bot ──────────────────────────────────────────────────────────────────────
@@ -49,7 +62,7 @@ COPY --from=build /app/packages/bot/package*.json packages/bot/
 COPY --from=build /app/packages/bot/dist packages/bot/dist
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
-CMD ["sh", "-c", "node packages/bot/dist/deploy-commands.js && node packages/bot/dist/index.js"]
+CMD ["sh", "-c", "node packages/bot/dist/deploy-commands.js && exec node --import ./packages/bot/dist/instrument.js packages/bot/dist/index.js"]
 
 # ── ws ───────────────────────────────────────────────────────────────────────
 # Production stage for the Socket.IO WebSocket server.
@@ -65,7 +78,7 @@ COPY --from=build /app/packages/ws/package*.json packages/ws/
 COPY --from=build /app/packages/ws/dist packages/ws/dist
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
-CMD ["node", "packages/ws/dist/server.js"]
+CMD ["node", "--import", "./packages/ws/dist/instrument.js", "packages/ws/dist/server.js"]
 
 # ── duel ─────────────────────────────────────────────────────────────────────
 # Private automated duel engine. Browsers use authenticated Next routes.
@@ -85,7 +98,7 @@ COPY --from=build /app/packages/duel-server/dist packages/duel-server/dist
 COPY --from=build /app/packages/duel-server/scripts/install-engine-bundle.sh packages/duel-server/scripts/install-engine-bundle.sh
 COPY --from=build /app/packages/duel-server/scripts/verify-deploy-multi-cores.mjs packages/duel-server/scripts/verify-deploy-multi-cores.mjs
 RUN mkdir -p /app/data
-CMD ["sh", "-c", "sh packages/duel-server/scripts/install-engine-bundle.sh && exec node packages/duel-server/dist/server.js"]
+CMD ["sh", "-c", "sh packages/duel-server/scripts/install-engine-bundle.sh && exec node --import ./packages/duel-server/dist/instrument.js packages/duel-server/dist/server.js"]
 
 # CI compiles the pinned engine bundle before it reaches the VM. The deploy
 # scripts pass the verified tarball contents as the named engine build context.
@@ -124,7 +137,7 @@ COPY --from=build /app/packages/worker/dist packages/worker/dist
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["node", "packages/worker/dist/healthcheck.js"]
-CMD ["node", "packages/worker/dist/index.js"]
+CMD ["node", "--import", "./packages/worker/dist/instrument.js", "packages/worker/dist/index.js"]
 
 # ── web-dev ──────────────────────────────────────────────────────────────────
 # Development stage: runs `next dev` with HMR.

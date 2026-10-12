@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import type { SavedDeck } from "@yugidraft/shared/duels";
 import {
@@ -87,7 +88,7 @@ export function savedDeckErrorResponse(error: unknown) {
   if (error instanceof SavedDeckServiceError) {
     return NextResponse.json({ error: error.message }, { status: error.status });
   }
-  console.error("[api/decks]", error);
+  report(error, { tags: { operation: "[api/decks]" } });
   return NextResponse.json({ error: "Failed to process deck request" }, { status: 500 });
 }
 

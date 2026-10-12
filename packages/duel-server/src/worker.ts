@@ -116,6 +116,8 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
     }
   } catch (error) {
     return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error),
+      message: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error ? { name: error.name, stack: error.stack } : {}),
       ...(error instanceof EngineLoopError ? { engineLoop: true as const } : {}),
       ...(error instanceof EngineAnswerError ? { answerError: true as const, ...(error.code ? { code: error.code } : {}) } : {}) };
   }

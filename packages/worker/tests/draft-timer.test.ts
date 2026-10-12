@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -118,7 +119,7 @@ it("publishes status even if resync fails, then announces only when Discord has 
   app.db.prepare("update drafts set channel_id = 'discord-channel' where id = ?").run(app.draft.id);
   app.lobby.scheduleStart(app.draft.id, app.host.userId, { revision: app.lobby.read(app.draft.id).lobby.revision }, now);
   vi.mocked(app.effects.draft).mockRejectedValueOnce(new Error("WS offline"));
-  const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const warning = recording.report.mockClear().mockImplementation(() => {});
   await createDraftTimer(app).tick(new Date(now.getTime() + 5000));
   expect(app.effects.draft).toHaveBeenCalledWith({ kind: "status", slug: app.draft.webSlug, status: "active" });
   expect(app.effects.discord).toHaveBeenCalledExactlyOnceWith({ kind: "draft-started", draftId: app.draft.id,
@@ -154,3 +155,5 @@ it("expires active picks before waiting for lobby broadcasts", async () => {
     await tick;
   }
 });
+
+const recording = useRecordingObservability();

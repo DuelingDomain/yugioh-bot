@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../../shared/tests/helpers/recording-observability.mjs";
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createAnnounceServer } from "../../src/announce/server.js";
@@ -143,7 +144,9 @@ it("dispatches signed Nudge requests and reports delivery failure", async () => 
   expect((await server.handle(request())).status).toBe(204);
   expect(onDraftNudge).toHaveBeenCalledWith(payload);
   onDraftNudge.mockRejectedValue(new Error("Cannot send"));
-  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const error = recording.report.mockClear().mockImplementation(() => {});
   expect((await server.handle(request())).status).toBe(500);
   error.mockRestore();
 });
+
+const recording = useRecordingObservability();

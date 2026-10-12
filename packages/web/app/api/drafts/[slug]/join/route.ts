@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -55,7 +56,7 @@ export async function POST(
         return NextResponse.json({ error: "You must belong to this server to join" }, { status: 403 });
       }
     }
-    console.error("[api/drafts/[slug]/join] error:", error);
+    report(error, { tags: { operation: "[api/drafts/[slug]/join] error" } });
     return NextResponse.json(
       { error: "Failed to join draft" },
       { status: 500 }

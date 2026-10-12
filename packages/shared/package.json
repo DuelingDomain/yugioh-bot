@@ -58,6 +58,16 @@
       "types": "./dist/notify/index.d.ts",
       "source": "./src/notify/index.ts",
       "default": "./dist/notify/index.js"
+    },
+    "./observability": {
+      "types": "./dist/observability/index.d.ts",
+      "source": "./src/observability/index.ts",
+      "default": "./dist/observability/index.js"
+    },
+    "./observability/node-bootstrap": {
+      "types": "./dist/observability/node-bootstrap.d.ts",
+      "source": "./src/observability/node-bootstrap.ts",
+      "default": "./dist/observability/node-bootstrap.js"
     }
   },
   "scripts": {

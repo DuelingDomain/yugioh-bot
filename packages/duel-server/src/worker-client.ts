@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
 import { Worker } from "node:worker_threads";
 import type { PromptTraceEntry } from "./prompt-trace.js";
@@ -76,7 +77,7 @@ export class GameWorker implements DuelGameWorker {
   /** Index of the oldest prompt in the ring. Writes never shift the retained entries. */
   private promptStart = 0;
 
-  constructor(onScriptError?: (error: DuelScriptError) => void, onFatalScriptError?: (error: DuelScriptFatalError) => void) {
+  constructor(onScriptError?: (error: DuelScriptError) => void, onFatalScriptError?: (error: DuelScriptFatalError) => void, private readonly table?: string) {
     const development = import.meta.url.endsWith(".ts");
     const module = new URL(development ? "./worker.ts" : "./worker.js", import.meta.url);
     this.worker = development
@@ -101,15 +102,23 @@ export class GameWorker implements DuelGameWorker {
       if (!request) return;
       this.pending.delete(message.id);
       if (message.ok) request.resolve(message.value);
-      else request.reject(message.engineLoop ? new EngineLoopError() : message.answerError || message.code
-        ? new EngineAnswerError(message.error, message.code)
-        : new Error(message.error ?? "Engine rejected the request"));
+      else {
+        const error = message.engineLoop ? new EngineLoopError() : message.answerError || message.code
+          ? new EngineAnswerError(message.message ?? message.error, message.code)
+          : new Error(message.message ?? message.error ?? "Engine rejected the request");
+        if (message.name) error.name = message.name;
+        if (message.stack) error.stack = message.stack;
+        if (!message.answerError && !message.code) report(error, this.table ? { tags: { table: this.table } } : {});
+        request.reject(error);
+      }
     });
     this.worker.on("error", (error) => this.fail(error instanceof Error ? error : new Error(String(error))));
     this.worker.on("exit", (code) => this.fail(new Error(`Engine worker exited (${code})`)));
   }
 
-  private fail(error: Error) {
+  private fail(error: Error, unexpected = true) {
+    if (this.stopped) return;
+    if (unexpected) report(error, this.table ? { tags: { table: this.table } } : {});
     this.stopped = true;
     for (const request of this.pending.values()) request.reject(error);
     this.pending.clear();
@@ -175,7 +184,7 @@ export class GameWorker implements DuelGameWorker {
   }
 
   async close(): Promise<void> {
-    this.fail(new Error("Engine worker closed"));
+    this.fail(new Error("Engine worker closed"), false);
     this.prompts.length = 0;
     this.promptStart = 0;
     await this.worker.terminate();

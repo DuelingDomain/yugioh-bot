@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { CARD_TYPE_BITS as T } from "@yugidraft/shared/duels";
 
 /**
@@ -123,7 +124,7 @@ export function createEngineTypeLookup(options: EngineTypeLookupOptions) {
       downUntil = 0;
     } catch (error) {
       downUntil = now() + backoffMs;
-      console.warn("[draft] card types are unavailable from the duel engine:", error instanceof Error ? error.message : error);
+      report(error, { tags: { operation: "[draft] card types are unavailable from the duel engine" } });
     } finally {
       for (const id of ids) inflight.delete(id);
     }

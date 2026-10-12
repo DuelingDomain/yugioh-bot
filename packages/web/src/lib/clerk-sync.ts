@@ -1,3 +1,4 @@
+import { log } from "@yugidraft/shared/observability";
 import { createClerkBackend, ClerkBackendError, profileFromClerkUser } from "@yugidraft/shared/clerk";
 import { createUserService, type LinkOutcome } from "@yugidraft/shared/services";
 import { getDb } from "./db";
@@ -27,7 +28,7 @@ export function syncClerkUser(clerkUserId: string): Promise<LinkOutcome> {
       void (async () => {
         for (let attempt = 0; attempt < 3; attempt++) {
           try { await backend.updateUserExternalId(clerkUserId, String(outcome.user.id)); break; }
-          catch { if (attempt === 2) console.warn("[clerk-sync] External identity repair failed"); }
+          catch { if (attempt === 2) log("warn", "[clerk-sync] External identity repair failed"); }
         }
       })().catch(() => {});
     }

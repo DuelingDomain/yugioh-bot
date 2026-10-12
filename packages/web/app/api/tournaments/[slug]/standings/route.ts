@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { env } from "@/lib/env";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
@@ -90,7 +91,7 @@ export async function GET(
 
     return NextResponse.json(standings);
   } catch (error) {
-    console.error("[api/tournaments/[slug]/standings] error:", error);
+    report(error, { tags: { operation: "[api/tournaments/[slug]/standings] error" } });
     return NextResponse.json(
       { error: "Failed to load standings" },
       { status: 500 }

@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { rmSync } from "node:fs";
@@ -823,15 +824,15 @@ describe("series advance", () => {
     app.duels.setDeck(started.duel.slug, GUILD, app.p1, badDeck);
     app.duels.setDeck(started.duel.slug, GUILD, app.p2, deckWithSide(true));
     const slug = started.duel.slug;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = recording.log.mockClear().mockImplementation(() => undefined);
     const changes: string[] = [];
     try {
       const { workers } = openHost(app, { pollIntervalMs: 30_000, onChange: (changed) => void changes.push(changed) });
-      const attempts = () => warn.mock.calls.filter((call) => String(call[0]).includes("did not start")).length;
+      const attempts = () => warn.mock.calls.filter((call) => call[1].includes("Series game start deferred")).length;
       await settle();
       expect(attempts()).toBe(1);
-      expect(String(warn.mock.calls[0]![0])).toContain(slug);
-      expect(String(warn.mock.calls[0]![0])).toContain("Unknown card 999999999");
+      expect(JSON.stringify(warn.mock.calls[0])).not.toContain(slug);
+      expect(warn).toHaveBeenCalledWith("warn", "[duel] Series game start deferred", { attempts: 1, retryMs: 60_000 });
       expect(changes.filter((changed) => changed === slug)).toHaveLength(1);
 
       // Ticks at 30 s are skipped; the 2nd attempt comes after 1 minute, the 3rd 5 minutes later.
@@ -1152,3 +1153,5 @@ describe("catalog ops", () => {
     }
   });
 });
+
+const recording = useRecordingObservability();

@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -233,10 +234,12 @@ describe("draft socket access without starting a server", () => {
   });
 
   it("fails closed if the permission query fails", () => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = recording.report.mockClear().mockImplementation(() => {});
     vi.spyOn(db, "prepare").mockImplementationOnce(() => { throw new Error("Database unavailable"); });
     expect(join(clients[0], 101)).toEqual(error);
     expect(rooms.getRoom("test-draft")).toBeUndefined();
     log.mockRestore();
   });
 });
+
+const recording = useRecordingObservability();

@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { createServer, type Server } from "node:http";
 import type { AnnouncePayload } from "@yugidraft/shared/notify";
 import { verifyAnnounceSignature } from "./auth.js";
@@ -53,7 +54,7 @@ export function createAnnounceServer(opts: {
       await routes[url.pathname](parsed);
       return new Response(null, { status: 204 });
     } catch (err) {
-      console.error(`[announce] handler failed for ${url.pathname}:`, err);
+      report(err, { tags: { operation: "[announce] handler failed for" } });
       return new Response("Handler error", { status: 500 });
     }
   }

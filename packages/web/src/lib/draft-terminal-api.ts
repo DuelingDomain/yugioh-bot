@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { createDraftService, DraftTerminalError } from "@yugidraft/shared/services";
 import { getDb } from "./db";
@@ -49,7 +50,7 @@ export async function finishDraft(
         notifications.push(announcer.announce({ kind: "draft-status", draftId: finished.id }));
       }
       for (const notification of await Promise.allSettled(notifications)) {
-        if (notification.status === "rejected") console.warn("[draft-terminal] notification failed:", notification.reason);
+        if (notification.status === "rejected") report(notification.reason, { tags: { operation: "[draft-terminal] notification failed" } });
       }
     }
     return NextResponse.json({
@@ -58,7 +59,7 @@ export async function finishDraft(
     });
   } catch (error) {
     if (error instanceof DraftTerminalError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
-    console.error("[draft-terminal] failed:", error);
+    report(error, { tags: { operation: "[draft-terminal] failed" } });
     return NextResponse.json({ error: "Failed to finish draft" }, { status: 500 });
   }
 }

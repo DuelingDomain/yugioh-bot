@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type { DraftMessenger } from "../commands/handlers.js";
 import type { DraftService } from "./drafts.js";
 import type { Broadcaster } from "@yugidraft/shared/notify";
@@ -46,11 +47,11 @@ export function createDraftTimerService({
         await messenger.updateStatus(updatedDraft);
         if (updatedDraft.webSlug && updatedDraft.status === "completed" && onDraftCompleted) {
           await onDraftCompleted(updatedDraft.id).catch((err) =>
-            console.warn(`[draft-timer] onDraftCompleted failed for ${updatedDraft.id}:`, err),
+            report(err, { tags: { operation: "[draft-timer] onDraftCompleted failed for" } }),
           );
         }
       } catch (error) {
-        console.warn(`Draft timer failed to expire pick step for draft ${draft.id}`, error);
+        report(error, { tags: { operation: "Draft timer failed to expire pick step for draft" } });
       }
     }
   }

@@ -1,3 +1,4 @@
+import { log, report } from "@yugidraft/shared/observability";
 import { httpTransport, type SignedPostTransport } from "@yugidraft/shared/notify";
 
 export type NotifyDuelChange = (slug: string, guildId: string) => Promise<void>;
@@ -11,12 +12,10 @@ export function createNotifyDuelChange(transport: SignedPostTransport): NotifyDu
     try {
       const result = await transport.post("/internal/duel/changed", JSON.stringify({ slug, guildId }));
       if (!result.ok) {
-        console.warn(
-          `[notify-duel] /internal/duel/changed -> ${result.status}${result.text ? ` ${result.text}` : ""}`,
-        );
+        log("warn", "[notify-duel] Invalidation rejected", { status: result.status });
       }
     } catch (error) {
-      console.warn("[notify-duel] /internal/duel/changed failed", error);
+      report(error, { tags: { operation: "[notify-duel] /internal/duel/changed failed" } });
     }
   };
 }

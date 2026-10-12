@@ -1,3 +1,4 @@
+import { report } from "../observability/index.js";
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -79,6 +80,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     let completed = 0;
     backfillCardArtworks({ database: values.database, dump: values.dump, state: values.state, dryRun: values["dry-run"],
       onProgress: id => { if (++completed % 100 === 0) console.log(`Synced ${completed} families; checkpoint ${id}`); },
-    }).then(report => console.log(JSON.stringify(report))).catch(error => { console.error(error); process.exitCode = 1; });
+    }).then(report => console.log(JSON.stringify(report))).catch(error => { report(error, { tags: { operation: "Error path in shared/src/maintenance/backfill-card-artworks.ts" } }); process.exitCode = 1; });
   }
 }

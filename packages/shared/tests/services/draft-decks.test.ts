@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../helpers/recording-observability.mjs";
 import { seedIdentity, seedUser } from "../helpers/identity.js";
 import { checkDeckAgainstPool } from "../../src/duels/pool.js";
 import Database from "better-sqlite3";
@@ -297,7 +298,7 @@ describe("a failure while saving one player's deck", () => {
     db.prepare("update draft_players set deck_saved_at = null").run();
     db.exec(`create trigger fail_bob before insert on saved_decks when new.owner_user_id = ${seedUser(db, 'u1').userId}
              begin select raise(abort, 'boom'); end`);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = recording.report.mockClear().mockImplementation(() => {});
 
     expect(createDraftDeckService(db).saveForDraft(draftId)).toEqual([seedUser(db, "u2").userId]);
     expect(createSavedDeckService(db).findByDraft("g1", seedUser(db, "u2").userId, draftId)).not.toBeNull();
@@ -394,15 +395,17 @@ describe("making a tournament from a draft when the deck save fails", () => {
     // A failure outside the per-player saves: registering a deck on an entry breaks.
     db.exec(`create trigger fail_register before update of deck_json on tournament_participants
              begin select raise(abort, 'boom'); end`);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = recording.report.mockClear().mockImplementation(() => {});
 
     const result = createDraftTournamentService(db).createTournamentFromDraft({
       draftId, format: "round_robin", createdByUserId: seedUser(db, "u1").userId,
     });
     expect(result.tournamentId).toBeGreaterThan(0);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("[draft-tournament]"), expect.anything());
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({ name: "SqliteError" }), { tags: { operation: "[draft-tournament] could not save the draft decks for draft" } });
     expect(db.prepare("select tournament_id from drafts where id = ?").get(draftId)).toEqual({ tournament_id: result.tournamentId });
     log.mockRestore();
     db.close();
   });
 });
+
+const recording = useRecordingObservability();

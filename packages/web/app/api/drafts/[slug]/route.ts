@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -51,7 +52,7 @@ export async function GET(
     const fetchFailure = cardFetchErrorResponse(error);
     if (fetchFailure) return fetchFailure;
     if (error && typeof error === "object" && "code" in error) return draftLobbyErrorResponse(error);
-    console.error(`[api/drafts/${slug}] load failed:`, error);
+    report(error, { tags: { operation: "[api/drafts/[slug]] load failed" } });
     return NextResponse.json(
       { error: "Failed to load draft" },
       { status: 500 }
@@ -122,7 +123,7 @@ export async function DELETE(
     }
     const fetchFailure = cardFetchErrorResponse(error);
     if (fetchFailure) return fetchFailure;
-    console.error("[api/drafts/[slug] DELETE] error:", error);
+    report(error, { tags: { operation: "[api/drafts/[slug] DELETE] error" } });
     return NextResponse.json(
       { error: "Failed to cancel draft" },
       { status: 500 }

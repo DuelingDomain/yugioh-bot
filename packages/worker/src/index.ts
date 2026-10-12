@@ -1,3 +1,5 @@
+import { report } from "@yugidraft/shared/observability";
+import { awaitObservabilityShutdown } from "@yugidraft/shared/observability/node-bootstrap";
 import { config } from "dotenv";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,17 +57,18 @@ function stop() {
     await Promise.all(jobs.map(job => job.stop()));
     rmSync(healthPath, { force: true });
     db.close();
+    await awaitObservabilityShutdown();
   })();
 }
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {
-    void stop().catch(error => { console.error(error); process.exitCode = 1; });
+    void stop().catch(error => { report(error, { tags: { operation: "Error path in worker/src/index.ts" } }); process.exitCode = 1; });
   });
 }
 try {
   await Promise.all(jobs.map(job => job.start()));
 } catch (error) {
-  console.error("[worker] startup failed", error);
+  report(error, { tags: { operation: "[worker] startup failed" } });
   await stop();
   process.exitCode = 1;
 }

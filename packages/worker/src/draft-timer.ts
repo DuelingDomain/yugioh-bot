@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type Database from "better-sqlite3";
 import { createDraftLobbyService, type DraftService } from "@yugidraft/shared/services";
 import type { WorkerEffects } from "./effects.js";
@@ -14,7 +15,7 @@ export function createDraftTimer({ db, drafts, effects, startedAt }: {
     try {
       await run();
     } catch (error) {
-      console.warn("[draft-timer] effect", error);
+      report(error, { tags: { operation: "[draft-timer] effect" } });
     }
   };
 
@@ -42,7 +43,7 @@ export function createDraftTimer({ db, drafts, effects, startedAt }: {
           }
         }
       } catch (error) {
-        console.warn("[draft-timer] pending lobby sweep failed", error);
+        report(error, { tags: { operation: "[draft-timer] pending lobby sweep failed" } });
       }
 
       for (const candidate of drafts.listActive()) {
@@ -69,7 +70,7 @@ export function createDraftTimer({ db, drafts, effects, startedAt }: {
             pendingEffects.push(() => effects.discord({ kind: "draft-status", draftId: after.id }));
           }
         } catch (error) {
-          console.warn("[draft-timer] expire failed", candidate.id, error);
+          report(error, { tags: { operation: "[draft-timer] expire failed" } });
         }
       }
 

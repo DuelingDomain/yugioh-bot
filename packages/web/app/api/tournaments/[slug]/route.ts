@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -146,7 +147,7 @@ export async function GET(
       try {
         return seriesService.get(row.id, tournament.guild_id);
       } catch (error) {
-        console.warn(`[api/tournaments/[slug] GET] series ${row.id} unavailable`, error);
+        report(error, { tags: { operation: "[api/tournaments/[slug] GET] series unavailable" } });
         return null;
       }
     };
@@ -224,7 +225,7 @@ export async function GET(
       }),
     });
   } catch (error) {
-    console.error("[api/tournaments/[slug] GET] error:", error);
+    report(error, { tags: { operation: "[api/tournaments/[slug] GET] error" } });
     return NextResponse.json(
       { error: "Failed to load tournament" },
       { status: 500 }
@@ -269,7 +270,7 @@ export async function DELETE(
 
     return NextResponse.json({ id: tournament.id, status: "cancelled" });
   } catch (error) {
-    console.error("[api/tournaments/[slug] DELETE] error:", error);
+    report(error, { tags: { operation: "[api/tournaments/[slug] DELETE] error" } });
     return NextResponse.json({ error: "Failed to cancel tournament" }, { status: 500 });
   }
 }
@@ -407,7 +408,7 @@ export async function PUT(
       && error.message.includes("tournaments.guild_id, tournaments.created_by_user_id, tournaments.name")) {
       return NextResponse.json({ error: "You already have a tournament called this that hasn't finished." }, { status: 400 });
     }
-    console.error("[api/tournaments/[slug] PUT] error:", error);
+    report(error, { tags: { operation: "[api/tournaments/[slug] PUT] error" } });
     return NextResponse.json({ error: "Failed to update tournament" }, { status: 500 });
   }
 }
@@ -462,7 +463,7 @@ export async function POST(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to start tournament";
-    console.error("[api/tournaments/[slug] POST] error:", error);
+    report(error, { tags: { operation: "[api/tournaments/[slug] POST] error" } });
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

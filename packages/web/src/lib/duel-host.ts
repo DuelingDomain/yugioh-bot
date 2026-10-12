@@ -1,3 +1,4 @@
+import { report, log } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { httpTransport } from "@yugidraft/shared/notify";
 import {
@@ -50,7 +51,7 @@ export function duelErrorResponse(error: unknown) {
   ) {
     return NextResponse.json({ error: error.message }, { status: error.status });
   }
-  console.error("[api/duels]", error);
+  report(error, { tags: { operation: "[api/duels]" } });
   return NextResponse.json({ error: "Failed to process duel request" }, { status: 500 });
 }
 
@@ -119,7 +120,7 @@ export async function callDuelHost(input: {
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
   if (configProblem) {
-    console.error(`[duel-host] ${configProblem}`);
+    log("warn", "[duel-host] configuration is incomplete");
     return { ok: false, response: NextResponse.json({ error: configProblem }, { status: 503 }) };
   }
   const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 } : {}) });
@@ -151,13 +152,13 @@ export async function callDuelHost(input: {
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {
     if (result.status < 400) {
-      console.error(`[duel-host] ${input.op} failed: ${result.text || "no response"}`);
+      log("warn", "[duel-host] unavailable", { operation: input.op, status: result.status });
       return { ok: false, response: NextResponse.json({ error: unreachableMessage(result.text) }, { status: 503 }) };
     }
     if (result.status === 401) {
       // The host answers 401 only for a bad signature.
       const error = "The duel engine refused the web server: their DUEL_INTERNAL_SECRET values do not match. Ask the server admin to fix .env and restart both services.";
-      console.error(`[duel-host] ${error}`);
+      log("warn", "[duel-host] request was refused", { status: result.status });
       return { ok: false, response: NextResponse.json({ error }, { status: 503 }) };
     }
     return {

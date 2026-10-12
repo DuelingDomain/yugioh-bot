@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -116,7 +117,7 @@ async function setup(options: { botStepDelayMs?: number | ((prompt: DuelPrompt) 
 describe("practice bot pacing", () => {
   it.each([0, 500])("interrupts a bot core loop with a clear reason at %sms pacing", async botStepDelayMs => {
     vi.useFakeTimers();
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     const t = await setup({ botStepDelayMs });
     t.worker.onBotAnswer = () => { throw new EngineLoopError(); };
     const result = await t.respond();
@@ -226,7 +227,7 @@ describe("practice bot pacing", () => {
 
   it("accepts a function of the prompt and never lets a failing bot crash the process", async () => {
     vi.useFakeTimers();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.report.mockClear().mockImplementation(() => {});
     const seen: string[] = [];
     const { worker, respond, duels, slug } = await setup({
       botStepDelayMs: (prompt) => { seen.push(prompt.id); return 250; },
@@ -267,3 +268,5 @@ describe("practice bot pacing", () => {
     expect(practiceBotDelay(0, 1)).toBe(0);
   });
 });
+
+const recording = useRecordingObservability();

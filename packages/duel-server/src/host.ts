@@ -1,3 +1,4 @@
+import { log, report } from "@yugidraft/shared/observability";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
@@ -358,10 +359,11 @@ export function createDuelHost(options: {
     }, now: options.now });
   const admissionEntries = (mode: DuelMode = "normal", format: DuelFormat = "1v1", engine: DuelEngineChoice = duel1v1EngineForMode(mode)) =>
     mergeCardBlockEntries(loadCardBlockList(undefined, options.dataDirectory), autoBlocks.entries(scriptEngineKind(mode, format, engine)));
-  const recordScriptError = createScriptErrorRecorder(options.db, console.error, autoBlocks);
-  const spawn = (duelId?: number): DuelGameWorker => options.createWorker?.() ?? new GameWorker(
+  const recordScriptError = createScriptErrorRecorder(options.db, undefined, autoBlocks);
+  const spawn = (duelId?: number, table?: string): DuelGameWorker => options.createWorker?.() ?? new GameWorker(
     duelId === undefined ? undefined : (error) => recordScriptError(duelId, error),
-    (error) => console.error(JSON.stringify({ event: "card_script_fatal", duelId, ...error })),
+    (error) => report(new Error(error.message), { tags: { operation: "Card script fatal", ...(table ? { table } : {}) } }),
+    table,
   );
   const archiveAfterMs = options.archiveAfterMs ?? DEFAULT_ARCHIVE_AFTER_MS;
   const idleWorkerMs = options.idleWorkerMs ?? DEFAULT_IDLE_WORKER_MS;
@@ -562,7 +564,7 @@ export function createDuelHost(options: {
     try {
       await options.onChange?.(slug, guildId);
     } catch (error) {
-      console.warn("[duel] onChange failed", error);
+      report(error, { tags: { operation: "[duel] onChange failed" } });
     }
   }
 
@@ -570,7 +572,7 @@ export function createDuelHost(options: {
     try {
       await options.notifyTournament?.({ kind, slug });
     } catch (error) {
-      console.warn("[duel] tournament notify failed", error);
+      report(error, { tags: { operation: "[duel] tournament notify failed" } });
     }
   }
 
@@ -605,7 +607,7 @@ export function createDuelHost(options: {
       advanceTimers.delete(info.id);
       // A timer can fire a little before the deadline by the host clock; the deadline itself is the due time.
       void advanceSeries(info.id, guildId, Math.max(now(), deadline)).catch((error) => {
-        console.warn("[duel] series advance failed", error);
+        report(error, { tags: { operation: "[duel] series advance failed" } });
       });
     }, isSeriesDue(info, now()) ? 0 : Math.min(MAX_TIMER_MS, Math.max(0, deadline - now())));
     timer.unref();
@@ -637,7 +639,7 @@ export function createDuelHost(options: {
         }
       }
     } catch (error) {
-      console.warn("[duel] series follow-up failed", error);
+      report(error, { tags: { operation: "[duel] series follow-up failed" } });
     }
   }
 
@@ -889,7 +891,7 @@ export function createDuelHost(options: {
       const session = service.get(slug, guildId);
       if (session.status === "active") service.interrupt(slug, guildId, reason);
     } catch (error) {
-      console.warn("[duel] could not interrupt a stuck practice bot table", error);
+      report(error, { tags: { operation: "[duel] could not interrupt a stuck practice bot table" } });
     }
     await disposeGame(slug);
     await emitChange(slug, guildId);
@@ -918,7 +920,7 @@ export function createDuelHost(options: {
         try {
           plan = await enqueue(slug, () => planBotStep(slug, guildId, loop, finish, settle));
         } catch (error) {
-          console.warn("[duel] practice bot planning failed", error);
+          report(error, { tags: { operation: "[duel] practice bot planning failed" } });
           return finish();
         }
         if (!plan) return;
@@ -935,7 +937,7 @@ export function createDuelHost(options: {
         try {
           outcome = await enqueue(slug, () => actBotStep(slug, guildId, loop, finish, plan));
         } catch (error) {
-          console.warn("[duel] practice bot step failed", error);
+          report(error, { tags: { operation: "[duel] practice bot step failed" } });
           return finish();
         }
         if (outcome.kind === "stop") return;
@@ -954,12 +956,12 @@ export function createDuelHost(options: {
             await interruptBrokenBot(slug, guildId, replans >= BOT_REPLAN_LIMIT
               ? "The practice bot could not keep a valid plan."
               : "The practice bot failed to make progress.");
-          }).catch((error) => console.warn("[duel] practice bot interrupt failed", error));
+          }).catch((error) => report(error, { tags: { operation: "[duel] practice bot interrupt failed" } }));
           return;
         }
       }
     })().catch((error) => {
-      console.warn("[duel] practice bot loop crashed", error);
+      report(error, { tags: { operation: "[duel] practice bot loop crashed" } });
       finish();
     });
   }
@@ -988,7 +990,7 @@ export function createDuelHost(options: {
     try {
       found = await findAutoPrompt(game, autoSeats);
     } catch (error) {
-      console.warn("[duel] practice bot could not read the duel", error);
+      report(error, { tags: { operation: "[duel] practice bot could not read the duel" } });
       finish();
       await disposeGame(slug);
       return null;
@@ -999,7 +1001,7 @@ export function createDuelHost(options: {
       try {
         await persistComplete(slug, guildId, game, result.winnerSeat, result.reason);
       } catch (error) {
-        console.warn("[duel] could not record the finished duel", error);
+        report(error, { tags: { operation: "[duel] could not record the finished duel" } });
       }
       return null;
     }
@@ -1024,7 +1026,7 @@ export function createDuelHost(options: {
         return null;
       }
       const message = error instanceof PracticeBotError ? error.message : "Practice bot failed to choose";
-      console.warn(`[duel] ${message}`);
+      log("warn", "[duel] Practice bot could not choose an answer");
       await interruptBrokenBot(slug, guildId, "The practice bot could not continue.");
       return null;
     }
@@ -1064,7 +1066,7 @@ export function createDuelHost(options: {
     try {
       before = await game.view(plan.seat);
     } catch (error) {
-      console.warn("[duel] practice bot could not read the duel", error);
+      report(error, { tags: { operation: "[duel] practice bot could not read the duel" } });
       finish();
       await disposeGame(slug);
       return { kind: "stop" };
@@ -1077,7 +1079,7 @@ export function createDuelHost(options: {
         await forfeitSeat(slug, guildId, game, plan.seat, "Surrender", false);
       } catch (error) {
         finish();
-        console.warn("[duel] scripted bot could not surrender", error);
+        report(error, { tags: { operation: "[duel] scripted bot could not surrender" } });
         await interruptBrokenBot(slug, guildId, "The practice bot could not continue.");
         return { kind: "stop" };
       }
@@ -1090,7 +1092,7 @@ export function createDuelHost(options: {
     } catch (error) {
       finish();
       if (await interruptEngineLoop(slug, guildId, error)) return { kind: "stop" };
-      console.warn("[duel] practice bot answer was rejected", error);
+      report(error, { tags: { operation: "[duel] practice bot answer was rejected" } });
       const rejectedTrace = entry.traces.get(plan.seat) ?? [];
       rejectedTrace.push({ rule: plan.note ?? "practice bot", matched: true, answer: plan.answer, rejected: true, reason: error instanceof Error ? error.message : String(error) });
       entry.traces.set(plan.seat, rejectedTrace);
@@ -1104,7 +1106,7 @@ export function createDuelHost(options: {
       // The answer was applied but not journaled. Dropping the worker makes the next request rebuild the
       // duel from the journal, which never contains an unrecorded command.
       finish();
-      console.warn("[duel] could not record the practice bot's move", error);
+      report(error, { tags: { operation: "[duel] could not record the practice bot's move" } });
       await disposeGame(slug);
       return { kind: "stop" };
     }
@@ -1143,7 +1145,7 @@ export function createDuelHost(options: {
       await emitChange(slug, guildId);
       throw error;
     }
-    const game = spawn(state.session.id);
+    const game = spawn(state.session.id, slug);
     try {
       await game.create(workerCreateOptions(
         state.session.mode,
@@ -1454,7 +1456,7 @@ export function createDuelHost(options: {
       new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
     const frames: DuelReplayFrame[] = [];
     const seen = { log: 0, events: 0 };
-    const game = spawn();
+    const game = spawn(undefined, slug);
     let lastView: DuelEngineView;
     try {
       try {
@@ -1598,7 +1600,7 @@ export function createDuelHost(options: {
       const scriptErrorMode = scriptErrorModeFromEnv();
       const botPolicies: Record<string, string> = {};
       for (let seat = 1; seat < seatCount; seat += 1) botPolicies[String(seat)] = SCRIPTED_POLICY;
-      game = spawn(state.session.id);
+      game = spawn(state.session.id, slug);
       try {
         await game.create(workerCreateOptions(state.session.mode, state.decks, seed, state.session.masterRule, settings, preset.format, scripts, engine, firstTurnDraw, scriptErrorMode));
       } catch (error) {
@@ -1996,7 +1998,7 @@ export function createDuelHost(options: {
       game: entry.game,
       stall: { revision, stalledMs, waitingOn, stallMs, at: new Date(t).toISOString() },
     });
-    console.warn(`[duel] stall in ${slug}: ${note} Report: ${written.path}`);
+    log("warn", "[duel] Table stalled; diagnostic report saved", { stalledMs, stallMs });
   }
 
   async function checkStalls(): Promise<void> {
@@ -2010,7 +2012,7 @@ export function createDuelHost(options: {
         try {
           await checkStall(slug, entry);
         } catch (error) {
-          console.warn("[duel] stall check failed", error);
+          report(error, { tags: { operation: "[duel] stall check failed" } });
         }
       }
     } finally {
@@ -2079,7 +2081,7 @@ export function createDuelHost(options: {
     const engine = engineForNewTable(state.session.format, state.session.mode);
     const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, state.session.format);
     const scriptErrorMode = scriptErrorModeFromEnv();
-    const game = spawn(state.session.id);
+    const game = spawn(state.session.id, slug);
     try {
       await game.create(workerCreateOptions(
         state.session.mode,
@@ -2137,7 +2139,7 @@ export function createDuelHost(options: {
     const timer = setTimeout(() => {
       openingTimers.delete(slug);
       void enqueue(slug, () => driveOpening(slug, guildId)).catch((error) => {
-        console.warn("[duel] opening step failed", error);
+        report(error, { tags: { operation: "[duel] opening step failed" } });
       });
     }, Math.min(MAX_TIMER_MS, Math.max(0, wakeAt - now())));
     timer.unref();
@@ -2199,7 +2201,7 @@ export function createDuelHost(options: {
         // Nobody retries a start for a table. Give the lobby back to its players, and show them the error.
         service.abortOpening(slug, guildId);
         const reason = error instanceof Error ? error.message : String(error);
-        console.warn(`[duel] duel ${slug} did not start after the opening: ${reason}`);
+        log("warn", "[duel] duel did not start after the opening");
         await emitChange(slug, guildId);
         throw error;
       }
@@ -2248,7 +2250,7 @@ export function createDuelHost(options: {
       await beginGame(slug, guildId, null);
     } catch (error) {
       if (error instanceof DeckLegalityError) throw error;
-      console.warn("[duel] could not start the series game yet", error);
+      report(error, { tags: { operation: "[duel] could not start the series game yet" } });
       return session;
     }
     return service.get(slug, guildId);
@@ -2260,7 +2262,7 @@ export function createDuelHost(options: {
     const waitMs = START_BACKOFF_MS[Math.min(failures, START_BACKOFF_MS.length) - 1]!;
     startBackoff.set(slug, { failures, retryAt: now() + waitMs });
     const reason = error instanceof Error ? error.message : String(error);
-    console.warn(`[duel] series game ${slug} did not start (attempt ${failures}, next retry in ${waitMs / 1000}s): ${reason}`);
+    log("warn", "[duel] Series game start deferred", { attempts: failures, retryMs: waitMs });
   }
 
   /**
@@ -2301,7 +2303,7 @@ export function createDuelHost(options: {
         const github = await githubCardDataStatus(local.engine);
         return { ...local, ...github, generatedAt: new Date().toISOString() };
       } catch (error) {
-        console.error("[duel] engine-data-status", error);
+        report(error, { tags: { operation: "[duel] engine-data-status" } });
         throw new RequestError("Card data status is unavailable", 503);
       }
     }
@@ -2709,11 +2711,11 @@ export function createDuelHost(options: {
             await settleClock(item.slug, item.guildId);
           });
         } catch (error) {
-          console.warn("[duel] clock sweep failed", error);
+          report(error, { tags: { operation: "[duel] clock sweep failed" } });
         }
       }
     } catch (error) {
-      console.warn("[duel] clock sweep failed", error);
+      report(error, { tags: { operation: "[duel] clock sweep failed" } });
     }
     if (stopped) return;
     try {
@@ -2730,11 +2732,11 @@ export function createDuelHost(options: {
         try {
           await enqueue(due.slug, () => driveOpening(due.slug, due.guildId));
         } catch (error) {
-          console.warn("[duel] opening sweep failed", error);
+          report(error, { tags: { operation: "[duel] opening sweep failed" } });
         }
       }
     } catch (error) {
-      console.warn("[duel] opening sweep failed", error);
+      report(error, { tags: { operation: "[duel] opening sweep failed" } });
     }
     if (stopped) return;
     try {
@@ -2750,7 +2752,7 @@ export function createDuelHost(options: {
           }
           await advanceSeries(due.seriesId, due.guildId, t);
         } catch (error) {
-          console.warn("[duel] series advance sweep failed", error);
+          report(error, { tags: { operation: "[duel] series advance sweep failed" } });
         }
       }
       // An entry no sweep touched for a full backoff cap belongs to a game that is gone.
@@ -2774,7 +2776,7 @@ export function createDuelHost(options: {
         }
       }
     } catch (error) {
-      console.warn("[duel] series sweep failed", error);
+      report(error, { tags: { operation: "[duel] series sweep failed" } });
     }
     if (stopped) return;
     for (const [slug, entry] of [...games]) {
@@ -2792,7 +2794,7 @@ export function createDuelHost(options: {
         await emitChange(session.slug, session.guildId);
       }
     } catch (error) {
-      console.warn("[duel] archive sweep failed", error);
+      report(error, { tags: { operation: "[duel] archive sweep failed" } });
     }
   }
 
@@ -2838,8 +2840,7 @@ export function createDuelHost(options: {
           !(error instanceof Error && "status" in error && status >= 400 && status < 500);
         if (unexpected) {
           // Error messages/stacks may contain SQL, private payloads or credentials.
-          console.error("[duel] Unexpected request error", { name: error instanceof Error ? error.name : "Unknown",
-            ...(requestOp ? { op: requestOp } : {}) });
+          report(error, { tags: { operation: "[duel] Unexpected request error", ...(requestOp ? { op: requestOp } : {}) } });
         }
         return Response.json({ error: unexpected ? "Duel server error" : error instanceof Error ? error.message : "Duel request failed",
           ...(error instanceof RequestError && error.code ? { code: error.code } : {}) }, { status: unexpected ? 500 : status });

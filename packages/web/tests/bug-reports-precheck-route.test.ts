@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -67,7 +68,7 @@ const rows = async () => (await import("../src/lib/db")).getDb().prepare("select
 
 describe("POST /api/bug-reports/precheck", () => {
   beforeEach(async () => {
-    vi.resetModules();
+    vi.resetModules(); await recording.install();
     auth.mockReset();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     openIssues = [];
@@ -211,7 +212,7 @@ describe("POST /api/bug-reports/precheck", () => {
   });
 
   it("falls back to saved reports when GitHub fails, and hides names and ids in their titles", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.log.mockClear().mockImplementation(() => {});
     github.mockImplementation(async () => Response.json({ message: `boom ${TOKEN}` }, { status: 500 }));
     await addReport({ player: 3, slug: "duel-z", description: `Orion Vale (${OTHER_ID}) says the chain froze and the duel never went on after the effect`, issue: 31 });
     const POST = await route();
@@ -222,7 +223,7 @@ describe("POST /api/bug-reports/precheck", () => {
     expect(text).not.toContain("Orion Vale");
     expect(text).not.toContain(OTHER_ID);
     expect(text).not.toContain(TOKEN);
-    expect(warn).toHaveBeenCalledWith("[api/bug-reports/precheck] issue lookup failed: GitHub answered 500: boom [token]");
+    expect(warn).toHaveBeenCalledWith("warn", "[api/bug-reports/precheck] issue lookup failed", {});
     expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
   });
 
@@ -256,3 +257,5 @@ describe("POST /api/bug-reports/precheck", () => {
 });
 
 const FIXTURE_KEYS = ["123456789012345678", "810293847561029384", "990000000000000001", "players"] as const;
+
+const recording = useRecordingObservability();

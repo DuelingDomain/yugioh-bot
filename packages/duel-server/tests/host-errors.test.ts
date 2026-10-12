@@ -1,3 +1,4 @@
+import * as observability from "@yugidraft/shared/observability";
 import { createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +22,7 @@ it.each(["view", "private-operation\n", { private: "private-operation" }, null])
   const secret = "host-errors-secret";
   const searchCards = vi.fn(() => []);
   const host = createDuelHost({ db, dataDirectory: dir, secret, searchCards });
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const log = vi.spyOn(observability, "report").mockImplementation(() => {});
   const post = (body: object) => {
     const raw = JSON.stringify(body);
     return host.handle(new Request("http://localhost/internal/duel", {
@@ -50,8 +51,8 @@ it.each(["view", "private-operation\n", { private: "private-operation" }, null])
       const response = await post({ op: "cards", query: "private-query", guildId: "g", playerId: 1 });
       expect(response.status).toBe(status);
       expect(await response.json()).toEqual({ error: unexpected ? "Duel server error" : "private-message" });
-      if (unexpected) expect(log).toHaveBeenCalledExactlyOnceWith("[duel] Unexpected request error", {
-        name: error instanceof Error ? error.name : "Unknown", op: "cards",
+      if (unexpected) expect(log).toHaveBeenCalledExactlyOnceWith(error, {
+        tags: { operation: "[duel] Unexpected request error", op: "cards" },
       });
       else expect(log).not.toHaveBeenCalled();
       log.mockClear();
@@ -62,8 +63,8 @@ it.each(["view", "private-operation\n", { private: "private-operation" }, null])
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "Duel server error" });
     expect(log).toHaveBeenCalledOnce();
-    expect(log).toHaveBeenCalledWith("[duel] Unexpected request error", { name: "TypeError", ...(op === "view" ? { op } : {}) });
-    const line = JSON.stringify(log.mock.calls[0]);
+    expect(log).toHaveBeenCalledWith(expect.any(TypeError), { tags: { operation: "[duel] Unexpected request error", ...(op === "view" ? { op } : {}) } });
+    const line = JSON.stringify(log.mock.calls[0][1]);
     expect(line).toContain("[duel]");
     expect(line).not.toMatch(/host-errors-secret|private-slug|private-payload|private-operation|private-message|private-query|database connection|[\r\n]/);
   } finally {

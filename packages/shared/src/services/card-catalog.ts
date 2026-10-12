@@ -1,3 +1,4 @@
+import { log } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import type { Card } from "../types/index.js";
 import { foldCardText } from "../duels/card-query.js";
@@ -169,7 +170,7 @@ export function createCardCatalogService(
       const mains = [...previous].sort((a, b) => a - b).join(", ");
       if (!warnedArtworkConflicts.has(mains)) {
         warnedArtworkConflicts.add(mains);
-        console.warn(`[card-catalog] Skipping ${card.name}: conflicting artwork mains (${mains}) need engine identity.`);
+        log("warn", "[card-catalog] Skipping card: conflicting artwork mains need engine identity.");
       }
       return undefined;
     }

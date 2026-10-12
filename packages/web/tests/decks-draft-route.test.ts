@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { seedFixtureUsers, fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { rmSync } from "node:fs";
 import { NextResponse } from "next/server";
@@ -24,8 +25,8 @@ function deckBody(deck: { main: number[]; extra?: number[]; side?: number[] }, e
 describe("draft decks through /api/decks", () => {
   let fixture: DraftDeckFixture;
 
-  beforeEach(() => {
-    vi.resetModules();
+  beforeEach(async () => {
+    vi.resetModules(); await recording.install();
     auth.mockReset();
     callDuelHost.mockReset();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: fixtureDiscordId("drafter"), name: "Yugi" } });
@@ -272,7 +273,7 @@ describe("draft decks through /api/decks", () => {
 
     it("reports a warning when registration fails for another reason", async () => {
       const { draftId } = await seed({ tournamentUsers: ["drafter"], tournamentStatus: "completed" });
-      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const error = recording.report.mockClear().mockImplementation(() => {});
       const res = await post(deckBody({ main: main(40) }, { draftId }));
       error.mockRestore();
       expect(res.status).toBe(201);
@@ -470,3 +471,5 @@ describe("draft decks through /api/decks", () => {
 const FIXTURE_KEYS = ["drafter", "outsider"] as const;
 
 // Session resolution is mocked; authorization still runs through the real web boundary.
+
+const recording = useRecordingObservability();

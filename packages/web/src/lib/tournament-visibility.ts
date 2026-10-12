@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { createTournamentVisibilityService, TournamentVisibilityServiceError } from "@yugidraft/shared/services";
 import { getDb } from "./db";
@@ -31,7 +32,7 @@ export async function runTournamentCreatorRoute(
     if (error instanceof TournamentVisibilityServiceError) {
       return NextResponse.json({ error: error.message }, { status: error.status, headers: { "Cache-Control": "no-store" } });
     }
-    console.error("[tournament visibility] action failed:", error);
+    report(error, { tags: { operation: "[tournament visibility] action failed" } });
     return NextResponse.json({ error: "Failed to update tournament" }, { status: 500 });
   }
 }

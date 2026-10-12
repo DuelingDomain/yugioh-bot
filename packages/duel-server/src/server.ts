@@ -1,3 +1,5 @@
+import { report } from "@yugidraft/shared/observability";
+import { awaitObservabilityShutdown } from "@yugidraft/shared/observability/node-bootstrap";
 import { config } from "dotenv";
 import { createServer, type ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
@@ -100,7 +102,7 @@ const server = createServer(async (request, response) => {
     });
     response.end(Buffer.from(await result.arrayBuffer()));
   } catch (error) {
-    console.error("[duel] Request failed", error);
+    report(error, { tags: { operation: "[duel] Request failed" } });
     if (!response.headersSent) response.writeHead(500, { "content-type": "application/json" });
     response.end(JSON.stringify({ error: "Duel service request failed" }));
   }
@@ -137,9 +139,10 @@ async function shutdown() {
     cards.close();
     db.close();
   } catch (error) {
-    console.error("[duel] Shutdown failed", error instanceof Error ? error.name : "Unknown");
+    report(error, { tags: { operation: "[duel] Shutdown failed" } });
     exitCode = 1;
   } finally {
+    await awaitObservabilityShutdown();
     clearTimeout(exitTimer);
     process.exit(exitCode);
   }

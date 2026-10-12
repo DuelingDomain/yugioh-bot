@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -17,7 +18,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   } catch (error) {
     const fetchFailure = cardFetchErrorResponse(error);
     if (fetchFailure) return fetchFailure;
-    console.error("[api/sets/preview] error:", error);
+    report(error, { tags: { operation: "[api/sets/preview] error" } });
     return NextResponse.json({ error: "Failed to load set preview" }, { status: 500 });
   }
 }

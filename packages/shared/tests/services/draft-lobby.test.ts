@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../helpers/recording-observability.mjs";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../helpers/lobby-identity.js";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -574,7 +575,7 @@ describe("manual and automatic deadlines", () => {
 
   it.each(["manual", "auto"] as const)("isolates a bad config in a %s lobby and starts a later valid lobby", (kind) => {
     const app = setup({ lobbySeats: 2 });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.report.mockClear().mockImplementation(() => {});
     if (kind === "manual") {
       app.lobby.scheduleStart(app.draft.id, fixtureUserId("host"), { revision: app.read().lobby.revision, force: true }, now);
     } else {
@@ -590,7 +591,7 @@ describe("manual and automatic deadlines", () => {
     expect(app.lobby.tick(later(5000))).toMatchObject({
       started: [{ id: other.id, status: "active" }], changedSlugs: [app.draft.webSlug, other.webSlug],
     });
-    expect(warn).toHaveBeenCalledExactlyOnceWith("[draft-lobby] tick failed", app.draft.id, expect.any(SyntaxError));
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "SyntaxError" }), { tags: { operation: "[draft-lobby] tick failed" } });
     expect(app.db.prepare("select status, lobby_start_token, lobby_auto_held, lobby_start_error from drafts where id = ?")
       .get(app.draft.id)).toEqual({
         status: "pending", lobby_start_token: null, lobby_auto_held: kind === "auto" ? 1 : 0,
@@ -623,3 +624,5 @@ describe("manual and automatic deadlines", () => {
     expect(() => app.lobby.leave(app.draft.id, fixtureUserId("guest"), now)).toThrowError(expect.objectContaining({ code: "DRAFT_NOT_PENDING" }));
   });
 });
+
+const recording = useRecordingObservability();

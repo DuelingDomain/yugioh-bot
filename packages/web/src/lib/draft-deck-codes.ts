@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type Database from "better-sqlite3";
 import { NextResponse } from "next/server";
 import { mapDeckCodes, type DuelDeck, type DuelDeckValidation } from "@yugidraft/shared/duels";
@@ -111,7 +112,7 @@ export async function mapDraftTournamentDecks(
     }
     return { ok: true };
   } catch (error) {
-    console.warn("[draft-deck-codes] could not map the draft deck codes:", error);
+    report(error, { tags: { operation: "[draft-deck-codes] could not map the draft deck codes" } });
     return unavailable;
   }
 }

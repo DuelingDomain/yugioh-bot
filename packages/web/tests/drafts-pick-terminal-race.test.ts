@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,7 +65,7 @@ it("stops the pick route's bot loop when cancellation commits after it reads opt
   });
   const botPick = vi.spyOn(drafts, "pickCard");
   vi.mocked(createDraftService).mockReturnValueOnce(drafts);
-  const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+  const logError = recording.report.mockClear().mockImplementation(() => {});
   const { POST } = await import("../app/api/drafts/[slug]/pick/route");
   const response = await POST(new NextRequest(`http://localhost/api/drafts/${draft.webSlug}/pick`, {
     method: "POST", body: JSON.stringify({ cardId: card.id }),
@@ -80,3 +81,5 @@ it("stops the pick route's bot loop when cancellation commits after it reads opt
   expect(drafts.picks(draft.id).map(pick => pick.playerId)).toEqual([]);
   expect(db.pragma("foreign_key_check")).toEqual([]);
 });
+
+const recording = useRecordingObservability();

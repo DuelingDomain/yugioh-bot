@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useRecordingObservability } from "../../../../shared/tests/helpers/recording-observability.mjs";
 import React from "react";
 import { act, cleanup, configure, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -381,7 +382,7 @@ describe("DraftRoom", () => {
 
   it("retries the selected deadline pick after an earlier request clears", async () => {
     localStorage.setItem("yugidraft-room-motion", "off");
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     const firstPick = deferred<Response>();
     const fetchMock = vi.fn()
       .mockReturnValueOnce(firstPick.promise)
@@ -441,7 +442,7 @@ describe("DraftRoom", () => {
 
   it("reconciles a rejected pick with the card in the refetched pool", async () => {
     localStorage.setItem("yugidraft-room-motion", "off");
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     global.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
       .mockResolvedValueOnce(response(resolvedStep(1)));
@@ -459,7 +460,7 @@ describe("DraftRoom", () => {
 
   it("clears the last pick when a rejection refetch leaves the step open", async () => {
     localStorage.setItem("yugidraft-room-motion", "off");
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     global.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
       .mockResolvedValueOnce(response());
@@ -502,7 +503,7 @@ describe("DraftRoom", () => {
 
   it("remembers every card sent in this step when reconciling the real pick", async () => {
     localStorage.setItem("yugidraft-room-motion", "off");
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     global.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
       .mockResolvedValueOnce(response())
@@ -669,3 +670,5 @@ describe("DraftRoom", () => {
     expect(document.body.style.overflow).toBe("");
   });
 });
+
+const recording = useRecordingObservability();

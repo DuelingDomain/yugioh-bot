@@ -1,3 +1,4 @@
+import { report } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { randomInt } from "node:crypto";
 import type {
@@ -677,12 +678,7 @@ export function createSeriesStore(db: Database.Database) {
     try {
       recordResultTx(series, winnerPlayerId as number);
     } catch (error) {
-      console.error("[duel-series] recording the series result failed", {
-        seriesId: series.id,
-        tournamentMatchId: series.tournament_match_id,
-        duelId: duel.id,
-        error,
-      });
+      report(error, { tags: { operation: "[duel-series] recording the series result failed" }, extra: { seriesId: series.id, tournamentMatchId: series.tournament_match_id, duelId: duel.id } });
     }
   };
 

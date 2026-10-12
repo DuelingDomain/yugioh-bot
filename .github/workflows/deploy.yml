@@ -42,6 +42,9 @@ jobs:
       DEPLOY_ROLLBACK: ${{ inputs.rollback && 'true' || 'false' }}
       # Public production key only. The secret remains in the protected VM runtime env.
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+      SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
 
     steps:
       - name: Skip deploy when VM secrets are not configured
@@ -222,6 +225,8 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
 
       - name: Deploy over SSH
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
         run: |
           set -eu
@@ -233,8 +238,16 @@ jobs:
           bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
           remote_bundle=
           remote_guard=
+          remote_sentry_token=
+          umask 077
+          sentry_token_file=$(mktemp "$RUNNER_TEMP/sentry-token.XXXXXX")
+          printf '%s' "$SENTRY_AUTH_TOKEN" > "$sentry_token_file"
           cleanup_transfer() {
-            rm -f "$bundle_tar"
+            rm -f "$bundle_tar" "$sentry_token_file"
+            if [ -n "$remote_sentry_token" ]; then
+              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_sentry_token'" || true
+            fi
             if [ -n "$remote_bundle" ]; then
               ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_bundle'" || true
@@ -245,6 +258,9 @@ jobs:
             fi
           }
           trap cleanup_transfer EXIT
+          printf '%s' "$NEXT_PUBLIC_SENTRY_DSN" | grep -Eq '^[A-Za-z0-9:./@_-]*$' || exit 1
+          printf '%s' "$SENTRY_ORG" | grep -Eq '^[A-Za-z0-9_-]*$' || exit 1
+          printf '%s' "$SENTRY_PROJECT" | grep -Eq '^[A-Za-z0-9_,-]*$' || exit 1
           remote_bundle=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
             'mktemp /tmp/yugidraft-duel-engine.XXXXXX.tar.gz')
           printf '%s' "$remote_bundle" | grep -Eq '^/tmp/yugidraft-duel-engine\.[A-Za-z0-9]{6}\.tar\.gz$' || exit 1
@@ -253,6 +269,11 @@ jobs:
           printf '%s' "$remote_guard" | grep -Eq '^/tmp/yugidraft-activity-guard\.[A-Za-z0-9]{6}\.py$' || exit 1
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$RUNNER_TEMP/check-prod-activity.py" "$VM_USER@$VM_HOST:$remote_guard"
+          remote_sentry_token=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            'umask 077; mktemp /tmp/yugidraft-sentry-token.XXXXXX')
+          printf '%s' "$remote_sentry_token" | grep -Eq '^/tmp/yugidraft-sentry-token\.[A-Za-z0-9]{6}$' || exit 1
+          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+            "$sentry_token_file" "$VM_USER@$VM_HOST:$remote_sentry_token"
           tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$bundle_tar" \
@@ -260,13 +281,13 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' NEXT_PUBLIC_SENTRY_DSN='$NEXT_PUBLIC_SENTRY_DSN' SENTRY_AUTH_TOKEN_FILE='$remote_sentry_token' SENTRY_ORG='$SENTRY_ORG' SENTRY_PROJECT='$SENTRY_PROJECT' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
              context_ready=0
              cleanup() {
-               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD"
+               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "${SENTRY_AUTH_TOKEN_FILE:-}"
                if [ -n "$installer" ]; then rm -f "$installer"; fi
                if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
                if [ "$context_ready" = 1 ]; then rm -rf /opt/yugioh-bot/.deploy-duel-engine; fi
@@ -338,7 +359,14 @@ jobs:
              mkdir .deploy-duel-engine
              context_ready=1
              cp -a "$bundle_src/." .deploy-duel-engine/
+             export SENTRY_AUTH_TOKEN_FILE NEXT_PUBLIC_SENTRY_DSN SENTRY_ORG SENTRY_PROJECT
+             export SENTRY_RELEASE="$DEPLOY_COMMIT"
+             # Changing upload enablement must invalidate the build even though secret contents do not.
+             export SENTRY_UPLOAD_SOURCEMAPS=0
+             if [ -s "$SENTRY_AUTH_TOKEN_FILE" ]; then export SENTRY_UPLOAD_SOURCEMAPS=1; fi
              docker compose -f docker-compose.yml build --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
+             rm -f "$SENTRY_AUTH_TOKEN_FILE"
+             unset SENTRY_AUTH_TOKEN_FILE
              # Recheck after the build, immediately before any production service is stopped.
              # A game may have started since the first check. Refusal leaves production running.
              if ! python3 "$DEPLOY_GUARD" /opt/yugioh-bot/data/bot.sqlite --force "$DEPLOY_FORCE"; then

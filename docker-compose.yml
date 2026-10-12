@@ -6,15 +6,19 @@ services:
       context: .
       target: ws
     restart: unless-stopped
+    init: true
     mem_limit: ${WS_MEM_LIMIT:-384m}
     user: *user
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
       - WEB_URL=${WEB_URL:?WEB_URL is required}
       - WS_PORT=3001
       - WS_INTERNAL_PORT=4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
-    command: node packages/ws/dist/server.js
+    command: node --import ./packages/ws/dist/instrument.js packages/ws/dist/server.js
     volumes:
       - ./data:/app/data
     healthcheck:
@@ -31,8 +35,12 @@ services:
       additional_contexts:
         engine: ./.deploy-duel-engine
     restart: unless-stopped
+    init: true
     user: *user
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
       - DUEL_DATA_DIR=/app/data/duel-engine
       # The deploy installs on the host. Restarts verify the existing volume without replacing it.
@@ -64,11 +72,23 @@ services:
     build:
       context: .
       target: web
+      secrets:
+        - SENTRY_AUTH_TOKEN
       args:
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-}
+        SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+        SENTRY_ORG: ${SENTRY_ORG:-}
+        SENTRY_PROJECT: ${SENTRY_PROJECT:-}
+        SENTRY_UPLOAD_SOURCEMAPS: ${SENTRY_UPLOAD_SOURCEMAPS:-0}
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required}
     restart: unless-stopped
+    init: true
     user: *user
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
       - CARD_IMAGE_CACHE_DIR=/app/data/card-images
       - DISCORD_BOT_ENABLED=0
@@ -107,9 +127,13 @@ services:
       context: .
       target: worker
     restart: unless-stopped
+    init: true
     user: *user
     stop_grace_period: 150s
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
       - CARD_IMAGE_CACHE_DIR=/app/data/card-images
       - CARD_IMAGE_CACHE_MAX_BYTES=${CARD_IMAGE_CACHE_MAX_BYTES:-16106127360}
@@ -150,3 +174,7 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+
+secrets:
+  SENTRY_AUTH_TOKEN:
+    file: ${SENTRY_AUTH_TOKEN_FILE:-/dev/null}

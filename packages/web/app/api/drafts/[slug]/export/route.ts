@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -49,7 +50,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error("[api/drafts/[slug]/export] error:", error);
+    report(error, { tags: { operation: "[api/drafts/[slug]/export] error" } });
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to export" },
       { status: 400 }

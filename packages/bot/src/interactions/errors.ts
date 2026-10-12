@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { isCardFetchError } from "@yugidraft/shared/services";
 
 type ErrorInteraction = {
@@ -20,5 +21,5 @@ export async function reportInteractionError(interaction: ErrorInteraction, erro
     const options = { content, ephemeral: true };
     if (interaction.replied || interaction.deferred) await interaction.followUp?.(options);
     else await interaction.reply?.(options);
-  } catch (replyError) { console.error("[bot] Could not send the error reply", replyError); }
+  } catch (replyError) { report(replyError, { tags: { operation: "[bot] Could not send the error reply" } }); }
 }

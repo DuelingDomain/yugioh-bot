@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { createHmac } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -45,11 +46,11 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
       headers: { "x-announce-signature": `sha256=${createHmac("sha256",secret).update(raw).digest("hex")}` } }));
   };
   try {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warning = recording.log.mockClear().mockImplementation(() => {});
     try {
       expect(loadCardDatabase(dir).artworkScriptFallbacks()).toEqual([{ passcode: 30, main: 10, requested: 30 }, { passcode: 50, main: 10, requested: 50 }]);
       expect(loadCardDatabase(dir).readScript("c50.lua")).toBe("-- canonical script");
-      expect(warning).toHaveBeenCalledWith(expect.stringMatching(/c50\.lua.*c10\.lua.*GetID/));
+      expect(warning).toHaveBeenCalledWith("warn", "[cards] Using an artwork script fallback; validate this engine bundle before deployment.", {});
     } finally { warning.mockRestore(); }
     expect(loadCardDatabase(dir).readScript("c99.lua")).toBeNull();
     expect((await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: "{}" }))).status).toBe(401);
@@ -73,3 +74,5 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
     expect(created[0].decks).toEqual(players.map(() => ({ main: [50], extra: [], side: [30] })));
   } finally { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); }
 });
+
+const recording = useRecordingObservability();

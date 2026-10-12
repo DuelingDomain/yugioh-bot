@@ -1,3 +1,4 @@
+import { report } from "../observability/index.js";
 import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import {
@@ -395,14 +396,14 @@ export function createDraftLobbyService(db: Database.Database) {
               // assignment/deal back before the failure and Hold are committed.
               return { started: drafts.start(id, now, { scheduleToken: row.lobby_start_token }), changed };
             } catch (error) {
-              console.warn("[draft-lobby] start failed", id, error);
+              report(error, { tags: { operation: "[draft-lobby] start failed" } });
               return fail(error instanceof Error ? error.message : "Draft start failed");
             }
           }).immediate();
           if (transition.started) result.started.push(transition.started);
           if (transition.changed) result.changedSlugs.push(transition.changed);
         } catch (error) {
-          console.warn("[draft-lobby] tick failed", id, error);
+          report(error, { tags: { operation: "[draft-lobby] tick failed" } });
           try {
             const changed = db.transaction(() => {
               const current = db.prepare("select web_slug from drafts where id = ? and status = 'pending'")
@@ -415,7 +416,7 @@ export function createDraftLobbyService(db: Database.Database) {
             }).immediate();
             if (changed) result.changedSlugs.push(changed);
           } catch (recoveryError) {
-            console.warn("[draft-lobby] failed to record tick error", id, recoveryError);
+            report(recoveryError, { tags: { operation: "[draft-lobby] failed to record tick error" } });
           }
         }
       }

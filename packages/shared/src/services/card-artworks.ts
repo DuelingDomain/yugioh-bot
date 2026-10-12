@@ -1,3 +1,4 @@
+import { log } from "../observability/index.js";
 import Database from "better-sqlite3";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -20,7 +21,7 @@ export function loadArtworkIdentityCatalog(dataDirectory = process.env.DUEL_DATA
   const path = resolve(dataDirectory, "cards.cdb");
   if (!existsSync(path)) {
     if (!warnedMissingIdentity) {
-      console.warn(`[card-artworks] Engine identity is missing at ${path}; artwork sync will preserve known mains, prefer the API passcode, or fall back to the lowest passcode.`);
+      log("warn", "[card-artworks] Engine identity is missing; artwork sync will preserve known mains, prefer the API passcode, or fall back to the lowest passcode.");
       warnedMissingIdentity = true;
     }
     return new Map();

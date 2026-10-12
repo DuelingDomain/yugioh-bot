@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { readFileSync } from "node:fs";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { createHmac } from "node:crypto";
@@ -31,7 +32,7 @@ async function request(host: DuelHost, body: Record<string, unknown>, expectedSt
 describeWithCores("script errors through host, worker and journal", [needs.standard(DATA), needs.domain(DATA), needs.installedMulti(DATA)], () => {
   it.each(["legacy", "pinned"] as const)("%s: logs fatal Lua diagnostics only on the host and never counts them", async (engine) => {
     const db = new Database(":memory:"); migrate(db);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = recording.report.mockClear().mockImplementation(() => {});
     const players = [0, 1].map(i => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `fatal${i}`).userId }).playerId);
     const duels = createDuelService(db);
     const options = reproOptions();
@@ -50,15 +51,14 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
       const result = await request(host, { op: "view", slug: session.slug, guildId: "g", playerId: players[0] }, 503);
       expect(JSON.stringify(result)).toContain("Engine script error:");
       expect(JSON.stringify(result)).not.toMatch(/stack overflow|private_lua_diagnostic/);
-      const lines = log.mock.calls.map(([line]) => JSON.parse(String(line)));
-      expect(lines).toContainEqual(expect.objectContaining({ event: "card_script_fatal", duelId: session.id, engine, message: expect.stringContaining("stack overflow: private_lua_diagnostic"), traceback: expect.any(String) }));
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("stack overflow: private_lua_diagnostic"), stack: expect.any(String) }), { tags: { operation: "Card script fatal", table: session.slug } });
       expect(topScriptErrors(db)).toEqual([]);
       expect(db.prepare("SELECT * FROM card_script_error_occurrences").all()).toEqual([]);
     } finally { await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close(); }
   });
   it.each([["legacy", "1v1"], ["pinned", "1v1"], ["pinned", "ffa4"]] as const)("%s %s: repeated view failures stay private across answers, recovery and replay", async (engine, format) => {
     const db = new Database(":memory:"); migrate(db);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = recording.log.mockClear().mockImplementation(() => {});
     const players = Array.from({ length: format === "1v1" ? 2 : 4 }, (_, i) => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `query${i}`).userId }).playerId);
     const duels = createDuelService(db);
     const options = queryErrorOptions(format);
@@ -94,7 +94,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
       const replay = await request(host, { ...base, op: "replay", playerId: players[0] });
       expect(JSON.stringify(replay)).not.toMatch(/script-error|query_fixture_missing|c15025844\.lua/);
       expect(topScriptErrors(db)[0]?.count).toBe(1);
-      expect(log.mock.calls.filter(([line]) => typeof line === "string" && line.includes('"event":"card_script_error"'))).toHaveLength(1);
+      expect(log.mock.calls.filter(([, , fields]) => fields.event === "card_script_error")).toHaveLength(1);
     } finally { await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close(); }
   }, 30_000);
   it.each([
@@ -104,7 +104,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
   ] as const)("%s %s %s: accepts/journals the answer, counts once and recovers identically", async (engine, format: DuelFormat, mode: DuelMode) => {
     const db = new Database(":memory:");
     migrate(db);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = recording.log.mockClear().mockImplementation(() => {});
     const players = Array.from({ length: format === "1v1" ? 2 : 4 }, (_, i) => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `script${i}`).userId }).playerId);
     const duels = createDuelService(db);
     const options = reproOptions(format, mode);
@@ -134,7 +134,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
       expect(live[0]!.result).toBeNull();
       expect(duels.privateState(session.slug, "g").commands.length).toBeGreaterThan(0);
       expect(topScriptErrors(db)).toEqual([expect.objectContaining({ code: 3743515, count: 1, last_duel_id: session.id })]);
-      expect(log).toHaveBeenCalledWith(expect.stringContaining('"event":"card_script_error"'));
+      expect(log).toHaveBeenCalledWith("warn", "Card script diagnostic", expect.objectContaining({ event: "card_script_error", code: 3743515, mode }));
       // Server setting changes affect new duels; a recovery keeps the saved policy.
       await host.close(); hosts.splice(hosts.indexOf(host), 1);
       vi.stubEnv("DUEL_SCRIPT_ERRORS", "strict");
@@ -145,7 +145,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
       const replay = await request(host, { ...base, op: "replay", playerId: players[0] });
       expect(JSON.stringify(replay)).toContain("Card script error:");
       expect(topScriptErrors(db)[0]?.count).toBe(1);
-      expect(log.mock.calls.filter(([line]) => typeof line === "string" && line.includes('"event":"card_script_error"'))).toHaveLength(1);
+      expect(log.mock.calls.filter(([, , fields]) => fields.event === "card_script_error")).toHaveLength(1);
     } finally {
       await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close();
     }
@@ -153,7 +153,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
   it("discards a strict failed worker, restores the journal and counts a retried occurrence once", async () => {
     const db = new Database(":memory:");
     migrate(db);
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.log.mockClear().mockImplementation(() => {});
     const players = [0, 1].map((i) => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `strict${i}`).userId }).playerId);
     const duels = createDuelService(db);
     const options = reproOptions();
@@ -196,3 +196,5 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
   }, 30_000);
 
 });
+
+const recording = useRecordingObservability();

@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -180,7 +181,7 @@ describe("host FFA dice opening", () => {
 
   it("frees a failed start and rolls fresh dice on the next attempt", async () => {
     vi.useFakeTimers();
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    recording.log.mockClear().mockImplementation(() => {});
     const t = table("ffa3", [1, 2, 6]);
     await t.post("start");
     vi.spyOn(Worker.prototype, "create").mockRejectedValueOnce(new Error("Test start failed"));
@@ -208,3 +209,5 @@ describe("host FFA dice opening", () => {
     }
   });
 });
+
+const recording = useRecordingObservability();

@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { ClerkBackendError } from "@yugidraft/shared/clerk";
@@ -138,8 +139,8 @@ it.each([
   ["an unexpected exception", new Error("kaboom")],
 ])("answers 503 retry_later and leaves the database untouched when Clerk fails with %s", async (_label, error) => {
   s.deleteUser.mockRejectedValue(error);
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const log = recording.report.mockClear().mockImplementation(() => {});
+  const warn = recording.log.mockClear().mockImplementation(() => {});
   const res = await POST(req({ confirm: "Yugi_1" }));
   expect(res.status).toBe(503);
   expect(await res.json()).toEqual({ error: "retry_later" });
@@ -158,19 +159,20 @@ it("answers 503 retry_later when the Clerk secret is missing, with the database 
   expect(rowOf(1)?.email).toBe("one@example.com");
 });
 
-it("answers 500 server_error when the database step fails after Clerk, logging only the user ID", async () => {
+it("answers 500 server_error and reports the database step with the application user ID", async () => {
   s.db!.exec("create trigger boom before delete on waitlist_signups begin select raise(abort, 'one@example.com exploded'); end");
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const log = recording.report.mockClear().mockImplementation(() => {});
   const res = await POST(req({ confirm: "Yugi_1" }));
   expect(res.status).toBe(500);
   expect(await res.json()).toEqual({ error: "server_error" });
   expect(s.deleteUser).toHaveBeenCalledOnce();
   // The transaction rolled back, so the owner command can finish the job.
   expect(rowOf(1)).toMatchObject({ clerk_user_id: "user_one", email: "one@example.com" });
-  const logged = log.mock.calls.flat().map(String).join(" ");
+  const logged = JSON.stringify(log.mock.calls.map(([, context]) => context));
   expect(logged).toContain("1");
-  expect(logged).not.toMatch(/example\.com|exploded|Yugi_1|Display Name|sk_test_secret/);
-  expect(log.mock.calls.flat().some(arg => arg instanceof Error)).toBe(false);
+  expect(logged).not.toMatch(/example\.com|Yugi_1|Display Name|sk_test_secret/);
+  expect(log).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ userId: 1 }));
+  expect(log.mock.calls[0][0]).toBeInstanceOf(Error);
 });
 
 it("skips Clerk when the row has no Clerk user ID", async () => {
@@ -212,3 +214,5 @@ it("in E2E mode still checks the confirmation text", async () => {
   expect(res.headers.get("set-cookie")).toBeNull();
   expect(rowOf(1)?.email).toBe("one@example.com");
 });
+
+const recording = useRecordingObservability();

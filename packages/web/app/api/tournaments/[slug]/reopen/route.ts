@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -52,7 +53,7 @@ export async function POST(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[api/tournaments/[slug]/reopen] error:", error);
+    report(error, { tags: { operation: "[api/tournaments/[slug]/reopen] error" } });
     return NextResponse.json({ error: "Failed to reopen match" }, { status: 500 });
   }
 }

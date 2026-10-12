@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type InteractionReplyOptions } from "discord.js";
 import { formatLeaderboard, formatStats } from "../formatters/stats.js";
 import type { PlayerRepository } from "../repositories/players.js";
@@ -34,7 +35,7 @@ export async function scheduleDiscordDraftStart(draft: Draft, userId: number, de
   if (!scheduled.lobby.start) throw new Error("Draft start was not scheduled");
   if (draft.webSlug) {
     await deps.broadcaster.draft({ kind: "seats", slug: draft.webSlug }).catch(error =>
-      console.warn(`[draft-start] seats broadcast failed for ${draft.id}:`, error));
+      report(error, { tags: { operation: "[draft-start] seats broadcast failed for" } }));
   }
   const deadline = Math.floor(new Date(scheduled.lobby.start.startsAt).getTime() / 1000);
   return `Start scheduled for ${draft.name}. Starts <t:${deadline}:R>. Open the lobby to follow the countdown or Stop: ${webLink}`;

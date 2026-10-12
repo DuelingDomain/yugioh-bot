@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../../shared/tests/helpers/recording-observability.mjs";
 import { describe, expect, it, vi } from "vitest";
 import { recordingTransport } from "@yugidraft/shared/notify";
 import { createNotifyDuelChange } from "../../src/lib/notify-duel.js";
@@ -12,12 +13,14 @@ describe("createNotifyDuelChange", () => {
   });
 
   it("never throws when the transport fails", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.log.mockClear().mockImplementation(() => {});
     const failing = { post: vi.fn(async () => { throw new Error("down"); }) };
     await expect(createNotifyDuelChange(failing)("duel-a", "g1")).resolves.toBeUndefined();
     const notOk = { post: vi.fn(async () => ({ ok: false, status: 500, text: "bad" })) };
     await expect(createNotifyDuelChange(notOk)("duel-a", "g1")).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
 });
+
+const recording = useRecordingObservability();

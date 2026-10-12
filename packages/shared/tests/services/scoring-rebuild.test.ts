@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../helpers/recording-observability.mjs";
 import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -132,7 +133,7 @@ describe("scoring.rebuildStandings", () => {
     const slot = tournaments.matches(t.id)[0];
     const old = tournaments.reportTournamentMatch(slot.id, a, a);
     db.exec(`create trigger reject_final before insert on point_awards when new.kind='match_win' and new.match_id=${old.id} begin select raise(abort, 'missing final score'); end`);
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     matches.approve(old.id, b);
     db.exec("drop trigger reject_final");
     expect(db.prepare("select kind, player_id, points from point_awards").all())
@@ -283,7 +284,7 @@ describe("scoring.rebuildStandings", () => {
     expect(snapshot(db)).toEqual(beforeDenial);
     const reported = tournaments.reportTournamentMatch(final.id, final.playerOneId, final.playerOneId);
     db.exec(`create trigger reject_final before insert on point_awards when new.kind='match_win' and new.match_id=${reported.id} begin select raise(abort, 'missing final score'); end`);
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     matches.approve(reported.id, final.playerTwoId!);
     db.exec("drop trigger reject_final");
     db.prepare("update matches set resolved_at='2026-02-02' where id=?").run(reported.id);
@@ -312,7 +313,7 @@ describe("scoring.rebuildStandings", () => {
     tournaments.join(t.id, b);
     tournaments.start(t.id);
     db.exec("create trigger reject_placement before insert on point_awards when new.kind='placement' begin select raise(abort, 'missing placement'); end");
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     const slot = tournaments.matches(t.id)[0];
     matches.recordConfirmedResult({ guildId: "g1", playerOneId: a, playerTwoId: b, winnerId: a, source: "tournament", tournamentMatchId: slot.id });
     db.exec("drop trigger reject_placement");
@@ -348,3 +349,5 @@ describe("scoring.rebuildStandings", () => {
     expect(snapshot(db)).toEqual(expected);
   });
 });
+
+const recording = useRecordingObservability();

@@ -1,3 +1,4 @@
+import { log, report } from "@yugidraft/shared/observability";
 import type { AnnouncePayload } from "@yugidraft/shared/notify";
 import { env } from "./env";
 import { announcer } from "./notify";
@@ -29,12 +30,12 @@ export async function sendDuelInvite(invite: DuelInvite, request?: Request): Pro
   try {
     const result = await announcer.announce({ kind: "duel-invite", ...rest, url: duelUrl(slug, request) });
     if (result && !result.ok) {
-      console.warn(`[announce-bot] duel-invite failed: ${result.error}`);
+      log("warn", "[announce-bot] duel-invite failed");
       return false;
     }
     return true;
   } catch (error) {
-    console.warn("[announce-bot] duel-invite failed", error);
+    report(error, { tags: { operation: "[announce-bot] duel-invite failed" } });
     return false;
   }
 }

@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { isDuelFormat, MULTI_CORE_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled, type DuelTableCapabilities } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
 import { createDuelSeriesService } from "@yugidraft/shared/services";
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest) {
             );
           }
         } catch (error) {
-          console.warn("[api/duels] duel invite failed", error);
+          report(error, { tags: { operation: "[api/duels] duel invite failed" } });
         }
       }
       return NextResponse.json({ session: duel, series, shareUrl: duelUrl(duel.slug, request) }, { status: 201 });
