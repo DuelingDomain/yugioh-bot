@@ -1,35 +1,13 @@
+import { clientIpKey, createRateLimiter } from "@/lib/rate-limit";
 import { createWaitlistService } from "@yugidraft/shared/services";
 import { createClerkBackend } from "@yugidraft/shared/clerk";
 import { getDb } from "@/lib/db";
 
 const MAX_BODY_BYTES = 2048;
-const WINDOW_MS = 10 * 60 * 1000;
-const MAX_CLIENTS = 10_000;
-const clients = new Map<string, { count: number; expiresAt: number }>();
+const take = createRateLimiter(10 * 60 * 1000);
 
-/** Per-process fixed window. IPs only live in this bounded, expiring memory map. */
 function retryAfter(request: Request): number | null {
-  const now = Date.now();
-  // Insertion order is expiry order: active windows are never extended/reinserted.
-  for (const [ip, entry] of clients) {
-    if (entry.expiresAt > now) break;
-    clients.delete(ip);
-  }
-  // Caddy overwrites untrusted incoming X-Forwarded-For. Keep web private in production.
-  const ip = request.headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim().slice(0, 128) || "unknown";
-  const entry = clients.get(ip);
-  if (entry) {
-    if (entry.count >= 5) return Math.max(1, Math.ceil((entry.expiresAt - now) / 1000));
-    entry.count++;
-    return null;
-  }
-  if (clients.size >= MAX_CLIENTS) {
-    // Refuse new clients until space frees; don't evict another client's active limit.
-    const earliest = clients.values().next().value!;
-    return Math.max(1, Math.ceil((earliest.expiresAt - now) / 1000));
-  }
-  clients.set(ip, { count: 1, expiresAt: now + WINDOW_MS });
-  return null;
+  return take([[clientIpKey(request), 5]]);
 }
 
 async function readBody(request: Request): Promise<string> {
@@ -55,7 +33,7 @@ async function readBody(request: Request): Promise<string> {
   }
 }
 
-type Outcome = "joined" | "exists" | "invalid" | "limited" | "retry" | "error";
+type Outcome = "joined" | "invalid" | "limited" | "retry" | "error";
 
 export async function POST(request: Request): Promise<Response> {
   const type = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
@@ -71,7 +49,7 @@ export async function POST(request: Request): Promise<Response> {
     if (outcome === "limited") return Response.json({ error: "rate_limited" }, { status: 429, headers });
     if (outcome === "retry") return Response.json({ error: "retry_later" }, { status: 503, headers });
     if (outcome === "error") return Response.json({ error: "server_error" }, { status: 500, headers });
-    return Response.json({ status: outcome }, { status: outcome === "joined" ? 201 : 200, headers });
+    return Response.json({ status: "joined" }, { status: 201, headers });
   }
 
   if (!isForm && type !== "application/json") {
@@ -98,9 +76,8 @@ export async function POST(request: Request): Promise<Response> {
   const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
   if (email.length > 254 || !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)) return respond("invalid");
 
-  let result: { status: "joined" | "exists" };
   try {
-    result = createWaitlistService(getDb()).join(email, {
+    createWaitlistService(getDb()).join(email, {
       source: typeof data.source === "string" ? data.source : "form",
       userAgent: request.headers.get("user-agent"),
     });
@@ -119,7 +96,7 @@ export async function POST(request: Request): Promise<Response> {
     // Keep the local row for retries/reconciliation; never expose upstream data.
     return respond("retry");
   }
-  return respond(result.status);
+  return respond("joined");
 }
 
 export const runtime = "nodejs";

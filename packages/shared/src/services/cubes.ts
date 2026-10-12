@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type { Card, Cube, CubeCard, CubePool, CubePools, DraftConfig } from "../types/index.js";
 import { isExtraDeckFrame, type CardCatalogService } from "./card-catalog.js";
+import { CardFetchLimitError } from "./card-fetch.js";
 import { createCardLookupBudget } from "./card-lookup-budget.js";
 import type { CubeAnalysis } from "./deal.js";
 import { DEFAULT_CUBE_COPIES, MAX_COPIES_PER_PLAYER, MAX_CUBE_COPIES, MIN_CUBE_COPIES } from "./constants.js";
@@ -163,6 +164,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       try {
         card = await catalog.syncCardById(id, { lookupBudget });
       } catch (error) {
+        if (error instanceof CardFetchLimitError) throw error;
         // YGOPRODeck answers HTTP 400 for a passcode it does not have. A lost connection is
         // different: stop, and nothing has been written yet.
         if (error instanceof Error && error.message.startsWith("Could not reach the card database")) throw error;
