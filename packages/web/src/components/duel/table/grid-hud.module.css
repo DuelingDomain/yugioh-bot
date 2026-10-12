@@ -452,8 +452,8 @@
 }
 .master[data-in-use="true"] .masterId b { color: var(--duel-ink-2); }
 .masterUse { color: var(--duel-pen-ink); font-size: calc(11px * var(--tt, 1)); line-height: 1.25; }
-/* "Summon: costs N LP" (or "free"), shown while the master sits in its zone. */
-.masterSummon { color: var(--duel-ink-2); font-size: calc(11px * var(--tt, 1)); font-weight: 600; line-height: 1.25; }
+/* "Next summon: N LP" (or "Free"), shown in every state of the master. Balanced so a narrow panel never strands "LP" on its own line. */
+.masterSummon { text-wrap: balance; color: var(--duel-ink-2); font-size: calc(11px * var(--tt, 1)); font-weight: 600; line-height: 1.25; }
 .masterId { display: grid; flex: 1 1 0; gap: 2px; min-width: 0; }
 .masterId small { overflow: hidden; color: var(--duel-ink-3); font-size: calc(12px * var(--tt, 1)); letter-spacing: 0.02em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 /* The name is at most two lines, then an ellipsis. */

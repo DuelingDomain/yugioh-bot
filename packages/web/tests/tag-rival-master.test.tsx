@@ -55,10 +55,10 @@ describe("rival Deck Masters on the Tag table", () => {
     expect(found.map((node) => node.dataset.masterThumb)).toEqual(["1", "3"]);
     const [away, home] = found;
     expect(away.dataset.inUse).toBe("true");
-    expect(away.getAttribute("aria-label")).toMatch(/\(in use\)$/);
+    expect(away.getAttribute("aria-label")).toMatch(/\(in use\)\. Next summon: (?:[\d,]+ LP|Free)$/);
     expect(away.querySelector("img")).toBeNull();
     expect(home.dataset.inUse).toBeUndefined();
-    expect(home.getAttribute("aria-label")).toMatch(/Summon: costs 1,500 LP$/);
+    expect(home.getAttribute("aria-label")).toMatch(/Next summon: 1,500 LP$/);
     expect(home.querySelector("img")).not.toBeNull();
     // The return flight finds its landing and its start on the thumb.
     expect(away.dataset.masterDock).toBe("1");
@@ -76,7 +76,7 @@ describe("a pickable rival chip and its Deck Master thumb", () => {
   const member: PlateMember = {
     seat: 3, name: "Juniper Rook", code: "2B", rgb: "120 200 90", ink: "#b8f08a", you: false, hand: 4, deck: 28, clockMs: null, clockRuns: false,
     now: false, response: null, pickable: true, hotkey: 1, locked: false,
-    master: { card: { code: 1, name: "Gaia The Fierce Knight" } as never, inUse: false, summon: "Summon: free" },
+    master: { card: { code: 1, name: "Gaia The Fierce Knight" } as never, inUse: false, summon: "Next summon: Free" },
   };
   const plate = (onPick: (seat: number) => void, onInspectMaster: (card: unknown) => void) =>
     render(<TeamLpPlate teamName="Thornveil" glyph="●" near={false} lp={8000} startLp={8000} state="waiting" cracked={false} members={[member]} reducedMotion onPick={onPick} onInspectMaster={onInspectMaster} />);

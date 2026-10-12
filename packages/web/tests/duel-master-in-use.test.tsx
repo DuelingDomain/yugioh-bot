@@ -161,33 +161,38 @@ describe("the Summon cost line", () => {
   const withCost = (nextCost: number, inZone = true) => seatView({ inZone, deckMaster: { card: info, inZone, returns: nextCost / 500, nextCost } });
 
   it("says what the next summon from the zone costs, and that the first one is free", () => {
-    expect(masterSummonLine(withCost(500))).toBe("Summon: costs 500 LP");
-    expect(masterSummonLine(withCost(1500))).toBe("Summon: costs 1,500 LP");
-    expect(masterSummonLine(withCost(0))).toBe("Summon: free");
+    expect(masterSummonLine(withCost(500))).toBe("Next summon: 500 LP");
+    expect(masterSummonLine(withCost(1500))).toBe("Next summon: 1,500 LP");
+    expect(masterSummonLine(withCost(0))).toBe("Next summon: Free");
   });
 
-  it("has no line while the master is out of its zone, or on a table without a master", () => {
-    expect(masterSummonLine(withCost(500, false))).toBeNull();
+  it("is the same in every state of the master, and absent only without a master", () => {
+    expect(masterSummonLine(withCost(500, false))).toBe("Next summon: 500 LP");
     expect(masterSummonLine(seatView({ deckMaster: undefined }))).toBeNull();
   });
 
-  it("shows on the plate (compact and wide) and the dock of a multi-seat table only", () => {
+  it("shows on the plate (compact and wide) in the zone, on the field, and out of play, on a multi-seat table only", () => {
     for (const wide of [false, true]) {
-      plate(withCost(500), { showInUse: true, wide });
-      expect(screen.getByTestId("hud-master-summon").textContent).toBe("Summon: costs 500 LP");
+      for (const inZone of [true, false]) {
+        plate(withCost(500, inZone), { showInUse: true, wide });
+        expect(screen.getByTestId("hud-master-summon").textContent).toBe("Next summon: 500 LP");
+        cleanup();
+      }
+      plate(withCost(0), { showInUse: true, wide });
+      expect(screen.getByTestId("hud-master-summon").textContent).toBe("Next summon: Free");
       cleanup();
     }
-    plate(withCost(500, false), { showInUse: true });
-    expect(screen.queryByTestId("hud-master-summon")).toBeNull();
-    cleanup();
     plate(withCost(500));
     expect(screen.queryByTestId("hud-master-summon")).toBeNull();
     cleanup();
-    render(
-      <MasterDock title="Your Master" view={withCost(0)} local legalKeys={new Set()} selectedKeys={new Set()} canAct legalActionsFor={() => []}
-        onActivate={noop} onChooseAction={noop} onInspect={noop} showInUse />,
-    );
-    expect(screen.getByTestId("master-dock-summon").textContent).toBe("Summon: free");
+    for (const inZone of [true, false]) {
+      render(
+        <MasterDock title="Your Master" view={withCost(0, inZone)} local legalKeys={new Set()} selectedKeys={new Set()} canAct legalActionsFor={() => []}
+          onActivate={noop} onChooseAction={noop} onInspect={noop} showInUse />,
+      );
+      expect(screen.getByTestId("master-dock-summon").textContent).toBe("Next summon: Free");
+      cleanup();
+    }
   });
 });
 
@@ -272,7 +277,7 @@ describe("the plate buttons", () => {
 
   it("names the summon line in the token's accessible name", () => {
     draw(true);
-    expect(screen.getByTestId("hud-master-token").getAttribute("aria-label")).toContain("Summon: costs 500 LP");
+    expect(screen.getByTestId("hud-master-token").getAttribute("aria-label")).toContain("Next summon: 500 LP");
   });
 
   it("keeps the 1v1 plate to its short words", () => {

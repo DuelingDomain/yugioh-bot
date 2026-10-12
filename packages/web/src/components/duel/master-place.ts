@@ -65,13 +65,13 @@ export function masterInUse(view: DuelSeatView | undefined, seats: readonly Duel
 }
 
 /**
- * The line a Deck Master panel shows while the card sits in its zone: what the next summon from the zone costs. The
- * first one is free (`nextCost` 0). Out of the zone there is no line, the card is in use.
+ * The line a Deck Master panel always shows, in every state (in its zone, on the field, in the Graveyard, banished): what the
+ * next summon from the zone costs, from `deckMaster.nextCost`. The first one is free, each return adds 500 LP (Rulebook v1.4).
  */
 export function masterSummonLine(view: DuelSeatView | undefined): string | null {
   const master = view?.deckMaster;
-  if (!master?.inZone) return null;
-  return master.nextCost > 0 ? `Summon: costs ${master.nextCost.toLocaleString("en-US")} LP` : "Summon: free";
+  if (!master) return null;
+  return `Next summon: ${costText(master.nextCost)}`;
 }
 
 /**
