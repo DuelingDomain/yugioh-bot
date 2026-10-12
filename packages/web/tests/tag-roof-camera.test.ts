@@ -384,7 +384,7 @@ describe("tween helpers", () => {
     const t = roofTransform(ROOF_PRESETS.home, 1);
     expect(t).toContain("rotateX(36.000deg)");
     expect(t).toContain("rotateZ(0.000deg)");
-    expect(t).toContain("scale3d(1.3000");
+    expect(t).toContain("scale3d(1.0400");
     expect(t).toContain("translate3d(0px, 64.00px, 0px)");
   });
 });

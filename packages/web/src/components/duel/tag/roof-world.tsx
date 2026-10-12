@@ -121,7 +121,7 @@ export function RoofDecor() {
   );
 }
 
-const AC_BOXES: ReadonlyArray<readonly [number, number]> = [[-940, -380], [930, -330], [-960, 420], [950, 470]];
+const AC_BOXES: ReadonlyArray<readonly [number, number]> = [[-975, -380], [975, -330], [-975, 420], [975, 470]];
 
 const CITY_LIGHTS = [
   "radial-gradient(circle, rgb(255 214 150 / 0.85) 0 2px, transparent 3px)",

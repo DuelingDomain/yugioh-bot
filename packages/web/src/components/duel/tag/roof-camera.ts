@@ -31,11 +31,13 @@ export const ROOF_LIMITS = { zoomMin: 0.3, zoomMax: 3.4, tiltMin: 6, tiltMax: 66
 /**
  * Zoom 1 is the overview: the stage fits all four fields (ROOF_WORLD) into the free box, so every other zoom is relative
  * to that. The overview is the default view and the one every "back" returns to.
+ * Home and rival keep the whole strip in the box: they were 1.3 on the narrow 1440 unit world, 1.3 x 1440 / 1792 = 1.04 on the
+ * wide one, so the outer baton pills and piles stay on screen.
  */
 export const ROOF_PRESETS: Readonly<Record<"home" | "overview" | "rival" | "intro", RoofPose>> = {
-  home: { yaw: 0, tilt: 36, zoom: 1.3, fx: 0, fy: -30, oy: 64 },
+  home: { yaw: 0, tilt: 36, zoom: 1.04, fx: 0, fy: -30, oy: 64 },
   overview: { yaw: 0, tilt: 8, zoom: 1, fx: 0, fy: 0, oy: 0 },
-  rival: { yaw: 180, tilt: 36, zoom: 1.3, fx: 0, fy: 30, oy: 64 },
+  rival: { yaw: 180, tilt: 36, zoom: 1.04, fx: 0, fy: 30, oy: 64 },
   intro: { yaw: -150, tilt: 74, zoom: 0.25, fx: 0, fy: -500, oy: -150 },
 };
 
