@@ -1,3 +1,5 @@
+import { centeredPromptBox } from "../src/components/duel/table/prompt-box";
+import { dodgeShift } from "../src/components/duel/table/prompt-dodge";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -64,16 +66,23 @@ describe("grid prompt placement", () => {
     ".slot[data-slot=\"prompt\"] :global([data-prompt-panel][data-precheck])",
     ".slot[data-slot=\"prompt\"] :global([data-prompt-panel]:not([data-precheck]))",
     ".slot[data-slot=\"prompt\"] :global([data-prompt-surface]:not([data-prompt-panel], [data-place]))",
-  ])("centres %s on the pair", (selector) => {
+  ])("centres %s on the screen, with the step off the phase hub", (selector) => {
     const body = rule(selector);
     expect(body).toMatch(/inset:\s*var\(--pr-cy, 50%\) auto auto var\(--pr-cx, 50%\)/);
-    expect(body).toMatch(/translate:\s*-50% -50%/);
+    expect(body).toMatch(/translate:\s*calc\(-50% \+ var\(--pr-dx, 0px\)\) -50%/);
   });
 
   it("sets the pair vars on the prompt slot", () => {
     const source = readFileSync(join(__dirname, "../src/components/duel/table/grid-stage.tsx"), "utf8");
     expect(source).toMatch(/"--pr-cx"/);
     expect(source).toMatch(/data-slot="prompt"[^>]*style=\{promptStyle\}/);
+  });
+
+  it("centres on the whole board, not on the home pair, and never on the zoomed part of it", () => {
+    const source = readFileSync(join(__dirname, "../src/components/duel/table/grid-stage.tsx"), "utf8");
+    expect(source).toMatch(/centeredPromptBox\(box, frames\)/);
+    expect(source).not.toMatch(/visibleRect\(zoom\.view, pairFrame/);
+    expect(source).toMatch(/fixed: promptPair/);
   });
 });
 
@@ -160,5 +169,47 @@ describe("clearBarRoom", () => {
   });
   it("is undefined when no width keeps off the cards", () => {
     expect(clearBarRoom(rect(0, 0, 590, 270), [rect(0, 0, 590, 270)])).toBeUndefined();
+  });
+});
+
+// Every prompt sits in the middle of the screen: the same box at home, in a focus and under a zoom.
+describe("centeredPromptBox", () => {
+  const box = { width: 1552, height: 920 };
+  const frames = [{ x: 8, y: 134, width: 760, height: 560 }, { x: 784, y: 134, width: 760, height: 560 }];
+
+  it("spans the board across and the band of the fields down, so its middle is the middle of the table", () => {
+    const at = centeredPromptBox(box, frames);
+    expect(at.x + at.width / 2).toBe(box.width / 2);
+    expect(at.y).toBe(134);
+    expect(at.y + at.height).toBe(694);
+  });
+
+  it("does not depend on which pair is home", () => {
+    expect(centeredPromptBox(box, [frames[1], frames[0]])).toEqual(centeredPromptBox(box, frames));
+  });
+
+  it("falls back to the whole box without a measured frame", () => {
+    expect(centeredPromptBox(box, [null, { x: 0, y: 0, width: 0, height: 0 }])).toEqual({ x: 0, y: 0, width: 1552, height: 920 });
+  });
+});
+
+describe("dodgeShift: a centred prompt steps sideways off the phase hub, never off the middle row", () => {
+  const box = { width: 1552, height: 920 };
+  const panel = { x: 700, y: 400, width: 340, height: 54 };
+
+  it("is 0 when the prompt touches no HUD", () => {
+    expect(dodgeShift(panel, [{ x: 20, y: 400, width: 300, height: 60 }], box)).toBe(0);
+  });
+
+  it("takes the shortest shift that clears the hub", () => {
+    const hub = { x: 380, y: 390, width: 349, height: 66 };
+    const shift = dodgeShift(panel, [hub], box);
+    expect(shift).toBeGreaterThan(0);
+    expect(panel.x + shift).toBeGreaterThanOrEqual(hub.x + hub.width);
+    expect(shift).toBeLessThan(80);
+  });
+
+  it("stays put when no shift clears the hub inside the box", () => {
+    expect(dodgeShift(panel, [{ x: 0, y: 380, width: 1552, height: 100 }], box)).toBe(0);
   });
 });

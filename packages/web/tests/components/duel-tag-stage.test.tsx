@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import React, { useReducer } from "react";
 import { cleanup, render } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -234,5 +236,13 @@ describe("TagStage chrome", () => {
       expect(chips.length).toBe(2);
       for (const chip of chips) expect(chip.querySelector("[class*='srOnly']")?.textContent?.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("Tag prompt placement", () => {
+  it("fixes the chain-response room to the middle of the viewport in every camera view", () => {
+    const source = readFileSync(join(__dirname, "../../src/components/duel/tag/tag-stage.tsx"), "utf8");
+    expect(source).toMatch(/const stripFixed = useMemo\(\(\) => \(\{ x: 0, y: 0, width: viewBox\.width, height: viewBox\.height \}\)/);
+    expect(source).toMatch(/fixed: stripFixed,/);
   });
 });

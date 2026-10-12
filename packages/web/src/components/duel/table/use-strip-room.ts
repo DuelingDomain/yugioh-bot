@@ -33,6 +33,8 @@ export interface UseStripRoomOptions {
   hand: string;
   /** The zone keys (see zoneKey) of the cards in the chain: the room never covers them while another place exists. */
   sourceKeys: readonly string[];
+  /** The box the room is centred in, fixed to the middle of the screen (see StripRoomInput.fixed). Omit to plan off the HUD and the cards. */
+  fixed?: Rect | null;
   /** Another HUD rect (the card pinned in the peek). */
   extraHud?: Rect | null;
   /** Anything that moves the board on screen (the camera view, a zoom, the hand): measured again at rest. */
@@ -72,7 +74,7 @@ export function unionOf(rects: readonly Rect[]): Rect | null {
  * second line of text), so Back and Pass never fall under the room's edge. The camera is never read or moved.
  */
 export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
-  const { rootRef, active, promptId, count, box, anchor, keyHud, controlsHud = "", softHud, hand, sourceKeys, extraHud, viewKey } = options;
+  const { rootRef, active, promptId, count, box, anchor, keyHud, controlsHud = "", softHud, hand, sourceKeys, extraHud, viewKey, fixed } = options;
   const [measured, setMeasured] = useState<Measured | null>(null);
   const [chrome, setChrome] = useState<number | null>(null);
   const sourceKey = sourceKeys.join(",");
@@ -217,8 +219,9 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
       zones: measured.zones,
       source: measured.source,
       chrome: chrome === null ? undefined : Math.max(chrome, STRIP_ROOM.chrome),
+      fixed,
     });
-  }, [active, measured, box, count, anchor?.x, anchor?.y, extraHud, chrome]);
+  }, [active, measured, box, count, anchor?.x, anchor?.y, extraHud, chrome, fixed?.x, fixed?.y, fixed?.width, fixed?.height]);
 
   useEffect(() => {
     roomed.current = room !== undefined;
