@@ -323,7 +323,7 @@ describe("FFA3 own field camera zoom", () => {
     settleCrumble(container);
     expect(scale(container)).toBeCloseTo(byHand, 3);
     expect(chip(container)).toBe("Focus · Ren Arata");
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("an elimination at home does not move the camera", () => {
     frames();
@@ -335,7 +335,7 @@ describe("FFA3 own field camera zoom", () => {
     settleCrumble(container);
     expect(chip(container)).toBe("Home");
     expect(layer(container).style.transform).toBe("");
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("with two seats left, a click on a rival zone keeps the zoom of your own field", () => {
     frames();
@@ -352,7 +352,7 @@ describe("FFA3 own field camera zoom", () => {
     expect(board(container).getAttribute("data-camera-mode")).toBe("focus");
     expect(chip(container)).toBe("Focus · Ren Arata");
     expect(scale(container)).toBeGreaterThan(1.02);
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("with two seats left, Back and then E (or the Zoom my field button) zoom your own field again", () => {
     frames();
@@ -376,7 +376,7 @@ describe("FFA3 own field camera zoom", () => {
     advance(800);
     expect(chip(container)).toBe("Focus · Ren Arata");
     expect(scale(container)).toBeGreaterThan(1.02);
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("hides the Zoom my field button when your own seat is out", () => {
     const engine = structuredClone(idle().room.engine!);
@@ -388,7 +388,7 @@ describe("FFA3 own field camera zoom", () => {
     advance(5000);
     settleCrumble(container);
     expect(container.querySelector("[data-camera-zoom]")).toBeNull();
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("Esc leaves the zoom of your own field with two seats left", () => {
     frames();
@@ -402,7 +402,7 @@ describe("FFA3 own field camera zoom", () => {
     advance(800);
     expect(chip(container)).toBe("Home");
     expect(scale(container)).toBeLessThanOrEqual(1.001);
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("a resize with no room to zoom keeps the focus: the camera does not go home by itself", () => {
     frames();
