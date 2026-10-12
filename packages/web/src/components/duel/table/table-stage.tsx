@@ -488,6 +488,15 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
 
   const plaza3 = layout.format === "ffa3" && layout.slots.length === 3;
   const facingPair = plaza3 ? plazaFacingPair(engine) : null;
+  // One object per seat for as long as the pair and the names stay, so the memoized fields of the pair do not draw again each render.
+  const pairA = facingPair?.[0].seat ?? null;
+  const pairB = facingPair?.[1].seat ?? null;
+  const pairNameA = pairA != null ? nameOf(pairA) : "";
+  const pairNameB = pairB != null ? nameOf(pairB) : "";
+  const emzLinks = useMemo(
+    () => (pairA != null && pairB != null ? new Map([[pairA, { other: pairB, otherName: pairNameB }], [pairB, { other: pairA, otherName: pairNameA }]]) : null),
+    [pairA, pairB, pairNameA, pairNameB],
+  );
 
   // A click on a field never moves the camera, in any mode (a misclick would zoom or fly in): the seat buttons, the Zoom my field
   // button and the keys do, and Enter or a screen reader's click on a field box (see `reach`). A card keeps its own click.
@@ -741,9 +750,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
                   density: you ? "full" : "rival",
                   hand: self && !looking ? "face" : "backs",
                   emz: "own",
-                  ...(facingPair && (slot.seat === facingPair[0].seat || slot.seat === facingPair[1].seat)
-                    ? { emzLink: { other: slot.seat === facingPair[0].seat ? facingPair[1].seat : facingPair[0].seat, otherName: nameOf(slot.seat === facingPair[0].seat ? facingPair[1].seat : facingPair[0].seat) } }
-                    : {}),
+                  ...(emzLinks?.has(slot.seat) ? { emzLink: emzLinks.get(slot.seat) } : {}),
                   showTally: false,
                   usable: !looking && (slot.relation === "self" || slot.relation === "opponent"),
                   name: nameOf(slot.seat),
@@ -763,7 +770,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
             </div>
           </div>
         </div>
-        {facingPair ? <PairLink a={facingPair[0].seat} b={facingPair[1].seat} label="Linked columns" /> : null}
+        {pairA != null && pairB != null ? <PairLink a={pairA} b={pairB} label="Linked columns" stamp={`${camera.mode}|${camera.focusSeat ?? ""}|${camera.lookSeat ?? ""}|${box.width}x${box.height}|${outKey}|${zoom.zoomed ? 1 : 0}`} /> : null}
         <svg ref={tetherRef} className={styles.tethers} viewBox="0 0 1100 860" aria-hidden="true" />
         {[
           // A seat that left keeps its panel where its place stays.
