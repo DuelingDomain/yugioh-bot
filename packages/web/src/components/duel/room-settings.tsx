@@ -25,6 +25,7 @@ export function DuelSettingsSummary({ session }: { session: DuelSession }) {
     ["Timeout", settings.turnSeconds === 0 ? "None, nobody loses on time" : settings.timeout === "loss" ? "Lose on timeout" : "Continue at zero"],
     ["Deck validation", settings.validateDeck ? "Valid decks only" : "Format checks off; engine safety enforced"],
     ["Opening order", settings.shuffleDeck ? "Shuffled" : "Imported order"],
+    ...(settings.firstTurnDraw === undefined ? [] : [["First player draws on turn 1", settings.firstTurnDraw ? "On" : "Off"]]),
   ];
   return (
     <section aria-label="Game settings" className={own.settings}>
