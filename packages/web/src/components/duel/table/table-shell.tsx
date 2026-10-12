@@ -75,6 +75,7 @@ import { SEAT_TONE_HEX, type CameraLockReason, type CameraState, type TableContr
 import hudStyles from "./grid-hud.module.css";
 import styles from "./table-shell.module.css";
 import { withDestroyCards } from "../destroy-cards";
+import { withMasterSummonMoves } from "../master-summon-moves";
 
 export interface TableShellActions {
   onExit?: () => void;
@@ -647,7 +648,7 @@ function TableShellBody({
         {hud ? null : promptDockNode}
         <section className={`${roomStyles.boardColumn} ${hud ? styles.hudBoard : ""}`} aria-label="Duel field">
           <div className={roomStyles.board} ref={boardRef} data-duel-board>
-            <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
+            <MoveSourceBoundary events={withMasterSummonMoves(engine.events, engine.seats)} duelKey={session.slug} root={boardRef}>
               <Stage
                 controller={controller}
                 layout={layout}
@@ -703,8 +704,8 @@ function TableShellBody({
                   <FxBoundary>
                     {fxActive ? <CoinTossFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <SummonFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
-                    {fxActive ? <MoveFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
+                    {fxActive ? <SummonFx events={withMasterSummonMoves(withDestroyCards(engine.events), engine.seats)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
+                    {fxActive ? <MoveFx events={withMasterSummonMoves(withDestroyCards(engine.events), engine.seats)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} promptOpen={promptMine && ownPromptOpen(prompt, viewerSeat)} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}

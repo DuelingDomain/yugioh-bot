@@ -1,7 +1,7 @@
 import type { DuelCardInfo, DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
 import { applyEdits, edit, ev, EXTRA, GY, HAND, link, MZ, SZ, withHandIds, type Edit, type EventSpec, type LabBoard, type LabStep } from "../../fx-lab/board";
 import { TABLE_CARDS as C } from "./common";
-import { LOCATION_DMZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK } from "../../constants";
+import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK } from "../../constants";
 
 /**
  * Timed event scripts for the table previews (`?scene=<id>`). A scene is the same kind of step the FX lab plays on the
@@ -115,8 +115,6 @@ function mirror(): LabStep[] {
 }
 
 const MASTER_SCENE = /^master-([0-3])$/;
-const DM_ZONE = (seat: number) => ({ controller: seat, location: LOCATION_DMZONE, sequence: 0 });
-
 /**
  * One seat's Deck Master leaves its zone (summoned to zone 4), is destroyed, and goes back to the zone. The first step
  * puts the master in its zone, the second summons it (the zone reads "in use"), the last returns it (the flight lands
@@ -129,7 +127,9 @@ export function masterCycle(seat: number): LabStep[] {
     { at: 0, edits: [edit.deckMaster(seat, info, { inZone: true, returns: 0, nextCost: 0 })] },
     {
       at: 600,
-      events: [ev.move(seat, info, DM_ZONE(seat), zone, "summon"), ev.summon(seat, info, zone, "special")],
+      // The live shape: the server sends no move out of the Deck Master Zone, the summon arrives alone. The room adds the
+      // flight (withMasterSummonMoves), so the preview plays the real path.
+      events: [ev.summon(seat, info, zone, "normal")],
       edits: [edit.deckMaster(seat, info, { inZone: false, returns: 0, nextCost: 0 }), edit.monster(seat, 4, info)],
     },
     {

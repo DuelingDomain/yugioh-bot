@@ -151,9 +151,9 @@ describe.each(MODES)("the Deck Master cycle on a $mode table", ({ engine, seats 
     }
   });
 
-  it("the summon leaves from the DMZ", () => {
-    const summon = masterCycle(0)[1].events?.[0];
-    expect(summon?.from).toEqual(expect.objectContaining({ location: LOCATION_DMZONE }));
+  it("the summon is the live shape: the summon alone, with no move out of the DMZ", () => {
+    const events = masterCycle(0)[1].events ?? [];
+    expect(events.map((event) => event.kind)).toEqual(["summon"]);
   });
 });
 

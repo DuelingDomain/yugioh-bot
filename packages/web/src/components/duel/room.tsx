@@ -125,6 +125,7 @@ import { PileViewer } from "./pile-viewer";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "./pile-focus";
 import { MatchSheetLog } from "./text-log";
 import { withDestroyCards } from "./destroy-cards";
+import { withMasterSummonMoves } from "./master-summon-moves";
 import {
   CardTabEmpty, DEFAULT_SIDE_PANE, DESKTOP_PANES, desktopPane, mobilePanes, SidePanel, SideTabs, useIsNarrow, type SidePane,
 } from "./side-panel";
@@ -1324,16 +1325,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   } : null;
   // The board: the field (given by the caller), the FX layers as flat siblings of it, the prompt layer and the pile viewer.
   const renderBoard = (field: ReactNode): ReactNode => engine ? (
-    <MoveSourceBoundary events={engine.events} duelKey={slug} root={boardRef}>
+    <MoveSourceBoundary events={withMasterSummonMoves(engine.events, engine.seats)} duelKey={slug} root={boardRef}>
       {field}
       <FxBoundary>
       {fxUp ? <CoinTossFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion}
         replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
         soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
-      {fxUp ? <SummonFx events={withDestroyCards(engine.events)} duelKey={slug}
+      {fxUp ? <SummonFx events={withMasterSummonMoves(withDestroyCards(engine.events), engine.seats)} duelKey={slug}
         reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
-      {fxUp ? <MoveFx events={withDestroyCards(engine.events)} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
+      {fxUp ? <MoveFx events={withMasterSummonMoves(withDestroyCards(engine.events), engine.seats)} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
       {fxUp ? <ChainFx events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} seats={engine.seats} promptOpen={promptMine && ownPromptOpen(prompt, data.mySeat)} /> : null}

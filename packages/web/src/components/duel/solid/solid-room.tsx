@@ -18,6 +18,7 @@ import { useIsNarrow, type SidePane } from "../side-panel";
 import type { BattleStep } from "../station-track";
 import { DmChipActionsContext, type DmChipActions } from "./dm-chip";
 import { SolidDmSummonFx } from "./dm-summon-fx";
+import { withMasterSummonMoves } from "../master-summon-moves";
 import { solidFontClasses } from "./fonts";
 import { useSolidFx3dSync } from "./fx-sync";
 import { PeekBar } from "./peek-bar";
@@ -181,7 +182,7 @@ export function SolidRoom(props: SolidRoomProps) {
             {renderBoard(fieldProps ? (
               <>
                 <SolidField key={slug} {...fieldProps} renderClock={renderClock} onOpenMasters={() => openPane("masters")} battleAim={battleAim ?? null} />
-                {engine ? <SolidDmSummonFx events={engine.events} seats={engine.seats} duelKey={slug} reducedMotion={reducedMotion} planeRef={planeRef} /> : null}
+                {engine ? <SolidDmSummonFx events={withMasterSummonMoves(engine.events, engine.seats)} seats={engine.seats} duelKey={slug} reducedMotion={reducedMotion} planeRef={planeRef} /> : null}
               </>
             ) : null)}
           </div>
