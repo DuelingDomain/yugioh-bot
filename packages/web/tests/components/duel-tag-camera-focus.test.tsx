@@ -14,14 +14,14 @@ import { initialRoofCamera, roofReducer, type RoofCameraState } from "@/componen
 import { TagStage } from "@/components/duel/tag/tag-stage";
 import { tableLayout } from "@/components/duel/table/geometry";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
-import type { TableStateId } from "@/components/duel/table/fixtures/common";
+import type { TableFixtureState, TableStateId } from "@/components/duel/table/fixtures/common";
 
 afterEach(cleanup);
 
 const seen: { camera: RoofCameraState | null } = { camera: null };
 
-function Stage({ id, mode, hub }: { id: TableStateId; mode?: "overview" | "focus"; hub?: React.ReactNode }) {
-  const state = TAG_FIXTURES.states[id];
+function Stage({ id, mode, hub, state: given }: { id: TableStateId; mode?: "overview" | "focus"; hub?: React.ReactNode; state?: TableFixtureState }) {
+  const state = given ?? TAG_FIXTURES.states[id];
   const controller = useFixtureController(state, { reducedMotion: true });
   const layout = tableLayout("tag", controller.engine, controller.viewerSeat);
   const [camera, dispatch] = useReducer(roofReducer, undefined, () =>
@@ -435,6 +435,23 @@ describe("Tag close-up camera: a pick or an aim never moves it, a hint marks the
     fireEvent.click(pill);
     expect(modeOf(root)).toBe(`focus:${expected[0]}`);
     expect(hinted(root)).not.toContain(expected[0]);
+  });
+
+  it("only a field zone counts for the hint: a Graveyard, banished, Deck or hand pick does not", () => {
+    const base = TAG_FIXTURES.states["target-pick"];
+    const prompt = base.room.engine!.prompt!;
+    const option = (seat: number, location: number, sequence: number) => ({ id: `p${seat}-${location}-${sequence}`, label: "Card", controller: seat, location, sequence });
+    const withOptions = (options: ReturnType<typeof option>[]): TableFixtureState => ({
+      ...base,
+      room: { ...base.room, engine: { ...base.room.engine!, prompt: { ...prompt, options } } },
+    });
+    // Piles of seats 1 and 2 and a hand card of seat 3: nothing sits on a field out of view.
+    const piles = withOptions([option(1, 0x10, 0), option(2, 0x20, 0), option(3, 0x01, 0), option(3, 0x02, 0), option(1, 0x40, 0)]);
+    expect(hinted(render(<Stage id="target-pick" mode="focus" state={piles} />).container)).toEqual([]);
+    cleanup();
+    // The same pick with one monster of seat 2 and one spell of seat 3 hints exactly those two pills.
+    const fields = withOptions([option(1, 0x10, 0), option(2, 0x04, 1), option(3, 0x08, 0)]);
+    expect(hinted(render(<Stage id="target-pick" mode="focus" state={fields} />).container).sort()).toEqual([2, 3]);
   });
 
   it("an attack aim keeps the close-up and a pill still steps to a rival field", () => {
