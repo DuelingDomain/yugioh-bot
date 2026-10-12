@@ -264,6 +264,7 @@ describe.each(CASES)("%s first-person words", (_name, set, kind) => {
 });
 
 describe("fixed-facing replay grid focus across a seek", () => {
+  // FFA3 uses the plaza, not the grid; the grid is FFA4 only.
   const facing = (controller: TableController): TableController => {
     const seats = controller.engine.seats.map((seat) => ({
       ...seat, sharedExtraWith: controller.engine.seats.length === 3 && seat.seat === 2 ? null : seat.seat ^ 1,
@@ -272,7 +273,7 @@ describe("fixed-facing replay grid focus across a seek", () => {
     return { ...controller, engine, room: { ...controller.room, engine } };
   };
 
-  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("$format keeps the viewer's field focus across seek and rewind", (set) => {
+  it.each([FFA4_FIXTURES])("$format keeps the viewer's field focus across seek and rewind", (set) => {
     const view = render(<View set={set} kind="table" resetKey={1} tweak={facing} />);
     const focus = () => view.container.querySelector("[data-grid-stage]")?.getAttribute("data-grid-focus");
     expect(focus()).toBe("all");
@@ -287,22 +288,22 @@ describe("fixed-facing replay grid focus across a seek", () => {
     expect(focus()).toBe("all");
   });
 
-  it("returns to overview when a seek lands after the focused FFA3 seat is out", () => {
-    const view = render(<View set={FFA3_FIXTURES} kind="table" resetKey={1} tweak={facing} />);
+  it("returns to overview when a seek lands after the focused FFA4 seat is out", () => {
+    const view = render(<View set={FFA4_FIXTURES} kind="table" resetKey={1} tweak={facing} />);
     const focus = () => view.container.querySelector("[data-grid-stage]")?.getAttribute("data-grid-focus");
     press("2");
     expect(focus()).toBe("1");
     const out = (controller: TableController) => {
       const paired = facing(controller);
       const seats = paired.engine.seats.map((seat) => ({
-        ...seat, eliminated: seat.seat === 1, sharedExtraWith: null,
+        ...seat, eliminated: seat.seat === 1, sharedExtraWith: seat.seat === 0 ? null : seat.sharedExtraWith,
       }));
       const engine = { ...paired.engine, seats };
       return { ...paired, engine, room: { ...paired.room, engine } };
     };
-    view.rerender(<View set={FFA3_FIXTURES} kind="table" resetKey={2} tweak={out} />);
+    view.rerender(<View set={FFA4_FIXTURES} kind="table" resetKey={2} tweak={out} />);
     expect(focus()).toBe("all");
-    view.rerender(<View set={FFA3_FIXTURES} kind="table" resetKey={3} tweak={facing} />);
+    view.rerender(<View set={FFA4_FIXTURES} kind="table" resetKey={3} tweak={facing} />);
     expect(focus()).toBe("all");
   });
 });
