@@ -264,6 +264,12 @@ if grep -q '^compose build$' "$TEST_LOG" 2>/dev/null; then disk=${TEST_DISK_AFTE
 printf "Filesystem Size Used Avail Use%% Mounted\\nfixture 20000 1000 %s 5%% /opt\\n" "$disk"
 ''')
         self.command("docker", 'echo "docker $*" >> "$TEST_LOG"\n')
+        self.command("chown", '''echo "chown $*" >> "$TEST_LOG"
+if [ "${TEST_CHOWN_FAIL:-0}" = 1 ]; then
+  echo "chown: fixture ownership failure" >&2
+  exit 1
+fi
+''')
         (self.scripts / "compose.sh").write_text('''#!/bin/sh
 echo "compose $*" >> "$TEST_LOG"
 if [ "$1" = build ] && [ "${TEST_LOW_AFTER_BUILD:-0}" = 1 ]; then
@@ -302,6 +308,15 @@ fi
 
     def command_log(self):
         return self.log.read_text() if self.log.exists() else ""
+
+    def assert_runtime_ownership(self, preparations=2):
+        data = self.staging / "data-staging"
+        expected = [f"chown -h 1000:1000 {data}"] + [
+            f"chown -h -R -P 1000:1000 {data / entry}"
+            for entry in ("bot.sqlite", "card-images", "duel-engine", "duel-reports", "ops-reports")
+        ]
+        calls = [line for line in self.command_log().splitlines() if line.startswith("chown ")]
+        self.assertEqual(calls, expected * preparations)
 
     def test_active_production_duel_skips_without_stopping_or_building_staging(self):
         with sqlite3.connect(self.prod) as db:
@@ -352,6 +367,7 @@ fi
         self.assertIn("compose build", self.command_log())
         self.assertIn("compose up -d", self.command_log())
         self.assertIn("ignore_prod_activity=true", result.stdout)
+        self.assert_runtime_ownership()
 
     def test_open_tournament_round_builds_without_override(self):
         with sqlite3.connect(self.prod) as db:
@@ -363,6 +379,7 @@ fi
         result = self.run_remote()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("compose build", self.command_log())
+        self.assert_runtime_ownership()
 
     def test_ref_without_runtime_helper_uses_transferred_control(self):
         transferred = self.root / "prepare-runtime-data.sh"
@@ -372,6 +389,7 @@ fi
         self.assertIn("compose run", self.command_log())
         self.assertIn("compose up -d", self.command_log())
         self.assertFalse(transferred.exists())
+        self.assert_runtime_ownership()
 
     def test_ignore_prod_activity_builds_with_live_production_duel_and_no_guard(self):
         with sqlite3.connect(self.prod) as db:
@@ -380,6 +398,16 @@ fi
         result = self.run_remote(STAGING_IGNORE_PROD_ACTIVITY="true")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("compose build", self.command_log())
+        self.assert_runtime_ownership()
+
+    def test_runtime_ownership_failure_stops_before_migration_and_start(self):
+        result = self.run_remote(TEST_CHOWN_FAIL="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("chown: fixture ownership failure", result.stderr)
+        log = self.command_log()
+        self.assertIn(f"chown -h 1000:1000 {self.staging / 'data-staging'}", log)
+        self.assertNotIn("compose run", log)
+        self.assertNotIn("compose up", log)
 
     def test_ignore_prod_activity_keeps_the_build_lock(self):
         with self.lock.open("w") as handle:
@@ -439,6 +467,7 @@ fi
         log = self.log.read_text()
         self.assertIn("compose build", log)
         self.assertNotIn("compose up", log)
+        self.assert_runtime_ownership(preparations=1)
 
     def test_low_disk_before_build_skips_without_building(self):
         result = self.run_remote(TEST_DISK_MB="1000")

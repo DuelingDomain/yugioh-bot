@@ -19,9 +19,13 @@ function fixture(t) {
   mkdirSync(data);
   mkdirSync(bin);
   const chown = join(bin, "chown");
-  writeFileSync(chown, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TEST_LOG"\n[ "${TEST_CHOWN_FAIL:-0}" = 0 ] || exit 1\nexec /usr/bin/chown "$@"\n');
+  writeFileSync(chown, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TEST_LOG"\nif [ "${TEST_CHOWN_FAIL:-0}" = 1 ]; then echo "chown: fixture ownership failure" >&2; exit 1; fi\n');
   chmodSync(chown, 0o755);
   return { dir, data, log, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TEST_LOG: log } };
+}
+
+function ownershipCalls(f, entries = []) {
+  return [`-h 1000:1000 ${f.data}`, ...entries.map(entry => `-h -R -P 1000:1000 ${join(f.data, entry)}`)];
 }
 
 test("production runtime targets use node, including the inherited bundled duel target", () => {
@@ -78,13 +82,13 @@ test("runtime data preparation permits SQLite WAL and cache writes without chang
     writer.pragma("journal_mode = WAL");
     writer.exec("insert into checks values ('written')");
     assert.equal(writer.prepare("select value from checks").pluck().get(), "written");
-    assert.equal(statSync(`${dbPath}-wal`).uid, 1000);
+    assert.ok(existsSync(`${dbPath}-wal`));
   } finally { writer.close(); }
   for (const path of ["card-images/card.jpg", "duel-engine/runtime.json", "duel-reports/report.json"]) {
     writeFileSync(join(f.data, path), "written");
   }
   writeFileSync(engine, '{"updated":true}');
-  assert.equal(statSync(f.data).uid, 1000);
+  assert.deepEqual(readFileSync(f.log, "utf8").trim().split("\n"), ownershipCalls(f, ["bot.sqlite", "card-images", "duel-engine", "duel-reports", "ops-reports"]));
   assert.equal(statSync(f.data).mode & 0o777, 0o700);
   assert.equal(statSync(dbPath).mode & 0o777, 0o600);
 });
@@ -102,7 +106,7 @@ test("runtime data preparation includes private operations reports and preserves
   assert.equal(result.status, 0, result.stderr);
   files.forEach((path, i) => assert.equal(statSync(join(f.data, path)).mode & 0o777, modes[i], path));
   assert.equal(statSync(join(f.data, "ops-reports")).mode & 0o777, 0o700);
-  assert.equal(statSync(join(f.data, "ops-reports/report.json")).uid, 1000);
+  assert.deepEqual(readFileSync(f.log, "utf8").trim().split("\n"), ownershipCalls(f, ["bot.sqlite", "bot.sqlite-shm", "bot.sqlite-wal", "card-images", "duel-engine", "duel-reports", "ops-reports"]));
   writeFileSync(join(f.data, "ops-reports/new-report.json"), "new report");
 });
 
@@ -111,6 +115,7 @@ test("runtime data preparation creates private operations reports on a fresh dir
   const result = spawnSync("sh", [prepare.pathname, f.data], { env: f.env, encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(statSync(join(f.data, "ops-reports")).mode & 0o777, 0o700);
+  assert.deepEqual(readFileSync(f.log, "utf8").trim().split("\n"), ownershipCalls(f, ["card-images", "duel-engine", "duel-reports", "ops-reports"]));
 });
 
 test("runtime data preparation is repeatable and leaves unrelated data alone", t => {
@@ -127,10 +132,8 @@ test("runtime data preparation is repeatable and leaves unrelated data alone", t
   for (const file of files) assert.equal(readFileSync(join(f.data, file), "utf8"), file);
   assert.equal(statSync(privateDir).mode & 0o777, 0o700);
   assert.equal(readFileSync(join(privateDir, "bot.sqlite"), "utf8"), "previous");
-  const calls = readFileSync(f.log, "utf8");
-  for (const file of files) assert.ok(calls.includes(`1000:1000 ${join(f.data, file)}`));
-  assert.ok(!calls.includes(privateDir));
-  assert.ok(!calls.split("\n").includes(`-R 1000:1000 ${f.data}`));
+  const expected = ownershipCalls(f, ["bot.sqlite", "bot.sqlite-shm", "bot.sqlite-wal", "card-images", "duel-engine", "duel-reports", "ops-reports"]);
+  assert.deepEqual(readFileSync(f.log, "utf8").trim().split("\n"), [...expected, ...expected]);
 });
 
 for (const entry of ["data", "bot.sqlite", "bot.sqlite-wal", "bot.sqlite-shm", "card-images", "duel-engine", "duel-reports", "ops-reports"]) {
@@ -149,11 +152,12 @@ for (const entry of ["data", "bot.sqlite", "bot.sqlite-wal", "bot.sqlite-shm", "
         assert.ok(lstatSync(path).isSymbolicLink());
       }
       if (!dangling) assert.equal(statSync(target).mode & 0o777, 0o700);
+      assert.ok(!existsSync(f.log), "symlinks must be rejected before any ownership changes");
     });
   }
 }
 
-test("runtime data preparation does not follow nested symlinks", t => {
+test("runtime data preparation requests physical traversal for directories containing nested symlinks", t => {
   const f = fixture(t);
   const images = join(f.data, "card-images");
   mkdirSync(images);
@@ -167,6 +171,8 @@ test("runtime data preparation does not follow nested symlinks", t => {
   assert.equal(statSync("/proc/version").uid, before.uid);
   assert.equal(statSync("/proc/version").gid, before.gid);
   assert.ok(lstatSync(join(images, "system")).isSymbolicLink());
+  const expected = ownershipCalls(f, ["card-images", "duel-engine", "duel-reports", "ops-reports"]);
+  assert.deepEqual(readFileSync(f.log, "utf8").trim().split("\n"), [...expected, ...expected]);
 });
 
 test("runtime data preparation refuses a symlinked data directory with trailing slashes", t => {
@@ -212,7 +218,9 @@ test("staging prepares its installed data before migration and immediately befor
   assert.ok(!log.includes(`1000:1000 ${f.data}\n`));
   assert.ok(!log.includes(`1000:1000 ${f.data}/`));
   writeFileSync(f.log, "");
-  assert.notEqual(run("1").status, 0);
+  const failure = run("1");
+  assert.notEqual(failure.status, 0);
+  assert.match(failure.stderr, /chown: fixture ownership failure/);
   assert.ok(!readFileSync(f.log, "utf8").includes("compose run"));
   assert.ok(!readFileSync(f.log, "utf8").includes("compose up"));
 });
@@ -280,6 +288,7 @@ test("production deploy prepares installed data before the migration container a
   writeFileSync(f.log, "");
   const failure = run("1");
   assert.notEqual(failure.status, 0);
+  assert.match(failure.stderr, /chown: fixture ownership failure/);
   assert.ok(!readFileSync(f.log, "utf8").includes("docker compose -f docker-compose.yml run"));
 });
 
