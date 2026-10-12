@@ -22,6 +22,7 @@ import baseStyles from "../field.module.css";
 import { slot, stKeys, withExact, type FieldCallbacks } from "../field-keys";
 import { useDuelFieldModel, type DuelFieldModel, type DuelFieldProps } from "../field-model";
 import type { BattleAim } from "../battle-fx";
+import { MONSTER_ROW_ATTR } from "../direct-target";
 import { Emblem, Notches } from "./emblem";
 import { PlaneSvg } from "./plane-svg";
 import { DmChip } from "./dm-chip";
@@ -150,6 +151,8 @@ function Half({ view, seatIndex, opponent, ownerLabel, masterRule, callbacks, ac
           <ZoneSlot {...monsterZoneProps(view, sequence, { flip: opponent, callbacks })} />
         </Cell>
       ))}
+      {/* The row of the five Monster Zones as one box: a direct attack aims at it (direct-target.ts). It takes no clicks. */}
+      <div {...{ [MONSTER_ROW_ATTR]: seatIndex }} aria-hidden="true" style={{ gridColumn: "2 / 7", gridRow: monsterRow, pointerEvents: "none" }} />
       {opponent ? (
         <>
           <PileCell view={view} kind="deck" ownerLabel={ownerLabel} flip column="left" callbacks={callbacks} col={1} row={1} />
