@@ -17,9 +17,15 @@ export interface ListImportResult {
   corrected: Array<{ from: string; to: string }>;
 }
 
+type ImportedCard = Pick<CardCatalogCard, "ygoprodeckId" | "name"> & { type: string | number };
+
 /** Resolve once, without merging copies or deck sections. Both deck and cube imports use this path. */
-export async function resolveImportedCardList(catalog: CardCatalogService, text: unknown, { keepDeckSections = false } = {}): Promise<{
-  resolved: Array<{ entry: CardListEntry; card: CardCatalogCard; copies: number }>;
+export async function resolveImportedCardList(catalog: CardCatalogService, text: unknown, { keepDeckSections = false, engine }: {
+  keepDeckSections?: boolean;
+  /** Numeric deck imports can use engine identity without requiring persisted catalog metadata. */
+  engine?: CardIdentityCatalog;
+} = {}): Promise<{
+  resolved: Array<{ entry: CardListEntry; card: ImportedCard; copies: number }>;
   unknown: string[];
   corrected: ListImportResult["corrected"];
   lookupLimited?: true;
@@ -43,14 +49,20 @@ export async function resolveImportedCardList(catalog: CardCatalogService, text:
     && !preferFullName.has(entry) && !resolutions.get(entry.query)?.card && entry.fallbackName ? [entry.fallbackName] : []))];
   const fallbacks = new Map((await catalog.resolveCardNames(fallbackNames, { lookupBudget })).map((result) => [result.name, result]));
   const codes = [...new Set(parsed.flatMap((entry) => typeof entry.query === "number" ? [entry.query] : []))];
-  await catalog.prefetchCardsByIds(codes, { lookupBudget });
-  const byCode = new Map(catalog.findByIds(codes).map((card) => [card.ygoprodeckId, card]));
+  const catalogCodes = codes.filter(code => !engine?.has(code));
+  await catalog.prefetchCardsByIds(catalogCodes, { lookupBudget });
+  const byCode = new Map<number, ImportedCard>(catalog.findByIds(catalogCodes).map((card) => [card.ygoprodeckId, card]));
   for (const code of codes) {
+    const engineCard = engine?.get(code);
+    if (engineCard) {
+      byCode.set(code, { ygoprodeckId: code, name: engineCard.name, type: engineCard.type });
+      continue;
+    }
     if (byCode.has(code) && catalog.hasCatalogRow(code)) continue;
     const card = await catalog.syncCardById(code, { lookupBudget });
     if (card && catalog.hasCatalogRow(code)) byCode.set(code, card);
   }
-  const resolved: Array<{ entry: CardListEntry; card: CardCatalogCard; copies: number }> = [];
+  const resolved: Array<{ entry: CardListEntry; card: ImportedCard; copies: number }> = [];
   const unknown = new Set<string>();
   const corrected = new Map<string, { from: string; to: string }>();
   for (const entry of parsed) {

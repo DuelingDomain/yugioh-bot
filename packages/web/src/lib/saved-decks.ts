@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { assertExtraDeckCards, ExtraDeckCardError } from "@yugidraft/shared/duels";
-import type { SavedDeck } from "@yugidraft/shared/duels";
+import type { CardIdentityCatalog, SavedDeck } from "@yugidraft/shared/duels";
 import {
   createDeckTypeLookup,
   createPlayerService,
@@ -65,13 +65,13 @@ export async function readSavedDeckBody(
 }
 
 /** Check Extra types on every write, then check the Domain Deck Master type. */
-export async function checkSavedDeckMaster(mode: unknown, deck: unknown): Promise<
+export async function checkSavedDeckMaster(mode: unknown, deck: unknown, engine?: CardIdentityCatalog): Promise<
   { ok: true } | { ok: false; response: NextResponse }
 > {
   if (!deck || typeof deck !== "object" || Array.isArray(deck)) return { ok: true };
   const extra = (deck as { extra?: unknown }).extra;
   if (Array.isArray(extra) && extra.length && extra.every(code => typeof code === "number" && Number.isInteger(code) && code > 0 && code <= 0xffff_ffff)) {
-    try { assertExtraDeckCards({ extra }, createDeckTypeLookup(getDb())); }
+    try { assertExtraDeckCards({ extra }, createDeckTypeLookup(getDb(), engine)); }
     catch (error) {
       if (error instanceof ExtraDeckCardError) return { ok: false, response: NextResponse.json({ error: error.message, code: error.code }, { status: 400 }) };
       throw error;

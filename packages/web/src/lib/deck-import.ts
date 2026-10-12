@@ -6,7 +6,8 @@ import { CardListError } from "./card-list-parser";
 /** Read names, passcodes, YDK and YDKE with the server catalog. Never trust section labels. */
 export async function resolveDeckImport(catalog: CardCatalogService, text: unknown, mode: unknown, engine: CardIdentityCatalog = loadArtworkIdentityCatalog()) {
   if (mode !== "normal" && mode !== "domain") throw new CardListError("Deck mode must be normal or domain.");
-  const { resolved, unknown, corrected } = await resolveImportedCardList(catalog, text, { keepDeckSections: true });
+  const { resolved, unknown, corrected, lookupLimited } = await resolveImportedCardList(catalog, text, { keepDeckSections: true, engine });
+  if (unknown.length && lookupLimited) throw new CardListError("The card lookup limit was reached. Try importing fewer cards at a time. No cards were imported.");
   if (unknown.length) throw new CardListError(`Could not resolve these cards: ${unknown.join(", ")}. No cards were imported.`);
   if (!resolved.length) throw new CardListError("No cards found. Add a deck file or paste a card list.");
   const raw: DuelDeck = { main: [], extra: [], side: [] };

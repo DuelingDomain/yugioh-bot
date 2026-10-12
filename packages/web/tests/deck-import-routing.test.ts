@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createCardCatalogService } from "@yugidraft/shared/services";
 import { resolveDeckImport } from "../src/lib/deck-import";
@@ -13,7 +13,7 @@ beforeEach(() => {
     [905, "Test Ritual", "Ritual Effect Monster"], [906, "Test Effect", "Effect Monster"]] as const) {
     db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,'test','','','[]','test')").run(id, name, type);
   }
-  catalog = createCardCatalogService(db, { fetch: async () => { throw new Error("No network in these tests"); } });
+  catalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch: async () => { throw new Error("No network in these tests"); } });
 });
 afterEach(() => db.close());
 function ydke(main: number[], extra: number[], side: number[]) {
@@ -21,6 +21,23 @@ function ydke(main: number[], extra: number[], side: number[]) {
   return `ydke://${encode(main)}!${encode(extra)}!${encode(side)}!`;
 }
 describe("deck import type routing", () => {
+  it.each(["#main\n998\n#extra\n997\n997\n!side\n998", ydke([998], [997, 997], [998])])("imports engine-only codes offline, routes by engine bits, and reports engine names", async text => {
+    const fetch = vi.fn(async () => { throw new Error("Offline"); });
+    const engine = new Map([[998, { name: "Engine Fusion", type: 0x41 }], [997, { name: "Engine Spell", type: 0x2 }]]);
+    const offline = createCardCatalogService(db, { fetch, identityCatalog: engine });
+    const result = await resolveDeckImport(offline, text, "normal", engine);
+    expect(result.deck).toEqual({ main: [997, 997], extra: [998], side: [998] });
+    expect(result.messages).toContain("2 cards moved from Extra Deck to Main Deck: Engine Spell, Engine Spell.");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(offline.hasCatalogRow(998)).toBe(false);
+  });
+  it("reports lookup-budget exhaustion separately from unknown cards", async () => {
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) }));
+    const limited = createCardCatalogService(db, { fetch, identityCatalog: new Map() });
+    const text = Array.from({ length: 100 }, (_, index) => 900000 + index).join("\n");
+    await expect(resolveDeckImport(limited, text, "normal", new Map())).rejects.toThrow("The card lookup limit was reached");
+    expect(fetch).toHaveBeenCalledTimes(50);
+  }, 15000);
   it.each([
     ["YDK", "#main\n903\n#extra\n901\n902\n901\n904\n905\n906\n!side\n902\n903"],
     ["YDKE", ydke([903], [901, 902, 901, 904, 905, 906], [902, 903])],
@@ -28,7 +45,7 @@ describe("deck import type routing", () => {
     ["passcode list", "Main:\n903\nExtra:\n901 x2\n902\n904\n905\n906\nSide:\n902\n903"],
     ["inline markers", "Test Fusion [Main]\nTest Spell [Extra] x2\nTest Trap [Extra]\nTest Pendulum [Extra]\nTest Ritual [Extra]\nTest Effect [Extra]\nTest Trap [Side]\nTest Fusion [Side]"],
   ])("corrects %s and reports all moved copies", async (_format, text) => {
-    const result = await resolveDeckImport(catalog, text, "normal");
+    const result = await resolveDeckImport(catalog, text, "normal", new Map());
     expect([...result.deck.main].sort()).toEqual([901, 901, 902, 904, 905, 906]);
     expect(result.deck.extra).toEqual([903]);
     expect(result.deck.side).toEqual([902, 903]);
@@ -40,18 +57,18 @@ describe("deck import type routing", () => {
   });
   it("auto-routes a bare passcode list and bare name list", async () => {
     for (const text of ["901\n902\n903", "Test Spell\nTest Trap\nTest Fusion"]) {
-      expect((await resolveDeckImport(catalog, text, "normal")).deck).toEqual({ main: [901, 902], extra: [903], side: [] });
+      expect((await resolveDeckImport(catalog, text, "normal", new Map())).deck).toEqual({ main: [901, 902], extra: [903], side: [] });
     }
   });
   it("keeps an explicit Master and preserves the lone Side card for the caller's Domain rule", async () => {
-    const result = await resolveDeckImport(catalog, "#deckmaster\n905\n#main\n903\n#extra\n901\n!side\n906", "normal");
+    const result = await resolveDeckImport(catalog, "#deckmaster\n905\n#main\n903\n#extra\n901\n!side\n906", "normal", new Map());
     expect(result.mode).toBe("domain");
     expect(result.deck).toEqual({ main: [901], extra: [903], side: [906], deckMaster: 905 });
   });
   it("resolves mixed names and passcodes beside an explicit Master without losing named cards", async () => {
-    const result = await resolveDeckImport(catalog, "#deckmaster\n905\n#main\nTest Spell\n903\n#extra\nTest Fusion\n901", "normal");
+    const result = await resolveDeckImport(catalog, "#deckmaster\n905\n#main\nTest Spell\n903\n#extra\nTest Fusion\n901", "normal", new Map());
     expect(result.deck).toEqual({ main: [901, 901], extra: [903, 903], side: [], deckMaster: 905 });
-    const namedMaster = await resolveDeckImport(catalog, "#deckmaster\nTest Ritual\n#extra\nTest Trap", "normal");
+    const namedMaster = await resolveDeckImport(catalog, "#deckmaster\nTest Ritual\n#extra\nTest Trap", "normal", new Map());
     expect(namedMaster.deck).toEqual({ main: [902], extra: [], side: [], deckMaster: 905 });
   });
 
@@ -64,13 +81,13 @@ describe("deck import type routing", () => {
   });
 
   it("keeps overflow in Main rather than losing copies or changing Side", async () => {
-    const result = await resolveDeckImport(catalog, "Main:\nTest Effect x60\nExtra:\nTest Spell x3", "normal");
+    const result = await resolveDeckImport(catalog, "Main:\nTest Effect x60\nExtra:\nTest Spell x3", "normal", new Map());
     expect(result.deck.main).toHaveLength(63);
     expect(result.deck.side).toEqual([]);
   });
   it("rejects unsafe input and excessive allocations without a partial deck", async () => {
-    await expect(resolveDeckImport(catalog, "Test Spell x999999999", "normal")).rejects.toThrow("at most 300");
-    await expect(resolveDeckImport(catalog, "Test Spell", "other")).rejects.toThrow("Deck mode");
-    await expect(resolveDeckImport(catalog, "", "normal")).rejects.toThrow();
+    await expect(resolveDeckImport(catalog, "Test Spell x999999999", "normal", new Map())).rejects.toThrow("at most 300");
+    await expect(resolveDeckImport(catalog, "Test Spell", "other", new Map())).rejects.toThrow("Deck mode");
+    await expect(resolveDeckImport(catalog, "", "normal", new Map())).rejects.toThrow();
   });
 });

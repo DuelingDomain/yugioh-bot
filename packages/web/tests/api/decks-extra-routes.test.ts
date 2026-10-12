@@ -4,12 +4,21 @@ import { migrate } from "@yugidraft/shared/db";
 import { createSavedDeckService } from "@yugidraft/shared/services";
 const mocks = vi.hoisted(() => ({ getDb: vi.fn(), savedActor: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb: mocks.getDb }));
+vi.mock("@/lib/draft-decks", () => ({ backfillDraftDecks: vi.fn() }));
+vi.mock("@yugidraft/shared/services", async original => {
+  const actual = await original<typeof import("@yugidraft/shared/services")>();
+  return { ...actual, loadArtworkIdentityCatalog: () => new Map(),
+    createDeckTypeLookup: (db: Database.Database, engine = new Map()) => actual.createDeckTypeLookup(db, engine),
+    createCardCatalogService: (db: Database.Database) => actual.createCardCatalogService(db, { identityCatalog: new Map() }),
+  };
+});
 vi.mock("@/lib/saved-decks", async original => ({
   ...await original<typeof import("../../src/lib/saved-decks")>(), requireSavedDeckActor: mocks.savedActor, loadDeckRegistrations: () => [],
 }));
-import { POST } from "../../app/api/decks/route";
-import { PUT } from "../../app/api/decks/[id]/route";
+import { GET as LIST, POST } from "../../app/api/decks/route";
+import { GET, PUT } from "../../app/api/decks/[id]/route";
 import { POST as IMPORT } from "../../app/api/decks/import/route";
+import { checkSavedDeckMaster } from "../../src/lib/saved-decks";
 let db: Database.Database;
 let decks: ReturnType<typeof createSavedDeckService>;
 const request = (body: unknown) => new Request("http://test/api/decks", { method: "POST", body: JSON.stringify(body) });
@@ -19,12 +28,31 @@ beforeEach(() => {
   for (const [id, type] of [[901, "Spell Card"], [902, "Trap Card"], [903, "Fusion Monster"], [904, "Pendulum Effect Monster"]] as const) {
     db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,'test','','','[]','test')").run(id, `Test ${type}`, type);
   }
-  decks = createSavedDeckService(db);
+  decks = createSavedDeckService(db, new Map());
   mocks.getDb.mockReturnValue(db);
   mocks.savedActor.mockResolvedValue({ ok: true, guildId: "test-g", ownerUserId: 1, discordUserId: null, decks });
 });
 afterEach(() => db.close());
 describe("deck APIs reject invalid Extra cards independently of the client", () => {
+  it.each(["get", "list"])("exposes the repair notice on the saved-deck object returned by %s", async read => {
+    const original = { main: Array(60).fill(901), extra: [901, 903], side: [] };
+    const id = Number(db.prepare("insert into saved_decks(guild_id,owner_user_id,name,mode,deck_json) values ('test-g',1,'Test legacy','normal',?)").run(JSON.stringify(original)).lastInsertRowid);
+    const response = read === "get" ? await GET(request({}), { params: Promise.resolve({ id: String(id) }) }) : await LIST();
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    const saved = read === "get" ? data.deck : data.decks[0];
+    expect(saved.deck.main).toHaveLength(61);
+    expect(saved.extraDeckRepair).toMatchObject({ applied: true, mainCount: 61,
+      moves: [{ code: 901, from: "extra", to: "main" }], message: expect.stringContaining("60") });
+    expect(saved.deck.extraDeckRepair).toBeUndefined();
+  });
+  it("checks engine-only Extra types with an injected map before any Domain check", async () => {
+    const engine = new Map([[998, { name: "Engine Fusion", type: 0x41 }], [997, { name: "Engine Spell", type: 0x2 }]]);
+    expect(await checkSavedDeckMaster("normal", { main: [], extra: [998], side: [] }, engine)).toEqual({ ok: true });
+    const result = await checkSavedDeckMaster("normal", { main: [], extra: [997], side: [] }, engine);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(await result.response.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Engine Spell") });
+  });
   it.each([901, 902, 904, 999])("returns the same error/code on POST and PUT for %s", async code => {
     const body = { name: "Test deck", mode: "normal", deck: { main: [], extra: [code], side: [] } };
     const created = await POST(request(body));
