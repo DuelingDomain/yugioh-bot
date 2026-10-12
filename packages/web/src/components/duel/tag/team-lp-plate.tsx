@@ -82,7 +82,7 @@ const RESPONSE_TEXT: Record<ResponderState, string> = { choosing: "…", waiting
 
 /** What the thumb says: whose master it is, whether it is in use, and what the next summon from the zone costs. */
 function MasterThumb({ member, master, onInspect }: { member: PlateMember; master: NonNullable<PlateMember["master"]>; onInspect?: (card: DuelCardInfo) => void }) {
-  const text = `${member.name}'s Master: ${master.card.name}${master.inUse ? " (in use)" : master.summon ? `. ${master.summon}` : ""}`;
+  const text = `${member.name}'s Master: ${master.card.name}${master.inUse ? " (in use)" : ""}${master.summon ? `. ${master.summon}` : ""}`;
   return (
     <button
       type="button"
