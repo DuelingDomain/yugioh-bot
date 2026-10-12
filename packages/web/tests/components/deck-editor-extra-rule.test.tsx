@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckCardInfo, SavedDeck } from "@yugidraft/shared/duels";
 import { parseDeckText } from "../../src/components/duel/ydk";
@@ -530,17 +530,62 @@ describe("Extra Deck rule: import and paste", () => {
   });
 
   it("keeps the move message after the 4 second notice is gone, until it is dismissed", async () => {
-    const message = "1 card moved from Extra Deck to Main Deck: Pot of Greed.";
-    importAnswer = () => ({ deck: { main: [POT.code], extra: [], side: [] }, moves: [], messages: [message] });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const message = "1 card moved from Extra Deck to Main Deck: Pot of Greed.";
+      importAnswer = () => ({ deck: { main: [POT.code], extra: [], side: [] }, moves: [], messages: [message] });
+      await pasteList(`#main\n${POT.code}`);
+      await waitFor(() => expect(screen.getAllByText(message)).toHaveLength(1));
+      // The polite notice says that a note is there, since the note itself is not a live region.
+      expect(screen.getByText(/Deck imported\. 1 note about moved cards above/)).toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(4100); });
+      expect(screen.queryByText(/Deck imported/)).toBeNull();
+      expect(screen.getAllByText(message)).toHaveLength(1);
+      fireEvent.click(within(screen.getByTestId("import-messages")).getByRole("button", { name: "Dismiss" }));
+      expect(screen.queryByText(message)).toBeNull();
+      expect(document.activeElement).toBe(within(region("Main")).getByRole("heading", { name: "Main" }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the move message when the import is undone", async () => {
+    importAnswer = () => ({ deck: { main: [POT.code], extra: [], side: [] }, moves: [], messages: ["1 card moved from Extra Deck to Main Deck: Pot of Greed."] });
     await pasteList(`#main\n${POT.code}`);
-    await waitFor(() => expect(screen.getAllByText(message)).toHaveLength(1));
-    expect(screen.getByText(/Deck imported/)).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText(/Deck imported/)).toBeNull(), { timeout: 6000 });
-    expect(screen.getAllByText(message)).toHaveLength(1);
-    fireEvent.click(within(screen.getByTestId("import-messages")).getByRole("button", { name: "Dismiss" }));
-    expect(screen.queryByText(message)).toBeNull();
-    expect(document.activeElement).toBe(within(region("Main")).getByRole("heading", { name: "Main" }));
-  }, 15_000);
+    await screen.findByTestId("import-messages");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.queryByTestId("import-messages")).toBeNull();
+  });
+
+  it("clears the move message when the next import fails", async () => {
+    importAnswer = () => ({ deck: { main: [POT.code], extra: [], side: [] }, moves: [], messages: ["1 card moved from Extra Deck to Main Deck: Pot of Greed."] });
+    await pasteList(`#main\n${POT.code}`);
+    await screen.findByTestId("import-messages");
+    importAnswer = () => { throw new Error("Server down"); };
+    fireEvent.click(await screen.findByRole("button", { name: "Import" }));
+    const popover = await screen.findByRole("dialog", { name: "Import a deck" });
+    fireEvent.change(within(popover).getByLabelText("Or paste YDK text or a ydke:// link"), { target: { value: "#main\n1" } });
+    fireEvent.click(within(popover).getByRole("button", { name: "Load paste" }));
+    await waitFor(() => expect(screen.queryByTestId("import-messages")).toBeNull());
+  });
+
+  it("shows the import as busy while the server answers a chosen file", async () => {
+    let answer!: () => void;
+    const gate = new Promise<void>((resolve) => { answer = resolve; });
+    const pass = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (url === "/api/decks/import") await gate;
+      return pass(url, init);
+    });
+    render(<SavedDeckEditor />);
+    fireEvent.click(await screen.findByRole("button", { name: "Import" }));
+    const popover = await screen.findByRole("dialog", { name: "Import a deck" });
+    const file = new File([`#main\n${POT.code}`], "Pot.ydk", { type: "text/plain" });
+    fireEvent.change(within(popover).getByLabelText("YDK file"), { target: { files: [file] } });
+    await waitFor(() => expect(popover.querySelector('[aria-busy="true"]')).not.toBeNull());
+    answer();
+    await waitFor(() => expect(namesIn("Main")).toEqual([POT.name]));
+  });
 
   it("clears the move message on the next save", async () => {
     const message = "1 card moved from Extra Deck to Main Deck: Pot of Greed.";
@@ -593,7 +638,8 @@ describe("Extra Deck rule: the server refuses a bad Extra card", () => {
     ));
     fireEvent.doubleClick(await tile(POT.name));
     fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
-    expect(await screen.findAllByText(error)).toHaveLength(1);
+    // The code is read: the message stays and a short way on is added.
+    expect(await screen.findAllByText(`${error} Then save again.`)).toHaveLength(1);
   });
 });
 

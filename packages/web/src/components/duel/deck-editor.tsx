@@ -304,7 +304,8 @@ export function DeckEditor({
     } catch (error) {
       if (generation === importRequest.current) setParseError(error instanceof Error ? error.message : "Could not parse that deck.");
     } finally {
-      if (generation === importRequest.current) setPasteBusy(false);
+      // The button state belongs to this click, not to the deck generation: a later edit must not leave it busy.
+      setPasteBusy(false);
     }
   }
 

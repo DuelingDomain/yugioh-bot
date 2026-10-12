@@ -232,9 +232,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [facetsError, setFacetsError] = useState(false);
   const [facetsRetry, setFacetsRetry] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
-  /** The server moved bad Extra cards to Main when it read this deck. Stays until dismissed or saved. */
-  /** What the server moved while importing. Stays until it is dismissed, the next import or a save. */
+  /** What the server moved while importing. Stays until it is dismissed, undone, the next import or a save. */
   const [importMessages, setImportMessages] = useState<string[]>([]);
+  /** The server moved bad Extra cards to Main when it read this deck. Stays until dismissed or saved. */
   const [repair, setRepair] = useState<SavedDeckView["extraDeckRepair"] | null>(null);
   const [hand, setHand] = useState<TestHand | null>(null);
   const [masterDropping, setMasterDropping] = useState(false);
@@ -468,6 +468,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   function restore(step: Snapshot) {
     importGeneration.current += 1;
+    // The note describes an import; undo or redo leaves a deck it no longer describes.
+    setImportMessages([]);
     repointPanel(step);
     setSelection(step.selection);
     setMode(step.mode);
@@ -812,18 +814,22 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     setSelected(null);
     setImportOpen(false);
     setImportMessages(messages);
-    setNotice("Deck imported. Press Ctrl+Z to undo.");
+    // The note itself is not a live region; the polite notice says that it is there.
+    setNotice(messages.length > 0
+      ? `Deck imported. ${messages.length === 1 ? "1 note" : `${messages.length} notes`} about moved cards above. Press Ctrl+Z to undo.`
+      : "Deck imported. Press Ctrl+Z to undo.");
   }
 
-  function onFile(file: File) {
-    if (busy) return;
+  /** Resolves when the file is read and answered, so the import button can show that it works. */
+  function onFile(file: File): Promise<void> {
+    if (busy) return Promise.resolve();
     if (file.size > MAX_IMPORT_FILE_BYTES) {
       setParseError("This file is too large to be a YDK deck.");
-      return;
+      return Promise.resolve();
     }
     const generation = ++importGeneration.current;
     setFileName(file.name);
-    void file.text().then(
+    return file.text().then(
       async (text) => {
         if (generation !== importGeneration.current) return;
         try {
@@ -833,11 +839,15 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
           // A new deck that still has the default name takes the file's name.
           if (savedId == null && name.trim() === DEFAULT_NAME) setName(deckNameFromFile(file.name));
         } catch (reason: unknown) {
-          if (generation === importGeneration.current) setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
+          if (generation === importGeneration.current) {
+            setImportMessages([]);
+            setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
+          }
         }
       },
       (reason: unknown) => {
         if (generation === importGeneration.current) {
+          setImportMessages([]);
           setParseError(reason instanceof Error ? reason.message : "Could not read that file.");
         }
       },
@@ -851,7 +861,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       if (generation !== importGeneration.current) return;
       applyImported(prepared.deck, prepared.messages);
     } catch (reason: unknown) {
-      if (generation === importGeneration.current) setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
+      if (generation === importGeneration.current) {
+        setImportMessages([]);
+        setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
+      }
     }
   }
 
@@ -906,8 +919,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       // Keep selection provenance when a new deck acquires its permanent URL.
       if (savedId == null && !pool) window.history.replaceState(null, "", `/decks/${record.id}`);
     } catch (reason: unknown) {
-      // The server's INVALID_EXTRA_DECK_CARD answer names the card in its message; it shows as it is.
-      setSaveError(reason instanceof Error ? reason.message : "Could not save this deck.");
+      // The server refuses a bad Extra card with INVALID_EXTRA_DECK_CARD and names the card in its message.
+      // The local check above normally stops that first; if the server still refuses, point at the way on.
+      const message = reason instanceof Error ? reason.message : "Could not save this deck.";
+      setSaveError(reason instanceof DeckRequestError && reason.code === "INVALID_EXTRA_DECK_CARD"
+        ? `${message} Then save again.`
+        : message);
     } finally {
       setSaveBusy(false);
     }

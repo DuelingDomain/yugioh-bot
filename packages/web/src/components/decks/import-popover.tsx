@@ -111,7 +111,7 @@ export function DeckImportPopover({ open, onOpenChange, disabled, mode, fileName
   mode: DuelMode;
   fileName: string | null;
   error: string | null;
-  onFile: (file: File) => void;
+  onFile: (file: File) => void | Promise<void>;
   onPaste: (text: string) => void | Promise<void>;
   className?: string;
 }) {
@@ -119,19 +119,21 @@ export function DeckImportPopover({ open, onOpenChange, disabled, mode, fileName
   const [dragging, setDragging] = useState(false);
   // The import is a server call; the button says so until it answers.
   const [importing, setImporting] = useState(false);
-  async function loadPaste() {
+  async function run(task: () => void | Promise<void>) {
     setImporting(true);
-    try { await onPaste(paste); } finally { setImporting(false); }
+    try { await task(); } finally { setImporting(false); }
   }
+  const loadPaste = () => run(() => onPaste(paste));
+  const loadFile = (file: File) => run(() => onFile(file));
   return (
     <Popover label="Import" dialogLabel="Import a deck" icon={<FileUp className="ic sm" aria-hidden />} open={open} onOpenChange={onOpenChange} disabled={disabled} className={className}>
       <p className={styles["de-pop-h"]}>Import a deck</p>
       <p className="small">This replaces the cards in the editor. Press Ctrl+Z to undo it.</p>
-      <label className={styles.drop} data-dragging={dragging || undefined}
+      <label className={styles.drop} data-dragging={dragging || undefined} aria-busy={importing || undefined}
         onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) { event.preventDefault(); setDragging(true); } }}
         onDragLeave={() => setDragging(false)}
-        onDrop={(event) => { event.preventDefault(); setDragging(false); const file = event.dataTransfer.files?.[0]; if (file) onFile(file); }}>
-        <input type="file" accept=".ydk,text/plain" className="sr" aria-label="YDK file" onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); event.target.value = ""; }} />
+        onDrop={(event) => { event.preventDefault(); setDragging(false); const file = event.dataTransfer.files?.[0]; if (file) void loadFile(file); }}>
+        <input type="file" accept=".ydk,text/plain" className="sr" aria-label="YDK file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadFile(file); event.target.value = ""; }} />
         <FileUp className="ic" aria-hidden />
         <span>{fileName ?? "Drop a .ydk file here"}</span>
         <small>{fileName ? "Choose another file to replace it" : "or click to choose one"}</small>

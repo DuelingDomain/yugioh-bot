@@ -48,7 +48,10 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
   // A typed passcode that the search found shows (and gets) that card's default section.
   const exactCard = isPasscode ? cards.find((card) => card.code === Number(trimmed)) : undefined;
   const shownCard = activeCard ?? exactCard;
-  const chosenSection = section ?? (shownCard ? defaultAddSection(shownCard) : "main");
+  // A sticky choice that does not fit the card shown falls back to the card's own section.
+  const chosenSection = section != null && shownCard != null && placementBlock(shownCard, section) != null
+    ? defaultAddSection(shownCard)
+    : section ?? (shownCard ? defaultAddSection(shownCard) : "main");
 
   useEffect(() => {
     // Scroll inside the list only; scrollIntoView would also move the page.
@@ -70,7 +73,9 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
   }, [waitingFor, trimmed, search]);
 
   function sectionFor(card?: DeckCardInfo): AddSection {
-    const wanted = section ?? (card ? defaultAddSection(card) : "main");
+    const wanted = section != null && card != null && placementBlock(card, section) != null
+      ? defaultAddSection(card)
+      : section ?? (card ? defaultAddSection(card) : "main");
     return wanted === "side" && !sideAllowed ? "main" : wanted;
   }
 

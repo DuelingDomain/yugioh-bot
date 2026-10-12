@@ -156,6 +156,21 @@ describe("saving an imported deck to My Decks", () => {
     expect(createSavedDeck).toHaveBeenCalledOnce();
   });
 
+  it("gives the Load paste button back after a paste, so a second paste works", async () => {
+    renderEditor();
+    await waitFor(() => expect(screen.getByLabelText("Use a saved deck")).not.toBeDisabled());
+    fireEvent.change(screen.getByLabelText("Paste YDK or YDKE"), { target: { value: YDK } });
+    fireEvent.click(screen.getByRole("button", { name: "Load paste" }));
+    expect(await screen.findByRole("button", { name: "Remove 111 from Main" })).toBeInTheDocument();
+    // The paste replaced the deck, which also moves the request generation on; the button must still come back.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Load paste" })).toBeEnabled());
+
+    fireEvent.change(screen.getByLabelText("Paste YDK or YDKE"), { target: { value: "#main\n901\n#extra\n!side" } });
+    fireEvent.click(screen.getByRole("button", { name: "Load paste" }));
+    expect(await screen.findByRole("button", { name: "Remove 901 from Main" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Load paste" })).toBeEnabled());
+  });
+
   it("keeps a newer import when an older server response arrives later", async () => {
     let release: (result: unknown) => void = () => undefined;
     prepareDeckTextImport.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
