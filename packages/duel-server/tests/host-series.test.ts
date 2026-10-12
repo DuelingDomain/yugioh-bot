@@ -1,6 +1,7 @@
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { createHmac } from "node:crypto";
-import { rmSync } from "node:fs";
+import { rmSync, utimesSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
@@ -428,6 +429,8 @@ describe("series game lobby ops", () => {
   });
   it("keeps named card details with the owner while the other seat gets only the room flag", async () => {
     const app = setup();
+    // Keep the real process bundle while the host uses its synthetic card database.
+    vi.unstubAllEnvs();
     const { host, workers } = openHost(app);
     const { duel, series } = await startChallenge(app, host, 3);
     await endGame(host, workers[0]!, duel.slug, app.p1, 0);
@@ -446,6 +449,44 @@ describe("series game lobby ops", () => {
     expect(other.data.startBlockedByOther).toBe(true);
     expect(other.data.startBlocked).toBeUndefined();
     expect(JSON.stringify(other.data).toLowerCase()).not.toContain("test fusion");
+  });
+  it("repairs future copies with the host directory and refreshes it between reads", async () => {
+    const app = setup();
+    const otherData = createHostDataFixture([
+      { code: 901, name: "Conflicting Fusion", type: 0x41 },
+      { code: 903, name: "Conflicting Spell", type: 2 },
+    ]);
+    try {
+      vi.stubEnv("DUEL_DATA_DIR", otherData);
+      const { host } = openHost(app);
+      const { duel, series } = challenge(app, 3);
+      const legacy = { ...deckWithSide(), extra: [901, 903] };
+      for (const column of ["base_deck0_json", "base_deck1_json", "deck0_json", "deck1_json"]) {
+        app.db.prepare(`update duel_series set ${column}=? where id=?`).run(JSON.stringify(legacy), series.id);
+      }
+      app.db.prepare("update duel_seats set deck_json=? where duel_id=?").run(JSON.stringify(legacy), duel.id);
+      const first = await post(host, { op: "view", slug: duel.slug, playerId: app.p1 });
+      expect(first.status).toBe(200);
+      expect(first.data.myDeck.extra).toEqual([903]);
+      expect(first.data.myDeck.main).toEqual([...legacy.main, 901]);
+      const path = join(DATA, "cards.cdb");
+      const cards = new Database(path);
+      try { cards.prepare("update datas set type=2 where id=903").run(); }
+      finally { cards.close(); }
+      const changed = new Date(Date.now() + 2000);
+      utimesSync(path, changed, changed);
+      const second = await post(host, { op: "view", slug: duel.slug, playerId: app.p1 });
+      expect(second.status).toBe(200);
+      expect(second.data.myDeck.extra).toEqual([]);
+      expect(second.data.myDeck.main).toEqual([...legacy.main, 901, 903]);
+    } finally {
+      const cards = new Database(join(DATA, "cards.cdb"));
+      try { cards.prepare("update datas set type=65 where id=903").run(); }
+      finally { cards.close(); }
+      const restored = new Date(Date.now() + 4000);
+      utimesSync(join(DATA, "cards.cdb"), restored, restored);
+      rmSync(otherData, { recursive: true, force: true });
+    }
   });
   it("does not label an engine start failure as another player's deck block", async () => {
     const app = setup();

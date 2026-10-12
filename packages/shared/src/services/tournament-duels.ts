@@ -3,7 +3,7 @@ import type { DuelBestOf, DuelDeck, DuelMasterRule, DuelMode, DuelSettings } fro
 import { DuelSettingsError, NO_BANLIST_ID, normalizeDuelSettings } from "../duels/settings.js";
 import { createDuelSeriesService } from "./duel-series.js";
 import { createMatchService } from "./matches.js";
-import type { CardIdentityCatalog } from "../duels/pool.js";
+import type { DeckTypeEngineSource } from "./deck-sections.js";
 import { createDeckCopyRepairService } from "./deck-copy-repair.js";
 
 export class TournamentDuelError extends Error {
@@ -195,7 +195,7 @@ function copyDeck(deck: DuelDeck): DuelDeck {
   return copy;
 }
 
-export function createTournamentDuelService(db: Database.Database, engine?: CardIdentityCatalog): TournamentDuelService {
+export function createTournamentDuelService(db: Database.Database, engine?: DeckTypeEngineSource): TournamentDuelService {
   let deckCopies: ReturnType<typeof createDeckCopyRepairService> | undefined;
   const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(db, engine);
   const selectRules = db.prepare<[number], TournamentRulesRow>(`

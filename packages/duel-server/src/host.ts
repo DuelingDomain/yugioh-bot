@@ -10,7 +10,7 @@ import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
 import { createGithubCardDataStatus } from "./github-card-data-status.js";
-import { createDeckCopyRepairService, createDuelSeriesService, createDuelService, createTournamentDuelService, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
+import { loadArtworkIdentityCatalog, createDeckCopyRepairService, createDuelSeriesService, createDuelService, createTournamentDuelService, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCommand,
@@ -331,9 +331,10 @@ export function createDuelHost(options: {
 }): DuelHost {
   if (!options.secret) throw new Error("DUEL_INTERNAL_SECRET is required");
   let deckCopies: ReturnType<typeof createDeckCopyRepairService> | undefined;
-  const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(options.db);
+  const repairEngine = () => loadArtworkIdentityCatalog(options.dataDirectory);
+  const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(options.db, repairEngine);
   const service = createDuelService(options.db, { rollDie: options.rollDie });
-  const series = createDuelSeriesService(options.db);
+  const series = createDuelSeriesService(options.db, repairEngine);
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as EngineDataManifest;
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
   const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory, { manifest, now: options.now });

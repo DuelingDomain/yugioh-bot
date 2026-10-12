@@ -1,14 +1,13 @@
 import type Database from "better-sqlite3";
-import type { CardIdentityCatalog } from "../duels/pool.js";
 import { isExtraDeckCard } from "../duels/extra-deck.js";
-import { createDeckTypeLookup, hasKnownDeckCardType } from "./deck-sections.js";
+import { createDeckTypeLookup, hasKnownDeckCardType, type DeckTypeEngineSource } from "./deck-sections.js";
 
 type Copy = { table: string; column: string; id: number; json: string };
 type JsonRow = { id: number; json: string };
 const seriesColumns = ["base_deck0_json", "base_deck1_json", "deck0_json", "deck1_json"] as const;
 
 /** Repairs future-use deck copies, preserving unknown codes, metadata, locks and readiness. */
-export function createDeckCopyRepairService(db: Database.Database, engine?: CardIdentityCatalog) {
+export function createDeckCopyRepairService(db: Database.Database, engine?: DeckTypeEngineSource) {
   const findCard = createDeckTypeLookup(db, engine);
   const registrationRows = db.prepare<[number, number], JsonRow>(
     "select rowid as id, deck_json as json from tournament_participants where tournament_id=? and player_id=? and deck_json is not null",
@@ -31,11 +30,11 @@ export function createDeckCopyRepairService(db: Database.Database, engine?: Card
     updates.set(`${table}.${column}`, db.prepare(`update ${table} set ${column}=? where rowid=? and ${column}=?`));
   }
 
-  const repairedJson = (raw: string): string | undefined => {
+  const repairedJson = (raw: string, lookup: ReturnType<typeof findCard.snapshot>): string | undefined => {
     let deck: Record<string, unknown>;
     try { deck = JSON.parse(raw); } catch { return; }
     if (!deck || !Array.isArray(deck.main) || !Array.isArray(deck.extra)) return;
-    const types = new Map([...new Set(deck.extra)].map(code => [code, typeof code === "number" ? findCard(code) : undefined]));
+    const types = new Map([...new Set(deck.extra)].map(code => [code, typeof code === "number" ? lookup(code) : undefined]));
     const moved: number[] = [], extra: unknown[] = [];
     for (const code of deck.extra) {
       const card = types.get(code);
@@ -47,11 +46,14 @@ export function createDeckCopyRepairService(db: Database.Database, engine?: Card
     return JSON.stringify({ ...deck, main: [...deck.main, ...moved], extra });
   };
   const repair = (read: () => Copy[]) => {
-    if (!read().some(copy => repairedJson(copy.json) !== undefined)) return;
+    const copies = read();
+    if (!copies.length) return;
+    const lookup = findCard.snapshot();
+    if (!copies.some(copy => repairedJson(copy.json, lookup) !== undefined)) return;
     const apply = () => {
       // Re-read under the write lock so a concurrently changed deck or started game is never overwritten.
       for (const copy of read()) {
-        const next = repairedJson(copy.json);
+        const next = repairedJson(copy.json, lookup);
         if (next !== undefined) updates.get(`${copy.table}.${copy.column}`)!.run(next, copy.id, copy.json);
       }
     };

@@ -11,7 +11,8 @@ import type {
   DuelSeriesSummary,
   DuelSession,
 } from "../duels/index.js";
-import { deckCardCounts, type CardIdentityCatalog } from "../duels/pool.js";
+import { deckCardCounts } from "../duels/pool.js";
+import type { DeckTypeEngineSource } from "./deck-sections.js";
 import { createDeckCopyRepairService } from "./deck-copy-repair.js";
 import { normalizeDuelSettings, parseStoredDuelSettings } from "../duels/settings.js";
 import type { DuelSettings } from "../duels/settings.js";
@@ -753,7 +754,7 @@ export function createSeriesStore(db: Database.Database) {
 
 export type DuelSeriesStore = ReturnType<typeof createSeriesStore>;
 
-export function createDuelSeriesService(db: Database.Database, engine?: CardIdentityCatalog): DuelSeriesService {
+export function createDuelSeriesService(db: Database.Database, engine?: DeckTypeEngineSource): DuelSeriesService {
   let deckCopies: ReturnType<typeof createDeckCopyRepairService> | undefined;
   const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(db, engine);
   const store = createSeriesStore(db);
