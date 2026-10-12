@@ -501,9 +501,11 @@ function probeRects(box: HTMLElement, points: ReadonlyArray<readonly [string, st
     box.appendChild(dot);
     return dot;
   });
-  const rects = dots.map((dot) => dot.getBoundingClientRect());
-  for (const dot of dots) dot.remove();
-  return rects;
+  try {
+    return dots.map((dot) => dot.getBoundingClientRect());
+  } finally {
+    for (const dot of dots) dot.remove();
+  }
 }
 
 /**
