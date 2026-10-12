@@ -64,11 +64,11 @@ function fullColumn(actor: Seat, missing: boolean, card: "Blasting Fuse" | "Bing
   const peer: Seat | null = actor === "p0" ? "p1" : actor === "p1" ? "p0" : null;
   const setup: Scenario["setup"] = {};
   for (const seat of SEATS.ffa3) setup[seat] = seat === actor
-    ? { monsters: [null, missing && !peer ? null : ELF, null, null, null, spider], spells: [null, { card, pos: "set" }] }
+    ? { monsters: [null, missing && !peer ? null : ELF, null, null, null, spider], spells: [null, { card, pos: "set" }], ...(missing ? { hand: [POT] } : {}) }
     : { monsters: slots(3, OX), spells: missing && seat === peer ? [] : [null, null, null, { card: POT, pos: "set" }] };
   return scenario(`ffa3-${actor}-${card === "Bingo Card" ? "bingo" : "blasting"}-full-column-${missing ? "missing-zone" : "filled"}`, "ffa3", setup, [
     ...turnsBefore("ffa3", actor).flatMap(step => [step, ...(!missing ? Array.from({ length: 5 }, () => pass(actor)) : [])]),
-    ...(missing ? [expectNotOffered("activate", card, actor)] : [
+    ...(missing ? [activate(POT, actor), expectNotOffered("activate", card, actor)] : [
       activate(card, actor), ...(card === "Bingo Card" ? [select({ card: ELF, owner: actor })] : []),
       expectPrompt({ by: actor, context: "action" }),
       expectBoard(Object.fromEntries(SEATS.ffa3.map(seat => [seat,
