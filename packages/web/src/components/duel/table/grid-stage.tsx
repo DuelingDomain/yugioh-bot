@@ -286,8 +286,7 @@ function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: reado
 /**
  * The frame of a pair: ONE mat round the fields of a column that are still in (both halves and the shared Extra Monster
  * row between them), so the pair reads as one field. Its turn light and the light of the lifted pair are on it, never
- * on one half. A pair that loses a seat breaks: the frame shrinks to the field that is left. The lone seat of the 3-way
- * table has a frame of its own field.
+ * on one half. A pair that loses a seat breaks: the frame shrinks to the field that is left.
  */
 export function pairFrameRect(spots: readonly GridRect[]): GridRect | null {
   if (spots.length === 0) return null;
@@ -716,9 +715,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
             const out = state !== "live";
             const self = slot.relation === "self";
             const drawer = drawerSeats[cell.column];
-            // A seat with a partner: one of the pair draws the shared Extra Monster row. The lone seat of the 3-way table
-            // draws its own two.
-            const emz = cell.partner == null ? "own" : drawer === cell.seat ? "pair" : "none";
+            // One of the pair draws the shared Extra Monster row.
+            const emz = drawer === cell.seat ? "pair" : "none";
             const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
               engine,
               seat: cell.seat,
@@ -736,7 +734,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 right: 0,
                 gap: PAIR_GAP,
                 // A partner that went out stays joined while its crumble waits: the mats change at the crumble, not at the attack.
-                joined: cell.partner != null && ((states.get(cell.partner) ?? "live") === "live" || heldSeats.has(cell.partner)),
+                joined: (states.get(cell.partner) ?? "live") === "live" || heldSeats.has(cell.partner),
                 framed: true,
               }),
               showTally: false,
@@ -750,8 +748,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               onHoverCard: controller.onHoverCard,
             };
             const exitRow = exitState.exits.find((entry) => entry.seat === cell.seat);
-            // The lone seat of the 3-way table has its own Extra Monster row inside its box, so its outline covers the whole box.
-            const outline = out ? (cell.partner == null ? spot.rect : placed.cells[cellIndex(cell)].own) : null;
+            const outline = out ? placed.cells[cellIndex(cell)].own : null;
             return (
               <div
                 key={cell.seat}
@@ -790,7 +787,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                     masterRule={masterRule}
                     faceUpHand={exitRow.faceUpHand}
                     reducedMotion={reducedMotion}
-                    clipTop={cell.partner == null ? 0 : OVERLAP * spot.z}
+                    clipTop={OVERLAP * spot.z}
                     onDone={() => exitState.finish(cell.seat)}
                   />
                 ) : null}

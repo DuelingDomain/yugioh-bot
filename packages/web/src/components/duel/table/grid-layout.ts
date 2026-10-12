@@ -2,10 +2,8 @@ import { sharedExtraSeatOf, type DuelEngineView, type DuelMasterRule } from "@yu
 import type { TableFormat, TableLayout } from "./types";
 
 /**
- * Layout of the grid table, pure ("Pair lift"). The 4-way table has four full fields in two columns of two; the 3-way
- * table has the facing pair 0+1 in one column and seat 2 alone in the other (its own field and its own Extra Monster
- * Zones, nothing shared). The two fields of a column FACE each other and are partners (pairs 0+1 and 2+3; fixed for the
- * whole duel). They share one row of two Extra Monster Zones in the middle band between them, over the 2nd and 4th
+ * Layout of the 4-way grid table, pure ("Pair lift"). It has four full fields in two columns of two. The two fields of a
+ * column FACE each other and are partners (pairs 0+1 and 2+3; fixed for the whole duel). They share one row of two Extra Monster Zones in the middle band between them, over the 2nd and 4th
  * monster columns, like the two sides of a 1v1 table. The life plates sit above and below the pair, not in the band, so
  * the free cells of the band are free for the phase hub. Fields never move when a player is out: the field crumbles and
  * its place stays empty.
@@ -28,32 +26,22 @@ export interface GridCell {
   rotateDeg: 0 | 180;
   /** The viewer's own cell (bottom-left). A spectator's anchor seat fills it too. */
   home: boolean;
-  /** The facing seat of the same column: it shares the Extra Monster row with this one. Null for the lone seat of the 3-way table. */
-  partner: number | null;
+  /** The facing seat of the same column: it shares the Extra Monster row with this one. */
+  partner: number;
 }
 
-/** The formats that draw the grid. */
-export type GridFormat = "ffa3" | "ffa4";
-
 /**
- * The partner of a seat: the facing seat, 0+1 and 2+3 (3-way: 0+1, and seat 2 has none). It is the engine's fixed pairing
- * (`sharedExtraSeatOf` of shared), for the whole duel; the grid asks that one helper and keeps no copy of the rule.
+ * The partner of a seat: the facing seat, 0+1 and 2+3. It is the engine's fixed pairing (`sharedExtraSeatOf` of shared),
+ * for the whole duel; the grid asks that one helper and keeps no copy of the rule.
  */
-export const gridPartnerOf = (seat: number, format: GridFormat = "ffa4"): number | null => sharedExtraSeatOf(format, seat);
+export const gridPartnerOf = (seat: number): number => sharedExtraSeatOf("ffa4", seat) ?? seat ^ 1;
 
 /**
  * Who sits where, seen from `viewer` (a spectator sees the table from seat 0). You are always bottom-left; a seat with a
  * partner has it in front of you (top-left), and the other column is on the right, turned the same way:
- * 4-way BL = v, TL = v ^ 1, BR = 3 - v, TR = (3 - v) ^ 1.
- * 3-way: seats 0 and 1 see seat 2 alone at the bottom right; seat 2 is alone at the bottom left with the pair on the
- * right (seat 0 at the bottom, seat 1 in front of it). A place with no seat is null.
+ * BL = v, TL = v ^ 1, BR = 3 - v, TR = (3 - v) ^ 1.
  */
-export function gridPlacement(viewer: number | null, format: GridFormat = "ffa4"): Record<GridQuadrant, number | null> {
-  if (format === "ffa3") {
-    if (viewer === 2) return { bl: 2, tl: null, br: 0, tr: 1 };
-    const v = viewer === 1 ? 1 : 0;
-    return { bl: v, tl: v ^ 1, br: 2, tr: null };
-  }
+export function gridPlacement(viewer: number | null): Record<GridQuadrant, number> {
   const v = viewer != null && viewer >= 0 && viewer <= 3 ? viewer : 0;
   const rivals = 3 - v;
   return { bl: v, tl: v ^ 1, br: rivals, tr: rivals ^ 1 };
@@ -71,45 +59,41 @@ export type GridSeatLike = Pick<DuelEngineView["seats"][number], "seat" | "elimi
 
 /**
  * True when the engine shares the Extra Monster Zones as the grid draws them: every seat in the duel shares with its
- * facing seat (`gridPartnerOf`) while that seat is in the duel, and with no other seat (the lone seat of the 3-way table
- * shares with nobody). A 4-way seat view without `sharedExtraWith` (a fixture, an older view) does not count against it;
- * a 3-way one does (the plaza stage draws a 3-way table until the engine reports its facing pair). A
- * core that shares across (0+2, 1+3) or not at all fails, because the grid would draw two seats' cards in one shared cell.
+ * facing seat (`gridPartnerOf`) while that seat is in the duel, and with no other seat. A seat view without
+ * `sharedExtraWith` (a fixture, an older view) does not count against it. A core that shares across (0+2, 1+3) or not
+ * at all fails, because the grid would draw two seats' cards in one shared cell.
  */
-export function gridExtraZonesFit(seats: readonly GridSeatLike[], format: GridFormat = "ffa4"): boolean {
+export function gridExtraZonesFit(seats: readonly GridSeatLike[]): boolean {
   const out = new Set(seats.filter((view) => view.eliminated === true).map((view) => view.seat));
   return seats.every((view) => {
     if (view.eliminated === true) return true;
-    // A 4-way view without the field is a fixture or an older view and does not count against the grid. The 3-way table
-    // draws the grid only when the engine says how it shares: without it the plaza stage stays.
-    if (view.sharedExtraWith === undefined) return format !== "ffa3";
+    // A view without the field is a fixture or an older view and does not count against the grid.
+    if (view.sharedExtraWith === undefined) return true;
     // The engine's answer: the fixed facing seat while it is in the duel, else nobody.
-    return view.sharedExtraWith === sharedExtraSeatOf(format, view.seat, out);
+    return view.sharedExtraWith === sharedExtraSeatOf("ffa4", view.seat, out);
   });
 }
 
 /**
- * The one place that decides whether a table draws the grid: a 3-way or 4-way free-for-all whose engine shares the Extra
+ * The one place that decides whether a table draws the grid: a 4-way free-for-all whose engine shares the Extra
  * Monster Zones between facing seats (`gridExtraZonesFit`). An out seat keeps its cell (the field crumbles, then the
  * cell stays empty), so the seat count never changes it. The shell keeps a refusal for the rest of the duel.
  */
 export function usesGridLayout(format: TableFormat | "1v1", seats: readonly GridSeatLike[]): boolean {
-  if (format === "ffa4") return seats.length === 4 && gridExtraZonesFit(seats, "ffa4");
-  // The owner kept the 3-way plaza (2026-10-11): a facing pair is drawn there as a link between its two fields, not as a grid.
-  return false;
+  // The 3-way table keeps the plaza stage (owner, 2026-10-11): its facing pair is drawn there as a link, not as a grid.
+  return format === "ffa4" && seats.length === 4 && gridExtraZonesFit(seats);
 }
 
 /** The cell of every seat of the layout. Spectators have seat 0 (the anchor) at bottom-left. */
-export function gridCells(layout: Pick<TableLayout, "slots" | "viewerSeat"> & { format?: TableFormat }): GridCell[] {
-  const format: GridFormat = layout.format === "ffa3" ? "ffa3" : "ffa4";
-  const placement = gridPlacement(layout.viewerSeat, format);
+export function gridCells(layout: Pick<TableLayout, "slots" | "viewerSeat">): GridCell[] {
+  const placement = gridPlacement(layout.viewerSeat);
   const present = new Set(layout.slots.map((slot) => slot.seat));
   const cells: GridCell[] = [];
   for (const quadrant of Object.keys(QUADRANTS) as GridQuadrant[]) {
     const seat = placement[quadrant];
     if (seat == null || !present.has(seat)) continue;
     const at = QUADRANTS[quadrant];
-    cells.push({ seat, quadrant, ...at, rotateDeg: at.row === 0 ? 180 : 0, home: quadrant === "bl", partner: gridPartnerOf(seat, format) });
+    cells.push({ seat, quadrant, ...at, rotateDeg: at.row === 0 ? 180 : 0, home: quadrant === "bl", partner: gridPartnerOf(seat) });
   }
   return cells;
 }
@@ -353,8 +337,7 @@ function placeColumn(column: 0 | 1, z: number, drawerRow: 0 | 1, centerX: number
 /**
  * The final layout of the grid in a box, pure. `focus` null = all fields: an equal 2x2. A focus lifts its WHOLE pair
  * (both fields of its column) to about 1.16x of the rest size, by the column width; the other pair keeps the rest size,
- * or gives up width (down to 0.66x) so the lifted pair fits. The two Extra Monster rows lie on one line (the lone seat of
- * the 3-way table draws its own row on that line).
+ * or gives up width (down to 0.66x) so the lifted pair fits. The two Extra Monster rows lie on one line.
  */
 export function gridFocusLayout(world: GridWorld, viewport: GridViewport, focus: GridFocusTarget | null, options: GridLayoutOptions = {}): GridFocusLayout {
   const corner = options.corner;

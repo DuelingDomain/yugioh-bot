@@ -6,7 +6,6 @@ import {
   cellState,
   gridCells,
   gridFocusLayout,
-  gridExtraZonesFit,
   gridPartnerOf,
   gridPlacement,
   gridWorld,
@@ -41,67 +40,7 @@ describe("usesGridLayout", () => {
     expect(usesGridLayout("ffa4", seats([2]))).toBe(true);
     expect(usesGridLayout("tag", seats())).toBe(false);
     expect(usesGridLayout("1v1", seats().slice(0, 2))).toBe(false);
-  });
-});
-
-// The 3-way table: seats 0 and 1 are a facing pair that shares one Extra Monster row, seat 2 is alone with its own.
-type Shared = Seat & { sharedExtraWith?: number | null };
-const trio = (shared: (number | null | undefined)[] = [1, 0, null], out: number[] = []): Shared[] =>
-  [0, 1, 2].map((seat) => ({ seat, eliminated: out.includes(seat), sharedExtraWith: shared[seat] }));
-const layoutOf3 = (viewer: number | null, out: number[] = []) => tableLayout("ffa3", { format: "ffa3", seats: trio(undefined, out) } as never, viewer);
-const quadrants3 = (viewer: number | null) => Object.fromEntries(gridCells(layoutOf3(viewer)).map((cell) => [cell.seat, cell.quadrant]));
-
-describe("the 3-way grid", () => {
-  it("never uses the grid: the 3-way table keeps the plaza and links the facing pair there", () => {
-    expect(usesGridLayout("ffa3", trio())).toBe(false);
-    expect(usesGridLayout("ffa3", trio([null, null, null], [1]))).toBe(false);
-    expect(usesGridLayout("ffa3", trio([null, null, null]))).toBe(false);
-    expect(usesGridLayout("ffa3", trio([undefined, undefined, undefined]))).toBe(false);
-    expect(gridExtraZonesFit(trio([1, 0, null]), "ffa3")).toBe(true);
-    expect(gridExtraZonesFit(trio([1, 0, 1]), "ffa3")).toBe(false);
-  });
-
-  it("pairs 0 and 1 and leaves seat 2 without a partner", () => {
-    expect([0, 1, 2].map((seat) => gridPartnerOf(seat, "ffa3"))).toEqual([1, 0, null]);
-    expect(gridPartnerOf(2)).toBe(3);
-  });
-
-  it("places the pair on the left and seat 2 alone at the bottom right for seats 0 and 1 and a spectator", () => {
-    expect(gridPlacement(0, "ffa3")).toEqual({ bl: 0, tl: 1, br: 2, tr: null });
-    expect(gridPlacement(1, "ffa3")).toEqual({ bl: 1, tl: 0, br: 2, tr: null });
-    expect(gridPlacement(null, "ffa3")).toEqual(gridPlacement(0, "ffa3"));
-    expect(quadrants3(0)).toEqual({ 0: "bl", 1: "tl", 2: "br" });
-    expect(quadrants3(null)).toEqual({ 0: "bl", 1: "tl", 2: "br" });
-  });
-
-  it("puts seat 2 alone at the bottom left, with the pair on the right: seat 0 at the bottom, seat 1 in front of it", () => {
-    expect(gridPlacement(2, "ffa3")).toEqual({ bl: 2, tl: null, br: 0, tr: 1 });
-    expect(quadrants3(2)).toEqual({ 2: "bl", 0: "br", 1: "tr" });
-    const cells = gridCells(layoutOf3(2));
-    expect(cells.find((cell) => cell.seat === 2)).toMatchObject({ home: true, partner: null, column: 0, row: 1, rotateDeg: 0 });
-    expect(cells.find((cell) => cell.seat === 1)).toMatchObject({ partner: 0, column: 1, row: 0, rotateDeg: 180 });
-  });
-
-  it("keeps the cells of the seats that are out: nothing moves or joins", () => {
-    for (const out of [[], [1], [2], [0, 1], [0, 2]]) {
-      expect(Object.fromEntries(gridCells(layoutOf3(0, out)).map((cell) => [cell.seat, cell.quadrant]))).toEqual({ 0: "bl", 1: "tl", 2: "br" });
-    }
-  });
-
-  it("draws the shared row of the pair and lines the solo seat's own row up with it", () => {
-    for (const viewer of [0, 2]) {
-      const cells = gridCells(layoutOf3(viewer));
-      const home = cells.find((cell) => cell.home)!;
-      const layout = gridFocusLayout(gridWorld(5), { width: 1920, height: 1080 }, null, { homeColumn: home.column });
-      expect(layout.bands[0].rect.y).toBe(layout.bands[1].rect.y);
-      const solo = cells.find((cell) => cell.partner == null)!;
-      expect(solo.row).toBe(1);
-      const spot = layout.cells[cellIndex(solo)];
-      expect(spot.drawer).toBe(true);
-      // Its own Extra Monster row begins one pad under its box top, on the line of the shared row of the pair.
-      expect(layout.bands[solo.column].rect.y).toBeGreaterThan(spot.rect.y);
-      expect(layout.bands[solo.column].rect.y + layout.bands[solo.column].rect.height).toBeLessThan(spot.own.y + spot.own.height);
-    }
+    expect(usesGridLayout("ffa3", seats().slice(0, 3))).toBe(false);
   });
 });
 
