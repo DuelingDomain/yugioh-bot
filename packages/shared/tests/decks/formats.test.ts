@@ -49,6 +49,18 @@ describe("YDKE", () => {
 });
 
 describe("YDK", () => {
+  it.each([
+    ["#maindeck", "#extradeck", "!sidedeck"],
+    ["#MAINDECK", "#EXTRADECK", "!SIDEDECK"],
+    ["#Main Deck", "#Extra Deck", "!Side Deck"],
+    ["# main", "# extra", "! side"],
+    ["#main: cards", "#extradeck: cards", "!sidedeck: cards"],
+  ])("keeps cards in their sections with headers %s / %s / %s", (main, extra, side) => {
+    expect(parseYdk(`${main}\n1\n${extra}\n2\n${side}\n3`)).toEqual({
+      deck: { main: [1], extra: [2], side: [3] }, issues: [],
+    });
+  });
+
   it("accepts header labels, case and spaces", () => {
     expect(parseYdk(" # MAIN Deck \n1\n# Extra deck\n2\n! SIDE Deck\n3")).toEqual({
       deck: { main: [1], extra: [2], side: [3] }, issues: [],

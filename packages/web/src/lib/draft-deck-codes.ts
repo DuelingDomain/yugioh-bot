@@ -17,7 +17,7 @@ export async function normalizeDraftCardCodes(input: {
   guildId: string; playerId: number; codes: number[]; preserveArtwork?: boolean;
   lookupLimit?: number; cacheOnly?: boolean; includeCanonical?: boolean;
 }): Promise<
-  { ok: true; codes: Map<number, number | null>; canonicalCodes: Map<number, number | null>; lookupLimitedCodes: Set<number> } | { ok: false; response: NextResponse }
+  { ok: true; codes: Map<number, number | null>; canonicalCodes: Map<number, number | null>; lookupLimitedCodes: Set<number>; lookupRemaining?: number } | { ok: false; response: NextResponse }
 > {
   const ids = [...new Set(input.codes)];
   const mapped = new Map<number, number | null>();
@@ -60,7 +60,7 @@ export async function normalizeDraftCardCodes(input: {
     // A missing remainder never grants a fresh budget to the next batch.
     if (remaining !== undefined) remaining = typeof details.lookupRemaining === "number" ? details.lookupRemaining : 0;
   }
-  return { ok: true, codes: mapped, canonicalCodes: canonical, lookupLimitedCodes: limited };
+  return { ok: true, codes: mapped, canonicalCodes: canonical, lookupLimitedCodes: limited, lookupRemaining: remaining };
 }
 
 /** Known engine artwork ids are preserved. Unresolved ids stay in the deck, so loading never loses cards and pool validation rejects them. */

@@ -69,7 +69,7 @@ export function DeckImportPanel({
   dragging: boolean;
   onClose: () => void;
 }) {
-  const { tab, setTab, mode, setMode, view, error, notes, heldCount, previewFiles, previewPaste, retryHeld, recheck, rename, toggle, toggleAll, importSelected, reset } = importer;
+  const { tab, setTab, mode, setMode, view, error, notes, heldCount, previewFiles, previewPaste, retryHeld, dropHeld, recheck, rename, toggle, toggleAll, importSelected, reset } = importer;
   const [paste, setPaste] = useState("");
   const busy = view.phase === "loading" || view.phase === "importing";
   const showSource = view.phase === "idle" || view.phase === "loading" || view.phase === "preview";
@@ -151,14 +151,23 @@ export function DeckImportPanel({
         </ul>
       ) : null}
 
+      {heldCount > 0 ? (
+        <div className={styles.pvHeld} role="status" aria-live="polite">
+          <StatusLine tone="warn">
+            {heldCount === 1 ? "1 pick was not sent." : `${heldCount} picks were not sent.`} They stay here until you send them or remove them.
+          </StatusLine>
+          <span className={styles.pvActs}>
+            <SvButton variant="quiet" disabled={busy} onClick={retryHeld}>
+              {heldCount === 1 ? "Send it again" : "Send them again"}
+            </SvButton>
+            <SvButton variant="ghost" disabled={busy} onClick={dropHeld}>Remove</SvButton>
+          </span>
+        </div>
+      ) : null}
+
       {error ? (
         <div role="alert" className={styles.pvError}>
           <StatusLine tone="block">{error}</StatusLine>
-          {heldCount > 0 ? (
-            <SvButton variant="quiet" disabled={busy} onClick={retryHeld}>
-              {heldCount === 1 ? "Send the last pick again" : `Send the last ${heldCount} picks again`}
-            </SvButton>
-          ) : null}
         </div>
       ) : null}
 

@@ -224,6 +224,7 @@ export async function callDuelHost(input: {
     return { ok: false, response: failure({ error: configProblem }, 503) };
   }
   const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 }
+    : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
     : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {
     op: input.op,

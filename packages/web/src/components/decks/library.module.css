@@ -98,6 +98,7 @@
 .pvLoading { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--ink-2); font-size: 14.5px; }
 .pvNotes { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .pvError { max-width: 720px; }
+.pvHeld { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; max-width: 720px; }
 .drop { display: grid; justify-items: center; gap: 4px; padding: 22px 14px; border: 1px dashed rgb(var(--beam) / 0.4); border-radius: 8px; color: var(--ink-2); text-align: center; cursor: pointer; }
 .drop small { color: var(--ink-3); font-size: 13px; }
 .drop:hover, .drop[data-dragging] { border-color: rgb(var(--beam) / 0.9); }
