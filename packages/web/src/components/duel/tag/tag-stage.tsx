@@ -5,7 +5,7 @@ import { seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
 import { ChainRoomContext, type ChainStripSize } from "../table/chain-room";
 import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
-import { zoneKey } from "../constants";
+import { LOCATION_FZONE, LOCATION_MZONE, LOCATION_PZONE, LOCATION_SZONE, zoneKey } from "../constants";
 import { masterInUse, masterSummonLine } from "../master-place";
 import { isChainStripPrompt } from "../prompt-center";
 import { useStripRoom } from "../table/use-strip-room";
@@ -42,7 +42,6 @@ import { SharedExtraBand } from "./shared-band";
 import { batonOrder, lastTeamDamage, responseWindow, rivalPickOptions, teamGlyph, teamLoss, teamLp } from "./tag-logic";
 import { plateState, TeamLpPlate, type PlateMember } from "./team-lp-plate";
 import styles from "./tag-stage.module.css";
-import cameraStyles from "./tag-camera.module.css";
 
 export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
   /**
@@ -57,6 +56,8 @@ export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
 }
 
 const TAG = "tag" as const;
+/** Locations of the field zones: a pick there sits on a field, unlike a pile, a Deck or a hand. */
+const FIELD_LOCATIONS: ReadonlySet<number> = new Set([LOCATION_MZONE, LOCATION_SZONE, LOCATION_FZONE, LOCATION_PZONE]);
 const HALF_W = ROOF_FIELD.width / 2;
 const HALF_H = ROOF_FIELD.height / 2;
 /** Space between the phase hub and the chain hub while both are on the helipad. */
@@ -66,8 +67,6 @@ const FAR_ANCHOR_Y = -ROOF_FIELD.offsetY - ROOF_FIELD.height - 46;
 /** A screen this wide has free room left of the fields for the camera rail; a narrower one gets a row under the far plate. */
 const RAIL_COLUMN_MIN = 900;
 const RAIL_ROW = 46;
-/** Screen size of a field's focus button, in CSS px: large enough to hit with a finger, whatever the zoom. */
-const FOCUS_BTN_PX = 36;
 /**
  * A click on one of these does its own job (play a card, pick a zone, press a button): it never moves the camera.
  * On a phone, everything else on a field (the mat, the name label) or on a seat chip focuses that field, and so does a
@@ -361,9 +360,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const pose = poseRef.current;
     world.style.transform = roofTransform(pose, fit);
     paintedFitRef.current = fit;
-    // The focus buttons keep one size on screen: world units grow when the view zooms out.
-    const unit = FOCUS_BTN_PX / Math.max(fit * pose.zoom, 0.05);
-    root.querySelectorAll<HTMLElement>("[data-field-focus]").forEach((node) => node.style.setProperty("--focus-btn", `${unit.toFixed(1)}px`));
     pillsRef.current?.style.setProperty("--flip", Math.cos((pose.yaw * Math.PI) / 180) < 0 ? "180deg" : "0deg");
 
     const box = root.getBoundingClientRect();
@@ -546,16 +542,37 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         .map(({ seat, code, rgb }) => ({ seat, code, rgb })),
     [layout.slots, slotsOf, toneOf],
   );
-  // A close-up needs a free camera: not under an FX lock, and not while an attack is aimed (the aim wants every rival).
-  // A click on a field never moves the camera on a wide screen (a misclick would zoom): the corner button, the rail, the dock and the
-  // keys do. A phone has no room for the corner buttons: a tap on the field, its name or a plate chip focuses it there.
-  const focusFree = !camera.lock && !camera.aiming && controller.aim == null;
+  // A close-up needs a free camera: not under an FX lock. An aim or a pick leaves it free: the viewer steps to a rival field with its pill.
+  // A click on a field never moves the camera on a wide screen (a misclick would zoom): the nameplate pills, the rail, the dock and the
+  // keys do. A phone also focuses a field on a tap on the field, its name or a plate chip.
+  const focusFree = !camera.lock;
   const focusField = (seat: number) => {
     if (!focusFree) return;
     // In close-up a tap on a field never moves the camera, not on the field in view and not on a neighbour that
-    // shows at its edge: only the toggle button, the rail, the switcher and the keys do.
+    // shows at its edge: only the nameplate pills, the rail, the switcher and the keys do.
     if (camera.mode === "focus") return;
     dispatchCamera({ type: "focus", seat });
+  };
+  // A nameplate pill is the zoom toggle: it zooms onto its field, a second press on the same pill zooms out, and a press on
+  // another pill steps to that field. Only a press does it; the camera never zooms by itself.
+  // While a field is in close-up and a target pick or an attack aim has legal zones on a field out of view, that field's pill gets a
+  // soft hint (the camera never moves for it: the viewer presses the pill). The action menu and chain windows are not picks.
+  const hintSeats = useMemo(() => {
+    if (camera.mode !== "focus" || !controller.canAct) return [];
+    const pickMine = prompt != null && promptSeat === viewerSeat && !(prompt.kind === "choice" && (prompt.context?.type === "action" || prompt.context?.type === "chain"));
+    if (!pickMine && !camera.aiming && controller.aim == null) return [];
+    const seats = new Set<number>();
+    for (const key of legalKeys) {
+      const [controllerSeat, location] = key.split(":").map(Number);
+      // Only a zone on the field counts: a card in a Graveyard, a banished pile, a Deck or a hand is not on the field the pill zooms to.
+      if (Number.isInteger(controllerSeat) && FIELD_LOCATIONS.has(location) && controllerSeat !== camera.focusSeat) seats.add(controllerSeat);
+    }
+    return [...seats];
+  }, [camera.mode, camera.focusSeat, camera.aiming, controller.canAct, controller.aim, prompt, promptSeat, viewerSeat, legalKeys]);
+  const toggleZoom = (seat: number) => {
+    if (!focusFree) return;
+    if (camera.mode === "focus" && camera.focusSeat === seat) dispatchCamera({ type: "overview" });
+    else dispatchCamera({ type: "focus", seat });
   };
   const onStageClick = (event: MouseEvent<HTMLDivElement>) => {
     if (camera.mode === "focus") return;
@@ -651,7 +668,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const transform = near
       ? `translate3d(${slot.x - HALF_W}px, ${slot.y - HALF_H}px, ${ROOF_FIELD_Z}px)`
       : `translate3d(${slot.x}px, ${slot.y}px, ${ROOF_FIELD_Z}px) rotate(180deg) translate(${-HALF_W}px, ${-HALF_H}px)`;
-    const focused = camera.mode === "focus" && camera.focusSeat === seat;
     return (
       <div
         key={seat}
@@ -663,24 +679,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         style={{ width: ROOF_FIELD.width, height: ROOF_FIELD.height, transform }}
       >
         {renderSeatField(props)}
-        {!focusFree || isNarrow ? null : (
-          // One button per field is the zoom toggle: it zooms in from the overview, and in the close-up on this field it
-          // is the way back (same place, same button, the icon and the label change).
-          <button
-            type="button"
-            className={cameraStyles.focusBtn}
-            data-field-focus={seat}
-            data-focused={focused ? "true" : undefined}
-            data-near={near ? "true" : "false"}
-            aria-label={focused ? "Back to overview" : `Focus ${nameOf(seat)}'s field`}
-            title={focused ? "Back to overview (Esc)" : `Focus ${nameOf(seat)}'s field`}
-            onClick={() => (focused ? dispatchCamera({ type: "overview" }) : focusField(seat))}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d={focused ? "M9 4v5H4M15 4v5h5M4 15h5v5M20 15h-5v5" : "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"} />
-            </svg>
-          </button>
-        )}
       </div>
     );
   };
@@ -788,6 +786,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
               rgbOf={(seat) => toneOf(seat).rgb}
               out={outSeats}
               holderRef={(node) => { pillsRef.current = node; }}
+              zoom={{ seat: camera.mode === "focus" ? camera.focusSeat : null, free: focusFree, onToggle: toggleZoom, pickSeats, hintSeats, calm: reducedMotion, onPick }}
             />
             <TeamStrip near glyph={teamGlyph(anchorTeam, anchorTeam)} teamName={teamName(anchorTeam)} out={loss.lostTeam === anchorTeam} />
             <TeamStrip near={false} glyph={teamGlyph(anchorTeam, 1 - anchorTeam)} teamName={teamName(1 - anchorTeam)} out={loss.lostTeam === 1 - anchorTeam} />
@@ -862,6 +861,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
             seats={railSeats}
             nameOf={nameOf}
             out={outSeats}
+            hintSeats={hintSeats}
+            calm={reducedMotion}
             dispatch={dispatchCamera}
           />
         ) : null}

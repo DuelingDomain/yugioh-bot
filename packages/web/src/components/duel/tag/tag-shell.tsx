@@ -4,7 +4,7 @@ import { multiTableTextStyle, tableTextBig, useCardTextSize, useMultiTableTextFl
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { teamOfSeat } from "@yugidraft/shared/duels";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
-import { isBattlePhase, LOCATION_HAND } from "../constants";
+import { isBattlePhase } from "../constants";
 import { DuelResultScreen } from "../duel-result";
 import { SeatField } from "../field";
 import { MoveSourceBoundary } from "../fx-boundary";
@@ -16,7 +16,7 @@ import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { fieldWaitsForReveal } from "../field-gate";
 import { PhaseHub } from "../phase-hub";
-import { optionZoneKeys, PromptTray, promptTrayVisible } from "../prompts";
+import { PromptTray, promptTrayVisible } from "../prompts";
 import { useResultGate } from "../result-reveal";
 import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
@@ -34,7 +34,7 @@ import { useAimFlow } from "../table/use-aim-flow";
 import { useTableUi } from "../table/use-table-ui";
 import { tableZoneAnchor } from "../table/zone-find";
 import { SEAT_TONE_HEX, type TableController } from "../table/types";
-import { lastEventId, lockForEvents } from "./fx-lock";
+import { lastEventId, lockForEvents, otherPlayerActed } from "./fx-lock";
 import { resolveTagExtras, tagCameraYields, tagInputSuspended, type TagShellPreviewProps } from "./live-tag";
 import { initialRoofCamera, roofReducer } from "./roof-camera";
 import { CameraDock } from "./roof-map";
@@ -176,20 +176,32 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     }),
   );
 
-  // The FX lock follows engine events newer than the last one handled. With reduced motion, or while the connection is
-  // down (the FX replay nothing), no lock starts but the cursor still moves, so old events never lock the camera later.
+  // The camera never zooms in by itself, and a close-up the viewer chose is not left for the viewer's own actions, a response
+  // window or a chain. Two things follow the engine events newer than the last one handled (the cursor):
+  // - Another player's action (activate, summon, set, attack) that touches a field other than the one in close-up sends the
+  //   close-up (only a close-up: not Home, Rival end or Fly) to the overview, once. Nothing sends it back: it stays out until
+  //   the viewer zooms in. This also holds with reduced motion (the move is a jump, with no animation).
+  // - On the overview, an attack, chain link or destroy locks the camera for its FX (the view does not change).
+  // With reduced motion no lock starts; while the connection is down (the FX replay nothing) no lock starts and no move
+  // happens. In both cases the cursor still moves, so old events never move the camera later.
   const lastEvent = useRef<number>(lastEventId(engine.events, 0));
+  const cameraRef = useRef(camera);
+  cameraRef.current = camera;
   useEffect(() => {
-    const lock = fxActive ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
+    const now = cameraRef.current;
+    if (fxActive && now.mode === "focus" && !now.lock && otherPlayerActed(engine.events, lastEvent.current, viewerSeat, now.focusSeat, engine.turnSeat)) {
+      dispatchCamera({ type: "overview" });
+    }
+    const lock = fxActive && now.mode === "overview" ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
     if (!lock) {
       lastEvent.current = lastEventId(engine.events, lastEvent.current);
       return;
     }
     lastEvent.current = lock.lastId;
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
-  }, [engine.events, fxActive, controller.reducedMotion]);
+  }, [engine.events, engine.turnSeat, fxActive, controller.reducedMotion, viewerSeat]);
 
-  // An aim holds the camera where it is: a close-up goes back to the overview, and no click zooms in until the aim ends.
+  // An aim never moves the camera either (the flag only keeps a tap on a field from zooming): the pills can still step to a rival field.
   useEffect(() => {
     dispatchCamera({ type: "aiming", on: flow.aiming });
   }, [flow.aiming]);
@@ -197,27 +209,8 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
   const centeredUnrevealed = centered && !controller.revealed;
-  // A prompt that picks zones on other fields than the focused one takes the camera back to the overview, so every
-  // target stays in view and clickable. The prompt id keys it: a new prompt checks again, a click on a field does not.
-  // The plain action menu (play a card, change phase) is not a pick: the hand is always in reach, and the rail can step
-  // to the field that holds the card.
-  const pickPrompt = promptMine && !(prompt?.kind === "choice" && prompt.context?.type === "action");
-  const promptId = pickPrompt ? prompt?.id ?? null : null;
-  const promptSeats = useMemo(() => {
-    if (!pickPrompt || !prompt) return [];
-    // A hand card is not on any field (the hand dock is always in reach): only board zones count.
-    return [
-      ...new Set(
-        prompt.options
-          .filter((option) => option.controller != null && option.location !== LOCATION_HAND && optionZoneKeys(option).length > 0)
-          .map((option) => option.controller as number),
-      ),
-    ];
-  }, [pickPrompt, prompt]);
-  useEffect(() => {
-    if (promptId != null && promptSeats.length > 0) dispatchCamera({ type: "needSeats", seats: promptSeats });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promptId]);
+  // No prompt moves the camera: a close-up stays through a target pick too. A field with targets that is out of view gets a hint on
+  // its nameplate pill (tag-stage.tsx); the viewer presses the pill to look at it.
   const gates = gridKeyGates({ prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudOpen });
   useRoofKeys({
     mode: camera.mode,
