@@ -145,7 +145,7 @@ function mapSavedDeck(row: SavedDeckRow): SavedDeck {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new SavedDeckServiceError("Saved deck is corrupt", 500);
   }
-  const deck = parsed as DuelDeck;
+  const deck = parsed as DuelDeck & { extraDeckRepair?: SavedDeck["extraDeckRepair"] };
   if (!Array.isArray(deck.main) || !Array.isArray(deck.extra) || !Array.isArray(deck.side)) {
     throw new SavedDeckServiceError("Saved deck is corrupt", 500);
   }
@@ -162,6 +162,7 @@ function mapSavedDeck(row: SavedDeckRow): SavedDeck {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     draftId: row.draft_id ?? null,
+    ...(deck.extraDeckRepair ? { extraDeckRepair: deck.extraDeckRepair } : {}),
   };
 }
 
@@ -196,7 +197,7 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
     saved.extraDeckRepair = { applied, moves, mainCount, message };
     if (!applied) return { saved };
     saved.deck = { ...saved.deck, main: [...saved.deck.main, ...moves.map(move => move.code)], extra };
-    return { saved, repairedJson: JSON.stringify({ ...JSON.parse(row.deck_json), ...saved.deck }) };
+    return { saved, repairedJson: JSON.stringify({ ...JSON.parse(row.deck_json), ...saved.deck, extraDeckRepair: saved.extraDeckRepair }) };
   };
   const selectOwned = db.prepare<[number, string, number], SavedDeckRow>(
     `select id, name, mode, deck_json, created_at, updated_at, draft_id

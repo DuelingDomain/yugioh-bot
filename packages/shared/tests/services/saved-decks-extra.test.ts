@@ -51,9 +51,30 @@ describe("saved deck Extra safety", () => {
       message: expect.stringContaining("60") });
     const after = db.prepare("select * from saved_decks where id=?").get(id) as Record<string, unknown>;
     expect({ ...after, deck_json: before.deck_json }).toEqual(before);
-    expect(JSON.parse(after.deck_json as string)).toEqual(result.deck);
-    expect(decks.get(id, "test-g", 1).extraDeckRepair).toBeUndefined();
+    expect(JSON.parse(after.deck_json as string)).toEqual({ ...result.deck, extraDeckRepair: result.extraDeckRepair });
+    expect(decks.get(id, "test-g", 1).extraDeckRepair).toEqual(result.extraDeckRepair);
     expect(db.prepare("select * from saved_decks where id=?").get(id)).toEqual(after);
+  });
+  it("keeps the repair report across internal reads and failed saves until a successful save", () => {
+    const draftId = Number(db.prepare("insert into drafts(guild_id,channel_id,name,status,created_by_user_id) values ('test-g','test-channel','Test draft','completed',1)").run().lastInsertRowid);
+    const id = legacy(bad, draftId);
+    const listed = decks.list("test-g", 1)[0];
+    const reloaded = createSavedDeckService(db, new Map());
+    statements.length = 0;
+    expect(reloaded.get(id, "test-g", 1).extraDeckRepair).toEqual(listed.extraDeckRepair);
+    expect(reloaded.findByDraft("test-g", 1, draftId)?.extraDeckRepair).toEqual(listed.extraDeckRepair);
+    expect(reloaded.list("test-g", 1)[0].extraDeckRepair).toEqual(listed.extraDeckRepair);
+    expect(statements.some(sql => /^(BEGIN|update saved_decks)/i.test(sql))).toBe(false);
+    expect(() => reloaded.update(id, "test-g", 1, { ...listed, deck: bad })).toThrow();
+    expect(reloaded.get(id, "test-g", 1).extraDeckRepair).toEqual(listed.extraDeckRepair);
+    const saved = reloaded.update(id, "test-g", 1, {
+      ...listed, deck: { ...listed.deck, extraDeckRepair: listed.extraDeckRepair },
+    });
+    expect(saved.deck).toEqual(listed.deck);
+    expect(saved.extraDeckRepair).toBeUndefined();
+    expect(reloaded.get(id, "test-g", 1).extraDeckRepair).toBeUndefined();
+    expect(reloaded.findByDraft("test-g", 1, draftId)?.extraDeckRepair).toBeUndefined();
+    expect(JSON.parse((db.prepare("select deck_json from saved_decks where id=?").get(id) as { deck_json: string }).deck_json)).toEqual(listed.deck);
   });
   it("changes two affected decks in a synthetic test DB and leaves valid and other-owner decks intact", () => {
     legacy(); legacy();
@@ -134,7 +155,7 @@ describe("saved deck Extra safety", () => {
     });
     const result = read === "get" ? decks.get(id, "test-g", 1) : read === "list" ? decks.list("test-g", 1)[0] : decks.findByDraft("test-g", 1, draftId)!;
     expect(result.deck).toEqual({ ...current, main: [902, 901], extra: [903] });
-    expect(JSON.parse((db.prepare("select deck_json from saved_decks where id=?").get(id) as { deck_json: string }).deck_json)).toEqual(result.deck);
+    expect(JSON.parse((db.prepare("select deck_json from saved_decks where id=?").get(id) as { deck_json: string }).deck_json)).toEqual({ ...result.deck, extraDeckRepair: result.extraDeckRepair });
   });
   it("reads without repair while another WAL connection holds BEGIN IMMEDIATE, including a readonly handle", async () => {
     const draftId = Number(db.prepare("insert into drafts(guild_id,channel_id,name,status,created_by_user_id) values ('test-g','test-channel','Test draft','completed',1)").run().lastInsertRowid);

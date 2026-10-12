@@ -99,7 +99,7 @@ export interface SavedDeck {
   updatedAt: string;
   /** Set when the deck was built from the owner's pool in this draft. */
   draftId?: number | null;
-  /** Present on the read that repairs Extra, or when the 300-card Main limit prevents repair. */
+  /** Kept until the next successful save, or reported when the 300-card Main limit prevents repair. */
   extraDeckRepair?: {
     applied: boolean;
     moves: import("./extra-deck.js").DeckSectionMove[];
