@@ -223,7 +223,11 @@ export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef, zoom }
           const zoomed = zoom.seat === seat;
           const name = nameOf(seat);
           const hint = !picks && !zoomed && (zoom.hintSeats?.includes(seat) ?? false);
-          const label = picks ? `Choose ${name}` : zoomed ? "Zoom out" : hint ? `Zoom in on ${name}'s field, it has targets` : `Zoom in on ${name}'s field`;
+          // One stable name that holds the pill text ("1A ASTER"); the zoom state is only aria-pressed. A pick pill does
+          // another thing (it chooses the player), so it has its own name.
+          const text = `${stop?.code ?? tagSeatCode("tag", seat) ?? ""} ${name.split(" ")[0].toUpperCase()}`.trim();
+          const label = picks ? `${text}, choose player` : `${text}, zoom on field`;
+          const tip = picks ? `Choose ${name}` : zoomed ? "Zoom out (Esc)" : hint ? `Zoom in on ${name}'s field (it has targets)` : `Zoom in on ${name}'s field`;
           return (
             <button
               key={seat}
@@ -238,7 +242,8 @@ export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef, zoom }
               data-targets={hint ? "true" : undefined}
               aria-pressed={picks ? undefined : zoomed}
               aria-label={label}
-              title={picks ? label : zoomed ? "Zoom out (Esc)" : label}
+              aria-description={hint ? "has targets" : undefined}
+              title={tip}
               disabled={!picks && !zoom.free}
               style={style}
               onClick={() => (picks ? zoom.onPick?.(seat) : zoom.onToggle(seat))}
