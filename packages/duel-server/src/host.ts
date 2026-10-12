@@ -1,5 +1,3 @@
-import { createDeckTypeLookup } from "@yugidraft/shared/services";
-import { ExtraDeckCardError } from "@yugidraft/shared/duels";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
@@ -41,7 +39,7 @@ import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, elimina
 import { EngineAnswerError } from "./prompts.js";
 import { ENGINE_LOOP_REASON, EngineLoopError } from "./engine-loop-error.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
-import { DeckLegalityError, inspectDeck, validateDeck, validateExtraDeckTypes, validateDeckMasterType, type InspectDeckOptions } from "./deck-legality.js";
+import { DeckLegalityError, ExtraDeckCardError, inspectDeck, validateDeck, validateExtraDeckTypes, validateDeckMasterType, type InspectDeckOptions } from "./deck-legality.js";
 import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
@@ -2287,6 +2285,7 @@ export function createDuelHost(options: {
       // The game waits in lobby with both seats ready; the tick sweep starts it (after a backoff).
       noteStartFailure(step.next, error);
       await emitChange(step.next, guildId);
+      if (error instanceof DeckLegalityError) throw error;
     }
     if (step.tournamentSlug) await emitTournament("match-updated", step.tournamentSlug);
     return step.next;
@@ -2464,7 +2463,6 @@ export function createDuelHost(options: {
       if (op === "series-side") {
         if (info.status !== "between_games") throw new RequestError("Side decking is only open between games", 409);
         await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
-        validateExtraDeckTypes(body.deck as DuelDeck, options.dataDirectory, createDeckTypeLookup(options.db));
         // Like check-deck, unresolved ids stay as sent so validateSessionDeck can report them.
         const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
         await validateSessionDeck(room.session.mode, deck, room.session.settings, room.session.format, { session: room.session, playerId: actor });
@@ -2540,10 +2538,10 @@ export function createDuelHost(options: {
       const settings = room.session.settings;
       if (op === "deck") {
         await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
-        validateExtraDeckTypes(body.deck as DuelDeck, options.dataDirectory, createDeckTypeLookup(options.db));
       }
       const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, {
-        keepUnresolved: op === "validate-deck",
+        // Unresolved codes remain visible to validation, including the stable Extra error.
+        keepUnresolved: true,
       });
       if (op === "validate-deck") {
         return inspectDeck(room.session.mode, deck, options.dataDirectory, settings, await sessionDeckOptions(room.session, actor));

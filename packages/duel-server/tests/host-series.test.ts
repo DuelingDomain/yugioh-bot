@@ -25,6 +25,8 @@ beforeAll(() => {
     { code: 18144506, name: "Harpie's Feather Duster", type: 2 },
     { code: 46986414, name: "Dark Magician" },
     { code: 46986421, name: "Dark Magician", alias: 46986414 },
+    { code: 901, name: "Test Spell", type: 2 },
+    { code: 903, name: "Test Fusion", type: 0x41 },
   ]);
 });
 afterAll(() => { rmSync(DATA, { recursive: true, force: true }); });
@@ -237,6 +239,60 @@ function tournamentMatch(app: App, bestOf: 1 | 3, registeredDeck = deckWithSide(
 }
 
 describe("series game lobby ops", () => {
+  it("reports invalid Extra cards copied from a tournament registration when autoStart checks the opponent", async () => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const bad = { ...deckWithSide(), extra: [901] };
+    const { started, tournament } = tournamentMatch(app, 3, bad);
+    const slug = started.duel.slug;
+    const before = app.db.prepare("select deck_json from tournament_participants where tournament_id=? order by player_id").all(tournament.id);
+    const refused = await post(host, { op: "ready", slug, playerId: app.p1 });
+    expect(refused.status).toBe(400);
+    expect(refused.data.code).toBe("INVALID_EXTRA_DECK_CARD");
+    // A legacy ready seat must also be reported to the other player's start request.
+    app.duels.markReady(slug, GUILD, app.p1);
+    app.duels.setDeck(slug, GUILD, app.p2, deckWithSide());
+    app.duels.markUnready(slug, GUILD, app.p2);
+    const startedResponse = await post(host, { op: "ready", slug, playerId: app.p2 });
+    expect(startedResponse.status).toBe(400);
+    expect(startedResponse.data).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
+    expect(workers).toHaveLength(0);
+    expect(app.db.prepare("select deck_json from tournament_participants where tournament_id=? order by player_id").all(tournament.id)).toEqual(before);
+  });
+  it("normalizes an uncached Extra passcode before saving a side deck between normal series games", async () => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const { duel } = challenge(app, 3);
+    const initial = { ...deckWithSide(), extra: [903] };
+    expect((await post(host, { op: "deck", slug: duel.slug, playerId: app.p1, deck: initial })).status).toBe(200);
+    expect((await post(host, { op: "deck", slug: duel.slug, playerId: app.p2, deck: initial })).status).toBe(200);
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ data: [{ id: 998, name: "Test Fusion", type: "Fusion Monster", frameType: "fusion", card_images: [{ image_url: "https://example.test/fusion.jpg", image_url_small: "https://example.test/fusion-small.jpg" }] }] }) }));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      const sided = await post(host, { op: "series-side", slug: duel.slug, playerId: app.p1, deck: { ...initial, extra: [998] } });
+      expect(sided.status).toBe(200);
+      expect(fetch).toHaveBeenCalled();
+      const ready = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+      expect(ready.status).toBe(200);
+      expect(ready.data.error).toBeUndefined();
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("reports an opponent Extra error if the next series game fails during Ready advancement", async () => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const { duel, series } = await startChallenge(app, host, 3);
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    expect((await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 })).status).toBe(200);
+    // Simulate legacy data becoming visible after this opponent had already readied.
+    const bad = { ...app.series.sideState(series.id, GUILD, app.p1).currentDeck, extra: [901] };
+    app.db.prepare("update duel_series set deck0_json=? where id=?").run(JSON.stringify(bad), series.id);
+    const response = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p2 });
+    expect(response.status).toBe(400);
+    expect(response.data).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
+    expect(workers).toHaveLength(1);
+    expect(app.duels.get(app.series.get(series.id, GUILD).currentDuelSlug!, GUILD).status).toBe("lobby");
+  });
   it("starts a challenge game when the second player submits a deck, with seat 0 first in the engine order", async () => {
     const app = setup();
     const { host, workers } = openHost(app);

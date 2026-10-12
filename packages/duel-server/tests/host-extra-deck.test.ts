@@ -4,7 +4,8 @@ import Database from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
-import { createDuelService } from "@yugidraft/shared/services";
+import { createDuelService, createDuelSeriesService } from "@yugidraft/shared/services";
+import { DeckLegalityError, validateExtraDeckTypes } from "../src/deck-legality.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { seedIdentity } from "./helpers/identity.js";
@@ -27,11 +28,13 @@ afterAll(() => rmSync(dataDirectory, { recursive: true, force: true }));
 beforeEach(() => {
   db = new Database(":memory:"); migrate(db);
   playerId = seedIdentity(db).playerId;
+  vi.stubEnv("DUEL_DATA_DIR", dataDirectory);
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 400, json: async () => ({ error: "No card matching your query was found in the database." }) })));
   duels = createDuelService(db);
   host = createDuelHost({ db, dataDirectory, secret, searchCards: () => [],
     createWorker: vi.fn(() => { throw new Error("No engine can start in these tests"); }) });
 });
-afterEach(async () => { await host.close(); db.close(); });
+afterEach(async () => { await host.close(); db.close(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 async function post(body: Record<string, unknown>) {
   const raw = JSON.stringify({ guildId: "g", playerId, ...body });
   return host.handle(new Request("http://test/internal/duel", { method: "POST", body: raw,
@@ -42,6 +45,28 @@ function room() {
     settings: { ...defaultDuelSettings("normal"), validateDeck: false, banlist: "none" } });
 }
 describe("duel Extra Deck safety with competitive checks off", () => {
+  it("classifies the stable Extra error as a deck legality error", () => {
+    expect(() => validateExtraDeckTypes(deck(901), dataDirectory)).toThrow(DeckLegalityError);
+    expect(() => validateExtraDeckTypes(deck(901), dataDirectory)).toThrow(expect.objectContaining({ status: 400, code: "INVALID_EXTRA_DECK_CARD" }));
+  });
+  it("reports a bad opponent Extra card from series autoStart instead of swallowing it", async () => {
+    const opponent = seedIdentity(db, { name: "Test opponent" }).playerId;
+    const { duel } = createDuelSeriesService(db).createChallenge({ guildId: "g", challengerPlayerId: playerId,
+      opponentPlayerId: opponent, bestOf: 3, ranked: false, mode: "normal",
+      settings: { ...defaultDuelSettings("normal"), validateDeck: false, banlist: "none" } });
+    duels.setDeck(duel.slug, "g", opponent, deck(901));
+    const response = await post({ op: "deck", slug: duel.slug, deck: deck(903) });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
+    expect(duels.get(duel.slug, "g").status).toBe("lobby");
+  });
+  it("normalizes an uncached API passcode before checking its Extra type", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ data: [{ id: 998, name: "Test Fusion", type: "Fusion Monster", frameType: "fusion", card_images: [{ image_url: "https://example.test/fusion.jpg", image_url_small: "https://example.test/fusion-small.jpg" }] }] }) })));
+    const session = room();
+    const response = await post({ op: "deck", slug: session.slug, deck: deck(998) });
+    expect(response.status).toBe(200);
+    expect(duels.room(session.slug, "g", playerId).myDeck?.extra).toEqual([903]);
+  });
   it.each([901, 902, 904, 905, 906, 908, 999])("rejects card %s on submit with a stable 400 contract", async code => {
     const session = room();
     const response = await post({ op: "deck", slug: session.slug, deck: deck(code) });

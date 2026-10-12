@@ -15,7 +15,7 @@ import type {
   DuelMode,
   DuelSettings,
 } from "@yugidraft/shared/duels";
-import { assertExtraDeckCards, isExtraDeckCard, canonicalCardCode, checkDeckAgainstPool, mapDeckCodes } from "@yugidraft/shared/duels";
+import { assertExtraDeckCards, ExtraDeckCardError as SharedExtraDeckCardError, isExtraDeckCard, canonicalCardCode, checkDeckAgainstPool, mapDeckCodes } from "@yugidraft/shared/duels";
 import { banlistLimitsFor, type BanlistLimit } from "./banlists/index.js";
 import { MULTIPLAYER_TABLE_LABEL, multiplayerForbiddenFor, type MultiplayerTable } from "./banlists/multiplayer.js";
 import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
@@ -35,6 +35,18 @@ export class DeckLegalityError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "DeckLegalityError";
+  }
+}
+
+/** Keep the shared HTTP contract while treating this as a player-fixable deck problem. */
+export class ExtraDeckCardError extends DeckLegalityError {
+  readonly status: number;
+  readonly code: string;
+  constructor(error: SharedExtraDeckCardError) {
+    super(error.message);
+    this.name = "ExtraDeckCardError";
+    this.status = error.status;
+    this.code = error.code;
   }
 }
 
@@ -451,7 +463,12 @@ export function validateExtraDeckTypes(deck: DuelDeck, dataDirectory: string, fa
   if (!Array.isArray(deck?.extra) || deck.extra.some(code => !Number.isInteger(code) || code < 1 || code > 0xffff_ffff)) {
     fail("Extra Deck must be a list of valid card codes");
   }
-  assertExtraDeckCards(deck, code => readCard(catalog, remaps.get(code) ?? code) ?? fallback?.(code));
+  try {
+    assertExtraDeckCards(deck, code => readCard(catalog, remaps.get(code) ?? code) ?? fallback?.(code));
+  } catch (error) {
+    if (error instanceof SharedExtraDeckCardError) throw new ExtraDeckCardError(error);
+    throw error;
+  }
 }
 
 function isPlayable(card: EngineCard): boolean {
