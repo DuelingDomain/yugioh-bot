@@ -244,7 +244,10 @@ describe("Tag prompt placement", () => {
     const source = readFileSync(join(__dirname, "../../src/components/duel/tag/tag-stage.tsx"), "utf8");
     // The band between the far plate and the near plate or your hand, measured at rest; the whole viewport only where none stands.
     expect(source).toMatch(/\[data-team-plate="far"\]/);
-    expect(source).toMatch(/STRIP_OWN_HAND\)\?\.getBoundingClientRect/);
+    expect(source).toMatch(/rectOf\(STRIP_OWN_HAND\)/);
+    // Measured again when the camera move ends, and the plates may stand either way round.
+    expect(source).toMatch(/addEventListener\("transitionend"/);
+    expect(source).toMatch(/const flipped = /);
     expect(source).toMatch(/const stripFixed = useMemo\(/);
     expect(source).toMatch(/fixed: stripFixed,/);
   });

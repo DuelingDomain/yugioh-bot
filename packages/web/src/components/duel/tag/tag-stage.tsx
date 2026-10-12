@@ -196,19 +196,37 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     }
     const measure = () => {
       const board = root.getBoundingClientRect();
-      const far = root.querySelector<HTMLElement>('[data-team-plate="far"]')?.getBoundingClientRect();
-      const near = [root.querySelector<HTMLElement>('[data-team-plate="near"]')?.getBoundingClientRect(), root.querySelector<HTMLElement>(STRIP_OWN_HAND)?.getBoundingClientRect()];
-      const top = far && far.height > 0 ? Math.round(far.bottom - board.top + STRIP_BAND_AIR) : 0;
-      const tops = near.filter((r): r is DOMRect => r != null && r.height > 0).map((r) => r.top - board.top - STRIP_BAND_AIR);
-      const bottom = tops.length > 0 ? Math.round(Math.min(...tops)) : viewBox.height;
+      const rectOf = (selector: string) => {
+        const r = root.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+        return r && r.height > 0 ? { top: r.top - board.top, bottom: r.bottom - board.top } : null;
+      };
+      const far = rectOf('[data-team-plate="far"]');
+      const near = rectOf('[data-team-plate="near"]');
+      const hand = rectOf(STRIP_OWN_HAND);
+      // The plates are the far one above and the near one below; where a view puts them the other way round, the band is the one between them.
+      const flipped = far != null && near != null && far.top > near.top;
+      const upper = flipped ? near : far;
+      const lower = flipped ? far : near;
+      const top = upper ? Math.round(upper.bottom + STRIP_BAND_AIR) : 0;
+      const stops = [lower?.top, hand?.top].filter((v): v is number => v != null).map((v) => v - STRIP_BAND_AIR);
+      const bottom = stops.length > 0 ? Math.round(Math.min(...stops)) : viewBox.height;
       const next = bottom - top > 120 ? { top: Math.max(0, top), bottom: Math.min(viewBox.height, bottom) } : null;
       setStripBand((current) => (current?.top === next?.top && current?.bottom === next?.bottom ? current : next));
     };
-    const frame = window.requestAnimationFrame(measure);
+    // At rest, then again when the camera move ends (a transition on the stage) and a little later in case none fires.
+    let frame = window.requestAnimationFrame(measure);
+    const again = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    };
+    root.addEventListener("transitionend", again, true);
     const settle = window.setTimeout(measure, 450);
+    const late = window.setTimeout(measure, 1200);
     return () => {
+      root.removeEventListener("transitionend", again, true);
       window.cancelAnimationFrame(frame);
       window.clearTimeout(settle);
+      window.clearTimeout(late);
     };
   }, [bandKey, stripCount, viewBox.height]);
   const stripFixed = useMemo(
