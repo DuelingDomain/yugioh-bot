@@ -1,6 +1,6 @@
 # FFA3 columns: rule and handoff
 
-> **Superseded (owner, 2026-10-11).** FFA3 seats 0 and 1 are a fixed facing pair that share one Extra Monster Zone row. The table has no "choose an opponent" column pick and no cross-opponent column alignment UI, and the engine no longer sends that prompt (engine commit 927a99f2c). This page is kept as history.
+> **Superseded (owner, 2026-10-11).** FFA3 seats 0 and 1 are a fixed facing pair that share one Extra Monster Zone row. Only the column pick is superseded: the engine no longer sends the column-pick prompt (engine commit 927a99f2c), and the table has no cross-opponent column alignment UI. The engine still sends the ordinary "choose an opponent" prompt for other cards, and the table keeps its pick UI. This page is kept as history.
 
 Owner decision: 2026-10-05. Rule: **R-FFA-THREE-COLUMNS**. Base: `origin/main` at `049a4df7`.
 
