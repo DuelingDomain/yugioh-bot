@@ -79,6 +79,9 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
   const lastPrompt = useRef("");
   // The panel's real chrome is read only once the room is applied: before that it sits in the narrow pair box and its text wraps taller.
   const roomed = useRef(false);
+  // The tile of the room shown for this prompt, box and view: the chrome only grows, so the tile only shrinks (no jump back to a larger tile).
+  const shown = useRef<{ key: string; card: number } | null>(null);
+  const capKey = `${promptId}|${box.width}x${box.height}|${viewKey}`;
 
   useEffect(() => {
     if (!active) {
@@ -203,6 +206,7 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
   const room = useMemo(() => {
     if (!active || !measured) return undefined;
     return planStripRoom({
+      maxCard: shown.current?.key === capKey ? shown.current.card : undefined,
       box,
       count,
       anchor,
@@ -218,6 +222,8 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
 
   useEffect(() => {
     roomed.current = room !== undefined;
+    if (room) shown.current = { key: capKey, card: shown.current?.key === capKey ? Math.min(shown.current.card, room.card) : room.card };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room]);
   return { room, pending: active && measured === null };
 }

@@ -82,7 +82,7 @@ describe("card strip in a dense host (3-way, Tag, 4-way)", () => {
   });
 
   it("sizes the tile from that cap and from the text scale", () => {
-    expect(rule(strip, dense)).toMatch(/var\(--pr-strip-h, 300px\) - 200px \* var\(--tt, 1\)/);
+    expect(rule(strip, dense)).toMatch(/var\(--pr-strip-h, 300px\) - 204px \* var\(--tt, 1\)/);
   });
 
   it("lays the rows out as a centred grid of equal columns, so Up and Down keep the column in a short last row", () => {
@@ -130,6 +130,13 @@ describe("card strip: nothing is cut at the top, and the number badge keeps off 
     expect(badge).not.toMatch(/\btop:/);
   });
 
+  it("keeps the number badge at least 16px high, and the pick mark above a selected neighbour's ring", () => {
+    const badge = rule(strip, ".num");
+    expect(badge).toMatch(/min-width:\s*max\(16px, calc\(18 \* var\(--cs-u\)\)\);/);
+    expect(badge).toMatch(/height:\s*max\(16px, calc\(18 \* var\(--cs-u\)\)\);/);
+    expect(rule(strip, ".mark")).toMatch(/z-index:\s*1;/);
+  });
+
   it("hangs the pick mark off the top right corner", () => {
     const mark = rule(strip, ".mark");
     expect(mark).toMatch(/top:\s*calc\(-\d+ \* var\(--cs-u\)\);/);
@@ -153,7 +160,7 @@ describe("card strip: nothing is cut at the top, and the number badge keeps off 
   });
 
   it("shrinks the bottom fade with a short panel, so the first row's names stay clear of it", () => {
-    expect(rule(strip, dense)).toMatch(/--cs-fade:\s*clamp\(4px, calc\(var\(--pr-strip-h, 300px\) - 276px \* var\(--tt, 1\)\), 28px\);/);
+    expect(rule(strip, dense)).toMatch(/--cs-fade:\s*clamp\(4px, calc\(var\(--pr-strip-h, 300px\) - 280px \* var\(--tt, 1\)\), 28px\);/);
   });
 
   it("keeps a followed row clear of the top edge by the same room", () => {

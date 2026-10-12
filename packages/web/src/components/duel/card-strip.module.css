@@ -178,8 +178,9 @@
   left: max(3px, calc(4 * var(--cs-u)));
   display: grid;
   place-items: center;
-  min-width: calc(18 * var(--cs-u));
-  height: calc(18 * var(--cs-u));
+  /* 16px at least: the 12px number needs 13px inside the 1.5px border, at any unit. */
+  min-width: max(16px, calc(18 * var(--cs-u)));
+  height: max(16px, calc(18 * var(--cs-u)));
   padding: 0 calc(3 * var(--cs-u));
   border: 1.5px solid var(--duel-pen, #9b7eff);
   border-radius: 999px;
@@ -197,6 +198,8 @@
   /* Hangs only a little off the corner; the scroller's padding leaves room for it. */
   top: calc(-8 * var(--cs-u));
   right: calc(-4 * var(--cs-u));
+  /* Above the next card's selected ring, which paints later in the tree and reaches into the gap. */
+  z-index: 1;
   display: grid;
   place-items: center;
   min-width: calc(28 * var(--cs-u));
@@ -285,14 +288,14 @@
  */
 @media (min-width: 901px) {
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) {
-    --cs-w: clamp(70px, calc((var(--pr-strip-h, 300px) - 200px * var(--tt, 1)) / 1.46), max(112px, calc(128 * var(--cs-u))));
+    --cs-w: clamp(70px, calc((var(--pr-strip-h, 300px) - 204px * var(--tt, 1)) / 1.46), max(112px, calc(128 * var(--cs-u))));
     --cs-gap: calc(10 * var(--cs-u));
     --cs-pad-x: 16px;
     /* The lift (4) and the pick mark (8) scale with the unit, which grows past 1px on a big window. */
     --cs-pad-top: max(16px, calc(12 * var(--cs-u) + 4px));
     --cs-pad-bottom: 4px;
     /* The bottom fade is 28px on a panel tall enough for one full row of names above it. A short panel (the 3-way table on a 720p window) holds the 70px tile with only a few px to spare, so the fade shrinks with the panel (down to 4px) and stays off the first row's names. */
-    --cs-fade: clamp(4px, calc(var(--pr-strip-h, 300px) - 276px * var(--tt, 1)), 28px);
+    --cs-fade: clamp(4px, calc(var(--pr-strip-h, 300px) - 280px * var(--tt, 1)), 28px);
     flex: 1 1 auto;
   }
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .frame {
