@@ -110,7 +110,9 @@ export function useCellHold(seats: readonly { seat: number; eliminated?: boolean
 /** Natural height of the contents of a life plate (px) and the width it needs for five numerals; a smaller box shrinks them. */
 const LP_NATURAL_HEIGHT = 90;
 const LP_NATURAL_WIDTH = 130;
-const lpFit = (rect: GridRect) => Math.min(1, rect.height / LP_NATURAL_HEIGHT, rect.width / LP_NATURAL_WIDTH);
+/** An out seat adds its place ("Eliminated, 4th"), which wraps to a second line in a narrow plate: a plate this tall would otherwise spill over the top of the stage. */
+const LP_OUT_HEIGHT = 108;
+const lpFit = (rect: GridRect, out = false) => Math.min(1, rect.height / (out ? LP_OUT_HEIGHT : LP_NATURAL_HEIGHT), rect.width / LP_NATURAL_WIDTH);
 
 /** A double click on these keeps its own meaning; every other double click on a field or life box focuses it. */
 const OWN_DOUBLE_CLICK = "button, a, input, select, textarea, [role='button'], [data-zones], [data-legal='true'], [data-uid], [data-pile], [data-hand-seat], [data-holo]";
@@ -820,6 +822,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 key={cell.seat}
                 className={styles.lp}
                 data-grid-lp={cell.seat}
+                data-out={placeLabels?.has(cell.seat) === true ? "true" : undefined}
                 {...{ [FOLLOW_ATTR]: "" }}
                 style={lpStyle}
               >
@@ -835,7 +838,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   me={slot.relation === "self"}
                   x={0}
                   y={0}
-                  fit={lpFit(lp)}
+                  fit={lpFit(lp, placeLabels?.has(cell.seat) === true)}
                   beam="none"
                   master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
                   onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
