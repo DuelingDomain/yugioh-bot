@@ -203,7 +203,8 @@ describe("sharedExtraSeatOf", () => {
     expect([0, 1, 2, 3].map((seat) => sharedExtraSeatOf(format, seat, new Set([2])))).toEqual([1, 0, null, null]);
   });
   it("keeps other formats separate and rejects invalid seats", () => {
-    for (const format of ["1v1", "ffa3"] as const) expect(sharedExtraSeatOf(format, 0)).toBeNull();
+    expect(sharedExtraSeatOf("1v1", 0)).toBeNull();
+    expect([0, 1, 2].map(seat => sharedExtraSeatOf("ffa3", seat))).toEqual([1, 0, null]);
     for (const seat of [-1, 4, 1.5]) expect(sharedExtraSeatOf("tag", seat)).toBeNull();
   });
 });
