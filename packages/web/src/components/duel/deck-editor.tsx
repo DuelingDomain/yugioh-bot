@@ -1,7 +1,5 @@
 "use client";
 
-import { prepareDeckTextImport } from "../decks/api";
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DuelDeck, DuelDeckValidation, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 import { AlertTriangle, CheckCircle2, FileUp, Info, Loader2, X } from "lucide-react";
@@ -14,7 +12,7 @@ import { DeckValidationSkippedError, validateDuelDeck } from "./api";
 import { DeckMasterPicker } from "./deck-master-picker";
 import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE, useDeckCardMeta, type DeckCardMeta } from "./deck-card-types";
 import { SavedDeckPicker, useSavedDecks } from "./saved-deck-picker";
-import { createSavedDeck, listSavedDecks } from "../decks/api";
+import { createSavedDeck, listSavedDecks, prepareDeckTextImport } from "../decks/api";
 import { deckNameFromFile } from "../decks/import";
 import { modeLabel } from "../decks/model";
 import { findSavedDuplicate, pastedDeckName, prepareImportSave, uniqueDeckName } from "./import-save";
@@ -130,6 +128,7 @@ export function DeckEditor({
   const [paste, setPaste] = useState(initial ? serializeYdk(initial) : "");
   const [parseError, setParseError] = useState<string | null>(null);
   const [importReport, setImportReport] = useState("");
+  const [pasteBusy, setPasteBusy] = useState(false);
   const importRequest = useRef(0);
   useEffect(() => () => { importRequest.current += 1; }, []);
   const [edited, setEdited] = useState(false);
@@ -292,6 +291,7 @@ export function DeckEditor({
 
   async function onPasteApply() {
     const generation = ++importRequest.current;
+    setPasteBusy(true);
     try {
       const prepared = await prepareDeckTextImport(paste, mode);
       if (generation !== importRequest.current) return;
@@ -303,6 +303,8 @@ export function DeckEditor({
       applyImported(deck, pastedDeckName(new Date()), prepared.messages);
     } catch (error) {
       if (generation === importRequest.current) setParseError(error instanceof Error ? error.message : "Could not parse that deck.");
+    } finally {
+      if (generation === importRequest.current) setPasteBusy(false);
     }
   }
 
@@ -441,7 +443,7 @@ export function DeckEditor({
               placeholder={"#main\n46986414\n#extra\n!side"}
             />
           </label>
-          <SheetButton size="sm" onClick={onPasteApply}>Load paste</SheetButton>
+          <SheetButton size="sm" loading={pasteBusy} onClick={onPasteApply}>{pasteBusy ? "Importing…" : "Load paste"}</SheetButton>
         </div>
       </div>
       {saveNote ? (
@@ -457,7 +459,7 @@ export function DeckEditor({
 
       <CardAddField mode={mode} slug={slug} settings={settings} sideAllowed={sideAllowed} onAdd={addCard} onError={setParseError} />
 
-      {importReport ? <p role="status">{importReport}</p> : null}
+      {importReport ? <p role="status" className={styles.importReport}>{importReport}</p> : null}
       {parseError ? <p role="alert" className={ui.alert}>{parseError}</p> : null}
 
       <Section title="Main" section="main" codes={main} problems={problems} target={mainTarget}

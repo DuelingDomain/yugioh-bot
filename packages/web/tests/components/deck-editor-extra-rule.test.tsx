@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckCardInfo, SavedDeck } from "@yugidraft/shared/duels";
 import { parseDeckText } from "../../src/components/duel/ydk";
 import { SavedDeckEditor } from "../../src/components/decks/editor";
 import { DeckImportPanel, type DeckImporter } from "../../src/components/decks/import-panel";
 import {
+  CARD_DETAILS_PENDING_MESSAGE,
   EXTRA_MONSTER_MAIN_MESSAGE,
   MAIN_MONSTER_EXTRA_MESSAGE,
   SPELL_TRAP_EXTRA_MESSAGE,
@@ -264,8 +265,10 @@ describe("Extra Deck rule: add and move actions", () => {
     await renderStored({ extra: [POT.code] });
     fireEvent.click(await tile("Pot of Greed, 1 in deck"));
     const details = screen.getByRole("complementary", { name: "Card details" });
-    const add = within(details).getByRole("button", { name: "Add one Pot of Greed to Extra" });
-    expect(add).toBeDisabled();
+    // Not `disabled`, so it keeps focus; its name carries the reason.
+    const add = within(details).getByRole("button", { name: `Add one Pot of Greed to Extra. Not allowed: ${SPELL_TRAP_EXTRA_MESSAGE}` });
+    expect(add).toHaveAttribute("aria-disabled", "true");
+    expect(add).not.toBeDisabled();
     expect(add).toHaveAttribute("title", SPELL_TRAP_EXTRA_MESSAGE);
     fireEvent.click(add);
     expect(namesIn("Extra")).toEqual([POT.name]);
@@ -277,8 +280,8 @@ describe("Extra Deck rule: add and move actions", () => {
   it("has no Add button for the Main Deck on an Extra Deck monster that an old save put in Main", async () => {
     await renderStored({ main: [FUSION.code] });
     fireEvent.click(await tile("Blue-Eyes Ultimate Dragon, 1 in deck"));
-    const add = within(screen.getByRole("complementary", { name: "Card details" })).getByRole("button", { name: "Add one Blue-Eyes Ultimate Dragon to Main" });
-    expect(add).toBeDisabled();
+    const add = within(screen.getByRole("complementary", { name: "Card details" })).getByRole("button", { name: /^Add one Blue-Eyes Ultimate Dragon to Main/ });
+    expect(add).toHaveAttribute("aria-disabled", "true");
     expect(add).toHaveAttribute("title", EXTRA_MONSTER_MAIN_MESSAGE);
   });
 
@@ -329,30 +332,30 @@ describe("Extra Deck rule: undo and redo", () => {
 describe("Extra Deck rule: decks that already have the bug", () => {
   it("warns on the Extra section and moves the cards to Main with one click, then undoes", async () => {
     await renderStored({ main: [BLUE_EYES.code], extra: [POT.code, FUSION.code, PENDULUM.code, MIRROR.code] });
-    const warning = await within(region("Extra")).findByRole("alert");
+    const warning = await within(region("Extra")).findByRole("status");
     expect(warning).toHaveTextContent("3 cards here are not Extra Deck monsters");
-    expect(region("Main").querySelector("[role=alert]")).toBeNull();
+    expect(region("Main").querySelector("[role=status]")).toBeNull();
     fireEvent.click(within(region("Extra")).getByRole("button", { name: "Move to Main Deck" }));
     expect(namesIn("Main")).toEqual([BLUE_EYES.name, POT.name, PENDULUM.name, MIRROR.name]);
     expect(namesIn("Extra")).toEqual([FUSION.name]);
-    expect(within(region("Extra")).queryByRole("alert")).toBeNull();
+    expect(within(region("Extra")).queryByRole("status")).toBeNull();
     expect(notice()).toContain("Moved 3 cards to the Main Deck");
 
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(namesIn("Extra")).toEqual([POT.name, FUSION.name, PENDULUM.name, MIRROR.name]);
-    expect(await within(region("Extra")).findByRole("alert")).toBeInTheDocument();
+    expect(await within(region("Extra")).findByRole("status")).toBeInTheDocument();
   });
 
   it("uses the singular for one card", async () => {
     await renderStored({ extra: [POT.code] });
-    expect(await within(region("Extra")).findByRole("alert")).toHaveTextContent("1 card here is not an Extra Deck monster");
+    expect(await within(region("Extra")).findByRole("status")).toHaveTextContent("1 card here is not an Extra Deck monster");
   });
 
   it("warns on the Main section for an Extra Deck monster and moves it to Extra", async () => {
     await renderStored({ main: [BLUE_EYES.code, SYNCHRO.code] });
-    const warning = await within(region("Main")).findByRole("alert");
+    const warning = await within(region("Main")).findByRole("status");
     expect(warning).toHaveTextContent("1 card here is an Extra Deck monster");
-    expect(within(region("Extra")).queryByRole("alert")).toBeNull();
+    expect(within(region("Extra")).queryByRole("status")).toBeNull();
     fireEvent.click(within(region("Main")).getByRole("button", { name: "Move to Extra Deck" }));
     expect(namesIn("Main")).toEqual([BLUE_EYES.name]);
     expect(namesIn("Extra")).toEqual([SYNCHRO.name]);
@@ -366,9 +369,9 @@ describe("Extra Deck rule: decks that already have the bug", () => {
 
   it("does not save a deck with a bad Extra card until the cards are moved", async () => {
     await renderStored({ extra: [POT.code] });
-    await within(region("Extra")).findByRole("alert");
+    await within(region("Extra")).findByRole("status");
     fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
-    expect((await screen.findAllByText(/in the warning first/)).length).toBeGreaterThan(0);
+    expect(await screen.findAllByText(/in the warning first/)).toHaveLength(1);
     expect(puts).toHaveLength(0);
 
     fireEvent.click(within(region("Extra")).getByRole("button", { name: "Move to Main Deck" }));
@@ -379,8 +382,8 @@ describe("Extra Deck rule: decks that already have the bug", () => {
 
   it("shows the problem in the deck summary", async () => {
     await renderStored({ extra: [POT.code, MIRROR.code] });
-    await within(region("Extra")).findByRole("alert");
-    expect(screen.getAllByText(/Extra holds 2 cards that are not Extra Deck monsters/).length).toBeGreaterThan(0);
+    await within(region("Extra")).findByRole("status");
+    expect(screen.getAllByText(/Extra holds 2 cards that are not Extra Deck monsters/)).toHaveLength(1);
   });
 });
 
@@ -423,17 +426,87 @@ describe("Extra Deck rule: decks the server repaired", () => {
     await waitFor(() => expect(repairNotice()).not.toHaveTextContent("Trim"));
   });
 
-  it("shows the server message when the repair was not applied, with the section fix still there", async () => {
+  it("shows the server message when the repair was not applied, with no section fix next to it", async () => {
     await renderRepaired({ extra: [POT.code] }, repairOf(1, 301, { applied: false, message: "Too big to move." }));
     expect(repairNotice()).toHaveTextContent("Too big to move.");
     expect(screen.queryAllByText(/Extra holds/)).toHaveLength(0);
-    expect(within(region("Extra")).getByRole("button", { name: "Move to Main Deck" })).toBeInTheDocument();
+    // The server could not move them, so the section does not offer a move that could not be saved.
+    expect(within(region("Extra")).getByRole("status")).toHaveTextContent("1 card here is not an Extra Deck monster");
+    expect(within(region("Extra")).queryByRole("button", { name: "Move to Main Deck" })).toBeNull();
   });
 
-  it("can be dismissed", async () => {
+  it("says it stays until the deck is saved, and Dismiss only hides it for this visit", async () => {
     await renderRepaired({ main: [POT.code] }, repairOf(1, 1));
+    expect(repairNotice()).toHaveTextContent("This note stays until you save the deck.");
     fireEvent.click(within(repairNotice()!).getByRole("button", { name: "Dismiss" }));
     expect(repairNotice()).toBeNull();
+    // Focus goes to the Main heading, not to the page.
+    expect(document.activeElement).toBe(within(region("Main")).getByRole("heading", { name: "Main" }));
+    cleanup();
+    // The server still has the note, so the next visit shows it again.
+    render(<SavedDeckEditor deckId="7" />);
+    expect(await screen.findByTestId("extra-repair-notice")).toHaveTextContent("We moved 1 card from your Extra Deck");
+  });
+
+  it("clears with one save of the deck that is not otherwise changed", async () => {
+    await renderRepaired({ main: [POT.code] }, repairOf(1, 1));
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    await waitFor(() => expect(repairNotice()).toBeNull());
+  });
+
+  it("is not a live region, so a count change is not read out again", async () => {
+    await renderRepaired({ main: Array.from({ length: 62 }, () => POT.code) }, repairOf(2, 62));
+    expect(repairNotice()).not.toHaveAttribute("role", "status");
+    expect(repairNotice()).not.toHaveAttribute("role", "alert");
+    expect(repairNotice()).toHaveAttribute("role", "group");
+  });
+});
+
+describe("Extra Deck rule: focus after a fix", () => {
+  it("moves focus to the Extra heading after Move to Main Deck, and clears the old save error", async () => {
+    await renderStored({ extra: [POT.code] });
+    await within(region("Extra")).findByRole("status");
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    expect(await screen.findAllByText(/in the warning first/)).toHaveLength(1);
+    fireEvent.click(within(region("Extra")).getByRole("button", { name: "Move to Main Deck" }));
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(within(region("Extra")).getByRole("heading", { name: "Extra" }));
+    expect(screen.queryAllByText(/in the warning first/)).toHaveLength(0);
+  });
+
+  it("moves focus to the Main heading after Move to Extra Deck", async () => {
+    await renderStored({ main: [SYNCHRO.code] });
+    await within(region("Main")).findByRole("status");
+    fireEvent.click(within(region("Main")).getByRole("button", { name: "Move to Extra Deck" }));
+    expect(document.activeElement).toBe(within(region("Main")).getByRole("heading", { name: "Main" }));
+  });
+});
+
+describe("Extra Deck rule: cards without details, and the Deck Master", () => {
+  it("refuses a deck card whose details are still loading and says why", async () => {
+    stored = savedDeck({ main: [123456789] });
+    render(<SavedDeckEditor deckId="7" />);
+    await waitFor(() => expect(screen.queryByText("Loading deck…")).toBeNull());
+    const unknown = await within(region("Main")).findByRole("button", { name: /^Passcode 123456789/ });
+    // Without the kind the section cannot refuse at dragover; the drop is refused with the reason.
+    drag(unknown).drop(region("Extra"));
+    expect(cardsIn("Extra")).toHaveLength(0);
+    expect(cardsIn("Main")).toHaveLength(1);
+    expect(notice()).toContain(CARD_DETAILS_PENDING_MESSAGE);
+  });
+
+  it("keeps a monster Deck Master out of Extra when it is dragged there", async () => {
+    stored = { ...savedDeck({ main: [POT.code] }), mode: "domain" };
+    stored.deck.deckMaster = BLUE_EYES.code;
+    render(<SavedDeckEditor deckId="7" />);
+    const master = await screen.findByRole("button", { name: /^Deck Master: Blue-Eyes White Dragon/ });
+    const held = drag(master);
+    expect(held.over(region("Extra"))).toBe(false);
+    held.drop(region("Extra"));
+    expect(cardsIn("Extra")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: /^Deck Master: Blue-Eyes White Dragon/ })).toBeInTheDocument();
+    expect(notice()).toContain(MAIN_MONSTER_EXTRA_MESSAGE);
   });
 });
 
@@ -456,9 +529,53 @@ describe("Extra Deck rule: import and paste", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("keeps the move message after the 4 second notice is gone, until it is dismissed", async () => {
+    const message = "1 card moved from Extra Deck to Main Deck: Pot of Greed.";
+    importAnswer = () => ({ deck: { main: [POT.code], extra: [], side: [] }, moves: [], messages: [message] });
+    await pasteList(`#main\n${POT.code}`);
+    await waitFor(() => expect(screen.getAllByText(message)).toHaveLength(1));
+    expect(screen.getByText(/Deck imported/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/Deck imported/)).toBeNull(), { timeout: 6000 });
+    expect(screen.getAllByText(message)).toHaveLength(1);
+    fireEvent.click(within(screen.getByTestId("import-messages")).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByText(message)).toBeNull();
+    expect(document.activeElement).toBe(within(region("Main")).getByRole("heading", { name: "Main" }));
+  }, 15_000);
+
+  it("clears the move message on the next save", async () => {
+    const message = "1 card moved from Extra Deck to Main Deck: Pot of Greed.";
+    importAnswer = () => ({ deck: { main: [POT.code], extra: [], side: [] }, moves: [], messages: [message] });
+    stored = savedDeck({});
+    render(<SavedDeckEditor deckId="7" />);
+    await waitFor(() => expect(screen.queryByText("Loading deck…")).toBeNull());
+    fireEvent.click(await screen.findByRole("button", { name: "Import" }));
+    const popover = await screen.findByRole("dialog", { name: "Import a deck" });
+    fireEvent.change(within(popover).getByLabelText("Or paste YDK text or a ydke:// link"), { target: { value: `#main\n${POT.code}` } });
+    fireEvent.click(within(popover).getByRole("button", { name: "Load paste" }));
+    await screen.findByTestId("import-messages");
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await waitFor(() => expect(screen.queryByTestId("import-messages")).toBeNull());
+  });
+
+  it("shows a busy button while the server answers a paste", async () => {
+    let answer!: () => void;
+    const gate = new Promise<void>((resolve) => { answer = resolve; });
+    const pass = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (url === "/api/decks/import") await gate;
+      return pass(url, init);
+    });
+    await pasteList(`#main\n${POT.code}`);
+    const busy = await screen.findByRole("button", { name: "Importing…" });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    answer();
+    await waitFor(() => expect(namesIn("Main")).toEqual([POT.name]));
+  });
+
   it("still warns, and the fix button repairs it, when a list arrives with a Spell in the Extra section", async () => {
     await pasteList(`#main\n${BLUE_EYES.code}\n#extra\n${POT.code}\n${FUSION.code}\n!side`);
-    const warning = await within(region("Extra")).findByRole("alert");
+    const warning = await within(region("Extra")).findByRole("status");
     expect(warning).toHaveTextContent("1 card here is not an Extra Deck monster");
     fireEvent.click(within(region("Extra")).getByRole("button", { name: "Move to Main Deck" }));
     expect(namesIn("Main")).toEqual([BLUE_EYES.name, POT.name]);
@@ -476,7 +593,7 @@ describe("Extra Deck rule: the server refuses a bad Extra card", () => {
     ));
     fireEvent.doubleClick(await tile(POT.name));
     fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
-    expect((await screen.findAllByText(error)).length).toBeGreaterThan(0);
+    expect(await screen.findAllByText(error)).toHaveLength(1);
   });
 });
 
@@ -488,7 +605,7 @@ describe("Extra Deck rule: the import panel messages", () => {
       importFiles: vi.fn(),
       clearFinished: vi.fn(),
       rows: [{ key: 1, fileName: "goat.ydk", state: "saved", messages, deck: { ...savedDeck({ main: [POT.code] }), id: 9, name: "goat" } }],
-    } as unknown as DeckImporter;
+    };
   }
 
   it("shows each server move message once under the saved deck", () => {

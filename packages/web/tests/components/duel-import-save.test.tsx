@@ -147,8 +147,10 @@ describe("saving an imported deck to My Decks", () => {
     renderEditor();
     await waitFor(() => expect(screen.getByLabelText("Use a saved deck")).not.toBeDisabled());
     fireEvent.change(screen.getByLabelText("Paste YDK or YDKE"), { target: { value: YDK } });
-    fireEvent.click(screen.getByRole("button", { name: "Load paste" }));
-    fireEvent.click(screen.getByRole("button", { name: "Load paste" }));
+    // The button turns busy at the first click; the second click lands on the same button.
+    const load = screen.getByRole("button", { name: "Load paste" });
+    fireEvent.click(load);
+    fireEvent.click(load);
 
     expect(await screen.findByText(/^Saved to your decks as Imported deck/)).toBeInTheDocument();
     expect(createSavedDeck).toHaveBeenCalledOnce();

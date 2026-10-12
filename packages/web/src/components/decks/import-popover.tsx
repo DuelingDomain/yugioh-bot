@@ -112,11 +112,17 @@ export function DeckImportPopover({ open, onOpenChange, disabled, mode, fileName
   fileName: string | null;
   error: string | null;
   onFile: (file: File) => void;
-  onPaste: (text: string) => void;
+  onPaste: (text: string) => void | Promise<void>;
   className?: string;
 }) {
   const [paste, setPaste] = useState("");
   const [dragging, setDragging] = useState(false);
+  // The import is a server call; the button says so until it answers.
+  const [importing, setImporting] = useState(false);
+  async function loadPaste() {
+    setImporting(true);
+    try { await onPaste(paste); } finally { setImporting(false); }
+  }
   return (
     <Popover label="Import" dialogLabel="Import a deck" icon={<FileUp className="ic sm" aria-hidden />} open={open} onOpenChange={onOpenChange} disabled={disabled} className={className}>
       <p className={styles["de-pop-h"]}>Import a deck</p>
@@ -131,7 +137,7 @@ export function DeckImportPopover({ open, onOpenChange, disabled, mode, fileName
         <small>{fileName ? "Choose another file to replace it" : "or click to choose one"}</small>
       </label>
       <label><span className="label">Or paste YDK text or a ydke:// link</span><textarea value={paste} rows={3} spellCheck={false} className={cn("input", styles["de-paste"])} placeholder="#main" onChange={(event) => setPaste(event.target.value)} /></label>
-      <div className={styles["de-pop-a"]}><SvButton variant="ghost" disabled={!paste.trim()} onClick={() => onPaste(paste)}>Load paste</SvButton></div>
+      <div className={styles["de-pop-a"]}><SvButton variant="ghost" disabled={!paste.trim() || importing} aria-busy={importing || undefined} onClick={() => void loadPaste()}>{importing ? "Importing…" : "Load paste"}</SvButton></div>
       {mode === "domain" ? <p className="small">Domain: when the file has no #deckmaster and only one Side card, that card becomes the Deck Master.</p> : null}
       {error ? <p role="alert" className={styles.errorText}>{error}</p> : null}
     </Popover>

@@ -51,6 +51,7 @@
 .addNote { padding: 10px 12px; color: var(--duel-ink-3); font-size: 13px; }
 
 .muted { color: var(--duel-ink-3); }
+.importReport { margin: 0; color: var(--duel-chain-ink); font-size: 13.5px; line-height: 1.5; }
 
 /* ---------- deck lists ---------- */
 .list { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid var(--duel-rule-lo); }

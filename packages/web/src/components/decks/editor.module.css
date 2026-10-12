@@ -26,7 +26,7 @@
 .de-hist { display: inline-flex; gap: 2px; padding-right: 8px; border-right: 1px solid var(--rule-lo); }
 .de-ib { display: inline-grid; place-items: center; flex: none; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--ink-3); cursor: pointer; }
 .de-ib:hover { color: var(--ink); background: rgb(239 231 213 / 0.05); }
-.de-ib:disabled { opacity: 0.35; cursor: default; background: none; }
+.de-ib:disabled, .de-ib[aria-disabled="true"] { opacity: 0.35; cursor: default; background: none; }
 
 
 /* three panes */

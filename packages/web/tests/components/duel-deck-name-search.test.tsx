@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CardQuery, CardQueryResult, DeckCardInfo, DuelSettings } from "@yugidraft/shared/duels";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
 import { DeckEditor } from "../../src/components/duel/deck-editor";
+import { SPELL_TRAP_EXTRA_MESSAGE } from "../../src/components/decks/model";
 
 const { queryDeckCards, getDeckCardFacets, validateDuelDeck } = vi.hoisted(() => ({
   queryDeckCards: vi.fn(),
@@ -161,14 +162,55 @@ describe("deck editor add card by name", () => {
     expect(cardsIn("Side")).toHaveLength(1);
   });
 
-  it("keeps a chosen Section for an Extra Deck monster", async () => {
+  it("does not offer Main for an Extra Deck monster, and cannot be made to choose it", async () => {
     queryDeckCards.mockResolvedValue(answer([BLUE_EYES_ULTIMATE]));
     renderEditor();
-    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "main" } });
     await search("ultimate");
+    expect(within(screen.getByRole("combobox", { name: "Section" })).getByRole("option", { name: "Main" })).toBeDisabled();
+    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "main" } });
     fireEvent.keyDown(field(), { key: "Enter" });
-    expect(cardsIn("Main")).toHaveLength(1);
+    expect(cardsIn("Main")).toHaveLength(0);
+    expect(cardsIn("Extra")).toHaveLength(1);
+  });
+
+  it("refuses a Spell for Extra when Extra was chosen for the card before it, and shows the reason", async () => {
+    queryDeckCards.mockImplementation(async (request: CardQuery) =>
+      answer(request.text === "pot" ? [POT] : [BLUE_EYES_ULTIMATE]));
+    renderEditor();
+    await search("ultimate");
+    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "extra" } });
+    // The choice stays when the text changes, so Extra is now chosen for a Spell.
+    await search("pot");
+    expect(within(screen.getByRole("combobox", { name: "Section" })).getByRole("option", { name: "Extra" })).toBeDisabled();
+    fireEvent.keyDown(field(), { key: "Enter" });
     expect(cardsIn("Extra")).toHaveLength(0);
+    expect(cardsIn("Main")).toHaveLength(0);
+    expect(screen.getByRole("alert")).toHaveTextContent(SPELL_TRAP_EXTRA_MESSAGE);
+    // Clicking the result is refused the same way; Main works once chosen.
+    fireEvent.click(optionsNow()[0]);
+    expect(cardsIn("Extra")).toHaveLength(0);
+    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "main" } });
+    fireEvent.click(optionsNow()[0]);
+    expect(cardsIn("Main")).toHaveLength(1);
+  });
+
+  it("refuses a typed passcode of a Spell for Extra, and still adds a passcode the database does not know", async () => {
+    queryDeckCards.mockImplementation(async (request: CardQuery) =>
+      answer(request.text === "55144522" ? [POT] : request.text === "ultimate" ? [BLUE_EYES_ULTIMATE] : []));
+    renderEditor();
+    await search("ultimate");
+    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "extra" } });
+    type("55144522");
+    await flush(PAUSE);
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(cardsIn("Extra")).toHaveLength(0);
+    expect(screen.getByRole("alert")).toHaveTextContent(SPELL_TRAP_EXTRA_MESSAGE);
+
+    type("99999999");
+    await flush(PAUSE);
+    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "extra" } });
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(cardsIn("Extra")).toHaveLength(1);
   });
 
   it("closes the dropdown on Escape and reopens it when typing", async () => {

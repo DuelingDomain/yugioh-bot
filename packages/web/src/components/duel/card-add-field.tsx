@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { DeckCardInfo, DuelSettings, DuelMode } from "@yugidraft/shared/duels";
 import { Plus } from "lucide-react";
-import { defaultAddSection } from "../decks/model";
+import { defaultAddSection, placementBlock } from "../decks/model";
 import { cardArtUrl, cardKindText } from "./constants";
 import { cardAddBlock, useBanlistLimits, useCardNameSearch } from "./card-add-search";
 import { cx, SheetButton, SheetSelect } from "./sheet-ui";
@@ -76,6 +76,12 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
 
   function addCard(card: DeckCardInfo) {
     const target = sectionFor(card);
+    // The same rule as the deck builder: only Extra Deck monsters go in Extra, and they do not go in Main.
+    const block = placementBlock(card, target);
+    if (block) {
+      onError(block);
+      return;
+    }
     onAdd(card.code, target);
     setAdded(`Added ${card.name} to ${target}.`);
     setQuery("");
@@ -114,7 +120,14 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
         onError(`${cards[known].name} cannot be added: ${blocks[known]}.`);
         return;
       }
-      onAdd(code, sectionFor(known >= 0 ? cards[known] : undefined));
+      const target = sectionFor(known >= 0 ? cards[known] : undefined);
+      // A passcode with no details is left to the server check at Ready.
+      const block = known >= 0 ? placementBlock(cards[known], target) : null;
+      if (block) {
+        onError(block);
+        return;
+      }
+      onAdd(code, target);
       setAdded(`Added passcode ${code}.`);
       setSection(null);
       setQuery("");
@@ -227,8 +240,8 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
         compact
         value={chosenSection === "side" && !sideAllowed ? "main" : chosenSection}
         choices={[
-          { value: "main", label: "Main" },
-          { value: "extra", label: "Extra" },
+          { value: "main", label: "Main", disabled: shownCard != null && placementBlock(shownCard, "main") != null },
+          { value: "extra", label: "Extra", disabled: shownCard != null && placementBlock(shownCard, "extra") != null },
           ...(sideAllowed ? [{ value: "side" as const, label: "Side" }] : []),
         ]}
         onChange={setSection}

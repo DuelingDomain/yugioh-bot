@@ -1,7 +1,5 @@
 "use client";
 
-import { prepareDeckTextImport } from "./api";
-
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
@@ -41,7 +39,7 @@ import { SheetRoot, StatusLine, SvButton, Zone, segmentSlide } from "@/component
 import { useTabDirection } from "@/lib/tab-motion";
 import { cn } from "@/lib/utils";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
-import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
+import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, prepareDeckTextImport, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
 import { ArtworkPicker, artCountLabel } from "@/components/artwork/artwork-picker";
 import { ArtChip } from "./art-chip";
 import { ControlsLegend } from "./controls-legend";
@@ -235,6 +233,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [facetsRetry, setFacetsRetry] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   /** The server moved bad Extra cards to Main when it read this deck. Stays until dismissed or saved. */
+  /** What the server moved while importing. Stays until it is dismissed, the next import or a save. */
+  const [importMessages, setImportMessages] = useState<string[]>([]);
   const [repair, setRepair] = useState<SavedDeckView["extraDeckRepair"] | null>(null);
   const [hand, setHand] = useState<TestHand | null>(null);
   const [masterDropping, setMasterDropping] = useState(false);
@@ -811,7 +811,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     commit(importForLibrary(raw, nextMode), nextMode);
     setSelected(null);
     setImportOpen(false);
-    setNotice(["Deck imported. Press Ctrl+Z to undo.", ...messages].join(" "));
+    setImportMessages(messages);
+    setNotice("Deck imported. Press Ctrl+Z to undo.");
   }
 
   function onFile(file: File) {
@@ -899,11 +900,13 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
         setBaseline(snapshotOf(record.name, record.mode, record.deck));
         setSavedId(record.id);
         setRepair(null);
+        setImportMessages([]);
         setSavedFlash(true);
       });
       // Keep selection provenance when a new deck acquires its permanent URL.
       if (savedId == null && !pool) window.history.replaceState(null, "", `/decks/${record.id}`);
     } catch (reason: unknown) {
+      // The server's INVALID_EXTRA_DECK_CARD answer names the card in its message; it shows as it is.
       setSaveError(reason instanceof Error ? reason.message : "Could not save this deck.");
     } finally {
       setSaveBusy(false);
@@ -1044,26 +1047,31 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     onArtMenu: openArtMenu,
     artMenu,
   };
+  /** The warning or notice that held focus goes away; focus moves to the heading of the section it was about. */
+  function focusSection(section: "main" | "extra") {
+    document.querySelector<HTMLElement>(`[data-section="${section}"] h2`)?.focus();
+  }
   /** One click moves the cards of this section that it does not take; one undo step. */
   function fixSection(from: "main" | "extra") {
     if (busy) return;
     const moved = (from === "extra" ? misplaced.inExtra : misplaced.inMain).length;
     commit(fixMisplaced(selection, catalog, from));
     setSelected(null);
+    setSaveError(null);
+    focusSection(from);
     setNotice(`Moved ${moved} ${moved === 1 ? "card" : "cards"} to the ${from === "extra" ? "Main" : "Extra"} Deck. Press Ctrl+Z to undo.`);
   }
   const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
   const mainCap = pool ? DRAFT_MAIN_MAX : 60;
   const repairText = repair
     ? repair.applied
-      ? `We moved ${repair.moves.length} ${plural(repair.moves.length, "card", "cards")} from your Extra Deck to your Main Deck. Only Fusion, Synchro, Xyz and Link monsters go in the Extra Deck.${deck.main.length > mainCap ? ` Main now has ${deck.main.length} cards. Trim it to ${mainCap} or fewer. You can still edit and save.` : ""}`
+      ? `We moved ${repair.moves.length} ${plural(repair.moves.length, "card", "cards")} from your Extra Deck to your Main Deck. Only Fusion, Synchro, Xyz and Link monsters go in the Extra Deck.${deck.main.length > mainCap ? ` Main now has ${deck.main.length} cards. Trim it to ${mainCap} or fewer. You can still edit and save.` : ""} This note stays until you save the deck.`
       : repair.message
     : null;
   const extraWarning: SectionWarning | undefined = misplaced.inExtra.length > 0 ? {
     message: `${misplaced.inExtra.length} ${plural(misplaced.inExtra.length, "card here is", "cards here are")} not ${plural(misplaced.inExtra.length, "an Extra Deck monster", "Extra Deck monsters")}. Only Fusion, Synchro, Xyz and Link monsters go in the Extra Deck.`,
-    actionLabel: "Move to Main Deck",
-    onAction: () => fixSection("extra"),
-    disabled: busy,
+    // When the server could not move the cards (Main would pass the save limit), moving them here would not save either.
+    ...(repair && !repair.applied ? {} : { actionLabel: "Move to Main Deck", onAction: () => fixSection("extra"), disabled: busy }),
   } : undefined;
   const mainWarning: SectionWarning | undefined = misplaced.inMain.length > 0 ? {
     message: `${misplaced.inMain.length} ${plural(misplaced.inMain.length, "card here is an Extra Deck monster", "cards here are Extra Deck monsters")}. Fusion, Synchro, Xyz and Link monsters cannot go in the Main Deck.`,
@@ -1251,9 +1259,15 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
               </div>
             ) : null}
             {repairText ? (
-              <div className={styles["de-alert"]} role="status" data-testid="extra-repair-notice">
+              <div className={styles["de-alert"]} role="group" aria-label="Extra Deck repair" data-testid="extra-repair-notice">
                 <StatusLine tone="warn">{repairText}</StatusLine>
-                <SvButton variant="quiet" onClick={() => setRepair(null)}>Dismiss</SvButton>
+                <SvButton variant="quiet" onClick={() => { setRepair(null); focusSection("main"); }}>Dismiss</SvButton>
+              </div>
+            ) : null}
+            {importMessages.length > 0 ? (
+              <div className={styles["de-alert"]} role="group" aria-label="Import changes" data-testid="import-messages">
+                {importMessages.map((message, index) => <StatusLine key={index} tone="warn">{message}</StatusLine>)}
+                <SvButton variant="quiet" onClick={() => { setImportMessages([]); focusSection("main"); }}>Dismiss</SvButton>
               </div>
             ) : null}
             {isPhone ? <details className={styles["de-pchk"]} data-s={tone}><summary>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span>{flag}</span><ChevronDown className="ic sm" aria-hidden /></summary><DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /></details> : null}

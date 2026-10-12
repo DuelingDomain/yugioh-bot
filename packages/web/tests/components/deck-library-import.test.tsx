@@ -48,16 +48,19 @@ afterEach(() => {
 });
 
 describe("SavedDeckLibrary", () => {
-  it("marks a deck the server repaired", async () => {
+  it("marks a deck the server repaired, or could not repair, and no other", async () => {
     const base: Omit<SavedDeck, "id" | "name"> = { mode: "normal", deck: { main: [89631139], extra: [], side: [] }, createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00" };
     const decks: SavedDeck[] = [
       { ...base, id: 1, name: "Fixed", extraDeckRepair: { applied: true, mainCount: 1, message: "x", moves: [{ code: 5318639, name: "Mystical Space Typhoon", from: "extra", to: "main" }] } },
       { ...base, id: 2, name: "Clean" },
+      { ...base, id: 3, name: "Stuck", extraDeckRepair: { applied: false, mainCount: 301, message: "x", moves: [{ code: 5318639, name: "Mystical Space Typhoon", from: "extra", to: "main" }] } },
     ];
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks })));
     render(<SavedDeckLibrary />);
     await screen.findByRole("link", { name: "Fixed" });
-    expect(screen.getAllByText(/moved from Extra to Main/)).toHaveLength(1);
+    // The server keeps the note until the deck is saved, and the row says so.
+    expect(screen.getAllByText("1 card moved from Extra to Main. Open and save to clear.")).toHaveLength(1);
+    expect(screen.getAllByText("Some Extra Deck cards do not belong there. Open to fix.")).toHaveLength(1);
   });
 
   it("lists each row's counts as plain items with no dots and omits an absent Master", async () => {

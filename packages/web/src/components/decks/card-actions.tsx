@@ -105,10 +105,12 @@ export function CardActions({
               <button
                 type="button"
                 className={styles["de-ib"]}
-                aria-label={`Add one ${card.name} to ${label}`}
-                disabled={full || refusal != null}
+                aria-label={refusal ? `Add one ${card.name} to ${label}. Not allowed: ${refusal}` : `Add one ${card.name} to ${label}`}
+                disabled={full}
+                // Not `disabled`: a refused button keeps keyboard focus and reads its reason aloud.
+                aria-disabled={refusal != null || undefined}
                 title={refusal ?? undefined}
-                onClick={() => onAdd(section)}
+                onClick={() => { if (refusal == null) onAdd(section); }}
               >
                 <Plus size={15} strokeWidth={1.8} aria-hidden />
               </button>

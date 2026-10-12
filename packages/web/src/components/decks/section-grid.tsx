@@ -28,8 +28,9 @@ import { DeckSizeMeter, sizeState } from "./size-meter";
 /** A section that holds cards it does not take (old saves, imports): a message and a one-click fix. */
 export interface SectionWarning {
   message: string;
-  actionLabel: string;
-  onAction: () => void;
+  /** No label, no button: the message is all there is to say. */
+  actionLabel?: string;
+  onAction?: () => void;
   disabled?: boolean;
 }
 
@@ -152,6 +153,7 @@ export function DeckSectionGrid({
     <section
       className={styles["de-sec-b"]}
       aria-label={`${title} Deck`}
+      data-section={section}
       data-dropping={dropping ? "true" : undefined}
       data-refused={refusal ? "true" : undefined}
       onDragOver={(event) => { if (allowDrop(event)) setDropping(true); }}
@@ -164,7 +166,7 @@ export function DeckSectionGrid({
       onDrop={(event) => finishDrop(event)}
     >
       <header className={styles["de-sh"]} data-off={unused ? "" : undefined}>
-        <h2 className={styles["de-st"]}>{title}</h2>
+        <h2 className={styles["de-st"]} tabIndex={-1}>{title}</h2>
         <span className={cn("num", styles["de-n"])} data-s={state} data-zero={codes.length === 0 ? "" : undefined}>{codes.length}</span>
         {unused ? null : <DeckSizeMeter title={title} count={codes.length} minimum={minimum} maximum={maximum} />}
         <span className={styles["de-tg"]}>{target}</span>
@@ -175,9 +177,9 @@ export function DeckSectionGrid({
       {refusal ? <p className={styles["de-refuse"]} aria-hidden="true">{refusal}</p> : null}
 
       {warning ? (
-        <div className={styles["de-alert"]} role="alert">
+        <div className={styles["de-alert"]} role="status">
           <StatusLine tone="warn">{warning.message}</StatusLine>
-          <SvButton variant="quiet" disabled={warning.disabled} onClick={warning.onAction}>{warning.actionLabel}</SvButton>
+          {warning.actionLabel && warning.onAction ? <SvButton variant="quiet" disabled={warning.disabled} onClick={warning.onAction}>{warning.actionLabel}</SvButton> : null}
         </div>
       ) : null}
 
