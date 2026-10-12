@@ -2,7 +2,7 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
-import { createDraftService, createCardCatalogService, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
+import { createDraftService, createDeckTypeLookup, createCardCatalogService, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { CardListError } from "@/lib/card-list-parser";
@@ -76,14 +76,15 @@ async function handlePOST(request: Request) {
       const resolved = await prepareCubeListImport(catalog, body.listText);
       const cards = catalog.findByIds(resolved.entries.map((entry) => entry.id));
       const byId = new Map(cards.map((card) => [card.ygoprodeckId, card]));
+      const findType = createDeckTypeLookup(db);
       let movedToMain = 0;
       const entries = resolved.entries.map((entry) => {
-        const extra = isExtraDeckFrame(byId.get(entry.id)!);
+        const extra = isExtraDeckFrame(findType(entry.id) ?? byId.get(entry.id));
         if (entry.pool === "extra" && !extra) movedToMain += 1;
         return { id: entry.id, copies: entry.copies, pool: extra ? "extra" : "main" };
       });
       return NextResponse.json({ cards: cards.map(toCardSummary), entries, unknown: resolved.unknown, corrected: resolved.corrected,
-        ...(resolved.lookupLimited ? { lookupLimited: true } : {}), ...(movedToMain ? { movedToMain } : {}) });
+        ...(resolved.lookupLimited ? { lookupLimited: true } : {}), ...(resolved.moves ? { moves: resolved.moves, messages: resolved.messages } : {}), ...(movedToMain ? { movedToMain } : {}) });
     } catch (error) {
       if (!(error instanceof CardListError)) throw error;
       return NextResponse.json({ error: error.message }, { status: 400 });

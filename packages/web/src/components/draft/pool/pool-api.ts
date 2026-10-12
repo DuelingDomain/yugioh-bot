@@ -133,6 +133,7 @@ export async function resolveCardList(listText: string): Promise<ResolvedList> {
     corrected: data.corrected ?? [],
     ...(data.lookupLimited ? { lookupLimited: true as const } : {}),
     ...(data.movedToMain ? { movedToMain: data.movedToMain } : {}),
+        ...(data.messages?.length ? { messages: data.messages } : {}),
   };
 }
 
