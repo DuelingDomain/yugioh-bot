@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import {
-  isEngineIdentity, isReplaySeed, sameEngineIdentity, seatCountFor, sourceEngineChoice,
+  isEngineIdentity, isReplaySeed, isUnknownEngineChoice, sameEngineIdentity, seatCountFor, sourceEngineChoice,
   type DuelEngineView, type EngineIdentity, type ReplayJournalEntry, type ReplaySource,
 } from "@yugidraft/shared/duels";
 import { eliminationAtTurnEnd } from "./engine.js";
@@ -114,8 +114,8 @@ function creationOptions({ source, resources, prefixCount, checkpointSeat, targe
   let engine = session.format === "1v1" ? sourceEngineChoice(source) : undefined;
   // A checked replay may discover the family of an old source. Preserve the source/cursor identity;
   // only trusted current resources can select the worker family, and only for unknown 1v1 choices.
-  if (session.format === "1v1" && resources.allowVersionMismatch && source.engineIdentity === null
-    && setup?.engine == null && !setup?.startupScripts?.length && resources.engineIdentity && resources.engineIdentity.coreFamily !== "multi") {
+  if (resources.allowVersionMismatch && isUnknownEngineChoice(source)
+    && resources.engineIdentity && resources.engineIdentity.coreFamily !== "multi") {
     engine = resources.engineIdentity.coreFamily;
   }
   if (engine !== undefined && engine !== "legacy" && engine !== "pinned") mismatch("Invalid saved 1v1 engine choice");

@@ -107,6 +107,7 @@ describe("current engine identity", () => {
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
     // Refresh for trusted replay-only selection of an unknown 1v1 family. Saved-choice and
     // identity guards, live recovery, engine command application and Manual loss timing are unchanged.
+    // The shared unknown-choice predicate replaces identical guards; this extraction is behavior-neutral.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 

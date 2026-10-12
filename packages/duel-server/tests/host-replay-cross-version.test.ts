@@ -203,6 +203,61 @@ it.each(["crash", "loop-limit"] as const)("tries pinned after a legacy %s", asyn
   expect(db.prepare("select core_family from duel_replay_verifications where duel_id=?").get(duelId))
     .toEqual({ core_family: "pinned" });
 });
+it.each((["crash", "loop-limit"] as const).flatMap(failure =>
+  (["command_mismatch", "board_mismatch", "crash", "missing", "unavailable"] as const).map(alternateFailure => ({ failure, alternateFailure }))))(
+  "keeps a legacy $failure transient after pinned $alternateFailure", async ({ failure, alternateFailure }) => {
+  unknownChoice();
+  const get = vi.mocked(EngineResourceCache.prototype.get).getMockImplementation()!;
+  vi.mocked(EngineResourceCache.prototype.get).mockImplementation(async (directory, choice) => {
+    if (choice.engine === "pinned" && alternateFailure === "missing") throw new EngineResourceUnavailableError("fixture family is not installed");
+    return get(directory, choice);
+  });
+  configure = worker => {
+    if (alternateFailure === "command_mismatch" || alternateFailure === "board_mismatch") failFamily(worker, "pinned", alternateFailure);
+    if (alternateFailure === "unavailable") {
+      const create = worker.create.bind(worker);
+      worker.create = async options => {
+        await create(options);
+        if (options.engine === "pinned") throw new EngineResourceUnavailableError("fixture resources disappeared after selection");
+      };
+    }
+    const answer = worker.answer.bind(worker);
+    worker.answer = async (...args) => {
+      if (worker.created?.engine === "legacy" || alternateFailure === "crash") {
+        if (failure === "loop-limit") throw new EngineLoopError();
+        worker.running = false; throw new Error("Fixture worker exited");
+      }
+      return answer(...args);
+    };
+  };
+  expect(await post()).toMatchObject({ status: 503, body: { code: "ENGINE_BUSY" } });
+  expect(checks()).toEqual([]);
+  expect(workers.map(worker => worker.created?.engine)).toEqual(alternateFailure === "missing" ? ["legacy"] : ["legacy", "pinned"]);
+  expect(workers.every(worker => !worker.running)).toBe(true);
+  await host.close(); workers = []; start();
+  vi.mocked(EngineResourceCache.prototype.get).mockImplementation(get); configure = () => {};
+  expect(await post()).toMatchObject({ status: 200, body: { verification: "verified" } });
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy"]);
+});
+it.each(["crash", "loop-limit"] as const)("keeps a pinned %s transient after a legacy command mismatch", async failure => {
+  unknownChoice(); configure = worker => {
+    failFamily(worker, "legacy", "command_mismatch");
+    const answer = worker.answer.bind(worker);
+    worker.answer = async (...args) => {
+      if (worker.created?.engine === "pinned") {
+        if (failure === "loop-limit") throw new EngineLoopError();
+        worker.running = false; throw new Error("Fixture pinned worker exited");
+      }
+      return answer(...args);
+    };
+  };
+  expect(await post()).toMatchObject({ status: 503, body: { code: "ENGINE_BUSY" } });
+  expect(checks()).toEqual([]);
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy", "pinned"]);
+  configure = () => {};
+  expect(await post()).toMatchObject({ status: 200, body: { verification: "verified" } });
+  expect(workers.map(worker => worker.created?.engine)).toEqual(["legacy", "pinned", "pinned"]);
+});
 it("tries pinned after a legacy crash during owner reveal reads", async () => {
   unknownChoice(); configure = worker => {
     const view = worker.view.bind(worker);
@@ -244,7 +299,7 @@ it("preserves a concurrent verified pass after a pinned crash and retries that p
     .toEqual({ result: "verified", reason: null, core_family: "pinned" });
   expect(await post({ visibility: "public" })).toMatchObject({ status: 200, body: { verification: "verified" } });
 });
-it("lets an in-flight pinned check replace a concurrent crash verdict with a verified pass", async () => {
+it("lets an in-flight pinned check verify after a concurrent transient crash", async () => {
   unknownChoice();
   let reached!: () => void, release!: () => void, crash = true;
   const comparing = new Promise<void>(resolve => { reached = resolve; });
@@ -265,8 +320,8 @@ it("lets an in-flight pinned check replace a concurrent crash verdict with a ver
   const healthyProjection = post();
   try {
     await comparing;
-    expect(await post({ visibility: "public" })).toMatchObject({ status: 409, body: { code: "REPLAY_UNVERIFIED" } });
-    expect(checks()[0]).toMatchObject({ result: "unverified" });
+    expect(await post({ visibility: "public" })).toMatchObject({ status: 503, body: { code: "ENGINE_BUSY" } });
+    expect(checks()).toEqual([]);
   } finally { release(); }
   expect(await healthyProjection).toMatchObject({ status: 200, body: { verification: "verified" } });
   expect(db.prepare("select result,reason,core_family from duel_replay_verifications where duel_id=?").get(duelId))

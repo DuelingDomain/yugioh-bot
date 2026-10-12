@@ -237,6 +237,11 @@ permit one pinned attempt after a command mismatch, board mismatch, worker
 crash or process loop limit. Startup-script rows remain pinned-only. Saved
 choices and recorded identities keep their family.
 
+Crashes and process loop limits only permit that alternate attempt. If no
+family verifies and either attempt crashed or hit the loop limit, return
+503 `ENGINE_BUSY` without writing a lasting verdict, including when pinned
+is not installed.
+
 Both attempts share the existing 25-second verification budget and the
 28-second request deadline. If the second attempt needs a fresh request,
 `REPLAY_VERIFIED_RETRY` retains the first failure in the bounded checked-build
@@ -245,8 +250,8 @@ Queue pressure, timeouts and aborted requests remain transient and are not
 retained as family failures.
 
 Later checked views and forks use the recorded passing `core_family`. If both
-families fail, prefer a family's board-mismatch reason over a command failure
-and record that family for owner-only unchecked views and forks. Explicit
+families fail with command or board mismatches, prefer a family's board-mismatch
+reason over a command failure and record that family for owner-only unchecked views and forks. Explicit
 unchecked views otherwise use the historical default, including after a
 pinned pass, and never replace a checked verdict. See [the engine-choice
 rules](duel-engine-switch.md#the-engine-of-a-duel-is-recorded) and replay-fork
