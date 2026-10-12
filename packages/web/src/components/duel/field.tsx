@@ -260,7 +260,8 @@ export function ZoneSlot({
         className={styles.zoneHit}
         aria-label={equipText ? `${label}. ${equipText}` : label}
         aria-pressed={selected}
-        onClick={(event) => onActivate(keys, card, event.currentTarget)}
+        // A ghost is the facing seat's card: a click on it acts on nothing (hover still previews it).
+        onClick={(event) => onActivate(keys, link === "taken" ? null : card, event.currentTarget)}
         onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
         onMouseLeave={() => onHoverCard?.(null, null)}
         onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
