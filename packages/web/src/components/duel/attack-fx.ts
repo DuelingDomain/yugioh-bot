@@ -465,23 +465,47 @@ type PieceMotion = (piece: HTMLElement, index: number, centre: Pt) => void;
  * Three zero-size probes on the corners of `box` (which must be positioned) give the screen edges; null if unreadable.
  */
 export function screenPose(box: HTMLElement): { w: number; h: number; turn: number } | null {
-  if (getComputedStyle(box).position === "static") return null;
-  const probe = (left: string, top: string): HTMLElement => {
-    const dot = document.createElement("span");
-    dot.setAttribute("aria-hidden", "true");
-    dot.style.cssText = `position:absolute;width:0;height:0;pointer-events:none;visibility:hidden;left:${left};top:${top};`;
-    box.appendChild(dot);
-    return dot;
-  };
-  const dots = [probe("0", "0"), probe("100%", "0"), probe("0", "100%")];
-  const [a, b, c] = dots.map((dot) => dot.getBoundingClientRect());
-  for (const dot of dots) dot.remove();
+  const rects = probeRects(box, [["0", "0"], ["100%", "0"], ["0", "100%"]]);
+  if (!rects) return null;
+  const [a, b, c] = rects;
   const w = Math.hypot(b.left - a.left, b.top - a.top);
   const h = Math.hypot(c.left - a.left, c.top - a.top);
   if (!(w > 0 && h > 0)) return null;
   const turn = Math.atan2(b.top - a.top, b.left - a.left) * 180 / Math.PI;
   // An upright field reads a rounding error, not a turn.
   return { w, h, turn: Math.abs(turn) < 0.05 ? 0 : Math.round(turn * 100) / 100 };
+}
+
+/**
+ * How big a positioned box is on screen, in px: the distance between the middles of its opposite edges. That is its
+ * layout size times every scale on the way up (the camera zoom of the Tag Rooftop, the scale of a grid seat field), and
+ * rotation does not change it. In a tilted 3D view the far edge is shorter than the near one, so the middles give the
+ * size of the box as a whole, where `screenPose` reads its top and left edges. Null if unreadable.
+ */
+export function screenSize(box: HTMLElement): { w: number; h: number } | null {
+  const rects = probeRects(box, [["0", "50%"], ["100%", "50%"], ["50%", "0"], ["50%", "100%"]]);
+  if (!rects) return null;
+  const [left, right, top, bottom] = rects;
+  const w = Math.hypot(right.left - left.left, right.top - left.top);
+  const h = Math.hypot(bottom.left - top.left, bottom.top - top.top);
+  return w > 0 && h > 0 ? { w, h } : null;
+}
+
+/** The screen position of zero-size probes placed on `box` at the given left/top points; null for a box that is not positioned. */
+function probeRects(box: HTMLElement, points: ReadonlyArray<readonly [string, string]>): DOMRect[] | null {
+  if (getComputedStyle(box).position === "static") return null;
+  const dots = points.map(([left, top]) => {
+    const dot = document.createElement("span");
+    dot.setAttribute("aria-hidden", "true");
+    dot.style.cssText = `position:absolute;width:0;height:0;pointer-events:none;visibility:hidden;left:${left};top:${top};`;
+    box.appendChild(dot);
+    return dot;
+  });
+  try {
+    return dots.map((dot) => dot.getBoundingClientRect());
+  } finally {
+    for (const dot of dots) dot.remove();
+  }
 }
 
 /**
