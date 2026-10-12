@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -75,5 +75,33 @@ describe("the 3-way plaza links the facing pair 0 and 1", () => {
     expect(taken.querySelector("button")?.getAttribute("aria-label") ?? taken.textContent).toMatch(/shared with|taken/i);
     // The other zone of seat 1 stays free.
     expect(container.querySelector('[data-testid="seat-field-1"] [data-link-seq="5"]')!.getAttribute("data-link")).toBe("shared");
+  });
+
+  it("never acts on a ghost: a click on it sends no answer and opens no card menu, while the owner's own zone still answers", () => {
+    const base = paired.states.main;
+    const engine = base.room.engine!;
+    const jinzo = engine.seats[0].monsters[5]!;
+    const prompt = {
+      id: "pick-jinzo",
+      seat: 0,
+      kind: "cards",
+      title: "Select a monster",
+      min: 1,
+      max: 1,
+      options: [{ id: "jinzo", label: "Jinzo", card: jinzo, controller: 0, location: jinzo.location, sequence: 5 }],
+    };
+    const state = { ...base, room: { ...base.room, engine: { ...engine, prompt } } } as unknown as TableFixtureState;
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const { container } = render(<Shell state={state} />);
+      const answers = () => info.mock.calls.filter((call) => call[0] === "[table-preview] answer").length;
+      fireEvent.click(container.querySelector('[data-testid="seat-field-1"] [data-link-seq="6"] button')!);
+      expect(answers()).toBe(0);
+      expect(screen.queryByRole("menu")).toBeNull();
+      fireEvent.click(container.querySelector('[data-testid="seat-field-0"] [data-link-seq="5"] button')!);
+      expect(answers()).toBe(1);
+    } finally {
+      info.mockRestore();
+    }
   });
 });
