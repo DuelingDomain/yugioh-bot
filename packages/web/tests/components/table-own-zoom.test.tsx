@@ -37,7 +37,6 @@ import { duelFxClock } from "@/components/duel/fx-clock";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
-import { CRUMBLE_GATE_CAP_MS } from "@/components/duel/table/crumble-gate";
 import { TableShell } from "@/components/duel/table/table-shell";
 import type { CameraState } from "@/components/duel/table/types";
 
@@ -69,9 +68,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** More than the longest hold of the crumble gate (9.5 s), so the regroup has ended in every table the tests run on. */
+const GATE_WAIT_MS = 12_000;
 /** A safety net for a slow runner: each of these tests takes well under 2 s on a normal machine. */
 const TEST_TIMEOUT_MS = 20_000;
-const GATE_WAIT_MS = CRUMBLE_GATE_CAP_MS + 2500;
 const REN = 0;
 const RYO = 1;
 const BASE = FFA3_FIXTURES.states.main;
@@ -464,45 +464,12 @@ describe("FFA3 own field camera zoom", () => {
     expect(measures()).toBe(after);
   }, TEST_TIMEOUT_MS);
 
-  it("the seat-choice panel keeps off the HUD that stays on screen (a plate, the chip)", async () => {
-    const rect = (x: number, y: number, width: number, height: number) => ({ x, y, left: x, top: y, width, height, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
-    const roomOf = (root: HTMLElement) => {
-      const style = board(root).style;
-      const n = (name: string) => Number.parseFloat(style.getPropertyValue(`--room-${name}`));
-      return { x: n("x"), y: n("y"), width: n("w"), height: n("h") };
-    };
-    const hits = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-    const state = FFA3_FIXTURES.states["choose-opponent"];
-    frames();
-    layout({ x: 300, y: 700, width: 500, height: 160 });
-    const first = render(<Table state={state} camera={{ mode: "focus", focusSeat: REN }} />);
-    advance(800);
-    const free = roomOf(first.container);
-    expect(free.width).toBeGreaterThan(0);
-    first.unmount();
-    vi.restoreAllMocks();
-    // The camera chip now stands on that room, and a card is pinned in the peek beside it.
-    frames();
-    const onRoom = rect(free.x, free.y, free.width, free.height);
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      if (this.hasAttribute("data-table-stage")) return rect(0, 0, 1100, 860);
-      if (this.hasAttribute("data-hand-card") && this.closest('[data-hand-seat][data-side="you"]')) return rect(300, 700, 500, 160);
-      if (this.hasAttribute("data-camera-chip")) return onRoom;
-      return rect(0, 0, 0, 0);
-    });
-    const second = render(<Table state={state} camera={{ mode: "focus", focusSeat: REN }} />);
-    advance(900);
-    const moved = roomOf(second.container);
-    expect(moved.width).toBeGreaterThan(0);
-    expect(hits(moved, onRoom)).toBe(false);
-  });
-
-  describe("the seat-choice panel room against the HUD, the hand and the legal targets", () => {
+  describe("the seat-choice panel is fixed to the middle of the screen", () => {
     type R = { x: number; y: number; width: number; height: number };
     const rect = (r: R) => ({ x: r.x, y: r.y, left: r.x, top: r.y, width: r.width, height: r.height, right: r.x + r.width, bottom: r.y + r.height, toJSON: () => ({}) }) as DOMRect;
-    const hits = (a: R, b: R) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
     const state = FFA3_FIXTURES.states["choose-opponent"];
-    // Renders the seat choice with a mocked layout: `hand` (the hand cards), `chip` (the camera chip), `none` (promptRooms finds no room).
+    const px = (el: HTMLElement, name: string) => Number.parseFloat(el.style.getPropertyValue(name));
+    // Renders the seat choice with a mocked layout: `hand` (the hand cards) and `chip` (the camera chip) may stand anywhere.
     const place = (mock: { hand?: R; chip?: R }, camera: Partial<CameraState> = { mode: "focus", focusSeat: REN }) => {
       vi.restoreAllMocks();
       frames();
@@ -514,49 +481,61 @@ describe("FFA3 own field camera zoom", () => {
       });
       const view = render(<Table state={state} camera={camera} />);
       advance(900);
-      const style = board(view.container).style;
-      const n = (name: string) => Number.parseFloat(style.getPropertyValue(`--room-${name}`));
-      const panel = board(view.container).hasAttribute("data-panel-room") ? { x: n("x"), y: n("y"), width: n("w"), height: n("h") } : null;
+      const el = view.container.querySelector<HTMLElement>('[data-slot="prompt"]')!;
+      const stage = board(view.container);
+      const out = {
+        centered: stage.getAttribute("data-prompt-center") === "true",
+        planned: stage.hasAttribute("data-panel-room") || stage.style.getPropertyValue("--room-x") !== "",
+        cx: px(el, "--pr-cx"),
+        cy: px(el, "--pr-cy"),
+        w: px(el, "--pr-w"),
+        h: px(el, "--pr-h"),
+      };
       view.unmount();
-      return panel;
+      return out;
     };
 
-    it("moves off the hand when the hand stands on its room", () => {
-      // The hand stands on the room that the planner gives the panel at rest (x 251, y 116 with no hand there): the panel moves off it.
-      const hand = { x: 240, y: 100, width: 260, height: 330 };
-      const moved = place({ hand });
-      expect(moved).not.toBeNull();
-      expect(hits(moved!, hand)).toBe(false);
+    it("sits in the middle of the box across, in the band of the near field down, with no planned room", () => {
+      const at = place({ hand: { x: 300, y: 700, width: 500, height: 160 } });
+      expect(at.centered).toBe(true);
+      expect(at.planned).toBe(false);
+      expect(at.cx).toBe(550);
+      expect(at.w).toBe(1100);
+      expect(at.cy).toBeGreaterThan(0);
+      expect(at.cy).toBeLessThan(860);
+      // The band is centred in the box, so the prompt is in the middle of the screen down too.
+      expect(Math.abs(at.cy - 430)).toBeLessThanOrEqual(1);
+      expect(at.h).toBeGreaterThan(0);
+      expect(at.h).toBeLessThanOrEqual(860 - 24);
     });
 
-    it("shrinks to the smallest room (220x170) where only a small place is clear", () => {
-      const free = place({ hand: { x: 300, y: 700, width: 500, height: 160 } })!;
-      expect(free.height).toBeGreaterThan(190);
-      // The chip covers the upper part of the box and the hand the lower part: a strip of 206 px stays free between them.
-      const strip = 170 + 36;
-      const chip = { x: 0, y: 0, width: 1100, height: 300 };
-      const hand = { x: 0, y: 300 + strip + 2 * 8, width: 1100, height: 860 - (300 + strip + 2 * 8) };
-      const small = place({ chip, hand });
-      expect(small).not.toBeNull();
-      expect(small!.height).toBeGreaterThanOrEqual(170);
-      expect(small!.height).toBeLessThan(free.height);
-      expect(small!.width).toBeGreaterThanOrEqual(220);
-      expect(hits(small!, chip)).toBe(false);
-      expect(hits(small!, hand)).toBe(false);
+    it("stays in the same place in your own zoom, in a rival's focus and at home", () => {
+      const hand = { x: 300, y: 700, width: 500, height: 160 };
+      const focus = place({ hand }, { mode: "focus", focusSeat: REN });
+      const rival = place({ hand }, { mode: "focus", focusSeat: 1 });
+      const home = place({ hand }, { mode: "home" });
+      for (const other of [rival, home]) {
+        expect(other.centered).toBe(true);
+        expect(other.planned).toBe(false);
+        expect({ cx: other.cx, cy: other.cy, w: other.w }).toEqual({ cx: focus.cx, cy: focus.cy, w: focus.w });
+      }
     });
 
-    it("gets a room off the HUD and the hand when the planner finds none and the CSS would put it at the lower left", () => {
-      placed.noPanel = true;
-      // The planner has no room: the room comes from the CSS fallback place (lower left), moved off the zoomed field.
-      const fallback = place({ hand: { x: 300, y: 700, width: 500, height: 160 } });
-      expect(fallback).not.toBeNull();
-      // The hand and the chip now stand on the fallback place: the panel gets a room beside them.
-      const hand = { x: 0, y: 380, width: 360, height: 480 };
-      const chip = { x: 360, y: 380, width: 200, height: 60 };
-      const beside = place({ hand, chip });
-      expect(beside).not.toBeNull();
-      expect(hits(beside!, hand)).toBe(false);
-      expect(hits(beside!, chip)).toBe(false);
+    it("does not move for the hand or the camera chip (the prompt never dodges the camera or the hover)", () => {
+      const free = place({ hand: { x: 300, y: 700, width: 500, height: 160 } });
+      // The hand and the chip now stand on the middle of the screen: the prompt keeps its place.
+      const crowded = place({ hand: { x: 0, y: 300, width: 1100, height: 500 }, chip: { x: 400, y: 380, width: 300, height: 100 } });
+      expect(crowded.centered).toBe(true);
+      expect(crowded.planned).toBe(false);
+      expect({ cx: crowded.cx, cy: crowded.cy, w: crowded.w, h: crowded.h }).toEqual({ cx: free.cx, cy: free.cy, w: free.w, h: free.h });
+    });
+
+    it("keeps the seat-choice panel in the middle band, clear of the hand at rest", () => {
+      const hand = { x: 300, y: 700, width: 500, height: 160 };
+      const at = place({ hand });
+      const band = { x: 0, y: at.cy - at.h / 2, width: at.w, height: at.h };
+      // The band of the near field ends above the hand, so the panel (which keeps inside it) does not cover the hand at rest.
+      expect(band.y + band.height).toBeLessThanOrEqual(hand.y);
     });
   });
 
