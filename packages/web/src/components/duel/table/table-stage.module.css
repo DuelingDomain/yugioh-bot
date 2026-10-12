@@ -309,9 +309,10 @@
 }
 
 /*
- * The floating HUD of a 3-way table (table-stage.tsx `centerPrompts`): every prompt sits in the middle of your field, as
- * in the 4-way grid and the 1v1 room. --pr-cx/--pr-cy are the middle of your field and --pr-w/--pr-h its size, in board
- * px; --pr-unit follows its height, so a modal keeps to your side on a small screen. The pick bar places itself from
+ * The floating HUD of a 3-way table (table-stage.tsx `centerPrompts`): every prompt sits in the middle of the screen, at
+ * home, in a focus and under a zoom, as in the 4-way grid and the 1v1 room. --pr-cx/--pr-cy are the middle of the board
+ * and of the band of your field, --pr-w/--pr-h the size of that band, in board px; --pr-unit follows its height, so a
+ * modal keeps to one band on a small screen. The pick bar places itself from
  * `data-bar-room` (a clear place, never over a target). The doubled attribute outranks the lane rules above.
  */
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"][data-prompt-dense] :global([data-prompt-panel]) {

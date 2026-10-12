@@ -177,10 +177,11 @@
 }
 
 /*
- * Every prompt sits in the middle of YOUR pair, as the 1v1 room puts it in the middle of the board (grid-stage.tsx sets
- * --pr-cx/--pr-cy, the middle of the pair, and --pr-w/--pr-h, its size, in board px). Without them (a spectator who looks at all fields) the middle of the table. The "Activate its
- * effect?" bar, the effect and option lists, the card grid, positions, numbers, seat choices and the collapsed pill
- * may cover the middle of that pair; the pick bar places itself from `data-bar-room` (off every target) and the
+ * Every prompt sits in the middle of the screen (grid-stage.tsx sets --pr-cx/--pr-cy, the middle of the board across and of
+ * the fields' band down, --pr-w/--pr-h, the width of a pair and the height of the band, in board px, and --pr-dy, the step up or down
+ * off the phase chips). It is the same at home, in a focus and under a zoom, as the 1v1 room puts it in the middle of the
+ * board. The "Activate its effect?" bar, the effect and option lists, the card grid, positions, numbers, seat choices and the
+ * collapsed pill may cover the middle of the table; the pick bar places itself from `data-bar-room` (off every target) and the
  * tribute dock by your hand.
  */
 /*
@@ -200,7 +201,7 @@
 
 .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
-  translate: -50% -50%;
+  translate: -50% calc(-50% + var(--pr-dy, 0px));
   width: max-content;
   min-width: 0;
   max-width: min(max(360px, calc(400 * var(--duel-unit))), calc(var(--pr-w, 100%) - 24px));
@@ -210,7 +211,7 @@
 
 .slot[data-slot="prompt"] :global([data-prompt-panel]:not([data-precheck])) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
-  translate: -50% -50%;
+  translate: -50% calc(-50% + var(--pr-dy, 0px));
   margin: 0;
   width: min(calc(440 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
   max-height: min(calc(var(--pr-h, 100%) - 16px), calc(100% - 24px));
@@ -222,7 +223,7 @@
 
 .slot[data-slot="prompt"] :global([data-prompt-surface]:not([data-prompt-panel], [data-place])) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
-  translate: -50% -50%;
+  translate: -50% calc(-50% + var(--pr-dy, 0px));
   margin: 0;
 }
 

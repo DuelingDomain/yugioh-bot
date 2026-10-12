@@ -116,6 +116,8 @@ const STRIP_KEY_HUD = "[data-team-plate], [data-camera-rail], [data-testid='hove
  * "key" could be hidden for a small corner of the hub (the 2B chip at 1366 home). Counted in both, a plate costs its area first.
  */
 const STRIP_SOFT_HUD = "[data-hub], [data-chain-panel], [data-lock-chip], [data-partner-hand], [data-team-plate]";
+/** The air between the response room and the plates or the hand it keeps off (px). */
+const STRIP_BAND_AIR = 10;
 const STRIP_OWN_HAND = '[data-hand-seat][data-side="you"] [data-zones]';
 
 /**
@@ -180,6 +182,56 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   }, []);
   const stripCount = !phone && promptCenter && prompt && isChainStripPrompt(prompt) ? prompt.options.length : 0;
   const stripAnchor = useMemo(() => ({ x: viewBox.width / 2, y: viewBox.height / 2 }), [viewBox.width, viewBox.height]);
+  // The panel is fixed to the middle of the screen in every view (overview, focus, close-up): the camera moves the world, never this room. Down, it
+  // takes the band between the far team plate and the near one or the top of your hand (the way the 4-way takes the band of the fields), so it covers
+  // neither plate nor your hand. Measured at rest; with no plate on screen it is the whole viewport.
+  const [stripBand, setStripBand] = useState<{ top: number; bottom: number } | null>(null);
+  const bandKey = `${prompt?.id ?? ""}|${viewBox.width}x${viewBox.height}|${camera.mode}|${camera.focusSeat ?? ""}|${camera.lock?.reason ?? ""}`;
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || stripCount === 0 || viewBox.height <= 0) {
+      setStripBand(null);
+      return;
+    }
+    const measure = () => {
+      const board = root.getBoundingClientRect();
+      const rectOf = (selector: string) => {
+        const r = root.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+        return r && r.height > 0 ? { top: r.top - board.top, bottom: r.bottom - board.top } : null;
+      };
+      const far = rectOf('[data-team-plate="far"]');
+      const near = rectOf('[data-team-plate="near"]');
+      const hand = rectOf(STRIP_OWN_HAND);
+      // The plates are the far one above and the near one below; where a view puts them the other way round, the band is the one between them.
+      const flipped = far != null && near != null && far.top > near.top;
+      const upper = flipped ? near : far;
+      const lower = flipped ? far : near;
+      const top = upper ? Math.round(upper.bottom + STRIP_BAND_AIR) : 0;
+      const stops = [lower?.top, hand?.top].filter((v): v is number => v != null).map((v) => v - STRIP_BAND_AIR);
+      const bottom = stops.length > 0 ? Math.round(Math.min(...stops)) : viewBox.height;
+      const next = bottom - top > 120 ? { top: Math.max(0, top), bottom: Math.min(viewBox.height, bottom) } : null;
+      setStripBand((current) => (current?.top === next?.top && current?.bottom === next?.bottom ? current : next));
+    };
+    // At rest, then again when the camera move ends (a transition on the stage) and a little later in case none fires.
+    let frame = window.requestAnimationFrame(measure);
+    const again = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    };
+    root.addEventListener("transitionend", again, true);
+    const settle = window.setTimeout(measure, 450);
+    const late = window.setTimeout(measure, 1200);
+    return () => {
+      root.removeEventListener("transitionend", again, true);
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(settle);
+      window.clearTimeout(late);
+    };
+  }, [bandKey, stripCount, viewBox.height]);
+  const stripFixed = useMemo(
+    () => (stripBand ? { x: 0, y: stripBand.top, width: viewBox.width, height: stripBand.bottom - stripBand.top } : { x: 0, y: 0, width: viewBox.width, height: viewBox.height }),
+    [stripBand, viewBox.width, viewBox.height],
+  );
   const stripSources = useMemo(() => engine.chain.flatMap((link) => (link.zone ? [zoneKey(link.zone.controller, link.zone.location, link.zone.sequence)] : [])), [engine.chain]);
   const { room: stripRoom, pending: stripPending } = useStripRoom({
     rootRef,
@@ -188,6 +240,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     count: stripCount,
     box: viewBox,
     anchor: stripAnchor,
+    fixed: stripFixed,
     keyHud: STRIP_KEY_HUD,
     softHud: STRIP_SOFT_HUD,
     hand: STRIP_OWN_HAND,

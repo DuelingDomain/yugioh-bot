@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import React, { useReducer } from "react";
 import { cleanup, render } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -232,5 +234,19 @@ describe("TagStage chrome", () => {
       expect(chips.length).toBe(2);
       for (const chip of chips) expect(chip.querySelector("[class*='srOnly']")?.textContent?.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("Tag prompt placement", () => {
+  it("fixes the chain-response room to the middle of the viewport in every camera view", () => {
+    const source = readFileSync(join(__dirname, "../../src/components/duel/tag/tag-stage.tsx"), "utf8");
+    // The band between the far plate and the near plate or your hand, measured at rest; the whole viewport only where none stands.
+    expect(source).toMatch(/\[data-team-plate="far"\]/);
+    expect(source).toMatch(/rectOf\(STRIP_OWN_HAND\)/);
+    // Measured again when the camera move ends, and the plates may stand either way round.
+    expect(source).toMatch(/addEventListener\("transitionend"/);
+    expect(source).toMatch(/const flipped = /);
+    expect(source).toMatch(/const stripFixed = useMemo\(/);
+    expect(source).toMatch(/fixed: stripFixed,/);
   });
 });
