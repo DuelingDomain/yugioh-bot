@@ -330,10 +330,10 @@ export function createDuelHost(options: {
   rollDie?: () => number;
 }): DuelHost {
   if (!options.secret) throw new Error("DUEL_INTERNAL_SECRET is required");
-  const engineCards = new Map(Array.from(loadCardDatabase(options.dataDirectory).all(), card => [card.code, { name: card.name, type: card.type, alias: card.alias }] as const));
-  const deckCopies = createDeckCopyRepairService(options.db, engineCards);
+  let deckCopies: ReturnType<typeof createDeckCopyRepairService> | undefined;
+  const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(options.db);
   const service = createDuelService(options.db, { rollDie: options.rollDie });
-  const series = createDuelSeriesService(options.db, engineCards);
+  const series = createDuelSeriesService(options.db);
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as EngineDataManifest;
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
   const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory, { manifest, now: options.now });
@@ -417,7 +417,7 @@ export function createDuelHost(options: {
     const table = session.format;
     const cardBlocks = sessionCardEntries(session);
     const tournamentId = session.seriesId ? series.get(session.seriesId, session.guildId).tournamentId : null;
-    const draftId = tournamentId === null ? null : createTournamentDuelService(options.db, engineCards).rules(tournamentId).draftId;
+    const draftId = tournamentId === null ? null : createTournamentDuelService(options.db).rules(tournamentId).draftId;
     if (draftId === null) return { table, cardBlocks };
     const draftPool = await loadDraftDeckPool({ draftId, playerId, guildId: session.guildId, dataDirectory: options.dataDirectory, db: options.db });
     return { table, draftPool, cardBlocks };
@@ -1436,14 +1436,18 @@ export function createDuelHost(options: {
       : null;
     if (pendingDeck) {
       try {
-        await validateSessionDeck(room.session.mode, pendingDeck, room.session.settings, room.session.format,
-          { session: room.session, playerId });
+        try {
+          await validateSessionDeck(room.session.mode, pendingDeck, room.session.settings, room.session.format,
+            { session: room.session, playerId });
+        } catch (error) {
+          if (!(error instanceof DeckLegalityError)) throw error;
+          const checks = await sessionDeckOptions(room.session, playerId);
+          const report = inspectDeck(room.session.mode, pendingDeck, options.dataDirectory, room.session.settings, checks);
+          room.startBlocked = { reason: error.message,
+            cardNames: [...new Set(report.issues.flatMap(issue => issue.cards.map(card => card.name ?? `card ${card.code}`)))] };
+        }
       } catch (error) {
-        if (!(error instanceof DeckLegalityError)) throw error;
-        const checks = await sessionDeckOptions(room.session, playerId);
-        const report = inspectDeck(room.session.mode, pendingDeck, options.dataDirectory, room.session.settings, checks);
-        room.startBlocked = { reason: error.message,
-          cardNames: [...new Set(report.issues.flatMap(issue => issue.cards.map(card => card.name ?? `card ${card.code}`)))] };
+        console.warn("[duel] could not check the viewer's start blocker", error);
       }
     }
     return room;
@@ -2076,7 +2080,7 @@ export function createDuelHost(options: {
   async function assertStartable(slug: string, guildId: string) {
     let session = service.get(slug, guildId);
     if (session.seriesId) {
-      deckCopies.series(session.seriesId);
+      repairDeckCopies().series(session.seriesId);
       session = service.get(slug, guildId);
     }
     if (session.status !== "lobby") throw new RequestError("Duel already started", 409);
@@ -2469,7 +2473,7 @@ export function createDuelHost(options: {
     const slug = body.slug;
     let room = service.room(slug, guildId, actor);
     if (room.session.seriesId) {
-      deckCopies.series(room.session.seriesId);
+      repairDeckCopies().series(room.session.seriesId);
       room = service.room(slug, guildId, actor);
     }
     if (op === "view") {

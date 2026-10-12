@@ -6,6 +6,7 @@ import { migrate } from "@yugidraft/shared/db";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
 import { createDuelService, createDuelSeriesService } from "@yugidraft/shared/services";
 import { DeckLegalityError, validateExtraDeckTypes } from "../src/deck-legality.js";
+import * as legality from "../src/deck-legality.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { seedIdentity } from "./helpers/identity.js";
@@ -34,7 +35,7 @@ beforeEach(() => {
   host = createDuelHost({ db, dataDirectory, secret, searchCards: () => [],
     createWorker: vi.fn(() => { throw new Error("No engine can start in these tests"); }) });
 });
-afterEach(async () => { await host.close(); db.close(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+afterEach(async () => { await host.close(); db.close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 async function post(body: Record<string, unknown>) {
   const raw = JSON.stringify({ guildId: "g", playerId, ...body });
   return host.handle(new Request("http://test/internal/duel", { method: "POST", body: raw,
@@ -45,6 +46,18 @@ function room() {
     settings: { ...defaultDuelSettings("normal"), validateDeck: false, banlist: "none" } });
 }
 describe("duel Extra Deck safety with competitive checks off", () => {
+  it.each(["validation", "inspection"] as const)("keeps room reads available when the optional blocker %s fails", async stage => {
+    const session = room();
+    duels.setDeck(session.slug, "g", playerId, deck(stage === "validation" ? 903 : 901));
+    const error = new Error("Fixture blocker check failed");
+    if (stage === "validation") vi.spyOn(legality, "validateExtraDeckTypes").mockImplementation(() => { throw error; });
+    else vi.spyOn(legality, "inspectDeck").mockImplementation(() => { throw error; });
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const response = await post({ op: "view", slug: session.slug });
+    expect(response.status).toBe(200);
+    expect(await response.json()).not.toHaveProperty("startBlocked");
+    expect(log).toHaveBeenCalledWith("[duel] could not check the viewer's start blocker", error);
+  });
   it.each(["owner", "opponent"])("returns the private room notice when an expired opening is blocked (viewer=%s)", async viewer => {
     const opponent = seedIdentity(db, { name: "Fixture opponent" }).playerId;
     const session = room();
