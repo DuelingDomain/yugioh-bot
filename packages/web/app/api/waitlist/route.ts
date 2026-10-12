@@ -96,13 +96,16 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (typeof data.company === "string" && data.company.length > 0) return respond("joined");
-  const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
+  const submittedEmail = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
   // Reject URL syntax before domainToASCII, which can strip paths and queries.
-  if (email.length > 254 || !/^[^\s@]+@[^\s@:/\\?#%]+$/.test(email)) return respond("invalid");
-  const domain = domainToASCII(email.slice(email.lastIndexOf("@") + 1));
-  // Convert IDNs for the host check while preserving the submitted email.
+  if (submittedEmail.length > 254 || !/^[^\s@]+@[^\s@:/\\?#%]+$/.test(submittedEmail)) return respond("invalid");
+  const at = submittedEmail.lastIndexOf("@");
+  const domain = domainToASCII(submittedEmail.slice(at + 1)).toLowerCase();
   const hostLabel = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
   if (!new RegExp(`^${hostLabel}(?:\\.${hostLabel})+$`).test(domain)) return respond("invalid");
+  // Storage, notification claims and Clerk all use the same ASCII domain.
+  const email = `${submittedEmail.slice(0, at)}@${domain}`;
+  if (email.length > 254) return respond("invalid");
 
   let result: { status: "joined" | "exists" };
   try {

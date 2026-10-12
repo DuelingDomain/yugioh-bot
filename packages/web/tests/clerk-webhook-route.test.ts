@@ -191,6 +191,18 @@ describe("POST /api/webhooks/clerk", () => {
     expect(state.db!.prepare("select email from waitlist_signups").all()).toEqual([{ email: "player@example.test" }]);
   });
 
+  it.each(["form-first", "clerk-first"])("deduplicates Unicode and punycode Clerk emails with a local join in order %s", async order => {
+    const unicode = { ...waitlist, data: { ...waitlist.data, email_address: " PLAYER@BÜCHER.TEST " } };
+    const ascii = { ...waitlist, data: { ...waitlist.data, email_address: "player@xn--bcher-kva.test" } };
+    if (order === "clerk-first") expect((await POST(signed(unicode))).status).toBe(200);
+    createWaitlistService(state.db!).join(ascii.data.email_address);
+    if (order === "form-first") expect((await POST(signed(unicode))).status).toBe(200);
+    expect((await POST(signed(ascii, "msg_ascii_placeholder"))).status).toBe(200);
+    expect(receipts()).toHaveLength(2);
+    expect(state.db!.prepare("select * from join_request_notifications").all()).toHaveLength(1);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("covers entries created through the shared backend used by owner reconciliation", async () => {
     const backend = createClerkBackend({ secretKey: "secret-placeholder", fetch: async (_url, options) => {
       expect(JSON.parse(String(options?.body))).toEqual({ email_address: "player@example.test", notify: true });

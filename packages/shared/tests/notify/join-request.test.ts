@@ -140,6 +140,33 @@ describe("join request notifications", () => {
     expect(claims()).toHaveLength(1);
   });
 
+  it.each(["Clerk waitlist", "sign-up"] as const)("normalizes domain variants to one %s claim", async source => {
+    vi.stubEnv("DISCORD_SIGNUP_ALERTS_ENABLED", "1");
+    const variants = [
+      [" Player@ｅｘａｍｐｌｅ．ｔｅｓｔ ", "player@example.test"],
+      ["Player@example。test", "player@example.test"],
+      ["Player@example.test\u200b", "player@example.test"],
+      ["Player@BÜCHER.test", "player@xn--bcher-kva.test"],
+    ];
+    for (const [email, ascii] of variants) {
+      await notifyJoinRequest(db, { ...notice, email, source });
+      await notifyJoinRequest(db, { ...notice, email: ascii, source });
+    }
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(claims()).toEqual(["player@example.test", "player@xn--bcher-kva.test"].map(email => ({
+      kind: source === "sign-up" ? "signup" : "join",
+      subject_hash: createHash("sha256").update(`email:${email}`).digest("hex"),
+      attempted_at: expect.any(String),
+    })));
+  });
+
+  it("keeps a URL-like Clerk domain distinct from a valid host claim", async () => {
+    await notifyJoinRequest(db, { ...notice, email: "player@example.test/path" });
+    await notifyJoinRequest(db, notice);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(claims()).toHaveLength(2);
+  });
+
   it("deduplicates separate database connections and retains claims after reopening", async () => {
     const directory = mkdtempSync(join(tmpdir(), "join-alert-test-"));
     const file = join(directory, "test.sqlite");

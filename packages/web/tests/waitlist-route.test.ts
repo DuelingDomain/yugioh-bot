@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import { migrate } from "@yugidraft/shared/db";
 import { ClerkBackendError } from "@yugidraft/shared/clerk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -182,11 +183,40 @@ describe("POST /api/waitlist", () => {
       expect((await post(json({ email }))).status).toBe(201);
     });
 
-  it("accepts a Unicode domain while preserving the email for storage and Clerk", async () => {
-    const email = "player@bücher.test";
-    expect((await post(json({ email }))).status).toBe(201);
+  it("uses the ASCII email for storage and Clerk when submitted a Unicode domain", async () => {
+    const email = "player@xn--bcher-kva.test";
+    expect((await post(json({ email: "player@bücher.test" }))).status).toBe(201);
     expect(rows()).toEqual([expect.objectContaining({ email })]);
     expect(state.createWaitlistEntry).toHaveBeenCalledExactlyOnceWith({ emailAddress: email, notify: true });
+  });
+
+  it.each([
+    [" Player@ｅｘａｍｐｌｅ．ｔｅｓｔ ", "player@example.test"],
+    ["Player@example。test", "player@example.test"],
+    ["Player@example.test\u200b", "player@example.test"],
+    ["Player@BÜCHER.test", "player@xn--bcher-kva.test"],
+  ])("deduplicates %s with its ASCII form across rows, claims and Clerk", async (submitted, email) => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    expect((await post(json({ email: submitted }))).status).toBe(201);
+    redirect(await post(form(new URLSearchParams({ email }).toString())), "exists");
+    expect(rows()).toEqual([expect.objectContaining({ email })]);
+    expect(state.db!.prepare("select kind, subject_hash from join_request_notifications").all()).toEqual([
+      { kind: "join", subject_hash: createHash("sha256").update(`email:${email}`).digest("hex") },
+    ]);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(state.join.mock.calls.map(([value]) => value)).toEqual([email, email]);
+    expect(state.createWaitlistEntry.mock.calls.map(([value]) => value)).toEqual([
+      { emailAddress: email, notify: true }, { emailAddress: email, notify: true },
+    ]);
+  });
+
+  it("rejects an email whose ASCII form exceeds the length limit before any effects", async () => {
+    expect((await post(json({ email: "a".repeat(240) + "@bücher.test" }))).status).toBe(400);
+    expect(rows()).toEqual([]);
+    expect(state.join).not.toHaveBeenCalled();
+    expect(state.createBackend).not.toHaveBeenCalled();
   });
 
   it.each([{ body: null }, { body: [] }, { body: "string" }])("rejects a non-object JSON body $body", async ({ body }) => {
