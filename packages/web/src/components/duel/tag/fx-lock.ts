@@ -4,8 +4,9 @@ import { ROOF_LOCK_IN_MS } from "./roof-camera";
 import type { CameraLockReason } from "../table/types";
 
 /**
- * The camera lock of the Rooftop. While an attack, a chain link or a destroy plays, the camera eases to the play view
- * and ignores input until the lock ends. The shell passes the events newer than the last one it handled.
+ * The camera lock of the Rooftop. While an attack, a chain link or a destroy plays on the overview, the camera ignores
+ * input until the lock ends. A close-up never locks (it stays, or it goes out once: see `otherPlayerActed`). The shell
+ * passes the events newer than the last one it handled.
  */
 export interface FxLock {
   reason: CameraLockReason;
@@ -29,6 +30,18 @@ function reasonOf(event: DuelEvent): CameraLockReason | null {
     default:
       return null;
   }
+}
+
+/** Events a player causes by acting: the actor is `event.seat`. A destroy or a move names the owner of the card, not who acted. */
+const ACTOR_KINDS: ReadonlySet<DuelEvent["kind"]> = new Set(["activate", "chain-resolving", "summon", "set", "attack"]);
+
+/**
+ * True when another player acted since `afterId`: an actor event of a seat that is neither the viewer nor the field in
+ * close-up (`focusSeat`, null when no field is). It is the one reason the Rooftop camera moves by itself, and it only
+ * moves out: the shell sends the camera to the overview once and leaves it there.
+ */
+export function otherPlayerActed(events: readonly DuelEvent[], afterId: number, viewerSeat: number | null, focusSeat: number | null): boolean {
+  return events.some((event) => event.id > afterId && ACTOR_KINDS.has(event.kind) && event.seat != null && event.seat !== viewerSeat && event.seat !== focusSeat);
 }
 
 /** The newest event id, or `afterId` when there is none. A caller that skips the lock still moves its cursor with this. */

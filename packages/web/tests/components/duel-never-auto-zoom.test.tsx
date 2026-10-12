@@ -53,11 +53,12 @@ const later = (state: TableFixtureState, turnSeat: number, events: DuelEvent[]):
 });
 
 /** Game steps in the order a duel plays them: a new turn, an attack, a chain and its resolution, then a destroy. */
+/** Event ids start above the ones in the fixtures, so the shell sees every one of them as new. */
 const STEPS: { turnSeat: number; events: DuelEvent[] }[] = [
-  { turnSeat: 1, events: [ev(1, "phase")] },
-  { turnSeat: 1, events: [ev(1, "phase"), ev(2, "attack")] },
-  { turnSeat: 2, events: [ev(1, "phase"), ev(2, "attack"), ev(3, "chain-resolving")] },
-  { turnSeat: 3, events: [ev(1, "phase"), ev(2, "attack"), ev(3, "chain-resolving"), ev(4, "destroy")] },
+  { turnSeat: 1, events: [ev(1001, "phase")] },
+  { turnSeat: 1, events: [ev(1001, "phase"), ev(1002, "attack")] },
+  { turnSeat: 2, events: [ev(1001, "phase"), ev(1002, "attack"), ev(1003, "chain-resolving")] },
+  { turnSeat: 3, events: [ev(1001, "phase"), ev(1002, "attack"), ev(1003, "chain-resolving"), ev(1004, "destroy")] },
 ];
 
 function Tag({ state }: { state: TableFixtureState }) {
@@ -88,7 +89,7 @@ describe("the duel never zooms in on a field by itself", () => {
     }
   });
 
-  it("Tag: a close-up the viewer chose comes back after an FX lock, and no event moves it to another field", () => {
+  it("Tag: a close-up the viewer chose stays through every step and the end of every FX lock", () => {
     const base = TAG_FIXTURES.states.main;
     const { container, rerender } = render(<Tag state={base} />);
     act(() => void fireEvent.click(container.querySelector('[data-field-focus="0"]')!));
@@ -98,6 +99,110 @@ describe("the duel never zooms in on a field by itself", () => {
       advance(4000);
       expect(tagMode(container)).toBe("focus:0");
     }
+  });
+
+  /** Events of one actor, in the order of a play: summon, activation, chain link resolving, an attack. */
+  const acts = (seat: number, from = 1000): DuelEvent[] => [
+    ev(from, "summon", { seat }),
+    ev(from + 1, "activate", { seat, chainIndex: 1 }),
+    ev(from + 2, "chain-resolving", { seat, chainIndex: 1 }),
+    ev(from + 3, "attack", { seat }),
+  ];
+  const chip = (root: HTMLElement) => root.querySelector("[data-lock-chip]");
+  const zoomOn = (root: HTMLElement, seat: number) => act(() => void fireEvent.click(root.querySelector(`[data-field-focus="${seat}"]`)!));
+
+  it("Tag: the viewer's own plays keep the close-up in place, with no lock and no move", () => {
+    const base = TAG_FIXTURES.states.main;
+    const { container, rerender } = render(<Tag state={base} />);
+    zoomOn(container, 0);
+    expect(tagMode(container)).toBe("focus:0");
+    rerender(<Tag state={later(base, 0, acts(0))} />);
+    expect(tagMode(container)).toBe("focus:0");
+    expect(chip(container)).toBeNull();
+    advance(6000);
+    expect(tagMode(container)).toBe("focus:0");
+  });
+
+  it("Tag: a response window and a chain the viewer started keep the close-up", () => {
+    const base = TAG_FIXTURES.states["chain-2"];
+    const { container, rerender } = render(<Tag state={base} />);
+    zoomOn(container, 0);
+    expect(tagMode(container)).toBe("focus:0");
+    rerender(<Tag state={later(base, 0, acts(0))} />);
+    advance(6000);
+    expect(tagMode(container)).toBe("focus:0");
+    // A second link of the viewer's own team, then the same window again.
+    rerender(<Tag state={later(base, 0, [...acts(0), ...acts(0, 1010)])} />);
+    advance(6000);
+    expect(tagMode(container)).toBe("focus:0");
+    expect(chip(container)).toBeNull();
+  });
+
+  it("Tag: a rival's play on another field zooms out once, and the view stays out", () => {
+    const base = TAG_FIXTURES.states.main;
+    const { container, rerender } = render(<Tag state={base} />);
+    zoomOn(container, 0);
+    rerender(<Tag state={later(base, 1, acts(1))} />);
+    expect(tagMode(container)).toBe("overview:-");
+    advance(10_000);
+    expect(tagMode(container)).toBe("overview:-");
+    // More plays, rival and own, never zoom back in.
+    rerender(<Tag state={later(base, 0, [...acts(1), ...acts(0, 1010), ...acts(3, 1020)])} />);
+    advance(10_000);
+    expect(tagMode(container)).toBe("overview:-");
+    // Only a press of the viewer zooms in again, and that close-up holds through the viewer's own plays.
+    zoomOn(container, 0);
+    expect(tagMode(container)).toBe("focus:0");
+    rerender(<Tag state={later(base, 0, [...acts(1), ...acts(0, 1010), ...acts(3, 1020), ...acts(0, 1030)])} />);
+    advance(10_000);
+    expect(tagMode(container)).toBe("focus:0");
+  });
+
+  it("Tag: Esc and the pill still zoom out for the viewer", () => {
+    const base = TAG_FIXTURES.states.main;
+    const { container } = render(<Tag state={base} />);
+    zoomOn(container, 3);
+    expect(tagMode(container)).toBe("focus:3");
+    act(() => void fireEvent.keyDown(window, { key: "Escape" }));
+    expect(tagMode(container)).toBe("overview:-");
+    zoomOn(container, 3);
+    zoomOn(container, 3);
+    expect(tagMode(container)).toBe("overview:-");
+  });
+
+  it("Tag: a teammate's play on another field zooms out too", () => {
+    const base = TAG_FIXTURES.states.main;
+    const { container, rerender } = render(<Tag state={base} />);
+    zoomOn(container, 0);
+    rerender(<Tag state={later(base, 2, acts(2))} />);
+    expect(tagMode(container)).toBe("overview:-");
+    advance(10_000);
+    expect(tagMode(container)).toBe("overview:-");
+  });
+
+  it("Tag: a play on the field in close-up (even a rival's) does not move the camera", () => {
+    const base = TAG_FIXTURES.states.main;
+    const { container, rerender } = render(<Tag state={base} />);
+    zoomOn(container, 1);
+    expect(tagMode(container)).toBe("focus:1");
+    rerender(<Tag state={later(base, 1, acts(1))} />);
+    advance(6000);
+    expect(tagMode(container)).toBe("focus:1");
+    // A destroy or a move names the owner of the card, not who acted: it never moves the camera.
+    rerender(<Tag state={later(base, 1, [...acts(1), ev(1005, "destroy", { seat: 3 }), ev(1006, "move", { seat: 2 })])} />);
+    advance(6000);
+    expect(tagMode(container)).toBe("focus:1");
+  });
+
+  it("Tag: other views, such as the overview, never zoom in by themselves, and the overview still locks for the FX", () => {
+    const base = TAG_FIXTURES.states.main;
+    const { container, rerender } = render(<Tag state={base} />);
+    rerender(<Tag state={later(base, 1, acts(1))} />);
+    expect(tagMode(container)).toBe("overview:-");
+    expect(chip(container)).not.toBeNull();
+    advance(6000);
+    expect(chip(container)).toBeNull();
+    expect(tagMode(container)).toBe("overview:-");
   });
 
   it("4-way grid: all fields stay all fields through the same steps", () => {
