@@ -127,12 +127,12 @@ describe("cube and draft Extra type safety", () => {
     cubes.addCard(cube.id, 903, "main");
     check(cube.id);
   });
-  it("draft building ignores a false Extra flag and follows actual card types", () => {
+  it("draft building follows actual card types", () => {
     expect(buildDraftDeck([
-      { catalogId: 901, type: "Spell Card", extra: true },
-      { catalogId: 902, type: "Trap Card", extra: true },
-      { catalogId: 904, type: "Pendulum Effect Monster", extra: true },
-      { catalogId: 903, type: "Fusion Monster", extra: false },
+      { catalogId: 901, type: "Spell Card" },
+      { catalogId: 902, type: "Trap Card" },
+      { catalogId: 904, type: "Pendulum Effect Monster" },
+      { catalogId: 903, type: "Fusion Monster" },
     ])).toEqual({ main: [901, 902, 904], extra: [903], side: [] });
   });
 });

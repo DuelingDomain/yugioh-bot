@@ -388,7 +388,7 @@ describe("per-player copy cap in booster drafts", () => {
     }
     drafts.pickCard(draftId, a, pack[0].id);
     expect(drafts.heldCopies(draftId, a)[pack[0].catalogCardId]).toBe(4);
-    const deck = buildDraftDeck(drafts.pool(draftId, a).map((card) => ({ catalogId: card.catalogCardId, forced: card.forced, extra: false })));
+    const deck = buildDraftDeck(drafts.pool(draftId, a).map((card) => ({ catalogId: card.catalogCardId, forced: card.forced })));
     expect(deck.main.filter((id) => id === pack[0].catalogCardId)).toHaveLength(4);
     expect(deck.extra).toEqual([]);
     expect(deck.side).toEqual([]);
@@ -404,7 +404,7 @@ describe("per-player copy cap in booster drafts", () => {
     drafts.pickCard(draftId, a, pack[0].id);
     expect(drafts.heldCopies(draftId, a)[pack[0].catalogCardId]).toBe(4);
     expect(drafts.pool(draftId, a).at(-1)).toMatchObject({ forced: false });
-    const deck = buildDraftDeck(drafts.pool(draftId, a).map((card) => ({ catalogId: card.catalogCardId, forced: card.forced, extra: false })));
+    const deck = buildDraftDeck(drafts.pool(draftId, a).map((card) => ({ catalogId: card.catalogCardId, forced: card.forced })));
     expect(deck.main.filter((id) => id === pack[0].catalogCardId)).toHaveLength(3);
     expect(db.prepare("select * from draft_undealt").all()).toEqual(before);
   });
