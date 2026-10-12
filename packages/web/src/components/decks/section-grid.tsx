@@ -9,6 +9,7 @@ import { CardArt } from "./card-art";
 import { useCardPress } from "./card-press";
 import { dragCardKind, hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { LimitBadge } from "./limit-badge";
+import { MasterChip } from "./master-chip";
 import {
   altArtCount,
   cardKind,
@@ -64,6 +65,8 @@ export function DeckSectionGrid({
   onDrop,
   onArtMenu,
   artMenu,
+  canMaster,
+  onMaster,
 }: {
   title: string;
   section: DeckSection;
@@ -98,6 +101,10 @@ export function DeckSectionGrid({
   onArtMenu: (request: { section: DeckSection; index: number; code: number; anchor: HTMLElement }) => void;
   /** The copy whose art menu is open. */
   artMenu: { section: string; index: number } | null;
+  /** Domain only: whether a card may be the Deck Master (the rule lives in `canBeDeckMaster`). With `onMaster`, eligible tiles get a crown and the M key. */
+  canMaster?: (code: number) => boolean;
+  /** The M key or the crown: the copy becomes the Deck Master. */
+  onMaster?: (copy: { code: number; section: DeckSection }) => void;
 }) {
   const [dropping, setDropping] = useState(false);
   const [insertAt, setInsertAt] = useState<number | null>(null);
@@ -204,6 +211,7 @@ export function DeckSectionGrid({
             const isOver = over.has(copyKey(code, catalog));
             const arts = altArtCount(code, catalog);
             const menuOpen = artMenu?.section === section && artMenu.index === index;
+            const masterable = !!onMaster && !!canMaster?.(code);
             const gesture = press({
               remove: () => removeAndRefocus(code, index),
               moveSide: () => onMoveSide({ code, from: section, index }),
@@ -222,7 +230,7 @@ export function DeckSectionGrid({
                   type="button"
                   className={styles["de-c"]}
                   aria-pressed={isSelected}
-                  aria-keyshortcuts={copyable ? "Delete Plus = ContextMenu Shift+F10" : "Delete ContextMenu Shift+F10"}
+                  aria-keyshortcuts={`Delete${copyable ? " Plus =" : ""}${masterable ? " M" : ""} ContextMenu Shift+F10`}
                   aria-label={`${name}, ${title} Deck card ${index + 1}${missing ? ", not in the card database" : ""}${isOver ? ", too many copies" : ""}${arts > 0 ? `, ${artCountLabel(arts)}` : ""}`}
                   title={name}
                   data-unknown={missing ? "true" : undefined}
@@ -243,6 +251,9 @@ export function DeckSectionGrid({
                     if (event.key === "Delete" || event.key === "Backspace" || event.key === "-") {
                       event.preventDefault();
                       removeAndRefocus(code, index);
+                    } else if (masterable && (event.key === "m" || event.key === "M")) {
+                      event.preventDefault();
+                      onMaster({ code, section });
                     } else if (copyable && (event.key === "+" || event.key === "=")) {
                       event.preventDefault();
                       // A held key repeats; one press adds one copy.
@@ -253,6 +264,7 @@ export function DeckSectionGrid({
                   <CardArt code={code} name={name} />
                   <LimitBadge limit={copyLimit(code, catalog, limits)} />
                   <ArtChip otherArts={arts} corner open={menuOpen} onOpen={(anchor) => openMenu(anchor, code, index)} />
+                  {masterable ? <MasterChip name={name} onSet={() => onMaster({ code, section })} /> : null}
                   {missing ? <span className={cn("num", styles.unknownTag)}>{code}</span> : null}
                 </button>
               </li>
