@@ -330,10 +330,9 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
     row.deck = { ...routed.deck, deckMaster: routed.deck.deckMaster ?? null };
     row.counts = { main: row.deck.main.length, extra: row.deck.extra.length, side: row.deck.side.length };
     const final = validateImportRow({ name: row.name, mode: row.mode, deck: row.deck });
-    if (!final.ok) row.errors.push(...final.errors);
-    const master = mapped.errors.length ? [] : await masterIssues(row.deck);
+    const master = mapped.errors.length || !final.ok ? [] : await masterIssues(row.deck);
     if (master.some(issue => issue.code === "validation_unavailable")) return errorResponse("Duel engine unavailable, try again", 503);
-    row.errors.push(...mapped.errors, ...master.map(issue => masterLine === undefined ? issue : { ...issue, line: masterLine }));
+    row.errors.push(...mapped.errors, ...(final.ok ? [] : final.errors), ...master.map(issue => masterLine === undefined ? issue : { ...issue, line: masterLine }));
     row.warnings.push(...mapped.warnings, ...routed.messages.map(message => ({ code: "section_moved", message })), ...sizeWarnings(row.deck));
     const duplicate = duplicates.get(key);
     if (duplicate) row.duplicateOf = duplicate;

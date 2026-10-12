@@ -466,6 +466,24 @@ describe("preview", () => {
     expect(decks.list("g", 1)).toEqual([]);
   });
 
+  it("returns a Domain row error after routing overflows Main even when Deck Master validation is unavailable", async () => {
+    mocks.engine.set(901, { name: "Test Spell", type: 0x2 });
+    mocks.callDuelHost.mockImplementation(async (input: { op: string; codes?: number[] }) => {
+      if (input.op === "validate-deck-master") throw new Error("connect ECONNREFUSED");
+      return { ok: true, data: { codes: Object.fromEntries(input.codes!.map(id => [id, id])) } };
+    });
+    const text = `#main\n${"901\n".repeat(300)}#extra\n901\n#deckmaster\n89631139`;
+    const response = await preview(request({ sources: [{ ...source(text), mode: "domain" }] }));
+    expect(response.status).toBe(200);
+    const [shown] = (await response.json()).rows;
+    expect(shown).toMatchObject({ mode: "domain", counts: { main: 301, extra: 0, side: 0 },
+      deck: { main: Array(301).fill(901), extra: [], side: [], deckMaster: 89631139 } });
+    expect(shown.errors).toEqual([{ code: "invalid_deck", message: "Main deck must contain at most 300 cards" }]);
+    expect(shown.warnings).toContainEqual(expect.objectContaining({ code: "section_moved" }));
+    expect(mocks.callDuelHost).not.toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck-master" }));
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+
   it.each([
     ["YDK", false], ["YDK", true], ["YDKE", false], ["YDKE", true],
   ] as const)("keeps every section in an unresolved %s row (lookup limited: %s)", async (format, limited) => {
@@ -576,6 +594,14 @@ describe("preview", () => {
     expect(rows[3].duplicateOf).toBeUndefined();
   });
 
+  it("detects a saved duplicate when type routing corrects the imported section", async () => {
+    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','link','','','[]','test')").run();
+    const saved = decks.create("g", 1, { name: "Saved", mode: "normal", deck: { main: [901], extra: [], side: [] } });
+    const [shown] = await previewRows([source("#extra\n901")]);
+    expect(shown.deck).toEqual({ main: [901], extra: [], side: [], deckMaster: null });
+    expect(shown.duplicateOf).toEqual({ kind: "saved", deckId: saved.id, name: "Saved" });
+  });
+
   it("includes Deck Master in duplicate identity and never reveals foreign decks", async () => {
     for (const [guildId, userId] of [["g", 2], ["other", 1]] as const) {
       decks.create(guildId, userId, { name: "Private", mode: "normal", deck: { main: [89631139], extra: [], side: [] } });
@@ -617,6 +643,19 @@ describe("preview", () => {
 });
 
 describe("bulk", () => {
+  it.each([
+    [901, "Spell Card"], [902, "Trap Card"], [904, "Pendulum Effect Monster"], [906, "Ritual Monster"],
+  ])("rejects a forged Extra %s with the normal-save 400 code before writing any row", async (id, type) => {
+    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,'fusion','','','[]','test')").run(id, `Test ${type}`, type);
+    const bad = { main: [], extra: [id], side: [] };
+    const expected = await createDeck(request({ name: "Bad", mode: "normal", deck: bad }));
+    expect(expected.status).toBe(400);
+    const response = await bulk(request({ rows: [row("Good"), row("Bad", bad)] }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual(await expected.json());
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+
   it.each([
     [901, "Spell Card"], [902, "Trap Card"], [904, "Pendulum Effect Monster"],
     [905, "Ritual Effect Monster"], [906, "Token"], [907, "Skill Card"], [998, null],
