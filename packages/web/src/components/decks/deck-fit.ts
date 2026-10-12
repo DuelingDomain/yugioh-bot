@@ -10,7 +10,7 @@ const MIN_COLS = 10;
 const MAX_COLS = 20;
 const MAX_TILE = 150;
 /** Below this tile width the cards are too small to read or hit; the fit is dropped and the pane scrolls. */
-export const MIN_TILE = 32;
+export const MIN_TILE = 24;
 /**
  * A full deck is reserved in every section, so tiles keep their size while the player adds cards.
  * A section only claims more rows than this when it holds more cards than the rules allow.
@@ -96,6 +96,8 @@ export function useDeckFit(counts: DeckFitCounts, enabled: boolean) {
     }
 
     let frame = 0;
+    let retry = 0;
+    let retried = false;
     const measure = () => {
       frame = 0;
       const style = getComputedStyle(el);
@@ -114,6 +116,11 @@ export function useDeckFit(counts: DeckFitCounts, enabled: boolean) {
       const fit = fitDeckLayout({ width, free, main, extra, side, master, sideUsed });
       if (fit.tile < MIN_TILE) {
         clear();
+        // Fonts or images still loading can make the fixed part look taller than it is; look once more before giving up.
+        if (!retried) {
+          retried = true;
+          retry = window.setTimeout(schedule, 400);
+        }
         return;
       }
       const values: Record<string, string> = {
@@ -134,6 +141,7 @@ export function useDeckFit(counts: DeckFitCounts, enabled: boolean) {
     };
 
     schedule();
+    void document.fonts?.ready.then(schedule);
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     resize?.observe(el);
     // A notice, an alert or the test hand opening changes the fixed part; the pane itself does not resize.
@@ -141,6 +149,7 @@ export function useDeckFit(counts: DeckFitCounts, enabled: boolean) {
     mutations?.observe(el, { childList: true, subtree: true });
     return () => {
       cancelAnimationFrame(frame);
+      window.clearTimeout(retry);
       resize?.disconnect();
       mutations?.disconnect();
     };
