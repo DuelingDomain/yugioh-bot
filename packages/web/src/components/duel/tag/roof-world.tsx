@@ -1,7 +1,7 @@
 import { Fragment, type CSSProperties } from "react";
 import { tagSeatCode } from "../table-format";
 import type { BatonStop } from "./tag-logic";
-import { ROOF_FIELD, roofSlots } from "./roof-camera";
+import { ROOF_FIELD, ROOF_STRIP_SPAN, roofSlots } from "./roof-camera";
 import styles from "./tag-stage.module.css";
 
 /**
@@ -15,6 +15,10 @@ const PARAPET = 34;
 /** Strip margin round a field and the helipad scale: the pad is a small mark in the gap between the strips. */
 const STRIP_EDGE = ROOF_FIELD.offsetY - 16;
 const PAD_SCALE = 0.3;
+/** The strip under one team (its two fields with a margin) and how much wider it is than the narrow 653 unit fields it was drawn for. */
+const STRIP_W = ROOF_STRIP_SPAN + 49;
+const STRIP_HALF = STRIP_W / 2;
+const WIDEN = (STRIP_W - 1416) / 2;
 
 interface Tower {
   x: number;
@@ -72,8 +76,8 @@ export function RoofDecor() {
       <div className={styles.wall} style={{ left: 0, top: 0, width: rw, height: PARAPET, transform: `translate3d(${rw / 2}px, ${rh / 2}px, ${PARAPET}px) rotateZ(180deg) rotateX(-90deg)` }} />
       <div className={styles.wall} style={{ left: 0, top: 0, width: rh, height: PARAPET, transform: `translate3d(${-rw / 2}px, ${rh / 2}px, ${PARAPET}px) rotateZ(-90deg) rotateX(-90deg)` }} />
       <div className={styles.wall} style={{ left: 0, top: 0, width: rh, height: PARAPET, transform: `translate3d(${rw / 2}px, ${-rh / 2}px, ${PARAPET}px) rotateZ(90deg) rotateX(-90deg)` }} />
-      <div className={styles.under} style={{ left: -760, top: STRIP_EDGE - 24, width: 1520, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(155 126 255 / 0.7), rgb(92 184 245 / 0.7))" }} />
-      <div className={styles.under} style={{ left: -760, top: -STRIP_EDGE + 24 - 460, width: 1520, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(240 140 196 / 0.7), rgb(143 211 107 / 0.7))" }} />
+      <div className={styles.under} style={{ left: -760 - WIDEN, top: STRIP_EDGE - 24, width: 1520 + 2 * WIDEN, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(155 126 255 / 0.7), rgb(92 184 245 / 0.7))" }} />
+      <div className={styles.under} style={{ left: -760 - WIDEN, top: -STRIP_EDGE + 24 - 460, width: 1520 + 2 * WIDEN, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(240 140 196 / 0.7), rgb(143 211 107 / 0.7))" }} />
       <svg className={styles.pad} data-roof="pad" width={560} height={560} viewBox="-280 -280 560 560" style={{ left: -280, top: -280, transform: `translateZ(1px) scale(${PAD_SCALE})`, transformOrigin: "50% 50%" }} aria-hidden="true">
         <circle r={232} fill="rgb(10 14 26 / 0.8)" stroke="rgb(228 182 79 / 0.55)" strokeWidth={5} />
         <circle r={212} fill="none" stroke="rgb(239 231 213 / 0.28)" strokeWidth={3} strokeDasharray="22 14" />
@@ -135,7 +139,9 @@ const WINDOWS = [
 /* ---------- baton ---------- */
 
 const NOTCH_Y = Math.round(ROOF_FIELD.offsetY * 0.5);
-const NOTCH: ReadonlyArray<readonly [number, number]> = [[-610, NOTCH_Y], [-610, -NOTCH_Y], [610, NOTCH_Y], [610, -NOTCH_Y]];
+/** The pills sit 73 units inside the outer edge of the fields, as they did on the narrow fields (610 of 683). */
+const NOTCH_X = Math.round(ROOF_STRIP_SPAN / 2 - 73);
+const NOTCH: ReadonlyArray<readonly [number, number]> = [[-NOTCH_X, NOTCH_Y], [-NOTCH_X, -NOTCH_Y], [NOTCH_X, NOTCH_Y], [NOTCH_X, -NOTCH_Y]];
 
 export interface BatonProps {
   stops: readonly BatonStop[];
@@ -166,7 +172,7 @@ export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef }: Bato
   const ring = [0, 1, 2, 3].map((k) => NOTCH[k]);
   return (
     <>
-      <svg className={styles.baton} data-roof="baton" width={1400} height={440} viewBox="-700 -220 1400 440" style={{ left: -700, top: -220, transform: "translateZ(1.5px)" }} aria-hidden="true">
+      <svg className={styles.baton} data-roof="baton" width={1400 + 2 * WIDEN} height={440} viewBox={`${-700 - WIDEN} -220 ${1400 + 2 * WIDEN} 440`} style={{ left: -700 - WIDEN, top: -220, transform: "translateZ(1.5px)" }} aria-hidden="true">
         <path d={`M ${ring.map((p) => p.join(",")).join(" L ")} Z`} fill="none" stroke="rgb(239 231 213 / 0.28)" strokeWidth={4} strokeDasharray="18 12" strokeLinejoin="round" />
         {seg ? (
           <line x1={seg[0][0]} y1={seg[0][1]} x2={seg[1][0]} y2={seg[1][1]} stroke={`rgb(${rgbOf(now!.seat)})`} strokeWidth={8} strokeLinecap="round" opacity={0.85} />
@@ -204,8 +210,8 @@ export interface TeamStripProps {
 
 /** The strip under one team's two fields: rim lines, the seam between the members, the bond line and the medal. */
 export function TeamStrip({ near, glyph, teamName, out }: TeamStripProps) {
-  const transform = near ? "translateZ(1px)" : `translateZ(1px) rotate(180deg) translate(-708px, ${STRIP_EDGE}px)`;
-  const place = near ? { left: -708, top: STRIP_EDGE } : { left: 0, top: 0 };
+  const transform = near ? "translateZ(1px)" : `translateZ(1px) rotate(180deg) translate(${-STRIP_HALF}px, ${STRIP_EDGE}px)`;
+  const place = near ? { left: -STRIP_HALF, top: STRIP_EDGE } : { left: 0, top: 0 };
   return (
     <div
       className={styles.strip}
@@ -213,15 +219,15 @@ export function TeamStrip({ near, glyph, teamName, out }: TeamStripProps) {
       data-team={near ? 0 : 1}
       data-out={out ? "true" : undefined}
       aria-label={`${teamName} strip`}
-      style={{ ...place, width: 1416, height: 412, transform }}
+      style={{ ...place, width: STRIP_W, height: 412, transform }}
     >
       <span className={styles.rimline} />
       <span className={styles.rimline} data-edge="b" />
-      <span className={styles.bond} style={{ left: 328, width: 760 }} />
-      <span className={styles.seam} style={{ left: 688, width: 40 }}>
+      <span className={styles.bond} style={{ left: STRIP_HALF - 380, width: 760 }} />
+      <span className={styles.seam} style={{ left: STRIP_HALF - 20, width: 40 }}>
         <b>TEAM</b>
       </span>
-      <span className={styles.medal} style={{ left: 708 }}>
+      <span className={styles.medal} style={{ left: STRIP_HALF }}>
         <i>{glyph}</i>
       </span>
     </div>
