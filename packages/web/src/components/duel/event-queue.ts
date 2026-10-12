@@ -293,19 +293,28 @@ export function moveDestinationRect(dest: HTMLElement): { left: number; top: num
   return { left: rect.left - x, top: rect.top - (y ?? 0), width: rect.width, height: rect.height };
 }
 
+/** Where a zone is scaled as a whole: a seat field (the Tag Rooftop, a grid table) and the band of Extra Monster Zones the Tag facing seats share. */
+const SCALED_FIELD = "[data-seat-field],[data-shared-band]";
+
 /**
  * The size a flying card must have to land on `dest` as large as the zone looks: `layout` (the zone's own box) on a 1v1
- * table, where layout and screen agree and no probe is made. A seat field of the Tag Rooftop or a grid table is scaled
- * as a whole (camera zoom, field scale, tilt), so there the layout size is far smaller than the zone on screen and
- * the on-screen size is read instead. Falls back to `layout` when it is unreadable.
+ * table, where layout and screen agree and no probe is made. Every destination inside a seat field or the shared band of
+ * the Tag Rooftop (a hand card of a seat field too) is scaled as a whole (camera zoom, field scale, tilt), so there the
+ * layout size is far smaller than the zone on screen. Then the zone's own offset size is scaled by one factor, the
+ * larger of the two screen/offset ratios: a tilted view shortens the height on screen but not the card, so the width
+ * ratio decides and the card keeps its shape. Falls back to `layout` when the on-screen size is unreadable.
  */
 export function destinationCardSize(
   dest: HTMLElement | null,
   layout: { width: number; height: number },
 ): { width: number; height: number } {
-  if (!dest?.closest("[data-seat-field]")) return layout;
+  if (!dest?.closest(SCALED_FIELD)) return layout;
   const shown = screenSize(dest);
-  return shown ? { width: shown.w, height: shown.h } : layout;
+  if (!shown) return layout;
+  const { offsetWidth: width, offsetHeight: height } = dest;
+  if (!(width > 0 && height > 0)) return { width: shown.w, height: shown.h };
+  const scale = Math.max(shown.w / width, shown.h / height);
+  return { width: width * scale, height: height * scale };
 }
 
 /** Brings `angle` to the equal angle nearest to `near` (a flight must turn the short way, never through upright). */
