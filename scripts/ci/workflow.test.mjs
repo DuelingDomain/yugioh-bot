@@ -10,6 +10,16 @@ const evaluate = (expression, needs) => Function("needs", "always", `return (${e
   .replace(/^\$\{\{\s*|\s*\}\}$/g, "")
   .replace(/needs\.([\w-]+)/g, 'needs["$1"]')});`)(needs, () => true);
 
+test("the required unit job runs WS tests alongside shared, bot and worker suites", () => {
+  const job = workflow.jobs["unit-packages"];
+  for (const pkg of ["shared", "bot", "worker", "ws"]) {
+    const step = job.steps.find(step => new RegExp(`npm test --workspace=(packages/${pkg}|@[^ ]+/${pkg})`).test(step.run ?? ""));
+    assert.ok(step, `${pkg} unit tests must gate a successful Test conclusion`);
+    assert.equal(step.if, undefined, `${pkg} tests must not be path-filtered inside the unit job`);
+    assert.notEqual(step["continue-on-error"], true, `${pkg} failures must fail the unit gate`);
+  }
+});
+
 for (const [file, jobId, cacheJobId] of [
   ["test.yml", "cores", "core-cache"],
   ["deploy.yml", "deploy", "deploy"],
