@@ -24,9 +24,11 @@ vi.mock("@/lib/duel-host", () => ({ requireDuelActor: mocks.duelActor, callDuelH
 
 import { POST as preview } from "../app/api/decks/import/preview/route";
 import { POST as bulk } from "../app/api/decks/import/bulk/route";
+import { POST as createDeck } from "../app/api/decks/route";
 
 let db: Database.Database;
 let decks: ReturnType<typeof createSavedDeckService>;
+let testTime = 1700000000000;
 const deck = (main = [89631139]) => ({ main, extra: [] as number[], side: [] as number[], deckMaster: null });
 const source = (text = "#main\n89631139\n#extra\n!side", id = "f1", name = "Blue_Eyes.ydk") => ({ id, name, text });
 const request = (body: unknown, headers?: HeadersInit) => new Request("http://test/api/decks/import", {
@@ -37,6 +39,7 @@ const previewRows = async (sources: unknown[] = [source()]) => (await (await pre
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.spyOn(Date, "now").mockReturnValue(testTime += 600000);
   db = new Database(":memory:");
   migrate(db);
   mocks.getDb.mockReturnValue(db);
@@ -51,7 +54,179 @@ beforeEach(() => {
       : { ok: true },
   }));
 });
-afterEach(() => db.close());
+afterEach(() => { db.close(); vi.restoreAllMocks(); });
+
+describe("backend review fixes", () => {
+  it("sends one import budget and uses cache only for saved-deck identities", async () => {
+    decks.create("g", "owner", { name: "Old", mode: "normal", deck: { main: [777], extra: [], side: [] } });
+    const response = await preview(request({ sources: [source()] }));
+    expect(response.status).toBe(200);
+    const calls = mocks.callDuelHost.mock.calls.map(([input]) => input);
+    expect(calls).toContainEqual(expect.objectContaining({ op: "normalize-codes", codes: [89631139], lookupLimit: 50, includeCanonical: true }));
+    expect(calls).toContainEqual(expect.objectContaining({ op: "normalize-codes", codes: [777], cacheOnly: true, lookupLimit: 0 }));
+    expect(calls.filter(input => !input.cacheOnly).flatMap(input => input.codes)).not.toContain(777);
+  });
+
+  it.each([preview, bulk])("reports skipped lookups as row errors", async route => {
+    const codes = Array.from({ length: 55 }, (_, i) => 90000000 + i);
+    mocks.callDuelHost.mockResolvedValue({ ok: true, data: {
+      codes: Object.fromEntries(codes.map((id, i) => [id, i < 50 ? id : null])),
+      lookupRemaining: 0, lookupLimited: codes.slice(50),
+    } });
+    const response = await route(request(route === preview ? { sources: [source(`#main\n${codes.join("\n")}`)] } : { rows: [row("Limited", deck(codes))] }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const errors = route === preview ? body.rows[0].errors : body.failed[0].errors;
+    expect(errors).toHaveLength(5);
+    expect(errors[0]).toMatchObject({ code: "lookup_limited", message: "lookup limit reached, try again", passcode: codes[50] });
+    expect(mocks.callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ lookupLimit: 50 }));
+  });
+
+  it("carries the remaining budget between batches", async () => {
+    const codes = Array.from({ length: 1200 }, (_, i) => 90000000 + i);
+    mocks.callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({ ok: true, data: {
+      codes: Object.fromEntries(input.codes.map(id => [id, id])), lookupRemaining: 0, lookupLimited: [],
+    } }));
+    const response = await bulk(request({ rows: Array.from({ length: 4 }, (_, i) => row(`Deck ${i}`, deck(codes.slice(i * 300, (i + 1) * 300)))) }));
+    expect(response.status).toBe(200);
+    expect(mocks.callDuelHost.mock.calls.map(([input]) => input.lookupLimit)).toEqual([50, 0]);
+  });
+
+  it.each([preview, bulk])("rejects more than 4550 unique request codes before host work", async route => {
+    const codes = Array.from({ length: 4800 }, (_, i) => 90000000 + i);
+    const response = await route(request(route === preview
+      ? { sources: Array.from({ length: 16 }, (_, i) => source(`#main\n${codes.slice(i * 300, (i + 1) * 300).join("\n")}`, `f${i}`)) }
+      : { rows: Array.from({ length: 16 }, (_, i) => row(`Deck ${i}`, deck(codes.slice(i * 300, (i + 1) * 300)))) }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Import must contain at most 4550 unique card codes" });
+    expect(mocks.callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it("allows a shared burst of 20 preview and bulk requests per user and refills 10 each minute", async () => {
+    for (let i = 0; i < 20; i++) {
+      const response = i % 2 ? await bulk(request({ rows: [row()] })) : await preview(request({ sources: [source()] }));
+      expect(response.status).toBe(200);
+    }
+    const calls = mocks.callDuelHost.mock.calls.length;
+    for (const route of [preview, bulk]) {
+      const response = await route(request(route === preview ? { sources: [source()] } : { rows: [row()] }));
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe("6");
+      expect(await response.json()).toEqual({ error: "Too many deck imports, try again shortly", retryAfterSeconds: 6 });
+    }
+    expect(mocks.callDuelHost).toHaveBeenCalledTimes(calls);
+    mocks.savedActor.mockResolvedValueOnce({ ok: true, guildId: "g", ownerUserId: "other", decks });
+    expect((await preview(request({ sources: [source()] }))).status).toBe(200);
+    vi.spyOn(Date, "now").mockReturnValue(testTime + 60000);
+    for (let i = 0; i < 10; i++) {
+      const response = i % 2 ? await bulk(request({ rows: [row()] })) : await preview(request({ sources: [source()] }));
+      expect(response.status).toBe(200);
+    }
+    expect((await preview(request({ sources: [source()] }))).status).toBe(429);
+  });
+
+  it.each([preview, bulk])("rounds retry seconds up and refills one token after six seconds", async route => {
+    const body = route === preview ? { sources: [source()] } : { rows: [row()] };
+    for (let i = 0; i < 20; i++) expect((await route(request(body))).status).toBe(200);
+    for (const [elapsed, retryAfterSeconds] of [[0, 6], [1501, 5], [5999, 1]]) {
+      vi.spyOn(Date, "now").mockReturnValue(testTime + elapsed);
+      const response = await route(request(body));
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe(String(retryAfterSeconds));
+      expect(await response.json()).toEqual({ error: "Too many deck imports, try again shortly", retryAfterSeconds });
+    }
+    vi.spyOn(Date, "now").mockReturnValue(testTime + 6000);
+    expect((await route(request(body))).status).toBe(200);
+    expect((await route(request(body))).status).toBe(429);
+  });
+
+  it("counts only preview and bulk requests toward the import bucket", async () => {
+    const savedDeck = { ...row(), mode: "normal", deck: { main: [89631139], extra: [], side: [] } };
+    for (let i = 0; i < 21; i++) expect((await createDeck(request(savedDeck))).status).toBe(201);
+    for (let i = 0; i < 20; i++) expect((await preview(request({ sources: [source()] }))).status).toBe(200);
+    expect((await preview(request({ sources: [source()] }))).status).toBe(429);
+    expect((await createDeck(request(savedDeck))).status).toBe(201);
+  });
+
+  it("retains valid YDK cards and returns bad lines as warnings", async () => {
+    const [shown] = await previewRows([source("# MAIN deck\n89631139\n89631139 Blue-Eyes\n# Extra deck\n! SIDE")]);
+    expect(shown.deck.main).toEqual([89631139]);
+    expect(shown.errors).toEqual([]);
+    expect(shown.warnings).toContainEqual(expect.objectContaining({ code: "invalid_passcode", line: 3 }));
+  });
+
+  it("bounds the response and the total errors plus warnings per row", async () => {
+    const response = await preview(request({ sources: [source(`#main\n${"a\n".repeat(10000)}89631139`)] }));
+    const text = await response.text();
+    expect(text.length).toBeLessThan(5000);
+    const shown = JSON.parse(text).rows[0];
+    expect(shown.errors).toEqual([]);
+    expect(shown.warnings).toHaveLength(21);
+    expect(shown.warnings.at(-1)).toMatchObject({ code: "more_issues", message: "and 9981 more issues", count: 9981 });
+  });
+
+  it("caps card errors in both preview and bulk", async () => {
+    const codes = Array.from({ length: 100 }, (_, i) => 90000000 + i);
+    mocks.callDuelHost.mockResolvedValue({ ok: true, data: { codes: Object.fromEntries(codes.map(id => [id, null])) } });
+    const [shown] = await previewRows([source(`#main\n${codes.join("\n")}`)]);
+    expect(shown.errors.length + shown.warnings.length).toBe(21);
+    expect(shown.errors.slice(0, 20)).toHaveLength(20);
+    expect([...shown.errors, ...shown.warnings]).toContainEqual(expect.objectContaining({ code: "more_issues", count: 81 }));
+    const body = await (await bulk(request({ rows: [row("Unknown", deck(codes))] }))).json();
+    expect(body.failed[0].errors).toHaveLength(21);
+    expect(body.failed[0].errors.at(-1)).toMatchObject({ code: "more_issues", count: 80 });
+  });
+
+  it.each(["#main\n#extra\n!side", "ydke://!!!", "#main\nbad"])('rejects an empty parsed deck from %s', async text => {
+    const [shown] = await previewRows([source(text)]);
+    expect(shown.errors).toContainEqual({ code: "empty_deck", message: "No cards found" });
+    expect(mocks.callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty bulk row but permits a Deck Master alone", async () => {
+    const response = await bulk(request({ rows: [row("Empty", deck([])), row("Master", { ...deck([]), deckMaster: 89631139 })] }));
+    const body = await response.json();
+    expect(body.failed).toEqual([{ index: 0, errors: [{ code: "empty_deck", message: "No cards found" }] }]);
+    expect(body.created).toEqual([{ id: expect.any(Number), name: "Master" }]);
+  });
+
+  it.each([preview, bulk])("returns clear 503 JSON if the duel host throws", async route => {
+    mocks.callDuelHost.mockRejectedValue(new Error("connect ECONNREFUSED"));
+    const response = await route(request(route === preview ? { sources: [source()] } : { rows: [row()] }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Duel engine unavailable, try again" });
+    expect(decks.list("g", "owner")).toEqual([]);
+  });
+
+  it("does not save earlier rows if Deck Master validation becomes unavailable", async () => {
+    mocks.callDuelHost.mockImplementation(async (input: { op: string; codes?: number[] }) => {
+      if (input.op === "validate-deck-master") throw new Error("connect ECONNREFUSED");
+      return { ok: true, data: { codes: Object.fromEntries(input.codes!.map(id => [id, id])) } };
+    });
+    const response = await bulk(request({ rows: [row("First"), row("Domain", { ...deck(), deckMaster: 89631139 })] }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Duel engine unavailable, try again" });
+    expect(decks.list("g", "owner")).toEqual([]);
+  });
+
+  it("compares canonical identities but keeps chosen artwork", async () => {
+    const saved = decks.create("g", "owner", { name: "Saved", mode: "normal", deck: { main: [89631139], extra: [], side: [] } });
+    mocks.callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({ ok: true, data: {
+      codes: Object.fromEntries(input.codes.map(id => [id, id])),
+      canonicalCodes: Object.fromEntries(input.codes.map(id => [id, id === 89631133 ? 89631139 : id])),
+    } }));
+    const [shown] = await previewRows([source("#main\n89631133")]);
+    expect(shown.deck.main).toEqual([89631133]);
+    expect(shown.duplicateOf).toEqual({ kind: "saved", deckId: saved.id, name: "Saved" });
+  });
+
+  it("carries source lines for card issues and split YDKE errors", async () => {
+    const rows = await previewRows([source("#main\n999\n101402052"), source("\n ydke://!!!\n\nydke://broken", "f2")]);
+    expect(rows[0].errors[0]).toMatchObject({ code: "unknown_card", line: 2 });
+    expect(rows[0].warnings).toContainEqual(expect.objectContaining({ code: "remapped", line: 3 }));
+    expect(rows[2].errors[0]).toMatchObject({ line: 4 });
+  });
+});
 
 describe("local NextAuth and guild identity", () => {
   beforeEach(async () => {
@@ -95,6 +270,27 @@ describe("local NextAuth and guild identity", () => {
     for (const [input] of mocks.callDuelHost.mock.calls) {
       expect(input).toMatchObject({ guildId: "g", playerId: player.id, preserveArtwork: true });
     }
+  });
+
+  it("shares the rate limit by Discord session owner and ignores client owner fields", async () => {
+    for (let i = 0; i < 20; i++) {
+      expect((await preview(request({ sources: [source()] }))).status).toBe(200);
+    }
+    const calls = mocks.callDuelHost.mock.calls.length;
+    for (const route of [preview, bulk]) {
+      const response = await route(request({
+        guildId: "other-guild", ownerUserId: "other",
+        sources: [source()], rows: [row()],
+      }));
+      expect(response.status).toBe(429);
+    }
+    expect(mocks.callDuelHost).toHaveBeenCalledTimes(calls);
+    expect(decks.list("g", "owner")).toEqual([]);
+
+    mocks.auth.mockResolvedValue({ user: { id: "other", name: "Other" } });
+    const player = createPlayerService(db).findOrCreate("g", "other", "Other");
+    expect((await preview(request({ sources: [source()] }))).status).toBe(200);
+    expect(mocks.callDuelHost).toHaveBeenLastCalledWith(expect.objectContaining({ guildId: "g", playerId: player.id }));
   });
 });
 
@@ -195,7 +391,7 @@ describe("preview", () => {
     expect(body.rows[0]).toMatchObject({ rowId: "f1#0", sourceId: "f1", name: "Blue Eyes", deck: deck(), counts: { main: 1, extra: 0, side: 0 }, errors: [] });
     expect(body.rows[0].warnings).toContainEqual(expect.objectContaining({ code: "main_size" }));
     expect(decks.list("g", "owner")).toEqual([]);
-    expect(mocks.callDuelHost).toHaveBeenCalledWith({ op: "normalize-codes", guildId: "g", playerId: 7, codes: [89631139], preserveArtwork: true });
+    expect(mocks.callDuelHost).toHaveBeenCalledWith({ op: "normalize-codes", guildId: "g", playerId: 7, codes: [89631139], preserveArtwork: true, lookupLimit: 50, includeCanonical: true });
   });
 
   it("assigns stable row ids and sequential YDKE names across sources", async () => {
@@ -205,21 +401,22 @@ describe("preview", () => {
     ]);
   });
 
-  it("returns syntax errors with an empty deck, including bad lines and malformed master", async () => {
+  it("keeps YDKE strict and treats YDK syntax issues as warnings", async () => {
     const rows = await previewRows([source("ydke://o6lXBQ==!!"), source("#main\n89631139\n123junk", "f2"), source("#deckmaster\n1\n2", "f3")]);
     expect(rows).toHaveLength(3);
-    for (const r of rows) {
-      expect(r.deck).toEqual(deck([]));
-      expect(r.errors.length).toBeGreaterThan(0);
-    }
-    expect(rows[1].errors[0]).toMatchObject({ code: "invalid_passcode", line: 3 });
+    expect(rows[0].deck).toEqual(deck([]));
+    expect(rows[0].errors.length).toBeGreaterThan(0);
+    expect(rows[1]).toMatchObject({ deck: deck(), errors: [] });
+    expect(rows[1].warnings[0]).toMatchObject({ code: "invalid_passcode", line: 3 });
+    expect(rows[2]).toMatchObject({ deck: { ...deck([]), deckMaster: 1 }, errors: [] });
+    expect(rows[2].warnings[0]).toMatchObject({ code: "invalid_deck_master", line: 1 });
   });
 
   it("keeps unknown passcodes and artwork copies, and reports remaps once", async () => {
     const [result] = await previewRows([source("#main\n999\n999\n101402052\n101402052\n89631133")]);
     expect(result.deck.main).toEqual([999, 999, 40235813, 40235813, 89631133]);
-    expect(result.errors).toEqual([{ code: "unknown_card", message: expect.any(String), passcode: 999 }]);
-    expect(result.warnings.filter((w: { code: string }) => w.code === "remapped")).toEqual([{ code: "remapped", message: expect.any(String), from: 101402052, to: 40235813 }]);
+    expect(result.errors).toEqual([{ code: "unknown_card", message: expect.any(String), passcode: 999, line: 2 }]);
+    expect(result.warnings.filter((w: { code: string }) => w.code === "remapped")).toEqual([{ code: "remapped", message: expect.any(String), from: 101402052, to: 40235813, line: 4 }]);
   });
 
   it("detects owner-saved or earlier-row duplicates by the combined card multiset", async () => {

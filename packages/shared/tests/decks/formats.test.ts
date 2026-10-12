@@ -49,6 +49,20 @@ describe("YDKE", () => {
 });
 
 describe("YDK", () => {
+  it("accepts header labels, case and spaces", () => {
+    expect(parseYdk(" # MAIN Deck \n1\n# Extra deck\n2\n! SIDE Deck\n3")).toEqual({
+      deck: { main: [1], extra: [2], side: [3] }, issues: [],
+    });
+  });
+
+  it("keeps 20 issues and counts the rest while retaining later valid cards", () => {
+    const result = parseYdk(`#main\n${"bad\n".repeat(10000)}1`);
+    expect(result.deck.main).toEqual([1]);
+    expect(result.issues).toHaveLength(21);
+    expect(result.issues[19]).toMatchObject({ line: 21 });
+    expect(result.issues[20]).toMatchObject({ code: "more_issues", message: "and 9980 more issues", count: 9980 });
+  });
+
   it("accepts full-line slash comments without dropping card copies", () => {
     expect(parseYdk("// exported deck\r\n#main\r\n1\r\n// card name\r\n1\r\n#extra\r\n!side\r\n")).toEqual({
       deck: { main: [1, 1], extra: [], side: [] }, issues: [],

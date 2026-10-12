@@ -13,7 +13,7 @@ import type Database from "better-sqlite3";
 import { assertDuelForkAccess, assertOwnerReplaySourceAccess, assertReplayForkAccess, resolveOwnerPlayer, ReplayAccessError } from "@yugidraft/shared/access/owner-access";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
 import { createGithubCardDataStatus } from "./github-card-data-status.js";
-import { findDuelEventTarget, createDuelSeriesService, createDuelService, createReplayForkService, createTournamentDuelService, ReplayForkStorageError, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots, type DuelPrivateState } from "@yugidraft/shared/services";
+import { CARD_LOOKUP_LIMIT, createCardLookupBudget, findDuelEventTarget, createDuelSeriesService, createDuelService, createReplayForkService, createTournamentDuelService, ReplayForkStorageError, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots, type DuelPrivateState } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCommand,
@@ -2749,8 +2749,21 @@ export function createDuelHost(options: {
         || body.codes.some((code) => !Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff)) {
         throw new RequestError("Provide at most 1000 positive card ids", 400);
       }
-      const codes = await normalizeCardCodes(body.codes as number[], options.dataDirectory, options.db, { preserveArtwork: body.preserveArtwork === true });
-      return { codes: Object.fromEntries(codes) };
+      if (body.lookupLimit !== undefined && (!Number.isSafeInteger(body.lookupLimit) || Number(body.lookupLimit) < 0 || Number(body.lookupLimit) > CARD_LOOKUP_LIMIT)) {
+        throw new RequestError(`Lookup limit must be between 0 and ${CARD_LOOKUP_LIMIT}`, 400);
+      }
+      const lookupBudget = body.lookupLimit === undefined && body.cacheOnly !== true ? undefined : createCardLookupBudget();
+      if (lookupBudget) lookupBudget.remaining = body.cacheOnly === true ? 0 : Number(body.lookupLimit);
+      const lookupLimitedCodes = new Set<number>();
+      const canonicalCodes = body.includeCanonical === true ? new Map<number, number | null>() : undefined;
+      const codes = await normalizeCardCodes(body.codes as number[], options.dataDirectory, options.db, {
+        preserveArtwork: body.preserveArtwork === true, cacheOnly: body.cacheOnly === true,
+        lookupBudget, lookupLimitedCodes, canonicalCodes,
+      });
+      return { codes: Object.fromEntries(codes),
+        ...(canonicalCodes ? { canonicalCodes: Object.fromEntries(canonicalCodes) } : {}),
+        ...(lookupBudget ? { lookupRemaining: lookupBudget.remaining, lookupLimited: [...lookupLimitedCodes] } : {}),
+      };
     }
     if (op === "validate-deck-master") {
       if (body.mode !== "normal" && body.mode !== "domain") throw new RequestError("Duel mode must be normal or domain", 400);

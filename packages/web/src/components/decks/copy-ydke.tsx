@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { encodeYdke } from "@yugidraft/shared/decks";
 import type { DuelDeck } from "@yugidraft/shared/duels";
-import { SheetPortal } from "@/components/sheet";
+import { SheetPortal, SvButton } from "@/components/sheet";
 import { DURATION, usePresence } from "@/lib/motion";
 import styles from "./copy-ydke.module.css";
 
@@ -31,29 +31,91 @@ function CopyToast({ notice }: { notice: Notice | null }) {
   );
 }
 
+const MASTER_NOTE = "The Deck Master is not part of YDKE.";
+
+/** What the person sees when the browser cannot copy: the code, ready to select. */
+type Manual = { code: string; reason: "unavailable" | "failed"; master: boolean };
+
+function ManualCopy({ manual, onClose }: { manual: Manual; onClose: () => void }) {
+  const titleId = useId();
+  const field = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    field.current?.focus();
+    field.current?.select();
+  }, []);
+  return (
+    <SheetPortal>
+      <div className={styles.backdrop} onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}>
+        <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+          <h2 id={titleId} className={styles.dialogTitle}>Copy the YDKE code</h2>
+          <p className={styles.dialogText}>
+            {manual.reason === "unavailable"
+              ? "This page cannot use the clipboard here. Select the code below and copy it by hand."
+              : "The browser did not allow the copy. Select the code below and copy it by hand."}
+            {manual.master ? ` ${MASTER_NOTE}` : ""}
+          </p>
+          <textarea
+            ref={field}
+            className={`input ${styles.code}`}
+            readOnly
+            rows={3}
+            spellCheck={false}
+            aria-label="YDKE code"
+            value={manual.code}
+            onFocus={(event) => event.currentTarget.select()}
+          />
+          <div className={styles.dialogActs}>
+            <SvButton variant="primary" onClick={onClose}>Close</SvButton>
+          </div>
+        </div>
+      </div>
+    </SheetPortal>
+  );
+}
+
 /**
  * Copies a deck as a ydke:// code. `toast` must be rendered once by the caller.
- * The result is true when the browser took the text.
+ * The result is true when the browser took the text. When the clipboard is missing (a page on a plain HTTP
+ * address) or refuses, a box with the code opens instead, so the person can copy it by hand.
  */
 export function useCopyYdke(): { copyYdke: (deck: DuelDeck) => Promise<boolean>; toast: ReactNode } {
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [manual, setManual] = useState<Manual | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const counter = useRef(0);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const copyYdke = useCallback(async (deck: DuelDeck) => {
-    let ok = false;
-    try {
-      await navigator.clipboard.writeText(deckYdke(deck));
-      ok = true;
-    } catch {
-      ok = false;
+    const code = deckYdke(deck);
+    const master = deck.deckMaster != null;
+    let reason: Manual["reason"] | null = null;
+    if (typeof navigator === "undefined" || typeof navigator.clipboard?.writeText !== "function") {
+      reason = "unavailable";
+    } else {
+      try {
+        await navigator.clipboard.writeText(code);
+      } catch {
+        reason = "failed";
+      }
     }
-    setNotice({ id: ++counter.current, text: ok ? "YDKE code copied." : "Could not copy. Allow clipboard access and try again.", ok });
+    if (reason) {
+      setNotice(null);
+      setManual({ code, reason, master });
+      return false;
+    }
+    setNotice({ id: ++counter.current, text: master ? `YDKE code copied. ${MASTER_NOTE}` : "YDKE code copied.", ok: true });
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setNotice(null), 3000);
-    return ok;
+    timer.current = setTimeout(() => setNotice(null), master ? 5000 : 3000);
+    return true;
   }, []);
 
-  return { copyYdke, toast: <CopyToast notice={notice} /> };
+  return {
+    copyYdke,
+    toast: (
+      <>
+        <CopyToast notice={notice} />
+        {manual ? <ManualCopy manual={manual} onClose={() => setManual(null)} /> : null}
+      </>
+    ),
+  };
 }

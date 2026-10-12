@@ -4,28 +4,29 @@ import { useId, useState } from "react";
 import { ChevronDown, CircleAlert, TriangleAlert } from "lucide-react";
 import { SvButton } from "@/components/sheet";
 import { MAX_NAME_LENGTH } from "./model";
-import { duplicateLabel, hasErrors, importModeLabel, selectedItems, type PreviewItem } from "./bulk-import";
+import { duplicateLabel, hasErrors, importModeLabel, isLookupLimited, omittedCount, realIssues, selectedItems, type PreviewItem } from "./bulk-import";
 import styles from "./library.module.css";
 
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-type Detail = { key: string; tone: "error" | "warn"; code: string; text: string };
+type Detail = { key: string; tone: "error" | "warn"; code: string; text: string; line?: number };
 
 function detailsOf(item: PreviewItem): Detail[] {
   return [
-    ...item.row.errors.map((issue, i): Detail => ({ key: `e${i}`, tone: "error", code: issue.code, text: issue.message })),
-    ...item.row.warnings.map((issue, i): Detail => ({ key: `w${i}`, tone: "warn", code: issue.code, text: issue.message })),
+    ...realIssues(item.row.errors).map((issue, i): Detail => ({ key: `e${i}`, tone: "error", code: issue.code, text: issue.message, line: issue.line })),
+    ...realIssues(item.row.warnings).map((issue, i): Detail => ({ key: `w${i}`, tone: "warn", code: issue.code, text: issue.message, line: issue.line })),
   ];
 }
 
-function PreviewRow({ item, items, disabled, onRename, onToggle }: {
+function PreviewRow({ item, items, disabled, onRename, onToggle, onRecheck }: {
   item: PreviewItem;
   items: PreviewItem[];
   disabled: boolean;
   onRename: (name: string) => void;
   onToggle: () => void;
+  onRecheck: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const detailsId = useId();
@@ -34,6 +35,9 @@ function PreviewRow({ item, items, disabled, onRename, onToggle }: {
   const duplicate = duplicateLabel(item, items);
   const details = detailsOf(item);
   const label = item.name.trim() || row.name;
+  const errorCount = realIssues(row.errors).length;
+  const warningCount = realIssues(row.warnings).length;
+  const omitted = omittedCount(row);
   return (
     <li className={styles.pvRow} data-blocked={blocked ? "" : undefined} data-selected={item.selected ? "" : undefined}>
       <input
@@ -61,34 +65,42 @@ function PreviewRow({ item, items, disabled, onRename, onToggle }: {
           <span>Side <b>{row.counts.side}</b></span>
           {row.deck.deckMaster != null ? <span>Master</span> : null}
         </p>
-        {item.failure ? <p className={styles.pvFail} role="alert">Not imported. {item.failure}</p> : null}
+        {isLookupLimited(row) ? (
+          <p className={styles.pvFail}>
+            The card check hit its limit for this deck. Check it again in a moment.{" "}
+            <SvButton variant="quiet" disabled={disabled} onClick={onRecheck}>Re-check</SvButton>
+          </p>
+        ) : null}
+        {item.failure ? <p className={styles.pvFail}>Not imported. {item.failure}</p> : null}
         {duplicate || details.length > 0 ? (
           <p className={styles.pvChips}>
             {duplicate ? <span className={styles.pvDup}>{duplicate}</span> : null}
-            {row.errors.length > 0 ? (
+            {errorCount > 0 ? (
               <button type="button" className={styles.pvChip} data-tone="error" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen((o) => !o)}>
                 <CircleAlert size={14} aria-hidden="true" />
-                {plural(row.errors.length, "error")}
+                {plural(errorCount, "error")}
                 <ChevronDown size={14} aria-hidden="true" className={styles.pvCaret} />
               </button>
             ) : null}
-            {row.warnings.length > 0 ? (
+            {warningCount > 0 ? (
               <button type="button" className={styles.pvChip} data-tone="warn" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen((o) => !o)}>
                 <TriangleAlert size={14} aria-hidden="true" />
-                {plural(row.warnings.length, "warning")}
+                {plural(warningCount, "warning")}
                 <ChevronDown size={14} aria-hidden="true" className={styles.pvCaret} />
               </button>
             ) : null}
           </p>
         ) : null}
-        {open && details.length > 0 ? (
+        {open && (details.length > 0 || omitted > 0) ? (
           <ul id={detailsId} className={styles.pvDetails}>
             {details.map((detail) => (
               <li key={detail.key} data-tone={detail.tone}>
                 <span className={styles.pvCode}>{detail.code}</span>
+                {detail.line != null ? <span className={styles.pvLine}>Line {detail.line}</span> : null}
                 {detail.text}
               </li>
             ))}
+            {omitted > 0 ? <li data-tone="more">and {omitted} more</li> : null}
           </ul>
         ) : null}
       </div>
@@ -96,13 +108,14 @@ function PreviewRow({ item, items, disabled, onRename, onToggle }: {
   );
 }
 
-export function ImportPreviewList({ items, maxDecks, busy, onRename, onToggle, onToggleAll, onImport, onCancel }: {
+export function ImportPreviewList({ items, maxDecks, busy, onRename, onToggle, onToggleAll, onRecheck, onImport, onCancel }: {
   items: PreviewItem[];
   maxDecks: number;
   busy: boolean;
   onRename: (rowId: string, name: string) => void;
   onToggle: (rowId: string) => void;
   onToggleAll: () => void;
+  onRecheck: (rowId: string) => void;
   onImport: () => void;
   onCancel: () => void;
 }) {
@@ -156,6 +169,7 @@ export function ImportPreviewList({ items, maxDecks, busy, onRename, onToggle, o
             disabled={busy}
             onRename={(name) => onRename(item.row.rowId, name)}
             onToggle={() => onToggle(item.row.rowId)}
+            onRecheck={() => onRecheck(item.row.rowId)}
           />
         ))}
       </ul>

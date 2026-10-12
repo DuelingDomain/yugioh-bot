@@ -7,10 +7,14 @@ import {
   previewDeckImport,
   type ImportMode,
   type ImportPreview,
+  type ImportSource,
 } from "./import-api";
+import { DeckRequestError } from "./api";
 import {
   hasErrors,
+  highestImportedNumber,
   pasteSource,
+  renumberImported,
   readSources,
   selectedItems,
   tagSources,
@@ -23,7 +27,7 @@ import {
 export type ImportTab = "files" | "paste";
 
 /** The decks the last import created. They are no longer in the list; this is what the person sees instead. */
-export type ImportOutcome = { created: Array<{ id: number; name: string }> };
+export type ImportOutcome = { created: Array<{ id: number; name: string }>; failedCount: number };
 
 export type ImportView =
   | { phase: "idle" }
@@ -59,50 +63,148 @@ export function useBulkImport(onImported: () => void) {
   const [error, setError] = useState<string | null>(null);
   /** Files left out before the call, with the reason. */
   const [notes, setNotes] = useState<string[]>([]);
-  const latest = useRef(0);
+  /** Counts up on reset and unmount, so a reply for a list that is gone is dropped. */
+  const epoch = useRef(0);
   const batch = useRef(0);
+  /** The highest "Imported deck N" number given out, so a later pick counts on from it. */
+  const imported = useRef(0);
+  /** Picks that wait for or run in the queue. */
+  const pending = useRef(0);
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const importing = useRef(false);
+  /** Picks the server turned down with a 429 or a 503, to send again on request. */
+  const held = useRef<Array<{ picked: SourceBatch; mode: ImportMode }>>([]);
+  const [heldCount, setHeldCount] = useState(0);
+  /** Every source sent so far, by its batch id, so one row can be checked again. */
+  const known = useRef(new Map<string, ImportSource>());
+  /** The view as last drawn, for work that runs after an await. */
+  const shown = useRef<ImportView>({ phase: "idle" });
   const notify = useRef(onImported);
   notify.current = onImported;
   const modeNow = useRef(mode);
   modeNow.current = mode;
-  useEffect(() => () => { latest.current += 1; }, []);
+  shown.current = view;
+  useEffect(() => () => { epoch.current += 1; }, []);
 
-  /** Resolves true when new rows were added, so the paste box knows it can clear. */
-  const preview = useCallback(async (read: () => Promise<SourceBatch> | SourceBatch): Promise<boolean> => {
-    const request = ++latest.current;
-    const requested = modeNow.current;
-    const back = (state: ImportView): ImportView => {
-      const kept = current(state);
-      return kept.items.length > 0 ? { phase: "preview", ...kept } : { phase: "idle" };
-    };
+  /**
+   * Work that calls the server runs one task after the other, so a second pick never throws the first away.
+   * The view shows "loading" until the queue is empty, then goes back to the list (or to nothing). Resolves
+   * true when the task says it changed the list.
+   */
+  const enqueue = useCallback((task: (live: () => boolean) => Promise<boolean>): Promise<boolean> => {
+    const mine = epoch.current;
+    pending.current += 1;
     setError(null);
-    setNotes([]);
     setView((state) => ({ phase: "loading", ...current(state) }));
-    try {
-      const { sources, notes: skipped } = await read();
-      if (request !== latest.current) return false;
+    const run = async (): Promise<boolean> => {
+      try {
+        return await task(() => mine === epoch.current);
+      } catch (reason: unknown) {
+        if (mine === epoch.current) setError(message(reason, "Could not read these files."));
+        return false;
+      } finally {
+        pending.current -= 1;
+        if (mine === epoch.current) {
+          const more = pending.current > 0;
+          setView((state) => {
+            if (state.phase !== "loading") return state;
+            const kept = current(state);
+            if (more) return { phase: "loading", ...kept };
+            return kept.items.length > 0 ? { phase: "preview", ...kept } : { phase: "idle" };
+          });
+        }
+      }
+    };
+    const result = queue.current.then(run, run);
+    queue.current = result;
+    return result;
+  }, []);
+
+  /**
+   * A pick while an import runs is refused with a note: the import reply must reach the list. When the server
+   * turns a pick down (a rate limit, the card check down) the pick is kept, and `retryHeld` sends it again.
+   */
+  const preview = useCallback((read: () => Promise<SourceBatch> | SourceBatch, forMode?: ImportMode): Promise<boolean> => {
+    if (importing.current) {
+      setNotes(["Wait for the import to finish, then add more decks."]);
+      return Promise.resolve(false);
+    }
+    const requested = forMode ?? modeNow.current;
+    setNotes([]);
+    return enqueue(async (live) => {
+      const picked = await read();
+      if (!live()) return false;
+      const { sources, notes: skipped } = picked;
       setNotes(skipped);
       if (sources.length === 0) {
-        setView(back);
         if (skipped.length === 0) setError("There is nothing to import.");
         return false;
       }
       batch.current += 1;
-      const found: ImportPreview = await previewDeckImport(tagSources(sources, batch.current, requested));
-      if (request !== latest.current) return false;
-      const added = toItems(found.rows, requested);
+      const tagged = tagSources(sources, batch.current, requested);
+      let found: ImportPreview;
+      try {
+        found = await previewDeckImport(tagged);
+      } catch (reason: unknown) {
+        if (live() && reason instanceof DeckRequestError && (reason.status === 429 || reason.status === 503)) {
+          held.current.push({ picked, mode: requested });
+          setHeldCount(held.current.length);
+        }
+        throw reason;
+      }
+      if (!live()) return false;
+      for (const source of tagged) known.current.set(source.id, source);
+      // The numbering is worked out here, not in the state update, because React may run an update twice.
+      const base = Math.max(imported.current, highestImportedNumber(current(shown.current).items));
+      const renamed = renumberImported(found.rows, base);
+      imported.current = renamed.top;
+      const added = toItems(renamed.rows, requested);
+      const more = pending.current > 1;
       setView((state) => {
         const kept = current(state);
-        return { phase: "preview", items: [...kept.items, ...added], maxDecks: found.maxDecks, outcome: kept.outcome };
+        return {
+          phase: more ? "loading" : "preview",
+          items: [...kept.items, ...added],
+          maxDecks: found.maxDecks,
+          outcome: kept.outcome,
+        };
       });
       return true;
-    } catch (reason: unknown) {
-      if (request !== latest.current) return false;
-      setView(back);
-      setError(message(reason, "Could not read these files."));
-      return false;
-    }
-  }, []);
+    });
+  }, [enqueue]);
+
+  /** Sends the picks again that the server turned down, one after the other, in their first order. */
+  const retryHeld = useCallback(() => {
+    const again = held.current;
+    held.current = [];
+    setHeldCount(0);
+    setError(null);
+    for (const { picked, mode: was } of again) void preview(() => picked, was);
+  }, [preview]);
+
+  /** Checks one row again by sending its source, for a row that stopped at the lookup limit. */
+  const recheck = useCallback((rowId: string) => {
+    const item = current(shown.current).items.find((entry) => entry.row.rowId === rowId);
+    const source = item ? known.current.get(item.row.sourceId) : undefined;
+    if (!item || !source || importing.current) return Promise.resolve(false);
+    return enqueue(async (live) => {
+      const found = await previewDeckImport([source]);
+      if (!live()) return false;
+      const fresh = found.rows.find((row) => row.rowId === rowId);
+      if (!fresh) return false;
+      // Only the checked data changes. The name, the mode and a box the person set stay as they are.
+      setView((state) => {
+        const kept = current(state);
+        const items = kept.items.map((entry) => {
+          if (entry.row.rowId !== rowId) return entry;
+          const row = { ...fresh, name: entry.row.name };
+          return { ...entry, row, selected: entry.selected || (!hasErrors(row) && !row.duplicateOf), failure: null };
+        });
+        return { phase: "loading", ...kept, items };
+      });
+      return true;
+    });
+  }, [enqueue]);
 
   const previewFiles = useCallback((list: FileList | File[]) => {
     const files = Array.from(list);
@@ -137,17 +239,18 @@ export function useBulkImport(onImported: () => void) {
   }, [update]);
 
   const importSelected = useCallback(async () => {
-    if (view.phase !== "preview") return;
+    if (view.phase !== "preview" || importing.current) return;
     const { items, maxDecks } = view;
     const chosen = selectedItems(items);
     if (chosen.length === 0) return;
     const rows = toBulkRows(items);
-    const request = ++latest.current;
+    const mine = epoch.current;
+    importing.current = true;
     setError(null);
     setView({ phase: "importing", items, maxDecks, outcome: view.outcome });
     try {
       const result = await bulkImportDecks(rows);
-      if (request !== latest.current) return;
+      if (mine !== epoch.current) return;
       // `failed[].index` counts the rows that were sent, which are the chosen rows in order.
       const reasons = new Map<string, string>();
       for (const failure of result.failed) {
@@ -162,25 +265,31 @@ export function useBulkImport(onImported: () => void) {
       const left = items
         .filter((item) => !sent.has(item.row.rowId) || reasons.has(item.row.rowId))
         .map((item) => (reasons.has(item.row.rowId) ? { ...item, selected: true, failure: reasons.get(item.row.rowId) ?? null } : item));
-      const outcome: ImportOutcome = { created: result.created };
+      const outcome: ImportOutcome = { created: result.created, failedCount: reasons.size };
       setView(left.length > 0 ? { phase: "preview", items: left, maxDecks, outcome } : { phase: "done", outcome });
       if (result.created.length > 0) notify.current();
     } catch (reason: unknown) {
-      if (request !== latest.current) return;
+      if (mine !== epoch.current) return;
       setView({ phase: "preview", items, maxDecks, outcome: view.outcome });
       setError(message(reason, "Could not import these decks."));
+    } finally {
+      importing.current = false;
     }
   }, [view]);
 
   const reset = useCallback(() => {
-    latest.current += 1;
+    epoch.current += 1;
+    imported.current = 0;
+    held.current = [];
+    known.current.clear();
+    setHeldCount(0);
     setView({ phase: "idle" });
     setError(null);
     setNotes([]);
   }, []);
 
   return {
-    tab, setTab, mode, setMode, view, error, notes,
-    previewFiles, previewPaste, rename, toggle, toggleAll, importSelected, reset,
+    tab, setTab, mode, setMode, view, error, notes, heldCount,
+    previewFiles, previewPaste, retryHeld, recheck, rename, toggle, toggleAll, importSelected, reset,
   };
 }

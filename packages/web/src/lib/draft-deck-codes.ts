@@ -13,14 +13,30 @@ export type DraftDeckMapResult =
 const MAX_ATTEMPTS = 3;
 
 /** The same host mapping used for draft picks, saved decks and duel checks. */
-export async function normalizeDraftCardCodes(input: { guildId: string; playerId: number; codes: number[]; preserveArtwork?: boolean }): Promise<
-  { ok: true; codes: Map<number, number | null> } | { ok: false; response: NextResponse }
+export async function normalizeDraftCardCodes(input: {
+  guildId: string; playerId: number; codes: number[]; preserveArtwork?: boolean;
+  lookupLimit?: number; cacheOnly?: boolean; includeCanonical?: boolean;
+}): Promise<
+  { ok: true; codes: Map<number, number | null>; canonicalCodes: Map<number, number | null>; lookupLimitedCodes: Set<number> } | { ok: false; response: NextResponse }
 > {
   const ids = [...new Set(input.codes)];
   const mapped = new Map<number, number | null>();
+  const canonical = new Map<number, number | null>();
+  const limited = new Set<number>();
+  let remaining = input.lookupLimit;
   for (let at = 0; at < ids.length; at += 1000) {
     const chunk = ids.slice(at, at + 1000);
-    const result = await callDuelHost({ op: "normalize-codes", guildId: input.guildId, playerId: input.playerId, codes: chunk, ...(input.preserveArtwork ? { preserveArtwork: true } : {}) });
+    let result: Awaited<ReturnType<typeof callDuelHost>>;
+    try {
+      result = await callDuelHost({ op: "normalize-codes", guildId: input.guildId, playerId: input.playerId, codes: chunk,
+        ...(input.preserveArtwork ? { preserveArtwork: true } : {}),
+        ...(remaining === undefined ? {} : { lookupLimit: remaining }),
+        ...(input.cacheOnly ? { cacheOnly: true } : {}),
+        ...(input.includeCanonical ? { includeCanonical: true } : {}),
+      });
+    } catch {
+      return { ok: false, response: NextResponse.json({ error: "Duel engine unavailable, try again" }, { status: 503 }) };
+    }
     if (!result.ok) return result;
     const codes = (result.data as { codes?: Record<string, unknown> } | null)?.codes;
     if (!codes || typeof codes !== "object" || chunk.some((id) => {
@@ -29,9 +45,22 @@ export async function normalizeDraftCardCodes(input: { guildId: string; playerId
     })) {
       return { ok: false, response: NextResponse.json({ error: "Invalid engine response" }, { status: 502 }) };
     }
-    for (const id of chunk) mapped.set(id, codes[id] as number | null);
+    const details = result.data as { canonicalCodes?: Record<string, unknown>; lookupRemaining?: unknown; lookupLimited?: unknown };
+    const validCode = (value: unknown) => value === null || (typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 0xffffffff);
+    if ((details.canonicalCodes !== undefined && (!details.canonicalCodes || typeof details.canonicalCodes !== "object" || chunk.some(id => !validCode(details.canonicalCodes![id]))))
+      || (details.lookupRemaining !== undefined && (typeof details.lookupRemaining !== "number" || !Number.isSafeInteger(details.lookupRemaining) || details.lookupRemaining < 0 || details.lookupRemaining > (remaining ?? 0)))
+      || (details.lookupLimited !== undefined && (!Array.isArray(details.lookupLimited) || details.lookupLimited.some(id => typeof id !== "number" || !chunk.includes(id))))) {
+      return { ok: false, response: NextResponse.json({ error: "Invalid engine response" }, { status: 502 }) };
+    }
+    for (const id of chunk) {
+      mapped.set(id, codes[id] as number | null);
+      canonical.set(id, (details.canonicalCodes?.[id] ?? codes[id]) as number | null);
+    }
+    for (const id of (details.lookupLimited ?? []) as number[]) limited.add(id);
+    // A missing remainder never grants a fresh budget to the next batch.
+    if (remaining !== undefined) remaining = typeof details.lookupRemaining === "number" ? details.lookupRemaining : 0;
   }
-  return { ok: true, codes: mapped };
+  return { ok: true, codes: mapped, canonicalCodes: canonical, lookupLimitedCodes: limited };
 }
 
 /** Known engine artwork ids are preserved. Unresolved ids stay in the deck, so loading never loses cards and pool validation rejects them. */

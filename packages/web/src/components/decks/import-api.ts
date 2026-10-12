@@ -17,8 +17,8 @@ export type ImportSource = { id: string; name: string; text: string; mode?: Impo
 
 export type ImportDeck = { main: number[]; extra: number[]; side: number[]; deckMaster: number | null };
 
-export type ImportError = { code: string; message: string; passcode?: number };
-export type ImportWarning = { code: string; message: string; from?: number; to?: number };
+export type ImportError = { code: string; message: string; passcode?: number; line?: number; count?: number };
+export type ImportWarning = { code: string; message: string; from?: number; to?: number; line?: number; count?: number };
 
 export type ImportDuplicate =
   | { kind: "saved"; deckId: number; name: string }
@@ -61,14 +61,35 @@ function limitMessage(error: unknown): never {
   throw new DeckRequestError("Could not reach the server. Check your connection and try again.", 0);
 }
 
+/** The seconds a 429 asks the person to wait: the Retry-After header, or `retryAfterSeconds` in the body. */
+function retryAfter(res: Response, body: unknown): number | null {
+  const header = Number(res.headers.get("Retry-After"));
+  if (Number.isFinite(header) && header > 0) return Math.ceil(header);
+  const field = body && typeof body === "object" && "retryAfterSeconds" in body ? Number(body.retryAfterSeconds) : NaN;
+  return Number.isFinite(field) && field > 0 ? Math.ceil(field) : null;
+}
+
+export function rateLimitMessage(seconds: number | null): string {
+  const wait = seconds == null ? "in a moment" : `in ${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  return `Too many imports in a short time. Try again ${wait}.`;
+}
+
+export const CARD_CHECK_DOWN_MESSAGE = "Card check is not available right now. Try again later.";
+
 async function postJson<T>(url: string, payload: unknown, signal?: AbortSignal): Promise<T> {
   try {
-    return await parseBody<T>(await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       signal,
-    }));
+    });
+    if (res.status === 429) {
+      const body: unknown = await res.clone().json().catch(() => null);
+      throw new DeckRequestError(rateLimitMessage(retryAfter(res, body)), 429);
+    }
+    if (res.status === 503) throw new DeckRequestError(CARD_CHECK_DOWN_MESSAGE, 503);
+    return await parseBody<T>(res);
   } catch (error: unknown) {
     return limitMessage(error);
   }
