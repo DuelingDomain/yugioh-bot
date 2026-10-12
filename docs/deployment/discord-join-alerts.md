@@ -68,26 +68,45 @@ scheduled scan of Clerk. A webhook covers all these entry creation paths without
 another polling job. Optional `user.created` alerts also cover owner user creation
 and existing-player recovery. Clerk verifies signatures with its existing
 `verifyWebhook` helper. Only the exact webhook POST bypasses session middleware.
+The endpoint rejects a declared body size above 64 KiB before verification.
+Signed events that cannot make an alert still save a receipt and return HTTP 200.
 See [Clerk signature verification](https://clerk.com/docs/reference/backend/verify-webhook)
 and [Clerk delivery rules](https://clerk.com/docs/guides/development/webhooks/overview).
 
 One shared notifier makes all Discord messages. A SQLite primary key permits one
 attempt per normalized email and alert type. The key contains an email hash,
 not another copy of the email. Users without an email use a hash of their Clerk
-user ID. A separate receipt table stores each `svix-id` once. A join alert and a
-sign-up alert for the same email are separate types, so both can be sent.
+user ID. A separate receipt table stores each `svix-id` once. Each new receipt
+removes up to 100 receipts older than seven days, using an expiry index. A join
+alert and a sign-up alert for the same email are separate types, so both can be sent.
 
 The message has a title, email, source, event time and dashboard link. The source
 is **marketing waitlist**, **app waitlist**, **Clerk waitlist** or **sign-up**.
-Emails are masked by default. User text is escaped. `allowed_mentions: { parse: [] }`
+Emails are masked by default. User text is escaped, and emails appear in inline
+code to prevent automatic links. `allowed_mentions: { parse: [] }`
 prevents mentions. An unset or empty Discord URL makes the notifier do nothing.
 
 The user request does not wait for Discord. Each HTTP attempt has a two-second
-timeout, including the 429 response body. A 429 with a valid delay gets one retry
-after its `retry_after` seconds, or its numeric `Retry-After` header. A second 429
+timeout, including the 429 response body. A 429 with a valid delay of at most
+30 seconds gets one retry after its `retry_after` seconds, or its numeric
+`Retry-After` header. A second 429
 gets no further retry. See [Discord rate limits](https://github.com/discord/discord-api-docs/blob/main/developers/topics/rate-limits.mdx).
+Longer delays get no retry. Rejection logs include the HTTP status code.
 Other failures are logged with generic text and do not change the user response.
 Receipt storage errors return 503 so Clerk can retry.
+
+Each process permits 30 alert attempts in a fixed one-hour window. Join and
+sign-up alerts share this limit. Duplicate and disabled alerts do not use it.
+Once the limit is reached, further alerts are dropped. One generic warning is
+logged per window when this occurs. The next window starts after one hour.
+A process restart resets this limit. Dropped alerts keep their claims and are
+not sent later.
+
+Rows saved before this change have no alert claim. With alerts on,
+`clerk-reconcile-waitlist --apply` makes one alert attempt for each such row
+that needs a new Clerk entry. Expect a burst of alerts. The process limit or
+Discord rate limits can drop some alerts, with no later delivery. Check the
+dry-run report before `--apply` to see the size of the backlog.
 
 These are best-effort alerts. The claim records an attempt before the HTTP call.
 A crash, restart or Discord outage can lose an alert. There is no durable send
