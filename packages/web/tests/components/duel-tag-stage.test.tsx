@@ -214,11 +214,12 @@ describe("TagStage chrome", () => {
     const pills = [...root.querySelectorAll<HTMLElement>("[class*='bpill']")].filter((node) => !/bpills/.test(node.className) && node.querySelector("span"));
     expect(pills.length).toBe(4);
     for (const pill of pills) {
-      // The name span takes the pointer; the rest of the pill must not, or it blocks the fields under it.
       const name = pill.querySelector("span") as HTMLElement;
       expect(name.getAttribute("title")).toBeTruthy();
       expect(name.getAttribute("title")?.toUpperCase()).toContain(name.textContent ?? "?");
-      expect(pill.hasAttribute("title")).toBe(false);
+      // The whole pill is the zoom toggle, with its own label and tooltip.
+      expect(pill.tagName).toBe("BUTTON");
+      expect(pill.getAttribute("aria-label")).toBe(`Zoom in on ${name.getAttribute("title")}'s field`);
     }
   });
 

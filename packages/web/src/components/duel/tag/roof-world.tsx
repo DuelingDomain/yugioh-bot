@@ -151,6 +151,22 @@ export interface BatonProps {
   out: ReadonlySet<number>;
   /** The stage sets --flip on the holder while the camera looks from the rival end, so the pills read upright. */
   holderRef?: (node: HTMLDivElement | null) => void;
+  /**
+   * Makes each pill a button: it zooms the camera onto the field of its seat, and a second press on the zoomed seat zooms
+   * out. Without it the pills are plain labels (the fixtures and the older tests).
+   */
+  zoom?: BatonZoom;
+}
+
+export interface BatonZoom {
+  /** The seat in close-up, or null in any other view. */
+  seat: number | null;
+  /** The camera is free to move; when it is not (an FX lock, an aim) a pill does nothing, unless it is a pick. */
+  free: boolean;
+  onToggle: (seat: number) => void;
+  /** Seats the open prompt lets the viewer choose: the prompt wins over the zoom on these pills. */
+  pickSeats?: readonly number[];
+  onPick?: (seat: number) => void;
 }
 
 /**
@@ -164,7 +180,7 @@ export function batonNotch(anchorSeat: number, seat: number): number {
 }
 
 /** The bow-tie baton on the helipad: one pill per seat, turn order 1A to 2A to 1B to 2B. */
-export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef }: BatonProps) {
+export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef, zoom }: BatonProps) {
   const notchOf = (seat: number) => batonNotch(anchorSeat, seat);
   const now = stops.find((s) => s.now);
   const next = stops.find((s) => s.next);
@@ -185,11 +201,44 @@ export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef }: Bato
           const isOut = out.has(seat);
           const state = isOut ? "out" : stop?.now ? "now" : stop?.next ? "next" : "";
           const style = { transform: `translate(${NOTCH[k][0]}px, ${NOTCH[k][1]}px) rotate(var(--flip, 0deg))`, ["--c" as string]: rgbOf(seat) } as CSSProperties;
-          return (
-            <div key={seat} className={styles.bpill} data-seat={seat} data-state={state || undefined} data-out={isOut ? "true" : undefined} style={style}>
+          const body = (
+            <>
               <b>{stop?.code ?? tagSeatCode("tag", seat) ?? ""}</b>
               <span title={nameOf(seat)}>{nameOf(seat).split(" ")[0].toUpperCase()}</span>
-            </div>
+            </>
+          );
+          if (!zoom) {
+            return (
+              <div key={seat} className={styles.bpill} data-seat={seat} data-state={state || undefined} data-out={isOut ? "true" : undefined} style={style}>
+                {body}
+              </div>
+            );
+          }
+          // A seat the prompt lets the viewer choose picks on this pill (the prompt wins); any other pill is the zoom toggle.
+          const picks = zoom.pickSeats?.includes(seat) ?? false;
+          const zoomed = zoom.seat === seat;
+          const name = nameOf(seat);
+          const label = picks ? `Choose ${name}` : zoomed ? "Zoom out" : `Zoom in on ${name}'s field`;
+          return (
+            <button
+              key={seat}
+              type="button"
+              className={styles.bpill}
+              data-seat={seat}
+              data-field-focus={seat}
+              data-state={state || undefined}
+              data-out={isOut ? "true" : undefined}
+              data-zoomed={zoomed ? "true" : undefined}
+              data-pick={picks ? "true" : undefined}
+              aria-pressed={picks ? undefined : zoomed}
+              aria-label={label}
+              title={picks ? label : zoomed ? "Zoom out (Esc)" : label}
+              disabled={!picks && !zoom.free}
+              style={style}
+              onClick={() => (picks ? zoom.onPick?.(seat) : zoom.onToggle(seat))}
+            >
+              {body}
+            </button>
           );
         })}
       </div>

@@ -83,11 +83,22 @@ const stageOf = (root: HTMLElement) => root.querySelector<HTMLElement>("[data-ta
 const modeOf = (root: HTMLElement) => `${stageOf(root).dataset.cameraMode}:${stageOf(root).dataset.cameraSeat ?? "-"}`;
 
 describe("Tag overview camera: the default", () => {
-  it("opens on the overview, with no rail and a focus button on each of the four fields", () => {
+  it("opens on the overview, with no rail and a zoom pill for each of the four fields", () => {
     const root = mount();
     expect(modeOf(root)).toBe("overview:-");
     expect(root.querySelector("[data-camera-rail]")).toBeNull();
     expect([...root.querySelectorAll("[data-field-focus]")].map((node) => node.getAttribute("data-field-focus")).sort()).toEqual(["0", "1", "2", "3"]);
+  });
+
+  it("has no zoom button on the fields themselves: the nameplate pills are the only toggles", () => {
+    const root = mount();
+    expect(root.querySelectorAll("[data-field-hold] [data-field-focus]").length).toBe(0);
+    expect(root.querySelectorAll("[data-field-hold] button[aria-label^='Focus']").length).toBe(0);
+    for (const seat of [0, 1, 2, 3]) {
+      const pill = root.querySelector<HTMLElement>(`[data-field-focus="${seat}"]`)!;
+      expect(pill.tagName).toBe("BUTTON");
+      expect(pill.closest("[data-roof='baton-pills']")).not.toBeNull();
+    }
   });
 });
 
@@ -146,7 +157,7 @@ describe("Tag overview camera: a click on a field never focuses it on a wide scr
     expect(modeOf(root)).toBe("overview:-");
   });
 
-  it("the focus button of a field still focuses it, and Back returns to the overview", () => {
+  it("the nameplate pill of a field focuses it, and Back returns to the overview", () => {
     const root = mount();
     fireEvent.click(root.querySelector<HTMLElement>('[data-field-focus="2"]')!);
     expect(modeOf(root)).toBe("focus:2");
@@ -154,11 +165,15 @@ describe("Tag overview camera: a click on a field never focuses it on a wide scr
     expect(modeOf(root)).toBe("overview:-");
   });
 
-  it("on a phone, a tap on the mat or the name label still focuses the field (there are no corner buttons)", () => {
+  it("on a phone, a tap on the mat or the name label still focuses the field, and the pills toggle there too", () => {
     narrow(true);
     try {
       const root = mount();
-      expect(root.querySelector("[data-field-focus]")).toBeNull();
+      expect(root.querySelectorAll("[data-field-hold] [data-field-focus]").length).toBe(0);
+      fireEvent.click(root.querySelector<HTMLElement>('[data-field-focus="2"]')!);
+      expect(modeOf(root)).toBe("focus:2");
+      fireEvent.click(root.querySelector<HTMLElement>('[data-field-focus="2"]')!);
+      expect(modeOf(root)).toBe("overview:-");
       fireEvent.click(root.querySelector<HTMLElement>('[data-field-hold="1"] [data-seat-name]')!);
       expect(modeOf(root)).toBe("focus:1");
     } finally {
@@ -166,56 +181,62 @@ describe("Tag overview camera: a click on a field never focuses it on a wide scr
     }
   });
 
-  it("the focus button of a field focuses it (keyboard and pointer: it is a real button)", () => {
+  it("a pill is a real button that zooms in on its field, and says so in its label", () => {
     const root = mount();
-    const button = root.querySelector<HTMLButtonElement>('[data-field-focus="2"]')!;
-    expect(button.tagName).toBe("BUTTON");
-    expect(button.getAttribute("aria-label")).toMatch(/focus .*field/i);
-    fireEvent.click(button);
+    const pill = root.querySelector<HTMLButtonElement>('[data-field-focus="2"]')!;
+    expect(pill.tagName).toBe("BUTTON");
+    expect(pill.getAttribute("type")).toBe("button");
+    expect(pill.getAttribute("aria-label")).toMatch(/^Zoom in on .+'s field$/);
+    expect(pill.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(pill);
     expect(modeOf(root)).toBe("focus:2");
-    // The same button is now the way back; the other fields keep their focus buttons.
-    expect(root.querySelector('[data-field-focus="2"]')).toBe(button);
-    expect(root.querySelector('[data-field-focus="0"]')).not.toBeNull();
+    // The same pill stays in place and is now the way back; the others still zoom in.
+    expect(root.querySelector('[data-field-focus="2"]')).toBe(pill);
+    expect(root.querySelector('[data-field-focus="0"]')!.getAttribute("aria-label")).toMatch(/^Zoom in on /);
   });
 
-  it("the same button toggles: in the close-up it is Back to overview, with another icon, and a second press zooms out", () => {
+  it("the same pill toggles: pressed and Zoom out in the close-up, and a second press zooms out", () => {
     const root = mount();
-    const button = root.querySelector<HTMLButtonElement>('[data-field-focus="1"]')!;
-    const iconIn = button.querySelector("path")!.getAttribute("d");
-    // The label carries the state; a pressed state on top would say it twice.
-    expect(button.hasAttribute("aria-pressed")).toBe(false);
-    fireEvent.click(button);
+    const pill = root.querySelector<HTMLButtonElement>('[data-field-focus="1"]')!;
+    fireEvent.click(pill);
     expect(modeOf(root)).toBe("focus:1");
-    expect(button.getAttribute("aria-label")).toBe("Back to overview");
-    expect(button.hasAttribute("aria-pressed")).toBe(false);
-    expect(button.getAttribute("data-focused")).toBe("true");
-    expect(button.getAttribute("title")).toMatch(/back to overview/i);
-    expect(button.querySelector("path")!.getAttribute("d")).not.toBe(iconIn);
-    // The other fields still say Focus.
-    expect(root.querySelector('[data-field-focus="0"]')!.getAttribute("aria-label")).toMatch(/focus .*field/i);
-    fireEvent.click(button);
+    expect(pill.getAttribute("aria-label")).toBe("Zoom out");
+    expect(pill.getAttribute("aria-pressed")).toBe("true");
+    expect(pill.getAttribute("data-zoomed")).toBe("true");
+    expect(pill.getAttribute("title")).toMatch(/zoom out/i);
+    // Only the zoomed pill is pressed.
+    expect([...root.querySelectorAll("[data-field-focus]")].filter((node) => node.getAttribute("aria-pressed") === "true")).toEqual([pill]);
+    fireEvent.click(pill);
     expect(modeOf(root)).toBe("overview:-");
-    expect(button.getAttribute("aria-label")).toMatch(/focus .*field/i);
-    expect(button.querySelector("path")!.getAttribute("d")).toBe(iconIn);
+    expect(pill.getAttribute("aria-pressed")).toBe("false");
+    expect(pill.getAttribute("aria-label")).toMatch(/^Zoom in on /);
+    expect(pill.hasAttribute("data-zoomed")).toBe(false);
   });
 
-  it("the focus button of a field has no seat label under it: it sits inside the mat, in the corner of the field", () => {
+  it("a press on another pill while zoomed switches to that field", () => {
     const root = mount();
-    for (const seat of [0, 1, 2, 3]) {
-      const button = root.querySelector<HTMLElement>(`[data-field-focus="${seat}"]`)!;
-      expect(button.closest(`[data-field-hold="${seat}"]`)).not.toBeNull();
-      expect(button.getAttribute("data-near")).toBe(seat === 0 || seat === 2 ? "true" : "false");
-    }
+    fireEvent.click(root.querySelector<HTMLElement>('[data-field-focus="0"]')!);
+    expect(modeOf(root)).toBe("focus:0");
+    fireEvent.click(root.querySelector<HTMLElement>('[data-field-focus="3"]')!);
+    expect(modeOf(root)).toBe("focus:3");
+    expect(root.querySelector('[data-field-focus="3"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(root.querySelector('[data-field-focus="0"]')!.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("an FX lock removes the focus buttons: they would do nothing", () => {
+  it("an FX lock disables the pills: they would do nothing", () => {
     const root = render(<LockedStage />).container;
-    expect(root.querySelector("[data-field-focus]")).toBeNull();
+    const pills = [...root.querySelectorAll<HTMLButtonElement>("[data-field-focus]")];
+    expect(pills.length).toBe(4);
+    for (const pill of pills) {
+      expect(pill.disabled).toBe(true);
+      fireEvent.click(pill);
+    }
+    expect(modeOf(root)).toBe("overview:-");
   });
 });
 
 describe("Tag overview camera: keyboard focus", () => {
-  it("after a focus by the button, the keyboard focus stays on that button (it is the toggle now)", () => {
+  it("after a focus by a pill, the keyboard focus stays on that pill (it is the toggle)", () => {
     const root = mount();
     const button = root.querySelector<HTMLButtonElement>('[data-field-focus="1"]')!;
     button.focus();
@@ -236,7 +257,7 @@ describe("Tag overview camera: keyboard focus", () => {
     }
   });
 
-  it("after Back, the keyboard focus returns to the focus button of the field that was in close-up", () => {
+  it("after Back, the keyboard focus returns to the pill of the field that was in close-up", () => {
     const root = mount();
     fireEvent.click(root.querySelector<HTMLElement>('[data-field-focus="3"]')!);
     const back = root.querySelector<HTMLButtonElement>("[data-camera-back]")!;
@@ -314,7 +335,7 @@ describe("Tag overview camera: a tap on a zone", () => {
 
   it("a plain button on a field does its own job only", () => {
     const root = mount();
-    for (const button of root.querySelectorAll<HTMLElement>("[data-field-hold] button:not([data-field-focus]):not([data-zones] button)")) {
+    for (const button of root.querySelectorAll<HTMLElement>("[data-field-hold] button:not([data-zones] button)")) {
       fireEvent.click(button);
       expect(modeOf(root)).toBe("overview:-");
     }
@@ -345,7 +366,7 @@ describe("Tag overview camera: a tap on a zone", () => {
     const { idle } = zonesOf(root, 2);
     fireEvent.click(idle[0].querySelector("button")!);
     expect(modeOf(root)).toBe("overview:-");
-    expect(root.querySelector("[data-field-focus]")).toBeNull();
+    expect([...root.querySelectorAll<HTMLButtonElement>("[data-field-focus]")].every((pill) => pill.disabled)).toBe(true);
   });
 });
 
@@ -356,6 +377,22 @@ describe("Tag overview camera: action clicks never move the camera", () => {
     expect(pickable).toBeTruthy();
     fireEvent.click(pickable!);
     expect(modeOf(root)).toBe("overview:-");
+  });
+
+  it("a pill of a seat the prompt lets the viewer choose answers the pick; the prompt wins over the zoom", () => {
+    const root = mount("choose-opponent");
+    const pickable = root.querySelector<HTMLElement>('[data-member-seat][data-pickable="true"]')!;
+    const seat = pickable.dataset.memberSeat!;
+    const pill = root.querySelector<HTMLElement>(`[data-field-focus="${seat}"]`)!;
+    expect(pill.getAttribute("data-pick")).toBe("true");
+    expect(pill.getAttribute("aria-label")).toMatch(/^Choose /);
+    expect(pill.hasAttribute("aria-pressed")).toBe(false);
+    fireEvent.click(pill);
+    expect(modeOf(root)).toBe("overview:-");
+    // A seat that is not a choice still zooms.
+    const other = [...root.querySelectorAll<HTMLElement>("[data-field-focus]")].find((node) => !node.hasAttribute("data-pick"))!;
+    fireEvent.click(other);
+    expect(modeOf(root)).toBe(`focus:${other.dataset.fieldFocus}`);
   });
 
   it("a click on a field does not focus while an attack is aimed", () => {
