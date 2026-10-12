@@ -225,19 +225,32 @@ function leastHeight(room: StripRoom, input: Pick<StripRoomInput, "count" | "chr
 }
 
 /**
- * The room of a panel fixed to the middle of `fixed`: the wanted width, the tiles that show the most cards in its height (the large ones
- * first), centred. Pure; nothing is measured but the panel's chrome.
+ * The room of a panel fixed to the middle of `fixed`: the wanted width, the largest tiles (up to `maxCard`) whose whole row fits its height and
+ * that show a few cards, centred. Pure; nothing is measured but the panel's chrome.
  */
 function planFixed(input: StripRoomInput, fixed: Rect): StripRoom | undefined {
   const { count } = input;
-  const box = { width: Math.min(input.box.width, fixed.width), height: Math.min(input.box.height, fixed.height) };
+  // The fixed box already holds its own air (the plates and the hand it keeps off), so the room may take all of its height.
+  const box = { width: Math.min(input.box.width, fixed.width), height: Math.min(input.box.height, fixed.height + 2 * STRIP_ROOM.edge) };
   if (!(box.width > 0) || !(box.height > 0) || !(count > 0)) return undefined;
   const chrome = input.chrome ?? STRIP_ROOM.chrome;
+  // The largest tile the room may take (the tile already shown for this prompt, so a chrome that grows never brings a larger one back) down to the
+  // first one whose whole row fits the box with the fade below it, so no card is clipped; the tiles that show fewer than STRIP_ROOM.minShown cards
+  // give way to the smaller ones while those still fit. Where none fits, the smallest tile.
+  const cap = input.maxCard ?? Infinity;
+  const tiles = [STRIP_ROOM.card, ...STRIP_ROOM.smaller, ...EXTRA_TILES].filter((tile) => tile <= cap);
+  if (tiles.length === 0) tiles.push(EXTRA_TILES[EXTRA_TILES.length - 1]);
   let pick: { size: StripRoomSize; shown: number } | null = null;
-  for (const tile of [STRIP_ROOM.card, ...STRIP_ROOM.smaller]) {
+  for (const tile of tiles) {
     const size = stripRoomSize(count, box, STRIP_ROOM.maxCols, tile, chrome);
-    const shown = tilesShown({ x: 0, y: 0, width: size.width, height: size.height, card: size.card, cols: size.cols }, { count, chrome });
-    if (!pick || shown > pick.shown) pick = { size, shown };
+    const room = { x: 0, y: 0, width: size.width, height: size.height, card: size.card, cols: size.cols };
+    if (size.height < leastHeight(room, { count, chrome })) {
+      // No whole row fits yet: the smaller tile tried next replaces this one, and the smallest stays where none fits.
+      if (!pick || pick.shown < 0) pick = { size, shown: -1 };
+      continue;
+    }
+    const shown = tilesShown(room, { count, chrome });
+    if (!pick || pick.shown < 0 || shown > pick.shown) pick = { size, shown };
     if (shown >= Math.min(count, STRIP_ROOM.minShown)) break;
   }
   if (!pick || pick.size.width <= 0 || pick.size.height <= 0) return undefined;
