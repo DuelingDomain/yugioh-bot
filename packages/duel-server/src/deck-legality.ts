@@ -6,6 +6,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import Database from "better-sqlite3";
 import type {
+  DeckCardType,
   DuelCardPool,
   DuelDeck,
   DuelDeckCardRef,
@@ -14,7 +15,7 @@ import type {
   DuelMode,
   DuelSettings,
 } from "@yugidraft/shared/duels";
-import { canonicalCardCode, checkDeckAgainstPool, mapDeckCodes } from "@yugidraft/shared/duels";
+import { assertExtraDeckCards, isExtraDeckCard, canonicalCardCode, checkDeckAgainstPool, mapDeckCodes } from "@yugidraft/shared/duels";
 import { banlistLimitsFor, type BanlistLimit } from "./banlists/index.js";
 import { MULTIPLAYER_TABLE_LABEL, multiplayerForbiddenFor, type MultiplayerTable } from "./banlists/multiplayer.js";
 import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
@@ -54,7 +55,6 @@ const TYPE_ACTION = 0x10000000;
 const TYPE_PLUS = 0x20000000;
 const TYPE_MINUS = 0x40000000;
 const TYPE_ARMOR = 0x80000000;
-const TYPE_EXTRA = TYPE_FUSION | TYPE_SYNCHRO | TYPE_XYZ | TYPE_LINK;
 const UNPLAYABLE_TYPES = TYPE_TOKEN | TYPE_SKILL | TYPE_ACTION | TYPE_MAXIMUM | TYPE_PLUS | TYPE_MINUS | TYPE_ARMOR;
 const SCRIPT_TYPES = TYPE_SPELL | TYPE_TRAP | TYPE_EFFECT | TYPE_PENDULUM;
 
@@ -442,8 +442,16 @@ function isMonster(card: EngineCard): boolean {
   return (card.type & TYPE_MONSTER) === TYPE_MONSTER && (card.type & TYPE_TOKEN) === 0;
 }
 
-function isExtraDeckMonster(card: EngineCard): boolean {
-  return isMonster(card) && (card.type & TYPE_EXTRA) !== 0;
+const isExtraDeckMonster = isExtraDeckCard;
+
+/** Mandatory on writes and Ready, independent of competitive or format settings. */
+export function validateExtraDeckTypes(deck: DuelDeck, dataDirectory: string, fallback?: (code: number) => DeckCardType | undefined): void {
+  const catalog = loadCatalog(dataDirectory);
+  const remaps = loadCardPasscodeRemaps(dataDirectory);
+  if (!Array.isArray(deck?.extra) || deck.extra.some(code => !Number.isInteger(code) || code < 1 || code > 0xffff_ffff)) {
+    fail("Extra Deck must be a list of valid card codes");
+  }
+  assertExtraDeckCards(deck, code => readCard(catalog, remaps.get(code) ?? code) ?? fallback?.(code));
 }
 
 function isPlayable(card: EngineCard): boolean {
