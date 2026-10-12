@@ -75,6 +75,22 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "Decks are locked after the duel starts" });
   });
 
+  it.each(["deck", "ready"] as const)("preserves the neutral start block in the %s route response", async op => {
+    const payload = { session: { status: "lobby" }, startBlocked: "Start blocked: another player's deck needs attention." };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(payload)));
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId,
+      duels: { room: () => ({ session: { status: "lobby" } }) } as never,
+    });
+    const { NextRequest } = await import("next/server");
+    const request = new NextRequest("http://web.test/api/duels/abc", { method: "POST", body: "{}" });
+    const { POST } = op === "deck" ? await import("../app/api/duels/[slug]/deck/route") : await import("../app/api/duels/[slug]/ready/route");
+    const response = await POST(request, { params: Promise.resolve({ slug: call.slug }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(payload);
+  });
+
   it("keeps the seat-left code and text for duel answers", async () => {
     const body = { code: "seat_left", error: "That player has left. Pick again." };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(body, { status: 400 })));

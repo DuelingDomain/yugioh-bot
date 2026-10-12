@@ -49,15 +49,26 @@ describe("duel Extra Deck safety with competitive checks off", () => {
     expect(() => validateExtraDeckTypes(deck(901), dataDirectory)).toThrow(DeckLegalityError);
     expect(() => validateExtraDeckTypes(deck(901), dataDirectory)).toThrow(expect.objectContaining({ status: 400, code: "INVALID_EXTRA_DECK_CARD" }));
   });
-  it("reports a bad opponent Extra card from series autoStart instead of swallowing it", async () => {
+  it.each(["deck", "ready", "start"])("returns a neutral block for an opponent's bad Extra card on %s", async op => {
     const opponent = seedIdentity(db, { name: "Test opponent" }).playerId;
     const { duel } = createDuelSeriesService(db).createChallenge({ guildId: "g", challengerPlayerId: playerId,
       opponentPlayerId: opponent, bestOf: 3, ranked: false, mode: "normal",
       settings: { ...defaultDuelSettings("normal"), validateDeck: false, banlist: "none" } });
     duels.setDeck(duel.slug, "g", opponent, deck(901));
-    const response = await post({ op: "deck", slug: duel.slug, deck: deck(903) });
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
+    if (op !== "deck") duels.setDeck(duel.slug, "g", playerId, deck(903));
+    if (op === "ready") duels.markUnready(duel.slug, "g", playerId);
+    const response = await post({ op, slug: duel.slug, ...(op === "deck" ? { deck: deck(903) } : {}) });
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result).toMatchObject({ session: { status: "lobby" }, startBlocked: "Start blocked: another player's deck needs attention." });
+    expect(JSON.stringify(result)).not.toContain("Test Spell");
+    expect(result.error).toBeUndefined();
+    expect(result.code).toBeUndefined();
+    expect(duels.room(duel.slug, "g", playerId).myDeck).toEqual(deck(903));
+    expect(duels.room(duel.slug, "g", playerId).session.seats.find(seat => seat.playerId === playerId)?.ready).toBe(true);
+    const ownerResponse = await post({ op: "start", slug: duel.slug, playerId: opponent });
+    expect(ownerResponse.status).toBe(400);
+    expect(await ownerResponse.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
     expect(duels.get(duel.slug, "g").status).toBe("lobby");
   });
   it("normalizes an uncached API passcode before checking its Extra type", async () => {

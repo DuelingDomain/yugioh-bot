@@ -145,6 +145,14 @@ class RequestError extends Error {
   constructor(message: string, readonly status: number, readonly code?: DuelErrorCode) { super(message); }
 }
 
+/** Start checks can fail on a different player's private deck. */
+class SeatDeckLegalityError extends DeckLegalityError {
+  constructor(readonly playerId: number, readonly legalityError: DeckLegalityError) {
+    super(legalityError.message);
+    this.name = "SeatDeckLegalityError";
+  }
+}
+
 class ReplayMismatchError extends Error {
   constructor(message: string) {
     super(message);
@@ -2066,8 +2074,14 @@ export function createDuelHost(options: {
     const state = service.privateState(slug, guildId);
     const settings = state.session.settings;
     for (const [seat, deck] of state.decks.entries()) {
-      await validateSessionDeck(state.session.mode, deck, settings, state.session.format,
-        { session: state.session, playerId: state.session.seats[seat].playerId! });
+      const playerId = state.session.seats[seat].playerId!;
+      try {
+        await validateSessionDeck(state.session.mode, deck, settings, state.session.format,
+          { session: state.session, playerId });
+      } catch (error) {
+        if (error instanceof DeckLegalityError) throw new SeatDeckLegalityError(playerId, error);
+        throw error;
+      }
     }
     return { session, state, settings, seatCount };
   }
@@ -2297,6 +2311,28 @@ export function createDuelHost(options: {
       throw new RequestError("Authenticated guild and player are required", 400);
     }
     const actor = playerId as number;
+    try {
+      return await operateForActor(body, guildId, actor, ctl);
+    } catch (error) {
+      if (!(error instanceof SeatDeckLegalityError)) throw error;
+      if (error.playerId === actor) throw error.legalityError;
+      // Deck details stay with their owner; return the actor's already-saved state.
+      const slug = body.slug as string;
+      const startBlocked = "Start blocked: another player's deck needs attention.";
+      const session = service.get(slug, guildId);
+      if (op === "series-ready") {
+        const latest = series.get(session.seriesId!, guildId);
+        return { series: latest,
+          nextSlug: latest.status === "active" && latest.currentDuelSlug !== slug ? latest.currentDuelSlug : null,
+          startBlocked };
+      }
+      if (op === "deck" || op === "ready") return { session, startBlocked };
+      return { ...await project(slug, guildId, actor, undefined, body.spectate === true), startBlocked };
+    }
+  }
+
+  async function operateForActor(body: Record<string, unknown>, guildId: string, actor: number, ctl?: { abandoned: boolean }): Promise<unknown> {
+    const { op } = body;
     if (op === "engine-data-status") {
       try {
         const local = localCardDataStatus();

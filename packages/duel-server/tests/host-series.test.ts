@@ -239,7 +239,7 @@ function tournamentMatch(app: App, bestOf: 1 | 3, registeredDeck = deckWithSide(
 }
 
 describe("series game lobby ops", () => {
-  it("reports invalid Extra cards copied from a tournament registration when autoStart checks the opponent", async () => {
+  it("names invalid tournament Extra cards only for their owner when autoStart is blocked", async () => {
     const app = setup();
     const { host, workers } = openHost(app);
     const bad = { ...deckWithSide(), extra: [901] };
@@ -248,14 +248,17 @@ describe("series game lobby ops", () => {
     const before = app.db.prepare("select deck_json from tournament_participants where tournament_id=? order by player_id").all(tournament.id);
     const refused = await post(host, { op: "ready", slug, playerId: app.p1 });
     expect(refused.status).toBe(400);
-    expect(refused.data.code).toBe("INVALID_EXTRA_DECK_CARD");
-    // A legacy ready seat must also be reported to the other player's start request.
+    expect(refused.data).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
+    // The other player's Ready succeeds, but the registered deck still blocks the start.
     app.duels.markReady(slug, GUILD, app.p1);
     app.duels.setDeck(slug, GUILD, app.p2, deckWithSide());
     app.duels.markUnready(slug, GUILD, app.p2);
     const startedResponse = await post(host, { op: "ready", slug, playerId: app.p2 });
-    expect(startedResponse.status).toBe(400);
-    expect(startedResponse.data).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
+    expect(startedResponse.status).toBe(200);
+    expect(startedResponse.data).toMatchObject({ session: { status: "lobby" }, startBlocked: "Start blocked: another player's deck needs attention." });
+    expect(JSON.stringify(startedResponse.data)).not.toContain("Test Spell");
+    expect(startedResponse.data.error).toBeUndefined();
+    expect(app.duels.get(slug, GUILD).seats.find(seat => seat.playerId === app.p2)?.ready).toBe(true);
     expect(workers).toHaveLength(0);
     expect(app.db.prepare("select deck_json from tournament_participants where tournament_id=? order by player_id").all(tournament.id)).toEqual(before);
   });
@@ -278,7 +281,7 @@ describe("series game lobby ops", () => {
       expect(ready.data.error).toBeUndefined();
     } finally { vi.unstubAllGlobals(); }
   });
-  it("reports an opponent Extra error if the next series game fails during Ready advancement", async () => {
+  it("returns the next game and a neutral block if an opponent's deck stops Ready advancement", async () => {
     const app = setup();
     const { host, workers } = openHost(app);
     const { duel, series } = await startChallenge(app, host, 3);
@@ -288,10 +291,18 @@ describe("series game lobby ops", () => {
     const bad = { ...app.series.sideState(series.id, GUILD, app.p1).currentDeck, extra: [901] };
     app.db.prepare("update duel_series set deck0_json=? where id=?").run(JSON.stringify(bad), series.id);
     const response = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p2 });
-    expect(response.status).toBe(400);
-    expect(response.data).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
+    expect(response.status).toBe(200);
+    expect(response.data).toMatchObject({ nextSlug: app.series.get(series.id, GUILD).currentDuelSlug,
+      series: { status: "active" }, startBlocked: "Start blocked: another player's deck needs attention." });
+    expect(JSON.stringify(response.data)).not.toContain("Test Spell");
+    expect(response.data.error).toBeUndefined();
+    const ownerResponse = await post(host, { op: "ready", slug: response.data.nextSlug, playerId: app.p1 });
+    expect(ownerResponse.status).toBe(400);
+    expect(ownerResponse.data).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
     expect(workers).toHaveLength(1);
-    expect(app.duels.get(app.series.get(series.id, GUILD).currentDuelSlug!, GUILD).status).toBe("lobby");
+    const next = app.duels.get(response.data.nextSlug, GUILD);
+    expect(next.status).toBe("lobby");
+    expect(next.seats.every(seat => seat.ready)).toBe(true);
   });
   it("starts a challenge game when the second player submits a deck, with seat 0 first in the engine order", async () => {
     const app = setup();
