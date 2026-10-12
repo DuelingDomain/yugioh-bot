@@ -35,7 +35,7 @@ beforeEach(() => {
   host = createDuelHost({ db, dataDirectory, secret, searchCards: () => [],
     createWorker: vi.fn(() => { throw new Error("No engine can start in these tests"); }) });
 });
-afterEach(async () => { await host.close(); db.close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+afterEach(async () => { await host.close(); vi.useRealTimers(); db.close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 async function post(body: Record<string, unknown>) {
   const raw = JSON.stringify({ guildId: "g", playerId, ...body });
   return host.handle(new Request("http://test/internal/duel", { method: "POST", body: raw,
@@ -45,7 +45,83 @@ function room() {
   return duels.create({ guildId: "g", organizerPlayerId: playerId, name: "Test room", mode: "normal",
     settings: { ...defaultDuelSettings("normal"), validateDeck: false, banlist: "none" } });
 }
+async function sweepHost() {
+  await host.close();
+  vi.useFakeTimers();
+  host = createDuelHost({ db, dataDirectory, secret, searchCards: () => [], pollIntervalMs: 60_000,
+    createWorker: vi.fn(() => { throw new Error("No engine can start in these tests"); }) });
+}
+async function blockedRoom(owner: number) {
+  const session = room();
+  duels.takeSeat(session.slug, "g", owner);
+  duels.setDeck(session.slug, "g", playerId, deck(903));
+  duels.setDeck(session.slug, "g", owner, deck(901));
+  const response = await post({ op: "start", slug: session.slug });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ startBlockedByOther: true });
+  return session;
+}
 describe("duel Extra Deck safety with competitive checks off", () => {
+  it("expires a casual deck block in the sweep without another room read", async () => {
+    await sweepHost();
+    const owner = seedIdentity(db, { name: "Fixture deck owner" }).playerId;
+    const session = await blockedRoom(owner);
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+    expect(await (await post({ op: "view", slug: session.slug })).json()).not.toHaveProperty("startBlockedByOther");
+    expect(duels.get(session.slug, "g").status).toBe("lobby");
+    expect((await post({ op: "start", slug: session.slug })).status).toBe(200);
+    expect(await (await post({ op: "view", slug: session.slug })).json()).toMatchObject({ startBlockedByOther: true });
+  });
+  it("refreshes a casual deck block's expiry on a new failed Start", async () => {
+    await sweepHost();
+    const owner = seedIdentity(db, { name: "Fixture deck owner" }).playerId;
+    const session = await blockedRoom(owner);
+    await vi.advanceTimersByTimeAsync(14 * 60_000);
+    expect((await post({ op: "start", slug: session.slug })).status).toBe(200);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await (await post({ op: "view", slug: session.slug })).json()).toMatchObject({ startBlockedByOther: true });
+    await vi.advanceTimersByTimeAsync(14 * 60_000);
+    expect(await (await post({ op: "view", slug: session.slug })).json()).not.toHaveProperty("startBlockedByOther");
+  });
+  it.each(["active", "completed", "cancelled"])("sweeps a deck block when another process changes the lobby to %s", async status => {
+    await sweepHost();
+    const owner = seedIdentity(db, { name: "Fixture deck owner" }).playerId;
+    const session = await blockedRoom(owner);
+    db.prepare("update duels set status=? where id=?").run(status, session.id);
+    await vi.advanceTimersByTimeAsync(60_000);
+    // Restore the same lobby to expose an entry that survived the sweep; a closed-room read would clear it itself.
+    db.prepare("update duels set status='lobby' where id=?").run(session.id);
+    expect(await (await post({ op: "view", slug: session.slug })).json()).not.toHaveProperty("startBlockedByOther");
+  });
+  it("caps deck blocks at 256 lobbies and evicts the least recently blocked room", async () => {
+    await sweepHost();
+    const owner = seedIdentity(db, { name: "Fixture deck owner" }).playerId;
+    const first = await blockedRoom(owner);
+    const second = await blockedRoom(owner);
+    expect((await post({ op: "start", slug: first.slug })).status).toBe(200);
+    let latest = second;
+    for (let i = 0; i < 255; i++) latest = await blockedRoom(owner);
+    expect(await (await post({ op: "view", slug: first.slug })).json()).toMatchObject({ startBlockedByOther: true });
+    expect(await (await post({ op: "view", slug: second.slug })).json()).not.toHaveProperty("startBlockedByOther");
+    expect(await (await post({ op: "view", slug: latest.slug })).json()).toMatchObject({ startBlockedByOther: true });
+  }, 30_000);
+  it("preserves the actor's own blocker when another seat fails Start first", async () => {
+    const opponent = seedIdentity(db, { name: "Fixture opponent" }).playerId;
+    const { duel: session } = createDuelSeriesService(db).createChallenge({ guildId: "g", challengerPlayerId: opponent,
+      opponentPlayerId: playerId, bestOf: 3, ranked: false, mode: "normal",
+      settings: { ...defaultDuelSettings("normal"), validateDeck: false, banlist: "none" } });
+    const actor = session.seats[1].playerId!;
+    duels.setDeck(session.slug, "g", session.seats[0].playerId!, deck(999));
+    duels.setDeck(session.slug, "g", actor, deck(998));
+
+    const response = await post({ op: "start", slug: session.slug, playerId: actor });
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.session.status).toBe("lobby");
+    expect(result.startBlocked).toEqual({ reason: expect.stringContaining("card 998"), cardNames: ["card 998"] });
+    expect(result).not.toHaveProperty("startBlockedByOther");
+    expect(JSON.stringify(result)).not.toContain("card 999");
+  });
   it("records a casual Start blocked by another deck for every other seated player", async () => {
     const owner = seedIdentity(db, { name: "Fixture deck owner" }).playerId;
     const other = seedIdentity(db, { name: "Fixture third player" }).playerId;

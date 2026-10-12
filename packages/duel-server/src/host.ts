@@ -4,7 +4,7 @@ import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
 import { scriptErrorModeFromEnv } from "./script-errors.js";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
@@ -80,6 +80,8 @@ const CLOCK_SWEEP_LIMIT = 32;
 const SERIES_SWEEP_LIMIT = 16;
 /** Wait after the 1st, 2nd and later failed starts of one series game; the last value is the cap. */
 const START_BACKOFF_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
+const DECK_START_BLOCK_TTL_MS = 15 * 60 * 1000;
+const DECK_START_BLOCK_MAX = 256;
 const MAX_TIMER_MS = 2 ** 31 - 1;
 /** Bound one live coin presentation pause, including any already queued grace. */
 const MAX_COIN_TOSS_GRACE_MS = 60_000;
@@ -147,7 +149,7 @@ class RequestError extends Error {
 
 /** Start checks can fail on a different player's private deck. */
 class SeatDeckLegalityError extends DeckLegalityError {
-  constructor(readonly slug: string, readonly playerId: number, readonly legalityError: DeckLegalityError, readonly startState: string) {
+  constructor(readonly slug: string, readonly playerId: number, readonly legalityError: DeckLegalityError, readonly startStateHash: string) {
     super(legalityError.message);
     this.name = "SeatDeckLegalityError";
   }
@@ -388,8 +390,9 @@ export function createDuelHost(options: {
     failures: number;
     retryAt: number;
   }>();
-  /** Last deck-blocked start, including casual tables and the first attempt of an auto-start. */
-  const deckStartBlocks = new Map<string, { playerId: number; state: string }>();
+  /** Bounded, short-lived start blockers; hashes avoid retaining private deck data. */
+  const deckStartBlocks = new Map<string, { playerId: number; stateHash: string; blockedAt: number }>();
+  const deckBlockSession = options.db.prepare<[string], { status: string }>("select status from duels where web_slug = ?");
   const pacedBot = typeof options.botStepDelayMs === "function" || (options.botStepDelayMs ?? 0) > 0;
   const envStall = Number(process.env.DUEL_STALL_MS);
   // The watchdog is a test tool (it reads every seat's view and writes report folders): on only where DUEL_SCENARIOS=1,
@@ -1458,7 +1461,7 @@ export function createDuelHost(options: {
     }
     const deckBlock = deckStartBlocks.get(slug);
     if (deckBlock) {
-      if (room.session.status !== "lobby" || deckBlock.state !== startDeckState(service.privateState(slug, guildId))) {
+      if (room.session.status !== "lobby" || deckBlock.stateHash !== startDeckStateHash(service.privateState(slug, guildId))) {
         deckStartBlocks.delete(slug);
         startBackoff.delete(slug);
       } else if (room.role === "player" && room.mySeat !== null && playerId !== deckBlock.playerId && !room.startBlocked) {
@@ -2121,7 +2124,7 @@ export function createDuelHost(options: {
         await validateSessionDeck(state.session.mode, deck, settings, state.session.format,
           { session: state.session, playerId });
       } catch (error) {
-        if (error instanceof DeckLegalityError) throw new SeatDeckLegalityError(slug, playerId, error, startDeckState(state));
+        if (error instanceof DeckLegalityError) throw new SeatDeckLegalityError(slug, playerId, error, startDeckStateHash(state));
         throw error;
       }
     }
@@ -2319,19 +2322,20 @@ export function createDuelHost(options: {
     return service.get(slug, guildId);
   }
 
-  /** Track seat identity, readiness and decks, including changes made outside host operations. */
-  function startDeckState(state: { session: DuelSession; decks: DuelDeck[] }): string {
-    return JSON.stringify({
+  /** Hash seat identity, readiness and decks, including changes made outside host operations. */
+  function startDeckStateHash(state: { session: DuelSession; decks: DuelDeck[] }): string {
+    return createHash("sha256").update(JSON.stringify({
       seats: state.session.seats.map(seat => [seat.seat, seat.playerId, seat.isBot, seat.ready]),
       decks: state.decks,
-    });
+    })).digest("hex");
   }
 
   function recordDeckStartBlock(slug: string, error: unknown): void {
+    // Reinsert refreshed blocks so the oldest failed attempt is first in eviction order.
+    deckStartBlocks.delete(slug);
     if (error instanceof SeatDeckLegalityError) {
-      deckStartBlocks.set(slug, { playerId: error.playerId, state: error.startState });
-    } else {
-      deckStartBlocks.delete(slug);
+      deckStartBlocks.set(slug, { playerId: error.playerId, stateHash: error.startStateHash, blockedAt: now() });
+      if (deckStartBlocks.size > DECK_START_BLOCK_MAX) deckStartBlocks.delete(deckStartBlocks.keys().next().value!);
     }
   }
 
@@ -2398,7 +2402,8 @@ export function createDuelHost(options: {
           startBlocked };
       }
       if (op === "deck" || op === "ready") return { session, startBlocked };
-      return { ...await project(slug, guildId, actor, undefined, body.spectate === true), startBlocked };
+      const room = await project(slug, guildId, actor, undefined, body.spectate === true);
+      return room.startBlocked ? room : { ...room, startBlocked };
     }
   }
 
@@ -2820,6 +2825,16 @@ export function createDuelHost(options: {
   async function tick(): Promise<void> {
     if (stopped) return;
     const t = now();
+    try {
+      // Casual lobbies have no backoff entry and may never be read again after a blocked start.
+      for (const [slug, entry] of deckStartBlocks) {
+        if (t - entry.blockedAt >= DECK_START_BLOCK_TTL_MS || deckBlockSession.get(slug)?.status !== "lobby") {
+          deckStartBlocks.delete(slug);
+        }
+      }
+    } catch (error) {
+      console.warn("[duel] deck start block sweep failed", error);
+    }
     try {
       const due = service.dueClocks(t, CLOCK_SWEEP_LIMIT);
       for (const item of due) {
