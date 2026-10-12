@@ -3,7 +3,7 @@ import { GATE_TIMING } from "../duel-timing";
 import { duelFxClock } from "../fx-clock";
 import { lpMotionRemainingMs } from "../lp-motion";
 import { movesSettleAt } from "../move-plan";
-import { pendingBoardAnimations, promptRevealHoldMs, type AnimationLike } from "../prompt-reveal";
+import { pendingBoardAnimations, promptRevealHoldMs } from "../prompt-reveal";
 
 /**
  * When the crumble of a seat that left may start: the attack, the damage and the LP roll that put it out are over.

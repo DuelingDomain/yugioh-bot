@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, type MutableRefObject } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, type MutableRefObject } from "react";
 import { isEliminated } from "../multi-seat";
 import {
   cameraActionForKey,
