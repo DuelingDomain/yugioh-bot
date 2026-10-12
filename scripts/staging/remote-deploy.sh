@@ -15,6 +15,7 @@
 #   STAGING_CLERK_ENV    separate staging Clerk source on the VM (default /etc/yugidraft/staging-clerk.env)
 #   STAGING_BUNDLE       the engine bundle sent to a mktemp path by the workflow (required for deploy)
 #   STAGING_GUARD        the activity guard from the main workflow revision (required for deploy)
+#   STAGING_RUNTIME_PREPARE  the runtime data helper from the workflow revision (required for deploy)
 #
 # It works in /opt/yugioh-bot-staging. Community config comes from production .env; Clerk keys
 # come only from STAGING_CLERK_ENV. It also reads data/bot.sqlite (read-only, through the activity guard
@@ -28,6 +29,7 @@ staging_dir=${STAGING_DIR:-/opt/yugioh-bot-staging}
 prod_dir=/opt/yugioh-bot
 bundle=${STAGING_BUNDLE:-}
 guard=${STAGING_GUARD:-}
+runtime_prepare=${STAGING_RUNTIME_PREPARE:-}
 
 skip_staging() {
   echo "::warning title=Staging skipped::skipping staging; $*"
@@ -44,7 +46,8 @@ fi
 lock=${STAGING_BUILD_LOCK:-/var/lock/yugidraft-build.lock}
 if [ "$action" = "deploy" ]; then
   [ -n "$bundle" ] || { echo "remote-deploy: STAGING_BUNDLE is required" >&2; exit 1; }
-  trap 'rm -f "$bundle" "$guard"' EXIT
+  [ -f "$runtime_prepare" ] || { echo "remote-deploy: STAGING_RUNTIME_PREPARE must be an existing helper" >&2; exit 1; }
+  trap 'rm -f "$bundle" "$guard" "$runtime_prepare"' EXIT
 fi
 if ! command -v flock >/dev/null 2>&1; then
   echo "remote-deploy: flock is required. Install util-linux." >&2
@@ -62,7 +65,7 @@ fi
 
 # Context cleanup is safe only after this process holds the lock.
 if [ "$action" = "deploy" ]; then
-  trap 'rm -f "$bundle" "$guard"; rm -rf "$staging_dir/.deploy-duel-engine"' EXIT
+  trap 'rm -f "$bundle" "$guard" "$runtime_prepare"; rm -rf "$staging_dir/.deploy-duel-engine"' EXIT
   # Read production activity before cloning, fetching, resetting or changing the env.
   # Staging counts only live duels, openings and active drafts. Guard failures also skip.
   if [ "${STAGING_IGNORE_PROD_ACTIVITY:-false}" = "true" ]; then
@@ -174,7 +177,7 @@ for core in ocgcore.multi ocgcore.multi-domain; do
 done
 
 # Migrate the isolated, stopped staging database once before any consumers start.
-sh scripts/deployment/prepare-runtime-data.sh "$staging_dir/data-staging"
+sh "$runtime_prepare" "$staging_dir/data-staging"
 copied_db=0
 [ ! -f "$clerk_scrub_marker" ] || copied_db=1
 compose run --rm --no-deps -e STAGING_COPIED_DB="$copied_db" worker node --input-type=module -e '
@@ -194,7 +197,7 @@ rm -f "$clerk_scrub_marker"
 if ! sh scripts/staging/check-resources.sh "before start" "${STAGING_MIN_START_MB:-1900}"; then
   skip_staging "the start resource check did not pass. Staging stays down."
 fi
-sh scripts/deployment/prepare-runtime-data.sh "$staging_dir/data-staging"
+sh "$runtime_prepare" "$staging_dir/data-staging"
 compose up -d
 compose ps
 

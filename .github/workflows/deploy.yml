@@ -52,10 +52,12 @@ jobs:
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
         uses: actions/checkout@v4
 
-      # Keep the activity guard from the workflow revision, even when deploying an older main SHA.
+      # Keep deployment controls from the workflow revision, even when deploying an older main SHA.
       - name: Save deployment activity guard
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
-        run: cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/check-prod-activity.py"
+        run: |
+          cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/check-prod-activity.py"
+          cp scripts/deployment/prepare-runtime-data.sh "$RUNNER_TEMP/prepare-runtime-data.sh"
 
       - name: Checkout deploy ref
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -233,6 +235,7 @@ jobs:
           bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
           remote_bundle=
           remote_guard=
+          remote_prepare=
           cleanup_transfer() {
             rm -f "$bundle_tar"
             if [ -n "$remote_bundle" ]; then
@@ -242,6 +245,10 @@ jobs:
             if [ -n "$remote_guard" ]; then
               ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_guard'" || true
+            fi
+            if [ -n "$remote_prepare" ]; then
+              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_prepare'" || true
             fi
           }
           trap cleanup_transfer EXIT
@@ -253,6 +260,11 @@ jobs:
           printf '%s' "$remote_guard" | grep -Eq '^/tmp/yugidraft-activity-guard\.[A-Za-z0-9]{6}\.py$' || exit 1
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$RUNNER_TEMP/check-prod-activity.py" "$VM_USER@$VM_HOST:$remote_guard"
+          remote_prepare=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            'mktemp /tmp/yugidraft-runtime-prepare.XXXXXX.sh')
+          printf '%s' "$remote_prepare" | grep -Eq '^/tmp/yugidraft-runtime-prepare\.[A-Za-z0-9]{6}\.sh$' || exit 1
+          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+            "$RUNNER_TEMP/prepare-runtime-data.sh" "$VM_USER@$VM_HOST:$remote_prepare"
           tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$bundle_tar" \
@@ -260,19 +272,20 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_RUNTIME_PREPARE='$remote_prepare' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
              context_ready=0
              cleanup() {
-               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD"
+               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "$DEPLOY_RUNTIME_PREPARE"
                if [ -n "$installer" ]; then rm -f "$installer"; fi
                if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
                if [ "$context_ready" = 1 ]; then rm -rf /opt/yugioh-bot/.deploy-duel-engine; fi
              }
              trap cleanup EXIT
              trap 'exit 1' HUP INT TERM
+             [ -f "$DEPLOY_RUNTIME_PREPARE" ] || { echo "DEPLOY_RUNTIME_PREPARE must be an existing helper" >&2; exit 1; }
              printf '%s' "$DEPLOY_COMMIT" | grep -Eq '^[0-9a-f]{40}$' || exit 1
              case "$DEPLOY_ROLLBACK" in true|false) ;; *) exit 1 ;; esac
              # One build at a time on this VM: the staging deploy holds the same lock. Wait for it, then stop
@@ -357,7 +370,7 @@ jobs:
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
                exit 1
              fi
-             sh scripts/deployment/prepare-runtime-data.sh data
+             sh "$DEPLOY_RUNTIME_PREPARE" data
              docker compose -f docker-compose.yml run --rm --no-deps worker node --input-type=module -e '
                import {openDatabase} from "@yugidraft/shared/db";
                const db=openDatabase(process.env.DATABASE_PATH);
@@ -368,7 +381,7 @@ jobs:
                } finally {db.close();}
              '
              docker compose -f docker-compose.yml down --remove-orphans
-             sh scripts/deployment/prepare-runtime-data.sh data
+             sh "$DEPLOY_RUNTIME_PREPARE" data
              docker compose -f docker-compose.yml up -d ws duel web worker caddy
              trap - EXIT
              cleanup

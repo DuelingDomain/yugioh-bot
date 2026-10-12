@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
+import stat
 import sys
 import tempfile
 from contextlib import closing
@@ -204,8 +205,12 @@ def create_backup():
         finally:
             owner = os.stat(source)
             for suffix in ("-wal", "-shm"):
+                sidecar = Path(str(source) + suffix)
                 try:
-                    os.chown(Path(str(source) + suffix), owner.st_uid, owner.st_gid)
+                    if not stat.S_ISREG(os.lstat(sidecar).st_mode):
+                        print("WARNING: dueling-backup: skipping non-regular sidecar: " + str(sidecar), file=sys.stderr)
+                        continue
+                    os.chown(sidecar, owner.st_uid, owner.st_gid, follow_symlinks=False)
                 except FileNotFoundError:
                     pass
 

@@ -13,6 +13,8 @@ services:
 
   web:
     user: *user
+    cap_drop: !reset []
+    security_opt: !reset []
     build:
       target: web-dev
     ports:
@@ -34,11 +36,15 @@ services:
 
   ws:
     user: *user
+    cap_drop: !reset []
+    security_opt: !reset []
     ports:
       - "3001:3001"
 
   duel:
     user: *user
+    cap_drop: !reset []
+    security_opt: !reset []
     # Local development reads its existing engine volume; no CI bundle build context.
     build:
       target: duel
@@ -46,6 +52,8 @@ services:
 
   worker:
     user: *user
+    cap_drop: !reset []
+    security_opt: !reset []
     build:
       target: web-dev
     working_dir: /app

@@ -97,6 +97,7 @@ jobs:
         run: |
           cp scripts/staging/remote-deploy.sh "$RUNNER_TEMP/staging-remote-deploy.sh"
           cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/staging-activity-guard.py"
+          cp scripts/deployment/prepare-runtime-data.sh "$RUNNER_TEMP/prepare-runtime-data.sh"
 
       - name: Checkout deploy ref
         uses: actions/checkout@v4
@@ -260,6 +261,7 @@ jobs:
           bundle_tar=
           remote_bundle=
           remote_guard=
+          remote_prepare=
           cleanup_transfer() {
             if [ -n "$bundle_tar" ]; then rm -f "$bundle_tar"; fi
             if [ -n "$remote_bundle" ]; then
@@ -269,6 +271,10 @@ jobs:
             if [ -n "$remote_guard" ]; then
               ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_guard'" || true
+            fi
+            if [ -n "$remote_prepare" ]; then
+              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_prepare'" || true
             fi
           }
           trap cleanup_transfer EXIT
@@ -283,9 +289,13 @@ jobs:
               'mktemp /tmp/yugidraft-staging-guard.XXXXXX.py')
             printf '%s' "$remote_guard" | grep -Eq '^/tmp/yugidraft-staging-guard\.[A-Za-z0-9]{6}\.py$' || exit 1
             scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" "$RUNNER_TEMP/staging-activity-guard.py" "$VM_USER@$VM_HOST:$remote_guard"
+            remote_prepare=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+              'mktemp /tmp/yugidraft-runtime-prepare.XXXXXX.sh')
+            printf '%s' "$remote_prepare" | grep -Eq '^/tmp/yugidraft-runtime-prepare\.[A-Za-z0-9]{6}\.sh$' || exit 1
+            scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" "$RUNNER_TEMP/prepare-runtime-data.sh" "$VM_USER@$VM_HOST:$remote_prepare"
           fi
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
-            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_IGNORE_PROD_ACTIVITY='$INPUT_IGNORE_PROD_ACTIVITY' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' STAGING_GUARD='$remote_guard' STAGING_CLERK_ENV='$STAGING_CLERK_ENV' STAGING_UID='$STAGING_UID' STAGING_GID='$STAGING_GID' sh -s" \
+            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_IGNORE_PROD_ACTIVITY='$INPUT_IGNORE_PROD_ACTIVITY' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' STAGING_GUARD='$remote_guard' STAGING_RUNTIME_PREPARE='$remote_prepare' STAGING_CLERK_ENV='$STAGING_CLERK_ENV' STAGING_UID='$STAGING_UID' STAGING_GID='$STAGING_GID' sh -s" \
             < "$RUNNER_TEMP/staging-remote-deploy.sh" | tee "$RUNNER_TEMP/staging-deploy.log"
 
       - name: Report staging result

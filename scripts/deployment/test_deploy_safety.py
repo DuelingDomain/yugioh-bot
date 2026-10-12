@@ -205,8 +205,7 @@ fi
         installer = self.staging / "packages/duel-server/scripts/install-engine-bundle.sh"
         installer.parent.mkdir(parents=True)
         installer.write_text("#!/bin/sh\nexit 0\n")
-        prepare = self.staging / "scripts/deployment/prepare-runtime-data.sh"
-        prepare.parent.mkdir(parents=True)
+        prepare = self.root / "prepare-runtime-data.sh"
         prepare.write_text((ROOT / "scripts/deployment/prepare-runtime-data.sh").read_text())
 
     def command(self, name, body):
@@ -224,6 +223,7 @@ fi
                    STAGING_MEMINFO_FILE=str(self.meminfo), STAGING_BUNDLE=str(self.bundle),
                    STAGING_REF="main", STAGING_COMMIT="a" * 40, **extra)
         env.update(STAGING_GUARD=str(self.guard))
+        env.setdefault("STAGING_RUNTIME_PREPARE", str(self.root / "prepare-runtime-data.sh"))
         return subprocess.run(["sh", str(self.remote)], env=env, text=True, capture_output=True, timeout=10)
 
     def assert_skip_reported(self, result):
@@ -292,6 +292,15 @@ fi
         result = self.run_remote()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("compose build", self.command_log())
+
+    def test_ref_without_runtime_helper_uses_transferred_control(self):
+        transferred = self.root / "prepare-runtime-data.sh"
+        self.assertFalse((self.staging / "scripts/deployment/prepare-runtime-data.sh").exists())
+        result = self.run_remote(STAGING_RUNTIME_PREPARE=str(transferred))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("compose run", self.command_log())
+        self.assertIn("compose up -d", self.command_log())
+        self.assertFalse(transferred.exists())
 
     def test_ignore_prod_activity_builds_with_live_production_duel_and_no_guard(self):
         with sqlite3.connect(self.prod) as db:
