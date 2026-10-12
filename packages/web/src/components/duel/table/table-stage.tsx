@@ -4,17 +4,15 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { ArrowUp } from "lucide-react";
 import { flushSync } from "react-dom";
 import { engineFormat } from "../multi-seat";
-import type { GridFinaleBoard } from "./grid-finale";
 import type { UseGridFocus } from "./grid-focus";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { onCrumbleStart } from "./crumble-gate";
 import { watchMeasure } from "./measure-watch";
 import { BAR_HUD, promptUnit } from "./grid-stage";
 import { planPickBarRoom } from "./pick-bar-room";
 import { isChainStripPrompt } from "../prompt-center";
-import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
+import { boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -22,7 +20,7 @@ import { ExitingSeat, RivalField } from "./rival-field";
 import { TurnRing } from "./turn-ring";
 import { useFlyGestures } from "./use-fly-gestures";
 import { useFlyWorld } from "./use-fly-world";
-import { GLIDE_MS, useSeatExits } from "./use-seat-exits";
+import { useSeatExits } from "./use-seat-exits";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
 import { ROOF_ZOOM_MS } from "../tag/roof-camera";
 import { zoneKey } from "../constants";
@@ -43,7 +41,7 @@ export function tiltSupersample(k: number): number {
   return Math.min(4, Math.max(1.5, Math.round(k * 2 * 4) / 4));
 }
 
-/** How long after a change the targets are measured again: the regroup glide and the crumble are over by then. */
+/** How long after a change the targets are measured again: the crumble is over by then. */
 const SETTLE_MS = 1500;
 
 /** Your hand: it stays at its 1x place and size under the zoom of your own field (the view hook counters the zoom on it). */
@@ -121,7 +119,6 @@ export interface TableStageViewProps extends TableStageProps {
   /** Place of every seat that left, as text ("3rd"), for the chip on its panel while it fades. */
   placeLabels?: ReadonlyMap<number, string>;
   /** 4-way grid: the last two seats, laid out as one full board in the middle (the 1v1 composition), or null. */
-  gridFinale?: GridFinaleBoard | null;
   /** 4-way grid: draws the phase hub for a place ("band" = the shared EMZ band, "center" = middle of the table). */
   gridHub?: (place: "band" | "center") => ReactNode;
   /** 4-way grid: where the hub sits. */
@@ -174,18 +171,14 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     };
   }, []);
 
-  // The seats still in the duel. A 3-way table regroups when one leaves (face to face); a 4-way table keeps its places.
+  // The places never move when a seat leaves: the field that is out crumbles and its place stays empty.
   const outKey = out.join(",");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const outSet = useMemo(() => new Set(out), [outKey]);
-  const play = useMemo(() => aliveLayout(layout, outSet), [layout, outSet]);
-  // Your own field zoomed stays zoomed when a seat goes out: the table regroups face to face under the same camera zoom (the camera
-  // never zooms by itself). The seats are placed as at home, and the view is fitted again to the new field once they stand still.
-  const ownKept = play !== layout && isOwnFocus(layout, viewCamera) && play.slots.some((slot) => slot.seat === layout.anchorSeat);
-  const camera = useMemo(() => (ownKept ? { ...viewCamera, mode: "home" as const, focusSeat: null } : viewCamera), [ownKept, viewCamera]);
+  const camera = viewCamera;
 
   // The seat poses measure fields. Their hand rows extend below the 860px field canvas.
-  const portrait = useMemo(() => portraitTable(play, camera, box.screenWidth), [play, camera, box.screenWidth]);
+  const portrait = useMemo(() => portraitTable(layout, camera, box.screenWidth), [layout, camera, box.screenWidth]);
   const reserveChain = (layout.format === "ffa3" || layout.format === "ffa4") && (box.screenWidth > 640 || portrait != null);
   const chainSize = reserveChain ? measuredChainSize : null;
   const promptRef = useRef<HTMLDivElement>(null);
@@ -211,20 +204,18 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     return () => { observer.disconnect(); mutations.disconnect(); };
   }, [portrait, promptCenter]);
   const canvasHeight = portrait?.height ?? STAGE.height + 96;
-  const chainInset = useMemo(() => portrait && chainSize ? chainSize.height + 12 : chainStripInset({ layout: play, camera, box, chainSize, meFooter: masterChip != null }), [play, camera, box, chainSize, masterChip != null, portrait]);
+  const chainInset = useMemo(() => portrait && chainSize ? chainSize.height + 12 : chainStripInset({ layout: layout, camera, box, chainSize, meFooter: masterChip != null }), [layout, camera, box, chainSize, masterChip != null, portrait]);
   // The seat switcher and camera status belong to the phone chrome, outside the fitted table.
   const stageTop = chainInset + (portrait ? 44 : 0);
   const stageHeight = Math.max(0, box.height - stageTop - (portrait ? 40 + phonePromptHeight : 0));
   const fitBox = useMemo(() => ({ ...box, height: stageHeight * STAGE.height / canvasHeight }), [box, stageHeight, canvasHeight]);
   const k = portrait ? Math.min(box.width / portrait.width, stageHeight / portrait.height) : stageFit(fitBox);
-  // Only a table that regroups glides; a table that keeps its places has nothing to move.
-  const regroup = play !== layout;
-  const threeWay = slotPlan(play, { mode: "home" }) != null;
+  const threeWay = slotPlan(layout, { mode: "home" }) != null;
   const fly = camera.mode === "fly" && threeWay;
   // The city is heavy: it mounts the first time the fly-in shows and stays (the fade out needs it).
   const [cityOn, setCityOn] = useState(fly);
   if (fly && !cityOn) setCityOn(true);
-  const rawPoses = useMemo(() => portrait?.poses ?? seatPoses(play, camera, fitBox), [play, camera, fitBox, portrait]);
+  const rawPoses = useMemo(() => portrait?.poses ?? seatPoses(layout, camera, fitBox), [layout, camera, fitBox, portrait]);
   // Zoom and pan of the board under a flat camera (view-zoom.ts): the plaza, the fields and the ring zoom; the holo
   // panels, the hub and the prompts stay. The fly-in view keeps its own orbit and zoom. A new camera view resets it.
   const zoomFrame = useMemo(
@@ -232,7 +223,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     [box.width, k, stageTop, stageHeight, canvasHeight],
   );
   // Your own field enlarged (3-way) is a camera zoom of this board layer: the seats stay home, and your hand (HUD) stays at its size and place.
-  const ownZoom = !fly && !portrait && (ownKept || isOwnFocus(play, camera));
+  const ownZoom = !fly && !portrait && isOwnFocus(layout, camera);
   // The zoom out eases: your hand and the moved plates keep their place until the view is back at the camera pose.
   const [ownHold, setOwnHold] = useState(false);
   // The view the last fit aimed at: the rooms (panel, bar, chain) clear the field at THIS view, not at the live one, so a pan or a
@@ -269,7 +260,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   const hasChip = masterChip != null;
   const hint = useMemo(() => ({ width: CAMERA_HINT.width / (k || 1), height: CAMERA_HINT.height / (k || 1) }), [k]);
   const hudCorner = useMemo(() => (centerPrompts ? { width: HUD_CORNER.width / (k || 1), height: HUD_CORNER.height / (k || 1) } : undefined), [centerPrompts, k]);
-  const wideAnchors = useMemo(() => portrait?.anchors ?? wideHoloAnchors(play, camera, poses, spread, hasChip, k > 0 ? { hint, hud: hudCorner } : undefined), [play, camera, poses, spread, hasChip, k, hint, hudCorner, portrait]);
+  const wideAnchors = useMemo(() => portrait?.anchors ?? wideHoloAnchors(layout, camera, poses, spread, hasChip, k > 0 ? { hint, hud: hudCorner } : undefined), [layout, camera, poses, spread, hasChip, k, hint, hudCorner, portrait]);
   // Your own field zoomed: the rivals' plates sit above its top corners (they follow the board at their own size), so the field
   // can grow to the width the free box gives it. They stay there until the view is back at the camera pose, then glide home.
   const plateAnchors = useMemo(() => {
@@ -277,20 +268,20 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     const mine = poses.get(layout.anchorSeat);
     if (!mine) return wideAnchors;
     const b = boardBounds(mine);
-    const next = new Map(wideAnchors ?? play.slots.map((slot) => [slot.seat, holoAnchor(play, slot.seat, camera)] as const));
-    play.slots.forEach((slot, place) => {
+    const next = new Map(wideAnchors ?? layout.slots.map((slot) => [slot.seat, holoAnchor(layout, slot.seat, camera)] as const));
+    layout.slots.forEach((slot, place) => {
       if (slot.seat === layout.anchorSeat) return;
       const old = next.get(slot.seat);
       next.set(slot.seat, { ...(old ?? { me: false, beam: "none" as const }), x: place === 1 ? b.l : b.r - RIVAL_PLATE.width, y: b.t - RIVAL_PLATE.height - 14, me: false, beam: "none" });
     });
     return next;
-  }, [ownZoom, ownHold, portrait, wideAnchors, poses, play, layout.anchorSeat, camera]);
+  }, [ownZoom, ownHold, portrait, wideAnchors, poses, layout, layout.anchorSeat, camera]);
   // The phase hub strip: the classic place, or at a wide table (home and look) the clear place nearest the ring or your field.
   // The place only depends on the camera's mode and target, so a fly-in drag (which changes only `camera.fly`) does not rescan.
   const hubAt = useMemo(
-    () => (hub && threeWay && !portrait ? hubPose(play, camera, { box: fitBox, meFooter: hasChip, ...(centerPrompts ? { hud: HUD_CORNER } : {}) }) : null),
+    () => (hub && threeWay && !portrait ? hubPose(layout, camera, { box: fitBox, meFooter: hasChip, ...(centerPrompts ? { hud: HUD_CORNER } : {}) }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hub != null, threeWay, play, camera.mode, camera.focusSeat, camera.lookSeat, fitBox, hasChip, portrait, centerPrompts],
+    [hub != null, threeWay, layout, camera.mode, camera.focusSeat, camera.lookSeat, fitBox, hasChip, portrait, centerPrompts],
   );
   // What a zoom of your own field keeps on screen (board-box px at the camera pose): the field, and the plates and the phase strip
   // that follow it at their own size (followShift).
@@ -302,15 +293,15 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     const toBox = (x: number, y: number, width: number, height: number) => ({ x: f.x + x * f.k, y: f.y + y * f.k, width: width * f.k, height: height * f.k });
     const bounds = boardBounds(field);
     const out: FitItem[] = [{ rect: toBox(bounds.l, bounds.t, bounds.r - bounds.l, bounds.b - bounds.t) }];
-    for (const slot of play.slots) {
-      const at = plateAnchors?.get(slot.seat) ?? holoAnchor(play, slot.seat, camera);
+    for (const slot of layout.slots) {
+      const at = plateAnchors?.get(slot.seat) ?? holoAnchor(layout, slot.seat, camera);
       const width = at.me ? 212 : RIVAL_PLATE.width;
       const height = at.me ? 128 : RIVAL_PLATE.height;
       out.push({ rect: toBox(at.x, at.y, width, height), anchor: { x: f.x + (at.x + width / 2) * f.k, y: f.y + (at.y + 34) * f.k } });
     }
     if (hubAt) out.push({ rect: toBox(hubAt.x - hubAt.width / 2, hubAt.y - hubAt.height / 2, hubAt.width, hubAt.height), anchor: { x: f.x + hubAt.x * f.k, y: f.y + hubAt.y * f.k } });
     return out;
-  }, [ownZoom, ownHold, poses, layout.anchorSeat, portrait, zoomFrame, play, plateAnchors, camera, hubAt]);
+  }, [ownZoom, ownHold, poses, layout.anchorSeat, portrait, zoomFrame, layout, plateAnchors, camera, hubAt]);
   // The fixed HUD over the board (the corners, the Deck Master plate, the camera chip, the plates) and the card pinned in the peek: no prompt room
   // stands on them. Measured with the targets below.
   const [hudRects, setHudRects] = useState<readonly Rect[]>([]);
@@ -326,8 +317,8 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     if (chainInset && chainSize) return chainBandRooms(chainSize, box);
     // A zoomed board keeps the rooms of the camera pose: the panel and the pick bar stay where they are at rest, clear
     // of every card there, and the pan can take any card out from under them (the safe frame of useViewZoom).
-    const anchors = new Map(play.slots.map((slot) => [slot.seat, plateAnchors?.get(slot.seat) ?? holoAnchor(play, slot.seat, camera)] as const));
-    const found = promptRooms({ layout: play, camera, poses, anchors, spread, meFooter: hasChip, box, k, chainSize });
+    const anchors = new Map(layout.slots.map((slot) => [slot.seat, plateAnchors?.get(slot.seat) ?? holoAnchor(layout, slot.seat, camera)] as const));
+    const found = promptRooms({ layout: layout, camera, poses, anchors, spread, meFooter: hasChip, box, k, chainSize });
     const dx = (box.width - STAGE.width * k) / 2;
     const dy = stageTop + (stageHeight - canvasHeight * k) / 2;
     const toBox = (room: PromptRoom | null) => room && { x: Math.round(dx + room.x * k), y: Math.round(dy + room.y * k), width: Math.round(room.width * k), height: Math.round(room.height * k) };
@@ -358,14 +349,14 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     const mapped = settle(obstacles, hud);
     const move = (room: Rect | null) => (room ? clearRoom(room, obstacles, box) : room);
     return { panel: mapped.panel, bar: move(mapped.bar), chain: move(mapped.chain) };
-  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, plateAnchors, chainSize, chainInset, stageHeight, stageTop, portrait, ownZoom, ownHold, fitItems, fitted, hudRects, pinnedRect, handRect, targets]);
+  }, [layout, camera, poses, spread, hasChip, k, fly, box, canvasHeight, plateAnchors, chainSize, chainInset, stageHeight, stageTop, portrait, ownZoom, ownHold, fitItems, fitted, hudRects, pinnedRect, handRect, targets]);
 
   // The floating HUD: the prompts sit in the middle of the near field (the first seat of the table: you, or the anchor), in
   // box px; --pr-* carry that box to the prompt CSS. The pick bar finds a clear place on that field (never over a target);
   // when the field is full of targets, the free room off every board takes it.
   // While the board is zoomed the prompts keep their dock (the HUD stays put), and the pick bar docks off the HUD.
   const floating = centerPrompts && !fly && !portrait && k > 0;
-  const near = floating && !zoom.zoomed ? poses.get(play.slots[0]?.seat ?? -1) : undefined;
+  const near = floating && !zoom.zoomed ? poses.get(layout.slots[0]?.seat ?? -1) : undefined;
   const nearBox = useMemo(() => {
     if (!near) return null;
     const b = boardBounds(near);
@@ -379,7 +370,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
         ["--pr-cy" as string]: `${Math.round(nearBox.y + nearBox.height / 2)}px`,
         ["--pr-w" as string]: `${nearBox.width}px`,
         ["--pr-h" as string]: `${nearBox.height}px`,
-        ["--pr-unit" as string]: `${promptUnit(nearBox.height, false)}px`,
+        ["--pr-unit" as string]: `${promptUnit(nearBox.height)}px`,
       } as CSSProperties)
     : undefined;
   const [cards, setCards] = useState<readonly Rect[]>([]);
@@ -413,21 +404,9 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       })();
       setHandRect((current) => (current && union && sameRects([current], [union]) ? current : union));
     };
-    // Once the seats stand still (a regroup, the FINAL DUEL board, glides them to new places); watched while a pick is open.
-    const stop = watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : regroup ? GLIDE_MS : SETTLE_MS, watch: legalKey !== "" });
-    if (!regroup || reducedMotion) return stop;
-    // A crumble that waited for the battle (crumble-gate.ts) starts late and the regroup glide with it: measure again when it ends.
-    let again: number | undefined;
-    const off = onCrumbleStart(() => {
-      window.clearTimeout(again);
-      again = window.setTimeout(measure, GLIDE_MS);
-    });
-    return () => {
-      stop();
-      off();
-      window.clearTimeout(again);
-    };
-  }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed, ownZoom, handMoves]);
+    // Once the seats stand still; watched while a pick is open.
+    return watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : SETTLE_MS, watch: legalKey !== "" });
+  }, [floating, nearBox, legalKey, reducedMotion, zoom.zoomed, ownZoom, handMoves]);
   // The card-pick bar: the clear place nearest the middle of the box, always inside it, off the legal targets, your live hand (and a card
   // raised from it) and the HUD, and off the cards on the board while a clear place exists (see pick-bar-room.ts). The same plan holds at
   // home, in rival focus and in your own zoom: the camera never moves for it.
@@ -456,7 +435,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     hand: `${OWN_HAND} [data-hand-card]`,
     sourceKeys,
     extraHud: pinnedRect,
-    viewKey: `${zoom.zoomed ? 1 : 0}|${ownZoom ? 1 : 0}|${handMoves}|${regroup ? 1 : 0}|${Math.round(zoom.view.s * 100)}|${Math.round(zoom.view.x)},${Math.round(zoom.view.y)}`,
+    viewKey: `${zoom.zoomed ? 1 : 0}|${ownZoom ? 1 : 0}|${handMoves}|${Math.round(zoom.view.s * 100)}|${Math.round(zoom.view.x)},${Math.round(zoom.view.y)}`,
   });
   const stripKey = stripRoom ? `${stripRoom.x},${stripRoom.y},${stripRoom.width},${stripRoom.height}` : "";
 
@@ -468,24 +447,17 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     return () => window.cancelAnimationFrame(frame);
   }, [hudKey, refit]);
 
-  const world = useMemo(() => flyWorld(play, camera.fly), [play, camera.fly]);
+  const world = useMemo(() => flyWorld(layout, camera.fly), [layout, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
   const looking = camera.mode === "look";
-  // A seat that leaves crumbles at the pose it had; the seats that stay glide to their new places.
-  const { exits, gliding, finish } = useSeatExits({
+  // A seat that leaves crumbles at the pose it had; the seats that stay keep their places.
+  const { exits, finish } = useSeatExits({
     out,
     seats: engine.seats,
     poses,
     faceUpHand: (seat) => layout.slots.find((slot) => slot.seat === seat)?.relation === "self" && !looking,
     enabled: layout.format !== "tag",
-    regroups: regroup,
     resetKey: `${room.session.slug}:${room.series?.gameNumber ?? 0}`,
-  });
-  // The docked anchors the panels had before the seats regrouped: the panel of a seat that leaves fades there.
-  const heldAnchors = useRef(new Map<number, HoloAnchor>());
-  const shownAnchors = new Map<number, HoloAnchor>();
-  useLayoutEffect(() => {
-    if (!(gliding && regroup)) heldAnchors.current = shownAnchors;
   });
   useFlyWorld({
     active: fly,
@@ -504,7 +476,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   const format = engineFormat(engine);
   const masterRule = room.session.masterRule;
   const picks = controller.seatPick;
-  const pickOrder = picks ? play.slots.map((slot) => slot.seat).filter((seat) => picks.options.has(seat)) : [];
+  const pickOrder = picks ? layout.slots.map((slot) => slot.seat).filter((seat) => picks.options.has(seat)) : [];
   const promptSeat = controller.prompt?.seat ?? null;
   const flyYaw = fly ? world.yawDeg : 0;
 
@@ -523,7 +495,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   };
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
-  const ringAt = ringPose(play, camera, spread);
+  const ringAt = ringPose(layout, camera, spread);
   // Your own field enlarged: the camera eases (360 ms, as the Tag camera) to the zoom that fits the field, and the plates and the
   // phase strip that follow it, into the free box between the HUD parts. Leaving it eases back. A resize while it stays refits at once.
   const ownFit = useRef(false);
@@ -567,20 +539,12 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   // The chain strip moves the stage frame (its top, its scale): the field that was fitted moves with it, so the fit is made again (eased).
   // The pinned peek counts by its side and its rect in steps of 16 px: the slide and a settled peek are one refit, and a peek that is a few px off never refits.
   const peekKey = pinnedRect ? `${pinnedRect.x + pinnedRect.width / 2 < box.width / 2 ? "l" : "r"}${[pinnedRect.x, pinnedRect.y, pinnedRect.width, pinnedRect.height].map((v) => Math.round(v / 16)).join(",")}` : "0";
-  // The seats of a table that regroups glide to their new places: a fit made before they stand still would aim at a field that is still moving.
-  const regrouping = gliding && regroup;
-  const softKey = `${peekKey}|${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}|${Math.round(chainInset)}|${regrouping ? "g" : "s"}`;
+  const softKey = `${peekKey}|${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}|${Math.round(chainInset)}`;
   const lastFitKey = useRef("");
-  // A seat went out while the field was zoomed: the first fit after the glide is the refit to the new field.
-  const afterRegroup = useRef(false);
   const { zoomFit, zoomTo, byHand, refit: clampToBox } = zoom;
   useLayoutEffect(() => {
     const root = rootRef.current;
     const was = ownFit.current;
-    if (ownZoom && was && regrouping) {
-      afterRegroup.current = true;
-      return;
-    }
     ownFit.current = ownZoom;
     const hard = !was || lastFitKey.current !== fitKey;
     lastFitKey.current = fitKey;
@@ -592,12 +556,8 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     if (fitItems.length === 0) return;
     // A pinned peek, the chip, the hub or the chain strip moved: the player's own pan or zoom stays.
     if (!hard && byHand()) {
-      // The player's own zoom level stays after an elimination; the view is only kept clear of the new field's edge.
-      if (afterRegroup.current) clampToBox();
-      afterRegroup.current = false;
       return;
     }
-    afterRegroup.current = false;
     const items = fitItems;
     // Your hand stays where it is: the free box ends above it.
     const box = root.getBoundingClientRect();
@@ -696,7 +656,6 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-table-stage={layout.format}
       data-format={format}
       data-camera-mode={viewCamera.mode}
-      data-regroup={gliding && regroup ? "true" : undefined}
       data-camera-want={wantMode ?? viewCamera.mode}
       data-camera-lock={locked ? "true" : undefined}
       data-fly={fly ? "true" : "false"}
@@ -727,20 +686,19 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
             {threeWay && cityOn ? <FlyCity /> : null}
             <div className={styles.wstage}>
               <Plaza
-                layout={play}
+                layout={layout}
                 poses={poses}
                 fly={fly}
                 hidden={outSet}
                 exits={exits.map((exit) => ({ seat: exit.seat, tone: tones.get(exit.seat) ?? "violet", pose: exit.pose }))}
-                glide={gliding && regroup}
                 reducedMotion={reducedMotion}
               />
               {ring && !portrait && threeWay ? (
                 <TurnRing
-                  layout={play}
+                  layout={layout}
                   numbering={layout}
                   engine={engine}
-                  angles={ringAngles(play, camera)}
+                  angles={ringAngles(layout, camera)}
                   pose={ringAt}
                   promptSeat={promptSeat}
                   locked={locked}
@@ -759,10 +717,10 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
                   onDone={() => finish(exit.seat)}
                 />
               ))}
-              {play.slots.map((slot) => {
+              {layout.slots.map((slot) => {
                 const pose = poses.get(slot.seat);
                 if (!pose || outSet.has(slot.seat)) return null;
-                const place = play.slots.indexOf(slot);
+                const place = layout.slots.indexOf(slot);
                 const self = slot.relation === "self";
                 const you = pose.slot ? pose.slot === "home" : place === 0;
                 const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
@@ -790,29 +748,22 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
                 const reach = plaza3 && !fly && !locked && !out.includes(slot.seat)
                   ? { label: `${nameOf(slot.seat)}${forkLabels ? (slot.relation === "self" ? " (acting)" : "") : slot.seat === layout.anchorSeat && !replay ? " (you)" : ""}'s field`, onToggle: () => dispatchCamera({ type: "enlarge", seat: slot.seat }) }
                   : undefined;
-                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} enlarged={enlarged} reach={reach} targeted={targetSeat === slot.seat} />;
+                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} enlarged={enlarged} reach={reach} targeted={targetSeat === slot.seat} />;
               })}
             </div>
           </div>
         </div>
         <svg ref={tetherRef} className={styles.tethers} viewBox="0 0 1100 860" aria-hidden="true" />
         {[
-          // A seat that left keeps its panel where its place stays (a 4-way table); where the seats regroup (a 3-way
-          // table, face to face) the panel of the seat that left fades away and is gone.
-          ...play.slots.map((slot) => ({ slot, place: play.slots.indexOf(slot), exit: false, from: play })),
-          ...exits.flatMap((exit) => {
-            const slot = layout.slots.find((entry) => entry.seat === exit.seat);
-            return slot && !play.slots.includes(slot) ? [{ slot, place: layout.slots.indexOf(slot), exit: true, from: layout }] : [];
-          }),
-        ].map(({ slot, place, exit, from }) => {
+          // A seat that left keeps its panel where its place stays.
+          ...layout.slots.map((slot) => ({ slot, place: layout.slots.indexOf(slot) })),
+        ].map(({ slot, place }) => {
           const view = engine.seats.find((entry) => entry.seat === slot.seat);
           if (!view) return null;
           // In the fly-in view a panel follows its board; a seat that left has none, so its panel waits for the flat view.
-          if (fly && !exit && outSet.has(slot.seat)) return null;
-          // The panel of a seat that is leaving fades where it was docked: it keeps the anchor it had before the seats regrouped.
-          const anchor = exit ? heldAnchors.current.get(slot.seat) ?? holoAnchor(from, slot.seat, camera) : (!fly && plateAnchors?.get(slot.seat)) || holoAnchor(from, slot.seat, camera);
-          if (!exit) shownAnchors.set(slot.seat, anchor);
-          const pickable = !exit && picks?.options.has(slot.seat) === true;
+          if (fly && outSet.has(slot.seat)) return null;
+          const anchor = (!fly && plateAnchors?.get(slot.seat)) || holoAnchor(layout, slot.seat, camera);
+          const pickable = picks?.options.has(slot.seat) === true;
           const index = pickOrder.indexOf(slot.seat);
           return (
             <HoloLp
@@ -839,10 +790,8 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               hotkey={pickable && index >= 0 ? index + 1 : null}
               onPick={() => picks?.onPick(slot.seat)}
               onHover={(hover) => controller.onAim?.(hover ? { lpSeat: slot.seat } : null)}
-              exiting={exit}
               placeLabel={placeLabels?.get(slot.seat) ?? null}
-              glide={gliding && regroup && !exit}
-              footer={!exit && anchor.me ? masterChip : null}
+              footer={anchor.me ? masterChip : null}
               footerTight={anchor.footerTight}
               reducedMotion={reducedMotion}
               follow

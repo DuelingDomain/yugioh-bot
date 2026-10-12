@@ -48,15 +48,14 @@ import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import type { ChainModeControl } from "../use-chain-mode";
 import roomStyles from "../room.module.css";
 import { CameraControls } from "./camera-controls";
-import { isFaceOff } from "./camera-model";
 import { controllerLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
-import { CAPTION_TEXT, useGridFinale } from "./grid-finale";
+import { CAPTION_TEXT, useFinalDuelCaption } from "./final-duel-caption";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { hudPreview } from "./hud-preview";
 import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./hud-shared";
-import { gridCells, usesGridLayout } from "./grid-layout";
+import { usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
 import { MasterChip } from "./master-chip";
 import { OpponentBar } from "./opponent-bar";
@@ -236,12 +235,12 @@ function TableShellBody({
   }, [given, pick.noteAnswer, pickContinuation]);
   const tracked = useMemo(() => ({ ...given, onAnswer }), [given, onAnswer]);
   const narrow = useIsNarrow();
-  // A 4-way free-for-all draws the 2 by 2 grid (grid-layout.ts decides); every other table keeps the plaza stage.
-  // A core that shares the Extra Monster Zones another way than the grid draws them keeps the plaza stage for the whole
-  // duel, also once its last two seats share nothing (see useLatch).
+  // A 3-way or 4-way free-for-all draws the grid of facing pairs (grid-layout.ts decides); every other table keeps the
+  // plaza stage. A core that shares the Extra Monster Zones another way than the grid draws them (the facing pairs are
+  // fixed for the whole duel) keeps the plaza stage for the whole duel (see useLatch).
   const trackedFormat = engineFormat(tracked.engine) as TableFormat;
   const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats);
-  const gridRefused = useLatch(trackedFormat === "ffa4" && !gridFits);
+  const gridRefused = useLatch((trackedFormat === "ffa4" || trackedFormat === "ffa3") && !gridFits);
   const grid = gridFits && !gridRefused;
   // The 3-way plaza on a wide screen keeps its stage and gets the same floating HUD (Log, Settings and Camera).
   const plazaHud = !narrow && !grid && trackedFormat === "ffa3";
@@ -301,8 +300,7 @@ function TableShellBody({
   useEffect(() => {
     if (replayCarry) replayCarry.current.sidePane = ui.pane;
   }, [replayCarry, ui.pane]);
-  // The 4-way grid starts on the full table (all four fields). The turn strip and the keys (1 to 4, O, Esc) move the focus.
-  const gridSeats = useMemo(() => gridCells(layout), [layout]);
+  // The grid starts on the full table (all fields). The turn strip and the keys (1 to 4, O, Esc) move the focus.
   const gridShown = useMemo(() => engine.seats.filter((view) => !view.eliminated).map((view) => view.seat), [engine.seats]);
   const gates = gridKeyGates({ prompt: controller.prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudOpen });
   const gridFocus = useGridFocus({
@@ -312,9 +310,8 @@ function TableShellBody({
     digitsFree: gates.digitsFree,
     escapeFree: gates.escapeFree,
   });
-  // The last two seats of a 4-way glide into one full board in the middle (the 1v1 composition) and say FINAL DUEL. The 3-way
-  // plaza uses the same caption and timing: its seats regroup face to face (geometry.ts duoFinaleSlots).
-  const finale = useGridFinale({ seats: engine.seats, cells: gridSeats, reducedMotion: controller.reducedMotion });
+  // The last two seats of a 3-way or 4-way table are named in a caption (FINAL DUEL). No field moves: the place of a seat that is out stays empty.
+  const caption = useFinalDuelCaption({ seats: engine.seats, viewerSeat, reducedMotion: controller.reducedMotion });
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
   // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
@@ -507,7 +504,7 @@ function TableShellBody({
   // the last two are: there the out notes are hidden from the eye and not live, and the caption is only drawn.
   const freshOut = grid ? out.filter((entry) => (replay != null || entry.seat !== viewerSeat) && !outAtOpen.has(entry.seat)) : [];
   const newestOut = freshOut.reduce<(typeof out)[number] | null>((best, entry) => (best == null || entry.place < best.place ? entry : best), null);
-  const finaleNote = (grid || plazaHud) && finale.caption ? `Final duel: ${finale.caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
+  const finaleNote = (grid || plazaHud) && caption ? `Final duel: ${caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
   const liveText = [
     viewerEliminated ? (forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)} is eliminated.` : "You are eliminated. You keep watching.") : "",
     newestOut ? `${nameOf(newestOut.seat)} is out, ${placeLabel(newestOut.place)}.` : "",
@@ -581,7 +578,7 @@ function TableShellBody({
   const seatStripNode = (
     <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
       focusSeat={grid ? gridFocus.focus.seat : camera.state.focusSeat} focusAny={grid}
-      onFocusSeat={grid ? gridFocus.focusSeat : isFaceOff(layout, camera.out) ? undefined : (seat) => camera.dispatch({ type: "focus", seat })}
+      onFocusSeat={grid ? gridFocus.focusSeat : (seat) => camera.dispatch({ type: "focus", seat })}
       pick={canAct && controller.revealed ? controller.seatPick : null} compact={!narrow} replay={replay != null} />
   );
 
@@ -640,13 +637,13 @@ function TableShellBody({
         <header className={hudStyles.top} data-testid="hud-top">
           <div className={hudStyles.topLeft}>{identityNode}</div>
           {replay ? null : hudClockBank(room.clock, session, controller.reducedMotion)}
-          <div className={hudStyles.topMid} data-caption={finale.caption ? "true" : undefined}>
+          <div className={hudStyles.topMid} data-caption={caption ? "true" : undefined}>
             {seatStripNode}
-            {finale.caption ? (
-              <div key={finale.caption.id} className={hudStyles.caption} aria-hidden="true" data-testid="grid-caption" data-kind={finale.caption.kind}>
+            {caption ? (
+              <div key={caption.id} className={hudStyles.caption} aria-hidden="true" data-testid="grid-caption">
                 <span className={hudStyles.captionKey}>{CAPTION_TEXT}</span>
                 <span className={hudStyles.captionNames}>
-                  {finale.caption.seats.map((seat, index) => (
+                  {caption.seats.map((seat, index) => (
                     <span key={seat} className={hudStyles.captionName}>
                       {index > 0 ? <em>vs</em> : null}
                       <i style={{ background: toneOf(seat).main, boxShadow: `0 0 8px ${toneOf(seat).main}` }} />
@@ -739,7 +736,6 @@ function TableShellBody({
                 placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
                 grid={grid ? gridFocus : undefined}
-                gridFinale={grid ? finale.board : undefined}
                 hubPlace={hubPlace}
                 replay={replay != null}
                 gridHub={grid && hubOn ? (place) => (

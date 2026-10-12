@@ -77,17 +77,13 @@ describe("grid prompt placement", () => {
   });
 });
 
-// The modal prompts take a unit from the pair height, so they stay small on a small screen and on the finale board.
+// The modal prompts take a unit from the pair height, so they stay small on a small screen.
 describe("promptUnit", () => {
   it("follows the pair height between the floor and the cap", () => {
-    expect(promptUnit(746, false)).toBe(1.1); // 1920x1080 pair
-    expect(promptUnit(520, false)).toBe(0.76); // 1280x800 pair
-    expect(promptUnit(300, false)).toBe(0.72);
-    expect(promptUnit(2000, false)).toBe(1.15);
-  });
-
-  it("is smaller on the finale board than on a pair of the same height", () => {
-    expect(promptUnit(746, true)).toBeLessThan(promptUnit(746, false));
+    expect(promptUnit(746)).toBe(1.1); // 1920x1080 pair
+    expect(promptUnit(520)).toBe(0.76); // 1280x800 pair
+    expect(promptUnit(300)).toBe(0.72);
+    expect(promptUnit(2000)).toBe(1.15);
   });
 
   it("is set on the slot, and the dense rules keep rows and buttons 32px or more and text 12px or more", () => {

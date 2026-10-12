@@ -32,7 +32,7 @@ export function crumbleMayStart(source: BoardSource = typeof document === "undef
   return promptRevealHoldMs() <= 0 && lpMotionRemainingMs() <= 0 && movesSettleAt(stamp) <= stamp;
 }
 
-/* ---------- the regroup waits for the crumble ---------- */
+/* ---------- the caption and the out clock wait for the crumble ---------- */
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -52,10 +52,10 @@ const notify = () => {
 export type CrumbleWait = (() => void) & { drop(): void };
 
 /**
- * A crumble starts to wait. Calling the returned function says the crumble starts: whatever waited for it (the regroup
- * glide of the seats that stay, the finale board, the out clock of the cell) hears it when no other crumble waits any more.
+ * A crumble starts to wait. Calling the returned function says the crumble starts: whatever waited for it (the FINAL DUEL
+ * caption, the out clock of the cell) hears it when no other crumble waits any more.
  * `drop` is for a seat that goes while it waits (an unmount, or the cleanup of a StrictMode double effect): it tells the
- * listeners in a microtask, and only if no crumble waits by then, so a remount does not release the finale early.
+ * listeners in a microtask, and only if no crumble waits by then, so a remount does not release the caption early.
  * Each does its work once.
  */
 export function beginCrumbleWait(): CrumbleWait {
@@ -86,49 +86,5 @@ export function onCrumbleStart(listener: Listener): () => void {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
-  };
-}
-
-type Pausable = AnimationLike & { pause(): void; play(): void; currentTime?: number | string | null };
-type AnimationRoot = { getAnimations(options?: { subtree?: boolean }): AnimationLike[] };
-
-const isCssTransition = (animation: unknown): boolean => (animation as { constructor?: { name?: string } }).constructor?.name === "CSSTransition";
-
-/** What glides after the crumble and its beat (rival-field, holo-lp, plaza, table-stage CSS): the seats, their panels, the strip and the turn ring. */
-export const REGROUP_TARGETS = '[data-glide="true"], [data-glide="true"] *, [data-regroup="true"] [data-hub-slot], [data-regroup="true"] [data-turn-ring]';
-
-const regroupTarget = (animation: AnimationLike): boolean => {
-  const target = (animation.effect as { target?: { matches?: (selector: string) => boolean } | null } | null | undefined)?.target;
-  return target?.matches?.(REGROUP_TARGETS) === true;
-};
-
-/**
- * The seats that stay glide to their new places with a CSS transition whose delay is the crumble and the beat after it
- * (rival-field.module.css). That delay counts from the moment the seat left, so a crumble that waits for the battle would
- * run into the glide. While the crumble waits, the transitions of the regroup (`REGROUP_TARGETS`, inside `root`, the table
- * stage) that are still in their delay are paused; other transitions (the red LP colour, the HUD, the chain slot) are not
- * touched. `resume` lets them go on, so the glide starts a crumble and a beat after the crumble starts, as without the wait.
- */
-export function pauseRegroup(root: AnimationRoot | null | undefined): () => void {
-  if (!root || typeof root.getAnimations !== "function") return () => undefined;
-  const held: Pausable[] = [];
-  for (const animation of root.getAnimations({ subtree: true }) as Pausable[]) {
-    if (!isCssTransition(animation) || animation.playState === "finished" || animation.playState === "idle" || !regroupTarget(animation)) continue;
-    const timing = (animation.effect as { getTiming?: () => { delay?: number } } | null | undefined)?.getTiming?.();
-    const delay = timing?.delay ?? 0;
-    const at = typeof animation.currentTime === "number" ? animation.currentTime : 0;
-    if (delay > 0 && at < delay) {
-      animation.pause();
-      held.push(animation);
-    }
-  }
-  return () => {
-    for (const animation of held) {
-      try {
-        if (animation.playState === "paused") animation.play();
-      } catch {
-        // The transition was cancelled while it waited.
-      }
-    }
   };
 }

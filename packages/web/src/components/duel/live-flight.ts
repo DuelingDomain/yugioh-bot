@@ -19,7 +19,7 @@ export function retargetFlight({ event, el, overlay, cx, cy, duration, fallback,
   let changedAt = start;
   let from: Pose = { dx: 0, dy: 0, rotation: 0 };
   let goal: Pose = { dx: 0, dy: 0, rotation: 0 };
-  // The seat turn is a DOM probe: read it again only when the zone moves (a table regrouping), not on every frame.
+  // The seat turn is a DOM probe: read it again only when the zone moves (a field moving), not on every frame.
   let seatAt = "";
   let seatTurn = 0;
   const seatTurnOf = (destination: HTMLElement, rect: Rect) => {
