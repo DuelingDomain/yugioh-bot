@@ -13,6 +13,7 @@ type Batch = { seat: number; deckMasterCode?: number; events: DuelEvent[] };
 const dmNormal = batches.dmNormalSummon as unknown as Batch;
 const dmTribute = batches.dmTributeSummon as unknown as Batch;
 const handNormal = batches.handNormalSummon as unknown as Batch;
+const sageChain = batches.sageChainBatch as unknown as Batch;
 
 const seatView = (seat: number, code?: number, inZone = false): DuelSeatView =>
   ({ seat, deckMaster: code ? { card: { code, name: "Master" }, inZone, returns: 0, nextCost: 0 } : undefined }) as unknown as DuelSeatView;
@@ -42,6 +43,16 @@ describe("withMasterSummonMoves", () => {
     expect(out.filter((event) => event.kind !== "move")).toEqual(dmNormal.events);
     // Same input, same output.
     expect(withMasterSummonMoves(dmNormal.events, was, seats)).toBe(out);
+  });
+
+  it("covers a summon whose trigger chain is in the same batch, at a 1v1, Tag or 3 and 4 seat table", () => {
+    for (const others of [[seatView(1, 48305365, true)], [seatView(1, 48305365, true), seatView(2, 48305365, true), seatView(3, 48305365, true)]]) {
+      const out = withMasterSummonMoves(sageChain.events, ...pair(update(0, sageChain.deckMasterCode!, others)));
+      const summon = sageChain.events.find((event) => event.kind === "summon")!;
+      const flight = out.find((event) => event.kind === "move");
+      expect(flight).toMatchObject({ seat: 0, zone: summon.zone, from: { controller: 0, location: LOCATION_DMZONE, sequence: 0 }, reason: "summon" });
+      expect(out.filter((event) => event.kind !== "move")).toEqual(sageChain.events);
+    }
   });
 
   it("covers a Tribute Summon of the master (the Tribute keeps its own move)", () => {
