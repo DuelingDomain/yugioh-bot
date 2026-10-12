@@ -146,6 +146,47 @@ describe("SavedDeckLibrary", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("keeps focus inside the by-hand copy box, selects the code, and gives focus back on close", async () => {
+    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [savedWithMaster] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "Domain one" });
+    const copy = screen.getByRole("button", { name: "Copy Domain one as YDKE" });
+    copy.focus();
+    fireEvent.click(copy);
+
+    const dialog = await screen.findByRole("dialog");
+    const box = within(dialog).getByRole("textbox", { name: "YDKE code" }) as HTMLTextAreaElement;
+    expect(box).toHaveFocus();
+    expect(box.selectionStart).toBe(0);
+    expect(box.selectionEnd).toBe(box.value.length);
+
+    // Tab from the last control wraps to the first, and Shift+Tab from the first wraps to the last.
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    close.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(box).toHaveFocus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(close).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(copy).toHaveFocus();
+  });
+
+  it("closes the by-hand copy box with a click on the backdrop", async () => {
+    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [savedWithMaster] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "Domain one" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy Domain one as YDKE" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(dialog);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.click(dialog.parentElement!);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("with no decks: one primary, Import YDK files opens the import panel, bar buttons are secondary", async () => {
     stubApi();
     const { container } = render(<SavedDeckLibrary />);

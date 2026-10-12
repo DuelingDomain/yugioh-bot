@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 import { encodeYdke } from "@yugidraft/shared/decks";
 import type { DuelDeck } from "@yugidraft/shared/duels";
 import { SheetPortal, SvButton } from "@/components/sheet";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { DURATION, usePresence } from "@/lib/motion";
 import styles from "./copy-ydke.module.css";
 
@@ -37,16 +38,32 @@ const MASTER_NOTE = "The Deck Master is not part of YDKE.";
 type Manual = { code: string; reason: "unavailable" | "failed"; master: boolean };
 
 function ManualCopy({ manual, onClose }: { manual: Manual; onClose: () => void }) {
+  // The portal mounts its children one render late, so the box lives in its own component: its effects run
+  // when the text box really exists.
+  return (
+    <SheetPortal>
+      <ManualDialog manual={manual} onClose={onClose} />
+    </SheetPortal>
+  );
+}
+
+function ManualDialog({ manual, onClose }: { manual: Manual; onClose: () => void }) {
   const titleId = useId();
   const field = useRef<HTMLTextAreaElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  // The code is selected when the box opens. Tab stays inside, and Escape closes from anywhere.
+  useFocusTrap(panel, true);
   useEffect(() => {
     field.current?.focus();
     field.current?.select();
-  }, []);
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
-    <SheetPortal>
-      <div className={styles.backdrop} onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}>
-        <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+    <>
+      <div className={styles.backdrop} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+        <div ref={panel} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby={titleId}>
           <h2 id={titleId} className={styles.dialogTitle}>Copy the YDKE code</h2>
           <p className={styles.dialogText}>
             {manual.reason === "unavailable"
@@ -69,7 +86,7 @@ function ManualCopy({ manual, onClose }: { manual: Manual; onClose: () => void }
           </div>
         </div>
       </div>
-    </SheetPortal>
+    </>
   );
 }
 
@@ -83,9 +100,19 @@ export function useCopyYdke(): { copyYdke: (deck: DuelDeck) => Promise<boolean>;
   const [manual, setManual] = useState<Manual | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const counter = useRef(0);
+  /** What had focus when the copy started, so the box can hand focus back when it closes. */
+  const opener = useRef<HTMLElement | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
+  const closeManual = useCallback(() => {
+    setManual(null);
+    const back = opener.current;
+    opener.current = null;
+    if (back?.isConnected) back.focus();
+  }, []);
+
   const copyYdke = useCallback(async (deck: DuelDeck) => {
+    opener.current = typeof document === "undefined" ? null : (document.activeElement as HTMLElement | null);
     const code = deckYdke(deck);
     const master = deck.deckMaster != null;
     let reason: Manual["reason"] | null = null;
@@ -114,7 +141,7 @@ export function useCopyYdke(): { copyYdke: (deck: DuelDeck) => Promise<boolean>;
     toast: (
       <>
         <CopyToast notice={notice} />
-        {manual ? <ManualCopy manual={manual} onClose={() => setManual(null)} /> : null}
+        {manual ? <ManualCopy manual={manual} onClose={closeManual} /> : null}
       </>
     ),
   };

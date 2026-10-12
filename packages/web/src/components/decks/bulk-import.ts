@@ -52,6 +52,19 @@ export function deckCount(text: string): number {
   return lines.some((line) => line.toLowerCase().startsWith("ydke://")) ? lines.length : 1;
 }
 
+/**
+ * The part of a source that made one row: its own YDKE line, or the whole text of a YDK file. A new check
+ * sends only this, so the other rows of the same source cannot use up the server's lookup limit. `line` is the
+ * line of the source the row came from (counted from 1), so the issues keep their first line number.
+ */
+export function rowSource(source: ImportSource, rowId: string): { source: ImportSource; line: number | null } {
+  if (deckCount(source.text) === 1 && !/^\s*ydke:\/\//i.test(source.text)) return { source, line: null };
+  const index = Number(rowId.slice(rowId.lastIndexOf("#") + 1));
+  const lines = source.text.split(/\r\n|\r|\n/).flatMap((text, at) => (text.trim() ? [{ text: text.trim(), line: at + 1 }] : []));
+  const own = lines[index];
+  return own ? { source: { ...source, text: own.text }, line: own.line } : { source, line: null };
+}
+
 /** The size of one source inside the JSON body, with room for what is added later. */
 function bodyBytes(source: ImportSource): number {
   return byteLength(JSON.stringify(source)) + SOURCE_OVERHEAD_BYTES;
