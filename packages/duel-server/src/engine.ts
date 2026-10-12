@@ -1,4 +1,5 @@
 import { ChainOptions } from "./chain-options.js";
+import { ChainActivator } from "./chain-activator.js";
 import { scriptErrorCoreFactory } from "./script-load-scope.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
@@ -587,7 +588,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const events: StoredDuelEvent[] = [];
   const chainMemory: StoredChainLink[] = [];
   const chainOptions = new ChainOptions(cards);
+  const chainActivator = new ChainActivator();
   const respond = (prompt: PendingPrompt, response: OcgResponse) => {
+    chainActivator.recordResponse(prompt.seat, response, prompt.message);
     try {
       chainOptions.recordResponse(prompt, response);
     } catch (error) {
@@ -681,11 +684,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     }
   };
 
-  const recordEvent = (message: OcgMessage) => {
+  const recordEvent = (message: OcgMessage, activator?: number) => {
     // Moves first: a card's move precedes the summon/set/activate/destroy event it belongs to.
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
-    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
+    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext, activator);
     try {
       chainOptions.observe(message, chainMemory, stored);
     } catch (error) {
@@ -728,7 +731,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     for (const stored of drainDeferredDestroys(eventContext, cards, nextEventId)) pushEvent(stored);
   };
 
-  const applyMessage = (message: OcgMessage) => {
+  const applyMessage = (message: OcgMessage, activator?: number) => {
     eliminationGroup = null;
     battleStep = nextBattleStep(battleStep, message);
     switch (message.type) {
@@ -771,7 +774,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       case OcgMessageType.CHAINING:
         startedChainLinks.delete(message.chain_size);
         liveChainSize = message.chain_size;
-        appendLog(`${playerLabel(format, message.controller)}'s ${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
+        appendLog(`${playerLabel(format, activator ?? message.controller)}'s ${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
         return;
       case OcgMessageType.SPSUMMONED:
         synchroSummon = undefined;
@@ -1059,15 +1062,17 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         messages.forEach((message, index) => {
           while (nextExtra < extras.length && extras[nextExtra]!.after <= index) applyRaw(extras[nextExtra++]!);
           options.onCoreMessage?.(message);
-          applyMessage(message);
-          recordEvent(message);
+          const activator = chainActivator.observe(message);
+          applyMessage(message, activator);
+          recordEvent(message, activator);
         });
         while (nextExtra < extras.length) applyRaw(extras[nextExtra++]!);
       } else {
         for (const message of messages) {
           options.onCoreMessage?.(message);
-          applyMessage(message);
-          recordEvent(message);
+          const activator = chainActivator.observe(message);
+          applyMessage(message, activator);
+          recordEvent(message, activator);
         }
       }
       flushDeferredDestroys();
@@ -1377,8 +1382,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       let nextExtra = 0;
       fresh.forEach((message, index) => {
         while (nextExtra < extras.length && extras[nextExtra]!.after <= index) applyRaw(extras[nextExtra++]!);
-        applyMessage(message);
-        recordEvent(message);
+        const activator = chainActivator.observe(message);
+        applyMessage(message, activator);
+        recordEvent(message, activator);
       });
       while (nextExtra < extras.length) applyRaw(extras[nextExtra++]!);
       flushDeferredDestroys();

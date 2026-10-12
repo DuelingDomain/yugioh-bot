@@ -3,11 +3,22 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { parse } from "yaml";
+import { changedLayers } from "./changed-layers.mjs";
 
 const workflow = parse(readFileSync(new URL("../../.github/workflows/test.yml", import.meta.url), "utf8"));
 const evaluate = (expression, needs) => Function("needs", "always", `return (${expression
   .replace(/^\$\{\{\s*|\s*\}\}$/g, "")
   .replace(/needs\.([\w-]+)/g, 'needs["$1"]')});`)(needs, () => true);
+
+test("the required unit job runs WS tests alongside shared, bot and worker suites", () => {
+  const job = workflow.jobs["unit-packages"];
+  for (const pkg of ["shared", "bot", "worker", "ws"]) {
+    const step = job.steps.find(step => new RegExp(`npm test --workspace=(packages/${pkg}|@[^ ]+/${pkg})`).test(step.run ?? ""));
+    assert.ok(step, `${pkg} unit tests must gate a successful Test conclusion`);
+    assert.equal(step.if, undefined, `${pkg} tests must not be path-filtered inside the unit job`);
+    assert.notEqual(step["continue-on-error"], true, `${pkg} failures must fail the unit gate`);
+  }
+});
 
 for (const [file, jobId, cacheJobId] of [
   ["test.yml", "cores", "core-cache"],
@@ -123,4 +134,18 @@ test("pull requests and main pushes run the engine jobs only when engine=true; u
   }
   for (const id of ["core-cache", "native", "rule-coverage"]) assert.equal(run(id, "workflow_dispatch", "true"), true, id);
   assert.equal(run("core-cache", "schedule", "true"), true);
+});
+
+test("every main push enables all regular release suites; nightly fuzz never joins a push", () => {
+  for (const files of [[], ["docs/readme.md"], ["packages/web/src/app/page.tsx"]]) {
+    assert.equal(changedLayers(files, "push").engine, true);
+    assert.equal(changedLayers(files, "push").tests_only, false);
+  }
+  const job = workflow.jobs["nduel-nightly"];
+  const run = (event, nightly) => Function("needs", "github", "inputs", "cancelled", `return (${job.if.replace(/^\$\{\{\s*|\s*\}\}$/g, "")});`)(
+    { cores: { result: "success" } }, { event_name: event }, { nightly }, () => false);
+  assert.equal(run("push", true), false);
+  assert.equal(run("pull_request", true), false);
+  assert.equal(run("schedule", false), true);
+  assert.equal(run("workflow_dispatch", true), true);
 });

@@ -68,6 +68,11 @@
       "types": "./dist/observability/node-bootstrap.d.ts",
       "source": "./src/observability/node-bootstrap.ts",
       "default": "./dist/observability/node-bootstrap.js"
+    },
+    "./decks": {
+      "types": "./dist/decks/index.d.ts",
+      "source": "./src/decks/index.ts",
+      "default": "./dist/decks/index.js"
     }
   },
   "scripts": {

@@ -105,3 +105,10 @@ export function battleOutcomeId(events: readonly DuelEvent[], attack: DuelEvent)
   }
   return first;
 }
+
+/** The latest declaration, while the existing battle lifecycle still considers it open. */
+export function openAttack(events: readonly DuelEvent[]): DuelEvent | null {
+  let latest: DuelEvent | null = null;
+  for (const event of events) if (event.kind === "attack" && event.zone && (!latest || event.id > latest.id)) latest = event;
+  return latest && battleTrigger(events, latest).action === "wait" ? latest : null;
+}

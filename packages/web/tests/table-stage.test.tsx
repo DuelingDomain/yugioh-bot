@@ -26,8 +26,15 @@ beforeAll(() => {
 });
 afterEach(cleanup);
 
-function Shell({ id }: { id: keyof typeof FFA3_FIXTURES.states }) {
-  const controller = useFixtureController(FFA3_FIXTURES.states[id], { reducedMotion: true });
+function Shell({ id, attackOn }: { id: keyof typeof FFA3_FIXTURES.states; attackOn?: number }) {
+  const state = FFA3_FIXTURES.states[id];
+  // `attackOn`: a rival declares an attack on a monster of that seat, and no result has come yet.
+  const declared = attackOn == null ? state : (() => {
+    const engine = state.room.engine!;
+    const attack = { id: Math.max(0, ...engine.events.map((event) => event.id)) + 1, kind: "attack", seat: 1, text: "attack", zone: { controller: 1, location: 4, sequence: 0 }, target: { controller: attackOn, location: 4, sequence: 0 } };
+    return { ...state, room: { ...state.room, engine: { ...engine, events: [...engine.events, attack] } } } as typeof state;
+  })();
+  const controller = useFixtureController(declared, { reducedMotion: true });
   return <TableShell controller={controller} />;
 }
 
@@ -77,6 +84,15 @@ describe("TableShell on the 3-way fixtures", () => {
     expect(Math.abs(cx - 550)).toBeLessThan(4);
     expect(width).toBeGreaterThan(300);
     expect(parseFloat(slot.style.getPropertyValue("--pr-unit"))).toBeGreaterThan(0);
+  });
+
+  it("moves the prompt off your field while a declared attack targets a monster of it", () => {
+    const { container, rerender } = render(<Shell id="chain-2" attackOn={0} />);
+    // The ring on the target and the end of the arrow stay clear: the prompt takes the free room, not the middle of your field.
+    expect(container.querySelector("[data-prompt-center]")).toBeNull();
+    // An attack on a rival's monster leaves the prompt where it is.
+    rerender(<Shell id="chain-2" attackOn={1} />);
+    expect(container.querySelector("[data-prompt-center]")).not.toBeNull();
   });
 
   it("draws one LP panel per seat and one seat field per seat", () => {
