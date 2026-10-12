@@ -256,7 +256,7 @@ describe("duel room role", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Surrender" })[0]);
     const dialog = screen.getByRole("dialog", { name: "Surrender" });
     await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Surrender" })); });
-    expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
+    expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live", undefined);
     // The server completes a Tag surrender at once: the room now holds the result and the viewer stays a player.
     room(TAG_FIXTURES.states.result.room);
     state.room!.engine!.result = { winnerSeat: 1, winnerTeam: 1, reason: "Surrender" };

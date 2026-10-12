@@ -139,7 +139,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     expect(dialog).toHaveTextContent("Your team loses now.");
     expect(dialog).not.toHaveTextContent("Leaving");
     await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Surrender" })); });
-    expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
+    expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live", undefined);
   });
 
   describe("surrender from your own deck", () => {
@@ -155,7 +155,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
       expect(dialog).toHaveTextContent("Are you sure?");
       expect(state.surrender).not.toHaveBeenCalled();
       await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Surrender" })); });
-      expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
+      expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live", undefined);
     });
 
     it("does not surrender when the confirm is cancelled", async () => {
@@ -248,7 +248,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     const item = screen.getAllByRole("menuitem")[0];
     await act(async () => { fireEvent.click(item); });
     expect(state.send).toHaveBeenCalledTimes(1);
-    expect(state.send).toHaveBeenCalledWith("live", { promptId: state.room!.engine!.prompt!.id, revision: state.room!.engine!.revision, answer: { choice: expect.any(String) } });
+    expect(state.send).toHaveBeenCalledWith("live", { promptId: state.room!.engine!.prompt!.id, revision: state.room!.engine!.revision, answer: { choice: expect.any(String) } }, undefined);
   });
 
   it("puts the reply of the newest request on the board, not a slower older one", async () => {
@@ -282,7 +282,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
     expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
       promptId: "materials", revision: state.room!.engine!.revision, answer: { choice: "select:0" },
-    });
+    }, undefined);
   });
 
   it.each([FFA3_FIXTURES, FFA4_FIXTURES])("answers a required $format fork prompt while loss is pending", async (fixtures) => {
@@ -320,7 +320,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
     expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
       promptId: "materials", revision: state.room!.engine!.revision, answer: { choice: "select:0" },
-    });
+    }, undefined);
   });
 
   it("waits for the reveal gate before a hidden panel prompt can answer from the field", async () => {
@@ -362,7 +362,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     await act(async () => { fireEvent.click(screen.getByTestId("seat-strip-pick-2")); });
     expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
       promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-2" },
-    });
+    }, undefined);
   });
 
   it("locks a live direct attack in OpponentBar and confirms one room action", async () => {
@@ -375,7 +375,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     await act(async () => { fireEvent.click(screen.getByTestId("aim-confirm")); });
     expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
       promptId: "direct-attack", revision: state.room!.engine!.revision, answer: { choice: "opt:0" },
-    });
+    }, undefined);
   });
 
   it("does not offer a Leaving seat for a direct attack while a living seat remains, and keys follow", async () => {
@@ -396,7 +396,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     await act(async () => { fireEvent.click(screen.getByTestId("aim-confirm")); });
     expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
       promptId: "direct-attack", revision: state.room!.engine!.revision, answer: { choice: "direct-2" },
-    });
+    }, undefined);
   });
 
   it("keeps every Leaving seat for a direct attack when none is living", () => {
@@ -447,7 +447,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     fireEvent.click(screen.getByRole("button", { name: "Surrender" }));
     const dialog = screen.getByRole("dialog", { name: "Surrender" });
     await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Surrender" })); });
-    expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
+    expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live", undefined);
   });
 
   describe("own elimination crumble", () => {
@@ -621,7 +621,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-1")); });
     expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
       promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-1" },
-    });
+    }, undefined);
   });
 
   it("reads key 1 as the first living rival when seat 1 is Leaving, and keys 2 and 3 answer nothing", async () => {
@@ -633,7 +633,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     await act(async () => { fireEvent.keyDown(window, { key: "1" }); });
     expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
       promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-2" },
-    });
+    }, undefined);
   });
 
   it("labels a Leaving opponent row Leaving, not Out, in the live prompt", () => {
@@ -655,7 +655,7 @@ describe("live room table mount", { timeout: 30_000 }, () => {
     await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-2")); });
     expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
       promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-2" },
-    });
+    }, undefined);
   });
 
   it("explains a multiplayer surrender without promising to end everyone's duel", () => {
