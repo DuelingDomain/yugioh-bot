@@ -23,7 +23,7 @@ import { chainWindowPasses, effectYesNoPasses, effectiveChainMode } from "../cha
 import type { CardDatabase } from "../cards.js";
 import { cardInfoLabel } from "../cards.js";
 import { attributeName, fillPlaceholders, locationLabel, positionLabel, raceName, type TemplateValue } from "../text.js";
-import { DOMAIN_LEAVE_TAX_STEP, LOCATION_DECKMASTER, type DomainSeatState } from "./views.js";
+import { LOCATION_DECKMASTER, DOMAIN_LEAVE_TAX_STEP, type DomainSeatState } from "./views.js"; // LEGACY-1V1: local DMZ action metadata
 import { sortCardResponse } from "../sort-response.js";
 
 export interface MapPromptExtras {
@@ -33,6 +33,19 @@ export interface MapPromptExtras {
   hintCard?: number;
   /** The Synchro monster explicitly chosen for an inherent summon, with its queried Level. */
   synchroSummon?: DuelZoneRef & { code: number; level: number };
+}
+
+// LEGACY-1V1: keep DMZ location restoration and cost labels on the legacy view types and constants.
+function annotateDeckMasterActions(options: DuelPromptOption[], domain?: readonly DomainSeatState[]): void {
+  if (!domain) return;
+  for (const option of options) {
+    const master = option.controller == null ? undefined : domain[option.controller];
+    if (!master?.inZone || option.card?.code !== master.code || option.sequence !== 0) continue;
+    if (option.location === 0) option.location = LOCATION_DECKMASTER;
+    if (option.location === LOCATION_DECKMASTER && /^(summon|spsummon|mset|activate):/.test(option.id)) {
+      option.label += ` (costs ${master.nextCost} LP)`;
+    }
+  }
 }
 
 /** strings.conf: `Use the effect of "%ls" from [%ls]?` — the core's default for a SELECT_EFFECTYN without a description. */
@@ -269,16 +282,7 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
   switch (message.type) {
     case OcgMessageType.SELECT_IDLECMD: {
       const options = idleOptions(message, cards);
-      // The native protocol's byte-sized location encodes the 0x4000 Master
-      // zone as zero. Restore it only against the authoritative in-zone card.
-      if (extras?.domain) {
-        for (const option of options) {
-          const master = option.controller == null ? undefined : extras.domain[option.controller];
-          if (option.location === 0 && option.sequence === 0 && master?.inZone && option.card?.code === master.code) {
-            option.location = LOCATION_DECKMASTER;
-          }
-        }
-      }
+      annotateDeckMasterActions(options, extras?.domain); // LEGACY-1V1: show the public DMZ action cost
       return {
         id,
         seat: message.player,
@@ -336,7 +340,7 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           message.player,
           id,
           hint || `Return ${card.name} to the Deck Master Zone?`,
-          `Next summon from the Deck Master Zone costs ${nextCost} LP.`,
+          `Next summon, set or activation from the Deck Master Zone costs ${nextCost} LP.`, // LEGACY-1V1: include taxed monster sets
           card,
         );
         built.message = message;
