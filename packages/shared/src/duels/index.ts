@@ -327,6 +327,7 @@ export interface DuelSeatView {
   spells: Array<DuelCard | null>;
   graveyard: DuelCard[];
   banished: DuelCard[];
+  /** Public in Domain views, including spectators. nextCost is the LP cost of the next DMZ summon, set, or activation (returns * 500). */
   deckMaster?: { card: DuelCardInfo; inZone: boolean; returns: number; nextCost: number };
   /** Team of this seat (`teamOfSeat(format, seat)`). Absent in 1v1 views made before multi-player formats. */
   team?: number;
