@@ -8,7 +8,9 @@ const RECEIPT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const RECEIPT_CLEANUP_BATCH = 100;
 
 function eventTime(createdAt: number, timestamp?: number): string {
-  const date = new Date(Number.isFinite(createdAt) ? createdAt : timestamp ?? Date.now());
+  const time = Number.isFinite(createdAt) ? createdAt
+    : typeof timestamp === "number" && Number.isFinite(timestamp) ? timestamp : Date.now();
+  const date = new Date(time);
   return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
 }
 

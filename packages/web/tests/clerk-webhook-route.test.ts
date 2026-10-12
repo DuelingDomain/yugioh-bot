@@ -141,6 +141,17 @@ describe("POST /api/webhooks/clerk", () => {
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
+  it.each([waitlist, signup])("acknowledges usable identities with malformed event times: $type", async event => {
+    vi.useFakeTimers();
+    vi.setSystemTime(createdAt);
+    vi.stubEnv("DISCORD_SIGNUP_ALERTS_ENABLED", "1");
+    const malformed = { ...event, timestamp: { toString: 0 }, data: { ...event.data, created_at: undefined } };
+    expect((await POST(signed(malformed))).status).toBe(200);
+    expect(receipts()).toEqual([{ svix_id: "msg_placeholder", received_at: new Date(createdAt).toISOString() }]);
+    expect(messages()[0].embeds[0].timestamp).toBe(new Date(createdAt).toISOString());
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("deduplicates concurrent Svix replays after another migration", async () => {
     const responses = await Promise.all([POST(signed()), POST(signed())]);
     expect(responses.map(response => response.status)).toEqual([200, 200]);
