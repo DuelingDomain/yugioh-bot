@@ -156,6 +156,31 @@ describe("POST /api/waitlist", () => {
   });
 
   it.each([
+    ["zero-width space", "player\u200b"],
+    ["zero-width non-joiner", "player\u200c"],
+    ["zero-width joiner", "player\u200d"],
+    ["right-to-left override", "player\u202e"],
+    ["word joiner", "player\u2060"],
+    ["byte-order mark", "player\ufeff"],
+    ["leading byte-order mark", "\ufeffplayer"],
+    ["supplementary language tag", "player\u{e0001}"],
+  ])("rejects a local-part %s before any effects", async (_name, localPart) => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetcher);
+    const email = `${localPart}@example.test`;
+    const response = await post(json({ email }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_email" });
+    redirect(await post(form(new URLSearchParams({ email }).toString())), "invalid");
+    expect(rows()).toEqual([]);
+    expect(state.db!.prepare("select * from join_request_notifications").all()).toEqual([]);
+    expect(state.join).not.toHaveBeenCalled();
+    expect(state.createBackend).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
     "x@https://evil.example.test/claim",
     "x@example.test/path",
     "x@example.test\\path",

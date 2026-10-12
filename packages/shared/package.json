@@ -34,6 +34,11 @@
       "source": "./src/util/web-slug.ts",
       "default": "./dist/util/web-slug.js"
     },
+    "./util/email-domain": {
+      "types": "./dist/util/email-domain.d.ts",
+      "source": "./src/util/email-domain.ts",
+      "default": "./dist/util/email-domain.js"
+    },
     "./ws": {
       "types": "./dist/ws/index.d.ts",
       "source": "./src/ws/index.ts",

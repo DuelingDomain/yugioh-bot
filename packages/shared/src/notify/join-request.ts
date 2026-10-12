@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { domainToASCII } from "node:url";
+import { normalizeEmailDomain } from "../util/email-domain.js";
 
 export interface JoinRequestNotice {
   email?: string;
@@ -85,13 +85,8 @@ export async function notifyJoinRequest(db: Database.Database, notice: JoinReque
     if (!url || !enabled) return;
 
     let email = notice.email?.trim().toLowerCase();
-    // Match the waitlist route's domain normalization for Clerk identities.
-    // Keep unusable Clerk text literal; domainToASCII can strip URL syntax.
-    if (email && /^[^\s@]+@[^\s@:/\\?#%]+$/.test(email)) {
-      const at = email.lastIndexOf("@");
-      const domain = domainToASCII(email.slice(at + 1)).toLowerCase();
-      if (domain) email = `${email.slice(0, at)}@${domain}`;
-    }
+    // Match the waitlist route's normalization; keep unusable Clerk text literal.
+    if (email) email = normalizeEmailDomain(email) ?? email;
     const subject = email ? `email:${email}` : notice.subjectId ? `clerk:${notice.subjectId}` : null;
     if (!subject) return;
     const now = new Date().toISOString();

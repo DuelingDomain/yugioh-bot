@@ -1,6 +1,6 @@
 import { createWaitlistService } from "@yugidraft/shared/services";
 import { createClerkBackend } from "@yugidraft/shared/clerk";
-import { domainToASCII } from "node:url";
+import { normalizeEmailDomain } from "@yugidraft/shared/util/email-domain";
 import { getDb } from "@/lib/db";
 
 const MAX_BODY_BYTES = 2048;
@@ -96,16 +96,17 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (typeof data.company === "string" && data.company.length > 0) return respond("joined");
-  const submittedEmail = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
-  // Reject URL syntax before domainToASCII, which can strip paths and queries.
-  if (submittedEmail.length > 254 || !/^[^\s@]+@[^\s@:/\\?#%]+$/.test(submittedEmail)) return respond("invalid");
-  const at = submittedEmail.lastIndexOf("@");
-  const domain = domainToASCII(submittedEmail.slice(at + 1)).toLowerCase();
+  const rawEmail = typeof data.email === "string" ? data.email : "";
+  // Check before trimming, which would remove a leading U+FEFF format character.
+  if (/\p{Cf}/u.test(rawEmail.slice(0, rawEmail.lastIndexOf("@")))) return respond("invalid");
+  const submittedEmail = rawEmail.trim().toLowerCase();
+  if (submittedEmail.length > 254) return respond("invalid");
+  // Storage, notification claims and Clerk all use the same ASCII domain.
+  const email = normalizeEmailDomain(submittedEmail);
+  if (!email || email.length > 254) return respond("invalid");
+  const domain = email.slice(email.lastIndexOf("@") + 1);
   const hostLabel = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
   if (!new RegExp(`^${hostLabel}(?:\\.${hostLabel})+$`).test(domain)) return respond("invalid");
-  // Storage, notification claims and Clerk all use the same ASCII domain.
-  const email = `${submittedEmail.slice(0, at)}@${domain}`;
-  if (email.length > 254) return respond("invalid");
 
   let result: { status: "joined" | "exists" };
   try {
