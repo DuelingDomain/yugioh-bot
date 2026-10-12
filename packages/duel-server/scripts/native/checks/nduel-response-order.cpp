@@ -12,6 +12,29 @@ static void require(bool condition, const char* detail) {
 
 static void synthetic_checks() {
 	{
+		// Mausoleum of the Emperor: seat 0 controls the card, seat 2 activates it.
+		ResponseOrder check(4, false);
+		check.chaining(2, 2);
+		for(int p : {3, 0, 1, 2}) check.prompt(p);
+		require(check.eliminate(0, 2).empty(), "card controller elimination rejected valid activator response order");
+		require(check.owners == std::vector<int>{2}, "card controller elimination removed another seat's activation");
+		require(check.eliminate(2, 2).empty(), "activator elimination rejected valid responses");
+		require(check.owners.empty() && check.emptied_by_elimination, "activator elimination retained the foreign-controlled link");
+		require(check.end(2).empty(), "foreign-controlled link rejected cleanup END");
+	}
+	{
+		ResponseOrder check(3, false);
+		check.chaining(2, 2);
+		for(int p : {0, 1, 2}) check.prompt(p);
+		require(check.solving(2).empty(), "FFA3 rejected responses after the activator of a foreign-controlled card");
+	}
+	{
+		ResponseOrder check(4, true);
+		check.chaining(2, 2);
+		for(int p : {3, 1, 0, 2}) check.prompt(p);
+		require(check.solving(2).empty(), "Tag rejected responses after the activator of a foreign-controlled card");
+	}
+	{
 		ResponseOrder check(4, false);
 		check.chaining(3, 2);
 		check.prompt(0); check.prompt(2); check.prompt(1);
@@ -139,14 +162,7 @@ static void observe_chain_end(const ResponseOrder& check) {
 }
 #define NDUEL_CHAIN_END_HOOK observe_chain_end
 #define main nduel_main
-// Keep the driver's local IDs separate from the internal headers used by the fixture.
-#define MSG_DUELIST_ELIMINATED NDUEL_MSG_DUELIST_ELIMINATED
-#define MSG_ATTACK_DUELIST NDUEL_MSG_ATTACK_DUELIST
-#define MSG_FIELD_DISABLED_N NDUEL_MSG_FIELD_DISABLED_N
 #include "../nduel.cpp"
-#undef MSG_DUELIST_ELIMINATED
-#undef MSG_ATTACK_DUELIST
-#undef MSG_FIELD_DISABLED_N
 #undef main
 #include "scripted-duel.h"
 
@@ -187,6 +203,7 @@ end
 	OCG_StartDuel(d);
 	ResponseOrder check(4, false);
 	int turn_player = -1;
+	int activating_player = -1;
 	const int empty_ends_before = empty_ends;
 	bool paid = false, eliminated = false, ended = false, boundary = false;
 	std::vector<int> open_prompts;
@@ -200,8 +217,7 @@ end
 			switch(msg.id) {
 			case MSG_NEW_TURN: turn_player = mr.get<uint8_t>(); break;
 			case MSG_CHAINING:
-				mr.skip(4 + 10);
-				checked(check.chaining(mr.get<uint8_t>(), turn_player));
+				checked(check.chaining(activating_player, turn_player));
 				break;
 			case MSG_DUELIST_ELIMINATED:
 				require(mr.get<uint8_t>() == 3, "fixture eliminated the wrong seat");
@@ -233,7 +249,7 @@ end
 		require(prompt != nullptr, "fixture awaited a response without a prompt");
 		if(prompt->id == MSG_SELECT_CHAIN) {
 			const bool activate = !paid && prompt->p[0] == 3;
-			if(activate) paid = true;
+			if(activate) { paid = true; activating_player = prompt->p[0]; }
 			sd::answer32(d, activate ? 0 : -1);
 		} else {
 			require(false, "fixture reached an unexpected prompt before cleanup");

@@ -1123,6 +1123,7 @@ export function observeDuelEvent(
   chain: StoredChainLink[],
   id: number,
   ctx?: EventContext,
+  activator?: number, // LEGACY-1V1: the answering player can differ from the card controller
 ): StoredDuelEvent | null {
   if (ctx) {
     switch (message.type) {
@@ -1231,11 +1232,12 @@ export function observeDuelEvent(
     }
     case OcgMessageType.CHAINING: {
       const info = cards.get(message.code);
+      const seat = activator ?? message.controller; // LEGACY-1V1: unprompted triggers fall back to the controller
       const description = fillPlaceholders(cards.resolveLabel(message.description), [info?.name, locationLabel(message.location, message.sequence)]) || undefined;
       chain.length = message.chain_size;
       chain[message.chain_size - 1] = {
         index: message.chain_size,
-        seat: message.controller,
+        seat, // LEGACY-1V1: store the activator, keeping the controller in zone
         code: message.code,
         description,
         zone: zoneOf(message),
@@ -1245,7 +1247,7 @@ export function observeDuelEvent(
       return {
         id,
         kind: "activate",
-        seat: message.controller,
+        seat, // LEGACY-1V1: event history credits the activator
         card: info,
         chainIndex: message.chain_size,
         text,
@@ -1553,7 +1555,7 @@ export function projectView(args: {
     const description = fillPlaceholders(args.cards.resolveLabel(link.description), [info?.name, locationLabel(link.location, link.sequence)]) || undefined;
     return {
       index: index + 1,
-      seat: link.controller,
+      seat: args.chain?.[index]?.seat ?? link.controller, // LEGACY-1V1: preserve the stored activator in the field projection
       code: link.code,
       name: info?.name,
       description,
