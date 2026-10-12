@@ -5,7 +5,7 @@ import type { CameraAction as TableCameraAction, CameraLockReason, CameraState a
 export type CameraState = TableCameraState & { aiming: boolean };
 export type CameraAction =
   | TableCameraAction
-  /** A prompt needs these field seats on screen: a focus on any other field goes back to the overview. */
+  /** The viewer is aiming an attack or a target: a flag only, the camera does not move for it. */
   | { type: "aiming"; on: boolean };
 
 /**
