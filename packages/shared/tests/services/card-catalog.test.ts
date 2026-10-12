@@ -513,7 +513,6 @@ describe("isExtraDeckFrame", () => {
     ["synchro_pendulum", "Synchro Pendulum Effect Monster"],
     ["xyz_pendulum", "XYZ Pendulum Effect Monster"],
     ["", "XYZ Pendulum Effect Monster"],
-    ["synchro_pendulum", ""],
   ])("counts frame %s / type %s as Extra Deck", (frameType, type) => {
     expect(isExtraDeckFrame({ frameType, type })).toBe(true);
   });
@@ -526,7 +525,8 @@ describe("isExtraDeckFrame", () => {
     ["spell", "Spell Card"],
     ["trap", "Trap Card"],
     ["token", "Token"],
-  ])("keeps frame %s / type %s in the Main Deck", (frameType, type) => {
+    ["synchro_pendulum", ""],
+  ])("does not count frame %s / type %s as Extra Deck", (frameType, type) => {
     expect(isExtraDeckFrame({ frameType, type })).toBe(false);
   });
 });
