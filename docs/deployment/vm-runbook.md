@@ -106,9 +106,10 @@ Deploy jobs run in the `production` / `staging` GitHub Environments and require 
    from the workflow revision against the VM's `data/bot.sqlite`. It opens SQLite with `mode=ro` and `query_only=on`.
    One snapshot counts active duels and lobby duels with RPS/dice openings, active drafts, open/pending-approval rounds in active tournaments,
    and active/between-game series. Committed WAL writes are included. Missing, locked, corrupt or incomplete
-   DBs refuse immediately. Automatic runs recheck active gameplay every 120 seconds for up to 60 minutes,
+   DBs refuse immediately. Automatic runs use `--live-only`: only duels/openings and active drafts block;
+   tournament rounds and series are logged for information. They recheck every 120 seconds for up to 60 minutes,
    with one deadline shared by the initial and pre-stop checks. On timeout they fail clearly, leaving live
-   games running; retry manually or let the next merge trigger a new deploy. Manual runs refuse immediately
+   games running; retry manually or let the next merge trigger a new deploy. Manual runs keep the full guard and refuse immediately
    unless `force=true` was explicitly set. Automatic runs always use `force=false` and `rollback=false`.
    Force skips only the activity guard; it never disables the engine preflight, lock or backups.
    It then runs the existing **preflight** before anything on the VM changes: the install script from that commit runs with
@@ -482,7 +483,7 @@ Normal flow:
 1. Work on a branch and open a pull request.
 2. Wait for PR CI, then merge into `main`.
 3. The merge's push **Test** runs all regular release suites. Failure prevents automatic production deployment.
-4. **Deploy** pins the successful run's SHA, waits for idle production if needed, builds and rechecks activity,
+4. **Deploy** pins the successful run's SHA, waits for live duels/openings and active drafts to finish, builds and rechecks activity,
    then deploys with engine preflight, backups and health checks. It reports `Production deployed SHA` in logs and summary.
 5. Verify the Deploy result and `GET https://app.duelingdomain.com/sign-in` returns 200.
 
@@ -494,7 +495,8 @@ For a manual staging test of a branch or SHA, dispatch **Deploy Staging** from `
 `action=deploy`, `refresh_db=false`, `ignore_prod_activity=false`. Set `ignore_prod_activity=true` to build during production play.
 This input skips only the activity guard. It keeps the shared lock and all resource checks. Push deploys cannot enable it.
 Staging checks only live duels, openings and active drafts, before clone, fetch or checkout reset.
-Production keeps its full activity guard, including open tournament rounds and active/between-game series.
+Manual production deploys keep the full activity guard, including open tournament rounds and active/between-game series.
+Automatic production deploys log those counts without blocking on them.
 Prod stops staging before its build; staging stays down until its workflow runs again.
 Prod waits only 15 minutes for the lock. A cold staging build can take longer and cause a prod lock timeout.
 
