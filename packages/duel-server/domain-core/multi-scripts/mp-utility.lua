@@ -392,7 +392,7 @@ function aux.MPGeometrySeat(tp)
  end
  return Duel.MPSeat(tp or 0)
 end
--- Shared FFA4 and Tag geometry compares real seats. Other formats keep stock tests.
+-- Shared FFA3, FFA4 and Tag geometry compares real seats. 1v1 keeps stock tests.
 function aux.MPGeometryShared()
  return Duel.MPSharedZones and Duel.MPSharedZones()
 end
@@ -467,7 +467,7 @@ end
 -- Official Link triggers share this previous-controller filter.
 aux.zptfilter=aux.MPGeometryPreviousFilter(aux.zptfilter)
 
--- Columns alone use the FFA3 house rule. Link helpers above keep across geometry.
+-- Column and Link helpers use the same fixed facing geometry.
 function aux.MPColumnGeometry()
 	return Duel.MPColumnGeometry and Duel.MPColumnGeometry() or aux.MPGeometryShared()
 end

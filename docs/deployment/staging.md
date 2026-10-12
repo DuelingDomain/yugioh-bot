@@ -168,7 +168,11 @@ The previous 103-patch inputs were also built locally on 2026-10-07 without `LUA
 | Standard multiplayer | `49a33c6749993ede9b7e5256e77bee922234644fc4f352b67ab71eff7d618574` |
 | Domain multiplayer | `c195dcac74314f8f73e5e55edb8cc44f1e84ffd826866e6a7013bee34531caff` |
 
-The source and toolchain pins in `domain-core/pins.json` are unchanged. The fixed-seed hashes above are the CI binary pins in `domain-core/expected-sha256.txt`; deploy artifacts carry their own checked `.sha256` and `.SOURCE` sidecars. Local builds and test resources stay under `~/.cache/dk-duel-engine-tagrules`; the shell env file is `~/.cache/dk-duel-engine-tagrules.env`. The post-review native `run-nduel.sh --check` passed all 80 golden rows (20 seeds each for 1v1, FFA3, FFA4 and Tag), with no skips or mismatches. Re-recording was required by the intentional overlay/patch fingerprint change; all 80 replay step counts and hashes are unchanged.
+The source and toolchain pins in `domain-core/pins.json` are unchanged. The fixed-seed hashes above are the CI binary pins in `domain-core/expected-sha256.txt`; deploy artifacts carry their own checked `.sha256` and `.SOURCE` sidecars. The 2026-10-07 Tag review kept local builds and test resources under `~/.cache/dk-duel-engine-tagrules`, with its shell env file at `~/.cache/dk-duel-engine-tagrules.env`. Its post-review native `run-nduel.sh --check` passed all 80 golden rows (20 seeds each for 1v1, FFA3, FFA4 and Tag), with no skips or mismatches. At that point, re-recording was required by the intentional overlay/patch fingerprint change; all 80 replay step counts and hashes were unchanged.
+
+The current 104-patch fixed-facing inputs require new deployment builds and
+checked sidecars. The fixed-seed multiplayer hashes above come from the
+2026-10-11 rebuilds.
 
 The released-card preparation change uses `cards.cdb` plus `release-betb.cdb` at the
 current BabelCDB pin, yielding 14,845 passcodes (86 added). That data-only change
