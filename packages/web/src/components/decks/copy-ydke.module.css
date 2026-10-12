@@ -1,0 +1,28 @@
+/* The copy confirmation. It renders through SheetPortal, so it sits outside the page's size container. */
+.wrap {
+  position: fixed;
+  z-index: 62;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+:global(.ms) .toast {
+  width: min(100%, 360px);
+  padding: 11px 16px;
+  border: 1px solid var(--rule-hi);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--ink);
+  font-size: 14.5px;
+  box-shadow: 0 12px 28px -12px #000;
+  --mo-y: 12px;
+  --mo-o: 0;
+  --mo-in: var(--d-toast-in);
+  --mo-out: var(--d-toast-out);
+  --mo-ease: var(--ease-out);
+}
+:global(.ms) .toast[data-ok] { border-color: rgb(var(--beam) / 0.45); }
+:global(.ms) .toast:not([data-ok]) { border-color: rgb(228 90 77 / 0.6); color: var(--loss-ink); }
