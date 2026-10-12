@@ -719,6 +719,8 @@ export function captureZoneSnapshots(root: ParentNode = document): void {
     const seat = Number(el.dataset.masterSource);
     const r = moveDestinationRect(el);
     if (!Number.isInteger(seat) || r.width < 4 || r.height < 4) return;
+    // A closed drawer keeps its box (it only slides away and turns invisible): its dock is not a place a card can leave from.
+    if (el.closest("[inert]") || el.ownerDocument.defaultView?.getComputedStyle(el).visibility === "hidden") return;
     const snap: ZoneSnapshot = { rect: { left: r.left, top: r.top, width: r.width, height: r.height }, side: "you", faceUp: true, defense: false };
     for (const key of [zoneKey(seat, LOCATION_DMZONE, 0), zoneKey(seat, 0, 0)]) if (!snapshots.has(key)) snapshots.set(key, snap);
   });
