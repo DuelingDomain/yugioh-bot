@@ -770,7 +770,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
             </div>
           </div>
         </div>
-        {pairA != null && pairB != null ? <PairLink a={pairA} b={pairB} label="Linked columns" stamp={`${camera.mode}|${camera.focusSeat ?? ""}|${camera.lookSeat ?? ""}|${box.width}x${box.height}|${outKey}|${zoom.zoomed ? 1 : 0}`} /> : null}
+        {pairA != null && pairB != null ? <PairLink a={pairA} b={pairB} label="Linked columns" stamp={`${camera.mode}|${camera.focusSeat ?? ""}|${camera.lookSeat ?? ""}|${camera.fly.targetSeat ?? ""}|${camera.fly.free ? 1 : 0}|${Math.round(camera.fly.yawDeg)}|${Math.round(camera.fly.tiltDeg)}|${camera.fly.zoom.toFixed(2)}|${box.width}x${box.height}|${outKey}|${zoom.zoomed ? 1 : 0}`} /> : null}
         <svg ref={tetherRef} className={styles.tethers} viewBox="0 0 1100 860" aria-hidden="true" />
         {[
           // A seat that left keeps its panel where its place stays.
