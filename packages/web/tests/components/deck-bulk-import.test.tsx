@@ -33,8 +33,8 @@ function row(id: string, name: string, extra: Partial<ImportPreviewRow> = {}): I
 
 type Call = { url: string; body: unknown };
 const calls: Call[] = [];
-let previewReply: () => Response;
-let bulkReply: (body: { rows: Array<{ name: string }> }) => Response;
+let previewReply: () => Response | Promise<Response>;
+let bulkReply: (body: { rows: Array<{ name: string }> }) => Response | Promise<Response>;
 let listCount = 0;
 
 beforeEach(() => {
@@ -288,6 +288,126 @@ describe("bulk deck import panel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not reach the server");
     expect(screen.getByRole("list", { name: "Decks to import" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Import 1 deck" })).toBeEnabled();
+  });
+
+  it("keeps the import result when a file is dropped during the import", async () => {
+    previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Alpha"), row("b1-paste#1", "Beta")] });
+    let release = () => {};
+    bulkReply = () => new Promise<Response>((resolve) => {
+      release = () => resolve(Response.json({ created: [{ id: 1, name: "Alpha" }, { id: 2, name: "Beta" }], failed: [] }));
+    });
+    await openPaste(TWO_CODES);
+    await screen.findByRole("list", { name: "Decks to import" });
+    const loads = listCount;
+    fireEvent.click(screen.getByRole("button", { name: "Import 2 decks" }));
+    await screen.findByRole("button", { name: "Importing…" });
+
+    fireEvent.drop(screen.getByText(/Private lists you can import/), {
+      dataTransfer: { types: ["Files"], files: [new File(["#main\n89631139\n"], "Late.ydk")] },
+    });
+    expect(await screen.findByText(/Wait for the import to finish/)).toBeInTheDocument();
+
+    release();
+    await screen.findByText("2 decks were created.");
+    await waitFor(() => expect(listCount).toBe(loads + 1));
+    // The late file made no preview call, and the created rows are gone from the list.
+    expect(calls.filter((call) => call.url.endsWith("preview"))).toHaveLength(1);
+    expect(screen.queryByRole("list", { name: "Decks to import" })).toBeNull();
+  });
+
+  it("queues a second pick while the first preview loads, so neither is lost", async () => {
+    let release = () => {};
+    let round = 0;
+    previewReply = () => {
+      round += 1;
+      if (round === 1) {
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "First")] }));
+        });
+      }
+      return Response.json({ maxDecks: 50, rows: [row("b2-f0#0", "Second")] });
+    };
+    await openPaste("ydke://o6lXBQ==!!!");
+    await waitFor(() => expect(calls).toHaveLength(1));
+    fireEvent.drop(screen.getByText(/Private lists you can import/), {
+      dataTransfer: { types: ["Files"], files: [new File(["#main\n89631139\n"], "Second.ydk")] },
+    });
+    // The second pick waits for the first reply.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).toHaveLength(1);
+
+    release();
+    await screen.findByLabelText("Deck name for Second");
+    expect(screen.getByLabelText("Deck name for First")).toBeInTheDocument();
+    expect(calls).toHaveLength(2);
+    expect(screen.getByText(/2 decks found, 2 selected/)).toBeInTheDocument();
+  });
+
+  it("numbers the unnamed YDKE decks on from the rows already in the list", async () => {
+    let round = 0;
+    previewReply = () => {
+      round += 1;
+      const p = round === 1 ? "b1" : "b2";
+      return Response.json({
+        maxDecks: 50,
+        rows: [row(`${p}-paste#0`, "Imported deck 1"), row(`${p}-paste#1`, "Imported deck 2")],
+      });
+    };
+    await openPaste(TWO_CODES);
+    await screen.findByRole("list", { name: "Decks to import" });
+    fireEvent.change(screen.getByLabelText("YDK text or YDKE codes"), { target: { value: TWO_CODES } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview decks" }));
+
+    await screen.findByLabelText("Deck name for Imported deck 4");
+    const names = within(screen.getByRole("list", { name: "Decks to import" })).getAllByRole("textbox").map((box) => (box as HTMLInputElement).value);
+    expect(names).toEqual(["Imported deck 1", "Imported deck 2", "Imported deck 3", "Imported deck 4"]);
+  });
+
+  it("shows the line number of an issue in the details", async () => {
+    previewReply = () => Response.json({
+      maxDecks: 50,
+      rows: [row("b1-paste#0", "Odd", { warnings: [{ code: "bad_line", message: "This line is not a passcode.", line: 7 }] })],
+    });
+    await openPaste("#main\n89631139");
+    await screen.findByRole("list", { name: "Decks to import" });
+    fireEvent.click(screen.getByRole("button", { name: /1 warning/ }));
+    expect(screen.getByText("Line 7")).toBeInTheDocument();
+    expect(screen.getByText("This line is not a passcode.")).toBeInTheDocument();
+  });
+
+  it("counts decks, not files, against the limit, before any call", async () => {
+    const lines = Array.from({ length: 51 }, () => "ydke://o6lXBQ==!!!").join("\n");
+    await openPaste(lines);
+    expect(await screen.findByText(/That text has 51 decks/)).toBeInTheDocument();
+    expect(calls).toHaveLength(0);
+
+    // A file with 30 YDKE lines uses 30 of the 50, so a second one of 30 is left out with a note.
+    previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-f0#0", "Thirty")] });
+    const thirty = Array.from({ length: 30 }, () => "ydke://o6lXBQ==!!!").join("\n");
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    fireEvent.change(screen.getByLabelText("Deck files"), {
+      target: { files: [new File([thirty], "A.txt"), new File([thirty], "B.txt")] },
+    });
+    await screen.findByRole("list", { name: "Decks to import" });
+    expect((calls[0].body as { sources: Array<{ name: string }> }).sources.map((source) => source.name)).toEqual(["A.txt"]);
+    expect(screen.getByText(/B\.txt was left out. One import can hold 50 decks/)).toBeInTheDocument();
+  });
+
+  it("reads failed decks out once in a status line and puts no alert on the rows", async () => {
+    previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Alpha"), row("b1-paste#1", "Beta")] });
+    bulkReply = () => Response.json({
+      created: [],
+      failed: [
+        { index: 0, errors: [{ code: "x", message: "No room." }] },
+        { index: 1, errors: [{ code: "x", message: "No room." }] },
+      ],
+    });
+    await openPaste(TWO_CODES);
+    await screen.findByRole("list", { name: "Decks to import" });
+    fireEvent.click(screen.getByRole("button", { name: "Import 2 decks" }));
+    await screen.findAllByText("Not imported. No room.");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("2 decks could not be created.");
   });
 
   it("says so when the server finds no decks", async () => {

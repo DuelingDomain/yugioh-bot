@@ -26,3 +26,29 @@
 }
 :global(.ms) .toast[data-ok] { border-color: rgb(var(--beam) / 0.45); }
 :global(.ms) .toast:not([data-ok]) { border-color: rgb(228 90 77 / 0.6); color: var(--loss-ink); }
+
+/* The by-hand copy box. It also renders through SheetPortal. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 63;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.55);
+}
+:global(.ms) .dialog {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 460px);
+  padding: 18px;
+  border: 1px solid var(--rule-hi);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--ink);
+  box-shadow: 0 18px 40px -16px #000;
+}
+.dialogTitle { margin: 0; font-size: 17px; }
+.dialogText { margin: 0; color: var(--ink-2); font-size: 14.5px; line-height: 1.5; }
+.code { width: 100%; resize: none; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+.dialogActs { display: flex; justify-content: flex-end; }

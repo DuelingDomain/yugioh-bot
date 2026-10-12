@@ -18,21 +18,32 @@ const TABS = [
 
 const PASTE_EXAMPLE = "ydke://o6lXBQ==!!!";
 
+/** One live summary of the last import. The reason for each failed deck is under that deck in the list. */
 function ImportCreated({ outcome }: { outcome: ImportOutcome }) {
-  const { created } = outcome;
+  const { created, failedCount } = outcome;
   return (
-    <div className={styles.pvDone} role="status">
-      <StatusLine tone="ready">
-        {created.length === 1 ? "1 deck was created." : `${created.length} decks were created.`}
-      </StatusLine>
-      <ul className={styles.results} aria-label="Created decks">
-        {created.map((deck) => (
-          <li key={deck.id}>
-            <span className={styles.resFile}>{deck.name}</span>
-            <Link href={`/decks/${deck.id}`} className={styles.resLink} aria-label={`Open ${deck.name}`}>Open</Link>
-          </li>
-        ))}
-      </ul>
+    <div className={styles.pvDone} role="status" aria-live="polite">
+      {created.length > 0 ? (
+        <StatusLine tone="ready">
+          {created.length === 1 ? "1 deck was created." : `${created.length} decks were created.`}
+        </StatusLine>
+      ) : null}
+      {created.length > 0 ? (
+        <ul className={styles.results} aria-label="Created decks">
+          {created.map((deck) => (
+            <li key={deck.id}>
+              <span className={styles.resFile}>{deck.name}</span>
+              <Link href={`/decks/${deck.id}`} className={styles.resLink} aria-label={`Open ${deck.name}`}>Open</Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {failedCount > 0 ? (
+        <StatusLine tone="block">
+          {failedCount === 1 ? "1 deck could not be created." : `${failedCount} decks could not be created.`}
+          {" "}The reason is under each deck below. You can try again.
+        </StatusLine>
+      ) : null}
     </div>
   );
 }
@@ -146,7 +157,7 @@ export function DeckImportPanel({
         </div>
       ) : null}
 
-      {outcome && outcome.created.length > 0 ? <ImportCreated outcome={outcome} /> : null}
+      {outcome && (outcome.created.length > 0 || outcome.failedCount > 0) ? <ImportCreated outcome={outcome} /> : null}
 
       {listed ? (
         <ImportPreviewList

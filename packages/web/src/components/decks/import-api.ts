@@ -17,8 +17,8 @@ export type ImportSource = { id: string; name: string; text: string; mode?: Impo
 
 export type ImportDeck = { main: number[]; extra: number[]; side: number[]; deckMaster: number | null };
 
-export type ImportError = { code: string; message: string; passcode?: number };
-export type ImportWarning = { code: string; message: string; from?: number; to?: number };
+export type ImportError = { code: string; message: string; passcode?: number; line?: number };
+export type ImportWarning = { code: string; message: string; from?: number; to?: number; line?: number };
 
 export type ImportDuplicate =
   | { kind: "saved"; deckId: number; name: string }
