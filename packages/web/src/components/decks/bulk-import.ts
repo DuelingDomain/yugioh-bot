@@ -4,12 +4,31 @@ import {
   IMPORT_MAX_DECKS,
   IMPORT_MAX_SOURCE_BYTES,
   type BulkImportRow,
+  type ImportMode,
   type ImportPreviewRow,
   type ImportSource,
 } from "./import-api";
 
-/** One preview row as the person edits it: the server's row plus the name they typed and the checkbox. */
-export type PreviewItem = { row: ImportPreviewRow; name: string; selected: boolean };
+export const MODE_CHOICES = [
+  { value: "standard" as const, label: "Standard" },
+  { value: "domain" as const, label: "Domain" },
+] satisfies ReadonlyArray<{ value: ImportMode; label: string }>;
+
+export function importModeLabel(mode: ImportMode): string {
+  return mode === "domain" ? "Domain" : "Standard";
+}
+
+/**
+ * One preview row as the person edits it: the server's row plus the name they typed, the checkbox, the mode
+ * it is saved as, and why the last import of it failed (if it did).
+ */
+export type PreviewItem = {
+  row: ImportPreviewRow;
+  name: string;
+  selected: boolean;
+  mode: ImportMode;
+  failure: string | null;
+};
 
 export type SourceBatch = { sources: ImportSource[]; notes: string[] };
 
@@ -53,14 +72,28 @@ export function pasteSource(text: string): SourceBatch {
   return { sources: [{ id: "paste", name: "Pasted deck", text: trimmed }], notes: [] };
 }
 
+/**
+ * Gives every source of one pick a batch prefix and the chosen mode. The server builds row ids from source ids,
+ * so the prefix keeps row ids unique when a later pick is added to the rows already on screen.
+ */
+export function tagSources(sources: ImportSource[], batch: number, mode: ImportMode): ImportSource[] {
+  return sources.map((source) => ({ ...source, id: `b${batch}-${source.id}`, mode }));
+}
+
 /** A row with an error cannot be imported. */
 export function hasErrors(row: ImportPreviewRow): boolean {
   return row.errors.length > 0;
 }
 
 /** Rows with errors start unchecked, and so do duplicates. Everything else starts checked. */
-export function toItems(rows: ImportPreviewRow[]): PreviewItem[] {
-  return rows.map((row) => ({ row, name: row.name, selected: !hasErrors(row) && !row.duplicateOf }));
+export function toItems(rows: ImportPreviewRow[], requested: ImportMode): PreviewItem[] {
+  return rows.map((row) => ({
+    row,
+    name: row.name,
+    selected: !hasErrors(row) && !row.duplicateOf,
+    mode: row.mode ?? requested,
+    failure: null,
+  }));
 }
 
 export function selectedItems(items: PreviewItem[]): PreviewItem[] {
@@ -69,7 +102,11 @@ export function selectedItems(items: PreviewItem[]): PreviewItem[] {
 
 /** What the bulk call sends: only the checked rows, with the names as edited. */
 export function toBulkRows(items: PreviewItem[]): BulkImportRow[] {
-  return selectedItems(items).map((item) => ({ name: cutName(item.name.trim()) || DEFAULT_NAME, deck: item.row.deck }));
+  return selectedItems(items).map((item) => ({
+    name: cutName(item.name.trim()) || DEFAULT_NAME,
+    deck: item.row.deck,
+    mode: item.mode,
+  }));
 }
 
 /** "Duplicate of <name>": a saved deck by its name, an earlier row by the name it has now. */

@@ -122,6 +122,7 @@
 .pvName { max-width: 420px; }
 .pvChips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; }
 .pvDup { padding: 2px 10px; border: 1px solid rgb(228 182 79 / 0.4); border-radius: 999px; background: var(--chain-soft); color: var(--chain-ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.pvFail { margin: 0; color: var(--loss-ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .pvChip { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 8px 2px 9px; border: 1px solid var(--rule-lo); border-radius: 999px; background: none; font: inherit; font-size: 13px; cursor: pointer; }
 .pvChip[data-tone="error"] { border-color: rgb(228 90 77 / 0.5); color: var(--loss-ink); }
 .pvChip[data-tone="warn"] { border-color: rgb(228 182 79 / 0.4); color: var(--warn-ink); }

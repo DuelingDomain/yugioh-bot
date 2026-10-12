@@ -85,7 +85,7 @@ describe("bulk deck import panel", () => {
     expect(within(list).getAllByRole("checkbox", { checked: true })).toHaveLength(2);
     expect(calls).toEqual([{
       url: "/api/decks/import/preview",
-      body: { sources: [{ id: "paste", name: "Pasted deck", text: TWO_CODES }] },
+      body: { sources: [{ id: "b1-paste", name: "Pasted deck", text: TWO_CODES, mode: "standard" }] },
     }]);
     expect(screen.getByText(/2 decks found, 2 selected/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Import 2 decks" })).toBeEnabled();
@@ -139,10 +139,10 @@ describe("bulk deck import panel", () => {
     expect(screen.getByRole("button", { name: "Import 1 deck" })).toBeEnabled();
   });
 
-  it("imports only the checked rows with their edited names, then shows the result and reloads the library", async () => {
+  it("imports only the checked rows with their edited names, keeps the failed row, and reloads the library", async () => {
     previewReply = () => Response.json({
       maxDecks: 50,
-      rows: [row("f0#0", "Alpha"), row("f1#0", "Beta"), row("f2#0", "Gamma")],
+      rows: [row("b1-f0#0", "Alpha"), row("b1-f1#0", "Beta"), row("b1-f2#0", "Gamma")],
     });
     bulkReply = (body) => Response.json({
       created: [{ id: 31, name: body.rows[0].name }],
@@ -162,15 +162,94 @@ describe("bulk deck import panel", () => {
     const bulk = calls.find((call) => call.url === "/api/decks/import/bulk")!;
     expect(bulk.body).toEqual({
       rows: [
-        { name: "Alpha Prime", deck: { ...EMPTY, main: [89631139, 89631139, 55144522] } },
-        { name: "Beta", deck: { ...EMPTY, main: [89631139, 89631139, 55144522] } },
+        { name: "Alpha Prime", deck: { ...EMPTY, main: [89631139, 89631139, 55144522] }, mode: "standard" },
+        { name: "Beta", deck: { ...EMPTY, main: [89631139, 89631139, 55144522] }, mode: "standard" },
       ],
     });
     expect(within(screen.getByRole("list", { name: "Created decks" })).getByText("Alpha Prime")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Alpha Prime" })).toHaveAttribute("href", "/decks/31");
-    expect(screen.getByText("1 deck could not be created.")).toBeInTheDocument();
-    expect(screen.getByText("You have too many decks.")).toBeInTheDocument();
+
+    // The created row left the list. The failed row stays, checked, with its reason. The unsent row stays.
+    const list = screen.getByRole("list", { name: "Decks to import" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(list).queryByLabelText("Deck name for Alpha")).toBeNull();
+    expect(within(list).getByText("Not imported. You have too many decks.")).toBeInTheDocument();
+    expect(within(list).getByLabelText("Import Beta")).toBeChecked();
+    expect(within(list).getByLabelText("Import Gamma")).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Import 1 deck" })).toBeEnabled();
     await waitFor(() => expect(listCount).toBeGreaterThan(listLoads));
+  });
+
+  it("retries a failed row and then shows the finished state", async () => {
+    previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Alpha"), row("b1-paste#1", "Beta")] });
+    bulkReply = (body) => (body.rows.length === 2
+      ? Response.json({
+        created: [{ id: 5, name: "Alpha" }],
+        failed: [{ index: 1, errors: [{ code: "busy", message: "Try again." }] }],
+      })
+      : Response.json({ created: [{ id: 6, name: "Beta again" }], failed: [] }));
+    await openPaste(TWO_CODES);
+    await screen.findByRole("list", { name: "Decks to import" });
+    fireEvent.click(screen.getByRole("button", { name: "Import 2 decks" }));
+    await screen.findByText("Not imported. Try again.");
+
+    fireEvent.change(screen.getByLabelText("Deck name for Beta"), { target: { value: "Beta again" } });
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 deck" }));
+    expect(await screen.findByRole("link", { name: "Open Beta again" })).toHaveAttribute("href", "/decks/6");
+    expect(screen.queryByRole("list", { name: "Decks to import" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+    const retry = calls.filter((call) => call.url === "/api/decks/import/bulk")[1];
+    expect((retry.body as { rows: Array<{ name: string }> }).rows.map((r) => r.name)).toEqual(["Beta again"]);
+  });
+
+  it("sends the chosen mode on preview and bulk, and shows it on each row", async () => {
+    previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Alpha", { mode: "domain" })] });
+    bulkReply = () => Response.json({ created: [{ id: 3, name: "Alpha" }], failed: [] });
+    render(<SavedDeckLibrary />);
+    await screen.findByText(/No saved decks yet/);
+    fireEvent.click(screen.getByRole("button", { name: "Import decks" }));
+    fireEvent.click(screen.getByRole("button", { name: "Domain" }));
+    fireEvent.click(screen.getByRole("button", { name: "Paste" }));
+    // The picker is on the Paste tab too, and keeps its value.
+    expect(screen.getByRole("button", { name: "Domain" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.change(screen.getByLabelText("YDK text or YDKE codes"), { target: { value: "ydke://o6lXBQ==!!!" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview decks" }));
+
+    const list = await screen.findByRole("list", { name: "Decks to import" });
+    expect(calls[0].body).toMatchObject({ sources: [{ id: "b1-paste", mode: "domain" }] });
+    expect(within(list).getByText("Domain")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 deck" }));
+    await screen.findByText("1 deck was created.");
+    expect(calls[1].body).toMatchObject({ rows: [{ name: "Alpha", mode: "domain" }] });
+  });
+
+  it("adds a new paste to the rows on screen and keeps name edits and unchecked boxes", async () => {
+    let round = 0;
+    previewReply = () => {
+      round += 1;
+      return Response.json({
+        maxDecks: 50,
+        rows: round === 1
+          ? [row("b1-paste#0", "Alpha"), row("b1-paste#1", "Beta")]
+          : [row("b2-paste#0", "Gamma")],
+      });
+    };
+    await openPaste(TWO_CODES);
+    await screen.findByRole("list", { name: "Decks to import" });
+    fireEvent.change(screen.getByLabelText("Deck name for Alpha"), { target: { value: "My Alpha" } });
+    fireEvent.click(screen.getByLabelText("Import Beta"));
+
+    expect(screen.getByLabelText("YDK text or YDKE codes")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("YDK text or YDKE codes"), { target: { value: "ydke://o6lXBQ==!!!" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview decks" }));
+
+    await screen.findByLabelText("Deck name for Gamma");
+    expect(screen.getByLabelText("Deck name for Alpha")).toHaveValue("My Alpha");
+    expect(screen.getByLabelText("Import Beta")).not.toBeChecked();
+    expect(screen.getByLabelText("Import Gamma")).toBeChecked();
+    expect(screen.getByText(/3 decks found, 2 selected/)).toBeInTheDocument();
+    // The second call used a new source id, so its row ids cannot collide with the first.
+    expect(calls[1].body).toMatchObject({ sources: [{ id: "b2-paste" }] });
   });
 
   it("sends picked files as sources and skips a file over the size limit", async () => {
@@ -184,7 +263,7 @@ describe("bulk deck import panel", () => {
     });
 
     await screen.findByRole("list", { name: "Decks to import" });
-    expect(calls[0].body).toEqual({ sources: [{ id: "f0", name: "Branded.ydk", text: "#main\n89631139\n" }] });
+    expect(calls[0].body).toEqual({ sources: [{ id: "b1-f0", name: "Branded.ydk", text: "#main\n89631139\n", mode: "standard" }] });
     expect(screen.getByText(/Huge\.ydk is too large/)).toBeInTheDocument();
   });
 

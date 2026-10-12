@@ -4,9 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { RotateCw, Upload } from "lucide-react";
 import { Segmented, SectionHead, StatusLine, SvButton } from "@/components/sheet";
-import type { BulkImportResult } from "./import-api";
+import { MODE_CHOICES } from "./bulk-import";
 import { ImportPreviewList } from "./import-preview";
-import type { BulkImporter, ImportTab } from "./use-bulk-import";
+import type { BulkImporter, ImportOutcome, ImportTab } from "./use-bulk-import";
 import styles from "./library.module.css";
 
 export type DeckImporter = BulkImporter;
@@ -18,48 +18,29 @@ const TABS = [
 
 const PASTE_EXAMPLE = "ydke://o6lXBQ==!!!";
 
-function ImportResult({ names, result, onMore, onClose }: {
-  names: string[];
-  result: BulkImportResult;
-  onMore: () => void;
-  onClose: () => void;
-}) {
-  const { created, failed } = result;
+function ImportCreated({ outcome }: { outcome: ImportOutcome }) {
+  const { created } = outcome;
   return (
     <div className={styles.pvDone} role="status">
-      {created.length > 0 ? (
-        <StatusLine tone="ready">
-          {created.length === 1 ? "1 deck was created." : `${created.length} decks were created.`}
-        </StatusLine>
-      ) : null}
-      {created.length > 0 ? (
-        <ul className={styles.results} aria-label="Created decks">
-          {created.map((deck) => (
-            <li key={deck.id}>
-              <span className={styles.resFile}>{deck.name}</span>
-              <Link href={`/decks/${deck.id}`} className={styles.resLink} aria-label={`Open ${deck.name}`}>Open</Link>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {failed.length > 0 ? (
-        <>
-          <StatusLine tone="block">
-            {failed.length === 1 ? "1 deck could not be created." : `${failed.length} decks could not be created.`}
-          </StatusLine>
-          <ul className={styles.results} aria-label="Decks that failed">
-            {failed.map((item) => (
-              <li key={item.index} data-st="failed">
-                <span className={styles.resFile}>{names[item.index] ?? `Deck ${item.index + 1}`}</span>
-                <span className={styles.resFacts}>
-                  {item.errors.length > 0 ? item.errors.map((issue) => issue.message).join(" ") : "The server refused this deck."}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
-      {created.length === 0 && failed.length === 0 ? <StatusLine tone="neutral">Nothing was imported.</StatusLine> : null}
+      <StatusLine tone="ready">
+        {created.length === 1 ? "1 deck was created." : `${created.length} decks were created.`}
+      </StatusLine>
+      <ul className={styles.results} aria-label="Created decks">
+        {created.map((deck) => (
+          <li key={deck.id}>
+            <span className={styles.resFile}>{deck.name}</span>
+            <Link href={`/decks/${deck.id}`} className={styles.resLink} aria-label={`Open ${deck.name}`}>Open</Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ImportDone({ outcome, onMore, onClose }: { outcome: ImportOutcome; onMore: () => void; onClose: () => void }) {
+  return (
+    <div className={styles.pvDone}>
+      {outcome.created.length > 0 ? <ImportCreated outcome={outcome} /> : <StatusLine tone="neutral">Nothing was imported.</StatusLine>}
       <div className={styles.resFoot}>
         <SvButton variant="quiet" onClick={onMore}>Import more</SvButton>
         <SvButton variant="ghost" onClick={onClose}>Done</SvButton>
@@ -77,10 +58,14 @@ export function DeckImportPanel({
   dragging: boolean;
   onClose: () => void;
 }) {
-  const { tab, setTab, view, error, notes, previewFiles, previewPaste, rename, toggle, toggleAll, importSelected, reset } = importer;
+  const { tab, setTab, mode, setMode, view, error, notes, previewFiles, previewPaste, rename, toggle, toggleAll, importSelected, reset } = importer;
   const [paste, setPaste] = useState("");
   const busy = view.phase === "loading" || view.phase === "importing";
-  const showSource = view.phase === "idle" || view.phase === "loading";
+  const showSource = view.phase === "idle" || view.phase === "loading" || view.phase === "preview";
+  const items = view.phase === "idle" || view.phase === "done" ? [] : view.items;
+  const maxDecks = view.phase === "idle" || view.phase === "done" ? 0 : view.maxDecks;
+  const listed = view.phase === "preview" || view.phase === "importing" || (view.phase === "loading" && items.length > 0);
+  const outcome = view.phase === "preview" || view.phase === "importing" || view.phase === "loading" ? view.outcome : null;
 
   return (
     <section className={styles.import} aria-labelledby="deck-import-title">
@@ -92,6 +77,7 @@ export function DeckImportPanel({
 
       {showSource ? (
         <div className={styles.importSource}>
+          <Segmented label="Save as" value={mode} options={MODE_CHOICES} disabled={busy} onChange={setMode} />
           <Segmented label="Import from" value={tab} options={TABS} disabled={busy} onChange={setTab} />
 
           {tab === "files" ? (
@@ -132,7 +118,7 @@ export function DeckImportPanel({
                 <code>{PASTE_EXAMPLE}</code>
               </p>
               <div>
-                <SvButton variant="primary" disabled={busy || !paste.trim()} onClick={() => previewPaste(paste)}>
+                <SvButton variant="primary" disabled={busy || !paste.trim()} onClick={() => void previewPaste(paste).then((added) => { if (added) setPaste(""); })}>
                   Preview decks
                 </SvButton>
               </div>
@@ -160,11 +146,13 @@ export function DeckImportPanel({
         </div>
       ) : null}
 
-      {view.phase === "preview" || view.phase === "importing" ? (
+      {outcome && outcome.created.length > 0 ? <ImportCreated outcome={outcome} /> : null}
+
+      {listed ? (
         <ImportPreviewList
-          items={view.items}
-          maxDecks={view.maxDecks}
-          busy={view.phase === "importing"}
+          items={items}
+          maxDecks={maxDecks}
+          busy={view.phase !== "preview"}
           onRename={rename}
           onToggle={toggle}
           onToggleAll={toggleAll}
@@ -173,9 +161,7 @@ export function DeckImportPanel({
         />
       ) : null}
 
-      {view.phase === "done" ? (
-        <ImportResult names={view.names} result={view.result} onMore={reset} onClose={onClose} />
-      ) : null}
+      {view.phase === "done" ? <ImportDone outcome={view.outcome} onMore={reset} onClose={onClose} /> : null}
     </section>
   );
 }

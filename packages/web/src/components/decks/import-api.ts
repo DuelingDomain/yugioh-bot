@@ -10,7 +10,10 @@ export const IMPORT_MAX_DECKS = 50;
 export const IMPORT_MAX_SOURCE_BYTES = 64 * 1024;
 export const IMPORT_MAX_BODY_BYTES = 1024 * 1024;
 
-export type ImportSource = { id: string; name: string; text: string };
+/** The deck format a row is saved as. The server names them "standard" and "domain". */
+export type ImportMode = "standard" | "domain";
+
+export type ImportSource = { id: string; name: string; text: string; mode?: ImportMode };
 
 export type ImportDeck = { main: number[]; extra: number[]; side: number[]; deckMaster: number | null };
 
@@ -29,12 +32,13 @@ export type ImportPreviewRow = {
   counts: { main: number; extra: number; side: number };
   errors: ImportError[];
   warnings: ImportWarning[];
+  mode?: ImportMode;
   duplicateOf?: ImportDuplicate | null;
 };
 
 export type ImportPreview = { maxDecks: number; rows: ImportPreviewRow[] };
 
-export type BulkImportRow = { name: string; deck: ImportDeck };
+export type BulkImportRow = { name: string; deck: ImportDeck; mode?: ImportMode };
 
 export type BulkImportResult = {
   created: Array<{ id: number; name: string }>;

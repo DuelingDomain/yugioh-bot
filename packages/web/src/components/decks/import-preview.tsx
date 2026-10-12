@@ -4,7 +4,7 @@ import { useId, useState } from "react";
 import { ChevronDown, CircleAlert, TriangleAlert } from "lucide-react";
 import { SvButton } from "@/components/sheet";
 import { MAX_NAME_LENGTH } from "./model";
-import { duplicateLabel, hasErrors, selectedItems, type PreviewItem } from "./bulk-import";
+import { duplicateLabel, hasErrors, importModeLabel, selectedItems, type PreviewItem } from "./bulk-import";
 import styles from "./library.module.css";
 
 function plural(count: number, word: string): string {
@@ -55,11 +55,13 @@ function PreviewRow({ item, items, disabled, onRename, onToggle }: {
           onChange={(event) => onRename(event.target.value)}
         />
         <p className={styles.counts}>
+          <span>{importModeLabel(item.mode)}</span>
           <span>Main <b>{row.counts.main}</b></span>
           <span>Extra <b>{row.counts.extra}</b></span>
           <span>Side <b>{row.counts.side}</b></span>
           {row.deck.deckMaster != null ? <span>Master</span> : null}
         </p>
+        {item.failure ? <p className={styles.pvFail} role="alert">Not imported. {item.failure}</p> : null}
         {duplicate || details.length > 0 ? (
           <p className={styles.pvChips}>
             {duplicate ? <span className={styles.pvDup}>{duplicate}</span> : null}
@@ -108,6 +110,7 @@ export function ImportPreviewList({ items, maxDecks, busy, onRename, onToggle, o
   const chosen = selectedItems(items).length;
   const allChosen = usable.length > 0 && chosen === usable.length;
   const blockedCount = items.length - usable.length;
+  const tooMany = maxDecks > 0 && chosen > maxDecks;
 
   if (items.length === 0) {
     return (
@@ -135,11 +138,11 @@ export function ImportPreviewList({ items, maxDecks, busy, onRename, onToggle, o
         <p className={styles.pvSummary} aria-live="polite">
           {plural(items.length, "deck")} found, {chosen} selected
           {blockedCount > 0 ? `, ${blockedCount} with errors` : ""}
-          {items.length >= maxDecks ? `. Up to ${maxDecks} decks per import.` : ""}
+          {tooMany ? `. Up to ${maxDecks} decks per import. Clear some boxes.` : items.length >= maxDecks ? `. Up to ${maxDecks} decks per import.` : ""}
         </p>
         <span className={styles.pvActs}>
           <SvButton variant="quiet" disabled={busy} onClick={onCancel}>Cancel</SvButton>
-          <SvButton variant="primary" disabled={chosen === 0 || busy} aria-busy={busy || undefined} onClick={onImport}>
+          <SvButton variant="primary" disabled={chosen === 0 || tooMany || busy} aria-busy={busy || undefined} onClick={onImport}>
             {busy ? "Importing…" : `Import ${plural(chosen, "deck")}`}
           </SvButton>
         </span>
