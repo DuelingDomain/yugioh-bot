@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./decks": {
+      "types": "./dist/decks/formats.d.ts",
+      "source": "./src/decks/formats.ts",
+      "default": "./dist/decks/formats.js"
+    },
     "./duels": {
       "types": "./dist/duels/index.d.ts",
       "source": "./src/duels/index.ts",
