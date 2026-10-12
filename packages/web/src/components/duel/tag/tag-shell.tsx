@@ -178,17 +178,18 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
 
   // The camera never zooms in by itself, and a close-up the viewer chose is not left for the viewer's own actions, a response
   // window or a chain. Two things follow the engine events newer than the last one handled (the cursor):
-  // - Another player's action (activate, summon, set, attack, chain link) on a field other than the one in close-up sends a
-  //   close-up (or any other view) to the overview, once. Nothing sends it back: it stays out until the viewer zooms in.
+  // - Another player's action (activate, summon, set, attack) that touches a field other than the one in close-up sends the
+  //   close-up (only a close-up: not Home, Rival end or Fly) to the overview, once. Nothing sends it back: it stays out until
+  //   the viewer zooms in. This also holds with reduced motion (the move is a jump, with no animation).
   // - On the overview, an attack, chain link or destroy locks the camera for its FX (the view does not change).
-  // With reduced motion, or while the connection is down (the FX replay nothing), no lock starts and no move happens, but the
-  // cursor still moves, so old events never move the camera later.
+  // With reduced motion no lock starts; while the connection is down (the FX replay nothing) no lock starts and no move
+  // happens. In both cases the cursor still moves, so old events never move the camera later.
   const lastEvent = useRef<number>(lastEventId(engine.events, 0));
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
   useEffect(() => {
     const now = cameraRef.current;
-    if (fxActive && !controller.reducedMotion && now.mode !== "overview" && !now.lock && otherPlayerActed(engine.events, lastEvent.current, viewerSeat, now.mode === "focus" ? now.focusSeat : null)) {
+    if (fxActive && now.mode === "focus" && !now.lock && otherPlayerActed(engine.events, lastEvent.current, viewerSeat, now.focusSeat, engine.turnSeat)) {
       dispatchCamera({ type: "overview" });
     }
     const lock = fxActive && now.mode === "overview" ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
@@ -198,7 +199,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     }
     lastEvent.current = lock.lastId;
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
-  }, [engine.events, fxActive, controller.reducedMotion, viewerSeat]);
+  }, [engine.events, engine.turnSeat, fxActive, controller.reducedMotion, viewerSeat]);
 
   // An aim never moves the camera either (the flag only keeps a tap on a field from zooming): the pills can still step to a rival field.
   useEffect(() => {

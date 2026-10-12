@@ -50,15 +50,25 @@ describe("lockForEvents", () => {
 });
 
 describe("otherPlayerActed", () => {
-  it("is true for an action of a seat that is neither the viewer nor the field in close-up", () => {
-    for (const kind of ["activate", "chain-resolving", "summon", "set", "attack"] as const) {
-      expect(otherPlayerActed([ev(1, kind, { seat: 1 })], 0, 0, 0)).toBe(true);
-    }
+  const zone = (controller: number, location = 4, sequence = 0) => ({ controller, location, sequence });
+
+  it("is true for an activation or an attack of a seat that is neither the viewer nor the field in close-up", () => {
+    expect(otherPlayerActed([ev(1, "activate", { seat: 1 })], 0, 0, 0)).toBe(true);
+    expect(otherPlayerActed([ev(1, "attack", { seat: 1 })], 0, 0, 0)).toBe(true);
   });
 
-  it("is false for the viewer's own actions and for the field in close-up", () => {
+  it("is false for the viewer's own actions", () => {
     expect(otherPlayerActed([ev(1, "activate", { seat: 0 }), ev(2, "attack", { seat: 0 })], 0, 0, 0)).toBe(false);
+    expect(otherPlayerActed([ev(1, "activate", { seat: 0, targets: [zone(2)] }), ev(2, "attack", { seat: 0, target: zone(2) })], 0, 0, 0)).toBe(false);
+  });
+
+  it("is false for an action on the field in close-up only", () => {
     expect(otherPlayerActed([ev(1, "activate", { seat: 1 })], 0, 0, 1)).toBe(false);
+    expect(otherPlayerActed([ev(1, "attack", { seat: 1, target: zone(1) })], 0, 0, 1)).toBe(false);
+  });
+
+  it("a chain link on its own is not an action: the activation of the link is", () => {
+    expect(otherPlayerActed([ev(1, "chain-resolving", { seat: 1 })], 0, 0, 0)).toBe(false);
   });
 
   it("is false for events that name the owner of a card and not who acted, for quiet events and for old events", () => {
@@ -70,5 +80,61 @@ describe("otherPlayerActed", () => {
   it("treats every acting seat as another player for a spectator", () => {
     expect(otherPlayerActed([ev(1, "activate", { seat: 2 })], 0, null, null)).toBe(true);
     expect(otherPlayerActed([ev(1, "activate", { seat: 2 })], 0, null, 2)).toBe(false);
+  });
+
+  describe("summon and set: the actor is not event.seat", () => {
+    it("a summon to a rival field on the viewer's turn, no link resolving, keeps the close-up", () => {
+      // A Kaiju or a token goes to seat 1; the turn player (the viewer, seat 0) summoned it.
+      expect(otherPlayerActed([ev(1, "summon", { seat: 1, zone: zone(1) })], 0, 0, 0, 0)).toBe(false);
+      expect(otherPlayerActed([ev(1, "set", { seat: 1, zone: zone(1, 8) })], 0, 0, 0, 0)).toBe(false);
+    });
+
+    it("a summon by another turn player to their own field goes out", () => {
+      expect(otherPlayerActed([ev(1, "summon", { seat: 1, zone: zone(1) })], 0, 0, 0, 1)).toBe(true);
+      expect(otherPlayerActed([ev(1, "set", { seat: 1, zone: zone(1, 8) })], 0, 0, 0, 1)).toBe(true);
+    });
+
+    it("a summon to the field in close-up by the rival turn player stays when it lands on the close-up field", () => {
+      expect(otherPlayerActed([ev(1, "summon", { seat: 0, zone: zone(0) })], 0, 0, 0, 1)).toBe(false);
+    });
+
+    it("the owner of the resolving chain link is the actor, not the turn player", () => {
+      const link = ev(1, "chain-resolving", { seat: 1 });
+      expect(otherPlayerActed([link, ev(2, "summon", { seat: 1, zone: zone(1) })], 0, 0, 0, 0)).toBe(true);
+      // The viewer's link resolves on the rival's turn: the summon is the viewer's.
+      const mine = ev(1, "chain-resolving", { seat: 0 });
+      expect(otherPlayerActed([mine, ev(2, "summon", { seat: 1, zone: zone(1) })], 0, 0, 0, 1)).toBe(false);
+    });
+
+    it("a link that already resolved no longer names the actor", () => {
+      const events = [ev(1, "chain-resolving", { seat: 1 }), ev(2, "chain-resolved", { seat: 1 }), ev(3, "summon", { seat: 1, zone: zone(1) })];
+      expect(otherPlayerActed(events, 0, 0, 0, 0)).toBe(false);
+    });
+
+    it("a link resolved before the cursor still names the actor of a later summon", () => {
+      const events = [ev(1, "chain-resolving", { seat: 1 }), ev(5, "summon", { seat: 1, zone: zone(1) })];
+      expect(otherPlayerActed(events, 3, 0, 0, 0)).toBe(true);
+    });
+  });
+
+  describe("the fields an action touches", () => {
+    it("an attack from the close-up field on a monster of another field goes out, on its own field it does not", () => {
+      expect(otherPlayerActed([ev(1, "attack", { seat: 1, zone: zone(1), target: zone(0) })], 0, 0, 1)).toBe(true);
+      expect(otherPlayerActed([ev(1, "attack", { seat: 1, zone: zone(1), target: zone(1) })], 0, 0, 1)).toBe(false);
+    });
+
+    it("a direct attack on another field goes out, on the close-up field it does not", () => {
+      expect(otherPlayerActed([ev(1, "attack", { seat: 1, targetSeat: 2 })], 0, 0, 1)).toBe(true);
+      expect(otherPlayerActed([ev(1, "attack", { seat: 1, targetSeat: 1 })], 0, 0, 1)).toBe(false);
+    });
+
+    it("an activation that targets a card on another field goes out", () => {
+      expect(otherPlayerActed([ev(1, "activate", { seat: 1, zone: zone(1, 8), targets: [zone(2)] })], 0, 0, 1)).toBe(true);
+      expect(otherPlayerActed([ev(1, "activate", { seat: 1, zone: zone(1, 8), targets: [zone(1)] })], 0, 0, 1)).toBe(false);
+    });
+
+    it("a rival on another field who targets the close-up field goes out", () => {
+      expect(otherPlayerActed([ev(1, "activate", { seat: 2, zone: zone(2, 8), targets: [zone(0)] })], 0, 1, 0)).toBe(true);
+    });
   });
 });

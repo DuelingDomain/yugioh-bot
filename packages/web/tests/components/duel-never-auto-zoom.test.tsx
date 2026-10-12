@@ -65,6 +65,10 @@ function Tag({ state }: { state: TableFixtureState }) {
   const controller = useFixtureController(state, { reducedMotion: false });
   return <TagShell controller={controller} teamNames={[...TAG_TEAM_NAMES] as [string, string]} />;
 }
+function TagReduced({ state }: { state: TableFixtureState }) {
+  const controller = useFixtureController(state, { reducedMotion: true });
+  return <TagShell controller={controller} teamNames={[...TAG_TEAM_NAMES] as [string, string]} />;
+}
 function Table({ state }: { state: TableFixtureState }) {
   const controller = useFixtureController(state, { reducedMotion: true });
   return <TableShell controller={controller} />;
@@ -192,6 +196,65 @@ describe("the duel never zooms in on a field by itself", () => {
     rerender(<Tag state={later(base, 1, [...acts(1), ev(1005, "destroy", { seat: 3 }), ev(1006, "move", { seat: 2 })])} />);
     advance(6000);
     expect(tagMode(container)).toBe("focus:1");
+  });
+
+  it("Tag: a summon to a rival field on the viewer's own turn keeps the close-up", () => {
+    // A Kaiju or a token: event.seat is the controller (the rival), the actor is the turn player (the viewer).
+    const base = TAG_FIXTURES.states.main;
+    const { container, rerender } = render(<Tag state={base} />);
+    zoomOn(container, 0);
+    const zone = { controller: 1, location: 4, sequence: 2 };
+    rerender(<Tag state={later(base, 0, [ev(1001, "summon", { seat: 1, zone }), ev(1002, "set", { seat: 3, zone: { ...zone, controller: 3 } })])} />);
+    advance(6000);
+    expect(tagMode(container)).toBe("focus:0");
+  });
+
+  it("Tag: a rival who attacks or targets the close-up field from another field zooms out", () => {
+    const base = TAG_FIXTURES.states.main;
+    const { container, rerender } = render(<Tag state={base} />);
+    zoomOn(container, 0);
+    // Seat 1 attacks a monster of seat 0 (the close-up field), and the attacker's own field is another field.
+    rerender(<Tag state={later(base, 1, [ev(1001, "attack", { seat: 1, zone: { controller: 1, location: 4, sequence: 0 }, target: { controller: 0, location: 4, sequence: 0 } })])} />);
+    expect(tagMode(container)).toBe("overview:-");
+  });
+
+  it("Tag: a rival on the close-up field who targets a card on another field zooms out", () => {
+    const base = TAG_FIXTURES.states.main;
+    const { container, rerender } = render(<Tag state={base} />);
+    zoomOn(container, 1);
+    rerender(<Tag state={later(base, 1, [ev(1001, "activate", { seat: 1, zone: { controller: 1, location: 8, sequence: 0 }, targets: [{ controller: 0, location: 4, sequence: 1 }] })])} />);
+    expect(tagMode(container)).toBe("overview:-");
+  });
+
+  it("Tag: the Home view is not a close-up: a rival's play does not move it", () => {
+    const base = TAG_FIXTURES.states.main;
+    const { container, rerender } = render(<Tag state={base} />);
+    act(() => void fireEvent.keyDown(window, { key: "h" }));
+    expect(tagMode(container)).toBe("home:-");
+    rerender(<Tag state={later(base, 1, acts(1))} />);
+    advance(6000);
+    expect(tagMode(container)).toBe("home:-");
+  });
+
+  it("Tag: the Rival end view is not a close-up: a rival's play does not move it", () => {
+    const base = TAG_FIXTURES.states.main;
+    const { container, rerender } = render(<Tag state={base} />);
+    act(() => void fireEvent.keyDown(window, { key: "v" }));
+    const before = tagMode(container);
+    expect(before.startsWith("look:")).toBe(true);
+    rerender(<Tag state={later(base, 1, acts(1))} />);
+    advance(6000);
+    expect(tagMode(container)).toBe(before);
+  });
+
+  it("Tag: with reduced motion a rival's play on another field still zooms out once", () => {
+    const base = TAG_FIXTURES.states.main;
+    const { container, rerender } = render(<TagReduced state={base} />);
+    zoomOn(container, 0);
+    rerender(<TagReduced state={later(base, 1, acts(1))} />);
+    expect(tagMode(container)).toBe("overview:-");
+    advance(6000);
+    expect(tagMode(container)).toBe("overview:-");
   });
 
   it("Tag: other views, such as the overview, never zoom in by themselves, and the overview still locks for the FX", () => {
