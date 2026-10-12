@@ -219,14 +219,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // Set when an answer is sent; the next prompt then decides whether an open pile viewer stays.
   const pileAnswered = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  /** The neutral answer to a Ready, deck or start call that another player's deck blocked. Names no card. */
-  const [startNotice, setStartNotice] = useState<string | null>(null);
-  // The neutral line stops when another seat changes. This player's own Ready is not a change: it comes with the line.
-  const seatsKey = useMemo(
-    () => (data?.session.seats ?? []).map((seat) => `${seat.seat}:${seat.playerId ?? "-"}:${seat.isBot ? "b" : "p"}:${seat.seat === data?.mySeat ? "" : seat.ready ? "r" : "n"}`).join("|"),
-    [data?.session.seats, data?.mySeat],
-  );
-  useEffect(() => { setStartNotice(null); }, [seatsKey]);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [pane, setPane] = useState<SidePane>(DEFAULT_SIDE_PANE);
   // Log rows that arrived while the Log tab was out of view (the badge on the tab).
@@ -545,14 +537,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setMenu(null);
       setHover(null);
       setActionError(null);
-      setStartNotice(null);
       try {
         const result = await work();
+        // The neutral line comes from the room (`startBlockedByOther`), not from this answer. The string is
+        // dropped before the room is cached; it stood in place of this player's own blocker object, so a full
+        // room is read again. Any other answer already makes a room read in `applyAnswerResult`.
         const neutral = neutralStartBlocked(result);
-        setStartNotice(neutral);
         if (seq === mutationSeq.current) await applyAnswerResult(mutate, withoutNeutralStartBlocked(result));
-        // The answer carried the neutral line in place of this player's own blocker; read the room for the own note.
-        if (neutral && seq === mutationSeq.current) await mutate();
+        if (neutral && result && "engine" in result && seq === mutationSeq.current) await mutate();
       } catch (err) {
         setActionError(duelActionErrorText(err, { seatPick: kind === "seat-pick" }));
         await mutate();
@@ -821,7 +813,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   if (data.session.status === "lobby" && !ownWindowGate) {
     const opening = data.opening;
     const lobby = (
-      <RoomLobby room={data} presence={realtime.presence} slug={slug} busy={busy} starting={starting} actionError={actionError} startNotice={startNotice}
+      <RoomLobby room={data} presence={realtime.presence} slug={slug} busy={busy} starting={starting} actionError={actionError}
         onDeckLocked={() => void refreshRoom()}
         onTakeSeat={(seat) => void run(() => takeDuelSeat(slug, seat))}
         onAddBot={(seat) => void run(() => addPracticeBot(slug, seat))}

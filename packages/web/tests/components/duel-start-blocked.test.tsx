@@ -84,17 +84,23 @@ describe("RoomLobby: start blocked", () => {
   });
 
   it("shows the other player the neutral line and no card name", () => {
-    render(<RoomLobby {...lobbyProps(lobbyRoom(), { startNotice: NEUTRAL })} />);
+    const data = lobbyRoom();
+    data.startBlockedByOther = true;
+    const view = render(<RoomLobby {...lobbyProps(data)} />);
     const note = screen.getByTestId("start-blocked");
     expect(note).toHaveTextContent(NEUTRAL);
     expect(note.textContent).not.toMatch(/Fixture|cannot start/);
     expect(screen.queryByRole("button", { name: "Edit your deck" })).toBeNull();
+    // The line follows the room field: it goes when the field goes.
+    view.rerender(<RoomLobby {...lobbyProps(lobbyRoom())} />);
+    expect(screen.getByTestId("start-blocked")).toHaveTextContent("");
   });
 
   it("shows the owner's own note and not the neutral line when both are present", () => {
     const data = lobbyRoom();
     data.startBlocked = OWN;
-    render(<RoomLobby {...lobbyProps(data, { startNotice: NEUTRAL })} />);
+    data.startBlockedByOther = true;
+    render(<RoomLobby {...lobbyProps(data)} />);
     expect(screen.getAllByTestId("start-blocked")).toHaveLength(1);
     expect(screen.getByTestId("start-blocked")).toHaveTextContent("Your deck cannot start.");
   });
@@ -153,38 +159,21 @@ describe("BetweenGamesScreen: start blocked", () => {
     expect(await screen.findByTestId("start-blocked")).toHaveTextContent("Your deck cannot start.");
   });
 
-  it("shows the other player the neutral line after Ready, without a card name", async () => {
-    api.readySeries.mockResolvedValue({ series: between({ sideReady: [true, false] }), nextSlug: null, startBlocked: NEUTRAL });
-    render(<BetweenGamesScreen slug="game-1" room={roomFor()} onChanged={vi.fn()} onNavigate={vi.fn()} />);
+  it("sends the player on when Ready answers with the neutral text and nextSlug, and the new lobby shows the line from its room", async () => {
+    // The real host pair: the last Ready starts the next game, the start fails on the other deck, and the answer
+    // carries the neutral text with the new game's slug.
+    api.readySeries.mockResolvedValue({ series: between({ sideReady: [true, true], currentDuelSlug: "game-2", gameNumber: 2 }), nextSlug: "game-2", startBlocked: NEUTRAL });
+    const onNavigate = vi.fn();
+    render(<BetweenGamesScreen slug="game-1" room={roomFor()} onChanged={vi.fn()} onNavigate={onNavigate} />);
     fireEvent.click(await screen.findByRole("button", { name: "Ready" }));
-    const note = await screen.findByTestId("start-blocked");
-    expect(note).toHaveTextContent(NEUTRAL);
-    expect(note.textContent).not.toMatch(/Fixture/);
-    await waitFor(() => expect(api.readySeries).toHaveBeenCalledOnce());
-  });
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith("game-2"));
+    // This screen keeps no neutral state of its own.
+    expect(screen.getByTestId("start-blocked")).toHaveTextContent("");
+    cleanup();
 
-  it("drops the neutral line on Not ready", async () => {
-    api.readySeries.mockResolvedValue({ series: between({ sideReady: [true, false] }), nextSlug: null, startBlocked: NEUTRAL });
-    api.unreadySeries.mockReset().mockResolvedValue({ series: between(), nextSlug: null });
-    render(<BetweenGamesScreen slug="game-1" room={roomFor()} onChanged={vi.fn()} onNavigate={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Ready" }));
-    expect(await screen.findByTestId("start-blocked")).toHaveTextContent(NEUTRAL);
-    fireEvent.click(await screen.findByRole("button", { name: "Not ready" }));
-    await waitFor(() => expect(screen.getByTestId("start-blocked")).toHaveTextContent(""));
-  });
-
-  it("drops the neutral line when the other player's side of the series changes, not when the own Ready arrives", async () => {
-    api.readySeries.mockResolvedValue({ series: between({ sideReady: [true, false] }), nextSlug: null, startBlocked: NEUTRAL });
-    const props = { slug: "game-1", onChanged: vi.fn(), onNavigate: vi.fn() };
-    const first = roomFor();
-    const view = render(<BetweenGamesScreen {...props} room={first} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Ready" }));
-    expect(await screen.findByTestId("start-blocked")).toHaveTextContent(NEUTRAL);
-    const mine = { ...first, series: between({ sideReady: [true, false] }) };
-    view.rerender(<BetweenGamesScreen {...props} room={mine} />);
+    const lobby = lobbyRoom();
+    lobby.startBlockedByOther = true;
+    render(<RoomLobby {...lobbyProps(lobby)} />);
     expect(screen.getByTestId("start-blocked")).toHaveTextContent(NEUTRAL);
-    const theirs = { ...first, series: between({ sideReady: [true, true] }) };
-    view.rerender(<BetweenGamesScreen {...props} room={theirs} />);
-    await waitFor(() => expect(screen.getByTestId("start-blocked")).toHaveTextContent(""));
   });
 });

@@ -14,7 +14,7 @@ import { deckCounts } from "./side-deck-model";
 import { DuelSettingsSummary, RoomInvite } from "./room-settings";
 import { practiceBotNote } from "./series-model";
 import { StartBlockedNotice } from "./start-blocked-notice";
-import { LOCKED_DECK_BLOCKED_TEXT, ownStartBlocked } from "./start-blocked";
+import { LOCKED_DECK_BLOCKED_TEXT, NEUTRAL_START_BLOCKED_TEXT, ownStartBlocked } from "./start-blocked";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./room-lobby.module.css";
@@ -101,7 +101,6 @@ export function RoomLobby({
   busy,
   starting = false,
   actionError,
-  startNotice = null,
   onDeckLocked,
   onTakeSeat,
   onAddBot,
@@ -121,7 +120,6 @@ export function RoomLobby({
   starting?: boolean;
   actionError: string | null;
   /** The neutral line a Ready or start call answered when another player's deck blocks the start. */
-  startNotice?: string | null;
   /** A deck check was refused because the duel already started: refresh the room. */
   onDeckLocked?: () => void;
   onTakeSeat: (seat: number) => void;
@@ -243,7 +241,7 @@ export function RoomLobby({
                 </p>
               )}
               {actionError ? <p role="alert" className={ui.alert}>{actionError}</p> : null}
-              <StartBlockedNotice own={ownBlocked} neutral={ownBlocked ? null : startNotice}
+              <StartBlockedNotice own={ownBlocked} neutral={ownBlocked || !room.startBlockedByOther ? null : NEUTRAL_START_BLOCKED_TEXT}
                 reasonShown={ownBlocked != null && actionError != null && actionError.includes(ownBlocked.reason)}
                 onEditDeck={!lockedDeck ? () => { deckPanel.current?.scrollIntoView?.({ block: "start" }); deckPanel.current?.focus(); } : undefined}
                 lockedText={lockedDeck ? LOCKED_DECK_BLOCKED_TEXT : undefined} />

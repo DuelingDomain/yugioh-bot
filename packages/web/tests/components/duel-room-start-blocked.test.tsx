@@ -45,51 +45,42 @@ function tournamentLobby(): DuelRoom {
   room.session.seats = room.session.seats.map((seat) => ({ ...seat, ready: false }));
   return room;
 }
-const withSeats = (room: DuelRoom, edit: (seats: DuelRoom["session"]["seats"]) => void): DuelRoom => {
-  const next = structuredClone(room);
-  edit(next.session.seats);
-  return next;
-};
 
 describe("DuelRoomView: neutral start-blocked line", () => {
-  it("shows the line after Ready, reads the room again, and drops the line when another seat changes", async () => {
-    const lobby = tournamentLobby();
-    swr.data = lobby;
-    api.markDuelReady.mockResolvedValue({ session: lobby.session, startBlocked: NEUTRAL });
+  it("shows the line from the room field and drops it when the field is gone", () => {
+    const blocked = { ...tournamentLobby(), startBlockedByOther: true as const };
+    swr.data = blocked;
     const view = render(<DuelRoomView slug="game-1" />);
-    // Nothing blocks yet: the status region is there, with no text.
-    expect(screen.getByTestId("start-blocked")).toHaveTextContent("");
-
-    fireEvent.click(screen.getByRole("button", { name: /^Ready/ }));
-    await waitFor(() => expect(screen.getByTestId("start-blocked")).toHaveTextContent(NEUTRAL));
-    expect(api.markDuelReady).toHaveBeenCalledWith("game-1");
-    // The answer is not a room, and the room is read again (the own note may be there).
-    expect(swr.mutate).toHaveBeenCalled();
-
-    // The player's own Ready arrives in the room: the line stays.
-    swr.data = withSeats(lobby, (seats) => { seats[0].ready = true; });
-    view.rerender(<DuelRoomView slug="game-1" />);
     expect(screen.getByTestId("start-blocked")).toHaveTextContent(NEUTRAL);
-
-    // The other seat changes (the blocked player fixed the deck and readied, or left): the line goes.
-    swr.data = withSeats(lobby, (seats) => { seats[0].ready = true; seats[1].ready = true; });
+    swr.data = tournamentLobby();
     view.rerender(<DuelRoomView slug="game-1" />);
-    await waitFor(() => expect(screen.getByTestId("start-blocked")).toHaveTextContent(""));
-    expect(screen.getByTestId("start-blocked").textContent).not.toContain(NEUTRAL);
+    expect(screen.getByTestId("start-blocked")).toHaveTextContent("");
   });
 
-  it("drops the line when the player takes Ready back", async () => {
+  it("reads the room once, not twice, after a Ready answer that is not a room", async () => {
     const lobby = tournamentLobby();
     swr.data = lobby;
     api.markDuelReady.mockResolvedValue({ session: lobby.session, startBlocked: NEUTRAL });
-    api.markDuelUnready.mockResolvedValue({ session: lobby.session });
-    const view = render(<DuelRoomView slug="game-1" />);
+    render(<DuelRoomView slug="game-1" />);
     fireEvent.click(screen.getByRole("button", { name: /^Ready/ }));
-    await waitFor(() => expect(screen.getByTestId("start-blocked")).toHaveTextContent(NEUTRAL));
-    swr.data = withSeats(lobby, (seats) => { seats[0].ready = true; });
-    view.rerender(<DuelRoomView slug="game-1" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Not ready" }));
-    await waitFor(() => expect(api.markDuelUnready).toHaveBeenCalledWith("game-1"));
-    await waitFor(() => expect(screen.getByTestId("start-blocked")).toHaveTextContent(""));
+    await waitFor(() => expect(api.markDuelReady).toHaveBeenCalledWith("game-1"));
+    await waitFor(() => expect(swr.mutate).toHaveBeenCalled());
+    expect(swr.mutate).toHaveBeenCalledTimes(1);
+    expect(swr.mutate).toHaveBeenCalledWith();
+    // The line is not kept in the view's own state: only the room field shows it.
+    expect(screen.getByTestId("start-blocked")).toHaveTextContent("");
+  });
+
+  it("puts a full-room answer in the cache without the neutral string, then reads the room once for the own note", async () => {
+    const lobby = tournamentLobby();
+    swr.data = lobby;
+    api.markDuelReady.mockResolvedValue({ ...lobby, engine: {}, startBlocked: NEUTRAL });
+    render(<DuelRoomView slug="game-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /^Ready/ }));
+    await waitFor(() => expect(swr.mutate).toHaveBeenCalledTimes(2));
+    const [cached, options] = swr.mutate.mock.calls[0];
+    expect(cached).not.toHaveProperty("startBlocked");
+    expect(options).toEqual({ revalidate: false });
+    expect(swr.mutate.mock.calls[1]).toEqual([]);
   });
 });

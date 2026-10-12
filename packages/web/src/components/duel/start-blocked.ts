@@ -22,6 +22,9 @@ export function ownStartBlockedText(blocked: OwnStartBlocked, reasonShown = fals
   return `Your deck cannot start. ${blocked.reason}${names ? ` ${names}` : ""}`;
 }
 
+/** What the other seated players read while a deck blocks the start. It names no card; the host sends the same words. */
+export const NEUTRAL_START_BLOCKED_TEXT = "Start blocked: another player's deck needs attention.";
+
 /** Shown to a seated tournament player, whose registered deck cannot be edited from the room. */
 export const LOCKED_DECK_BLOCKED_TEXT = "Your registered deck is locked. Ask the tournament organizer.";
 
