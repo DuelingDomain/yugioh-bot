@@ -1,6 +1,6 @@
 import type { CardIdentityCatalog } from "../duels/pool.js";
 import { routeDeckSections, type DeckSectionMove, type DeckCardType } from "../duels/extra-deck.js";
-import { createDeckTypeLookup } from "./deck-sections.js";
+import { createDeckTypeLookup, hasKnownDeckCardType } from "./deck-sections.js";
 import type Database from "better-sqlite3";
 import type { Card, Cube, CubeCard, CubePool, CubePools, DraftConfig } from "../types/index.js";
 import { isExtraDeckFrame, type CardCatalogService } from "./card-catalog.js";
@@ -144,18 +144,29 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
 
   const findType = createDeckTypeLookup(db, engine);
   const isCubeExtra = (card: Card | undefined) => card !== undefined && isExtraDeckFrame(findType(card.ygoprodeckId) ?? card);
-  const getCubePools = db.transaction((cubeId: number): CubePools => {
-    const rows = db.prepare("select catalog_card_id, pool, max_copies, source from cube_cards where cube_id = ? order by rowid asc")
-      .all(cubeId).map(mapCubeCard);
-    const repair = db.prepare("update cube_cards set pool = ? where cube_id = ? and catalog_card_id = ? and pool = ?");
-    for (const card of rows) {
-      const actual = isExtraDeckFrame(findType(card.catalogCardId)) ? "extra" : "main";
-      if (card.pool === actual) continue;
-      repair.run(actual, cubeId, card.catalogCardId, card.pool);
-      card.pool = actual;
+  const selectPools = db.prepare("select catalog_card_id, pool, max_copies, source from cube_cards where cube_id = ? order by rowid asc");
+  const repairPool = db.prepare("update cube_cards set pool = ? where cube_id = ? and catalog_card_id = ? and pool = ?");
+  const inspectPools = (cubeId: number) => selectPools.all(cubeId).map(mapCubeCard).map(card => {
+    const type = findType(card.catalogCardId);
+    const actual = hasKnownDeckCardType(type) ? (isExtraDeckFrame(type) ? "extra" : "main") : card.pool;
+    return { card, actual };
+  });
+  const getCubePools = (cubeId: number): CubePools => {
+    let entries = inspectPools(cubeId);
+    if (entries.some(({ card, actual }) => card.pool !== actual)) {
+      entries = db.transaction(() => {
+        const current = inspectPools(cubeId);
+        for (const { card, actual } of current) {
+          if (card.pool === actual) continue;
+          repairPool.run(actual, cubeId, card.catalogCardId, card.pool);
+          card.pool = actual;
+        }
+        return current;
+      }).immediate();
     }
+    const rows = entries.map(({ card }) => card);
     return { main: rows.filter(card => card.pool === "main"), extra: rows.filter(card => card.pool === "extra") };
-  }).immediate;
+  };
 
   /**
    * Import several passcode lists in one go. Every passcode is looked up first, then all the

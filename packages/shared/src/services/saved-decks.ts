@@ -1,5 +1,6 @@
-import { assertExtraDeckCards, ExtraDeckCardError, isExtraDeckCard } from "../duels/extra-deck.js";
-import { createDeckTypeLookup } from "./deck-sections.js";
+import { assertExtraDeckCards, ExtraDeckCardError, isExtraDeckCard, type DeckSectionMove } from "../duels/extra-deck.js";
+import { createDeckTypeLookup, hasKnownDeckCardType } from "./deck-sections.js";
+import type { CardIdentityCatalog } from "../duels/pool.js";
 import type Database from "better-sqlite3";
 import type { DuelDeck, DuelMode, SavedDeck } from "../duels/index.js";
 
@@ -164,8 +165,8 @@ function mapSavedDeck(row: SavedDeckRow): SavedDeck {
   };
 }
 
-export function createSavedDeckService(db: Database.Database): SavedDeckService {
-  const findCard = createDeckTypeLookup(db);
+export function createSavedDeckService(db: Database.Database, engine?: CardIdentityCatalog): SavedDeckService {
+  const findCard = createDeckTypeLookup(db, engine);
   const validateExtra = (deck: DuelDeck) => {
     try { assertExtraDeckCards(deck, findCard); }
     catch (error) {
@@ -173,18 +174,29 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
       throw error;
     }
   };
-  // Read and repair under a write lock. Keep card order, every copy and all metadata, including timestamps.
-  // Unknown Extra types move to Main as well: an unproved type cannot remain in Extra.
-  const repairRow = (row: SavedDeckRow): SavedDeck => {
+  // Inspect without a lock. Unknown codes stay put until type evidence is available.
+  const inspectRow = (row: SavedDeckRow): { saved: SavedDeck; repairedJson?: string } => {
     const saved = mapSavedDeck(row);
-    const moved = saved.deck.extra.filter(code => !isExtraDeckCard(findCard(code)));
-    if (!moved.length) return saved;
-    saved.deck = { ...saved.deck, main: [...saved.deck.main, ...moved],
-      extra: saved.deck.extra.filter(code => isExtraDeckCard(findCard(code))) };
-    const raw = JSON.parse(row.deck_json);
-    db.prepare("update saved_decks set deck_json = ? where id = ? and deck_json = ?")
-      .run(JSON.stringify({ ...raw, ...saved.deck }), row.id, row.deck_json);
-    return saved;
+    const cards = new Map([...new Set(saved.deck.extra)].map(code => [code, findCard(code)]));
+    const extra: number[] = [];
+    const moves: DeckSectionMove[] = [];
+    for (const code of saved.deck.extra) {
+      const card = cards.get(code);
+      if (hasKnownDeckCardType(card) && !isExtraDeckCard(card)) {
+        moves.push({ code, name: card?.name ?? `card ${code}`, from: "extra", to: "main" });
+      } else extra.push(code);
+    }
+    if (!moves.length) return { saved };
+    const mainCount = saved.deck.main.length + moves.length;
+    const applied = mainCount <= MAX_SECTION_CARDS;
+    const count = `${moves.length} ${moves.length === 1 ? "card" : "cards"}`;
+    const message = applied
+      ? `${count} moved from Extra Deck to Main Deck.${mainCount > 60 ? ` Main Deck now has ${mainCount} cards; trim it to 60 or fewer before playing.` : ""}`
+      : `${count} in Extra Deck belong in Main Deck. Moving them would make ${mainCount} Main cards, above the ${MAX_SECTION_CARDS}-card save limit. Move cards to Side Deck or remove cards before saving.`;
+    saved.extraDeckRepair = { applied, moves, mainCount, message };
+    if (!applied) return { saved };
+    saved.deck = { ...saved.deck, main: [...saved.deck.main, ...moves.map(move => move.code)], extra };
+    return { saved, repairedJson: JSON.stringify({ ...JSON.parse(row.deck_json), ...saved.deck }) };
   };
   const selectOwned = db.prepare<[number, string, number], SavedDeckRow>(
     `select id, name, mode, deck_json, created_at, updated_at, draft_id
@@ -222,14 +234,32 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
     `delete from saved_decks where id = ? and guild_id = ? and owner_user_id = ?`,
   );
 
-  const loadOwned = db.transaction((id: number, guildId: string, ownerUserId: number): SavedDeck => {
+  const guardedRepair = db.prepare("update saved_decks set deck_json = ? where id = ? and deck_json = ?");
+  const repairRow = (row: SavedDeckRow): SavedDeck => {
+    const { saved, repairedJson } = inspectRow(row);
+    if (repairedJson !== undefined) {
+      const result = guardedRepair.run(repairedJson, row.id, row.deck_json);
+      if (result.changes !== 1) throw new SavedDeckServiceError("Deck changed during repair; read it again", 409);
+      console.info(`[saved-decks] Moved ${saved.extraDeckRepair!.moves.length} Extra cards to Main.`);
+    }
+    return saved;
+  };
+  const loadOwned = (id: number, guildId: string, ownerUserId: number): SavedDeck => {
     const row = selectOwned.get(id, guildId, ownerUserId);
     if (!row) throw new SavedDeckServiceError("Deck not found", 404);
-    return repairRow(row);
-  }).immediate;
+    const inspection = inspectRow(row);
+    if (inspection.repairedJson === undefined) return inspection.saved;
+    return db.transaction(() => {
+      const current = selectOwned.get(id, guildId, ownerUserId);
+      if (!current) throw new SavedDeckServiceError("Deck not found", 404);
+      return repairRow(current);
+    }).immediate();
+  };
 
   return {
     list(guildId: string, ownerUserId: number): SavedDeck[] {
+      const inspections = selectList.all(guildId, ownerUserId).map(inspectRow);
+      if (inspections.every(result => result.repairedJson === undefined)) return inspections.map(result => result.saved);
       return db.transaction(() => selectList.all(guildId, ownerUserId).map(repairRow)).immediate();
     },
 
@@ -286,11 +316,14 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
     },
 
     findByDraft(guildId: string, ownerUserId: number, draftId: number): SavedDeck | null {
+      const row = selectByDraft.get(guildId, ownerUserId, draftId);
+      if (!row) return null;
+      const inspection = inspectRow(row);
+      if (inspection.repairedJson === undefined) return inspection.saved;
       return db.transaction(() => {
-        const row = selectByDraft.get(guildId, ownerUserId, draftId);
-        return row ? repairRow(row) : null;
+        const current = selectByDraft.get(guildId, ownerUserId, draftId);
+        return current ? repairRow(current) : null;
       }).immediate();
     },
   };
 }
-

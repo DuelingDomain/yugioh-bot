@@ -99,6 +99,14 @@ export interface SavedDeck {
   updatedAt: string;
   /** Set when the deck was built from the owner's pool in this draft. */
   draftId?: number | null;
+  /** Present on the read that repairs Extra, or when the 300-card Main limit prevents repair. */
+  extraDeckRepair?: {
+    applied: boolean;
+    moves: import("./extra-deck.js").DeckSectionMove[];
+    /** Main count if all reported moves are applied. */
+    mainCount: number;
+    message: string;
+  };
 }
 
 export type DuelBestOf = 1 | 3;

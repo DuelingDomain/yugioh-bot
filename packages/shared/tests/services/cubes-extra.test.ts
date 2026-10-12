@@ -1,18 +1,23 @@
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createCubeService } from "../../src/services/cubes.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { buildDraftDeck } from "../../src/services/draft-decks.js";
 let db: Database.Database;
 let cubes: ReturnType<typeof createCubeService>;
+let statements: string[];
 beforeEach(() => {
-  db = new Database(":memory:"); migrate(db);
+  statements = [];
+  db = new Database(":memory:", { verbose: sql => statements.push(String(sql)) }); migrate(db);
   db.prepare("insert into users(id,username,display_name) values (1,'test-owner','Test Owner')").run();
   for (const [id, type] of [[901, "Spell Card"], [902, "Trap Card"], [903, "Fusion Monster"], [904, "Pendulum Effect Monster"]] as const) {
     db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,'test','','','[]','test')").run(id, `Test ${id}`, type);
   }
-  cubes = createCubeService(db, createCardCatalogService(db, { fetch: async () => { throw new Error("No network"); } }));
+  cubes = createCubeService(db, createCardCatalogService(db, { identityCatalog: new Map(), fetch: async () => { throw new Error("No network"); } }), new Map());
 });
 afterEach(() => db.close());
 const entries = [{ id: 901, copies: 2, pool: "extra" as const }, { id: 902, copies: 1, pool: "extra" as const },
@@ -62,6 +67,47 @@ describe("cube and draft Extra type safety", () => {
     expect(pools.extra).toEqual([]);
     expect(db.prepare("select pool from cube_cards where cube_id=?").get(cube.id)).toEqual({ pool: "main" });
     expect(db.prepare("select updated_at from cubes where id=?").get(cube.id)).toEqual(before);
+  });
+  it("does not open a write transaction for correctly labeled cube pools", () => {
+    const cube = cubes.createBlank("test-g", "Test cube", 1);
+    cubes.addCard(cube.id, 901, "main");
+    cubes.addCard(cube.id, 903, "extra");
+    const transaction = vi.spyOn(db, "transaction");
+    statements.length = 0;
+    const pools = cubes.getCubePools(cube.id);
+    expect(pools.main.map(card => card.catalogCardId)).toEqual([901]);
+    expect(pools.extra.map(card => card.catalogCardId)).toEqual([903]);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(statements.some(sql => /^BEGIN/i.test(sql))).toBe(false);
+  });
+  it("re-reads cube copies and pool labels after acquiring the repair lock", () => {
+    const cube = cubes.createBlank("test-g", "Test cube", 1);
+    cubes.addCard(cube.id, 901, "main");
+    db.prepare("update cube_cards set pool='extra' where cube_id=?").run(cube.id);
+    const transaction = db.transaction.bind(db);
+    vi.spyOn(db, "transaction").mockImplementationOnce(callback => {
+      db.prepare("update cube_cards set max_copies=7,source='latest' where cube_id=?").run(cube.id);
+      return transaction(callback);
+    });
+    expect(cubes.getCubePools(cube.id).main).toEqual([{ catalogCardId: 901, pool: "main", maxCopies: 7, source: "latest" }]);
+  });
+  it("reads correctly labeled cube pools while another WAL connection holds the write lock", async () => {
+    const cube = cubes.createBlank("test-g", "Test cube", 1);
+    cubes.addCard(cube.id, 903, "extra");
+    const directory = mkdtempSync(join(tmpdir(), "cube-read-lock-"));
+    const path = join(directory, "test.db");
+    await db.backup(path);
+    const writer = new Database(path);
+    writer.pragma("journal_mode = WAL");
+    const reader = new Database(path, { timeout: 1 });
+    try {
+      const service = createCubeService(reader, createCardCatalogService(reader, { identityCatalog: new Map() }), new Map());
+      writer.exec("BEGIN IMMEDIATE");
+      expect(service.getCubePools(cube.id).extra.map(card => card.catalogCardId)).toEqual([903]);
+    } finally {
+      writer.exec("ROLLBACK");
+      reader.close(); writer.close(); rmSync(directory, { recursive: true, force: true });
+    }
   });
   it("repairs legacy labels before replacing Main, so replacement counts and removals take effect", () => {
     const cube = cubes.createBlank("test-g", "Test cube", 1);

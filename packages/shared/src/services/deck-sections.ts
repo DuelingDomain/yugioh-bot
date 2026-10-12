@@ -3,6 +3,13 @@ import { loadArtworkIdentityCatalog } from "./card-artworks.js";
 import type { CardIdentityCatalog } from "../duels/pool.js";
 import type { DeckCardType } from "../duels/extra-deck.js";
 
+/** An absent or unrecognized type is not evidence that a stored card belongs in Main. */
+export function hasKnownDeckCardType(card: DeckCardType | undefined): boolean {
+  const type = card?.type;
+  return typeof type === "number" ? Number.isInteger(type) && type > 0
+    : typeof type === "string" && /\b(monster|spell|trap|token|skill)\b/i.test(type);
+}
+
 /** Resolve a saved catalog/engine passcode, including artwork-family members, without a network request. */
 export function createDeckTypeLookup(db: Database.Database, engine: CardIdentityCatalog = loadArtworkIdentityCatalog()): (code: number) => DeckCardType | undefined {
   const find = db.prepare<[number, number], { type: string; name: string; frame_type: string }>(
