@@ -137,9 +137,28 @@ export function renumberImported(rows: ImportPreviewRow[], base: number): { rows
   return { rows: renamed, top };
 }
 
+/** The server caps the issues of a row and ends the list with one "more_issues" entry. It is not an issue. */
+export const MORE_ISSUES = "more_issues";
+
+export function realIssues<T extends { code: string }>(issues: T[]): T[] {
+  return issues.filter((issue) => issue.code !== MORE_ISSUES);
+}
+
+/** How many issues the server left out of a row, for the "and N more" line. */
+export function omittedCount(row: ImportPreviewRow): number {
+  return [...row.errors, ...row.warnings]
+    .filter((issue) => issue.code === MORE_ISSUES)
+    .reduce((total, issue) => total + (issue.count ?? Number(/\d+/.exec(issue.message)?.[0] ?? 0)), 0);
+}
+
+/** A card check that stopped at the server's lookup limit. A new check of the same deck can pass. */
+export function isLookupLimited(row: ImportPreviewRow): boolean {
+  return row.errors.some((issue) => issue.code === "lookup_limited");
+}
+
 /** A row with an error cannot be imported. */
 export function hasErrors(row: ImportPreviewRow): boolean {
-  return row.errors.length > 0;
+  return realIssues(row.errors).length > 0;
 }
 
 /** Rows with errors start unchecked, and so do duplicates. Everything else starts checked. */
