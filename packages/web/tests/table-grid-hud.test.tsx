@@ -186,7 +186,7 @@ describe("the Deck Master token", () => {
   });
 
   it("starts as the compact plate with the small card", () => {
-    render(<Shell state={stateOf("main")} />);
+    render(<Shell state={masterState()} />);
     expect(screen.getByTestId("hud-master").dataset.form).toBe("compact");
     const art = screen.getByTestId("hud-master-token").querySelector("span[aria-hidden]") as HTMLElement;
     expect(art.style.backgroundImage).toMatch(/size=small/);
