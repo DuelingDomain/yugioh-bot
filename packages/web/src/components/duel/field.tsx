@@ -190,6 +190,7 @@ export function ZoneSlot({
   offId,
   link,
   linkSeq,
+  linkId,
   onActivate,
   onHoverCard,
 }: {
@@ -200,6 +201,8 @@ export function ZoneSlot({
   link?: "shared" | "taken";
   /** Sequence of the zone (5 or 6): the pair link joins zone 5 of one seat with zone 6 of the other. */
   linkSeq?: number;
+  /** Names the pair of linked cells ("0-1-5": seats 0 and 1, the zone that is zone 5 of the lower seat). Both cells carry the same id, so one hover or focus rule can light both. */
+  linkId?: string;
   /** The core disabled this zone: test id suffix `{seat}-{m|s|f}-{sequence}`. Draws a dim zone with a cross. */
   offId?: string;
   keys: string[];
@@ -238,6 +241,7 @@ export function ZoneSlot({
       data-disabled={offId ? "true" : undefined}
       data-link={link}
       data-link-seq={link ? linkSeq : undefined}
+      data-link-id={link ? linkId : undefined}
     >
       {link === "taken" ? <span className={styles.zoneLink} aria-hidden="true"><Link2 size={11} strokeWidth={2.4} /></span> : null}
       {offId ? <span className={styles.zoneOff} role="img" aria-label={`${label} (disabled)`} data-testid={`zone-disabled-${offId}`} /> : null}
@@ -275,6 +279,11 @@ export function ZoneSlot({
       </button>
     </div>
   );
+}
+
+/** The id both cells of one linked Extra Monster Zone carry: the lower seat first, then the zone that is its own zone 5 or 6 (the other seat sees it mirrored: 5 there is 6 here). */
+export function linkIdOf(seat: number, other: number, sequence: number): string {
+  return seat < other ? `${seat}-${other}-${sequence}` : `${other}-${seat}-${11 - sequence}`;
 }
 
 type FanEntry = { card: DuelCard | null; key: string };
@@ -1072,6 +1081,7 @@ export const SeatField = memo(function SeatField({
         kind="emz"
         link={link}
         linkSeq={sequence}
+        linkId={emzLink ? linkIdOf(seat, emzLink.other, sequence) : undefined}
         offId={off.monsters[sequence] ? `${seat}-m-${sequence}` : undefined}
         keys={keys}
         legalKeys={legalKeys}
