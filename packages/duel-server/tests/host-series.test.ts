@@ -1121,6 +1121,33 @@ describe("Best of 3 against the practice bot", () => {
 });
 
 describe("tournament notices", () => {
+  it.each(["owner", "opponent"] as const)("refreshes the bracket when the %s's deck blocks Ready advancement", async failingPlayer => {
+    const app = setup();
+    const notify = vi.fn();
+    const { host, workers } = openHost(app, { notifyTournament: notify });
+    const { started } = tournamentMatch(app, 3);
+    const [a, b] = started.series.playerIds;
+    await post(host, { op: "ready", slug: started.duel.slug, playerId: a });
+    await post(host, { op: "ready", slug: started.duel.slug, playerId: b });
+    await endGame(host, workers[0]!, started.duel.slug, a, 0);
+    expect((await post(host, { op: "series-ready", slug: started.duel.slug, playerId: a })).status).toBe(200);
+    // Main size is checked during start, after the actor's Ready has been saved.
+    const bad = { ...deckWithSide(), main: deckWithSide().main.slice(0, 39) };
+    app.db.prepare(failingPlayer === "owner" ? "update duel_series set deck1_json=? where id=?" : "update duel_series set deck0_json=? where id=?")
+      .run(JSON.stringify(bad), started.series.id);
+    notify.mockClear();
+    const response = await post(host, { op: "series-ready", slug: started.duel.slug, playerId: b });
+    const latest = app.series.get(started.series.id, GUILD);
+    expect(latest.status).toBe("active");
+    expect(latest.currentDuelSlug).not.toBe(started.duel.slug);
+    expect(app.duels.get(latest.currentDuelSlug!, GUILD).status).toBe("lobby");
+    expect(response.status).toBe(failingPlayer === "owner" ? 400 : 200);
+    if (failingPlayer === "owner") expect(response.data.error).toContain("40");
+    else expect(response.data).toMatchObject({ nextSlug: latest.currentDuelSlug, startBlocked: "Start blocked: another player's deck needs attention." });
+    expect(notify).toHaveBeenCalledExactlyOnceWith({ kind: "match-updated", slug: started.series.tournamentSlug });
+    expect(workers).toHaveLength(1);
+  });
+
   it("tells the ws server about the slot and the finished tournament for a Best of 1", async () => {
     const app = setup();
     const notices: TournamentNotice[] = [];

@@ -2300,8 +2300,9 @@ export function createDuelHost(options: {
       noteStartFailure(step.next, error);
       await emitChange(step.next, guildId);
       if (error instanceof DeckLegalityError) throw error;
+    } finally {
+      if (step.tournamentSlug) await emitTournament("match-updated", step.tournamentSlug);
     }
-    if (step.tournamentSlug) await emitTournament("match-updated", step.tournamentSlug);
     return step.next;
   }
 
