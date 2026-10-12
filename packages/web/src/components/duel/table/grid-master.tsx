@@ -1,31 +1,40 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { Search, X } from "lucide-react";
 import type { DuelCard, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { cardArtUrl, cardStatsText, LOCATION_DMZONE, zoneKey } from "../constants";
 import { masterCard, masterDetailLines, masterStatus, withExact } from "../field";
-import { masterActionText, masterInUse, masterSummonLine } from "../master-place";
+import { masterActionParts, masterActionText, masterInUse, moveKind, masterSummonLine, useMasterSeats } from "../master-place";
 import { anyLegal, anySelected, type DuelHoverHandler } from "../field-keys";
 import type { InspectTarget } from "../inspector";
 import type { DuelActivateHandler } from "./types";
 import styles from "./grid-hud.module.css";
 
 /**
- * The plate is narrow, so the buttons show short text: "Summon · 500 LP", "Set · Free", "Attack", and Activate without
- * the master's own name (see `masterActionText`). The full option text stays as the accessible name and the tooltip. A
- * long label wraps onto more lines instead of ending in an ellipsis.
+ * The plate is narrow, so the buttons show short text: "Summon" over "500 LP", "Set" over "Free", and Activate without the
+ * master's own name (see `masterActionParts`). The full option text stays as the tooltip, the accessible name has the
+ * cost too. Attack keeps its short words. Nothing ends in an ellipsis: a long label wraps on a row of its own.
  */
-function shortActionLabel(label: string, view: DuelSeatView, showCost: boolean): string {
-  if (showCost) {
-    const text = masterActionText(label, view, true);
-    if (text !== label) return text;
+function shortActionLabel(option: DuelPromptOption, view: DuelSeatView, showCost: boolean): ReactNode {
+  const label = option.label;
+  if (!showCost) {
+    // The 1v1 plate keeps its short words and its full tooltip; its dock says the cost.
+    const move = moveKind(option);
+    if (move) return move;
+    if (/^Attack directly\b/i.test(label)) return "Direct attack";
+    if (/^Attack\b/i.test(label)) return "Attack";
+    return label;
   }
-  if (/^(?:\w+ )?Summon\b/i.test(label)) return "Summon";
-  if (/^Set\b/i.test(label)) return "Set";
-  if (/^Attack directly\b/i.test(label)) return "Direct attack";
-  if (/^Attack\b/i.test(label)) return "Attack";
-  return label;
+  const { text, cost } = masterActionParts(option, view, true);
+  if (cost === null) return /^Attack directly\b/i.test(text) ? "Direct attack" : /^Attack\b/i.test(text) ? "Attack" : text;
+  return (
+    <>
+      {text}
+      <span className={styles.masterActionDot}> · </span>
+      <small className={styles.masterActionCost}>{cost}</small>
+    </>
+  );
 }
 
 /** The tall plate's card: at most the plate's inner width (152px wide, so 222px high), at least 195px high. */
@@ -35,8 +44,13 @@ const MASTER_ART_MIN = 195;
 const MASTER_TALL_MIN_VIEW = 860;
 /** The free gap kept between the plate top and the dock or the chain tower above it. */
 const MASTER_ART_GAP = 12;
-/** The tall plate less its card (paddings, the gaps, the name and the action row), a safe top value for the choice. */
-const MASTER_TALL_REST = 132;
+/**
+ * The tall plate less its card (paddings, the gaps, the name, the summon line) and less its action rows, with some slack:
+ * a safe estimate for the choice. The action rows (Summon and Set with Inspect, then one row per Activate, each wrapping onto
+ * as many lines as its words need) are measured: the compact plate has the same width, so they have the same height.
+ * One row of 30px gives the old 132px.
+ */
+const MASTER_TALL_REST = 102;
 
 export type MasterForm = { tall: false } | { tall: true; art: number };
 
@@ -77,8 +91,12 @@ function useMasterForm(wrapRef: RefObject<HTMLDivElement | null>, artRef: RefObj
         limit = Math.max(limit, rect.bottom);
       }
       // A tall plate measures its own rest; a compact one uses the safe top value, so the choice never flips back.
-      const rest = wrap.dataset.form === "tall" ? box.height - art.getBoundingClientRect().height : MASTER_TALL_REST;
+      const actions = wrap.querySelector<HTMLElement>(`.${styles.masterActions}`)?.getBoundingClientRect().height ?? 30;
+      const rest = wrap.dataset.form === "tall" ? box.height - art.getBoundingClientRect().height : MASTER_TALL_REST + actions;
       const next = masterForm(window.innerHeight, box.bottom - limit - MASTER_ART_GAP - rest);
+      // The dock flyout and the hover preview end above a tall plate: they read its real height (grid-hud.module.css).
+      if (wrap.dataset.form === "tall") layer.style.setProperty("--hud-master-tall-h", `${Math.ceil(box.height)}px`);
+      else layer.style.removeProperty("--hud-master-tall-h");
       setForm((now) => (now.tall === next.tall && (!now.tall || !next.tall || now.art === next.art) ? now : next));
     };
     const schedule = () => {
@@ -101,6 +119,7 @@ function useMasterForm(wrapRef: RefObject<HTMLDivElement | null>, artRef: RefObj
       if (frame) cancelAnimationFrame(frame);
       sizes.disconnect();
       children.disconnect();
+      layer.style.removeProperty("--hud-master-tall-h");
       window.removeEventListener("resize", schedule);
     };
   }, [wrapRef, artRef, shown]);
@@ -171,14 +190,15 @@ export function GridMasterToken({
   const wrapRef = useRef<HTMLDivElement>(null);
   const artRef = useRef<HTMLSpanElement>(null);
   const form = useMasterForm(wrapRef, artRef, master != null && !wide);
+  const seats = useMasterSeats();
   if (!view || !master) return null;
-  const card = masterCard(view);
+  const card = masterCard(view, seats);
   const keys = withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]);
   const legal = anyLegal(keys, legalKeys);
   const selected = anySelected(keys, selectedKeys);
   const actions = local && canAct ? legalActionsFor(card, keys) : [];
-  const status = masterStatus(view);
-  const inUse = showInUse && masterInUse(view);
+  const status = masterStatus(view, seats);
+  const inUse = showInUse && masterInUse(view, seats);
   const summonLine = showInUse ? masterSummonLine(view) : null;
   // A multi-seat plate is the zone of its seat; the 1v1 HUD keeps its rail as the anchor.
   const zoneAnchor = wide || showInUse;
@@ -235,7 +255,7 @@ export function GridMasterToken({
             type="button"
             className={styles.masterToken}
             data-testid={id("hud-master-token")}
-            aria-label={`${title}: ${master.card.name}${inUse ? `, in use (${status})` : ""}`}
+            aria-label={`${title}: ${master.card.name}${inUse ? `, in use (${status})` : ""}${summonLine ? `, ${summonLine}` : ""}`}
             aria-expanded={pickable ? undefined : open}
             onClick={(event) => (pickable ? onActivate(keys, card, event.currentTarget) : onToggle())}
             onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
@@ -275,16 +295,21 @@ export function GridMasterToken({
           {whole ? flyout : null}
         </div>
         <div className={styles.masterActions}>
-          {actions.map((option, index) => (
-            <button key={option.id} type="button" data-primary={index === 0 ? "true" : "false"} data-testid={id("hud-master-action")}
-              aria-label={option.label} title={option.label} disabled={!canAct} onClick={() => onChooseAction(option)}>
-              <span className={styles.masterActionText}>{shortActionLabel(option.label, view, showInUse)}</span>
-            </button>
-          ))}
-          <button type="button" className={styles.masterInspect} data-testid={id("hud-master-inspect")} aria-label="Inspect" title="Inspect" onClick={onToggle}>
-            <Search size={14} strokeWidth={1.75} aria-hidden />
-            <span className={styles.masterInspectText}>Inspect</span>
-          </button>
+          {/* Summon and Set share the row with Inspect; any other action (Activate) is last and takes a whole row. */}
+          {[...actions.filter((o) => masterActionParts(o, view, true).move), null, ...actions.filter((o) => !masterActionParts(o, view, true).move)].map((option) =>
+            option ? (
+              <button key={option.id} type="button" data-primary={option === actions[0] ? "true" : "false"} data-kind={masterActionParts(option, view, true).move ? "move" : "other"}
+                data-testid={id("hud-master-action")} aria-label={masterActionText(option, view, false)} title={option.label} disabled={!canAct}
+                onClick={() => onChooseAction(option)}>
+                <span className={styles.masterActionText}>{shortActionLabel(option, view, showInUse)}</span>
+              </button>
+            ) : (
+              <button key="inspect" type="button" className={styles.masterInspect} data-testid={id("hud-master-inspect")} aria-label="Inspect" title="Inspect" onClick={onToggle}>
+                <Search size={14} strokeWidth={1.75} aria-hidden />
+                <span className={styles.masterInspectText}>Inspect</span>
+              </button>
+            ),
+          )}
         </div>
       </section>
     </div>

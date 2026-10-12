@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
-import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
+import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom, type DuelSeatView } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
@@ -51,6 +51,7 @@ import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
 import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
 import { TableShell, type TableShellProps } from "./table/table-shell";
+import { MasterSeatsContext } from "./master-place";
 import { TagShell } from "./tag/tag-shell";
 import { fieldWaitsForReveal } from "./field-gate";
 import { defaultTeamNames } from "./tag/live-tag";
@@ -137,6 +138,7 @@ const SolidRoom = dynamic<SolidRoomProps>(() => import("./solid/solid-room").the
 });
 
 /** Slack after the crumble ends before an eliminated viewer switches to spectating. */
+const NO_SEATS: readonly DuelSeatView[] = [];
 const SPECTATE_AFTER_CRUMBLE_MS = 200;
 /** The Card/Log/Settings sheet in 3D mode is a solid panel (the tokens come from the 3D mode root, which holds the sheet). */
 const SOLID_SHEET_CLASS = "bg-[color:var(--ink-1)] border-t border-[color:var(--gold-b)] rounded-t-[16px] md:rounded-t-none";
@@ -988,7 +990,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // The shells keep their own pile viewer, inspector and menus. A new key on the change to spectator drops them with the room's.
     const shellKey = watchingOnly ? `${slug}:watching` : slug;
     return <DeckSurrenderContext.Provider value={deckSurrender}>
-      {liveTagTable ? <TagShell key={shellKey} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={shellKey} {...shellProps} />}
+      <MasterSeatsContext.Provider value={data?.engine?.seats ?? NO_SEATS}>
+        {liveTagTable ? <TagShell key={shellKey} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={shellKey} {...shellProps} />}
+      </MasterSeatsContext.Provider>
     </DeckSurrenderContext.Provider>;
   }
   const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });

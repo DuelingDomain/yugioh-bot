@@ -469,18 +469,18 @@
   overflow-wrap: anywhere;
 }
 
-/* One row: the summon words share the width, Inspect is a square icon button. */
-.masterActions { display: flex; gap: 4px; min-width: 0; }
+/* Summon and Set share a row with Inspect (a square icon button); every other action (Activate) is last and takes a whole
+   row, wrapping onto as many lines as its words need. Nothing ends in an ellipsis: the plate grows by a line instead. */
+.masterActions { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .masterActions button {
   display: flex;
   flex: 1 1 0;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
   min-width: 0;
   min-height: 30px;
   padding: 2px 4px;
-  overflow: hidden;
   border: 1px solid var(--duel-rule);
   border-radius: 8px;
   background: rgb(239 231 213 / 0.04);
@@ -489,17 +489,11 @@
   font-size: calc(12px * var(--tt, 1));
   cursor: pointer;
 }
-/* A long label wraps (three lines at most, then an ellipsis); the full text stays in the title and the accessible name. */
-.masterActionText {
-  display: -webkit-box;
-  min-width: 0;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  text-align: center;
-  line-height: 1.15;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
+.masterActions button[data-kind="other"] { flex: 1 1 100%; }
+.masterActionText { min-width: 0; overflow-wrap: break-word; text-align: center; line-height: 1.15; }
+/* The cost sits under the word ("Summon" over "500 LP"); the dot is for text readers and copies. */
+.masterActionDot { display: none; }
+.masterActionCost { display: block; font-size: 0.92em; font-weight: 500; opacity: 0.85; }
 .masterActions .masterInspect { flex: none; width: 30px; padding: 0; }
 .masterInspectText { display: none; }
 /* With no summon legal, Inspect is alone in the row: it fills it and shows its word. */
@@ -606,9 +600,9 @@
 .masterWrap[data-form="tall"] .masterFly dd,
 .masterWrap[data-form="wide"] .masterFly dd { text-align: right; white-space: nowrap; }
 /* The tall plate is higher: the dock flyout (after the plate in the layer) ends above it. The flyout top (56px), a
-   10px gap, the plate's bottom offset, its rest (132px) and its tallest card (222px). */
+   10px gap, the plate's bottom offset and the plate's height (`--hud-master-tall-h`, measured; 354px = rest 132 + card 222 at least). */
 .masterWrap[data-form="tall"] ~ .flyout {
-  max-height: max(200px, calc(100% - 66px - var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) - 354px));
+  max-height: max(200px, calc(100% - 66px - var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) - var(--hud-master-tall-h, 354px)));
 }
 
 /*
@@ -652,7 +646,7 @@
 }
 .masterAbility:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
 .masterAbilityNone { color: var(--duel-ink-3); }
-.masterWrap[data-form="wide"] .masterActions button { height: 32px; }
+.masterWrap[data-form="wide"] .masterActions button { min-height: 32px; }
 .masterWrap[data-form="wide"] .masterActions .masterInspect { width: auto; padding: 0 12px; }
 .masterWrap[data-form="wide"] .masterInspectText { display: inline; }
 /* The dock flyout (after the plate in the layer) ends above the wide plate: its card, ability text and actions. */
@@ -701,7 +695,7 @@
   visibility: hidden;
 }
 .masterWrap[data-form="tall"]:not([data-slot="other"]) ~ .preview {
-  --pv-reserve: calc(var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) + 341px);
+  --pv-reserve: calc(var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) + var(--hud-master-tall-h, 354px) - 13px);
 }
 /* grid-preview.tsx stands the panel on the bottom of its free band. */
 .preview[data-anchor="bottom"] { top: auto; bottom: var(--pv-bottom, 8px); }

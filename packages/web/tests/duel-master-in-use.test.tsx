@@ -2,7 +2,7 @@
 import React from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DuelCardInfo, DuelEngineView, DuelSeatView } from "@yugidraft/shared/duels";
+import type { DuelCardInfo, DuelEngineView, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
@@ -11,7 +11,7 @@ vi.mock("next/font/google", () => {
 
 import { LOCATION_DMZONE, LOCATION_MZONE } from "@/components/duel/constants";
 import { MasterDock, masterStatus } from "@/components/duel/field";
-import { masterActionText, masterInUse, masterPlace, masterSummonLine } from "@/components/duel/master-place";
+import { COST_SUFFIX, findMasterCard, masterActionParts, masterActionText, masterInUse, masterPlace, masterSummonLine } from "@/components/duel/master-place";
 import { detectMasterReturns } from "@/components/duel/master-return";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
@@ -192,41 +192,90 @@ describe("the Summon cost line", () => {
 });
 
 describe("the Deck Master action text", () => {
-  const view = (nextCost: number) => seatView({ inZone: true, deckMaster: { card: info, inZone: true, returns: nextCost / 500, nextCost } });
+  const view = (nextCost: number, inZone = true) => seatView({ inZone, deckMaster: { card: info, inZone, returns: nextCost / 500, nextCost } });
+  const opt = (id: string, label: string, location?: number): DuelPromptOption => ({ id, label, ...(location === undefined ? {} : { location }) });
+  const summon = (label = "Normal Summon Dark Magician Girl", location: number | undefined = LOCATION_DMZONE) => opt("summon:0", label, location);
 
   it("adds the next cost to Summon and Set, and Free for the first", () => {
-    expect(masterActionText("Normal Summon Dark Magician Girl", view(500), true)).toBe("Summon · 500 LP");
-    expect(masterActionText("Set Dark Magician Girl", view(0), true)).toBe("Set · Free");
-    expect(masterActionText("Normal Summon Dark Magician Girl", view(1000), false)).toBe("Normal Summon Dark Magician Girl · 1,000 LP");
+    expect(masterActionText(summon(), view(500), true)).toBe("Summon · 500 LP");
+    expect(masterActionText(opt("mset:0", "Set monster Dark Magician Girl", LOCATION_DMZONE), view(0), true)).toBe("Set · Free");
+    expect(masterActionText(opt("spsummon:0", "Special Summon Dark Magician Girl", LOCATION_DMZONE), view(500), true)).toBe("Summon · 500 LP");
+    expect(masterActionText(summon(), view(1000), false)).toBe("Normal Summon Dark Magician Girl · 1,000 LP");
+  });
+
+  it("shows no cost for a summon from hand, Graveyard or Extra Deck, or while the master is out of its zone", () => {
+    expect(masterActionText(summon("Normal Summon Dark Magician Girl", 0x2), view(500), true)).toBe("Summon");
+    expect(masterActionText(summon("Special Summon Dark Magician Girl", 0x10), view(500), false)).toBe("Special Summon Dark Magician Girl");
+    expect(masterActionText(summon(), view(500, false), true)).toBe("Summon");
   });
 
   it("shows the cost once when the server label already ends in it", () => {
-    expect(masterActionText("Normal Summon Dark Magician Girl (costs 500 LP)", view(500), true)).toBe("Summon · 500 LP");
-    expect(masterActionText("Normal Summon Dark Magician Girl (costs 500 LP)", view(500), false)).toBe("Normal Summon Dark Magician Girl · 500 LP");
-    expect(masterActionText("Set Dark Magician Girl (costs 0 LP)", view(0), true)).toBe("Set · Free");
+    expect(masterActionText(summon("Normal Summon Dark Magician Girl (costs 500 LP)"), view(500), true)).toBe("Summon · 500 LP");
+    expect(masterActionText(summon("Normal Summon Dark Magician Girl (costs 500 LP)"), view(500), false)).toBe("Normal Summon Dark Magician Girl · 500 LP");
+    expect(masterActionText(summon("Normal Summon Dark Magician Girl (costs 0 LP)"), view(0), true)).toBe("Summon · Free");
+    // The format of the server suffix (docs/api/deck-master-cost.md): a space, "(costs ", the number with its separators, " LP)".
+    expect(COST_SUFFIX.exec("Normal Summon X (costs 1,500 LP)")?.[1]).toBe("1,500");
+    expect(COST_SUFFIX.test("Normal Summon X (costs 500 LP) extra")).toBe(false);
+  });
+
+  it("reads the kind from the option id, not the words of the label", () => {
+    const activate = opt("activate:0", "Activate Summon Sorceress: Draw 1 card", LOCATION_DMZONE);
+    expect(masterActionParts(activate, view(500), true)).toEqual({ text: "Activate Summon Sorceress: Draw 1 card", cost: null, move: false });
+    expect(masterActionText(opt("pos:0", "Change position of Dark Magician Girl"), view(500), true)).toBe("Change position of Dark Magician Girl");
   });
 
   it("keeps the key words of an Activate label and drops the master's own name on the plate", () => {
     const label = `Activate ${info.name}: Draw 1 card`;
-    expect(masterActionText(label, view(500), true)).toBe("Activate: Draw 1 card");
-    expect(masterActionText(label, view(500), false)).toBe(label);
-    expect(masterActionText(`${label} (costs 500 LP)`, view(500), true)).toBe("Activate: Draw 1 card · 500 LP");
+    const activate = opt("activate:0", label, LOCATION_DMZONE);
+    expect(masterActionText(activate, view(500), true)).toBe("Activate: Draw 1 card");
+    expect(masterActionText(activate, view(500), false)).toBe(label);
+    expect(masterActionText({ ...activate, label: `${label} (costs 500 LP)` }, view(500), true)).toBe("Activate: Draw 1 card · 500 LP");
+  });
+});
+
+describe("a master taken to another seat's field", () => {
+  it("reads On field in its owner's panel when only another seat's view holds the card", () => {
+    const mine = seatView({ inZone: false });
+    const rival = seatView({ inZone: false, seat: 1 });
+    rival.monsters = [{ controller: 1, location: LOCATION_MZONE, sequence: 0, position: 1, code: info.code, name: info.name }];
+    expect(masterPlace(mine)).toBe("elsewhere");
+    expect(masterPlace(mine, [mine, rival])).toBe("field");
+    expect(findMasterCard(mine, info.code, [mine, rival])?.controller).toBe(1);
   });
 });
 
 describe("the plate buttons", () => {
-  it("show the cost, keep the full option text as the accessible name and never shorten an Activate label to an ellipsis", () => {
-    const options = [
-      { id: "s", label: "Normal Summon Dark Magician Girl", key: "s" },
-      { id: "a", label: `Activate ${info.name}: Draw 1 card, then discard 1 card` , key: "a" },
-    ] as never;
-    const dm = seatView({ inZone: true, deckMaster: { card: info, inZone: true, returns: 1, nextCost: 500 } });
+  const options: DuelPromptOption[] = [
+    { id: "summon:0", label: "Normal Summon Dark Magician Girl", location: LOCATION_DMZONE },
+    { id: "mset:0", label: "Set monster Dark Magician Girl", location: LOCATION_DMZONE },
+    { id: "activate:0", label: `Activate ${info.name}: Place this card in your Pendulum Zone`, location: LOCATION_DMZONE },
+  ];
+  const dm = () => seatView({ inZone: true, deckMaster: { card: info, inZone: true, returns: 1, nextCost: 500 } });
+  const draw = (showInUse: boolean) =>
     render(
-      <GridMasterToken view={dm} local legalKeys={new Set()} selectedKeys={new Set()} canAct legalActionsFor={() => options} open={false}
-        title="Your Master" onToggle={noop} onClose={noop} onChooseAction={noop} onInspect={noop} showInUse />,
+      <GridMasterToken view={dm()} local legalKeys={new Set()} selectedKeys={new Set()} canAct legalActionsFor={() => options} open={false}
+        title="Your Master" onToggle={noop} onClose={noop} onChooseAction={noop} onInspect={noop} showInUse={showInUse} />,
     );
+
+  it("show the cost, a full-row Activate that is not cut, and the cost in the accessible name", () => {
+    draw(true);
     const buttons = screen.getAllByTestId("hud-master-action");
-    expect(buttons.map((b) => b.textContent)).toEqual(["Summon · 500 LP", "Activate: Draw 1 card, then discard 1 card"]);
-    expect(buttons[0].getAttribute("aria-label")).toBe("Normal Summon Dark Magician Girl");
+    expect(buttons.map((b) => b.textContent)).toEqual(["Summon · 500 LP", "Set · 500 LP", "Activate: Place this card in your Pendulum Zone"]);
+    expect(buttons.map((b) => b.dataset.kind)).toEqual(["move", "move", "other"]);
+    expect(buttons[0].getAttribute("aria-label")).toBe("Normal Summon Dark Magician Girl · 500 LP");
+    expect(buttons[0].getAttribute("title")).toBe("Normal Summon Dark Magician Girl");
+    // Summon and Set, then Inspect, then the Activate row: Inspect never ends up on a row of its own below Activate.
+    const row = buttons[0].parentElement!;
+    expect([...row.children].map((el) => el.getAttribute("data-testid"))).toEqual(["hud-master-action", "hud-master-action", "hud-master-inspect", "hud-master-action"]);
+  });
+
+  it("names the summon line in the token's accessible name", () => {
+    draw(true);
+    expect(screen.getByTestId("hud-master-token").getAttribute("aria-label")).toContain("Summon: costs 500 LP");
+  });
+
+  it("keeps the 1v1 plate to its short words", () => {
+    draw(false);
+    expect(screen.getAllByTestId("hud-master-action").map((b) => b.textContent)).toEqual(["Summon", "Set", `Activate ${info.name}: Place this card in your Pendulum Zone`]);
   });
 });
