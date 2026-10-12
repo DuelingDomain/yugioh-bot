@@ -3,6 +3,7 @@
 import { createContext, useContext } from "react";
 import type { DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
+import { masterPlace, useMasterSeats } from "../master-place";
 import { useIsNarrow } from "../side-panel";
 import docks from "./docks.module.css";
 import { SvIcon } from "./icons";
@@ -22,13 +23,9 @@ export const DmChipActionsContext = createContext<DmChipActions | null>(null);
 type Status = "zone" | "field" | "away";
 
 /** Where the master is: in the Deck Master Zone, on the field, or somewhere else (hand, graveyard ...). */
-function chipStatus(view: DuelSeatView): Status {
-  const master = view.deckMaster;
-  if (!master) return "away";
-  if (master.inZone) return "zone";
-  const code = master.card.code;
-  const onField = [...view.monsters, ...view.spells].some((card) => card?.code === code);
-  return onField ? "field" : "away";
+function chipStatus(view: DuelSeatView, seats: readonly DuelSeatView[]): Status {
+  const place = masterPlace(view, seats);
+  return place === "zone" ? "zone" : place === "field" ? "field" : "away";
 }
 
 const STATUS_TEXT: Record<Status, string> = { zone: "In DM Zone", field: "On field", away: "Away" };
@@ -45,8 +42,9 @@ export function DmChip({ seat, view, mine, onOpen }: { seat: number; view: DuelS
   const narrow = useIsNarrow();
   const env = useContext(DmChipActionsContext);
   const master = view?.deckMaster;
+  const seats = useMasterSeats();
   if (!view || !master) return null;
-  const status = chipStatus(view);
+  const status = chipStatus(view, seats);
   const away = status !== "zone";
   const action = mine && !away ? (env?.actionsFor(view)[0] ?? null) : null;
   const who = mine ? "Your Master" : "Opp. Master";

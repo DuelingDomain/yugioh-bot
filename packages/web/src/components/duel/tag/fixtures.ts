@@ -1,3 +1,4 @@
+import { defaultDuelSettings } from "@yugidraft/shared/duels";
 import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { ev, MZ } from "../fx-lab/board";
 import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, zoneKey } from "../constants";
@@ -349,6 +350,25 @@ export function tagSearchVariant(set: TableFixtureSet): TableFixtureSet {
       const engine = state.room.engine;
       if (!engine || state.room.mySeat !== ASTER) return [id, state];
       return [id, { ...state, room: { ...state.room, engine: { ...engine, prompt: searchPrompt(ASTER) } } }];
+    }),
+  ) as unknown as TableFixtureSet["states"];
+  return { ...set, states };
+}
+
+const TAG_MASTERS = [C.envoy, C.blueEyes, C.redEyes, C.gaia] as const;
+
+/**
+ * The `?mode=domain` preview of the tag table: a Domain session whose four seats hold a Deck Master out of its zone, so the
+ * plates and docks read "in use". Your own and your partner's plates show; a rival's master has no panel on this table.
+ */
+export function tagDomainVariant(set: TableFixtureSet): TableFixtureSet {
+  const states = Object.fromEntries(
+    Object.entries(set.states).map(([id, state]) => {
+      const engine = state.room.engine;
+      if (!engine) return [id, state];
+      const seats = engine.seats.map((view) => ({ ...view, deckMaster: { card: { ...TAG_MASTERS[view.seat] }, inZone: false, returns: view.seat, nextCost: view.seat * 500 } }));
+      const session = { ...state.room.session, mode: "domain" as const, settings: defaultDuelSettings("domain") };
+      return [id, { ...state, room: { ...state.room, session, engine: { ...engine, seats } } }];
     }),
   ) as unknown as TableFixtureSet["states"];
   return { ...set, states };

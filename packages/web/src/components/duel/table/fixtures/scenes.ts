@@ -8,7 +8,10 @@ import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK } from "../../constants";
  * 1v1 board: events and board edits arrive together, as one engine batch does. The preview harness feeds them into a
  * fixture state, so the real table layers (MoveFx, ChainFx, BattleFx, the crumble) play them on a grid seat.
  */
-export type SceneId = "smf" | "ko" | "mirror" | PlaySceneId;
+export type SceneId = "smf" | "ko" | "mirror" | PlaySceneId | MasterSceneId;
+
+/** `master-<seat>`: that seat's Deck Master is summoned out of its zone, falls to the Graveyard, and returns to the zone (`?scene=master-1`). */
+export type MasterSceneId = `master-${0 | 1 | 2 | 3}`;
 
 /** `<play>-<seat>`: that seat Normal Summons, Special Summons, Fusion Summons, Sets or Flip Summons a monster in its zone 4 (`?scene=normal-1`). */
 export type PlaySceneId = `${"normal" | "special" | "fusion" | "set" | "flip"}-${0 | 1 | 2 | 3}`;
@@ -111,6 +114,43 @@ function mirror(): LabStep[] {
   ];
 }
 
+const MASTER_SCENE = /^master-([0-3])$/;
+/**
+ * One seat's Deck Master leaves its zone (summoned to zone 4), is destroyed, and goes back to the zone. The first step
+ * puts the master in its zone, the second summons it (the zone reads "in use"), the last returns it (the flight lands
+ * in the seat's zone, panel or thumb).
+ */
+export function masterCycle(seat: number): LabStep[] {
+  const info = C.darkMagicianGirl; // on no fixture board, so the master is the only copy
+  const zone = MZ(seat, 4);
+  return [
+    { at: 0, edits: [edit.deckMaster(seat, info, { inZone: true, returns: 0, nextCost: 0 })] },
+    {
+      at: 600,
+      // The live shape: the server sends no move out of the Deck Master Zone, the summon arrives alone. The room adds the
+      // flight (withMasterSummonMoves), so the preview plays the real path.
+      events: [ev.summon(seat, info, zone, "normal")],
+      edits: [edit.deckMaster(seat, info, { inZone: false, returns: 0, nextCost: 0 }), edit.monster(seat, 4, info)],
+    },
+    {
+      at: 3200,
+      events: [ev.destroy(seat, info, zone, { cause: "effect" }), ev.toGrave(seat, info, zone, 0, { cause: "effect" })],
+      edits: [edit.monster(seat, 4, null), edit.grave(seat, info)],
+    },
+    {
+      at: 5600,
+      edits: [
+        (board) => {
+          const grave = board.seats[seat].graveyard;
+          const index = grave.findIndex((card) => card.code === info.code);
+          if (index >= 0) edit.removeGrave(seat, index)(board);
+        },
+        edit.deckMaster(seat, info, { inZone: true, returns: 1, nextCost: 500 }),
+      ],
+    },
+  ];
+}
+
 const PLAY_SCENE = /^(normal|special|fusion|set|flip)-([0-3])$/;
 
 /**
@@ -137,10 +177,12 @@ function playMonster(play: "normal" | "special" | "fusion" | "set" | "flip", sea
 }
 
 export function isSceneId(value: string | null | undefined): value is SceneId {
-  return value === "smf" || value === "ko" || value === "mirror" || (value != null && PLAY_SCENE.test(value));
+  return value === "smf" || value === "ko" || value === "mirror" || (value != null && (PLAY_SCENE.test(value) || MASTER_SCENE.test(value)));
 }
 
 export function sceneSteps(id: SceneId): LabStep[] {
+  const master = MASTER_SCENE.exec(id);
+  if (master) return masterCycle(Number(master[1]));
   const play = PLAY_SCENE.exec(id);
   if (play) return playMonster(play[1] as "normal" | "special" | "fusion" | "set" | "flip", Number(play[2]));
   return id === "smf" ? smf() : id === "ko" ? knockOut() : mirror();

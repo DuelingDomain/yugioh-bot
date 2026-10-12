@@ -74,6 +74,7 @@ import { SEAT_TONE_HEX, type CameraLockReason, type CameraState, type TableContr
 import hudStyles from "./grid-hud.module.css";
 import styles from "./table-shell.module.css";
 import { withDestroyCards } from "../destroy-cards";
+import { usePreviousSeats, withMasterSummonMoves } from "../master-summon-moves";
 
 export interface TableShellActions {
   onExit?: () => void;
@@ -214,6 +215,7 @@ function TableShellBody({
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
+  const previousSeats = usePreviousSeats(engine.seats);
   const namedChain = useMemo(() => projectChainNames(engine.chain, engine.seats), [engine.chain, engine.seats]);
   const format = engineFormat(engine);
   // A table of 3 or 4 draws its phases on the board, beside the turn ring. Tag keeps them in the bar.
@@ -361,6 +363,7 @@ function TableShellBody({
       onInspect={controller.onInspect}
       rivals={[]}
       selfTitle={spectator ? `${nameOf(layout.anchorSeat)}'s Master` : undefined}
+      showInUse
     />
   ) : null;
 
@@ -643,7 +646,7 @@ function TableShellBody({
         {hud ? null : promptDockNode}
         <section className={`${roomStyles.boardColumn} ${hud ? styles.hudBoard : ""}`} aria-label="Duel field">
           <div className={roomStyles.board} ref={boardRef} data-duel-board>
-            <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
+            <MoveSourceBoundary events={withMasterSummonMoves(engine.events, previousSeats, engine.seats)} duelKey={session.slug} root={boardRef}>
               <Stage
                 controller={controller}
                 layout={layout}
@@ -698,8 +701,8 @@ function TableShellBody({
                   <FxBoundary>
                     {fxActive ? <CoinTossFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <SummonFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
-                    {fxActive ? <MoveFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
+                    {fxActive ? <SummonFx events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
+                    {fxActive ? <MoveFx events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} promptOpen={promptMine && ownPromptOpen(prompt, viewerSeat)} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
@@ -834,6 +837,7 @@ function TableShellBody({
               engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
               !spectator,
               spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
+              true,
             ),
             wide: plazaHud,
           } : null}
