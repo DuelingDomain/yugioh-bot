@@ -357,6 +357,7 @@ jobs:
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
                exit 1
              fi
+             sh scripts/deployment/prepare-runtime-data.sh data
              docker compose -f docker-compose.yml run --rm --no-deps worker node --input-type=module -e '
                import {openDatabase} from "@yugidraft/shared/db";
                const db=openDatabase(process.env.DATABASE_PATH);
@@ -367,6 +368,7 @@ jobs:
                } finally {db.close();}
              '
              docker compose -f docker-compose.yml down --remove-orphans
+             sh scripts/deployment/prepare-runtime-data.sh data
              docker compose -f docker-compose.yml up -d ws duel web worker caddy
              trap - EXIT
              cleanup

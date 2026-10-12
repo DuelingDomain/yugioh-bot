@@ -190,16 +190,24 @@ def create_backup():
         os.close(fd)
         # URI escaping handles spaces, '?' and '#'. Never use immutable=1 on live WAL.
         # mode=ro still needs access to the live -shm file; the data directory is writable.
-        with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=CONNECT_TIMEOUT)) as live:
-            with closing(sqlite3.connect(str(temporary), timeout=CONNECT_TIMEOUT)) as copy:
-                # One WAL read transaction gives a consistent snapshot without blocking writers; incremental steps can restart indefinitely under steady writes.
-                live.backup(copy)
-                journal = copy.execute("PRAGMA journal_mode=DELETE").fetchone()
-                if journal != ("delete",):
-                    raise RuntimeError("could not switch backup to journal_mode=DELETE")
-                integrity = copy.execute("PRAGMA integrity_check").fetchall()
-                if integrity != [("ok",)]:
-                    raise RuntimeError("backup integrity_check failed: " + repr(integrity))
+        try:
+            with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=CONNECT_TIMEOUT)) as live:
+                with closing(sqlite3.connect(str(temporary), timeout=CONNECT_TIMEOUT)) as copy:
+                    # One WAL read transaction gives a consistent snapshot without blocking writers; incremental steps can restart indefinitely under steady writes.
+                    live.backup(copy)
+                    journal = copy.execute("PRAGMA journal_mode=DELETE").fetchone()
+                    if journal != ("delete",):
+                        raise RuntimeError("could not switch backup to journal_mode=DELETE")
+                    integrity = copy.execute("PRAGMA integrity_check").fetchall()
+                    if integrity != [("ok",)]:
+                        raise RuntimeError("backup integrity_check failed: " + repr(integrity))
+        finally:
+            owner = os.stat(source)
+            for suffix in ("-wal", "-shm"):
+                try:
+                    os.chown(Path(str(source) + suffix), owner.st_uid, owner.st_gid)
+                except FileNotFoundError:
+                    pass
 
         temporary.chmod(0o600)
         digest = hashlib.sha256()

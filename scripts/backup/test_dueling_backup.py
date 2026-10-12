@@ -135,6 +135,48 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "{} {} {} kept=1 total_bytes={}".format(backup, size, digest, size))
         self.assertEqual(list(self.destination.glob("*.tmp")), [])
 
+    def test_live_sidecars_inherit_database_owner_after_connection_closes(self):
+        real_connect = sqlite3.connect
+        real_stat = os.stat
+        real_chown = os.chown
+        for fail in (False, True):
+            with self.subTest(copy_connection_fails=fail):
+                namespace = self.namespace()
+                connections = []
+
+                def connect(*args, **kwargs):
+                    if fail and connections:
+                        raise RuntimeError("copy connection failed")
+                    connection = real_connect(*args, **kwargs)
+                    connections.append(connection)
+                    return connection
+
+                def source_stat(path, *args, **kwargs):
+                    result = real_stat(path, *args, **kwargs)
+                    if os.fspath(path) == str(self.source):
+                        values = list(result)
+                        values[4:6] = [1001, 1002]
+                        return os.stat_result(values)
+                    return result
+
+                def chown(path, uid, gid):
+                    with self.assertRaises(sqlite3.ProgrammingError):
+                        connections[0].execute("SELECT 1")
+                    # The test process keeps its own filesystem identity; only the privileged call is substituted.
+                    real_chown(path, os.getuid(), os.getgid())
+
+                with mock.patch.object(namespace["sqlite3"], "connect", side_effect=connect), \
+                     mock.patch.object(namespace["os"], "stat", side_effect=source_stat), \
+                     mock.patch.object(namespace["os"], "chown", side_effect=chown) as ownership, \
+                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    status = namespace["main"]()
+                self.assertEqual(status, 1 if fail else 0)
+                ownership.assert_has_calls([
+                    mock.call(Path(str(self.source) + "-wal"), 1001, 1002),
+                    mock.call(Path(str(self.source) + "-shm"), 1001, 1002),
+                ])
+                self.assertEqual(ownership.call_count, 2)
+
     def seed_retention(self, ages):
         self.destination.mkdir()
         names = {}

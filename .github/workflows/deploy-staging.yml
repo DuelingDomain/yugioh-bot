@@ -65,6 +65,8 @@ jobs:
       STAGING_HTTP_PORT: ${{ vars.STAGING_HTTP_PORT }}
       # Path only; staging Clerk secrets never travel through Actions or SSH.
       STAGING_CLERK_ENV: ${{ vars.STAGING_CLERK_ENV || '/etc/yugidraft/staging-clerk.env' }}
+      STAGING_UID: "1000"
+      STAGING_GID: "1000"
 
     steps:
       - name: Check inputs and secrets
@@ -283,7 +285,7 @@ jobs:
             scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" "$RUNNER_TEMP/staging-activity-guard.py" "$VM_USER@$VM_HOST:$remote_guard"
           fi
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
-            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_IGNORE_PROD_ACTIVITY='$INPUT_IGNORE_PROD_ACTIVITY' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' STAGING_GUARD='$remote_guard' STAGING_CLERK_ENV='$STAGING_CLERK_ENV' sh -s" \
+            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_IGNORE_PROD_ACTIVITY='$INPUT_IGNORE_PROD_ACTIVITY' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' STAGING_GUARD='$remote_guard' STAGING_CLERK_ENV='$STAGING_CLERK_ENV' STAGING_UID='$STAGING_UID' STAGING_GID='$STAGING_GID' sh -s" \
             < "$RUNNER_TEMP/staging-remote-deploy.sh" | tee "$RUNNER_TEMP/staging-deploy.log"
 
       - name: Report staging result

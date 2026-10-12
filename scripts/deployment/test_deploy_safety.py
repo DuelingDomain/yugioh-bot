@@ -205,6 +205,9 @@ fi
         installer = self.staging / "packages/duel-server/scripts/install-engine-bundle.sh"
         installer.parent.mkdir(parents=True)
         installer.write_text("#!/bin/sh\nexit 0\n")
+        prepare = self.staging / "scripts/deployment/prepare-runtime-data.sh"
+        prepare.parent.mkdir(parents=True)
+        prepare.write_text((ROOT / "scripts/deployment/prepare-runtime-data.sh").read_text())
 
     def command(self, name, body):
         path = self.bin / name

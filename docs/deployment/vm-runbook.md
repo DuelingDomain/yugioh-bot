@@ -118,9 +118,20 @@ Deploy jobs run in the `production` / `staging` GitHub Environments and require 
    The job prints: **Do not run compose up. Run Deploy again.** Wait for downtime, then run the full workflow again.
    This is a snapshot guard, not an admission lock: the owner must prevent new games during the downtime window.
    It stops web/duel/worker and WS, captures a final drained backup, installs the engine bundle,
-   and runs one migration with the new worker image before starting consumers. FK and integrity
+   runs `sh scripts/deployment/prepare-runtime-data.sh data`, and runs one migration with the new worker image before starting consumers. FK and integrity
    failures abort. The EXIT trap only cleans temporary files; after the coordinated stop, failure
    leaves traffic stopped and backups intact. Never restart old binaries against the migrated schema.
+   Production application images run as `node` (uid/gid 1000). The ownership step is idempotent:
+   it changes ownership of the `data/` parent and recursively changes `data/bot.sqlite*`,
+   `data/card-images`, `data/duel-engine`, `data/duel-reports` and `data/ops-reports` to 1000:1000.
+   Existing modes are preserved; a new `ops-reports` directory is created with mode 0700.
+   After removing the old containers, the workflow runs the ownership step again immediately
+   before service startup, after all host steps that open SQLite. Run it at that point after any
+   manual host-side SQLite checks while the stack is stopped, too. Other data entries and
+   application files keep their ownership; web's `.next/cache` is the writable image directory.
+   The worker heartbeat is container-local
+   `/tmp/yugidraft-worker-health.json`, so it needs no host ownership step. Compose sets
+   `no-new-privileges` and drops all capabilities; Caddy retains only `NET_BIND_SERVICE`.
    The install script rechecks active duels: a table may have started during the build. Drain those
    games under the existing procedure before retrying; engine data is never replaced before preflight.
    Bundle rollback does not reverse completed passcode migrations. Saved decks/cubes may already use official
@@ -485,6 +496,7 @@ Local safety checks (no VM access):
 
 ```bash
 python3 -B -m unittest discover -s scripts/deployment -p test_deploy_safety.py -v
+node --test scripts/deployment/container-runtime.test.mjs
 node --test scripts/ci/deploy-flow.test.mjs
 npx vitest run scripts/staging/deploy.test.ts
 npx --yes @action-validator/cli@0.6.0 .github/workflows/deploy.yml
@@ -521,6 +533,10 @@ docker compose -f docker-compose.yml down
 ## Backups
 
 The root systemd service runs the repo's `scripts/backup/dueling-backup` to back up `/opt/yugioh-bot/data/bot.sqlite` with Python's SQLite backup API, including committed WAL writes without stopping the app or requiring the SQLite CLI. The timer runs daily at **07:30 UTC**, with up to ten minutes of random delay and catch-up after downtime. Snapshots are integrity checked, mode 0600, and paired with SHA-256 sidecars in `/var/backups/yugioh-bot` (directory mode 0700). `DUELING_BACKUP_SRC` and `DUELING_BACKUP_DIR` override the source and destination. Deploys update the script used by the service; re-copy the units if their configuration changes.
+
+After closing the live database, the backup restores any remaining WAL/SHM sidecars to the
+database file's uid/gid, including on backup failure. Their modes are preserved so a root-run
+backup while containers are stopped leaves the sidecars usable by the application user.
 
 After a successful backup, the server keeps up to **7** automatic `bot-YYYYmmdd-HHMMSSZ.sqlite` files by UTC filename and deletes older ones with their sidecars. `DUELING_BACKUP_KEEP` changes that count and must be an integer >= 1; set it in a systemd service drop-in on the VM. A separate **14-day age cap** (applied from 13 days, because the timer runs once a day) removes expired automatic files even when fewer than the configured count exist: missed timers and manual runs make count-only retention insufficient. At least the newest automatic snapshot is retained. A successful run creates a fresh snapshot before pruning, so that safeguard does not retain an expired snapshot during normal operation. Completion lines include `kept` and `total_bytes` for retained automatic SQLite files, excluding sidecars and manual files.
 

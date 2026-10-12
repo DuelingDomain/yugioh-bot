@@ -1,3 +1,5 @@
+x-user: &user "${UID:-0}:${GID:-0}"  # Host UID/GID in dev; root by default.
+
 services:
   shared:
     build:
@@ -10,6 +12,7 @@ services:
       - ./packages/shared/dist:/app/packages/shared/dist
 
   web:
+    user: *user
     build:
       target: web-dev
     ports:
@@ -30,16 +33,19 @@ services:
       - shared
 
   ws:
+    user: *user
     ports:
       - "3001:3001"
 
   duel:
+    user: *user
     # Local development reads its existing engine volume; no CI bundle build context.
     build:
       target: duel
       additional_contexts: !reset {}
 
   worker:
+    user: *user
     build:
       target: web-dev
     working_dir: /app

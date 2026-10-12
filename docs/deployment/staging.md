@@ -94,6 +94,9 @@ containers' memory limits, CPU shares or OOM score. The workflow applies these c
 3. It skips below 1100 MB of available memory or 6000 MB of free disk before the build.
    After the build, it skips below 2500 MB of free disk. Worker startup/cron owns image-cache eviction.
 4. It skips below 1900 MB of available memory before it starts staging.
+   The workflow runs containers as uid/gid 1000. After installing the bundle and finishing host
+   SQLite work, it prepares `data-staging` ownership before the migration container and again
+   immediately before startup, preserving existing modes and private operations reports.
 5. After a healthy start, it removes only old staging image IDs. Docker refuses to remove an image still used by a container.
 
 A skip returns success, emits a **Staging skipped** warning and writes a line in the step summary.

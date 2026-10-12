@@ -174,6 +174,7 @@ for core in ocgcore.multi ocgcore.multi-domain; do
 done
 
 # Migrate the isolated, stopped staging database once before any consumers start.
+sh scripts/deployment/prepare-runtime-data.sh "$staging_dir/data-staging"
 copied_db=0
 [ ! -f "$clerk_scrub_marker" ] || copied_db=1
 compose run --rm --no-deps -e STAGING_COPIED_DB="$copied_db" worker node --input-type=module -e '
@@ -193,6 +194,7 @@ rm -f "$clerk_scrub_marker"
 if ! sh scripts/staging/check-resources.sh "before start" "${STAGING_MIN_START_MB:-1900}"; then
   skip_staging "the start resource check did not pass. Staging stays down."
 fi
+sh scripts/deployment/prepare-runtime-data.sh "$staging_dir/data-staging"
 compose up -d
 compose ps
 
