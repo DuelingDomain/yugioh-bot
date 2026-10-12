@@ -40,7 +40,7 @@ import {
   zoneKey,
 } from "./constants";
 import { disabledZones } from "./multi-seat";
-import { findMasterCard, masterInUse, masterPlace, type MasterPlace } from "./master-place";
+import { findMasterCard, masterInUse, masterPlace, masterSummonLine, type MasterPlace } from "./master-place";
 import type { InspectTarget } from "./inspector";
 import { RivalHand } from "./table/rival-hand";
 import { hexToRgbTriplet, isStraight, labelTurnDeg, normalizeDeg, textScale } from "./table/seat-angle";
@@ -1284,9 +1284,8 @@ export function MasterDock({
               <dt>Next surcharge</dt>
               <dd>{master.nextCost} LP</dd>
             </div>
-            {/* Room for the "Summon: costs N LP" row; it stays out of the layout until a view field feeds it. */}
-            {showInUse ? <div className={styles.masterSummon} data-testid="master-dock-summon" /> : null}
           </dl>
+          {showInUse && masterSummonLine(view) ? <p className={styles.masterSummon} data-testid="master-dock-summon">{masterSummonLine(view)}</p> : null}
           {local ? (
             <div className={styles.masterActions}>
               {actions.map((option, index) => (

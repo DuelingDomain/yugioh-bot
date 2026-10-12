@@ -5,7 +5,7 @@ import { Search, X } from "lucide-react";
 import type { DuelCard, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { cardArtUrl, cardStatsText, LOCATION_DMZONE, zoneKey } from "../constants";
 import { masterCard, masterDetailLines, masterStatus, withExact } from "../field";
-import { masterInUse } from "../master-place";
+import { masterInUse, masterSummonLine } from "../master-place";
 import { anyLegal, anySelected, type DuelHoverHandler } from "../field-keys";
 import type { InspectTarget } from "../inspector";
 import type { DuelActivateHandler } from "./types";
@@ -177,6 +177,7 @@ export function GridMasterToken({
   const actions = local && canAct ? legalActionsFor(card, keys) : [];
   const status = masterStatus(view);
   const inUse = showInUse && masterInUse(view);
+  const summonLine = showInUse ? masterSummonLine(view) : null;
   // A multi-seat plate is the zone of its seat; the 1v1 HUD keeps its rail as the anchor.
   const zoneAnchor = wide || showInUse;
   const stats = cardStatsText(master.card);
@@ -253,13 +254,13 @@ export function GridMasterToken({
               <small>{local ? (forkLabels ? "Acting Master" : "Your Master") : "Deck Master"}</small>
               <b title={master.card.name}>{master.card.name}</b>
               {inUse && !wide ? <span className={styles.masterUse} data-testid={id("hud-master-use")}>In use · {status}</span> : null}
+              {summonLine && !wide ? <span className={styles.masterSummon} data-testid={id("hud-master-summon")}>{summonLine}</span> : null}
               {wide ? (
                 <span className={styles.masterFacts} data-testid={id("hud-master-facts")}>
                   {details.map((line) => <span key={line}>{line}</span>)}
                   {stats ? <span>{stats}</span> : null}
                   <span data-status={status === "Elsewhere" ? "away" : "home"}>{status}</span>
-                  {/* Room for the "Summon: costs N LP" line (the next Deck Master Zone summon cost); it stays empty until that view field exists. */}
-                  <span className={styles.masterSummon} data-testid={id("hud-master-summon")} />
+                  {summonLine ? <span className={styles.masterSummon} data-testid={id("hud-master-summon")}>{summonLine}</span> : null}
                 </span>
               ) : null}
             </span>
