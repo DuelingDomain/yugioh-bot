@@ -159,7 +159,7 @@ describe("BetweenGamesScreen: start blocked", () => {
     expect(await screen.findByTestId("start-blocked")).toHaveTextContent("Your deck cannot start.");
   });
 
-  it("sends the player on when Ready answers with the neutral text and nextSlug, and the new lobby shows the line from its room", async () => {
+  it("sends the player on with nextSlug and keeps no line of its own; a lobby with the room field shows the line (two renders, the UI half only)", async () => {
     // The real host pair: the last Ready starts the next game, the start fails on the other deck, and the answer
     // carries the neutral text with the new game's slug.
     api.readySeries.mockResolvedValue({ series: between({ sideReady: [true, true], currentDuelSlug: "game-2", gameNumber: 2 }), nextSlug: "game-2", startBlocked: NEUTRAL });

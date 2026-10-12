@@ -17,7 +17,7 @@ vi.mock("@/lib/hooks/use-duel-websocket", () => ({
   useDuelWebsocket: () => ({ syncing: false, recovering: false, connected: true, presence: null, resync: vi.fn() }),
 }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
-const api = vi.hoisted(() => ({ markDuelReady: vi.fn(), markDuelUnready: vi.fn() }));
+const api = vi.hoisted(() => ({ markDuelReady: vi.fn(), markDuelUnready: vi.fn(), startDuel: vi.fn() }));
 vi.mock("@/components/duel/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/components/duel/api")>()),
   ...api,
@@ -34,6 +34,7 @@ beforeEach(() => {
   swr.mutate.mockReset().mockResolvedValue(undefined);
   api.markDuelReady.mockReset();
   api.markDuelUnready.mockReset();
+  api.startDuel.mockReset();
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -74,7 +75,7 @@ describe("DuelRoomView: neutral start-blocked line", () => {
   it("puts a full-room answer in the cache without the neutral string, then reads the room once for the own note", async () => {
     const lobby = tournamentLobby();
     swr.data = lobby;
-    api.markDuelReady.mockResolvedValue({ ...lobby, engine: {}, startBlocked: NEUTRAL });
+    api.markDuelReady.mockResolvedValue({ ...lobby, engine: null, startBlocked: NEUTRAL });
     render(<DuelRoomView slug="game-1" />);
     fireEvent.click(screen.getByRole("button", { name: /^Ready/ }));
     await waitFor(() => expect(swr.mutate).toHaveBeenCalledTimes(2));
@@ -82,5 +83,34 @@ describe("DuelRoomView: neutral start-blocked line", () => {
     expect(cached).not.toHaveProperty("startBlocked");
     expect(options).toEqual({ revalidate: false });
     expect(swr.mutate.mock.calls[1]).toEqual([]);
+  });
+
+  it("returns the organizer to the lobby, closes the pop-up and shows the line when Start answers with the neutral text", async () => {
+    const lobby = makeSeriesRoom({ series: null, status: "lobby", mySeat: 0 });
+    lobby.session.settings = defaultDuelSettings("normal");
+    lobby.session.seriesId = null;
+    swr.data = lobby;
+    const popup = { closed: false, close: vi.fn(), focus: vi.fn(), location: { href: "about:blank" } };
+    vi.stubGlobal("open", vi.fn(() => popup));
+    api.startDuel.mockResolvedValue({ ...lobby, engine: null, startBlocked: NEUTRAL });
+    const view = render(<DuelRoomView slug="game-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start duel" }));
+    await waitFor(() => expect(api.startDuel).toHaveBeenCalledWith("game-1"));
+    // No error is thrown, yet the pop-up closes and the button gets its label back.
+    await waitFor(() => expect(popup.close).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start duel" })).toBeEnabled());
+    expect(screen.queryByText("Starting duel…")).toBeNull();
+    // The lobby is on screen, not the window gate for the pop-up.
+    expect(screen.getByRole("region", { name: "Seats" })).toBeInTheDocument();
+
+    // The answer is cached with the room field set and without the string, so the line shows right away.
+    const [cached, options] = swr.mutate.mock.calls[0];
+    expect(cached).toMatchObject({ startBlockedByOther: true });
+    expect(cached).not.toHaveProperty("startBlocked");
+    expect(options).toEqual({ revalidate: false });
+    swr.data = cached;
+    view.rerender(<DuelRoomView slug="game-1" />);
+    expect(screen.getByTestId("start-blocked")).toHaveTextContent(NEUTRAL);
   });
 });

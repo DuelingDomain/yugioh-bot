@@ -119,7 +119,6 @@ export function RoomLobby({
   /** Start duel was clicked and the server has not answered yet. */
   starting?: boolean;
   actionError: string | null;
-  /** The neutral line a Ready or start call answered when another player's deck blocks the start. */
   /** A deck check was refused because the duel already started: refresh the room. */
   onDeckLocked?: () => void;
   onTakeSeat: (seat: number) => void;
