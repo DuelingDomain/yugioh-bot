@@ -29,7 +29,7 @@ export function SeatStrip({
   onFocusSeat?: (seat: number) => void;
   /** Any seat can be focused, yours too (the 4-way grid zooms to any field). Default: rivals only. */
   focusAny?: boolean;
-  /** A direct-attack aim is open: the seats it offers answer it when tapped. */
+  /** An opponent pick is open: the seats it offers answer it when tapped. */
   pick?: SeatPick | null;
   /** In the phase bar of the wide table: one slim row of tags that never wraps. */
   compact?: boolean;
@@ -40,7 +40,7 @@ export function SeatStrip({
   const format = engineFormat(engine);
   const ordered = [...engine.seats].sort((a, b) => a.seat - b.seat);
   const next = nextSeatAfter(engine.seats, engine.turnSeat);
-  // A Leaving seat is pickable only when no living seat is offered (the same rule as the direct-attack aim).
+  // A Leaving seat is pickable only when no living seat is offered (the rule of opponentPickOptions).
   const livingOffered = pick != null && ordered.some((view) => pick.options.has(view.seat) && !isOutOrLeaving(view));
   return (
     <ol className={compact ? `${styles.strip} ${styles.compact}` : styles.strip} aria-label="Turn order" data-format={format} data-testid="seat-strip">

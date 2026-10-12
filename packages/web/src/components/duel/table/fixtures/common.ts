@@ -9,12 +9,13 @@ import { cardAt, hiddenAt, MZ, SZ, link } from "../../fx-lab/board";
 
 export { newSeat, cardAt, hiddenAt, MZ, SZ, HAND, GY, BANISHED, DECK, EXTRA, FIELD, link } from "../../fx-lab/board";
 
-/** The eight states every mode shows in the preview. */
+/** The nine states every mode shows in the preview. */
 export const TABLE_STATE_IDS = [
   "main",
   "battle-aim",
   "chain-2",
   "target-pick",
+  "choose-opponent",
   "direct-attack",
   "elimination",
   "spectator",
@@ -72,7 +73,7 @@ export const TABLE_CARDS = {
 } as const satisfies Record<string, DuelCardInfo>;
 
 export interface TableFixtureState {
-  /** One of the eight shared ids, or the id of a mode's own extra state (see `TableFixtureSet.extra`). */
+  /** One of the nine shared ids, or the id of a mode's own extra state (see `TableFixtureSet.extra`). */
   id: TableStateId | (string & {});
   label: string;
   room: DuelRoom;
@@ -188,7 +189,7 @@ export function withHiddenHands(seats: readonly DuelSeatView[]): DuelSeatView[] 
 }
 
 /**
- * The eight preview states of a mode, built from one board. This is the scaffold's placeholder data: each mode file
+ * The nine preview states of a mode, built from one board. This is the scaffold's placeholder data: each mode file
  * replaces what it needs with hand-made states as its stage is built. `makeSeats` returns fresh seat views each call.
  * The viewer (seat 0) acts in every state except `spectator` and `result`.
  */
@@ -298,6 +299,16 @@ export function skeletonFixtureSet(o: {
         options: foes.flatMap((seat) =>
           seats[seat].monsters.flatMap((card, sequence) => (card && sequence < 5 ? [optionFor(seat, sequence, card.name ?? "Monster")] : [])),
         ),
+      }),
+    }),
+    "choose-opponent": build("choose-opponent", "Choose an opponent", {
+      prompt: () => ({
+        id: "choose-opponent",
+        seat: 0,
+        kind: "choice",
+        title: "Choose an opponent",
+        context: { type: "opponent" },
+        options: foes.map((seat) => ({ id: `opp-${seat}`, label: `Choose ${nameOf(seat)} as the opponent`, controller: seat })),
       }),
     }),
     "direct-attack": build("direct-attack", "Direct attack", {

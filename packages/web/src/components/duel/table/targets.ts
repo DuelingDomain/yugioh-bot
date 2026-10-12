@@ -6,7 +6,7 @@ import type { CameraState, SeatStatus, TargetChoice } from "./types";
 
 /**
  * What the viewer can aim at, grouped by the rival seat that holds it. Zone options (attack target, target pick)
- * give zone keys; an option that has a seat but no zone (a direct attack) hits that seat's LP.
+ * give zone keys; an option that has a seat but no zone (a direct attack, an opponent pick) hits that seat's LP.
  * Empty unless the prompt is the live viewer's own. Leaving targets remain available until eliminated.
  */
 export function targetChoices(

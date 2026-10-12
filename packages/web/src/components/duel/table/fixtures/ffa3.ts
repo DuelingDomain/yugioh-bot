@@ -215,6 +215,16 @@ const states = {
       options: foeMonsterOptions(seats),
     }),
   }),
+  "choose-opponent": make("choose-opponent", "Choose an opponent", {
+    prompt: () => ({
+      id: "choose-opponent",
+      seat: REN,
+      kind: "choice",
+      title: "Choose an opponent",
+      context: { type: "opponent" },
+      options: [RYO, MIKA].map((seat) => ({ id: `opp-${seat}`, label: `Choose ${NAMES[seat]} as the opponent`, controller: seat })),
+    }),
+  }),
   "direct-attack": make("direct-attack", "Direct attack", {
     phase: "battle",
     battleStep: "battle",

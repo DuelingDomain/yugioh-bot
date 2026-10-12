@@ -198,7 +198,11 @@ describe("rivalPickOptions", () => {
   it("is empty without a prompt", () => {
     expect(rivalPickOptions(four(), null).size).toBe(0);
   });
-  it("reads a direct attack whose options name rivals (an opponent-context choice is not a seat pick any more)", () => {
+  it("reads an opponent pick", () => {
+    const p = choice([{ id: "o1", label: "a", controller: 1 }, { id: "o3", label: "b", controller: 3 }], { type: "opponent" });
+    expect([...rivalPickOptions(four(), p)]).toEqual([[1, "o1"], [3, "o3"]]);
+  });
+  it("reads a direct attack whose options name rivals", () => {
     const p = choice([{ id: "direct-3", label: "Attack Player 4 directly", controller: 3 }]);
     expect([...rivalPickOptions(four(), p)]).toEqual([[3, "direct-3"]]);
   });
@@ -215,7 +219,7 @@ describe("rivalPickOptions", () => {
   });
   it("leaves out an eliminated rival", () => {
     const e = engine([seat(0, 1, true), seat(1, 1, true), seat(2, 1, true), seat(3, 1, true, { eliminated: true })]);
-    const p = choice([{ id: "o1", label: "Attack Player 2 directly", controller: 1 }, { id: "o3", label: "Attack Player 4 directly", controller: 3 }]);
+    const p = choice([{ id: "o1", label: "a", controller: 1 }, { id: "o3", label: "b", controller: 3 }], { type: "opponent" });
     expect([...rivalPickOptions(e, p)]).toEqual([[1, "o1"]]);
   });
 });

@@ -69,7 +69,7 @@ import { useLiveTableController } from "./table/use-live-table-controller";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { duelActionErrorText } from "@/lib/duel/action-errors";
 import { MultiSeatStage } from "./multi-seat-stage";
-import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds, seatNamer, winnerLabel } from "./multi-seat";
+import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, isOpponentPick, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds, seatPickFor, seatNamer, winnerLabel } from "./multi-seat";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import hudStyles from "./table/grid-hud.module.css";
@@ -722,7 +722,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setPendingAttack(attack && attack.controller != null && attack.location != null && attack.sequence != null
         ? { key: zoneKey(attack.controller, attack.location, attack.sequence), direct: /directly/i.test(attack.label) }
         : null);
-      // Only a direct-attack pick gets the general "pick again" notice on a 400 (a seat may have left).
+      // Only an opponent or direct-attack pick gets the general "pick again" notice on a 400 (a seat may have left).
       // A refused answer (a stale choice, a rejected move) is no cause for a follow-up: forget it, so the next prompt keeps its beat.
       void run(async () => {
         try {
@@ -731,7 +731,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           pick.clearAnswer();
           throw err;
         }
-      }, isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
+      }, isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
     },
     [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, pick.clearAnswer, viewerOut, forkControl?.actingSeat],
   );
@@ -1119,6 +1119,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     : engine?.seats.find((seat) => seat.seat !== localSeat);
   const mine = prompt != null && prompt.seat === data.mySeat;
   const canAct = mine && !busy && !error && !catchingUp && data.session.status === "active" && !viewerOut;
+  // An opponent pick also answers by tapping the offered seat on the table (after the same human beat as the panel).
+  const seatPick = multi && canAct && revealed ? seatPickFor(prompt, engine, onSubmitAnswer) : null;
   const canSurrender = !forkMode && data.session.status === "active" && data.mySeat != null && !engine?.result && !viewerOut;
   const terminal = data.session.status !== "active";
   const isOrganizer = actorPlayerId === data.session.organizerPlayerId || data.session.seats.some((seat) =>
@@ -1818,7 +1820,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
                 legalKeys={fieldLegalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                 onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
                 nameOf={playerName} promptSeat={prompt?.seat ?? null}
-                focusSeat={focusSeat} onFocusSeat={setPinnedFocus} />
+                focusSeat={focusSeat} onFocusSeat={setPinnedFocus} seatPick={seatPick} />
             ) : fieldProps ? <DuelField key={slug} {...fieldProps} /> : null)}
           </div>
         </section>

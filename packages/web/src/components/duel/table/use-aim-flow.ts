@@ -150,7 +150,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     [answerFor, onAnswer, pre, prompt?.options],
   );
 
-  // Direct attack: a choice that names a seat and no zone, with no seat pick from the base controller.
+  // Direct attack: a choice that names a seat and no zone, with no opponent pick behind it.
   const direct = useMemo(() => {
     if (!canAct || !prompt || prompt.kind !== "choice" || base.seatPick) return null;
     const choices = targetChoices(prompt, engine, viewerSeat, nameOf).filter((choice) => choice.direct);

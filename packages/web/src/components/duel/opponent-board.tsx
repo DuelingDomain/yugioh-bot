@@ -22,7 +22,7 @@ import {
 import { LifePoints } from "./life-points";
 import type { DuelActivateHandler, DuelHoverHandler } from "./field";
 import type { InspectTarget } from "./inspector";
-import { disabledZoneNames, disabledZones, type SeatRelation } from "./multi-seat";
+import { disabledZoneNames, disabledZones, opponentPickLabel, type SeatPick, type SeatRelation } from "./multi-seat";
 import styles from "./opponent-board.module.css";
 import { useForkLabels } from "./table/fork-labels";
 
@@ -259,6 +259,22 @@ function PendulumCells({ view, name, callbacks }: { view: DuelSeatView; name: st
   );
 }
 
+/**
+ * The large focused opponent (top half of the field) has no compact board, so an opponent pick gets its own
+ * bar above the field. It is a real button: keyboard and screen readers use the same path as the rail boards.
+ */
+export function FocusedSeatPick({ view, name, pick }: { view: DuelSeatView; name: string; pick?: SeatPick | null }) {
+  const seat = view.seat;
+  if (view.eliminated === true || pick?.options.has(seat) !== true) return null;
+  return (
+    <div className={styles.focusPick} data-pickable="true" data-seat={seat} data-testid={`seat-focus-pick-${seat}`}>
+      <span className={styles.focusName}>{name}</span>
+      <button type="button" className={styles.pick} data-testid={`seat-pick-${seat}`} aria-label={opponentPickLabel(name)}
+        onClick={() => pick.onPick(seat)}>Choose</button>
+    </div>
+  );
+}
+
 function DisabledNote({ view }: { view: DuelSeatView }) {
   const names = disabledZoneNames(view);
   if (names.length === 0) return null;
@@ -320,6 +336,7 @@ export function SeatBoard({
   onFocusSeat,
   masterRule = 4,
   format,
+  pick,
   showExtraZones = true,
 }: {
   view: DuelSeatView;
@@ -338,6 +355,8 @@ export function SeatBoard({
   format?: DuelFormat;
   /** False when the stage draws this seat's EMZ in an FFA4 shared row. */
   showExtraZones?: boolean;
+  /** An opponent pick is open: this board answers it when its seat is offered. */
+  pick?: SeatPick | null;
 }) {
   const forkLabels = useForkLabels();
   const seat = view.seat;
@@ -354,12 +373,13 @@ export function SeatBoard({
   const spells = [0, 1, 2, 3, 4].map((sequence) => view.spells[sequence] ?? null);
   const handKeys = view.hand.length === 0 ? [zoneKey(seat, LOCATION_HAND, 0)] : view.hand.map(cardKey);
   const relationText = forkLabels ? (relation === "self" ? "Acting" : relation === "opponent" ? "" : RELATION_LABEL[relation]) : RELATION_LABEL[relation];
+  const pickable = !eliminated && pick?.options.has(seat) === true;
 
   return (
     <section className={styles.board} aria-label={`${name} board`} data-seat={seat} data-relation={relation}
       data-active={active && !eliminated && !leaving ? "true" : "false"} data-answering={answering && !eliminated && !leaving ? "true" : "false"}
       data-eliminated={eliminated ? "true" : "false"} data-leaving={leaving ? "true" : "false"} data-expanded={expanded ? "true" : "false"}
-      data-team={view.team} data-testid={`seat-board-${seat}`}>
+      data-pickable={pickable ? "true" : undefined} data-team={view.team} data-testid={`seat-board-${seat}`}>
       <header className={styles.head}>
         <button type="button" className={styles.toggle} aria-expanded={expanded} aria-disabled={targeted || undefined}
           aria-label={targeted ? `${name} stays open while it has a selectable target` : `${expanded ? "Collapse" : "Expand"} ${name}`}
@@ -375,6 +395,10 @@ export function SeatBoard({
           {answering && !eliminated && !leaving ? <span className={styles.tag} data-kind="answer">Choosing</span> : null}
           {leaving ? <span className={styles.tag} data-kind="leaving" data-testid={`seat-leaving-${seat}`}>Leaving</span> : null}
           {eliminated ? <span className={styles.tag} data-kind="out" data-testid={`seat-eliminated-${seat}`}>Eliminated</span> : null}
+          {pickable ? (
+            <button type="button" className={styles.pick} data-testid={`seat-pick-${seat}`} aria-label={opponentPickLabel(name)}
+              onClick={() => pick?.onPick(seat)}>Choose</button>
+          ) : null}
         </div>
         <div className={styles.lp} data-lp-seat={seat} data-final={eliminated ? "true" : "false"} data-testid={`seat-lp-${seat}`}
           aria-label={`${name} ${eliminated ? "final " : ""}${format === "tag" ? "team " : ""}life points`}>
