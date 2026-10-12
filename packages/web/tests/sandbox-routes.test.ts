@@ -346,13 +346,14 @@ describe("duel sandbox operations", () => {
     expect(response.status).toBe(403);
     expect(mocks.post).not.toHaveBeenCalled();
   });
-  it("keeps ordinary lobby views available to members", async () => {
+  it("reads seated ordinary lobby views through the host without sandbox access checks", async () => {
     const session = duel(false);
     mocks.access.mockResolvedValue({ ok: false, status: 403 });
     const { GET } = await import("../app/api/duels/[slug]/route");
     expect((await GET(request("/", undefined, "GET"), slugParams(session.slug))).status).toBe(200);
     expect(mocks.access).not.toHaveBeenCalled();
-    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(payloads()[0]).toMatchObject({ op: "view", slug: session.slug, guildId: "guild", playerId: owner });
   });
 });
 

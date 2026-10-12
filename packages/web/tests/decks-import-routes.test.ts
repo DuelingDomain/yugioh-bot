@@ -631,6 +631,23 @@ describe("preview", () => {
     expect(result.warnings.filter((w: { code: string }) => w.code === "remapped")).toEqual([{ code: "remapped", message: expect.any(String), from: 101402052, to: 40235813, line: 4 }]);
   });
 
+  it.each([
+    ["YDK", false], ["YDK", true], ["YDKE", false], ["YDKE", true],
+  ] as const)("keeps every section in an unresolved %s row (lookup limited: %s)", async (format, limited) => {
+    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','spell','','','[]','test'), (903,'Test Fusion','Fusion Monster','fusion','','','[]','test')").run();
+    mocks.callDuelHost.mockResolvedValue({ ok: true, data: {
+      codes: { 901: 901, 903: 903, 999: null }, lookupLimited: limited ? [999] : [],
+    } });
+    const original = { main: [903], extra: [999, 999, 901], side: [903], deckMaster: null };
+    const text = format === "YDK" ? "#main\n903\n#extra\n999\n999\n901\n!side\n903" : encodeYdke(original);
+    const [shown] = await previewRows([source(text)]);
+    expect(shown.deck).toEqual(original);
+    expect(shown.counts).toEqual({ main: 1, extra: 3, side: 1 });
+    expect(shown.errors).toEqual([expect.objectContaining({ code: limited ? "lookup_limited" : "unknown_card", passcode: 999 })]);
+    expect(shown.warnings.filter((issue: { code: string }) => issue.code === "section_moved")).toEqual([]);
+    expect(decks.list("g", "owner")).toEqual([]);
+  });
+
   it("detects owner-saved or earlier-row duplicates by the combined card multiset", async () => {
     const saved = decks.create("g", "owner", { name: "Saved", mode: "normal", deck: { main: [40235813, 89631139], extra: [], side: [] } });
     const rows = await previewRows([
@@ -695,19 +712,26 @@ describe("preview", () => {
 });
 
 describe("bulk", () => {
-  it("rejects a bad Extra card even when another card cannot be resolved", async () => {
+  it("reports an unresolved card before checking a bad Extra card in the same row", async () => {
     db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','link','','','[]','test')").run();
     const response = await bulk(request({ rows: [row("Bad", { main: [999], extra: [901], side: [] })] }));
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ created: [], failed: [{ index: 0, errors: [{ code: "unknown_card", message: "Unknown card 999", passcode: 999 }] }] });
     expect(decks.list("g", "owner")).toEqual([]);
   });
 
-  it("rejects an Extra card with an unknown type with the normal-save code", async () => {
-    const response = await bulk(request({ rows: [row("Unknown Extra", { main: [], extra: [999], side: [] })] }));
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("card 999") });
-    expect(decks.list("g", "owner")).toEqual([]);
+  it.each([false, true])("reports an unresolved Extra code per row and saves an independent row (lookup limited: %s)", async limited => {
+    mocks.callDuelHost.mockResolvedValue({ ok: true, data: {
+      codes: { 89631139: 89631139, 999: null }, lookupLimited: limited ? [999] : [],
+    } });
+    const response = await bulk(request({ rows: [row("Good"), row("Unknown Extra", { main: [], extra: [999], side: [] })] }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      created: [{ id: expect.any(Number), name: "Good" }],
+      failed: [{ index: 1, errors: [{ code: limited ? "lookup_limited" : "unknown_card",
+        message: limited ? "lookup limit reached, try again" : "Unknown card 999", passcode: 999 }] }],
+    });
+    expect(decks.list("g", "owner").map(saved => saved.name)).toEqual(["Good"]);
   });
 
   it.each([

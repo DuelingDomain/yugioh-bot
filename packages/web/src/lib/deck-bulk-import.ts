@@ -139,7 +139,7 @@ export function checkImportList(value: unknown): value is unknown[] {
 }
 export const importListError = (label: string) => errorResponse(`Provide between 1 and ${MAX_IMPORT_DECKS} ${label}`);
 
-/** Match prepareDeckImport/importForLibrary: explicit master selects Domain; a lone Domain Side card becomes the master. */
+/** Match importForLibrary: explicit master selects Domain; a lone Domain Side card becomes the master. */
 export function validateImportRow(value: unknown):
   | { ok: true; name: string; mode: DuelMode; deck: DuelDeck }
   | { ok: false; errors: ImportIssue[] } {
@@ -324,7 +324,9 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
     const masterLine = row.deck.deckMaster == null ? undefined : sourceLines.get(row)?.get(row.deck.deckMaster);
     const mapped = resolveImportDeck(row.deck, resolved.codes, resolved.lookupLimitedCodes, sourceLines.get(row));
     // The engine type takes priority over catalog frames and file section labels.
-    const routed = routeDeckSections({ ...mapped.deck, deckMaster: mapped.deck.deckMaster ?? undefined }, findCard);
+    const routed = mapped.errors.length === 0
+      ? routeDeckSections({ ...mapped.deck, deckMaster: mapped.deck.deckMaster ?? undefined }, findCard)
+      : { deck: mapped.deck, messages: [] };
     row.deck = { ...routed.deck, deckMaster: routed.deck.deckMaster ?? null };
     row.counts = { main: row.deck.main.length, extra: row.deck.extra.length, side: row.deck.side.length };
     const final = validateImportRow({ name: row.name, mode: row.mode, deck: row.deck });
@@ -354,11 +356,13 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
       continue;
     }
     const mapped = resolveImportDeck(row.deck, resolved.codes, resolved.lookupLimitedCodes);
-    // Recheck edited preview rows before any writes, with the same 400/code as ordinary saves.
-    try { assertExtraDeckCards(mapped.deck, findCard); }
-    catch (error) {
-      if (error instanceof ExtraDeckCardError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
-      throw error;
+    // Recheck resolved preview rows before any writes, with the same 400/code as ordinary saves.
+    if (mapped.errors.length === 0) {
+      try { assertExtraDeckCards(mapped.deck, findCard); }
+      catch (error) {
+        if (error instanceof ExtraDeckCardError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+        throw error;
+      }
     }
     const master = mapped.errors.length ? [] : await masterIssues(mapped.deck);
     if (master.some(issue => issue.code === "validation_unavailable")) return errorResponse("Duel engine unavailable, try again", 503);
