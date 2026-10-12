@@ -97,6 +97,50 @@ describe("POST /api/webhooks/clerk", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { ...waitlist, data: {} },
+    { ...waitlist, data: null },
+    { ...waitlist, data: { email_address: "   " } },
+    { ...waitlist, data: { email_address: 123 } },
+    { ...signup, data: {} },
+    { ...signup, data: null },
+    { ...signup, data: { id: "   " } },
+    { ...signup, data: { id: 123 } },
+    { ...signup, data: { ...signup.data, email_addresses: [null] } },
+    { ...signup, data: { ...signup.data, email_addresses: [{ email_address: 123 }] } },
+  ])("stores and acknowledges an unusable signed event without an alert: %j", async event => {
+    vi.stubEnv("DISCORD_SIGNUP_ALERTS_ENABLED", "1");
+    const response = await POST(signed(event));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ received: true });
+    expect((await POST(signed(event))).status).toBe(200);
+    expect(receipts()).toEqual([{ svix_id: "msg_placeholder", received_at: expect.any(String) }]);
+    expect(state.db!.prepare("select * from join_request_notifications").all()).toEqual([]);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rejects content-length above 64 KiB before reading or verifying the body", async () => {
+    const request = signed();
+    request.headers.set("content-length", String(64 * 1024 + 1));
+    request.headers.set("svix-signature", "v1,invalid-placeholder");
+    const read = vi.spyOn(request, "text");
+    const response = await POST(request);
+    expect(response.status).toBe(413);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(read).not.toHaveBeenCalled();
+    expect(request.bodyUsed).toBe(false);
+    expect(receipts()).toEqual([]);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("verifies a request at the 64 KiB content-length boundary", async () => {
+    const request = signed();
+    request.headers.set("content-length", String(64 * 1024));
+    expect((await POST(request)).status).toBe(200);
+    expect(receipts()).toHaveLength(1);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("deduplicates concurrent Svix replays after another migration", async () => {
     const responses = await Promise.all([POST(signed()), POST(signed())]);
     expect(responses.map(response => response.status)).toEqual([200, 200]);
