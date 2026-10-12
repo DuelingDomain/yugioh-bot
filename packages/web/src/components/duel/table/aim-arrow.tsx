@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { hexToRgbTriplet } from "./seat-angle";
+import { directTargetNode } from "../direct-target";
 import { findShown } from "./zone-find";
 import { SEAT_TONE_HEX, type BattleAim, type SeatTone } from "./types";
 import styles from "./aim-arrow.module.css";
@@ -104,7 +105,7 @@ export function AimArrow({ fromKey, tone, targetTone, pointer, snap, label }: Ai
       const fromEl = findShown(scope, `[data-zones~="${escape(fromKey)}"]`);
       const toEl =
         lpSeat != null
-          ? findShown(scope, `[data-holo="${lpSeat}"], [data-lp-seat="${lpSeat}"]`)
+          ? directTargetNode(lpSeat, scope)
           : zones
               .split(" ")
               .filter(Boolean)
@@ -130,7 +131,8 @@ export function AimArrow({ fromKey, tone, targetTone, pointer, snap, label }: Ai
       if (chip) {
         const x = Math.min(window.innerWidth - 110, Math.max(110, tip.x));
         // Below the target: the card hover info opens above it. Above only when there is no room below.
-        const gap = Math.max(30, tip.w * 0.55 + 10);
+        // A wide target (a whole field row) keeps the chip as close as a big card does.
+        const gap = Math.max(30, Math.min(tip.w * 0.55, 64) + 10);
         const below = tip.y + gap < window.innerHeight - 70;
         chip.style.transform = `translate(${x}px, ${below ? tip.y + gap : Math.max(40, tip.y - gap)}px) translate(-50%, ${below ? "0" : "-100%"})`;
       }

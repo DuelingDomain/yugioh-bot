@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { directTargetNode } from "../direct-target";
 import { ARENA_CENTER } from "./geometry";
 import { hexToRgbTriplet } from "./seat-angle";
 import { findShown } from "./zone-find";
@@ -78,7 +79,7 @@ export function AttackLine({ aim, tone, stageHeight = 860, stageWidth = 1100 }: 
       const fromEl = find(`[data-zones~="${escape(fromKey)}"]`);
       const toEl =
         lpSeat != null
-          ? find(`[data-lp-seat="${lpSeat}"]`)
+          ? directTargetNode(lpSeat, root)
           : zones
               .split(" ")
               .filter(Boolean)

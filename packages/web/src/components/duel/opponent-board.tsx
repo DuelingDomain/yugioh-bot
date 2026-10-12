@@ -419,7 +419,7 @@ export function SeatBoard({
             <Count label="Banished" count={view.banished.length} keys={pileKeys(seat, LOCATION_REMOVED, view.banished)} pile owner={name} cards={view.banished} callbacks={callbacks} />
           </div>
           <div className={styles.rows}>
-            <div className={styles.row} data-row="monsters">
+            <div className={styles.row} data-row="monsters" data-monster-row={seat}>
               {monsters.map((card, sequence) => (
                 <CardCell key={`mz-${sequence}`} card={card} kind="mz" label={`${name} monster zone ${sequence + 1}`}
                   keys={withExact(card, [zoneKey(seat, LOCATION_MZONE, sequence)])} callbacks={callbacks}
