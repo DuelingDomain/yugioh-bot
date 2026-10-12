@@ -116,6 +116,8 @@ const STRIP_KEY_HUD = "[data-team-plate], [data-camera-rail], [data-testid='hove
  * "key" could be hidden for a small corner of the hub (the 2B chip at 1366 home). Counted in both, a plate costs its area first.
  */
 const STRIP_SOFT_HUD = "[data-hub], [data-chain-panel], [data-lock-chip], [data-partner-hand], [data-team-plate]";
+/** The air between the response room and the plates or the hand it keeps off (px). */
+const STRIP_BAND_AIR = 10;
 const STRIP_OWN_HAND = '[data-hand-seat][data-side="you"] [data-zones]';
 
 /**
@@ -181,8 +183,38 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   }, []);
   const stripCount = !phone && promptCenter && prompt && isChainStripPrompt(prompt) ? prompt.options.length : 0;
   const stripAnchor = useMemo(() => ({ x: viewBox.width / 2, y: viewBox.height / 2 }), [viewBox.width, viewBox.height]);
-  // The panel is fixed to the middle of the viewport in every view (overview, focus, close-up): the camera moves the world, never this room.
-  const stripFixed = useMemo(() => ({ x: 0, y: 0, width: viewBox.width, height: viewBox.height }), [viewBox.width, viewBox.height]);
+  // The panel is fixed to the middle of the screen in every view (overview, focus, close-up): the camera moves the world, never this room. Down, it
+  // takes the band between the far team plate and the near one or the top of your hand (the way the 4-way takes the band of the fields), so it covers
+  // neither plate nor your hand. Measured at rest; with no plate on screen it is the whole viewport.
+  const [stripBand, setStripBand] = useState<{ top: number; bottom: number } | null>(null);
+  const bandKey = `${prompt?.id ?? ""}|${viewBox.width}x${viewBox.height}|${camera.mode}|${camera.focusSeat ?? ""}|${camera.lock?.reason ?? ""}`;
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || stripCount === 0 || viewBox.height <= 0) {
+      setStripBand(null);
+      return;
+    }
+    const measure = () => {
+      const board = root.getBoundingClientRect();
+      const far = root.querySelector<HTMLElement>('[data-team-plate="far"]')?.getBoundingClientRect();
+      const near = [root.querySelector<HTMLElement>('[data-team-plate="near"]')?.getBoundingClientRect(), root.querySelector<HTMLElement>(STRIP_OWN_HAND)?.getBoundingClientRect()];
+      const top = far && far.height > 0 ? Math.round(far.bottom - board.top + STRIP_BAND_AIR) : 0;
+      const tops = near.filter((r): r is DOMRect => r != null && r.height > 0).map((r) => r.top - board.top - STRIP_BAND_AIR);
+      const bottom = tops.length > 0 ? Math.round(Math.min(...tops)) : viewBox.height;
+      const next = bottom - top > 120 ? { top: Math.max(0, top), bottom: Math.min(viewBox.height, bottom) } : null;
+      setStripBand((current) => (current?.top === next?.top && current?.bottom === next?.bottom ? current : next));
+    };
+    const frame = window.requestAnimationFrame(measure);
+    const settle = window.setTimeout(measure, 450);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(settle);
+    };
+  }, [bandKey, stripCount, viewBox.height]);
+  const stripFixed = useMemo(
+    () => (stripBand ? { x: 0, y: stripBand.top, width: viewBox.width, height: stripBand.bottom - stripBand.top } : { x: 0, y: 0, width: viewBox.width, height: viewBox.height }),
+    [stripBand, viewBox.width, viewBox.height],
+  );
   const stripSources = useMemo(() => engine.chain.flatMap((link) => (link.zone ? [zoneKey(link.zone.controller, link.zone.location, link.zone.sequence)] : [])), [engine.chain]);
   const { room: stripRoom, pending: stripPending } = useStripRoom({
     rootRef,

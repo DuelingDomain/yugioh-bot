@@ -242,7 +242,10 @@ describe("TagStage chrome", () => {
 describe("Tag prompt placement", () => {
   it("fixes the chain-response room to the middle of the viewport in every camera view", () => {
     const source = readFileSync(join(__dirname, "../../src/components/duel/tag/tag-stage.tsx"), "utf8");
-    expect(source).toMatch(/const stripFixed = useMemo\(\(\) => \(\{ x: 0, y: 0, width: viewBox\.width, height: viewBox\.height \}\)/);
+    // The band between the far plate and the near plate or your hand, measured at rest; the whole viewport only where none stands.
+    expect(source).toMatch(/\[data-team-plate="far"\]/);
+    expect(source).toMatch(/STRIP_OWN_HAND\)\?\.getBoundingClientRect/);
+    expect(source).toMatch(/const stripFixed = useMemo\(/);
     expect(source).toMatch(/fixed: stripFixed,/);
   });
 });

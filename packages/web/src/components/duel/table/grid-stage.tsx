@@ -562,12 +562,12 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const promptColumn: 0 | 1 | null = viewerSeat != null ? homeColumn : focusCell?.column ?? null;
   const pairFrame = (promptColumn != null ? frames[promptColumn] : null) ?? frames[0] ?? frames[1];
   const promptPair = pairFrame ? centeredPromptBox(box, frames) : null;
-  // The phase hub can stand in the middle band: a prompt that would cover it steps sideways off it (never leaves the middle row).
+  // The phase hub can stand in the middle band: a prompt that would cover its chips steps up or down off them (it stays centred across the table).
   const slotRef = useRef<HTMLDivElement>(null);
-  const dodge = usePromptDodge(rootRef, slotRef, promptCenter != null && promptPair != null, `${controller.prompt?.id ?? ""}|${frameKey}|${box.width}x${box.height}|${zoom.zoomed ? 1 : 0}|${hubPlace}`);
+  const dodge = usePromptDodge(rootRef, slotRef, promptCenter != null && promptPair != null, `${controller.prompt?.id ?? ""}|${frameKey}|${box.width}x${box.height}|${zoom.zoomed ? `${Math.round(zoom.view.s * 100)},${Math.round(zoom.view.x)},${Math.round(zoom.view.y)}` : 0}|${hubPlace}`);
   const promptStyle = promptPair && pairFrame
     ? ({
-        ["--pr-dx" as string]: `${dodge}px`,
+        ["--pr-dy" as string]: `${dodge}px`,
         ["--pr-cx" as string]: `${Math.round(promptPair.x + promptPair.width / 2)}px`,
         ["--pr-cy" as string]: `${Math.round(promptPair.y + promptPair.height / 2)}px`,
         ["--pr-w" as string]: `${Math.round(Math.min(promptPair.width, pairFrame.width))}px`,

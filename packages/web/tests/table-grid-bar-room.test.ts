@@ -66,10 +66,10 @@ describe("grid prompt placement", () => {
     ".slot[data-slot=\"prompt\"] :global([data-prompt-panel][data-precheck])",
     ".slot[data-slot=\"prompt\"] :global([data-prompt-panel]:not([data-precheck]))",
     ".slot[data-slot=\"prompt\"] :global([data-prompt-surface]:not([data-prompt-panel], [data-place]))",
-  ])("centres %s on the screen, with the step off the phase hub", (selector) => {
+  ])("centres %s on the screen, with the step off the phase chips", (selector) => {
     const body = rule(selector);
     expect(body).toMatch(/inset:\s*var\(--pr-cy, 50%\) auto auto var\(--pr-cx, 50%\)/);
-    expect(body).toMatch(/translate:\s*calc\(-50% \+ var\(--pr-dx, 0px\)\) -50%/);
+    expect(body).toMatch(/translate:\s*-50% calc\(-50% \+ var\(--pr-dy, 0px\)\)/);
   });
 
   it("sets the pair vars on the prompt slot", () => {
@@ -193,23 +193,31 @@ describe("centeredPromptBox", () => {
   });
 });
 
-describe("dodgeShift: a centred prompt steps sideways off the phase hub, never off the middle row", () => {
+describe("dodgeShift: a centred prompt steps up or down off the phase chips, never sideways", () => {
   const box = { width: 1552, height: 920 };
-  const panel = { x: 700, y: 400, width: 340, height: 54 };
+  const panel = { x: 606, y: 380, width: 340, height: 54 };
+  // The chips of the hub: one row of small chips in the band between the pairs; the hub's band itself is as wide as the pair.
+  const chips = [{ x: 80, y: 384, width: 29, height: 22 }, { x: 330, y: 384, width: 29, height: 22 }, { x: 640, y: 384, width: 29, height: 22 }];
 
-  it("is 0 when the prompt touches no HUD", () => {
-    expect(dodgeShift(panel, [{ x: 20, y: 400, width: 300, height: 60 }], box)).toBe(0);
+  it("is 0 when the prompt touches no chip", () => {
+    expect(dodgeShift(panel, [chips[0], chips[1]], box)).toBe(0);
   });
 
-  it("takes the shortest shift that clears the hub", () => {
-    const hub = { x: 380, y: 390, width: 349, height: 66 };
-    const shift = dodgeShift(panel, [hub], box);
-    expect(shift).toBeGreaterThan(0);
-    expect(panel.x + shift).toBeGreaterThanOrEqual(hub.x + hub.width);
-    expect(shift).toBeLessThan(80);
+  it("takes the shortest vertical shift that clears the chips, and the panel keeps its place across the board", () => {
+    const shift = dodgeShift(panel, chips, box);
+    expect(shift).not.toBe(0);
+    expect(Math.abs(shift)).toBeLessThanOrEqual(96);
+    const moved = { ...panel, y: panel.y + shift };
+    expect(chips.some((chip) => moved.y < chip.y + chip.height && chip.y < moved.y + moved.height && moved.x < chip.x + chip.width && chip.x < moved.x + moved.width)).toBe(false);
+    // Nothing in the shift is sideways: the middle across stays the middle of the board.
+    expect(Math.abs(panel.x + panel.width / 2 - box.width / 2)).toBeLessThan(4);
   });
 
-  it("stays put when no shift clears the hub inside the box", () => {
-    expect(dodgeShift(panel, [{ x: 0, y: 380, width: 1552, height: 100 }], box)).toBe(0);
+  it("is not moved by a band as wide as the pair when no chip stands under the panel", () => {
+    expect(dodgeShift(panel, [{ x: 8, y: 380, width: 100, height: 66 }], box)).toBe(0);
+  });
+
+  it("stays in the middle and covers the hub when the panel is too tall to clear it", () => {
+    expect(dodgeShift({ ...panel, y: 300, height: 300 }, chips, box)).toBe(0);
   });
 });
