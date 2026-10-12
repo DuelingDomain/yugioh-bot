@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DuelEvent } from "@yugidraft/shared/duels";
-import { lastEventId, lockForEvents } from "@/components/duel/tag/fx-lock";
+import { lastEventId, lockForEvents, otherPlayerActed } from "@/components/duel/tag/fx-lock";
 
 const ev = (id: number, kind: DuelEvent["kind"], extra: Partial<DuelEvent> = {}): DuelEvent => ({ id, kind, text: kind, ...extra });
 
@@ -46,5 +46,29 @@ describe("lockForEvents", () => {
   it("lastEventId moves the cursor past the newest event", () => {
     expect(lastEventId([ev(4, "phase"), ev(9, "attack"), ev(7, "destroy")], 2)).toBe(9);
     expect(lastEventId([], 5)).toBe(5);
+  });
+});
+
+describe("otherPlayerActed", () => {
+  it("is true for an action of a seat that is neither the viewer nor the field in close-up", () => {
+    for (const kind of ["activate", "chain-resolving", "summon", "set", "attack"] as const) {
+      expect(otherPlayerActed([ev(1, kind, { seat: 1 })], 0, 0, 0)).toBe(true);
+    }
+  });
+
+  it("is false for the viewer's own actions and for the field in close-up", () => {
+    expect(otherPlayerActed([ev(1, "activate", { seat: 0 }), ev(2, "attack", { seat: 0 })], 0, 0, 0)).toBe(false);
+    expect(otherPlayerActed([ev(1, "activate", { seat: 1 })], 0, 0, 1)).toBe(false);
+  });
+
+  it("is false for events that name the owner of a card and not who acted, for quiet events and for old events", () => {
+    expect(otherPlayerActed([ev(1, "destroy", { seat: 1 }), ev(2, "move", { seat: 1 }), ev(3, "phase", { seat: 1 })], 0, 0, 0)).toBe(false);
+    expect(otherPlayerActed([ev(1, "activate", { seat: 1 })], 1, 0, 0)).toBe(false);
+    expect(otherPlayerActed([ev(1, "activate")], 0, 0, 0)).toBe(false);
+  });
+
+  it("treats every acting seat as another player for a spectator", () => {
+    expect(otherPlayerActed([ev(1, "activate", { seat: 2 })], 0, null, null)).toBe(true);
+    expect(otherPlayerActed([ev(1, "activate", { seat: 2 })], 0, null, 2)).toBe(false);
   });
 });

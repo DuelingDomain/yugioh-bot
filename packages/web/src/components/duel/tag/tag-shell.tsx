@@ -34,7 +34,7 @@ import { useAimFlow } from "../table/use-aim-flow";
 import { useTableUi } from "../table/use-table-ui";
 import { tableZoneAnchor } from "../table/zone-find";
 import { SEAT_TONE_HEX, type TableController } from "../table/types";
-import { lastEventId, lockForEvents } from "./fx-lock";
+import { lastEventId, lockForEvents, otherPlayerActed } from "./fx-lock";
 import { resolveTagExtras, tagCameraYields, tagInputSuspended, type TagShellPreviewProps } from "./live-tag";
 import { initialRoofCamera, roofReducer } from "./roof-camera";
 import { CameraDock } from "./roof-map";
@@ -176,18 +176,29 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     }),
   );
 
-  // The FX lock follows engine events newer than the last one handled. With reduced motion, or while the connection is
-  // down (the FX replay nothing), no lock starts but the cursor still moves, so old events never lock the camera later.
+  // The camera never zooms in by itself, and a close-up the viewer chose is not left for the viewer's own actions, a response
+  // window or a chain. Two things follow the engine events newer than the last one handled (the cursor):
+  // - Another player's action (activate, summon, set, attack, chain link) on a field other than the one in close-up sends a
+  //   close-up (or any other view) to the overview, once. Nothing sends it back: it stays out until the viewer zooms in.
+  // - On the overview, an attack, chain link or destroy locks the camera for its FX (the view does not change).
+  // With reduced motion, or while the connection is down (the FX replay nothing), no lock starts and no move happens, but the
+  // cursor still moves, so old events never move the camera later.
   const lastEvent = useRef<number>(lastEventId(engine.events, 0));
+  const cameraRef = useRef(camera);
+  cameraRef.current = camera;
   useEffect(() => {
-    const lock = fxActive ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
+    const now = cameraRef.current;
+    if (fxActive && !controller.reducedMotion && now.mode !== "overview" && !now.lock && otherPlayerActed(engine.events, lastEvent.current, viewerSeat, now.mode === "focus" ? now.focusSeat : null)) {
+      dispatchCamera({ type: "overview" });
+    }
+    const lock = fxActive && now.mode === "overview" ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
     if (!lock) {
       lastEvent.current = lastEventId(engine.events, lastEvent.current);
       return;
     }
     lastEvent.current = lock.lastId;
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
-  }, [engine.events, fxActive, controller.reducedMotion]);
+  }, [engine.events, fxActive, controller.reducedMotion, viewerSeat]);
 
   // An aim holds the camera where it is: a close-up goes back to the overview, and no click zooms in until the aim ends.
   useEffect(() => {
@@ -200,8 +211,10 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   // A prompt that picks zones on other fields than the focused one takes the camera back to the overview, so every
   // target stays in view and clickable. The prompt id keys it: a new prompt checks again, a click on a field does not.
   // The plain action menu (play a card, change phase) is not a pick: the hand is always in reach, and the rail can step
-  // to the field that holds the card.
-  const pickPrompt = promptMine && !(prompt?.kind === "choice" && prompt.context?.type === "action");
+  // to the field that holds the card. This is the one prompt move left, and it only goes out (to see every target); the
+  // camera does not come back by itself.
+  // A chain response window is no pick either: its options are cards to activate, and it never changes the close-up.
+  const pickPrompt = promptMine && !(prompt?.kind === "choice" && (prompt.context?.type === "action" || prompt.context?.type === "chain"));
   const promptId = pickPrompt ? prompt?.id ?? null : null;
   const promptSeats = useMemo(() => {
     if (!pickPrompt || !prompt) return [];
