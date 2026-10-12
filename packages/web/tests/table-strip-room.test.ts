@@ -240,3 +240,24 @@ describe("planStripRoom fixed to the band between the Tag plates and your hand",
     expect(Math.abs(room.x + room.width / 2 - box.width / 2)).toBeLessThan(2);
   });
 });
+
+describe("planStripRoom fixed: no card is clipped, the tile steps down and keeps to maxCard", () => {
+  const box = { width: 1046, height: 688 };
+  const band = { x: 0, y: 71, width: 1046, height: 444 };
+  const leastOf = (room: Rect & { card: number; cols: number }, count: number) => STRIP_ROOM.chrome + Math.round((room.card * 86) / 59) + STRIP_ROOM.rowExtra + (Math.ceil(count / room.cols) > 1 ? STRIP_ROOM.fade : 0);
+
+  it("takes a tile whose whole row fits a 444 px band (8 options)", () => {
+    const room = planStripRoom({ box, count: 8, anchor: { x: 523, y: 344 }, hud: [], soft: [], zones: [], source: [], fixed: band })!;
+    expect(room.height).toBeLessThanOrEqual(band.height);
+    expect(room.height).toBeGreaterThanOrEqual(leastOf(room, 8));
+    expect(room.card).toBeLessThan(STRIP_ROOM.card);
+  });
+
+  it("never takes a tile above maxCard", () => {
+    const tall = { x: 0, y: 0, width: 1892, height: 995 };
+    const free = planStripRoom({ box: { width: 1892, height: 995 }, count: 4, hud: [], soft: [], zones: [], source: [], fixed: tall })!;
+    const capped = planStripRoom({ box: { width: 1892, height: 995 }, count: 4, hud: [], soft: [], zones: [], source: [], fixed: tall, maxCard: 96 })!;
+    expect(free.card).toBeGreaterThan(96);
+    expect(capped.card).toBeLessThanOrEqual(96);
+  });
+});
