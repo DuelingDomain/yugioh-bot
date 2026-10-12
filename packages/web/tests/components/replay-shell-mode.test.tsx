@@ -263,6 +263,50 @@ describe.each(CASES)("%s first-person words", (_name, set, kind) => {
   });
 });
 
+describe("fixed-facing replay grid focus across a seek", () => {
+  const facing = (controller: TableController): TableController => {
+    const seats = controller.engine.seats.map((seat) => ({
+      ...seat, sharedExtraWith: controller.engine.seats.length === 3 && seat.seat === 2 ? null : seat.seat ^ 1,
+    }));
+    const engine = { ...controller.engine, seats };
+    return { ...controller, engine, room: { ...controller.room, engine } };
+  };
+
+  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("$format keeps the viewer's field focus across seek and rewind", (set) => {
+    const view = render(<View set={set} kind="table" resetKey={1} tweak={facing} />);
+    const focus = () => view.container.querySelector("[data-grid-stage]")?.getAttribute("data-grid-focus");
+    expect(focus()).toBe("all");
+    press("2");
+    expect(focus()).toBe("1");
+    view.rerender(<View set={set} kind="table" id="chain-2" resetKey={2} tweak={facing} />);
+    expect(focus()).toBe("1");
+    view.rerender(<View set={set} kind="table" resetKey={3} tweak={facing} />);
+    expect(focus()).toBe("1");
+    press("o");
+    view.rerender(<View set={set} kind="table" resetKey={4} tweak={facing} />);
+    expect(focus()).toBe("all");
+  });
+
+  it("returns to overview when a seek lands after the focused FFA3 seat is out", () => {
+    const view = render(<View set={FFA3_FIXTURES} kind="table" resetKey={1} tweak={facing} />);
+    const focus = () => view.container.querySelector("[data-grid-stage]")?.getAttribute("data-grid-focus");
+    press("2");
+    expect(focus()).toBe("1");
+    const out = (controller: TableController) => {
+      const paired = facing(controller);
+      const seats = paired.engine.seats.map((seat) => ({
+        ...seat, eliminated: seat.seat === 1, sharedExtraWith: null,
+      }));
+      const engine = { ...paired.engine, seats };
+      return { ...paired, engine, room: { ...paired.room, engine } };
+    };
+    view.rerender(<View set={FFA3_FIXTURES} kind="table" resetKey={2} tweak={out} />);
+    expect(focus()).toBe("all");
+    view.rerender(<View set={FFA3_FIXTURES} kind="table" resetKey={3} tweak={facing} />);
+    expect(focus()).toBe("all");
+  });
+});
+
 describe("FFA3 camera across a seek", () => {
   it("keeps the camera the viewer chose and never moves it by itself", () => {
     const [, set, kind] = CASES[0];

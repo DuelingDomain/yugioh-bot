@@ -305,11 +305,15 @@ function TableShellBody({
   const gates = gridKeyGates({ prompt: controller.prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudOpen });
   const gridFocus = useGridFocus({
     enabled: grid,
+    initial: replayCarry?.current.gridFocus,
     shown: gridShown,
     suspended,
     digitsFree: gates.digitsFree,
     escapeFree: gates.escapeFree,
   });
+  useEffect(() => {
+    if (replayCarry && grid) replayCarry.current.gridFocus = gridFocus.focus;
+  }, [replayCarry, grid, gridFocus.focus]);
   // The last two seats of a 3-way or 4-way table are named in a caption (FINAL DUEL). No field moves: the place of a seat that is out stays empty.
   const caption = useFinalDuelCaption({ seats: engine.seats, viewerSeat, reducedMotion: controller.reducedMotion });
   const [hideResult, setHideResult] = useState(false);

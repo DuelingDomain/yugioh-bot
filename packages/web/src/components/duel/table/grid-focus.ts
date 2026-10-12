@@ -12,8 +12,8 @@ export interface GridFocus {
 export type GridFocusAction = { type: "focus"; seat: number } | { type: "all" };
 
 /** The grid starts on the full table (all four fields, an equal 2x2), also after a reload. It zooms in only on a player action. */
-export function initialGridFocus(): GridFocus {
-  return { seat: null };
+export function initialGridFocus(initial?: GridFocus): GridFocus {
+  return initial ?? { seat: null };
 }
 
 export function gridFocusReducer(state: GridFocus, action: GridFocusAction): GridFocus {
@@ -58,6 +58,8 @@ export function gridKeyGates({ prompt, viewerSeat, aiming, seatKeys, flyoutOpen 
 
 export interface UseGridFocusOptions {
   enabled: boolean;
+  /** A replay seek keeps the field the viewer chose. Live tables start on the full table. */
+  initial?: GridFocus;
   /** Seats that have a field to show (not empty cells). */
   shown: readonly number[];
   /** A menu or the pile viewer is open: no key fires. */
@@ -91,8 +93,8 @@ function typing(target: EventTarget | null): boolean {
 }
 
 /** The focus of the grid and its keys: 1 to 4 focus a field, O and Esc show all fields. */
-export function useGridFocus({ enabled, shown, suspended, digitsFree, escapeFree, holding }: UseGridFocusOptions): UseGridFocus {
-  const [focus, dispatch] = useReducer(gridFocusReducer, undefined, initialGridFocus);
+export function useGridFocus({ enabled, initial, shown, suspended, digitsFree, escapeFree, holding }: UseGridFocusOptions): UseGridFocus {
+  const [focus, dispatch] = useReducer(gridFocusReducer, initial, initialGridFocus);
   const live = useRef({ enabled, shown, suspended, digitsFree, escapeFree });
   live.current = { enabled, shown, suspended, digitsFree, escapeFree };
 

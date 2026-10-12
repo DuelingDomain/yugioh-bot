@@ -1,6 +1,7 @@
 import { useMemo, useRef, type MutableRefObject } from "react";
 import type { DuelEngineView, DuelRoom, DuelSession } from "@yugidraft/shared/duels";
 import type { HudPane } from "./grid-hud";
+import type { GridFocus } from "./grid-focus";
 import type { CameraState, TableController } from "./types";
 import type { SidePane } from "../side-panel";
 
@@ -67,6 +68,7 @@ export function useReadOnlyReplayController(controller: TableController): TableC
  */
 export interface ReplayCarry {
   camera?: CameraState;
+  gridFocus?: GridFocus;
   hudPane?: HudPane | null;
   sidePane?: SidePane;
 }
