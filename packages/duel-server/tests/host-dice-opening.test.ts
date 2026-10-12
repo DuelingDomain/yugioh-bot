@@ -119,6 +119,28 @@ describe("host FFA dice opening", () => {
     }
   });
 
+  it("returns 429 when the fourth in-progress Table finishes its dice opening", async () => {
+    const t = table("ffa3", [], undefined, true);
+    expect((await t.post("start")).status).toBe(200);
+    for (let index = 0; index < 3; index++) {
+      const session = t.duels.create({ guildId: "g", organizerPlayerId: t.players[0]!, name: "Next fixture", mode: "normal", format: "ffa3",
+        settings: { validateDeck: false, turnSeconds: 0 } });
+      for (let seat = 0; seat < 3; seat++) {
+        if (seat) t.duels.takeSeat(session.slug, "g", t.players[seat]!, seat);
+        t.duels.setDeck(session.slug, "g", t.players[seat]!, { main: Array(40).fill(seat + 1), extra: [], side: [] });
+      }
+      const result = await t.post("start", t.players[0]!, { slug: session.slug });
+      if (index < 2) expect(result.status).toBe(200);
+      else {
+        expect(result).toEqual({ status: 429, data: { error: "You already have 3 live duels. Finish one first." } });
+        expect(t.duels.get(session.slug, "g").status).toBe("lobby");
+        expect(t.duels.openingState(session.slug, "g")).toBeNull();
+      }
+    }
+    expect(t.workers).toHaveLength(3);
+    expect(t.workers.every((worker) => worker.running)).toBe(true);
+  });
+
   it.each(["ffa3", "ffa4"] as const)("starts %s with the rolled player and deck in seat 0 at the last reveal deadline", async (format) => {
     vi.useFakeTimers();
     const t = table(format, format === "ffa3" ? [2, 1, 6] : [2, 1, 6, 4]);

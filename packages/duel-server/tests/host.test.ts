@@ -1616,3 +1616,28 @@ it("frees the player's share immediately when a duel ends and worker close waits
     expect(result.status).toBe(200);
   } finally { finishClose!(); await ended; await starting; }
 });
+
+
+it("retains the global worker slot after a close deadline until the worker closes", async () => {
+  let finishClose: () => void;
+  const workers: FakeWorker[] = [];
+  const { db, host } = openHost(() => {
+    const worker = new FakeWorker();
+    if (workers.length === 0) {
+      const close = worker.close.bind(worker);
+      worker.close = async () => { await new Promise<void>((resolve) => { finishClose = resolve; }); await close(); };
+    }
+    workers.push(worker); return worker;
+  }, { maxWorkers: 1, maxTablesPerPlayer: 1, opTimeoutMs: 20 });
+  const { p1, p2 } = seedPlayers(db);
+  const first = readyLobby(db, p1, p2).session;
+  const second = readyLobby(db, p1, p2).session;
+  const start = (slug: string) => post(host, { op: "start", slug, guildId: "g1", playerId: p1 });
+  expect((await start(first.slug)).status).toBe(200);
+  try {
+    expect((await post(host, { op: "surrender", slug: first.slug, guildId: "g1", playerId: p1 })).status).toBe(200);
+    expect(workers[0]!.running).toBe(true);
+    expect(await start(second.slug)).toEqual({ status: 429, data: { error: "The duel server is busy. Try again in a minute." } });
+  } finally { finishClose!(); await vi.waitFor(() => expect(workers[0]!.running).toBe(false)); }
+  expect((await start(second.slug)).status).toBe(200);
+});

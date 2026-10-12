@@ -26,15 +26,19 @@ describe("worker operation deadlines", () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it("bounds a close that does not complete and releases capacity", async () => {
+  it("bounds close but retains capacity until it completes", async () => {
     vi.useFakeTimers();
     let released = 0;
-    const worker = { running: true, close: () => new Promise(() => {}) } as unknown as DuelGameWorker;
+    let finish: () => void;
+    const worker = { running: true, close: () => new Promise<void>((resolve) => { finish = resolve; }) } as unknown as DuelGameWorker;
     const limited = limitWorkerOperations(worker, 20, () => { released++; });
     try {
       const check = expect(limited.close()).rejects.toMatchObject({ status: 503 });
       await vi.advanceTimersByTimeAsync(20);
       await check;
+      expect(released).toBe(0);
+      finish!();
+      await vi.advanceTimersByTimeAsync(0);
       expect(released).toBe(1);
     } finally { vi.useRealTimers(); }
   });
@@ -80,7 +84,7 @@ it("bounds create at the separate creation deadline", async () => {
   } finally { vi.useRealTimers(); }
 });
 
-it("a close deadline frees global and player capacity only once even if close resolves later", async () => {
+it("retains global and player capacity until close completes and releases it once", async () => {
   vi.useFakeTimers();
   const pool = new WorkerPool(1, 1);
   const release = await pool.acquire([1]);
@@ -92,9 +96,11 @@ it("a close deadline frees global and player capacity only once even if close re
     const check = expect(limited.close()).rejects.toMatchObject({ status: 503 });
     await vi.advanceTimersByTimeAsync(20);
     await check;
-    const next = await pool.acquire([1]);
+    await expect(pool.acquire([2])).rejects.toMatchObject({ status: 429 });
+    expect(releases).toBe(0);
     finish!();
     await vi.advanceTimersByTimeAsync(0);
+    const next = await pool.acquire([1]);
     await expect(limited.close()).rejects.toMatchObject({ status: 503 });
     expect(releases).toBe(1);
     await expect(pool.acquire([2])).rejects.toMatchObject({ status: 429 });
@@ -122,4 +128,12 @@ it("bounds initialization as a whole while letting its journal calls exceed the 
     await check;
     await limited.close();
   } finally { vi.useRealTimers(); }
+});
+
+it("does not free a worker slot when close fails without completing", async () => {
+  let released = 0;
+  const worker = { running: false, close: async () => { throw new Error("Close failed"); } } as unknown as DuelGameWorker;
+  const limited = limitWorkerOperations(worker, 20, () => { released++; });
+  await expect(limited.close()).rejects.toThrow("Close failed");
+  expect(released).toBe(0);
 });

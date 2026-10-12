@@ -220,7 +220,10 @@ export function limitWorkerOperations(worker: DuelGameWorker, timeoutMs: number,
     if (closing) return closing;
     stopped = true;
     for (const cancel of pending) cancel(new RequestError("The duel engine is no longer running.", 503));
-    closing = bounded(() => worker.close(), timeoutMs, true).finally(onClose);
+    closing = bounded(async () => {
+      await worker.close();
+      onClose();
+    }, timeoutMs, true);
     return closing;
   }
 

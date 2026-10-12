@@ -386,7 +386,7 @@ export function createDuelHost(options: {
       const worker = options.createWorker?.() ?? new GameWorker(
         duelId === undefined ? undefined : (error) => recordScriptError(duelId, error),
         (error) => console.error(JSON.stringify({ event: "card_script_fatal", duelId, ...error })),
-        { heapMb: options.workerHeapMb ?? limits.heapMb, onExit: release },
+        { heapMb: options.workerHeapMb ?? limits.heapMb, onExit: () => { release(); reservations.delete(game); } },
       );
       const game = limitWorkerOperations(worker, options.opTimeoutMs ?? limits.opTimeoutMs, () => {
         release();
@@ -682,9 +682,6 @@ export function createDuelHost(options: {
       await game.close();
     } catch {
       // Worker may already have exited.
-    } finally {
-      reservations.get(game)?.release();
-      reservations.delete(game);
     }
   }
 
