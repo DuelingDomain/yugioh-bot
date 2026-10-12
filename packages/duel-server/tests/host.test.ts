@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { defaultDuelSettings, type DuelAnswer, type DuelCardInfo, type DuelDeck, type DuelEngineView, type DuelPrompt, type DuelRoom, type DuelSettings } from "@yugidraft/shared/duels";
@@ -10,13 +10,15 @@ import { createDuelHost, type DuelHost } from "../src/host.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import type { DecisionClockState } from "../src/clock.js";
+import { currentEngineDataDirectory } from "./engine-data-dir.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
+import { describeWithCores, needs } from "./support/cores.js";
 
 // Fake-worker tests need complete resource identities but never load a real core.
-const DATA = createHostDataFixture(Array.from({ length: 60 }, (_, index) => ({ code: index + 1, name: `Fixture ${index + 1}` })));
-afterAll(() => rmSync(DATA, { recursive: true, force: true }));
+const FAKE_DATA = createHostDataFixture(Array.from({ length: 60 }, (_, index) => ({ code: index + 1, name: `Fixture ${index + 1}` })));
+afterAll(() => rmSync(FAKE_DATA, { recursive: true, force: true }));
 const SECRET = "duel-host-test-secret";
-const MANIFEST = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")) as { bundleVersion: string };
+const MANIFEST = JSON.parse(readFileSync(join(FAKE_DATA, "manifest.json"), "utf8")) as { bundleVersion: string };
 
 function insertPlayer(db: Database.Database, guildId: string, discordUserId: string, displayName: string) {
   return Number(
@@ -161,9 +163,13 @@ const hosts: DuelHost[] = [];
 afterEach(async () => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
-  while (hosts.length > 0) {
-    const host = hosts.pop();
-    if (host) await host.close();
+  try {
+    while (hosts.length > 0) {
+      const host = hosts.pop();
+      if (host) await host.close();
+    }
+  } finally {
+    vi.unstubAllEnvs();
   }
 });
 
@@ -172,7 +178,7 @@ function openHost(createWorker: (() => DuelGameWorker) | undefined, extra: HostH
   if (!extra.db) migrate(db);
   const host = createDuelHost({
     db,
-    dataDirectory: extra.dataDirectory ?? DATA,
+    dataDirectory: extra.dataDirectory ?? currentEngineDataDirectory(),
     secret: SECRET,
     searchCards: () => [],
     archiveAfterMs: extra.archiveAfterMs ?? 60 * 60 * 1000,
@@ -245,7 +251,7 @@ function readyLobby(db: Database.Database, p1: number, p2: number, settings?: Du
     settings,
   });
   duels.takeSeat(session.slug, "g1", p2);
-  const deck = buildPracticeBotDeck("normal", DATA);
+  const deck = buildPracticeBotDeck("normal", currentEngineDataDirectory());
   duels.setDeck(session.slug, "g1", p1, deck);
   duels.setDeck(session.slug, "g1", p2, deck);
   return { duels, session };
@@ -264,12 +270,14 @@ function createdSettings(worker: FakeWorker) {
 }
 
 describe("duel host rooms", () => {
+  beforeEach(() => vi.stubEnv("DUEL_DATA_DIR", FAKE_DATA));
+
   it.each(["network", "timeout", "429", "503", "json"])("contains a %s catalog failure and keeps the host available", async (failure) => {
     vi.resetModules();
     const { createDuelHost: create } = await import("../src/host.js");
     const db = new Database(":memory:"); migrate(db);
     const { p1 } = seedPlayers(db);
-    const host = create({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000 });
+    const host = create({ db, dataDirectory: currentEngineDataDirectory(), secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000 });
     hosts.push(host);
     const upstream = vi.fn(async () => {
       if (failure === "network") throw new Error("offline");
@@ -560,6 +568,8 @@ describe("duel host rooms", () => {
 });
 
 describe("duel host clocks", () => {
+  beforeEach(() => vi.stubEnv("DUEL_DATA_DIR", FAKE_DATA));
+
   const timedSettings: DuelSettings = {
     ...defaultDuelSettings("normal"),
     turnSeconds: 30,
@@ -949,7 +959,7 @@ describe("duel host clocks", () => {
 });
 
 
-describe("native host board retention", () => {
+describeWithCores("native host board retention", [needs.cards(), needs.scripts(), needs.standard()], () => {
   it("projects a public spectator view and retains the surrender board", async () => {
     const db = new Database(":memory:");
     migrate(db);
@@ -988,6 +998,8 @@ describe("native host board retention", () => {
 });
 
 describe("duel host validate-deck", () => {
+  beforeEach(() => vi.stubEnv("DUEL_DATA_DIR", FAKE_DATA));
+
   const DARK_MAGICIAN = 46986414;
   const shortDeck: DuelDeck = { main: [DARK_MAGICIAN], extra: [], side: [] };
 
@@ -1026,7 +1038,7 @@ describe("duel host validate-deck", () => {
       slug: session.slug,
       guildId: "g1",
       playerId: p1,
-      deck: buildPracticeBotDeck("normal", DATA),
+      deck: buildPracticeBotDeck("normal", currentEngineDataDirectory()),
     });
     expect(legal.status).toBe(200);
     expect(legal.data).toEqual({ issues: [] });
@@ -1144,6 +1156,8 @@ class LoggingWorker extends FakeWorker {
 }
 
 describe("duel host replay", () => {
+  beforeEach(() => vi.stubEnv("DUEL_DATA_DIR", FAKE_DATA));
+
   async function playedDuel(surrenderAfter: boolean, inputs = 2) {
     const db = new Database(":memory:");
     migrate(db);
