@@ -739,6 +739,30 @@
   transition: box-shadow 0.3s;
 }
 
+/* A rival's Deck Master, on the chip's top right. In use it is a solid soft well (no dashed cut-out): the return lands in it. */
+.mthumb {
+  position: absolute;
+  z-index: 2;
+  right: calc(-4 * var(--u));
+  top: calc(-9 * var(--u));
+  width: calc(20 * var(--u));
+  height: calc(29 * var(--u));
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgb(var(--seat) / 0.7);
+  border-radius: 3px;
+  background: rgb(8 12 24 / 0.9);
+  box-shadow: 0 2px 6px -2px rgb(0 0 0 / 0.8);
+  cursor: pointer;
+}
+.mthumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.mthumb:hover, .mthumb:focus-visible { border-color: var(--seat-ink); outline: none; }
+.mthumb[data-in-use="true"] {
+  border-color: rgb(var(--seat) / 0.85);
+  background: linear-gradient(160deg, rgb(239 231 213 / 0.16), rgb(239 231 213 / 0.05));
+  box-shadow: inset 0 1px 6px rgb(0 0 0 / 0.45);
+}
+
 .m1 {
   display: flex;
   align-items: center;
