@@ -838,6 +838,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   handCount={view.hand.length}
                   deckCount={view.deckCount}
                   clockMs={room.clock?.remainingMs[cell.seat] ?? null}
+                  clock={room.clock}
                   status={holoStatus(engine, cell.seat, promptSeat)}
                   me={slot.relation === "self"}
                   replay={replay}

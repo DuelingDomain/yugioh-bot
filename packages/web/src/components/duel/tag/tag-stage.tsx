@@ -646,6 +646,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         hand: view?.hand.length ?? 0,
         deck: view?.deckCount ?? 0,
         clockMs: room.clock?.remainingMs[seat] ?? null,
+        clock: room.clock,
         clockRuns: seat === (promptSeat ?? engine.turnSeat),
         now: seat === engine.turnSeat,
         response,

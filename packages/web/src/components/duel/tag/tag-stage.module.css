@@ -901,6 +901,11 @@ button.bpill[data-targets="true"] { border-color: rgb(240 192 96 / 0.85); }
   background: rgb(var(--seat) / 0.15);
 }
 
+.clk[data-low="true"] {
+  color: var(--duel-loss-ink, #ff9489);
+  border-color: rgb(255 148 137 / 0.7);
+}
+
 .mchip[data-now="true"] {
   box-shadow: 0 0 0 1px rgb(var(--seat) / 0.9), 0 0 16px -3px rgb(var(--seat) / 0.7);
 }

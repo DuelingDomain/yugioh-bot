@@ -2,7 +2,9 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { Link2 } from "lucide-react";
-import type { DuelCardInfo } from "@yugidraft/shared/duels";
+import type { DuelCardInfo, DuelClock } from "@yugidraft/shared/duels";
+import { LOW_CLOCK_MS } from "../clock-beep";
+import { useLiveClockMs } from "../use-live-clock";
 import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
 import { hexToRgbTriplet } from "./seat-angle";
@@ -21,6 +23,8 @@ export interface HoloLpProps {
   deckCount: number;
   /** Clock left of this seat in ms, or null when the duel has no clock. */
   clockMs: number | null;
+  /** The duel clock. With it the panel shows this seat's live time (ticking while the seat answers); without it, `clockMs` as given. */
+  clock?: DuelClock | null;
   status: SeatStatus;
   /** True for the viewer's own panel: a little larger, no projector beam. */
   me: boolean;
@@ -118,6 +122,7 @@ export function HoloLp({
   handCount,
   deckCount,
   clockMs,
+  clock: duelClock = null,
   status,
   me,
   acting,
@@ -149,7 +154,10 @@ export function HoloLp({
   const stateLabel = STATE_LABEL[status];
   const turn = status === "turn";
   const out = status === "eliminated";
-  const clock = formatClock(clockMs);
+  const liveMs = useLiveClockMs(duelClock, seat);
+  const shownMs = duelClock ? liveMs : clockMs;
+  const clock = formatClock(shownMs);
+  const lowClock = shownMs != null && shownMs <= LOW_CLOCK_MS;
   const follows = follow && !floating && fit == null;
   const style: CSSProperties & Record<string, string | number> = {
     "--t": hexToRgbTriplet(hex.main),
@@ -190,7 +198,7 @@ export function HoloLp({
           <DeckIcon />
           {deckCount}
         </span>
-        {clock ? <span className={styles.clock}>{clock}</span> : null}
+        {clock ? <span className={styles.clock} data-low={lowClock ? "true" : undefined}>{clock}</span> : null}
       </div>
       {stateLabel ? <div className={styles.state}>{out && placeLabel ? `Eliminated, ${placeLabel}` : stateLabel}</div> : null}
       {status === "choosing" ? <div className={styles.think}>choosing...</div> : null}
