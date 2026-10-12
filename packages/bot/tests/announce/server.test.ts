@@ -13,7 +13,7 @@ describe("announce server", () => {
     });
     const res = await app.handle(new Request("http://x/internal/announce/draft-created", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-announce-signature": "sha256=00" },
+      headers: { "content-type": "application/json", "x-internal-signature": "t=0,v2=00" },
       body: "{}",
     }));
     expect(res.status).toBe(401);

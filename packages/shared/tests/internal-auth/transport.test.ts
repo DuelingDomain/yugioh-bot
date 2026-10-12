@@ -1,7 +1,21 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { signedTransport, recordingTransport, readSignedRequest } from "../../src/internal-auth/index.js";
+import { signedRequestHeaders, signedTransport, recordingTransport, readSignedRequest } from "../../src/internal-auth/index.js";
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+describe("signedRequestHeaders", () => {
+  it.each(["POST", "PUT"])("authenticates an in-process %s request with its query and exact body", async method => {
+    const url = "http://duel/internal/duel?mode=one";
+    const body = '{ "op": "capabilities" }';
+    vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    const headers = signedRequestHeaders({ url, method, body, secret: "secret", purpose: "duel-host" });
+    const request = new Request(url, { method, body, headers });
+    expect(request.headers.get("content-type")).toBe("application/json");
+    expect(request.headers.get("x-internal-signature")).toMatch(/^t=1800000000,v2=[a-f0-9]{64}$/);
+    expect(await readSignedRequest(request, { secret: "secret", purpose: "duel-host" }))
+      .toEqual({ ok: true, body: { op: "capabilities" } });
+  });
+});
 
 describe("signedTransport", () => {
   it("signs the body and posts to url+path", async () => {

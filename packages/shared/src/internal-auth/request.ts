@@ -7,6 +7,12 @@ export type SignedPostTransport = {
   post(path: string, body: string): Promise<SignedPostResult>;
 };
 
+export function signedRequestHeaders(cfg: { url: string | URL; method: string; body: string; secret: string; purpose: Purpose }): Record<string, string> {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const digest = requestDigest(cfg.secret, cfg.purpose, cfg.method, new URL(cfg.url), timestamp, Buffer.from(cfg.body));
+  return { "content-type": "application/json", "x-internal-signature": `t=${timestamp},v2=${digest.toString("hex")}` };
+}
+
 export function signedTransport(cfg: { url: string; secret: string; purpose: Purpose; timeoutMs?: number }): SignedPostTransport {
   return {
     async post(path, body) {
@@ -15,13 +21,11 @@ export function signedTransport(cfg: { url: string; secret: string; purpose: Pur
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const url = new URL(`${cfg.url}${path}`);
-        const timestamp = Math.floor(Date.now() / 1000);
-        const digest = requestDigest(cfg.secret, cfg.purpose, "POST", url, timestamp, Buffer.from(body));
-        const sig = `t=${timestamp},v2=${digest.toString("hex")}`;
+        const headers = signedRequestHeaders({ ...cfg, url, method: "POST", body });
         const request = (async () => {
           const res = await fetch(url.toString(), {
             method: "POST",
-            headers: { "content-type": "application/json", "x-internal-signature": sig },
+            headers,
             body, ...(controller ? { signal: controller.signal } : {}),
           });
           const text = await res.text();
