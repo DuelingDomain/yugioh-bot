@@ -16,7 +16,7 @@ export const ENGINE_HOST_RULE_FILES = [
   "legacy/engine", "legacy/views", "legacy/prompts", "legacy/script-compat", "cards", "domain-core", "core-capabilities",
   "multi-scripts", "chain-mode", "chain-options", "script-errors", "script-load-scope", "sort-response", "hand-identities", "log-lines", "text",
   "raw-messages", "attack-target-pick", "wasm-sync-export", "card-script-source", "card-script-hash", "practice-bot",
-  "engine-loop-error", "engine-resource-resolver", "legacy/index", "prompt-trace",
+  "engine-loop-error", "engine-resource-resolver", "legacy/index", "prompt-trace", "chain-activator", "target-names",
 ] as const;
 
 /** Replay/fork compatibility version. Bump for engine/journal behavior changes; the CI
@@ -24,8 +24,8 @@ export const ENGINE_HOST_RULE_FILES = [
  * Comments and other behavior-neutral edits may refresh that baseline with a stated reason.
  * Live play recovery deliberately does not gate on this version.
  */
-// Version 2 includes the fork-only Manual pending-loss boundary in journal runs and recovery.
-export const ENGINE_HOST_RULE_VERSION = "duel-rules-2";
+// Version 3 adds activator attribution, target naming, negation and defender attack markers from main.
+export const ENGINE_HOST_RULE_VERSION = "duel-rules-3";
 
 export class EngineResourceUnavailableError extends Error {
   readonly code = "ENGINE_UNAVAILABLE_FOR_SOURCE";

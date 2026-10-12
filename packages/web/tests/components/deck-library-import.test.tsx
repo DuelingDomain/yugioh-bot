@@ -14,16 +14,20 @@ vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));
 
-const created: Array<{ name: string; mode: string }> = [];
+const sections = { main: [], extra: [], side: [], deckMaster: null };
+let previewBody: { sources: Array<{ id: string; name: string; text: string }> } | null = null;
 
 function stubApi() {
-  let nextId = 1;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/decks" && init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as Omit<SavedDeck, "id" | "createdAt" | "updatedAt">;
-      created.push({ name: body.name, mode: body.mode });
-      const deck: SavedDeck = { ...body, id: nextId++, createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00" };
-      return Response.json({ deck }, { status: 201 });
+    if (url === "/api/decks/import/preview") {
+      previewBody = JSON.parse(String(init?.body));
+      return Response.json({
+        maxDecks: 50,
+        rows: previewBody!.sources.map((source) => ({
+          rowId: `${source.id}#0`, sourceId: source.id, name: source.name.replace(/\.ydk$/, ""),
+          deck: { ...sections, main: [89631139] }, counts: { main: 1, extra: 0, side: 0 }, errors: [], warnings: [], duplicateOf: null,
+        })),
+      });
     }
     return Response.json({ decks: [] });
   }));
@@ -34,7 +38,7 @@ function ydkFile(name: string, text: string) {
 }
 
 afterEach(() => {
-  created.length = 0;
+  previewBody = null;
   vi.unstubAllGlobals();
 });
 
@@ -68,33 +72,119 @@ describe("SavedDeckLibrary", () => {
     }
   });
 
-  it("saves every chosen file as its own deck and lists it", async () => {
+  it("previews every chosen file as its own deck before anything saves", async () => {
     stubApi();
     render(<SavedDeckLibrary />);
     await screen.findByText(/No saved decks yet/);
 
-    fireEvent.click(screen.getByRole("button", { name: /Import YDK$/ }));
-    fireEvent.change(screen.getByLabelText("YDK files"), {
+    fireEvent.click(screen.getByRole("button", { name: "Import decks" }));
+    fireEvent.change(screen.getByLabelText("Deck files"), {
       target: {
         files: [
           ydkFile("Blue_Eyes.ydk", "#main\n89631139\n#extra\n!side\n"),
-          ydkFile("Notes.txt", "nothing here"),
           ydkFile("Master.ydk", "#deckmaster\n14558127\n#main\n89631139\n#extra\n!side\n"),
         ],
       },
     });
 
-    await waitFor(() => expect(screen.getAllByText(/^Saved as/)).toHaveLength(2));
-    expect(created).toEqual([
-      { name: "Blue Eyes", mode: "normal" },
-      { name: "Master", mode: "domain" },
-    ]);
-    expect(screen.getByText("No cards found. Is this a YDK file?")).toBeInTheDocument();
+    const list = await screen.findByRole("list", { name: "Decks to import" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(previewBody!.sources.map((source) => source.name)).toEqual(["Blue_Eyes.ydk", "Master.ydk"]);
+    expect(fetch).not.toHaveBeenCalledWith("/api/decks/import/bulk", expect.anything());
+  });
 
-    const list = screen.getAllByRole("list").find((el) => el.querySelector("a[href='/decks/1']") && el.textContent?.includes("Updated"));
-    expect(list).toBeDefined();
-    expect(within(list!).getByText("Blue Eyes")).toBeInTheDocument();
-    expect(within(list!).getByRole("link", { name: "Master" })).toBeInTheDocument();
+  it("copies a library deck as a YDKE code", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [{
+      id: 1, name: "One", mode: "normal", deck: { main: [89631139, 89631139], extra: [23995346], side: [14558127] },
+      createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00",
+    }] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "One" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy One as YDKE" }));
+    const section = (codes: number[]) => Buffer.from(Uint32Array.from(codes).buffer).toString("base64");
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(
+      `ydke://${section([89631139, 89631139])}!${section([23995346])}!${section([14558127])}!`,
+    ));
+    expect(await screen.findByRole("status")).toHaveTextContent("YDKE code copied.");
+  });
+
+  const savedWithMaster = {
+    id: 1, name: "Domain one", mode: "domain",
+    deck: { main: [89631139], extra: [], side: [], deckMaster: 14558127 },
+    createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00",
+  };
+
+  it("tells the person that the Deck Master is not in the YDKE code", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [savedWithMaster] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "Domain one" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy Domain one as YDKE" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("The Deck Master is not part of YDKE.");
+  });
+
+  it.each([
+    ["has no clipboard", undefined, /cannot use the clipboard/],
+    ["is refused the clipboard", { writeText: vi.fn(async () => { throw new Error("denied"); }) }, /did not allow the copy/],
+  ])("shows the code in a selectable box when the page %s", async (_label, clipboard, message) => {
+    vi.stubGlobal("navigator", { ...navigator, clipboard });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [savedWithMaster] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "Domain one" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy Domain one as YDKE" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(message)).toBeInTheDocument();
+    expect(within(dialog).getByText(/The Deck Master is not part of YDKE/)).toBeInTheDocument();
+    const box = within(dialog).getByRole("textbox", { name: "YDKE code" });
+    expect(box).toHaveAttribute("readonly");
+    expect((box as HTMLTextAreaElement).value).toMatch(/^ydke:\/\/.+!.*!.*!$/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps focus inside the by-hand copy box, selects the code, and gives focus back on close", async () => {
+    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [savedWithMaster] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "Domain one" });
+    const copy = screen.getByRole("button", { name: "Copy Domain one as YDKE" });
+    copy.focus();
+    fireEvent.click(copy);
+
+    const dialog = await screen.findByRole("dialog");
+    const box = within(dialog).getByRole("textbox", { name: "YDKE code" }) as HTMLTextAreaElement;
+    expect(box).toHaveFocus();
+    expect(box.selectionStart).toBe(0);
+    expect(box.selectionEnd).toBe(box.value.length);
+
+    // Tab from the last control wraps to the first, and Shift+Tab from the first wraps to the last.
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    close.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(box).toHaveFocus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(close).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(copy).toHaveFocus();
+  });
+
+  it("closes the by-hand copy box with a click on the backdrop", async () => {
+    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks: [savedWithMaster] })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "Domain one" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy Domain one as YDKE" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(dialog);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.click(dialog.parentElement!);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("with no decks: one primary, Import YDK files opens the import panel, bar buttons are secondary", async () => {
@@ -108,7 +198,7 @@ describe("SavedDeckLibrary", () => {
     expect(screen.getAllByRole("link", { name: /^New deck$/ })[0]).not.toHaveClass("primary");
     expect(container.querySelector("[aria-hidden='true']")).not.toBeNull();
     fireEvent.click(primary);
-    expect(screen.getByLabelText("YDK files")).toBeInTheDocument();
+    expect(screen.getByLabelText("Deck files")).toBeInTheDocument();
   });
 
   it("keeps New deck primary once decks exist", async () => {

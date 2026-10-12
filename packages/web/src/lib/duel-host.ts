@@ -166,6 +166,10 @@ export async function callDuelHost(input: {
   codes?: number[];
   /** normalize-codes only: retain known artwork passcodes for storage/display. */
   preserveArtwork?: boolean;
+  /** normalize-codes only: remote lookup allowance, carried between batches. */
+  lookupLimit?: number;
+  cacheOnly?: boolean;
+  includeCanonical?: boolean;
   /** add-bot only: the 0-based empty seat to fill. */
   seat?: number;
   /** start-preset only. */
@@ -201,6 +205,7 @@ export async function callDuelHost(input: {
     return { ok: false, response: failure({ error: configProblem }, 503) };
   }
   const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 }
+    : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
     : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {
     op: input.op,
@@ -225,6 +230,9 @@ export async function callDuelHost(input: {
   if (input.query !== undefined) payload.query = input.query;
   if (input.codes !== undefined) payload.codes = input.codes;
   if (input.preserveArtwork !== undefined) payload.preserveArtwork = input.preserveArtwork;
+  if (input.lookupLimit !== undefined) payload.lookupLimit = input.lookupLimit;
+  if (input.cacheOnly !== undefined) payload.cacheOnly = input.cacheOnly;
+  if (input.includeCanonical !== undefined) payload.includeCanonical = input.includeCanonical;
   if (input.draftId !== undefined) payload.draftId = input.draftId;
   if (input.seat !== undefined) payload.seat = input.seat;
   if (input.presetId !== undefined) payload.presetId = input.presetId;

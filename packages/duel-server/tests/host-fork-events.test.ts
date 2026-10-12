@@ -1,7 +1,9 @@
 import { createHmac } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { forkEventFixture } from "./helpers/replay-fork-events.js";
-import { engineDataDirectory } from "./engine-data-dir.js";
 
 const target = vi.hoisted(() => vi.fn());
 vi.mock("@yugidraft/shared/services", async importOriginal => {
@@ -12,11 +14,14 @@ vi.mock("@yugidraft/shared/services", async importOriginal => {
 import { createDuelHost, type DuelHost } from "../src/host.js";
 
 let app: ReturnType<typeof forkEventFixture>, host: DuelHost;
+let directory: string;
 const onChange = vi.fn(), notifyTournament = vi.fn();
 beforeEach(() => { vi.clearAllMocks(); app = forkEventFixture(); vi.stubEnv("OWNER_USER_IDS", "101,102");
-  host = createDuelHost({ db: app.db, dataDirectory: engineDataDirectory, secret: "fork-events", searchCards: () => [],
+  directory = mkdtempSync(join(tmpdir(), "host-fork-events-"));
+  writeFileSync(join(directory, "manifest.json"), JSON.stringify({ bundleVersion: "test-bundle" }));
+  host = createDuelHost({ db: app.db, dataDirectory: directory, secret: "fork-events", searchCards: () => [],
     onChange, notifyTournament, pollIntervalMs: 60_000 }); });
-afterEach(async () => { await host.close(); app.db.close(); vi.unstubAllEnvs(); });
+afterEach(async () => { await host?.close(); app.db.close(); rmSync(directory, { recursive: true, force: true }); vi.unstubAllEnvs(); });
 async function post(op: string, slug = app.forkSlug, playerId = app.owner.playerId) {
   const body = JSON.stringify({ op, slug, playerId, guildId: app.guildId });
   return host.handle(new Request("http://test/internal/duel", { method: "POST", body,

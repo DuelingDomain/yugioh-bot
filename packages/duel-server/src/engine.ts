@@ -1,4 +1,5 @@
 import { ChainOptions } from "./chain-options.js";
+import { ChainActivator } from "./chain-activator.js";
 import { scriptErrorCoreFactory } from "./script-load-scope.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
@@ -40,10 +41,13 @@ import {
   isNoDuelist,
   moveReveals,
   nextBattleStep,
+  linkTargetPhrase,
+  nameLinkTargets,
   noteChainTargetLog,
   noteDestroyLog,
   noteDirectAttackTarget,
   noteReveal,
+  noteTargetCardLog,
   observeChainTargetEvents,
   observeDuelEvent,
   observeMoveEvents,
@@ -52,6 +56,9 @@ import {
   playerLabel,
   projectView,
   resetEventBatch,
+  snapshotLinkTargets,
+  targetEventLabels,
+  targetEventText,
   type DomainSeatState,
   type LogEntry,
   type StoredChainLink,
@@ -399,7 +406,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const errorHandler = (type: number, text: string) => {
     if (type === OcgLogType.FROM_SCRIPT) options.onDebugMessage?.(text);
     if (readAttackTargetQuery(text, attackTargetQuery)) return;
-    if (noteDestroyLog(eventContext, text) || noteChainTargetLog(eventContext, text)) return;
+    if (noteDestroyLog(eventContext, text) || noteChainTargetLog(eventContext, text) || noteTargetCardLog(eventContext, text)) return;
     scriptErrors.note(type, text);
   };
   const team = {
@@ -583,7 +590,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const events: StoredDuelEvent[] = [];
   const chainMemory: StoredChainLink[] = [];
   const chainOptions = new ChainOptions(cards);
+  const chainActivator = new ChainActivator();
   const respond = (prompt: PendingPrompt, response: OcgResponse) => {
+    chainActivator.recordResponse(prompt.seat, response, prompt.message);
     try {
       chainOptions.recordResponse(prompt, response);
     } catch (error) {
@@ -636,11 +645,52 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       : destroyedLogText(cards, line!.code, line!.zone.controller, format);
   };
 
-  const recordEvent = (message: OcgMessage) => {
+  // The seat whose single legal target the engine just chose for it (an automatic answer), until the target message arrives.
+  let autoPickSeat: number | null = null;
+  // Target lines whose names have not all arrived: the core can deliver a card's note in a later process call than the
+  // target message, so the lines are written now and their text is completed by settleTargetNames.
+  const unnamedTargets: Array<{ link: StoredChainLink; event: StoredDuelEvent; lines: Array<{ entry: LogEntry; text: (phrase: string) => string }> }> = [];
+  /** The log lines of a chain link's target: the public line, and a private note when the player had no choice. */
+  const logChainTarget = (event: StoredDuelEvent) => {
+    const link = event.chainIndex != null ? chainMemory.find((entry) => entry.index === event.chainIndex) : undefined;
+    if (!link || !event.targetAnnouncement) return;
+    const snapshot = snapshotLinkTargets(link);
+    const source = cards.get(link.code)?.name ?? `Card ${link.code}`;
+    const lines: Array<{ entry: LogEntry; text: (phrase: string) => string }> = [];
+    const add = (text: (phrase: string) => string, audience: "all" | number) => {
+      lines.push({ entry: appendLog(text(linkTargetPhrase(snapshot)), audience), text });
+    };
+    add((phrase) => `Chain Link ${link.index}: ${source} targets ${phrase}`, "all");
+    if (autoPickSeat === link.seat) {
+      add((phrase) => `Only legal target: ${phrase}`, autoPickSeat);
+      autoPickSeat = null;
+    }
+    const complete = nameLinkTargets(eventContext, snapshot, cards);
+    event.text = event.publicText = targetEventText(snapshot);
+    event.targetLabels = targetEventLabels(snapshot);
+    if (!complete) {
+      unnamedTargets.push({ link: snapshot, event, lines });
+      // Match the event ring's bound even if a broken reporter never supplies the missing notes.
+      if (unnamedTargets.length > 400) unnamedTargets.shift();
+    }
+  };
+  const settleTargetNames = () => {
+    for (let index = unnamedTargets.length - 1; index >= 0; index -= 1) {
+      const pending = unnamedTargets[index]!;
+      if (!nameLinkTargets(eventContext, pending.link, cards)) continue;
+      pending.event.text = pending.event.publicText = targetEventText(pending.link);
+      pending.event.targetLabels = targetEventLabels(pending.link);
+      const phrase = linkTargetPhrase(pending.link);
+      for (const line of pending.lines) line.entry.text = line.text(phrase);
+      unnamedTargets.splice(index, 1);
+    }
+  };
+
+  const recordEvent = (message: OcgMessage, activator?: number) => {
     // Moves first: a card's move precedes the summon/set/activate/destroy event it belongs to.
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
-    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
+    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext, activator);
     try {
       chainOptions.observe(message, chainMemory, stored);
     } catch (error) {
@@ -658,7 +708,17 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // Write the result at this message's position, with the assigned FX id for client-side holds.
       if (stored.kind === "toss") appendLog(stored.text).eventId = stored.id;
     }
-    for (const target of observeChainTargetEvents(message, chainMemory, nextEventId, eventContext)) pushEvent(target);
+    for (const target of observeChainTargetEvents(message, chainMemory, nextEventId, eventContext, cards)) {
+      pushEvent(target);
+      logChainTarget(target);
+    }
+    if (message.type === OcgMessageType.CHAIN_END || message.type === OcgMessageType.WIN) {
+      settleTargetNames();
+      unnamedTargets.length = 0;
+      eventContext.targetNotes.length = 0;
+      eventContext.chainTargetNotes.length = 0;
+      autoPickSeat = null;
+    }
   };
 
   const pushEvent = (stored: StoredDuelEvent) => {
@@ -673,7 +733,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     for (const stored of drainDeferredDestroys(eventContext, cards, nextEventId)) pushEvent(stored);
   };
 
-  const applyMessage = (message: OcgMessage) => {
+  const applyMessage = (message: OcgMessage, activator?: number) => {
     eliminationGroup = null;
     battleStep = nextBattleStep(battleStep, message);
     switch (message.type) {
@@ -716,7 +776,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       case OcgMessageType.CHAINING:
         startedChainLinks.delete(message.chain_size);
         liveChainSize = message.chain_size;
-        appendLog(`${playerLabel(format, message.controller)}'s ${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
+        appendLog(`${playerLabel(format, activator ?? message.controller)}'s ${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
         return;
       case OcgMessageType.SPSUMMONED:
         synchroSummon = undefined;
@@ -984,6 +1044,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     // Native materials move before position/place selection, so those prompts continue the same summon.
     const continuingSummon = pending?.message.type === OcgMessageType.SELECT_POSITION || pending?.message.type === OcgMessageType.SELECT_PLACE;
     resetEventBatch(eventContext, continuingSummon);
+    autoPickSeat = null;
     leftFieldLines.length = 0;
     let processCalls = 0;
     while (!result) {
@@ -1003,18 +1064,22 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         messages.forEach((message, index) => {
           while (nextExtra < extras.length && extras[nextExtra]!.after <= index) applyRaw(extras[nextExtra++]!);
           options.onCoreMessage?.(message);
-          applyMessage(message);
-          recordEvent(message);
+          const activator = chainActivator.observe(message);
+          applyMessage(message, activator);
+          recordEvent(message, activator);
         });
         while (nextExtra < extras.length) applyRaw(extras[nextExtra++]!);
       } else {
         for (const message of messages) {
           options.onCoreMessage?.(message);
-          applyMessage(message);
-          recordEvent(message);
+          const activator = chainActivator.observe(message);
+          applyMessage(message, activator);
+          recordEvent(message, activator);
         }
       }
       flushDeferredDestroys();
+      settleTargetNames();
+      autoPickSeat = null;
       const toleratedError = scriptErrors.drain().some(error => error.scriptErrorMode !== "strict");
       if (toleratedError && !scriptErrorEventSent) {
         scriptErrorEventSent = true;
@@ -1088,6 +1153,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       const automated = emptyAttackTargetResponse(next) ?? (next.attackTargetPick || completingAttackPick && (waiting.type === OcgMessageType.SELECT_CARD || waiting.type === OcgMessageType.SELECT_OPTION)
         ? null : autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase }));
       if (automated) {
+        // The player had no choice: the core offered exactly one card to target. Say so once the target message arrives.
+        autoPickSeat = next.message.type === OcgMessageType.SELECT_CARD && next.message.min === 1 && next.message.max === 1 && next.prompt.options.length === 1 ? next.seat : null;
         respond(next, automated);
         continue;
       }
@@ -1322,8 +1389,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       let nextExtra = 0;
       fresh.forEach((message, index) => {
         while (nextExtra < extras.length && extras[nextExtra]!.after <= index) applyRaw(extras[nextExtra++]!);
-        applyMessage(message);
-        recordEvent(message);
+        const activator = chainActivator.observe(message);
+        applyMessage(message, activator);
+        recordEvent(message, activator);
       });
       while (nextExtra < extras.length) applyRaw(extras[nextExtra++]!);
       flushDeferredDestroys();

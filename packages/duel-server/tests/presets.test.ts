@@ -79,8 +79,10 @@ describe("preset registry", () => {
       "dust-tornado-chain",
       "solemn-judgment-summon",
       "jinzo-stops-trap",
+      "negation-veiler-1v1",
     ]);
     expect(PRESETS.filter((preset) => preset.needs === "multi-core").map((preset) => preset.id).sort()).toEqual([
+      "ffa3-attack-defender",
       "ffa3-elimination-chain-control",
       "ffa3-elimination-chain-loss",
       "ffa3-elimination-cut-turn",
@@ -112,6 +114,7 @@ describe("preset registry", () => {
       "ffa4-rules-across-extra-zones",
       "ffa4-surrender-in-chain",
       "mind-crush-ffa4-pick",
+      "negation-veiler-ffa4",
       "raigeki-dark-hole-ffa4",
       "raigeki-dark-hole-tag",
       "tag-jinzo-blocks-traps",

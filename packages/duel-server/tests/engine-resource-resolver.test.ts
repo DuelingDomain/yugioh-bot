@@ -105,9 +105,8 @@ describe("current engine identity", () => {
       hash.update(`shared/${name}\0`).update(fingerprintSource(readFileSync(new URL(`../../shared/src/duels/${name}.ts`, import.meta.url), "utf8")));
     }
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
-    // Refresh for trusted replay-only selection of an unknown 1v1 family. Saved-choice and
-    // identity guards, live recovery, engine command application and Manual loss timing are unchanged.
-    // The shared unknown-choice predicate replaces identical guards; this extraction is behavior-neutral.
+    // Version 3 records main's changed engine decoding and board projection, including the
+    // chain-activator and target-names dependencies. Historical baselines remain unchanged.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 

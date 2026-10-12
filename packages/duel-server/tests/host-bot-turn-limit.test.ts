@@ -102,6 +102,7 @@ describe("bots that play a long duel on their own", () => {
     vi.useFakeTimers();
     const worker = new ReplanningBotWorker();
     const t = await table(worker, 1);
+    const hostTimers = vi.getTimerCount();
     expect((await post(t.host, { op: "start", ...t.base })).status).toBe(200);
     await vi.advanceTimersByTimeAsync(31);
     expect(t.duels.get(t.slug, "g1").status).toBe("active");
@@ -113,13 +114,17 @@ describe("bots that play a long duel on their own", () => {
     expect(session.resultReason).toBe("The practice bot could not keep a valid plan.");
     expect(worker.answers).toBe(0);
     expect(worker.running).toBe(false);
-    expect(vi.getTimerCount()).toBe(1);
+    // Bot timers are gone; host polling and the two retention timers remain.
+    expect(vi.getTimerCount()).toBe(hostTimers);
+    await t.host.close();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it.each([0, 1])("delay %i: stops an endless duel at turn 200 when no human is living", async (delay) => {
     vi.useFakeTimers();
     const worker = new EndlessBotWorker(null, 5, true);
     const t = await table(worker, delay);
+    const hostTimers = vi.getTimerCount();
     const started = await post(t.host, { op: "start", ...t.base });
     expect(started.status, JSON.stringify(started.data)).toBe(200);
     if (delay) await vi.advanceTimersByTimeAsync(1500);
@@ -129,7 +134,9 @@ describe("bots that play a long duel on their own", () => {
     expect(session.resultReason).toBe("No human seat is living. The duel reached the limit of 200 turns.");
     expect(worker.answers).toBe(995);
     expect(worker.running).toBe(false);
-    expect(vi.getTimerCount()).toBe(1); // Only the host sweep remains.
+    expect(vi.getTimerCount()).toBe(hostTimers); // Only the host's polling and retention remain.
+    await t.host.close();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it.each([0, 1])("delay %i: a living human keeps a duel open beyond turn 200", async (delay) => {

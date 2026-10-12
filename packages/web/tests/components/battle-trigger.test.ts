@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
-import { battleTrigger, CLASH_MAX_AGE_MS } from "../../src/components/duel/battle-trigger";
+import { battleTrigger, CLASH_MAX_AGE_MS, openAttack } from "../../src/components/duel/battle-trigger";
 
 const MZONE = 0x04;
 const z = (controller: number, sequence: number): DuelZoneRef => ({ controller, location: MZONE, sequence });
@@ -134,5 +134,22 @@ describe("battleTrigger", () => {
 
   it("is a fizzle for something that is not an attack", () => {
     expect(battleTrigger([phase(1)], phase(1))).toEqual({ action: "fizzle", reason: "no-battle" });
+  });
+});
+
+describe("openAttack", () => {
+  it("is the newest attack while its fight has no result", () => {
+    expect(openAttack([phase(9), attack])).toBe(attack);
+    expect(openAttack([phase(9), attack, activate(11)])).toBe(attack);
+    const newer: DuelEvent = { ...attack, id: 20 };
+    expect(openAttack([attack, damage(11, 1), newer])).toBe(newer);
+  });
+
+  it("is null when there is no attack, or the newest one is over", () => {
+    expect(openAttack([])).toBeNull();
+    expect(openAttack([phase(9)])).toBeNull();
+    expect(openAttack([attack, damage(11, 1)])).toBeNull();
+    expect(openAttack([attack, ev(11, { kind: "attack-negated" })])).toBeNull();
+    expect(openAttack([attack, phase(11)])).toBeNull();
   });
 });
