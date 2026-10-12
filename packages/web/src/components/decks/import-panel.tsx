@@ -6,7 +6,7 @@ import { RotateCw, Upload } from "lucide-react";
 import type { DuelMode } from "@yugidraft/shared/duels";
 import { Segmented, SectionHead, StatusLine, SvButton } from "@/components/sheet";
 import { createSavedDeck, type SavedDeckView } from "./api";
-import { MAX_IMPORT_FILE_BYTES, prepareDeckImport } from "./import";
+import { MAX_IMPORT_FILE_BYTES, movedCardsNote, prepareDeckImport } from "./import";
 import { modeLabel } from "./model";
 import styles from "./library.module.css";
 
@@ -16,7 +16,7 @@ const MODE_CHOICES = [
 ] as const;
 
 type ImportOutcome =
-  | { state: "saved"; deck: SavedDeckView }
+  | { state: "saved"; deck: SavedDeckView; note: string | null }
   | { state: "failed"; error: string };
 
 type ImportRow = { key: number; fileName: string } & ({ state: "saving" } | ImportOutcome);
@@ -27,7 +27,8 @@ async function importOne(file: File, mode: DuelMode): Promise<ImportOutcome> {
       throw new Error("This file is too large to be a YDK deck.");
     }
     const prepared = prepareDeckImport(await file.text(), file.name, mode);
-    return { state: "saved", deck: await createSavedDeck(prepared) };
+    const deck = await createSavedDeck(prepared);
+    return { state: "saved", deck, note: movedCardsNote(deck) };
   } catch (reason: unknown) {
     return { state: "failed", error: reason instanceof Error ? reason.message : "Could not import this file." };
   }
@@ -132,6 +133,7 @@ export function DeckImportPanel({
                       <span>Extra <b>{row.deck.deck.extra.length}</b></span>
                     </span>
                     <Link href={`/decks/${row.deck.id}`} className={styles.resLink}>Open</Link>
+                    {row.note ? <StatusLine tone="warn" className={styles.resNote}>{row.note}</StatusLine> : null}
                   </>
                 ) : null}
                 {row.state === "failed" ? <StatusLine tone="block">{row.error}</StatusLine> : null}

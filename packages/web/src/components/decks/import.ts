@@ -36,3 +36,23 @@ export function prepareDeckImport(text: string, fileName: string, mode: DuelMode
     deck: importForLibrary(raw, importMode).deck,
   };
 }
+
+/**
+ * TODO(deck-extra-fix): placeholder. The backend import will say which cards it moved out of the Extra Deck;
+ * set this to the real field name (and read it from the right object) when that lands.
+ */
+export const MOVED_CARDS_FIELD = "movedToMain";
+
+/**
+ * The note an import shows when the backend moved cards to the Main Deck because they are not Extra Deck
+ * monsters. The field may hold a count or a list of card names. Returns null when nothing moved.
+ */
+export function movedCardsNote(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const field = (result as Record<string, unknown>)[MOVED_CARDS_FIELD];
+  const count = Array.isArray(field) ? field.length : typeof field === "number" ? field : 0;
+  if (!Number.isFinite(count) || count < 1) return null;
+  const names = Array.isArray(field) ? field.filter((name): name is string => typeof name === "string" && name !== "").slice(0, 3) : [];
+  const which = names.length > 0 ? ` (${names.join(", ")}${count > names.length ? ", …" : ""})` : "";
+  return `${count} ${count === 1 ? "card was" : "cards were"} moved to the Main Deck${which}. Only Fusion, Synchro, Xyz and Link monsters go in the Extra Deck.`;
+}
