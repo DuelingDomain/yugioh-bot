@@ -105,8 +105,8 @@ Each item is an independent change with its own tests.
 ### Privacy
 
 - Replace "We use no analytics" in `site/public/privacy.html` with a section naming PostHog and Sentry (EU), what each receives, no analytics cookies, retention, and deletion with the account. Draft for owner approval before analytics go live.
-- One email to the waitlist about the change, drafted for owner approval.
-- Analytics stay off in production (empty keys) until the owner approves both.
+- No waitlist email (owner 2026-10-11: about five users; the policy update is enough).
+- Analytics stay off in production (empty keys) until the updated policy is live.
 
 **Tests.** Outbox: event written in the same transaction (rolled back with it), drain sends and marks, backoff, cleanup, no-op adapter, deletion job. Type test: disallowed prop keys fail to compile. Web: `/ingest` public, script absent when key empty, absent on non-key pages.
 
@@ -123,7 +123,7 @@ Each stream is one PR from its own worktree; Codex implements, the orchestrator 
 | C3 | Part 2b item 8 (containers) | none |
 | D | Part 3 outbox, events, worker drain, browser page views, proxies | A merged |
 | E | Part 2b items 3 and 9 | A and D merged |
-| F | Privacy policy and waitlist email drafts | owner approval |
+| F | Privacy policy update (approved in principle; owner sees wording in the PR) | none |
 
 A, B, C1, C2 and C3 run in parallel. Shared touch points (`S/index.ts` exports, `docker-compose.yml`, `.env.example`, `CLAUDE.md`) are resolved at merge by rebasing the later PR.
 
@@ -131,4 +131,4 @@ A, B, C1, C2 and C3 run in parallel. Shared touch points (`S/index.ts` exports, 
 
 - Sentry: organization in the EU region, projects for web and server, DSNs, `SENTRY_AUTH_TOKEN` as a production environment secret.
 - PostHog: EU project, cookieless mode on, project key and a personal API key with person write scope.
-- Approve the privacy text and waitlist email (stream F) before setting PostHog keys in production.
+- Merge the privacy policy PR (stream F) before setting PostHog keys in production.
