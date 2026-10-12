@@ -862,6 +862,38 @@
   cursor: not-allowed;
 }
 
+/* A shared Extra Monster Zone seen from one of its two seats (plaza): a faint gold edge says it is linked with the facing field;
+   a card of the facing seat in it shows as a ghost with a link badge, and nothing there can be targeted from this side. */
+.zone[data-link] .frame {
+  box-shadow: 0 0 0 1px rgb(201 169 106 / 0.45), 0 0 10px -2px rgb(155 126 255 / 0.4);
+}
+
+.zone[data-link="taken"] .frame {
+  filter: saturate(0.55);
+  opacity: 0.6;
+  box-shadow: 0 0 0 1px rgb(201 169 106 / 0.85), 0 0 14px -2px rgb(155 126 255 / 0.7);
+}
+
+.zone[data-link="taken"] .zoneHit {
+  cursor: help;
+}
+
+.zoneLink {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 4;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(10 12 26 / 0.9);
+  color: #e3c98a;
+  box-shadow: 0 0 0 1px rgb(201 169 106 / 0.7);
+  pointer-events: none;
+}
+
 .zone:hover,
 .zone:has(:focus-visible) {
   z-index: 6;

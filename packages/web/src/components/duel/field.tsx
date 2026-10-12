@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
-import { Check, LayoutGrid, Search } from "lucide-react";
+import { Check, LayoutGrid, Link2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardFace, cardFieldStats } from "./card-face";
 import { CardActionMenu } from "./card-interactions";
@@ -202,12 +202,18 @@ export function ZoneSlot({
   pileCount,
   flip,
   offId,
+  link,
+  linkSeq,
   onActivate,
   onHoverCard,
 }: {
   card: DuelCard | null;
   label: string;
   kind: string;
+  /** A shared Extra Monster Zone seen from one of its two seats (plaza): `shared` = linked, `taken` = the card is the facing seat's. */
+  link?: "shared" | "taken";
+  /** Sequence of the zone (5 or 6): the pair link joins zone 5 of one seat with zone 6 of the other. */
+  linkSeq?: number;
   /** The core disabled this zone: test id suffix `{seat}-{m|s|f}-{sequence}`. Draws a dim zone with a cross. */
   offId?: string;
   keys: string[];
@@ -244,7 +250,10 @@ export function ZoneSlot({
       data-defense={defense ? "true" : "false"}
       data-side={flip ? "opp" : "you"}
       data-disabled={offId ? "true" : undefined}
+      data-link={link}
+      data-link-seq={link ? linkSeq : undefined}
     >
+      {link === "taken" ? <span className={styles.zoneLink} aria-hidden="true"><Link2 size={11} strokeWidth={2.4} /></span> : null}
       {offId ? <span className={styles.zoneOff} role="img" aria-label={`${label} (disabled)`} data-testid={`zone-disabled-${offId}`} /> : null}
       <button
         type="button"
@@ -1027,6 +1036,7 @@ export const SeatField = memo(function SeatField({
   hand,
   emz,
   pair,
+  emzLink,
   showTally,
   usable,
   legalKeys,
@@ -1062,13 +1072,22 @@ export const SeatField = memo(function SeatField({
   };
   const emzSlot = (column: "left" | "right") => {
     const sequence = (column === "left") === (emz !== "shared-top") ? 5 : 6;
-    const card = slot(view?.monsters, sequence);
-    const keys = withExact(card, emz === "own" ? extraMonsterKeys(seat, seat, column, "own") : [zoneKey(seat, LOCATION_MZONE, sequence)]);
+    const own = slot(view?.monsters, sequence);
+    // The engine shares one row between this seat and `emzLink.other`: zone 5 here is zone 6 there. A card of the facing
+    // seat in the mirrored zone blocks this one, so it shows here as a taken ghost (nothing to target).
+    const across = emzLink && emz === "own" ? engine.seats.find((entry) => entry.seat === emzLink.other) : undefined;
+    const ghost = own == null ? slot(across?.monsters, 11 - sequence) : null;
+    const card = own ?? ghost;
+    const link = emzLink && emz === "own" ? (ghost ? "taken" : "shared") : undefined;
+    const keys = ghost ? [] : withExact(card, emz === "own" ? extraMonsterKeys(seat, seat, column, "own") : [zoneKey(seat, LOCATION_MZONE, sequence)]);
+    const base = `${owner} Extra monster zone, column ${column === "left" ? 2 : 4}`;
     return (
       <ZoneSlot
         card={card}
-        label={`${owner} Extra monster zone, column ${column === "left" ? 2 : 4}`}
+        label={ghost ? `${base}, shared with ${emzLink?.otherName}: taken by their ${ghost.name ?? "monster"}` : emzLink ? `${base}, shared with ${emzLink.otherName}` : base}
         kind="emz"
+        link={link}
+        linkSeq={sequence}
         offId={off.monsters[sequence] ? `${seat}-m-${sequence}` : undefined}
         keys={keys}
         legalKeys={legalKeys}

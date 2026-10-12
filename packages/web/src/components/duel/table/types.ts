@@ -129,6 +129,11 @@ export interface SeatFieldProps {
   emz: "own" | "shared-bottom" | "shared-top" | "pair" | "none";
   /** `framed`: the stage draws one frame round the pair (see grid-stage.tsx `pairFrameRect`), so this field draws no mat. */
   pair?: { other: number | null; left: number; right: number; gap: number; joined: boolean; framed?: boolean };
+  /**
+   * The plaza draws this seat's own two Extra Monster Zones, but the engine shares one row with the facing seat `other`
+   * (`sharedExtraWith`): the zones draw as linked, and a card of `other` in the mirrored zone shows as a taken ghost.
+   */
+  emzLink?: { other: number; otherName: string };
   showTally: boolean; // false when a holo LP panel owns data-lp-seat
   usable: boolean; // false: legal ring only, no USE glow (partner, spectator)
   name?: string; // display name of the seat (labels and aria text); default "Player <n>"
