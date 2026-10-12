@@ -1656,8 +1656,11 @@
   text-transform: uppercase;
 }
 
-.masterSummon:empty {
-  display: none;
+.masterSummon {
+  margin: 0;
+  color: var(--ink-2, var(--ink));
+  font-size: calc(12 * var(--k));
+  font-weight: 600;
 }
 
 .masterDock[data-selected="true"] .mark {

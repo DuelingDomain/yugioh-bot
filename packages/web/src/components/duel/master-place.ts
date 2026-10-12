@@ -38,3 +38,13 @@ export function masterInUse(view: DuelSeatView | undefined): boolean {
   const place = masterPlace(view);
   return place === "field" || place === "elsewhere";
 }
+
+/**
+ * The line a Deck Master panel shows while the card sits in its zone: what the next summon from the zone costs. The
+ * first one is free (`nextCost` 0). Out of the zone there is no line, the card is in use.
+ */
+export function masterSummonLine(view: DuelSeatView | undefined): string | null {
+  const master = view?.deckMaster;
+  if (!master?.inZone) return null;
+  return master.nextCost > 0 ? `Summon: costs ${master.nextCost.toLocaleString("en-US")} LP` : "Summon: free";
+}

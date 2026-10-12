@@ -11,7 +11,7 @@ vi.mock("next/font/google", () => {
 
 import { LOCATION_DMZONE, LOCATION_MZONE } from "@/components/duel/constants";
 import { MasterDock, masterStatus } from "@/components/duel/field";
-import { masterInUse, masterPlace } from "@/components/duel/master-place";
+import { masterInUse, masterPlace, masterSummonLine } from "@/components/duel/master-place";
 import { detectMasterReturns } from "@/components/duel/master-return";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
@@ -154,5 +154,39 @@ describe.each(MODES)("the Deck Master cycle on a $mode table", ({ engine, seats 
   it("the summon leaves from the DMZ", () => {
     const summon = masterCycle(0)[1].events?.[0];
     expect(summon?.from).toEqual(expect.objectContaining({ location: LOCATION_DMZONE }));
+  });
+});
+
+describe("the Summon cost line", () => {
+  const withCost = (nextCost: number, inZone = true) => seatView({ inZone, deckMaster: { card: info, inZone, returns: nextCost / 500, nextCost } });
+
+  it("says what the next summon from the zone costs, and that the first one is free", () => {
+    expect(masterSummonLine(withCost(500))).toBe("Summon: costs 500 LP");
+    expect(masterSummonLine(withCost(1500))).toBe("Summon: costs 1,500 LP");
+    expect(masterSummonLine(withCost(0))).toBe("Summon: free");
+  });
+
+  it("has no line while the master is out of its zone, or on a table without a master", () => {
+    expect(masterSummonLine(withCost(500, false))).toBeNull();
+    expect(masterSummonLine(seatView({ deckMaster: undefined }))).toBeNull();
+  });
+
+  it("shows on the plate (compact and wide) and the dock of a multi-seat table only", () => {
+    for (const wide of [false, true]) {
+      plate(withCost(500), { showInUse: true, wide });
+      expect(screen.getByTestId("hud-master-summon").textContent).toBe("Summon: costs 500 LP");
+      cleanup();
+    }
+    plate(withCost(500, false), { showInUse: true });
+    expect(screen.queryByTestId("hud-master-summon")).toBeNull();
+    cleanup();
+    plate(withCost(500));
+    expect(screen.queryByTestId("hud-master-summon")).toBeNull();
+    cleanup();
+    render(
+      <MasterDock title="Your Master" view={withCost(0)} local legalKeys={new Set()} selectedKeys={new Set()} canAct legalActionsFor={() => []}
+        onActivate={noop} onChooseAction={noop} onInspect={noop} showInUse />,
+    );
+    expect(screen.getByTestId("master-dock-summon").textContent).toBe("Summon: free");
   });
 });
