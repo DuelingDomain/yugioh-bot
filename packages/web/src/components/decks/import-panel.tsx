@@ -69,7 +69,7 @@ export function DeckImportPanel({
   dragging: boolean;
   onClose: () => void;
 }) {
-  const { tab, setTab, mode, setMode, view, error, notes, previewFiles, previewPaste, rename, toggle, toggleAll, importSelected, reset } = importer;
+  const { tab, setTab, mode, setMode, view, error, notes, heldCount, previewFiles, previewPaste, retryHeld, recheck, rename, toggle, toggleAll, importSelected, reset } = importer;
   const [paste, setPaste] = useState("");
   const busy = view.phase === "loading" || view.phase === "importing";
   const showSource = view.phase === "idle" || view.phase === "loading" || view.phase === "preview";
@@ -154,6 +154,11 @@ export function DeckImportPanel({
       {error ? (
         <div role="alert" className={styles.pvError}>
           <StatusLine tone="block">{error}</StatusLine>
+          {heldCount > 0 ? (
+            <SvButton variant="quiet" disabled={busy} onClick={retryHeld}>
+              {heldCount === 1 ? "Send the last pick again" : `Send the last ${heldCount} picks again`}
+            </SvButton>
+          ) : null}
         </div>
       ) : null}
 
@@ -167,6 +172,7 @@ export function DeckImportPanel({
           onRename={rename}
           onToggle={toggle}
           onToggleAll={toggleAll}
+          onRecheck={recheck}
           onImport={() => void importSelected()}
           onCancel={reset}
         />

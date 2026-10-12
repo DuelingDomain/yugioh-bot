@@ -410,6 +410,98 @@ describe("bulk deck import panel", () => {
     expect(screen.getByRole("status")).toHaveTextContent("2 decks could not be created.");
   });
 
+  it.each([
+    ["the Retry-After header", () => new Response(JSON.stringify({ error: "Too many deck imports, try again shortly" }), { status: 429, headers: { "Retry-After": "7" } })],
+    ["retryAfterSeconds in the body", () => Response.json({ error: "Too many deck imports", retryAfterSeconds: 7 }, { status: 429 })],
+  ])("says how long to wait after a 429 from preview (%s), and keeps the rows and the turned-down pick", async (_label, limited) => {
+    let round = 0;
+    previewReply = () => {
+      round += 1;
+      return round === 2 ? limited() : Response.json({ maxDecks: 50, rows: [row(`b${round}-paste#0`, round === 1 ? "Kept" : "Again")] });
+    };
+    await openPaste("ydke://o6lXBQ==!!!");
+    await screen.findByLabelText("Deck name for Kept");
+    fireEvent.change(screen.getByLabelText("YDK text or YDKE codes"), { target: { value: "ydke://ykw8BA==!!!" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview decks" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Too many imports in a short time. Try again in 7 seconds.");
+    expect(screen.getByLabelText("Deck name for Kept")).toBeInTheDocument();
+    // The paste stays in the box, and the pick can be sent again.
+    expect(screen.getByLabelText("YDK text or YDKE codes")).toHaveValue("ydke://ykw8BA==!!!");
+    fireEvent.click(screen.getByRole("button", { name: "Send the last pick again" }));
+    await screen.findByLabelText("Deck name for Again");
+    expect(screen.getByLabelText("Deck name for Kept")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("says how long to wait after a 429 from the import call and keeps every row", async () => {
+    previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Alpha")] });
+    bulkReply = () => new Response("{}", { status: 429, headers: { "Retry-After": "1" } });
+    await openPaste(TWO_CODES);
+    await screen.findByLabelText("Deck name for Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 deck" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Too many imports in a short time. Try again in 1 second.");
+    expect(screen.getByLabelText("Deck name for Alpha")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Import 1 deck" })).toBeEnabled();
+  });
+
+  it("says the card check is down on a 503, from preview and from the import call", async () => {
+    previewReply = () => Response.json({ error: "Duel engine unavailable, try again" }, { status: 503 });
+    await openPaste(TWO_CODES);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Card check is not available right now. Try again later.");
+
+    previewReply = () => Response.json({ maxDecks: 50, rows: [row("b2-paste#0", "Alpha")] });
+    bulkReply = () => Response.json({ error: "Duel engine unavailable, try again" }, { status: 503 });
+    fireEvent.click(screen.getByRole("button", { name: "Preview decks" }));
+    await screen.findByLabelText("Deck name for Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 deck" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Card check is not available right now. Try again later."));
+    expect(screen.getByLabelText("Deck name for Alpha")).toBeInTheDocument();
+  });
+
+  it("shows more_issues as the last details line, not as an error", async () => {
+    previewReply = () => Response.json({
+      maxDecks: 50,
+      rows: [row("b1-paste#0", "Long", {
+        errors: [
+          { code: "unknown_card", message: "Unknown card 1", passcode: 1 },
+          { code: "more_issues", message: "and 5 more issues", count: 5 },
+        ],
+      })],
+    });
+    await openPaste(TWO_CODES);
+    await screen.findByRole("list", { name: "Decks to import" });
+    expect(screen.getByRole("button", { name: /^1 error/ })).toBeInTheDocument();
+    expect(screen.getByLabelText("Long cannot be imported")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /1 error/ }));
+    const lines = within(screen.getByRole("list", { name: "Decks to import" })).getAllByRole("listitem").slice(1);
+    expect(lines.map((line) => line.textContent)).toEqual(["unknown_cardUnknown card 1", "and 5 more"]);
+  });
+
+  it("re-checks one row that hit the lookup limit by sending only its source", async () => {
+    let round = 0;
+    previewReply = () => {
+      round += 1;
+      return round === 1
+        ? Response.json({
+          maxDecks: 50,
+          rows: [row("b1-paste#0", "Limited", { errors: [{ code: "lookup_limited", message: "lookup limit reached, try again", passcode: 5 }] })],
+        })
+        : Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Imported deck 1")] });
+    };
+    await openPaste("ydke://o6lXBQ==!!!");
+    await screen.findByText(/hit its limit for this deck/);
+    fireEvent.change(screen.getByLabelText("Deck name for Limited"), { target: { value: "My name" } });
+    fireEvent.click(screen.getByRole("button", { name: "Re-check" }));
+
+    await waitFor(() => expect(screen.queryByText(/hit its limit for this deck/)).toBeNull());
+    expect(calls).toHaveLength(2);
+    expect(calls[1].body).toMatchObject({ sources: [{ id: "b1-paste", text: "ydke://o6lXBQ==!!!" }] });
+    // The name the person typed stays, and the row can be imported now.
+    expect(screen.getByLabelText("Deck name for Limited")).toHaveValue("My name");
+    expect(screen.getByLabelText("Import My name")).toBeChecked();
+  });
+
   it("says so when the server finds no decks", async () => {
     await openPaste(TWO_CODES);
     expect(await screen.findByText("No decks were found in this import.")).toBeInTheDocument();
