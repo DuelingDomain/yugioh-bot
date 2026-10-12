@@ -33,7 +33,7 @@ import type {
 import {
   CardQueryError, duel1v1EngineForMode, isFirstChoice, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
   COIN_TIMING, COIN_CHAIN_BEAT_MAX_MS, MIN_DUEL_FX_SPEED, coinTossDurationMs,
-  CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_RPS_MOVES,
+  CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_OPENING_REVEAL_MS, DUEL_RPS_MOVES,
 } from "@yugidraft/shared/duels";
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, eliminationAtTurnEnd } from "./engine.js";
 import { EngineAnswerError } from "./prompts.js";
@@ -81,6 +81,8 @@ const SERIES_SWEEP_LIMIT = 16;
 /** Wait after the 1st, 2nd and later failed starts of one series game; the last value is the cap. */
 const START_BACKOFF_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
 const MAX_TIMER_MS = 2 ** 31 - 1;
+/** A short pause to show the bot's winning hands before it chooses the first turn. */
+const BOT_OPENING_CHOICE_MS = 1_000;
 /** Bound one live coin presentation pause, including any already queued grace. */
 const MAX_COIN_TOSS_GRACE_MS = 60_000;
 /**
@@ -2117,12 +2119,12 @@ export function createDuelHost(options: {
   }
 
   /**
-   * The practice bot chooses first or second only after the reveal of the round it won, so the human sees both
-   * hands and the result before the duel starts.
+   * The practice bot gives the human one second to see the winning hands and result. The full reveal grace
+   * and choice window still apply to human winners.
    */
   function botChoiceAt(winnerSeat: 0 | 1 | null, deadline: number, seats: ReadonlyArray<{ seat: number; isBot: boolean }>): number | null {
     if (winnerSeat === null || !seats.some((seat) => seat.isBot && seat.seat === winnerSeat)) return null;
-    return deadline - DUEL_OPENING_PICK_MS;
+    return deadline - DUEL_OPENING_PICK_MS - DUEL_OPENING_REVEAL_MS + BOT_OPENING_CHOICE_MS;
   }
 
   /** Fires `driveOpening` at the phase deadline, or when the bot's choice is due. A running timer for the slug is replaced. */
@@ -2132,7 +2134,7 @@ export function createDuelHost(options: {
     let wakeAt = state.deadline;
     if (state.phase === "choose") {
       const botAt = botChoiceAt(state.winnerSeat, state.deadline, service.get(slug, guildId).seats);
-      if (botAt !== null && botAt > now()) wakeAt = botAt;
+      if (botAt !== null) wakeAt = Math.min(wakeAt, botAt);
     }
     const timer = setTimeout(() => {
       openingTimers.delete(slug);
@@ -2171,7 +2173,7 @@ export function createDuelHost(options: {
           state = service.submitOpeningPick(slug, guildId, seat, move, now());
           acted = true;
         } else if (state.phase === "choose" && state.winnerSeat === seat && now() >= (botChoiceAt(seat, state.deadline, [{ seat, isBot: true }]) ?? 0)) {
-          // The bot always takes the first turn, once the reveal of its win is over.
+          // The bot always takes the first turn after its short result pause.
           state = service.submitOpeningChoice(slug, guildId, seat, "first", now());
           acted = true;
         }
