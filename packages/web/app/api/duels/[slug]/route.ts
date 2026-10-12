@@ -11,10 +11,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
 
   try {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId);
-    // A lobby with a timed-out rock-paper-scissors opening goes to the host, which settles it.
-    const openingDue = room.session.status === "lobby" && room.opening != null
-      && Date.parse(room.opening.deadlineAt) <= Date.now();
-    if (room.session.status !== "active" && !openingDue && !spectate) {
+    // The host repairs locked copies and reports the viewer's own future-deck blocker.
+    if (room.session.status !== "active" && room.session.status !== "lobby"
+      && room.series?.status !== "between_games" && !spectate) {
       return NextResponse.json(redactDuelResult(room, actor.guildId, actor.playerId));
     }
   } catch (error) {

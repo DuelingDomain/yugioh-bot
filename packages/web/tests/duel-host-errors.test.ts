@@ -91,6 +91,25 @@ describe("callDuelHost error messages", () => {
     expect(await response.json()).toEqual(payload);
   });
 
+  it.each(["lobby", "between_games"] as const)("gets the owner's blocked-start notice from the host in %s room reads", async state => {
+    const payload = { session: { status: state === "lobby" ? "lobby" : "completed" },
+      startBlocked: { reason: "Move Fixture Spell to Main.", cardNames: ["Fixture Spell"] } };
+    const fetch = vi.fn().mockResolvedValue(Response.json(payload));
+    vi.stubGlobal("fetch", fetch);
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId,
+      duels: { room: () => ({ session: payload.session,
+        series: state === "between_games" ? { status: "between_games" } : null }) } as never,
+    });
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    const response = await GET(new Request("http://web.test/api/duels/abc"), { params: Promise.resolve({ slug: call.slug }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(payload);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ op: "view", playerId: call.playerId });
+  });
+
   it("keeps the seat-left code and text for duel answers", async () => {
     const body = { code: "seat_left", error: "That player has left. Pick again." };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(body, { status: 400 })));

@@ -45,6 +45,51 @@ function room() {
     settings: { ...defaultDuelSettings("normal"), validateDeck: false, banlist: "none" } });
 }
 describe("duel Extra Deck safety with competitive checks off", () => {
+  it.each(["owner", "opponent"])("returns the private room notice when an expired opening is blocked (viewer=%s)", async viewer => {
+    const opponent = seedIdentity(db, { name: "Fixture opponent" }).playerId;
+    const session = room();
+    duels.takeSeat(session.slug, "g", opponent);
+    duels.setDeck(session.slug, "g", playerId, deck(901));
+    duels.setDeck(session.slug, "g", opponent, deck(903));
+    duels.startOpening(session.slug, "g", playerId, 0);
+    const opening = { ...duels.openingState(session.slug, "g"), phase: "start", winnerSeat: 0, choice: "first" };
+    db.prepare("update duels set opening_json=? where id=?").run(JSON.stringify(opening), session.id);
+    const response = await post({ op: "view", slug: session.slug, playerId: viewer === "owner" ? playerId : opponent });
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    if (viewer === "owner") expect(result.startBlocked).toEqual({ reason: expect.stringContaining("Test Spell"), cardNames: ["Test Spell"] });
+    else {
+      expect(result.startBlocked).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain("Test Spell");
+    }
+  });
+  it("shows a named start blocker to an already-ready owner on room reads only", async () => {
+    const opponent = seedIdentity(db, { name: "Fixture opponent" }).playerId;
+    const spectator = seedIdentity(db, { name: "Fixture spectator" }).playerId;
+    const session = room();
+    duels.takeSeat(session.slug, "g", opponent);
+    duels.setDeck(session.slug, "g", playerId, { ...deck(901), extra: [901, 902, 901] });
+    duels.setDeck(session.slug, "g", opponent, deck(903));
+    for (let i = 0; i < 2; i++) {
+      const response = await post({ op: "view", slug: session.slug });
+      expect(response.status).toBe(200);
+      const result = await response.json();
+      expect(result.startBlocked).toEqual({
+        reason: expect.stringContaining("Test Spell"), cardNames: ["Test Spell", "Test Trap"],
+      });
+      expect(result.session.seats[0].ready).toBe(true);
+    }
+    for (const viewer of [opponent, spectator]) {
+      const response = await post({ op: "view", slug: session.slug, playerId: viewer });
+      expect(response.status).toBe(200);
+      const result = await response.json();
+      expect(result.startBlocked).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain("Test Spell");
+      expect(JSON.stringify(result)).not.toContain("Test Trap");
+    }
+    duels.setDeck(session.slug, "g", playerId, deck(903));
+    expect((await (await post({ op: "view", slug: session.slug })).json()).startBlocked).toBeUndefined();
+  });
   it("classifies the stable Extra error as a deck legality error", () => {
     expect(() => validateExtraDeckTypes(deck(901), dataDirectory)).toThrow(DeckLegalityError);
     expect(() => validateExtraDeckTypes(deck(901), dataDirectory)).toThrow(expect.objectContaining({ status: 400, code: "INVALID_EXTRA_DECK_CARD" }));
@@ -54,21 +99,21 @@ describe("duel Extra Deck safety with competitive checks off", () => {
     const { duel } = createDuelSeriesService(db).createChallenge({ guildId: "g", challengerPlayerId: playerId,
       opponentPlayerId: opponent, bestOf: 3, ranked: false, mode: "normal",
       settings: { ...defaultDuelSettings("normal"), validateDeck: false, banlist: "none" } });
-    duels.setDeck(duel.slug, "g", opponent, deck(901));
+    duels.setDeck(duel.slug, "g", opponent, deck(999));
     if (op !== "deck") duels.setDeck(duel.slug, "g", playerId, deck(903));
     if (op === "ready") duels.markUnready(duel.slug, "g", playerId);
     const response = await post({ op, slug: duel.slug, ...(op === "deck" ? { deck: deck(903) } : {}) });
     expect(response.status).toBe(200);
     const result = await response.json();
     expect(result).toMatchObject({ session: { status: "lobby" }, startBlocked: "Start blocked: another player's deck needs attention." });
-    expect(JSON.stringify(result)).not.toContain("Test Spell");
+    expect(JSON.stringify(result)).not.toContain("card 999");
     expect(result.error).toBeUndefined();
     expect(result.code).toBeUndefined();
     expect(duels.room(duel.slug, "g", playerId).myDeck).toEqual(deck(903));
     expect(duels.room(duel.slug, "g", playerId).session.seats.find(seat => seat.playerId === playerId)?.ready).toBe(true);
     const ownerResponse = await post({ op: "start", slug: duel.slug, playerId: opponent });
     expect(ownerResponse.status).toBe(400);
-    expect(await ownerResponse.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
+    expect(await ownerResponse.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("card 999") });
     expect(duels.get(duel.slug, "g").status).toBe("lobby");
   });
   it("normalizes an uncached API passcode before checking its Extra type", async () => {

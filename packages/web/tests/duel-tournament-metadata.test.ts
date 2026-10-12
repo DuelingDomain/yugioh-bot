@@ -54,6 +54,7 @@ function expectHidden(payload: unknown) {
 describe("private tournament metadata in accessible duels", () => {
   it("redacts the web lobby room while retaining spectator access and unredacted internal data", async () => {
     vi.mocked(requireWebAccess).mockResolvedValue({ ok: true, userId: fixtureUserId("stranger"), userName: "stranger", discordUserId: null });
+    mocks.post.mockResolvedValue({ ok: true, text: JSON.stringify(app.duels.room(app.started.duel.slug, "g1", app.players.stranger!)) });
     const response = await readRoom(new Request("http://localhost/duel"), { params: Promise.resolve({ slug: app.started.duel.slug }) });
     expect(response.status).toBe(200);
     const room = await response.json();
@@ -64,6 +65,7 @@ describe("private tournament metadata in accessible duels", () => {
     expect(room.series).toMatchObject({ tournamentId: null, tournamentSlug: null, tournamentMatchId: null });
     expect(room.session.seriesId).toBe(app.started.series.id);
     expect(app.duels.room(app.started.duel.slug, "g1", app.players.stranger!).series?.tournamentId).toBe(app.tournament.id);
+    expect(mocks.post).toHaveBeenCalledOnce();
   });
 
   it("hides live and archived all-scope discovery from strangers", () => {

@@ -10,7 +10,7 @@ import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
 import { createGithubCardDataStatus } from "./github-card-data-status.js";
-import { createDuelSeriesService, createDuelService, createTournamentDuelService, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
+import { createDeckCopyRepairService, createDuelSeriesService, createDuelService, createTournamentDuelService, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCommand,
@@ -330,8 +330,10 @@ export function createDuelHost(options: {
   rollDie?: () => number;
 }): DuelHost {
   if (!options.secret) throw new Error("DUEL_INTERNAL_SECRET is required");
+  const engineCards = new Map(Array.from(loadCardDatabase(options.dataDirectory).all(), card => [card.code, { name: card.name, type: card.type, alias: card.alias }] as const));
+  const deckCopies = createDeckCopyRepairService(options.db, engineCards);
   const service = createDuelService(options.db, { rollDie: options.rollDie });
-  const series = createDuelSeriesService(options.db);
+  const series = createDuelSeriesService(options.db, engineCards);
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as EngineDataManifest;
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
   const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory, { manifest, now: options.now });
@@ -415,7 +417,7 @@ export function createDuelHost(options: {
     const table = session.format;
     const cardBlocks = sessionCardEntries(session);
     const tournamentId = session.seriesId ? series.get(session.seriesId, session.guildId).tournamentId : null;
-    const draftId = tournamentId === null ? null : createTournamentDuelService(options.db).rules(tournamentId).draftId;
+    const draftId = tournamentId === null ? null : createTournamentDuelService(options.db, engineCards).rules(tournamentId).draftId;
     if (draftId === null) return { table, cardBlocks };
     const draftPool = await loadDraftDeckPool({ draftId, playerId, guildId: session.guildId, dataDirectory: options.dataDirectory, db: options.db });
     return { table, draftPool, cardBlocks };
@@ -1427,6 +1429,23 @@ export function createDuelHost(options: {
     markLegacyLosses(new Set([playerView, replayedView, room.engine]));
     rememberView(slug, playerSeat, playerView, game);
     if (spectate && !ownResult) rememberView(slug, room.mySeat, room.engine, game);
+    // Check only the viewer's own future deck, independent of who last attempted to start.
+    const pendingDeck = room.role === "player"
+      ? room.series?.status === "between_games" ? room.mySide?.currentDeck
+        : room.session.status === "lobby" ? room.myDeck : null
+      : null;
+    if (pendingDeck) {
+      try {
+        await validateSessionDeck(room.session.mode, pendingDeck, room.session.settings, room.session.format,
+          { session: room.session, playerId });
+      } catch (error) {
+        if (!(error instanceof DeckLegalityError)) throw error;
+        const checks = await sessionDeckOptions(room.session, playerId);
+        const report = inspectDeck(room.session.mode, pendingDeck, options.dataDirectory, room.session.settings, checks);
+        room.startBlocked = { reason: error.message,
+          cardNames: [...new Set(report.issues.flatMap(issue => issue.cards.map(card => card.name ?? `card ${card.code}`)))] };
+      }
+    }
     return room;
   }
 
@@ -2055,7 +2074,11 @@ export function createDuelHost(options: {
 
   /** The checks every start makes: a lobby duel, every seat ready, and legal decks for the format. */
   async function assertStartable(slug: string, guildId: string) {
-    const session = service.get(slug, guildId);
+    let session = service.get(slug, guildId);
+    if (session.seriesId) {
+      deckCopies.series(session.seriesId);
+      session = service.get(slug, guildId);
+    }
     if (session.status !== "lobby") throw new RequestError("Duel already started", 409);
     const seatCount = seatCountFor(session.format);
     // The flag is read here, on every start, so a restart with another value switches it.
@@ -2316,6 +2339,8 @@ export function createDuelHost(options: {
       return await operateForActor(body, guildId, actor, ctl);
     } catch (error) {
       if (!(error instanceof SeatDeckLegalityError)) throw error;
+      // A room read must still show the lobby after an opening's start attempt fails.
+      if (op === "view") return project(body.slug as string, guildId, actor, undefined, body.spectate === true);
       if (error.playerId === actor) throw error.legalityError;
       // Deck details stay with their owner; return the actor's already-saved state.
       const slug = body.slug as string;
@@ -2442,7 +2467,11 @@ export function createDuelHost(options: {
     }
     if (typeof body.slug !== "string" || !body.slug || body.slug.length > 128) throw new RequestError("Duel slug is required", 400);
     const slug = body.slug;
-    const room = service.room(slug, guildId, actor);
+    let room = service.room(slug, guildId, actor);
+    if (room.session.seriesId) {
+      deckCopies.series(room.session.seriesId);
+      room = service.room(slug, guildId, actor);
+    }
     if (op === "view") {
       // A timeout that no timer caught yet (a restart, a late timer) is applied here.
       if (room.session.status === "lobby" && room.opening) {

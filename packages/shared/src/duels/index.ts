@@ -595,6 +595,8 @@ export interface DuelRoom {
   clock: DuelClock | null;
   metadataOnly: boolean;
   error?: string;
+  /** Only this viewer's own deck blocker, on lobby or between-game room reads. Absent for other viewers. */
+  startBlocked?: { reason: string; cardNames: string[] };
   inviteCode?: string;
   /** The series of this game, or null. */
   series?: DuelSeriesSummary | null;
