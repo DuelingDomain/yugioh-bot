@@ -19,16 +19,16 @@ const seatView = (seat: number, code?: number, inZone = false): DuelSeatView =>
 
 /** The views one update apart: the master of `seat` sat in its zone before, and (unless `stays`) is out of it now. */
 function update(seat: number, code: number, others: DuelSeatView[] = [], stays = false) {
-  const was = [...others, seatView(seat, code, true)];
-  const now = [...others, seatView(seat, code, stays)];
-  withMasterSummonMoves([], was); // the update before: the first sight of a views array makes it the previous one
-  return now;
+  return { was: [...others, seatView(seat, code, true)], now: [...others, seatView(seat, code, stays)] };
 }
+
+/** The two views as the arguments after the events: (prevSeats, seats). */
+const pair = (views: { was: DuelSeatView[]; now: DuelSeatView[] }): [DuelSeatView[], DuelSeatView[]] => [views.was, views.now];
 
 describe("withMasterSummonMoves", () => {
   it("adds the missing move from the Deck Master Zone before a real Deck Master summon", () => {
-    const seats = update(1, dmNormal.deckMasterCode!, [seatView(0)]);
-    const out = withMasterSummonMoves(dmNormal.events, seats);
+    const { was, now: seats } = update(1, dmNormal.deckMasterCode!, [seatView(0)]);
+    const out = withMasterSummonMoves(dmNormal.events, was, seats);
     expect(out).toHaveLength(dmNormal.events.length + 1);
     const summon = dmNormal.events.find((event) => event.kind === "summon")!;
     const at = out.findIndex((event) => event.kind === "move");
@@ -41,11 +41,11 @@ describe("withMasterSummonMoves", () => {
     expect(out[at].id).toBeLessThan(summon.id);
     expect(out.filter((event) => event.kind !== "move")).toEqual(dmNormal.events);
     // Same input, same output.
-    expect(withMasterSummonMoves(dmNormal.events, seats)).toBe(out);
+    expect(withMasterSummonMoves(dmNormal.events, was, seats)).toBe(out);
   });
 
   it("covers a Tribute Summon of the master (the Tribute keeps its own move)", () => {
-    const out = withMasterSummonMoves(dmTribute.events, update(0, dmTribute.deckMasterCode!));
+    const out = withMasterSummonMoves(dmTribute.events, ...pair(update(0, dmTribute.deckMasterCode!)));
     const moves = out.filter((event) => event.kind === "move");
     expect(moves).toHaveLength(dmTribute.events.filter((event) => event.kind === "move").length + 1);
     expect(moves.find((event) => event.from?.location === LOCATION_DMZONE)).toMatchObject({ zone: dmTribute.events.find((event) => event.kind === "summon")!.zone });
@@ -53,28 +53,26 @@ describe("withMasterSummonMoves", () => {
 
   it("leaves a summon that has its own move alone, even when the card is the seat's master", () => {
     const hand = handNormal.events.find((event) => event.kind === "summon")!;
-    const seats = update(handNormal.seat, hand.card!.code);
-    expect(withMasterSummonMoves(handNormal.events, seats)).toBe(handNormal.events);
+    expect(withMasterSummonMoves(handNormal.events, ...pair(update(handNormal.seat, hand.card!.code)))).toBe(handNormal.events);
   });
 
   it("leaves the batch alone for another card, another seat, a table without masters, and a Flip Summon", () => {
     const summon = dmNormal.events.find((event) => event.kind === "summon")!;
-    expect(withMasterSummonMoves(dmNormal.events, update(1, 123))).toBe(dmNormal.events);
-    expect(withMasterSummonMoves(dmNormal.events, update(0, dmNormal.deckMasterCode!))).toBe(dmNormal.events);
-    expect(withMasterSummonMoves(dmNormal.events, [seatView(1)])).toBe(dmNormal.events);
-    expect(withMasterSummonMoves(dmNormal.events, undefined)).toBe(dmNormal.events);
+    expect(withMasterSummonMoves(dmNormal.events, ...pair(update(1, 123)))).toBe(dmNormal.events);
+    expect(withMasterSummonMoves(dmNormal.events, ...pair(update(0, dmNormal.deckMasterCode!)))).toBe(dmNormal.events);
+    expect(withMasterSummonMoves(dmNormal.events, null, [seatView(1)])).toBe(dmNormal.events);
+    expect(withMasterSummonMoves(dmNormal.events, null, undefined)).toBe(dmNormal.events);
     const flip = dmNormal.events.map((event) => (event === summon ? { ...event, summonKind: "flip" as const } : event));
-    expect(withMasterSummonMoves(flip, update(1, dmNormal.deckMasterCode!))).toBe(flip);
+    expect(withMasterSummonMoves(flip, ...pair(update(1, dmNormal.deckMasterCode!)))).toBe(flip);
   });
 
   it("adds no flight for another copy of the master: the real one stays in its zone (Special Summon from Xyz material)", () => {
     // The server drops the moves of Xyz materials too, so the copy arrives as a summon alone, like the master does.
-    const stays = update(1, dmNormal.deckMasterCode!, [seatView(0)], true);
-    expect(withMasterSummonMoves(dmNormal.events, stays)).toBe(dmNormal.events);
+    expect(withMasterSummonMoves(dmNormal.events, ...pair(update(1, dmNormal.deckMasterCode!, [seatView(0)], true)))).toBe(dmNormal.events);
+    // No view before (a table that has seen one update only): nothing proves the card left the zone.
+    expect(withMasterSummonMoves(dmNormal.events, null, [seatView(1, dmNormal.deckMasterCode, false)])).toBe(dmNormal.events);
     // The master was out of its zone already (it is on the board or the Graveyard): no flight from the plate.
-    const was = [seatView(1, dmNormal.deckMasterCode, false)];
-    withMasterSummonMoves([], was);
-    expect(withMasterSummonMoves(dmNormal.events, [seatView(1, dmNormal.deckMasterCode, false)])).toBe(dmNormal.events);
+    expect(withMasterSummonMoves(dmNormal.events, [seatView(1, dmNormal.deckMasterCode, false)], [seatView(1, dmNormal.deckMasterCode, false)])).toBe(dmNormal.events);
   });
 
   it("looks back to the start of the batch for the card's own move, not only 8 events", () => {
@@ -84,16 +82,16 @@ describe("withMasterSummonMoves", () => {
     const own: DuelEvent = { id: 99, kind: "move", text: "", seat: 1, card: { code, name: "Master" } as never, zone, from: { controller: 1, location: 2, sequence: 0 } };
     const summon: DuelEvent = { id: 200, kind: "summon", text: "", seat: 1, card: { code, name: "Master" } as never, zone, summonKind: "normal" } as DuelEvent;
     const batch = [own, ...filler, summon];
-    expect(withMasterSummonMoves(batch, update(1, code))).toBe(batch);
+    expect(withMasterSummonMoves(batch, ...pair(update(1, code)))).toBe(batch);
     // A move of another card into that zone, long before, is not the master's.
     const other: DuelEvent = { ...own, card: { code: 7, name: "Other" } as never };
     const alien = [other, ...filler, summon];
-    expect(withMasterSummonMoves(alien, update(1, code)).filter((event) => event.kind === "move")).toHaveLength(2);
+    expect(withMasterSummonMoves(alien, ...pair(update(1, code))).filter((event) => event.kind === "move")).toHaveLength(2);
   });
 
   it("adds a face-down move for a Set from the zone, also when the card is hidden from the viewer", () => {
     const set: DuelEvent = { id: 40, kind: "set", text: "Player 2 Sets a card", seat: 1, zone: { controller: 1, location: LOCATION_MZONE, sequence: 1 } };
-    const out = withMasterSummonMoves([{ id: 39, kind: "phase", text: "Main Phase 1" }, set], update(1, 77));
+    const out = withMasterSummonMoves([{ id: 39, kind: "phase", text: "Main Phase 1" }, set], ...pair(update(1, 77)));
     expect(out[1]).toMatchObject({ kind: "move", from: { controller: 1, location: LOCATION_DMZONE }, zone: set.zone, faceDown: true, reason: "set" });
     expect(out[2]).toBe(set);
   });
@@ -101,9 +99,9 @@ describe("withMasterSummonMoves", () => {
 
 describe("the planner flies the Deck Master from its plate", () => {
   const plateRect = { left: 20, top: 700, width: 90, height: 130 };
-  let seats: DuelSeatView[] = [];
+  const { was, now: seats } = update(1, dmNormal.deckMasterCode!, [seatView(0)]);
 
-  beforeEach(() => { clearZoneSnapshots(); document.body.innerHTML = ""; seats = update(1, dmNormal.deckMasterCode!, [seatView(0)]); });
+  beforeEach(() => { clearZoneSnapshots(); document.body.innerHTML = ""; });
 
   function hud() {
     const board = document.createElement("div");
@@ -119,7 +117,7 @@ describe("the planner flies the Deck Master from its plate", () => {
   });
 
   it("plans a flight that starts on the plate and carries the summon", () => {
-    const fresh = withMasterSummonMoves(dmNormal.events, seats);
+    const fresh = withMasterSummonMoves(dmNormal.events, was, seats);
     captureDepartureSnapshots(fresh, hud());
     const created = planMoves(fresh, { now: 1000, reduced: false, duelKey: "plate", geometry: () => ({ distance: 300 }) });
     expect(created).toHaveLength(1);
@@ -131,7 +129,7 @@ describe("the planner flies the Deck Master from its plate", () => {
   });
 
   it("under reduced motion the flight is a fade at the zone", () => {
-    const fresh = withMasterSummonMoves(dmNormal.events, seats);
+    const fresh = withMasterSummonMoves(dmNormal.events, was, seats);
     captureDepartureSnapshots(fresh, hud());
     const created = planMoves(fresh, { now: 1000, reduced: true, duelKey: "reduced", geometry: () => ({ distance: 300 }) });
     expect(created).toHaveLength(1);

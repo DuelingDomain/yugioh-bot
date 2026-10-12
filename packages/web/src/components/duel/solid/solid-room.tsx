@@ -42,6 +42,8 @@ export type SolidRoomProps = {
   view: BoardView;
   preferences: DuelPreferences;
   engine: DuelEngineView | null;
+  /** The seat views one update back (see `usePreviousSeats`): a Deck Master summon flies from its plate only when they show it leaving. */
+  previousSeats: readonly DuelSeatView[] | null;
   mySeat: number | null;
   playerName: (seat: number) => string;
   /** "MR5 · Normal", "Domain · Normal" ... */
@@ -91,7 +93,7 @@ export type SolidRoomProps = {
  * change of the table view. It is loaded lazily, so the classic board never pays for it.
  */
 export function SolidRoom(props: SolidRoomProps) {
-  const { slug, boardRef, dealWait, domain, battle, spectator, myTurn, reducedMotion, view, engine, format, turnText, headerPhase,
+  const { slug, boardRef, dealWait, domain, battle, spectator, myTurn, reducedMotion, view, engine, previousSeats, format, turnText, headerPhase,
     battleStep, wordmark, spectatorTag, seriesLabel, connectionStatus, headerTools, seriesBanner, noticesNode, inspectorNode,
     promptDockNode, masterRail, legalActionsFor, onChooseAction, battleAim, trackNode, mobileTabs, overlaysNode, fieldProps, renderBoard, renderClock, inspect, setPane, setMobileInspect,
     boardQuiet, onBeforeViewChange } = props;
@@ -182,7 +184,7 @@ export function SolidRoom(props: SolidRoomProps) {
             {renderBoard(fieldProps ? (
               <>
                 <SolidField key={slug} {...fieldProps} renderClock={renderClock} onOpenMasters={() => openPane("masters")} battleAim={battleAim ?? null} />
-                {engine ? <SolidDmSummonFx events={withMasterSummonMoves(engine.events, engine.seats)} seats={engine.seats} duelKey={slug} reducedMotion={reducedMotion} planeRef={planeRef} /> : null}
+                {engine ? <SolidDmSummonFx events={withMasterSummonMoves(engine.events, previousSeats, engine.seats)} seats={engine.seats} duelKey={slug} reducedMotion={reducedMotion} planeRef={planeRef} /> : null}
               </>
             ) : null)}
           </div>

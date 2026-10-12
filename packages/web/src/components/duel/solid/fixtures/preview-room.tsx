@@ -184,6 +184,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card }: { stateId: So
         view={view}
         preferences={preferences}
         engine={engine}
+        previousSeats={null}
         mySeat={mySeat}
         playerName={playerName}
         format={domain ? "Domain · Normal" : "MR5 · Normal"}
