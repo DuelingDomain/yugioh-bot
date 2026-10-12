@@ -52,7 +52,7 @@ const KEEP_SELECTOR = [
   '[data-testid="hud-bottom"] nav > div',
 ].join(", ");
 /**
- * A pin also stays clear of the life-point plates: a pin takes clicks, and a plate can be a choose-opponent target. A hover panel takes none and
+ * A pin also stays clear of the life-point plates: a pin takes clicks, and a plate can be a direct-attack target. A hover panel takes none and
  * may stand over a plate (its `.main` is a board part, `[data-lp-seat]`): a plate in the column would cut the band short and hide the art.
  */
 const PIN_KEEP_SELECTOR = `${KEEP_SELECTOR}, [data-holo]`;

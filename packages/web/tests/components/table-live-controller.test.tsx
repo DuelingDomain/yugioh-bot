@@ -7,7 +7,7 @@ import { useLiveTableController, type LiveTableControllerInput } from "@/compone
 import { promptLegalKeys, promptSelectedKeys, usePromptDraft } from "@/components/duel/prompts";
 
 function input(draft: LiveTableControllerInput["draft"]): LiveTableControllerInput {
-  const room = FFA3_FIXTURES.states["choose-opponent"].room;
+  const room = FFA3_FIXTURES.states.main.room;
   const prompt = room.engine!.prompt;
   return {
     room, prompt, nameOf: (seat) => room.session.seats[seat].displayName,
@@ -19,14 +19,14 @@ function input(draft: LiveTableControllerInput["draft"]): LiveTableControllerInp
 
 function setup(overrides: Partial<LiveTableControllerInput> = {}) {
   return renderHook((updates: Partial<LiveTableControllerInput>) => {
-    const draft = usePromptDraft(FFA3_FIXTURES.states["choose-opponent"].room.engine!.prompt);
+    const draft = usePromptDraft(FFA3_FIXTURES.states.main.room.engine!.prompt);
     const source = { ...input(draft), ...updates };
     return { source, controller: useLiveTableController(source) };
   }, { initialProps: overrides });
 }
 
 describe("live table controller", () => {
-  it("retains controller and seat-pick identity when only the input container changes", () => {
+  it("retains controller identity when only the input container changes", () => {
     const source = setup().result.current.source;
     const { result, rerender } = renderHook((fields) => useLiveTableController({ ...fields }), { initialProps: source });
     const first = result.current;
@@ -46,18 +46,7 @@ describe("live table controller", () => {
     }
   });
 
-  it("routes an offered opponent seat to the room submit handler", () => {
-    const onAnswer = vi.fn();
-    const { result } = setup({ onAnswer });
-    const pick = result.current.controller!.seatPick!;
-    const [seat, choice] = [...pick.options][0];
-    pick.onPick(seat);
-    expect(onAnswer).toHaveBeenCalledExactlyOnceWith({ choice });
-    pick.onPick(99);
-    expect(onAnswer).toHaveBeenCalledTimes(1);
-  });
-
-  it.each([{ canAct: false }, { revealed: false }, { busy: true }, { error: new Error("offline") }, { catchingUp: true }])("withholds seat picks while gated: %j", (gate) => {
+  it.each([{ canAct: false }, { revealed: false }, { busy: true }, { error: new Error("offline") }, { catchingUp: true }])("never offers a seat pick, gated or not: %j", (gate) => {
     const { result } = setup(gate);
     expect(result.current.controller!.seatPick).toBeNull();
     if ("busy" in gate || "error" in gate || "catchingUp" in gate) {
@@ -82,7 +71,7 @@ describe("live table controller", () => {
   });
 
   describe("2v2 Tag room", () => {
-    const tagInput = (id: "choose-opponent" | "main", overrides: Partial<LiveTableControllerInput> = {}) => {
+    const tagInput = (id: "main", overrides: Partial<LiveTableControllerInput> = {}) => {
       const room = TAG_FIXTURES.states[id].room;
       const prompt = room.engine!.prompt;
       return renderHook(() => {
@@ -96,15 +85,7 @@ describe("live table controller", () => {
       }).result.current;
     };
 
-    it("offers the rival seats when the player can act and the prompt is revealed", () => {
-      const controller = tagInput("choose-opponent")!;
-      expect(controller.viewerSeat).toBe(0);
-      expect([...controller.seatPick!.options.keys()]).toEqual([1, 3]);
-    });
-    it.each([{ canAct: false }, { revealed: false }])("withholds the seat pick while gated: %j", (gate) => {
-      expect(tagInput("choose-opponent", gate)!.seatPick).toBeNull();
-    });
-    it("offers no seat pick for a prompt that does not choose an opponent", () => {
+    it("offers no seat pick of its own (a direct attack makes it in the aim flow)", () => {
       expect(tagInput("main")!.seatPick).toBeNull();
     });
   });

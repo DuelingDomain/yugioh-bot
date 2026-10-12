@@ -33,7 +33,7 @@ export interface HoloLpProps {
   /** Width in stage px (default 196, or 212 for the viewer's own panel). The grid fits a panel into its middle band. */
   width?: number;
   beam: "down" | "up" | "none";
-  /** This panel can be chosen now (an opponent pick or a direct attack): dashed ring and a key hint. */
+  /** This panel can be chosen now (a direct attack): dashed ring and a key hint. */
   legal?: boolean;
   hotkey?: number | null;
   onPick?: () => void;

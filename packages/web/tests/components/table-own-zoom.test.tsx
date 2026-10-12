@@ -430,7 +430,7 @@ describe("FFA3 own field camera zoom", () => {
   it("the rooms of the prompts are planned once at the fit, and the zoom itself never plans them again", () => {
     frames();
     layout({ x: 300, y: 700, width: 500, height: 160 });
-    const { container } = render(<Table state={FFA3_FIXTURES.states["choose-opponent"]} camera={{ mode: "focus", focusSeat: REN }} />);
+    const { container } = render(<Table state={FFA3_FIXTURES.states["direct-attack"]} camera={{ mode: "focus", focusSeat: REN }} />);
     // The entry ease runs to its end: the rooms are placed for the fit.
     advance(800);
     expect(placed.calls).toBeGreaterThan(0);
@@ -472,7 +472,7 @@ describe("FFA3 own field camera zoom", () => {
       return { x: n("x"), y: n("y"), width: n("w"), height: n("h") };
     };
     const hits = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-    const state = FFA3_FIXTURES.states["choose-opponent"];
+    const state = FFA3_FIXTURES.states["direct-attack"];
     frames();
     layout({ x: 300, y: 700, width: 500, height: 160 });
     const first = render(<Table state={state} camera={{ mode: "focus", focusSeat: REN }} />);
@@ -501,7 +501,7 @@ describe("FFA3 own field camera zoom", () => {
     type R = { x: number; y: number; width: number; height: number };
     const rect = (r: R) => ({ x: r.x, y: r.y, left: r.x, top: r.y, width: r.width, height: r.height, right: r.x + r.width, bottom: r.y + r.height, toJSON: () => ({}) }) as DOMRect;
     const hits = (a: R, b: R) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-    const state = FFA3_FIXTURES.states["choose-opponent"];
+    const state = FFA3_FIXTURES.states["direct-attack"];
     // Renders the seat choice with a mocked layout: `hand` (the hand cards), `chip` (the camera chip), `none` (promptRooms finds no room).
     const place = (mock: { hand?: R; chip?: R }, camera: Partial<CameraState> = { mode: "focus", focusSeat: REN }) => {
       vi.restoreAllMocks();

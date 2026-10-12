@@ -100,17 +100,6 @@ describe("duel room failed requests", () => {
     { name: "seat-left code", message: "Invalid answer", code: "seat_left" },
     { name: "exact seat-left text", message: "That player has left. Pick again.", code: undefined },
   ])("$name", ({ message, code }) => {
-    it("shows the seat-left notice on an opponent pick and refreshes the room", async () => {
-      room(FFA3_FIXTURES.states["choose-opponent"].room);
-      state.send.mockRejectedValueOnce(new DuelRequestError(message, 400, code));
-      mount();
-      state.mutate.mockClear();
-      await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-2")); });
-      await waitFor(() => expect(notice()).toHaveTextContent("That player has left. Pick again."));
-      expect(state.send).toHaveBeenCalledTimes(1);
-      expect(state.mutate).toHaveBeenCalledExactlyOnceWith();
-    });
-
     it("shows the seat-left notice on a direct-attack pick and refreshes the room", async () => {
       room(FFA3_FIXTURES.states["direct-attack"].room);
       state.send.mockRejectedValueOnce(new DuelRequestError(message, 400, code));
@@ -124,7 +113,7 @@ describe("duel room failed requests", () => {
     });
 
     it("shows the seat-left notice on any other answer and refreshes the room", async () => {
-      room(FFA3_FIXTURES.states["choose-opponent"].room);
+      room(FFA3_FIXTURES.states.main.room);
       state.room!.engine!.prompt = { id: "plain", seat: 0, kind: "choice", title: "Pick one",
         options: [{ id: "a", label: "First" }, { id: "b", label: "Second" }] };
       state.send.mockRejectedValueOnce(new DuelRequestError(message, 400, code));
@@ -135,17 +124,6 @@ describe("duel room failed requests", () => {
       expect(state.send).toHaveBeenCalledTimes(1);
       expect(state.mutate).toHaveBeenCalledExactlyOnceWith();
     });
-  });
-
-  it("answers a plain 400 on an opponent pick with a general notice and refreshes the room", async () => {
-    room(FFA3_FIXTURES.states["choose-opponent"].room);
-    state.send.mockRejectedValueOnce(new DuelRequestError("Invalid answer", 400));
-    mount();
-    await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-2")); });
-    await waitFor(() => expect(notice()).toHaveTextContent("That choice is no longer open. Pick again."));
-    expect(notice()).not.toHaveTextContent("Invalid answer");
-    expect(notice()).not.toHaveTextContent(/left/i);
-    expect(state.mutate).toHaveBeenCalled();
   });
 
   it("gives the same general notice for a 400 on a direct-attack pick", async () => {
@@ -159,7 +137,7 @@ describe("duel room failed requests", () => {
   });
 
   it("keeps the server text of a 400 on an answer to any other prompt", async () => {
-    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    room(FFA3_FIXTURES.states.main.room);
     state.room!.engine!.prompt = { id: "plain", seat: 0, kind: "choice", title: "Pick one",
       options: [{ id: "a", label: "First" }, { id: "b", label: "Second" }] };
     state.send.mockRejectedValueOnce(new DuelRequestError("Invalid answer", 400));
@@ -170,10 +148,11 @@ describe("duel room failed requests", () => {
   });
 
   it("shows a short notice for a stale 409 and refreshes the room", async () => {
-    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    room(FFA3_FIXTURES.states["direct-attack"].room);
     state.send.mockRejectedValueOnce(new DuelRequestError("That choice is stale. Refresh the current duel state.", 409));
-    mount();
-    await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-2")); });
+    const { container } = mount();
+    fireEvent.click(container.querySelector("[data-opponent-bar='direct'] [data-rival-seat='1']")!);
+    await act(async () => { fireEvent.click(screen.getByTestId("aim-confirm")); });
     await waitFor(() => expect(notice()).toHaveTextContent("That choice is no longer open."));
     expect(notice()).not.toHaveTextContent("stale");
     expect(state.mutate).toHaveBeenCalled();
@@ -195,20 +174,22 @@ describe("duel room failed requests", () => {
   });
 
   it("keeps the server text of an error it has no notice for", async () => {
-    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    room(FFA3_FIXTURES.states["direct-attack"].room);
     state.send.mockRejectedValueOnce(new DuelRequestError("You surrendered this duel", 409));
-    mount();
-    await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-2")); });
+    const { container } = mount();
+    fireEvent.click(container.querySelector("[data-opponent-bar='direct'] [data-rival-seat='1']")!);
+    await act(async () => { fireEvent.click(screen.getByTestId("aim-confirm")); });
     await waitFor(() => expect(notice()).toHaveTextContent("You surrendered this duel"));
   });
 });
 
 describe("duel room role", () => {
   it("clears the notice and every seat-only overlay when the role becomes spectator", async () => {
-    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    room(FFA3_FIXTURES.states["direct-attack"].room);
     state.send.mockRejectedValueOnce(new DuelRequestError("Invalid answer", 400));
     const view = mount();
-    await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-2")); });
+    fireEvent.click(view.container.querySelector("[data-opponent-bar='direct'] [data-rival-seat='1']")!);
+    await act(async () => { fireEvent.click(screen.getByTestId("aim-confirm")); });
     await waitFor(() => expect(notice()).toBeInTheDocument());
     room(FFA3_FIXTURES.states.spectator.room);
     expect(state.room!.role).toBe("spectator");

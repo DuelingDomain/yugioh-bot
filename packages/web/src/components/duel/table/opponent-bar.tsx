@@ -13,7 +13,7 @@ export interface OpponentBarEntry {
   locked?: boolean;
 }
 
-export type OpponentBarKind = "pick" | "direct" | "confirm";
+export type OpponentBarKind = "direct" | "confirm";
 
 export interface OpponentBarProps {
   kind: OpponentBarKind;
@@ -31,7 +31,7 @@ export interface OpponentBarProps {
 }
 
 /**
- * The bar over the board for a prompt that picks a rival: an opponent pick (click answers), a direct attack
+ * The bar over the board for a prompt that picks a rival: a direct attack
  * (click locks the aim, a second click, Enter or Attack sends it) and the locked card target of an attack.
  * One button per living rival with its number key.
  */

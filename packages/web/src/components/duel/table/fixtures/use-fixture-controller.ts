@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { DuelAnswer } from "@yugidraft/shared/duels";
-import { seatNamer, seatPickFor } from "../../multi-seat";
+import { seatNamer } from "../../multi-seat";
 import { promptLegalKeys, promptSelectedKeys, usePromptDraft } from "../../prompts";
 import type { BattleAim, DuelActivateHandler, TableController } from "../types";
 import type { TableFixtureState } from "./common";
@@ -59,8 +59,6 @@ export function useFixtureController(state: TableFixtureState, options: FixtureC
   const legalKeys = useMemo(() => promptLegalKeys(prompt), [prompt]);
   const selectedKeys = useMemo(() => promptSelectedKeys(prompt, draft.selected), [prompt, draft.selected]);
 
-  const seatPick = useMemo(() => seatPickFor(prompt, engine, onAnswer), [engine, onAnswer, prompt]);
-
   const onInspect = useCallback<TableController["onInspect"]>(
     (target) => console.info("[table-preview] inspect", { type: target.type }),
     [],
@@ -81,7 +79,7 @@ export function useFixtureController(state: TableFixtureState, options: FixtureC
     legalKeys,
     selectedKeys,
     aim,
-    seatPick,
+    seatPick: null,
     reducedMotion,
     onAnswer,
     onActivate,

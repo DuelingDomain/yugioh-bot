@@ -4,7 +4,7 @@ import { TAG_FIXTURES, tagSearchVariant } from "@/components/duel/tag/fixtures";
 import { firstInspectCard, responseWindow, teamLoss } from "@/components/duel/tag/tag-logic";
 
 describe("tag fixtures", () => {
-  it("has the nine states and each has an engine view", () => {
+  it("has the eight states and each has an engine view", () => {
     for (const id of TABLE_STATE_IDS) {
       const state = TAG_FIXTURES.states[id];
       expect(state.id).toBe(id);
@@ -53,11 +53,6 @@ describe("tag fixtures", () => {
   it("the elimination state cracks the Thornveil plate and the result state names team 0", () => {
     expect(teamLoss(TAG_FIXTURES.states.elimination.room.engine!)).toEqual({ lostTeam: 1, cracking: true });
     expect(TAG_FIXTURES.states.result.room.engine!.result).toMatchObject({ winnerTeam: 0 });
-  });
-
-  it("the choose-opponent state offers both rivals", () => {
-    const options = TAG_FIXTURES.states["choose-opponent"].room.engine!.prompt!.options;
-    expect(options.map((option) => option.controller)).toEqual([1, 3]);
   });
 
   it("the main phase action prompt lists the phase moves for the station track", () => {
