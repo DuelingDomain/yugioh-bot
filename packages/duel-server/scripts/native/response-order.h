@@ -9,7 +9,7 @@ struct ResponseOrder {
 	int n;
 	bool tag;
 	int chain_L = -1;
-	std::vector<int> owners;
+	std::vector<int> owners; // activating duelists, which can differ from the cards' controllers
 	std::vector<int> seen;
 	std::vector<bool> eliminated;
 	bool collecting = false;
@@ -31,7 +31,7 @@ struct ResponseOrder {
 		} else {
 			// FFA3/FFA4 only. With no living link (chain_L < 0), the response round is
 			// one round: the turn player first, then turn order. While a living link
-			// remains, the anchor is the newest living link: start after its owner.
+			// remains, the anchor is the newest living link: start after its activator.
 			// The one-round, turn-player-first part is proved by the cost-elimination-response
 			// check; this checker resets at CHAIN_END.
 			const int start = chain_L < 0 ? turn_player : (chain_L + 1) % n;
@@ -57,10 +57,10 @@ struct ResponseOrder {
 		return error;
 	}
 
-	std::string chaining(int owner, int turn_player) {
+	std::string chaining(int activator, int turn_player) {
 		auto error = flush_response(turn_player);
-		owners.push_back(owner);
-		chain_L = owner;
+		owners.push_back(activator);
+		chain_L = activator;
 		collecting = true;
 		emptied_by_elimination = false;
 		return error;
@@ -72,19 +72,19 @@ struct ResponseOrder {
 		return error;
 	}
 
-	std::string eliminate(int owner, int turn_player) {
+	std::string eliminate(int player, int turn_player) {
 		const bool removed_links = n > 2 && !tag && collecting &&
-			std::find(owners.begin(), owners.end(), owner) != owners.end();
+			std::find(owners.begin(), owners.end(), player) != owners.end();
 		if(!removed_links) {
 			// No link disappeared, so priority has not restarted. Preserve the
 			// complete prompt prefix, including prompts to this formerly live seat.
-			eliminated[owner] = true;
+			eliminated[player] = true;
 			return {};
 		}
 		// Prompts before elimination belong to the previous anchor/living set.
 		auto error = flush_response(turn_player);
-		eliminated[owner] = true;
-		owners.erase(std::remove(owners.begin(), owners.end(), owner), owners.end());
+		eliminated[player] = true;
+		owners.erase(std::remove(owners.begin(), owners.end(), player), owners.end());
 		chain_L = owners.empty() ? -1 : owners.back();
 		if(owners.empty()) emptied_by_elimination = true;
 		return error;

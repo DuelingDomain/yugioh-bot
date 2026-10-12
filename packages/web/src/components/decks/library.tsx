@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
-import { Check, FileUp, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Check, Copy, FileUp, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { FloorList, FloorRow, SectionHead, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { cardArtUrl } from "@/components/duel/constants";
 import { deleteSavedDeck, listSavedDecks, type SavedDeckView } from "./api";
-import { DeckImportPanel, useDeckImport } from "./import-panel";
+import { useCopyYdke } from "./copy-ydke";
+import { DeckImportPanel } from "./import-panel";
+import { useBulkImport } from "./use-bulk-import";
 import { deckFanCodes, deckStatus } from "./library-status";
 import { formatWhen, modeLabel } from "./model";
 import { PageFrame } from "./page-frame";
@@ -26,6 +28,7 @@ function DeckRow({
   onAskDelete,
   onDelete,
   onKeep,
+  onCopyYdke,
 }: {
   deck: SavedDeckView;
   confirming: boolean;
@@ -34,6 +37,7 @@ function DeckRow({
   onAskDelete: () => void;
   onDelete: () => void;
   onKeep: () => void;
+  onCopyYdke: () => void;
 }) {
   const confirmRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -100,6 +104,9 @@ function DeckRow({
           <Link className={`sv-btn quiet ${styles.openBtn}`} href={`/decks/${deck.id}`} aria-label={`Open ${deck.name}`}>
             Open
           </Link>
+          <button className={styles.iconAct} type="button" aria-label={`Copy ${deck.name} as YDKE`} title="Copy as YDKE" onClick={onCopyYdke}>
+            <Copy size={18} aria-hidden="true" />
+          </button>
           <button className={styles.trash} type="button" aria-label={`Delete ${deck.name}`} disabled={busy} onClick={onAskDelete}>
             <Trash2 size={18} aria-hidden="true" />
           </button>
@@ -117,12 +124,6 @@ export function SavedDeckLibrary() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
-
-  const onImported = useCallback((deck: SavedDeckView) => {
-    // While the first list load is in flight, that load picks the new deck up.
-    setDecks((current) => (current == null ? current : [deck, ...current.filter((item) => item.id !== deck.id)]));
-  }, []);
-  const importer = useDeckImport(onImported);
 
   const load = useCallback(() => {
     setError(null);
@@ -144,6 +145,10 @@ export function SavedDeckLibrary() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // The import panel stays open on its result; the list behind it reloads to show the new decks.
+  const importer = useBulkImport(load);
+  const { copyYdke, toast } = useCopyYdke();
 
   async function confirmDelete(deck: SavedDeckView) {
     if (busyId != null) return;
@@ -180,6 +185,7 @@ export function SavedDeckLibrary() {
             setPendingId(null);
             setDeleteError(null);
           }}
+          onCopyYdke={() => void copyYdke(deck.deck)}
         />
       ))}
     </FloorList>
@@ -193,7 +199,7 @@ export function SavedDeckLibrary() {
         <>
           <SvButton aria-expanded={importOpen} onClick={() => setImportOpen((open) => !open)}>
             <FileUp size={16} aria-hidden="true" />
-            Import YDK
+            Import decks
           </SvButton>
           {/* With no decks, the empty state below holds the page's one primary button. */}
           <SvButton as="a" href="/decks/new" variant={decks && decks.length === 0 ? "ghost" : "primary"}>
@@ -216,7 +222,7 @@ export function SavedDeckLibrary() {
         event.preventDefault();
         setDragging(false);
         setImportOpen(true);
-        importer.importFiles(event.dataTransfer.files, importer.mode);
+        importer.previewFiles(event.dataTransfer.files);
       }}
     >
       <p className={styles.lede}>
@@ -267,6 +273,7 @@ export function SavedDeckLibrary() {
           <p className={styles.foot}>Sizes only. The table checks the banlist and copy limits when you ready up.</p>
         </>
       ) : null}
+      {toast}
     </PageFrame>
   );
 }

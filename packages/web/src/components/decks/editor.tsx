@@ -24,6 +24,7 @@ import {
   Check,
   ChevronDown,
   ChevronLeft,
+  Copy,
   Download,
   Hand,
   MoreHorizontal,
@@ -51,6 +52,7 @@ import { CardBrowser, type BrowserCard } from "./card-browser";
 import { CardBottomSheet } from "./card-bottom-sheet";
 import { CardPreview } from "./card-preview";
 import { DeckSegmented, DeckSelect } from "./controls";
+import { useCopyYdke } from "./copy-ydke";
 import { DeckSummary, type DeckCheckProps } from "./deck-check";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { useEditorViewport } from "./editor-viewport";
@@ -216,6 +218,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const { copyYdke, toast: copyToast } = useCopyYdke();
   const [fileName, setFileName] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<Map<number, DeckCardInfo>>(() => new Map());
@@ -1162,6 +1166,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   return (
     <SheetRoot className={styles.host} data-pool={pool ? "" : undefined} aria-hidden={isPhone && cardSheetOpen ? true : undefined}>
       {pool ? <OwnsPageBar room /> : null}
+      {copyToast}
       <div ref={editorRef} className={styles.de} data-tab={phoneTab} data-pane-dir={phoneDir}>
         <header className={styles["de-bar"]}>
           <Link href={backHref} className={styles["de-back"]} aria-label={pool ? "Back to the draft" : "Back to decks"}>
@@ -1189,7 +1194,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                   <b>Draft deck from {pool.draftName}</b>
                   <span>{draftRuleShort(pool.mainPoolCount)}</span>
                 </p>
-                {isPhone ? <SvButton variant="quiet" onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
+                {isPhone ? <><SvButton variant="quiet" onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton><SvButton variant="quiet" onClick={() => void copyYdke(deck)}><Copy className="ic sm" aria-hidden />Copy YDKE</SvButton></> : null}
               </>
             ) : (
               <>
@@ -1220,7 +1225,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onPaste={onPaste}
               />
             ) : null}
-            {!isPhone ? <SvButton variant="quiet" className={styles["de-export"]} onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
+            {!isPhone ? (
+              <Popover label="Export" dialogLabel="Export deck" icon={<Download className="ic sm" aria-hidden />} role="menu" open={exportOpen} onOpenChange={setExportOpen} className={styles["de-export"]}>
+                <SvButton variant="quiet" role="menuitem" onClick={() => { setExportOpen(false); downloadYdkFile(name, deck); }}>Download YDK</SvButton>
+                <SvButton variant="quiet" role="menuitem" onClick={() => { setExportOpen(false); void copyYdke(deck); }}>Copy as YDKE</SvButton>
+              </Popover>
+            ) : null}
             {!pool ? (
               <Popover
                 label="More deck actions"
@@ -1246,7 +1256,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                   </>
                 ) : (
                   <>
-                    {isPhone ? <><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); setParseError(null); setImportOpen(true); }}>Import</SvButton><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); downloadYdkFile(name, deck); }}>Export YDK</SvButton></> : null}
+                    {isPhone ? <><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); setParseError(null); setImportOpen(true); }}>Import</SvButton><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); downloadYdkFile(name, deck); }}>Export YDK</SvButton><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); void copyYdke(deck); }}>Copy YDKE</SvButton></> : null}
                     <SvButton variant="danger" role="menuitem" disabled={savedId == null || busy} onClick={() => { setMoreOpen(false); setDeleteOpen(true); setDeleteError(null); }}>
                       <Trash2 className="ic sm" aria-hidden />Delete
                     </SvButton>

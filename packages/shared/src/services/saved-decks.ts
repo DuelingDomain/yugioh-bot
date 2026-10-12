@@ -114,6 +114,11 @@ function normalizeDeck(deck: unknown): DuelDeck {
   return normalized;
 }
 
+/** Validate storage rules without a write, so previews and saves use the same limits. */
+export function validateSavedDeckWrite(input: SavedDeckWrite): { name: string; mode: DuelMode; deck: DuelDeck } {
+  return { name: normalizeName(input.name), mode: normalizeMode(input.mode), deck: normalizeDeck(input.deck) };
+}
+
 /** undefined stays undefined (callers decide the default); null clears. */
 function normalizeDraftId(draftId: unknown): number | null | undefined {
   if (draftId === undefined || draftId === null) return draftId;
@@ -271,9 +276,7 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
     },
 
     create(guildId: string, ownerUserId: number, input: SavedDeckWrite): SavedDeck {
-      const name = normalizeName(input.name);
-      const mode = normalizeMode(input.mode);
-      const deck = normalizeDeck(input.deck);
+      const { name, mode, deck } = validateSavedDeckWrite(input);
       validateExtra(deck);
       const draftId = normalizeDraftId(input.draftId) ?? null;
       let result;
@@ -288,9 +291,7 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
 
     update(id: number, guildId: string, ownerUserId: number, input: SavedDeckWrite): SavedDeck {
       const existing = loadOwned(id, guildId, ownerUserId);
-      const name = normalizeName(input.name);
-      const mode = normalizeMode(input.mode);
-      const deck = normalizeDeck(input.deck);
+      const { name, mode, deck } = validateSavedDeckWrite(input);
       validateExtra(deck);
       const draftId = normalizeDraftId(input.draftId);
       try {

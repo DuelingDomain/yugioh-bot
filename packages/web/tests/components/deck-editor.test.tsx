@@ -478,6 +478,19 @@ describe("SavedDeckEditor", () => {
     expect(mainCards()[0]).toHaveAccessibleName(/Blue-Eyes White Dragon/);
   });
 
+  it("copies the deck as a YDKE code from the Export menu", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    render(<SavedDeckEditor />);
+    fireEvent.doubleClick(await screen.findByRole("button", { name: "Blue-Eyes White Dragon" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    const menu = await screen.findByRole("menu", { name: "Export deck" });
+    expect(within(menu).getByRole("menuitem", { name: "Download YDK" })).toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy as YDKE" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("ydke://o6lXBQ==!!!"));
+    expect(await screen.findByRole("status")).toHaveTextContent("YDKE code copied.");
+  });
+
   it("uses the container width for the phone sheet and returns focus to its card", async () => {
     vi.stubGlobal("ResizeObserver", class {
       constructor(private callback: (entries: Array<{ contentRect: { width: number } }>) => void) {}

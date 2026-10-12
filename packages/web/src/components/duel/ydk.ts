@@ -138,16 +138,5 @@ export function selectDomainMaster(state: DeckMasterSelection, code?: number): D
   return { deck: { ...restored, deckMaster: code }, masterOrigin: null };
 }
 
-export function serializeYdk(deck: DuelDeck): string {
-  const lines = [
-    "#main",
-    ...deck.main.map(String),
-    "#extra",
-    ...deck.extra.map(String),
-    "!side",
-    ...deck.side.map(String),
-    "",
-  ];
-  if (deck.deckMaster != null) lines.unshift("#deckmaster", String(deck.deckMaster));
-  return lines.join("\n");
-}
+// Keep the legacy single-deck parsers above compatible with editor, lobby and cube imports.
+export { serializeYdk, encodeYdke, decodeYdke, splitImportText } from "@yugidraft/shared/decks";
