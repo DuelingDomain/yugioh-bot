@@ -40,7 +40,7 @@ async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterR
   const count = seatCountFor(format);
   const players = Array.from({ length: count }, (_, seat) => Number(db.prepare(
     "insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)",
-  ).run("g", `u${seat}`, `P${seat}`).lastInsertRowid));
+  ).run("g", String(101 + seat), `P${seat}`).lastInsertRowid));
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Draw rule pin", mode, format, masterRule,
     settings: { validateDeck: false, shuffleDeck: false, turnSeconds: 0, ...settings } });
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
@@ -272,7 +272,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     expect(replay.status).toBe(409);
     expect(replay.data).toMatchObject({ code: "REPLAY_UNVERIFIED", reason: "no_saved_board" });
     // The owner can bypass the missing-board check, but cannot bypass missing rules.
-    const { userId } = t.db.prepare("select user_id as userId from players where id=?").get(t.players[0]!) as { userId: number };
+    const { userId } = t.db.prepare("select discord_user_id as userId from players where id=?").get(t.players[0]!) as { userId: string };
     vi.stubEnv("OWNER_USER_IDS", String(userId));
     const unchecked = await t.post("owner-replay", 0, { userId, unchecked: true });
     expect(unchecked.status).toBe(409);
