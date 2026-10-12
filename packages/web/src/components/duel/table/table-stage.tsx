@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowUp } from "lucide-react";
 import { flushSync } from "react-dom";
-import { engineFormat } from "../multi-seat";
+import { engineFormat, plazaFacingPair } from "../multi-seat";
 import type { UseGridFocus } from "./grid-focus";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
@@ -27,6 +27,7 @@ import { ROOF_ZOOM_MS } from "../tag/roof-camera";
 import { zoneKey } from "../constants";
 import { sameRects, type Rect } from "./rect-util";
 import { useStripRoom } from "./use-strip-room";
+import { PairLink } from "./pair-link";
 import { ViewReset } from "./view-reset";
 import { clearRoom, FOLLOW_ATTR, fitItemRect, fitRoom, followShift, VIEW_IDENTITY, type FitItem, type View } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
@@ -486,6 +487,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   const flyYaw = fly ? world.yawDeg : 0;
 
   const plaza3 = layout.format === "ffa3" && layout.slots.length === 3;
+  const facingPair = plaza3 ? plazaFacingPair(engine) : null;
 
   // A click on a field never moves the camera, in any mode (a misclick would zoom or fly in): the seat buttons, the Zoom my field
   // button and the keys do, and Enter or a screen reader's click on a field box (see `reach`). A card keeps its own click.
@@ -739,6 +741,9 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
                   density: you ? "full" : "rival",
                   hand: self && !looking ? "face" : "backs",
                   emz: "own",
+                  ...(facingPair && (slot.seat === facingPair[0].seat || slot.seat === facingPair[1].seat)
+                    ? { emzLink: { other: slot.seat === facingPair[0].seat ? facingPair[1].seat : facingPair[0].seat, otherName: nameOf(slot.seat === facingPair[0].seat ? facingPair[1].seat : facingPair[0].seat) } }
+                    : {}),
                   showTally: false,
                   usable: !looking && (slot.relation === "self" || slot.relation === "opponent"),
                   name: nameOf(slot.seat),
@@ -758,6 +763,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
             </div>
           </div>
         </div>
+        {facingPair ? <PairLink a={facingPair[0].seat} b={facingPair[1].seat} label={`${nameOf(facingPair[0].seat)} + ${nameOf(facingPair[1].seat)} linked`} /> : null}
         <svg ref={tetherRef} className={styles.tethers} viewBox="0 0 1100 860" aria-hidden="true" />
         {[
           // A seat that left keeps its panel where its place stays.
