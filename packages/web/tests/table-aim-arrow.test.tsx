@@ -9,6 +9,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+import { directTargetNode } from "@/components/duel/direct-target";
 import { AimArrow, aimArrowPath } from "@/components/duel/table/aim-arrow";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
@@ -95,6 +96,8 @@ describe.each([
     expect(arrow()?.getAttribute("data-aim-arrow")).toBe("snapped");
     expect(label()).toMatch(/^Direct attack: /);
     expect(field.getAttribute("data-aim-hot")).toBe("true");
+    // The arrow and the attacker aim at the field (its row of Monster Zones), not at the LP panel.
+    expect(directTargetNode(1)).toBe(field.querySelector("[data-monster-row='1']"));
     pointerClick(field);
     expect(onAnswer).toHaveBeenCalledWith({ choice: "direct-1" });
   });

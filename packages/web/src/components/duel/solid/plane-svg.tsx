@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import type { BattleAim } from "../battle-fx";
+import { MONSTER_ROW_ATTR } from "../direct-target";
 import table from "./table.module.css";
 
 /** A box in plane coordinates (px, before the tilt). */
@@ -65,19 +66,28 @@ function measure(plane: HTMLElement, aim: BattleAim | null): PlaneGeom | null {
     const box = zoneInPlane(plane, key);
     if (box) targets.push(box);
   }
-  const paths: PlanePath[] = targets.map((box) => {
+  const pathTo = (box: PlaneBox): PlanePath => {
     const end = centre(box);
     const up = end.y < start.y;
     // Leave the near edge of the attacker, land on the near edge of the target.
     const a = { x: start.x, y: start.y + (up ? -cardH / 2 - START_GAP : cardH / 2 + START_GAP) };
     const b = { x: end.x, y: end.y + (up ? cardH / 2 + END_GAP : -cardH / 2 - END_GAP) };
     return { d: attackCurve(a, b), from: a };
-  });
-  // A direct attack aims at the opponent's life points, which sit outside the plane: point past its far edge.
+  };
+  const paths: PlanePath[] = targets.map(pathTo);
+  // A direct attack aims at the defender's field: the row of their Monster Zones, like a card target (the damage shows on their LP).
   if (aim.to.lpSeat != null && !(aim.to.zones?.length)) {
-    const a = { x: start.x, y: start.y - cardH / 2 - START_GAP };
-    const b = { x: start.x, y: -END_GAP };
-    paths.push({ d: attackCurve(a, b), from: a });
+    const row = plane.querySelector<HTMLElement>(`[${MONSTER_ROW_ATTR}="${aim.to.lpSeat}"]`);
+    const box = row ? boxInPlane(row, plane) : null;
+    if (box) {
+      targets.push(box);
+      paths.push(pathTo(box));
+    } else {
+      // No field in the plane: point past its far edge.
+      const a = { x: start.x, y: start.y - cardH / 2 - START_GAP };
+      const b = { x: start.x, y: -END_GAP };
+      paths.push({ d: attackCurve(a, b), from: a });
+    }
   }
   if (paths.length === 0) return null;
   return { mode: aim.mode, width: plane.offsetWidth, height: plane.offsetHeight, paths, rings: targets, fromRing: from };
