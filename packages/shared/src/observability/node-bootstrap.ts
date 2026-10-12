@@ -10,7 +10,7 @@ type Runtime = {
 let shutdownFlush: Promise<void> | undefined;
 
 export function awaitObservabilityShutdown(): Promise<void> {
-  return shutdownFlush ?? flushObservability(2000);
+  return flushObservability(2000);
 }
 
 export function bootstrapObservability(factory: () => ObservabilityAdapter, runtime: Runtime = process): void {

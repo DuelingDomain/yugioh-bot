@@ -9,6 +9,47 @@ class Runtime extends EventEmitter {
   exit = vi.fn();
 }
 afterEach(() => { setObservabilityAdapter(consoleAdapter); vi.restoreAllMocks(); });
+it("flushes errors reported during service drain before exiting", async () => {
+  const runtime = new Runtime(); runtime.env.SENTRY_DSN = "configured";
+  const pending: unknown[] = []; const sent: unknown[] = []; const order: string[] = [];
+  const error = new Error("drain failed");
+  bootstrapObservability(() => ({
+    report(error) { pending.push(error); }, log() {},
+    async flush(timeout) { expect(timeout).toBe(2000); sent.push(...pending.splice(0)); order.push("flush"); },
+  }), runtime);
+  runtime.exit.mockImplementation(() => { order.push("exit"); });
+  runtime.once("SIGTERM", async () => {
+    await Promise.resolve();
+    report(error);
+    order.push("drained");
+    await awaitObservabilityShutdown();
+    runtime.exit(0);
+  });
+  runtime.emit("SIGTERM");
+  await vi.waitFor(() => expect(runtime.exit).toHaveBeenCalledWith(0));
+  expect(sent).toEqual([error]);
+  expect(order).toEqual(["flush", "drained", "flush", "exit"]);
+});
+
+it("caps the final flush after draining at two seconds", async () => {
+  vi.useFakeTimers();
+  const runtime = new Runtime(); runtime.env.SENTRY_DSN = "configured";
+  let draining = false;
+  bootstrapObservability(() => ({ report() {}, log() {}, flush: () => draining ? new Promise(() => {}) : Promise.resolve() }), runtime);
+  runtime.once("SIGTERM", async () => {
+    await Promise.resolve();
+    draining = true;
+    await awaitObservabilityShutdown();
+    runtime.exit(0);
+  });
+  try {
+    runtime.emit("SIGTERM");
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(runtime.exit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(runtime.exit).toHaveBeenCalledWith(0);
+  } finally { vi.useRealTimers(); }
+});
 it.each(["uncaughtException", "unhandledRejection"])("reports %s and flushes before exiting", async signal => {
   const runtime = new Runtime(); runtime.env.SENTRY_DSN = "configured";
   const order: string[] = [];
@@ -29,15 +70,19 @@ it("continues with console when the adapter factory throws", () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   expect(() => bootstrapObservability(() => { throw new Error("configuration failed"); }, runtime)).not.toThrow();
 });
-it("awaits SIGTERM flush before the existing shutdown finishes", async () => {
+it("awaits the final SIGTERM flush before the existing shutdown finishes", async () => {
   const runtime = new Runtime(); runtime.env.SENTRY_DSN = "configured";
-  let finish!: () => void; const order: string[] = [];
-  bootstrapObservability(() => ({ report() {}, log() {}, flush: () => new Promise<void>(resolve => { finish = () => { order.push("flush"); resolve(); }; }) }), runtime);
+  const finishes: (() => void)[] = []; const order: string[] = [];
+  bootstrapObservability(() => ({ report() {}, log() {}, flush: () => new Promise<void>(resolve => { finishes.push(() => { order.push("flush"); resolve(); }); }) }), runtime);
   runtime.once("SIGTERM", async () => { order.push("drain"); await awaitObservabilityShutdown(); order.push("done"); });
   runtime.emit("SIGTERM");
   expect(order).toEqual(["drain"]);
-  finish();
-  await vi.waitFor(() => expect(order).toEqual(["drain", "flush", "done"]));
+  expect(finishes).toHaveLength(2);
+  finishes[0]();
+  await Promise.resolve();
+  expect(order).toEqual(["drain", "flush"]);
+  finishes[1]();
+  await vi.waitFor(() => expect(order).toEqual(["drain", "flush", "flush", "done"]));
   expect(runtime.exit).not.toHaveBeenCalled();
 });
 it("exits on SIGTERM after flushing when no service drain is registered", async () => {
