@@ -108,6 +108,7 @@ describe("current engine identity", () => {
     // Local version 3 keeps sandbox rules. Refresh only its fingerprint for trusted
     // replay-only selection of an unknown 1v1 family and failure metadata. Saved-choice
     // and identity guards, live recovery, command application and Manual loss timing are unchanged.
+    // The same v3 hash also covers the facing-pairs rule edits e7d5224b2 (first-turn draw) and 372fb5684 (FFA3 views).
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 
