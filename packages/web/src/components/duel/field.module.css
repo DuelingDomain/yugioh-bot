@@ -856,7 +856,11 @@
    nothing there can be targeted from this side. */
 .zone[data-link] .frame {
   box-shadow: inset 0 0 14px -4px rgb(155 126 255 / 0.4), 0 0 0 1px rgb(155 126 255 / 0.26);
-  transition: box-shadow 0.18s ease-out;
+  transition:
+    box-shadow 0.18s ease-out,
+    border-color 0.18s ease-out,
+    opacity 0.18s ease-out,
+    transform 0.18s var(--ease);
 }
 
 .zone[data-link="taken"] .frame {
@@ -884,15 +888,26 @@
   pointer-events: none;
 }
 
-/* Hover or focus on a linked zone lights the same physical zone on the partner's field (zone 5 here is zone 6 there). The stage
-   marks the pair with data-emz-pair; the plaza pair is always seats 0 and 1. */
-:global([data-emz-pair]):has([data-seat-field="0"] .zone[data-link-seq="5"]:hover, [data-seat-field="0"] .zone[data-link-seq="5"] :focus-visible) [data-seat-field="1"] .zone[data-link-seq="6"] .frame,
-:global([data-emz-pair]):has([data-seat-field="0"] .zone[data-link-seq="6"]:hover, [data-seat-field="0"] .zone[data-link-seq="6"] :focus-visible) [data-seat-field="1"] .zone[data-link-seq="5"] .frame,
-:global([data-emz-pair]):has([data-seat-field="1"] .zone[data-link-seq="5"]:hover, [data-seat-field="1"] .zone[data-link-seq="5"] :focus-visible) [data-seat-field="0"] .zone[data-link-seq="6"] .frame,
-:global([data-emz-pair]):has([data-seat-field="1"] .zone[data-link-seq="6"]:hover, [data-seat-field="1"] .zone[data-link-seq="6"] :focus-visible) [data-seat-field="0"] .zone[data-link-seq="5"] .frame {
+/* Hover or keyboard focus on either cell of a linked Extra Monster Zone lights BOTH cells the same way (one violet light, same
+   strength): the zone you point at and its mirror on the partner's field. The two cells carry one data-link-id (see linkIdOf in
+   field.tsx), and the rule sits on the table stage, so it reaches the partner's field in another DOM subtree. A pair of seats is
+   always 0+1 or 2+3; the id names the pair and which of the two zones, so the four ids below are all there are. Only :hover and
+   :focus-visible count: a click leaves no light behind. */
+:global([data-table-stage]):has([data-link-id="0-1-5"]:hover, [data-link-id="0-1-5"] :focus-visible) [data-link-id="0-1-5"] .frame,
+:global([data-table-stage]):has([data-link-id="0-1-6"]:hover, [data-link-id="0-1-6"] :focus-visible) [data-link-id="0-1-6"] .frame,
+:global([data-table-stage]):has([data-link-id="2-3-5"]:hover, [data-link-id="2-3-5"] :focus-visible) [data-link-id="2-3-5"] .frame,
+:global([data-table-stage]):has([data-link-id="2-3-6"]:hover, [data-link-id="2-3-6"] :focus-visible) [data-link-id="2-3-6"] .frame {
+  border-color: rgb(190 170 255 / 0.7);
   box-shadow: inset 0 0 18px -2px rgb(168 144 255 / 0.75), 0 0 0 1px rgb(190 170 255 / 0.7), 0 0 14px -2px rgb(155 126 255 / 0.6);
   opacity: 1;
   filter: none;
+}
+
+:global([data-table-stage]):has([data-link-id="0-1-5"]:hover, [data-link-id="0-1-5"] :focus-visible) [data-link-id="0-1-5"] .zoneName,
+:global([data-table-stage]):has([data-link-id="0-1-6"]:hover, [data-link-id="0-1-6"] :focus-visible) [data-link-id="0-1-6"] .zoneName,
+:global([data-table-stage]):has([data-link-id="2-3-5"]:hover, [data-link-id="2-3-5"] :focus-visible) [data-link-id="2-3-5"] .zoneName,
+:global([data-table-stage]):has([data-link-id="2-3-6"]:hover, [data-link-id="2-3-6"] :focus-visible) [data-link-id="2-3-6"] .zoneName {
+  color: rgb(214 200 255);
 }
 
 :global([data-reduced="true"]) .zone[data-link] .frame {
