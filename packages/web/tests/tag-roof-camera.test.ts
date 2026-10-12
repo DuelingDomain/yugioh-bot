@@ -34,10 +34,10 @@ function run(state: RoofCameraState, ...actions: CameraAction[]): RoofCameraStat
 describe("roofSlots", () => {
   it("puts the viewer and partner near, the two rivals far, in turn order", () => {
     const slots = roofSlots(0);
-    expect(slots[0]).toMatchObject({ near: true, x: -357 });
-    expect(slots[2]).toMatchObject({ near: true, x: 357 });
-    expect(slots[1]).toMatchObject({ near: false, x: -357 });
-    expect(slots[3]).toMatchObject({ near: false, x: 357 });
+    expect(slots[0]).toMatchObject({ near: true, x: -445 });
+    expect(slots[2]).toMatchObject({ near: true, x: 445 });
+    expect(slots[1]).toMatchObject({ near: false, x: -445 });
+    expect(slots[3]).toMatchObject({ near: false, x: 445 });
     expect(slots[0].y).toBeGreaterThan(0);
     expect(slots[1].y).toBeLessThan(0);
   });
@@ -45,10 +45,10 @@ describe("roofSlots", () => {
   it("keeps the viewer at near left for every anchor seat", () => {
     for (const anchor of [0, 1, 2, 3]) {
       const slots = roofSlots(anchor);
-      expect(slots[anchor]).toMatchObject({ near: true, x: -357 });
-      expect(slots[(anchor + 2) % 4]).toMatchObject({ near: true, x: 357 });
-      expect(slots[anchor ^ 1]).toMatchObject({ near: false, x: -357 });
-      expect(slots[((anchor + 2) % 4) ^ 1]).toMatchObject({ near: false, x: 357 });
+      expect(slots[anchor]).toMatchObject({ near: true, x: -445 });
+      expect(slots[(anchor + 2) % 4]).toMatchObject({ near: true, x: 445 });
+      expect(slots[anchor ^ 1]).toMatchObject({ near: false, x: -445 });
+      expect(slots[((anchor + 2) % 4) ^ 1]).toMatchObject({ near: false, x: 445 });
     }
   });
 });
@@ -139,8 +139,8 @@ describe("presets and seat poses", () => {
       expect(seatPose(0, seat).yaw).toBe(0);
       expect(seatPose(0, seat).zoom).toBeGreaterThan(ROOF_PRESETS.overview.zoom);
     }
-    expect(seatPose(0, 0).fx).toBe(-357);
-    expect(seatPose(0, 2).fx).toBe(357);
+    expect(seatPose(0, 0).fx).toBe(-445);
+    expect(seatPose(0, 2).fx).toBe(445);
     expect(seatPose(0, 0).fy).toBeGreaterThan(0);
     expect(seatPose(0, 1).fy).toBeLessThan(0);
   });
@@ -383,7 +383,7 @@ describe("tween helpers", () => {
     const t = roofTransform(ROOF_PRESETS.home, 1);
     expect(t).toContain("rotateX(36.000deg)");
     expect(t).toContain("rotateZ(0.000deg)");
-    expect(t).toContain("scale3d(1.3000");
+    expect(t).toContain("scale3d(1.0400");
     expect(t).toContain("translate3d(0px, 64.00px, 0px)");
   });
 });
@@ -559,7 +559,7 @@ describe("phase hub sizing", () => {
 
   it("takes the gap height and width from the pose scale (zoom 1 is the overview)", () => {
     const gap = roofGap(ROOF_PRESETS.overview, 0.5);
-    expect(gap.freePx).toBeCloseTo(450, 5);
+    expect(gap.freePx).toBeCloseTo(626, 5);
     expect(gap.gapPx).toBeGreaterThan(0);
     expect(gap.gapPx).toBeLessThanOrEqual(2 * ROOF_FIELD.offsetY * 0.5);
     expect(roofGap(ROOF_PRESETS.overview, 1).gapPx).toBeGreaterThan(gap.gapPx);

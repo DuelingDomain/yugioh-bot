@@ -1,3 +1,4 @@
+import { SEAT_BOX_FULL_DEF } from "../table/geometry";
 import type { CameraAction as TableCameraAction, CameraLockReason, CameraState as TableCameraState } from "../table/types";
 
 /** The Rooftop adds one flag to the shared camera state. The duel never moves the camera in: only the viewer zooms in. */
@@ -13,7 +14,7 @@ export type CameraAction =
  * table camera) and adds a few extra fields on top of CameraState: the target pose, a tween revision, and the pose to
  * restore after an FX lock. The "rival end" view rides on `look`; the fly-in intro rides on `toggleFly`.
  *
- * World units are the prototype's: a field is the SeatField box, 653 x 380, the near team strip sits at +y, the rival strip at -y.
+ * World units are the prototype's: a field is the wide SeatField box, 829 x 380, the near team strip sits at +y, the rival strip at -y.
  */
 
 export interface RoofPose {
@@ -30,11 +31,13 @@ export const ROOF_LIMITS = { zoomMin: 0.3, zoomMax: 3.4, tiltMin: 6, tiltMax: 66
 /**
  * Zoom 1 is the overview: the stage fits all four fields (ROOF_WORLD) into the free box, so every other zoom is relative
  * to that. The overview is the default view and the one every "back" returns to.
+ * Home and rival keep the whole strip in the box: they were 1.3 on the narrow 1440 unit world, 1.3 x 1440 / 1792 = 1.04 on the
+ * wide one, so the outer baton pills and piles stay on screen.
  */
 export const ROOF_PRESETS: Readonly<Record<"home" | "overview" | "rival" | "intro", RoofPose>> = {
-  home: { yaw: 0, tilt: 36, zoom: 1.3, fx: 0, fy: -30, oy: 64 },
+  home: { yaw: 0, tilt: 36, zoom: 1.04, fx: 0, fy: -30, oy: 64 },
   overview: { yaw: 0, tilt: 8, zoom: 1, fx: 0, fy: 0, oy: 0 },
-  rival: { yaw: 180, tilt: 36, zoom: 1.3, fx: 0, fy: 30, oy: 64 },
+  rival: { yaw: 180, tilt: 36, zoom: 1.04, fx: 0, fy: 30, oy: 64 },
   intro: { yaw: -150, tilt: 74, zoom: 0.25, fx: 0, fy: -500, oy: -150 },
 };
 
@@ -44,10 +47,15 @@ export const ROOF_ZOOM_MS = 360;
 export const ROOF_LOCK_IN_MS = 700;
 /**
  * Field plane size (the SeatField box at z = 112 px) and strip offset in world units. Fields sit 61 units apart.
+ * A field is the wide one of the 3-way table and the 4-way grid (SEAT_BOX_FULL_DEF: each of the five zone columns is a card
+ * height wide, so a Defense card lies at full size inside its own column, see `[data-def-full]` in field.module.css).
  * The two strips are 160 units apart (offsetY 80 each side of the helipad): 1A stands straight across from 2A and 1B
  * across from 2B, in the same columns, with room between each facing pair for one shared Extra Monster row.
  */
-export const ROOF_FIELD = { width: 653, height: 380, offsetY: 80, centerX: 357 } as const;
+export const ROOF_FIELD = { width: SEAT_BOX_FULL_DEF, height: 380, offsetY: 80, centerX: 445 } as const;
+
+/** Width of one team strip's two fields and the gap between them, in world units (1719). */
+export const ROOF_STRIP_SPAN = 2 * ROOF_FIELD.centerX + ROOF_FIELD.width;
 
 export interface RoofSlot {
   seat: number;
@@ -74,14 +82,13 @@ export function roofSlots(anchorSeat: number): Record<number, RoofSlot> {
 }
 
 /** Free width of the middle band between the two seat labels, in world units (the gap row between the strips). */
-const GAP_FREE_WIDTH = 900;
+const GAP_FREE_WIDTH = 1252;
 /**
  * The same with the shared Extra Monster Zones drawn in the gap: the two inner cells (column 4 of the left pair, column 2 of
- * the right pair) stand 233 units either side of the helipad, 466 apart. A cell is about 61 units wide, so the free width
- * between the inner edges is about 405. The scale this is multiplied by (fit x zoom) reads about 13% under what the tilted
- * gap really measures (326px between the inner cell edges at 1920, where 405 x 0.8 = 324), so the hub keeps a margin.
+ * the right pair) are about 509 units apart on the wide fields (375px between the inner cell edges at 1920x1080, at scale 0.736).
+ * The value is kept about 13% under that, so the hub keeps a margin.
  */
-const GAP_FREE_WIDTH_SHARED = 405;
+const GAP_FREE_WIDTH_SHARED = 440;
 
 /** Width of the smallest phase hub strip, in px. */
 export const XS_HUB_MIN = 170;
@@ -557,7 +564,7 @@ export interface RoofView {
  * Width and depth of the roof world that must stay in view at zoom 1 (the overview): the four fields with their
  * name labels and the gap between the strips, plus a little air. The depth leaves room for the 8 degree tilt.
  */
-export const ROOF_WORLD = { width: 1440, depth: 970 } as const;
+export const ROOF_WORLD = { width: ROOF_STRIP_SPAN + 73, depth: 970 } as const;
 
 /** Fit factor of the roof world: the four fields at zoom 1 fill the free box. 0 for an empty box. */
 export function roofFit(view: RoofView): number {

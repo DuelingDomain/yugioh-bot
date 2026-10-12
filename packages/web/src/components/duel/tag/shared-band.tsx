@@ -79,6 +79,7 @@ export function SharedExtraBand({ near, far, x, nameOf, relationOf, outOf, legal
     <div
       className={styles.fieldHold}
       data-shared-band={`${near.seat}-${far.seat}`}
+      data-def-full="true"
       style={{ width: ROOF_FIELD.width, height: BAND_HEIGHT, transform: `translate3d(${x - ROOF_FIELD.width / 2}px, ${-BAND_HEIGHT / 2}px, ${ROOF_FIELD_Z}px)` }}
     >
       <div

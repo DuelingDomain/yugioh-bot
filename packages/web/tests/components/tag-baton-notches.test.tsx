@@ -32,17 +32,17 @@ describe("Baton notches follow the field slots", () => {
 
   it("anchor 1: seat 0 at the far-left notch, seat 2 at the far-right notch", () => {
     const root = mount(1);
-    expect(pillAt(root, 0)).toBe(`-610,${-NOTCH_Y}`);
-    expect(pillAt(root, 2)).toBe(`610,${-NOTCH_Y}`);
-    expect(pillAt(root, 1)).toBe(`-610,${NOTCH_Y}`);
-    expect(pillAt(root, 3)).toBe(`610,${NOTCH_Y}`);
+    expect(pillAt(root, 0)).toBe(`-787,${-NOTCH_Y}`);
+    expect(pillAt(root, 2)).toBe(`787,${-NOTCH_Y}`);
+    expect(pillAt(root, 1)).toBe(`-787,${NOTCH_Y}`);
+    expect(pillAt(root, 3)).toBe(`787,${NOTCH_Y}`);
   });
 
   it("anchor 3: seat 2 at the far-left notch, seat 0 at the far-right notch", () => {
     const root = mount(3);
-    expect(pillAt(root, 2)).toBe(`-610,${-NOTCH_Y}`);
-    expect(pillAt(root, 0)).toBe(`610,${-NOTCH_Y}`);
-    expect(pillAt(root, 3)).toBe(`-610,${NOTCH_Y}`);
-    expect(pillAt(root, 1)).toBe(`610,${NOTCH_Y}`);
+    expect(pillAt(root, 2)).toBe(`-787,${-NOTCH_Y}`);
+    expect(pillAt(root, 0)).toBe(`787,${-NOTCH_Y}`);
+    expect(pillAt(root, 3)).toBe(`-787,${NOTCH_Y}`);
+    expect(pillAt(root, 1)).toBe(`787,${NOTCH_Y}`);
   });
 });
