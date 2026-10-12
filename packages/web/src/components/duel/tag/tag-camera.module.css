@@ -88,6 +88,34 @@
   cursor: pointer;
 }
 
+/* Targets for the open prompt or aim on a field out of view: a small gold dot on the corner of its button, pulsing slowly. */
+.seat { position: relative; }
+
+.seat[data-targets="true"]::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: rgb(240 192 96);
+  box-shadow: 0 0 0 3px rgb(240 192 96 / 0.3), 0 0 10px rgb(240 192 96 / 0.8);
+  animation: seatHint 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.seat[data-targets="true"][data-calm="true"]::after { animation: none; }
+
+@keyframes seatHint {
+  0%, 100% { transform: scale(1); opacity: 0.95; }
+  50% { transform: scale(1.35); opacity: 0.6; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat[data-targets="true"]::after { animation: none; }
+}
+
 .seat:hover:not(:disabled) { background: rgb(var(--seat) / 0.2); }
 
 .seat[aria-pressed="true"] {

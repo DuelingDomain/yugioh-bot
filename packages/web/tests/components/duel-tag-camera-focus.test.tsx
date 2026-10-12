@@ -403,6 +403,47 @@ describe("Tag overview camera: action clicks never move the camera", () => {
   });
 });
 
+describe("Tag close-up camera: a pick or an aim never moves it, a hint marks the pill of a field with targets", () => {
+  const hinted = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>("[data-field-focus][data-targets]")].map((pill) => Number(pill.dataset.fieldFocus));
+  const legalSeats = (root: HTMLElement) => [0, 1, 2, 3].filter((seat) => zonesOf(root, seat).legal.length > 0);
+
+  it("a target pick with legal zones on fields out of view hints those pills and keeps the close-up", () => {
+    const root = mount("target-pick", "focus");
+    const focus = Number(modeOf(root).split(":")[1]);
+    const expected = legalSeats(root).filter((seat) => seat !== focus);
+    expect(expected.length).toBeGreaterThan(0);
+    expect(hinted(root)).toEqual(expect.arrayContaining(expected));
+    expect(hinted(root)).not.toContain(focus);
+    expect(modeOf(root)).toBe(`focus:${focus}`);
+    const pill = root.querySelector<HTMLElement>(`[data-field-focus="${expected[0]}"]`)!;
+    expect(pill.getAttribute("aria-label")).toMatch(/has targets/);
+    expect(pill.querySelector("[data-targets-hint]")).toBeTruthy();
+    // The camera dock marks the same seats, so a field that is off screen still shows where the targets are.
+    const dock = [...root.querySelectorAll<HTMLElement>("[data-camera-seat-button][data-targets]")].map((node) => Number(node.dataset.cameraSeatButton));
+    expect(dock).toEqual(expect.arrayContaining(expected));
+    expect(dock).not.toContain(focus);
+    // The hint is only a mark: the press steps to that field, as for any pill.
+    fireEvent.click(pill);
+    expect(modeOf(root)).toBe(`focus:${expected[0]}`);
+    expect(hinted(root)).not.toContain(expected[0]);
+  });
+
+  it("an attack aim keeps the close-up and a pill still steps to a rival field", () => {
+    const root = mount("battle-aim", "focus");
+    expect(modeOf(root).startsWith("focus:")).toBe(true);
+    const rival = root.querySelector<HTMLButtonElement>('[data-field-focus="1"]')!;
+    expect(rival.disabled).toBe(false);
+    fireEvent.click(rival);
+    expect(modeOf(root)).toBe("focus:1");
+  });
+
+  it("no hint in the overview, in a main phase action menu, or for the field in close-up", () => {
+    expect(hinted(mount("target-pick"))).toEqual([]);
+    cleanup();
+    expect(hinted(mount("main", "focus"))).toEqual([]);
+  });
+});
+
 describe("Tag close-up camera: a click on the field never zooms out", () => {
   it("a click on the mat, the name label or an idle zone of the field in close-up changes nothing", () => {
     const root = mount("main", "focus");

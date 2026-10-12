@@ -331,21 +331,17 @@ describe("FX lock", () => {
     expect(b.lock?.untilMs).toBe(5000);
   });
 
-  it("works on top of an aim", () => {
+  it("works on top of an aim: the close-up that comes back after the lock is the same one", () => {
     const s = run(focus, { type: "lock", reason: "destroy", nowMs: 0, ms: 1000 }, { type: "aiming", on: true });
     expect(s.lock?.reason).toBe("destroy");
     const r = roofReducer(s, { type: "tick", nowMs: 1000 });
-    expect(r.aiming).toBe(true);
-    // The aim needs the rival fields, so the close-up does not come back after the lock.
-    expect(r.mode).toBe("overview");
-    expect(r.pose).toEqual(ROOF_PRESETS.overview);
+    expect(r).toMatchObject({ aiming: true, mode: "focus", focusSeat: focus.focusSeat });
   });
 
-  it("an aim under a lock keeps the overview, and an aim that ends changes nothing more", () => {
+  it("an aim under a lock, and an aim that ends, change nothing about the close-up that comes back", () => {
     const s = run(focus, { type: "lock", reason: "chain", nowMs: 0, ms: 1000 }, { type: "aiming", on: true }, { type: "aiming", on: false });
     const r = roofReducer(s, { type: "tick", nowMs: 1000 });
-    expect(r.mode).toBe("overview");
-    expect(r.aiming).toBe(false);
+    expect(r).toMatchObject({ mode: "focus", focusSeat: focus.focusSeat, aiming: false });
   });
 
   it("starts a locked state from a preview lock", () => {
@@ -508,45 +504,18 @@ describe("overview camera (default, focus, back)", () => {
     expect(run(focused, { type: "focus", seat: 1 })).toBe(focused);
   });
 
-  it("an aim leaves a close-up for the overview, so every rival is in view", () => {
+  it("an aim never moves the camera: it only sets the flag, in a close-up and in the overview", () => {
     const focused = run(overview, { type: "focus", seat: 0 });
     const aimed = run(focused, { type: "aiming", on: true });
-    expect(aimed).toMatchObject({ mode: "overview", aiming: true });
-    expect(aimed.pose).toEqual(ROOF_PRESETS.overview);
-    // The overview stays when the aim ends: the camera never jumps back to the field on its own.
-    expect(run(aimed, { type: "aiming", on: false }).mode).toBe("overview");
-    // Already in the overview: the aim only sets the flag.
+    expect(aimed).toMatchObject({ mode: "focus", focusSeat: 0, aiming: true, rev: focused.rev });
+    expect(aimed.pose).toEqual(focused.pose);
+    expect(run(aimed, { type: "aiming", on: false })).toMatchObject({ mode: "focus", focusSeat: 0, aiming: false });
     expect(run(overview, { type: "aiming", on: true })).toMatchObject({ mode: "overview", aiming: true, rev: overview.rev });
   });
 
-  it("a prompt that needs another field takes a close-up back to the overview", () => {
-    const focused = run(overview, { type: "focus", seat: 1 });
-    expect(run(focused, { type: "needSeats", seats: [3] })).toMatchObject({ mode: "overview", focusSeat: null });
-    expect(run(focused, { type: "needSeats", seats: [1, 3] }).mode).toBe("overview");
-  });
-
-  it("a prompt that needs only the focused field, or none, keeps the close-up", () => {
-    const focused = run(overview, { type: "focus", seat: 1 });
-    expect(run(focused, { type: "needSeats", seats: [1] })).toBe(focused);
-    expect(run(focused, { type: "needSeats", seats: [] })).toBe(focused);
-    expect(run(overview, { type: "needSeats", seats: [2] })).toBe(overview);
-  });
-
-  it("a prompt need under an FX lock does not move the camera now, but the close-up does not come back after the lock", () => {
-    const locked = run(run(overview, { type: "focus", seat: 1 }), { type: "lock", reason: "chain", nowMs: 0, ms: 1000 });
-    const needed = roofReducer(locked, { type: "needSeats", seats: [2] });
-    expect(needed.rev).toBe(locked.rev);
-    expect(needed.mode).toBe("overview");
-    const after = roofReducer(needed, { type: "tick", nowMs: 1000 });
-    expect(after).toMatchObject({ mode: "overview", focusSeat: null, lock: null });
-    expect(after.pose).toEqual(ROOF_PRESETS.overview);
-  });
-
-  it("a prompt under an FX lock that needs only the focused field brings the close-up back after the lock", () => {
-    const locked = run(run(overview, { type: "focus", seat: 1 }), { type: "lock", reason: "chain", nowMs: 0, ms: 1000 });
-    const same = roofReducer(locked, { type: "needSeats", seats: [1] });
-    expect(same).toBe(locked);
-    expect(roofReducer(same, { type: "tick", nowMs: 1000 })).toMatchObject({ mode: "focus", focusSeat: 1 });
+  it("a close-up can step to another field while an aim is open", () => {
+    const aimed = run(overview, { type: "focus", seat: 0 }, { type: "aiming", on: true });
+    expect(run(aimed, { type: "focus", seat: 3 })).toMatchObject({ mode: "focus", focusSeat: 3, aiming: true });
   });
 });
 

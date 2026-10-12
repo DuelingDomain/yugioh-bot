@@ -5,7 +5,7 @@ import { seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
 import { ChainRoomContext, type ChainStripSize } from "../table/chain-room";
 import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
-import { zoneKey } from "../constants";
+import { LOCATION_HAND, zoneKey } from "../constants";
 import { masterInUse, masterSummonLine } from "../master-place";
 import { isChainStripPrompt } from "../prompt-center";
 import { useStripRoom } from "../table/use-strip-room";
@@ -489,10 +489,10 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         .map(({ seat, code, rgb }) => ({ seat, code, rgb })),
     [layout.slots, slotsOf, toneOf],
   );
-  // A close-up needs a free camera: not under an FX lock, and not while an attack is aimed (the aim wants every rival).
+  // A close-up needs a free camera: not under an FX lock. An aim or a pick leaves it free: the viewer steps to a rival field with its pill.
   // A click on a field never moves the camera on a wide screen (a misclick would zoom): the nameplate pills, the rail, the dock and the
   // keys do. A phone also focuses a field on a tap on the field, its name or a plate chip.
-  const focusFree = !camera.lock && !camera.aiming && controller.aim == null;
+  const focusFree = !camera.lock;
   const focusField = (seat: number) => {
     if (!focusFree) return;
     // In close-up a tap on a field never moves the camera, not on the field in view and not on a neighbour that
@@ -502,6 +502,19 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   };
   // A nameplate pill is the zoom toggle: it zooms onto its field, a second press on the same pill zooms out, and a press on
   // another pill steps to that field. Only a press does it; the camera never zooms by itself.
+  // While a field is in close-up and a target pick or an attack aim has legal zones on a field out of view, that field's pill gets a
+  // soft hint (the camera never moves for it: the viewer presses the pill). The action menu and chain windows are not picks.
+  const hintSeats = useMemo(() => {
+    if (camera.mode !== "focus" || !controller.canAct) return [];
+    const pickMine = prompt != null && promptSeat === viewerSeat && !(prompt.kind === "choice" && (prompt.context?.type === "action" || prompt.context?.type === "chain"));
+    if (!pickMine && !camera.aiming && controller.aim == null) return [];
+    const seats = new Set<number>();
+    for (const key of legalKeys) {
+      const [controllerSeat, location] = key.split(":").map(Number);
+      if (Number.isInteger(controllerSeat) && location !== LOCATION_HAND && controllerSeat !== camera.focusSeat) seats.add(controllerSeat);
+    }
+    return [...seats];
+  }, [camera.mode, camera.focusSeat, camera.aiming, controller.canAct, controller.aim, prompt, promptSeat, viewerSeat, legalKeys]);
   const toggleZoom = (seat: number) => {
     if (!focusFree) return;
     if (camera.mode === "focus" && camera.focusSeat === seat) dispatchCamera({ type: "overview" });
@@ -714,7 +727,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
               rgbOf={(seat) => toneOf(seat).rgb}
               out={outSeats}
               holderRef={(node) => { pillsRef.current = node; }}
-              zoom={{ seat: camera.mode === "focus" ? camera.focusSeat : null, free: focusFree, onToggle: toggleZoom, pickSeats, onPick }}
+              zoom={{ seat: camera.mode === "focus" ? camera.focusSeat : null, free: focusFree, onToggle: toggleZoom, pickSeats, hintSeats, calm: reducedMotion, onPick }}
             />
             <TeamStrip near glyph={teamGlyph(anchorTeam, anchorTeam)} teamName={teamName(anchorTeam)} out={loss.lostTeam === anchorTeam} />
             <TeamStrip near={false} glyph={teamGlyph(anchorTeam, 1 - anchorTeam)} teamName={teamName(1 - anchorTeam)} out={loss.lostTeam === 1 - anchorTeam} />
@@ -791,6 +804,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
             seats={railSeats}
             nameOf={nameOf}
             out={outSeats}
+            hintSeats={hintSeats}
+            calm={reducedMotion}
             dispatch={dispatchCamera}
           />
         ) : null}

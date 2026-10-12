@@ -161,11 +161,15 @@ export interface BatonProps {
 export interface BatonZoom {
   /** The seat in close-up, or null in any other view. */
   seat: number | null;
-  /** The camera is free to move; when it is not (an FX lock, an aim) a pill does nothing, unless it is a pick. */
+  /** The camera is free to move; when it is not (an FX lock) a pill does nothing, unless it is a pick. */
   free: boolean;
   onToggle: (seat: number) => void;
   /** Seats the open prompt lets the viewer choose: the prompt wins over the zoom on these pills. */
   pickSeats?: readonly number[];
+  /** Seats that hold targets for the open prompt or aim while their field is out of view: the pill gets a soft hint, the camera stays. */
+  hintSeats?: readonly number[];
+  /** Reduced motion: the hint stays still. */
+  calm?: boolean;
   onPick?: (seat: number) => void;
 }
 
@@ -218,7 +222,8 @@ export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef, zoom }
           const picks = zoom.pickSeats?.includes(seat) ?? false;
           const zoomed = zoom.seat === seat;
           const name = nameOf(seat);
-          const label = picks ? `Choose ${name}` : zoomed ? "Zoom out" : `Zoom in on ${name}'s field`;
+          const hint = !picks && !zoomed && (zoom.hintSeats?.includes(seat) ?? false);
+          const label = picks ? `Choose ${name}` : zoomed ? "Zoom out" : hint ? `Zoom in on ${name}'s field, it has targets` : `Zoom in on ${name}'s field`;
           return (
             <button
               key={seat}
@@ -230,6 +235,7 @@ export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef, zoom }
               data-out={isOut ? "true" : undefined}
               data-zoomed={zoomed ? "true" : undefined}
               data-pick={picks ? "true" : undefined}
+              data-targets={hint ? "true" : undefined}
               aria-pressed={picks ? undefined : zoomed}
               aria-label={label}
               title={picks ? label : zoomed ? "Zoom out (Esc)" : label}
@@ -238,6 +244,7 @@ export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef, zoom }
               onClick={() => (picks ? zoom.onPick?.(seat) : zoom.onToggle(seat))}
             >
               {body}
+              {hint ? <i className={styles.bhint} data-targets-hint data-calm={zoom.calm ? "true" : undefined} aria-hidden="true" /> : null}
             </button>
           );
         })}

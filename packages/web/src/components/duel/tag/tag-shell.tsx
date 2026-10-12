@@ -4,7 +4,7 @@ import { multiTableTextStyle, tableTextBig, useCardTextSize, useMultiTableTextFl
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { teamOfSeat } from "@yugidraft/shared/duels";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
-import { isBattlePhase, LOCATION_HAND } from "../constants";
+import { isBattlePhase } from "../constants";
 import { DuelResultScreen } from "../duel-result";
 import { SeatField } from "../field";
 import { MoveSourceBoundary } from "../fx-boundary";
@@ -16,7 +16,7 @@ import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { fieldWaitsForReveal } from "../field-gate";
 import { PhaseHub } from "../phase-hub";
-import { optionZoneKeys, PromptTray, promptTrayVisible } from "../prompts";
+import { PromptTray, promptTrayVisible } from "../prompts";
 import { useResultGate } from "../result-reveal";
 import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
@@ -254,7 +254,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
   }, [engine.events, fxActive, replay, fork, controller.reducedMotion, viewerSeat]);
 
-  // An aim holds the camera where it is: a close-up goes back to the overview, and no click zooms in until the aim ends.
+  // An aim never moves the camera either (the flag only keeps a tap on a field from zooming): the pills can still step to a rival field.
   useEffect(() => {
     dispatchCamera({ type: "aiming", on: flow.aiming });
   }, [flow.aiming]);
@@ -262,29 +262,8 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
   const centeredUnrevealed = centered && !controller.revealed;
-  // A prompt that picks zones on other fields than the focused one takes the camera back to the overview, so every
-  // target stays in view and clickable. The prompt id keys it: a new prompt checks again, a click on a field does not.
-  // The plain action menu (play a card, change phase) is not a pick: the hand is always in reach, and the rail can step
-  // to the field that holds the card. This is the one prompt move left, and it only goes out (to see every target); the
-  // camera does not come back by itself.
-  // A chain response window is no pick either: its options are cards to activate, and it never changes the close-up.
-  const pickPrompt = promptMine && !(prompt?.kind === "choice" && (prompt.context?.type === "action" || prompt.context?.type === "chain"));
-  const promptId = pickPrompt ? prompt?.id ?? null : null;
-  const promptSeats = useMemo(() => {
-    if (!pickPrompt || !prompt) return [];
-    // A hand card is not on any field (the hand dock is always in reach): only board zones count.
-    return [
-      ...new Set(
-        prompt.options
-          .filter((option) => option.controller != null && option.location !== LOCATION_HAND && optionZoneKeys(option).length > 0)
-          .map((option) => option.controller as number),
-      ),
-    ];
-  }, [pickPrompt, prompt]);
-  useEffect(() => {
-    if (promptId != null && promptSeats.length > 0) dispatchCamera({ type: "needSeats", seats: promptSeats });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promptId]);
+  // No prompt moves the camera: a close-up stays through a target pick too. A field with targets that is out of view gets a hint on
+  // its nameplate pill (tag-stage.tsx); the viewer presses the pill to look at it.
   const gates = gridKeyGates({ prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudOpen });
   useRoofKeys({
     mode: camera.mode,
