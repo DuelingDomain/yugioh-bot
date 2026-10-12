@@ -60,6 +60,13 @@
 .link { color: #bca1e7; text-decoration: underline; }
 .state { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px; font-size: 14px; }
 .state p[role="alert"] { color: #ffb2b9; }
+.state:focus { outline: none; }
+.stateButton {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px;
+  border: 1px solid #a9772a; border-radius: 6px; background: #2a1d0a; color: #f3d28f; font-size: 14px; cursor: pointer;
+}
+.stateButton:hover { border-color: #e8b34f; background: #3a2810; }
+.stateButton:focus-visible { outline: 2px solid #c4a35a; outline-offset: 2px; }
 .stateLinks { display: flex; flex-wrap: wrap; gap: 16px; }
 /* Every log line carries data-kind (log-line.tsx), and room.module.css tints some kinds at specificity 0,2,1
    (.log li[data-kind="chain"]); the doubled class keeps the new-line light on top of those. */

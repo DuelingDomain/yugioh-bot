@@ -34,6 +34,35 @@ it("keeps the v1 normal request and forwards v2 visibility with trusted identity
   expect((await get(false, "version=2&visibility=public")).status).toBe(200);
   expect(payload()).toMatchObject({ op: "replay", version: 2, visibility: "public" });
 });
+it.each([false, true])("forwards unchecked=1 for an owner (admin route=%s)", async admin => {
+  signIn(101);
+  expect((await get(admin, "version=2&unchecked=1")).status).toBe(200);
+  expect(payload()).toMatchObject({ unchecked: true, userId: "101" });
+});
+it("rejects a member's unchecked request before the host call", async () => {
+  expect((await get(false, "unchecked=1")).status).toBe(403);
+  expect(state.fetch).not.toHaveBeenCalled();
+});
+it("returns 403 for a member's unchecked request on the admin replay route", async () => {
+  expect((await get(true, "unchecked=1")).status).toBe(403); expect(state.fetch).not.toHaveBeenCalled();
+});
+it.each(["unchecked=0", "unchecked=true", "unchecked=", "unchecked=1&unchecked=1"])("rejects invalid unchecked query %s", async query => {
+  signIn(101); expect((await get(false, query)).status).toBe(400); expect(state.fetch).not.toHaveBeenCalled();
+});
+it.each([false, true])("preserves the complete unverified error contract (owner=%s)", async admin => {
+  if (admin) signIn(101);
+  const body = { error: "Replay could not be verified", code: "REPLAY_UNVERIFIED", finalBoard: "available",
+    canOpenUnchecked: admin, reason: "board_mismatch" };
+  state.fetch.mockResolvedValue(Response.json(body, { status: 409 }));
+  const response = await get(admin, "version=2"); expect(response.status).toBe(409);
+  expect(await response.json()).toEqual(body);
+});
+it("fails closed if unchecked owner access is revoked during the host wait", async () => {
+  signIn(101); state.fetch.mockImplementation(async () => {
+    vi.stubEnv("OWNER_USER_IDS", ""); return Response.json({ verification: "unverified", frames: [] });
+  });
+  expect((await get(false, "unchecked=1")).status).toBe(403);
+});
 it.each([200, 409])("decodes stored boards only for the saved-board fallback (host status %s)", async status => {
   signIn(201);
   const board = JSON.stringify({ turn: 8, seats: [], log: [] });

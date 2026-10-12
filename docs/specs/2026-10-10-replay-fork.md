@@ -5,7 +5,7 @@ Local port note: this branch keeps NextAuth Discord sessions and the local sandb
 Coordinator decisions
 
 1. Jump-in points use stable engine checkpoints only. No mid-animation stops.
-2. Old games use current resources only. Record EngineIdentity for new games (B5 identity only). No archive retention in this release. A resource mismatch returns ENGINE_UNAVAILABLE_FOR_SOURCE; show the saved final board with a clear reason.
+2. Old games use current resources from their original engine family. Record EngineIdentity for new games. No archive retention in this release. For a version or identity difference, rebuild the journal and compare the saved final public board and every own-seat board. A pass permits replay and fork use. A failed check returns REPLAY_UNVERIFIED. Only the owner can request unchecked use. Section 7.6 defines this contract.
 3. In a fork, Reveal hands and Follow prompt are ON by default, with a Follow prompt toggle. Apply “Ask at all response windows” to all living seats by default after jump-in, as journaled commands after the prefix. Never change the prefix.
 4. No journal file import in this release. Fork database duels by slug.
 
@@ -468,6 +468,46 @@ All failures preserve the source status, result, journal and series. Show the sa
 ### 7.6 Implemented API contracts and limits
 
 The contracts in this section record the implemented behavior and take precedence over the earlier proposals.
+
+**Cross-version replay verification (11 October 2026):** All successful replay GET and host POST responses, including v1, add `verification: "exact" | "verified" | "unverified"`. `exact` requires the recorded version and a matching recorded identity. A null identity requires the final board check, even when the bundle label matches. That path retains its existing journal checks. `verified` uses current resources after the final board check passes. `unverified` means explicit owner unchecked use. A web saved-board fallback also has `verification: "unverified"`; it has no playable checkpoints.
+
+Select the source's saved engine family: legacy 1v1, pinned 1v1, multi Normal, or the matching Domain core. A resource version or identity difference alone does not refuse replay. Missing installed resources still return `ENGINE_UNAVAILABLE_FOR_SOURCE`. Keep the saved seed, decks, setup and commands. Keep the per-command revision, prompt and accepted-command checks. Unknown draw rules and retired loss rules retain their existing guards.
+
+The final check runs inside the existing replay build, before the builder appends any saved result frame. Decode snapshots with the storage codec. Compare the public view and every original seat's own view on the server. Use `sameReplayBoard` as the single comparator. Its canonical projection includes:
+
+- Format, turn, turn seat, phase, battle step and elimination order.
+- Each seat's LP, team, shared Extra Monster Zones, loss flags and disabled zones.
+- Hand, Extra Deck, Monster, Spell/Trap, GY and banished arrays in their stored order; empty zone slots; Deck and Extra Deck counts.
+- Card code, controller, location, sequence, position (which includes face), counters, materials, equip target, and stored game stats: ATK, DEF, Level, Rank, type, attribute, race and Link values.
+- Deck Master code, zone status, return count and return cost.
+- Result presence, winning seat/team and result reason. Normalize `Surrendered` to `Surrender`.
+- Chain order, source code/seat/zone, targets and selected option indices.
+
+Ignore logs, events, revision, timestamps, clock, prompts, response mode, animation IDs, artwork aliases and printed text. Before comparison, require any engine result to have the session winner seat and, for Tag, winner team. Then use the host finalization: derive the result and reason from the session, include winnerTeam only for Tag, and clear pendingElimination. This also handles the engine text "Time limit up" and the host text "Time limit". Do not copy saved board state into the rebuilt board. Final equality and the command checks do not prove that every intermediate board is identical to its historical board.
+
+Store each outcome in `duel_replay_verifications`, keyed by `(duel_id, bundle_version)` for the current effective bundle. Store result, reason, check time, source version, decoded board content stamp and resource identity stamp. Keep the original duel's bundle version and identity unchanged. A matching stored pass skips another final check; the normal frame cache can serve the replay. A matching failure prevents another checked rebuild, including after host restart. A new current version, changed source, changed decoded boards or changed runtime identity requires a new check. Gzip compression, JSON key order and removal of duplicate legacy seat columns preserve the content stamp and require no new check. The foreign key removes records when their duel is deleted.
+
+For a board difference, command mismatch or missing complete saved board set, return HTTP 409 with exactly these fields:
+
+```ts
+{
+  error: string;
+  code: "REPLAY_UNVERIFIED";
+  finalBoard: "available" | "none";
+  canOpenUnchecked: boolean;
+  reason: "board_mismatch" | "command_mismatch" | "no_saved_board";
+}
+```
+
+`finalBoard` retains the selected viewer's saved-board availability. If no saved board exists, it is `none` with reason `no_saved_board`. A missing own-seat snapshot also prevents verification even if the selected public snapshot is available. Resolve `canOpenUnchecked` from the current stored player/user mapping and `isOwnerUser` / `OWNER_USER_IDS`. A command mismatch always sets canOpenUnchecked to false, because an unchecked run has the same command failure. Empty or invalid owner lists grant no access. No saved seat view or difference detail enters this error.
+
+Both web replay GET routes accept only `unchecked=1` for unchecked use. The signed host replay POST accepts `unchecked: true`. A non-owner unchecked request returns HTTP 403 with `ACCESS_DENIED`. For an exact source, ignore unchecked and retain the exact response, saved final frame and cache key. For a cross-version source, an authorized unchecked rebuild returns frames with `verification: "unverified"` and uses a separate cache entry. It still must pass the command checks. Recheck access after the build and on cached requests.
+
+The fork start body accepts optional boolean `unchecked`. A cross-version checked source must pass the complete replay verification before a prefix can launch. Authorization is required for every launch. A stored verified source can launch without another complete rebuild. If the first fork request must run a full check, a successful check returns HTTP 503 with REPLAY_VERIFIED_RETRY and the message "Replay source is verified. Retry Jump in to start the fork." It writes no fork row. Retry the same request to launch with the stored pass. This keeps the 25-second check and the prefix build in separate requests, each within the 28-second request deadline. A failed or missing-board source requires explicit owner `unchecked: true`. Pass the same selected resources through verification and detached prefix creation. The worker checks that identity again before creation. The new fork records the current bundle, identity, resolved first-turn draw rule and resolved script-error policy. Its immutable origin still refers to the original source version, and its copied journal prefix is unchanged. Fork restart and recovery retain the strict stored resource guard. Retain G1–G21, cursor binding, retries, creator checks, quotas and the `duel-rules-2` manual fingerprint guard. Refresh the fingerprint baseline for resource authorization and returned creation-rule metadata only; engine command application and Manual loss timing are unchanged.
+
+Old dev or staging 1v1 rows with no setup.engine and no identity use the legacy fallback, even if they were made on an early merged-core branch. These rows can fail with board_mismatch. The failure is closed; an owner can use unchecked if command checks pass. Do not infer the old core from dates or rewrite the source. See docs/deployment/duel-engine-switch.md.
+
+Verification uses the view's existing detached rebuild, build sharing and frame cache. The two-builder limit, 25-second build deadline and all size/queue limits remain in effect. Private seat comparisons never change the client projection.
 
 **Active fork recovery:** `GET /api/admin/duels/forks` calls the signed host operation `fork-list`. Success is HTTP 200 with this JSON shape:
 

@@ -7,12 +7,13 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelReplayV2 } from "@yugidraft/shared/duels";
+import { EngineResourceCache } from "../src/engine-resource-cache.js";
+import { EngineResourceUnavailableError } from "../src/engine-resource-resolver.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createReplayCursorCodec } from "../src/replay-cursor.js";
-import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import * as replayJson from "../src/replay-json.js";
 import { seedIdentity } from "./helpers/identity.js";
-import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
+import { ReplayWorker, replaySource, replayFixtureResources } from "./support/replay-fixtures.js";
 
 const resourceRead = vi.hoisted(() => vi.fn());
 vi.mock("../src/engine-resource-resolver.js", async original => ({
@@ -30,7 +31,9 @@ beforeEach(() => {
   db = new Database(":memory:"); migrate(db);
   dir = mkdtempSync(join(tmpdir(), "host-replay-"));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "test-bundle" }));
-  resourceRead.mockReset().mockReturnValue({ dataDirectory: dir, bundleVersion: "test-bundle" });
+  vi.spyOn(EngineResourceCache.prototype, "get").mockImplementation(async (_directory, options) =>
+    replayFixtureResources(dir, options.format, options.mode));
+  resourceRead.mockReset().mockImplementation((_directory, _source, current) => current);
   for (const [playerId, userId] of [[61, "101"], [62, "102"], [63, "103"], [64, "201"], [65, "202"]] as const) {
     seedIdentity(db, { guildId: owner.guildId, playerId, userId });
   }
@@ -40,14 +43,14 @@ beforeEach(() => {
   const source = replaySource();
   db.prepare("update duel_seats set deck_json = ?, ready = 1 where duel_id = ?").run(JSON.stringify(source.decks[0]), session.id);
   db.prepare("update duels set status = 'interrupted', seed_json = ?, bundle_version = ?, setup_json = ?, ended_at = datetime('now'), result_reason = 'Interrupted' where id = ?")
-    .run(JSON.stringify(source.seed), source.bundleVersion, JSON.stringify(source.setup), session.id);
+    .run(JSON.stringify(source.seed), source.bundleVersion, JSON.stringify({ ...source.setup, engineIdentity: replayFixtureResources(dir).identity }), session.id);
   for (const entry of source.commands) db.prepare("insert into duel_commands(duel_id, seq, seat, command_json) values(?,?,?,?)")
     .run(session.id, entry.storedSeq, entry.seat, JSON.stringify(entry.command));
   workers = []; onChange = vi.fn(); beforeCreate = () => {}; configureWorker = () => {};
   host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000, onChange,
     createWorker: () => { beforeCreate(); const worker = new ReplayWorker(); configureWorker(worker); workers.push(worker); return worker; } });
 });
-afterEach(async () => { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs(); });
+afterEach(async () => { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 async function post(input: Record<string, unknown>, signed = true) {
   const raw = JSON.stringify({ op: "replay", slug, guildId: owner.guildId, playerId: 64, ...input });
   const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
@@ -77,14 +80,25 @@ it.each(["seat", "reveal", "as"])("rejects normal %s overrides even for an owner
   const result = await post({ playerId: owner.playerId, version: 2, [field]: 0 });
   expect(result.response.status).toBe(field === "seat" ? 400 : 409); expect(workers).toHaveLength(0);
 });
-it("keeps a creator's sandbox replay readable without fork capability or cursors", async () => {
+it("verifies a creator's sandbox replay with null identity without fork capability or cursors", async () => {
   const source = replaySource();
   db.prepare("update duels set sandbox = 1, setup_json = ? where web_slug = ?")
     .run(JSON.stringify({ ...source.setup, sandbox: { board: {}, run: { bots: { "1": "pass", "2": "pass", "3": "pass" } } } }), slug);
+  // Local sandbox setup has no recorded identity. Verify the saved projections on today's package.
+  const savedWorker = new ReplayWorker();
+  await savedWorker.create({ mode: "normal", decks: source.decks, seed: source.seed, dataDirectory: dir });
+  savedWorker.revision = 3;
+  savedWorker.modes[1] = "off";
+  db.prepare("update duels set status = 'active' where web_slug = ?").run(slug);
+  createDuelService(db).complete(slug, owner.guildId, 0, "Finished", {
+    public: await savedWorker.view(null), seats: [await savedWorker.view(0), await savedWorker.view(1)],
+  });
+  await savedWorker.close();
   vi.stubEnv("OWNER_USER_IDS", "201");
   const before = rows();
   const result = await post({ version: 2, playerId: 64, userId: "201" });
   expect(result.response.status).toBe(200);
+  expect(result.body.verification).toBe("verified");
   expect(result.body.capabilities?.canFork).toBe(false);
   expect(result.body.frames.length).toBeGreaterThan(0);
   expect(result.body.frames.every(frame => frame.cursor === null)).toBe(true);
@@ -226,7 +240,7 @@ it("guards a known fork slug for both normal and privileged replay reads", async
 it("reports a saved final board on resource failure and on an unplayable source", async () => {
   const viewWorker = new ReplayWorker(); await viewWorker.create({ mode: "normal", decks: replaySource().decks, seed: replaySource().seed, dataDirectory: dir });
   db.prepare("update duels set snapshot_public_json = ? where web_slug = ?").run(JSON.stringify(await viewWorker.view(null)), slug);
-  db.prepare("update duels set bundle_version = ? where web_slug = ?").run("old-bundle", slug);
+  vi.mocked(EngineResourceCache.prototype.get).mockRejectedValueOnce(new EngineResourceUnavailableError("source core is missing"));
   const unavailable = await post({ version: 2, visibility: "public" });
   expect(unavailable.body).toMatchObject({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE", finalBoard: "available" });
   db.prepare("update duels set status = 'active' where web_slug = ?").run(slug);
@@ -235,7 +249,7 @@ it("reports a saved final board on resource failure and on an unplayable source"
 });
 it("returns typed resource/mismatch errors and final board availability without source writes", async () => {
   const before = rows();
-  db.prepare("update duels set bundle_version = ? where web_slug = ?").run("old-bundle", slug);
+  vi.mocked(EngineResourceCache.prototype.get).mockRejectedValueOnce(new EngineResourceUnavailableError("source core is missing"));
   const unavailable = await post({ version: 2 }); expect(unavailable.response.status).toBe(409);
   expect(unavailable.body).toMatchObject({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE", finalBoard: "none" });
   db.prepare("update duels set bundle_version = ? where web_slug = ?").run("test-bundle", slug);
@@ -265,7 +279,7 @@ it("serves four different concurrent replays with at most two workers", async ()
     duels.takeSeat(session.slug, owner.guildId, 65, 1); slugs.push(session.slug);
     db.prepare("update duel_seats set deck_json = ?, ready = 1 where duel_id = ?").run(JSON.stringify(fixture.decks[0]), session.id);
     db.prepare("update duels set status = 'interrupted', seed_json = ?, bundle_version = ?, setup_json = ? where id = ?")
-      .run(JSON.stringify(fixture.seed), fixture.bundleVersion, JSON.stringify(fixture.setup), session.id);
+      .run(JSON.stringify(fixture.seed), fixture.bundleVersion, JSON.stringify({ ...fixture.setup, engineIdentity: replayFixtureResources(dir).identity }), session.id);
     for (const input of fixture.commands) db.prepare("insert into duel_commands(duel_id,seq,seat,command_json) values(?,?,?,?)")
       .run(session.id, input.storedSeq, input.seat, JSON.stringify(input.command));
   }
@@ -376,7 +390,9 @@ it.each(["ffa3", "ffa4", "tag"] as const)("reads gzip deduped %s host result and
   const { gzipSync } = await import("node:zlib");
   const source = replaySource(format), duels = createDuelService(db);
   const session = duels.get(slug, owner.guildId);
-  db.prepare("update duels set format=?,bundle_version=? where id=?").run(format, pinnedEngineVersion("test-bundle", source.decks.length, activeMultiScriptsHash(dir)), session.id);
+  db.prepare("update duels set format=?,bundle_version=?,setup_json=? where id=?")
+    .run(format, replayFixtureResources(dir, format).bundleVersion,
+      JSON.stringify({ ...source.setup, engineIdentity: replayFixtureResources(dir, format).identity }), session.id);
   for (let seat = 2; seat < source.decks.length; seat++) db.prepare("insert into duel_seats(duel_id,seat,player_id,deck_json,ready) values(?,?,?,?,1)")
     .run(session.id, seat, seat === 2 ? 63 : 62, JSON.stringify(source.decks[seat]));
   const finalWorker = new ReplayWorker(); await finalWorker.create({ mode: "normal", format, decks: source.decks, seed: source.seed, dataDirectory: dir });

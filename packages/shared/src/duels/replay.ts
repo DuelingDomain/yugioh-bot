@@ -2,6 +2,8 @@ import type { DuelSetup } from "../services/duels.js";
 import type { DuelActorRole, DuelCommand, DuelDeck, DuelEngineView, DuelMode, DuelSession } from "./index.js";
 
 export type ReplayVisibility = "public" | "mine";
+export type ReplayVerification = "exact" | "verified" | "unverified";
+export type ReplayUnverifiedReason = "board_mismatch" | "command_mismatch" | "no_saved_board";
 
 /**
  * A sealed checkpoint token or server lookup ID. Never encode a readable journal
@@ -43,6 +45,7 @@ export interface ReplayOwnerCapabilities {
 }
 
 export interface DuelReplayV2 {
+  verification: ReplayVerification;
   version: 2;
   sourceVersion: string;
   /** Echo the requested public/mine view; include in request and cache generation keys. */
@@ -162,6 +165,8 @@ export const REPLAY_ERROR_CODES = [
   "REQUEST_CONFLICT",
   "ENGINE_UNAVAILABLE_FOR_SOURCE",
   "REPLAY_MISMATCH",
+  "REPLAY_UNVERIFIED",
+  "REPLAY_VERIFIED_RETRY",
   "NOT_PLAYABLE",
   "FORK_LIMIT",
   "ENGINE_BUSY",
@@ -177,6 +182,8 @@ export const REPLAY_ERROR_HTTP_STATUSES = {
   REQUEST_CONFLICT: [409],
   ENGINE_UNAVAILABLE_FOR_SOURCE: [409],
   REPLAY_MISMATCH: [409],
+  REPLAY_UNVERIFIED: [409],
+  REPLAY_VERIFIED_RETRY: [503],
   NOT_PLAYABLE: [409],
   FORK_LIMIT: [429],
   ENGINE_BUSY: [503],
@@ -187,6 +194,8 @@ export interface ReplayErrorResponse {
   error: string;
   /** B2 sets this for ENGINE_UNAVAILABLE_FOR_SOURCE, REPLAY_MISMATCH and NOT_PLAYABLE after access checks. */
   finalBoard?: "available" | "none";
+  canOpenUnchecked?: boolean;
+  reason?: ReplayUnverifiedReason;
 }
 
 export function isReplayErrorCode(value: unknown): value is ReplayErrorCode {

@@ -16,9 +16,15 @@ import {
   type ReplayFrameV2,
   type ReplayForkStep,
   type ReplayOwnerCapabilities,
+  type ReplayVerification,
   type ReplayVisibility,
 } from "@yugidraft/shared/duels";
-import { DuelRequestError, getDuelReplayFrames, getOwnerReplayFrames, isDuelAccessError } from "./api";
+import {
+  DuelRequestError,
+  getDuelReplayFrames,
+  getOwnerReplayFrames,
+  isDuelAccessError,
+} from "./api";
 import { useCoinPlaying } from "./coin-toss-lock";
 import { seatTeamLabel } from "./table-format";
 import type { PromptDraft, TableController } from "./table/types";
@@ -47,6 +53,13 @@ export interface ReplayModel {
   /** The card visibility the frames really have. */
   visibility: ReplayVisibility;
   sourceVersion: string | null;
+  /** How the server checked the replay. An answer without the field (an older server, or a v1 answer) is "exact". */
+  verification: ReplayVerification;
+  /**
+   * The answer is the saved final board, not a move replay (the web fallback for a replay that is too large or cannot run:
+   * one frame, no cursor, and a `replayError`). It also says "unverified", but that is not a warning about moves.
+   */
+  savedBoard: boolean;
   session: DuelSession;
   role: DuelActorRole;
   /** The viewer's real seat. The camera never changes it. */
@@ -63,12 +76,27 @@ export interface ReplayRequestView {
   visibility: ReplayVisibility;
   seat: number | null;
   reveal: boolean;
+  /** The owner opened a replay that could not be checked. It is part of the request: a checked answer must not stand in for it. */
+  unchecked?: boolean;
 }
 
 export const ORDINARY_VIEW: ReplayRequestView = { visibility: "mine", seat: null, reveal: false };
 
 export function replayRequestKey(view: ReplayRequestView, owner: boolean): string {
-  return owner ? `owner:${view.visibility}:${view.seat ?? "-"}:${view.reveal ? 1 : 0}` : view.visibility;
+  const base = owner ? `owner:${view.visibility}:${view.seat ?? "-"}:${view.reveal ? 1 : 0}` : view.visibility;
+  return view.unchecked ? `${base}:unchecked` : base;
+}
+
+const VERIFICATIONS: readonly string[] = ["exact", "verified", "unverified"];
+
+/** A missing or unknown value is "exact": that is what every answer meant before the field existed. */
+function verificationOf(raw: unknown): ReplayVerification {
+  return typeof raw === "string" && VERIFICATIONS.includes(raw) ? raw as ReplayVerification : "exact";
+}
+
+/** The saved-board fallback is the only answer with a `replayError`. It has one result frame and no playable cursor. */
+function isSavedBoard(raw: unknown): boolean {
+  return isRecord(raw) && raw.replayError != null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,6 +137,8 @@ export function normalizeReplay(
       requestedView,
       visibility: raw.visibility === "public" ? "public" : "mine",
       sourceVersion: raw.sourceVersion,
+      verification: verificationOf(raw.verification),
+      savedBoard: isSavedBoard(raw),
       session: raw.session,
       role: raw.role,
       // An owner who asked for one seat's cards views the table as that seat: the camera and hand follow it.
@@ -143,6 +173,8 @@ export function normalizeReplay(
     requestedView,
     visibility: "mine",
     sourceVersion: null,
+    verification: verificationOf(legacy.verification),
+    savedBoard: isSavedBoard(legacy),
     session: legacy.session,
     role: legacy.role,
     mySeat: legacy.mySeat,
@@ -159,6 +191,10 @@ export interface ReplayFailure {
   message: string;
   /** Offer the saved final board. False only when the server says it has none. */
   finalBoard: boolean;
+  /** The server says there is no saved final board: the page must say so, not leave a bare error. */
+  noFinalBoard: boolean;
+  /** The owner may open this replay without the check (REPLAY_UNVERIFIED only). */
+  canOpenUnchecked: boolean;
 }
 
 const FAILURE_COPY: Record<string, string> = {
@@ -175,18 +211,66 @@ const FAILURE_COPY: Record<string, string> = {
   ACCESS_UNAVAILABLE: "Access to this duel cannot be checked right now. Try again in a moment.",
 };
 
-export function replayFailure(error: unknown, fallback = "Could not load this replay."): ReplayFailure {
+/** REPLAY_UNVERIFIED: the copy follows the reason. A missing reason is the mismatch copy. */
+export const UNVERIFIED_COPY = {
+  mismatch: "This replay no longer matches the saved duel, because card data changed after it was played.",
+  noBoard: "This duel has no saved final board, so its replay cannot be checked.",
+  /** no_saved_board while the viewer's own final board exists: another seat's saved board is missing. */
+  partialBoard: "This replay cannot be checked, because part of the saved final board is missing.",
+  /** The owner already asked for the unchecked replay, and the moves still cannot run. */
+  uncheckedFailed: "The unchecked replay also failed: the saved moves no longer fit the current card data.",
+} as const;
+
+/** The line under a failure when the server has no final board at all. */
+export const NO_FINAL_BOARD_COPY = "No saved final board for this duel.";
+
+/** What a replay says about itself in its info area. `saved-board` is not a warning: it is not a move replay. */
+export type ReplayCheckNote = ReplayVerification | "saved-board";
+
+export function checkNoteOf(model: Pick<ReplayModel, "verification" | "savedBoard">): ReplayCheckNote {
+  return model.savedBoard ? "saved-board" : model.verification;
+}
+
+/** The note of the saved final board (the one-frame fallback). */
+export const SAVED_BOARD_NOTE_COPY = "Saved final board — this is not a move replay.";
+
+/** The banner of a replay that the owner opened without a check. */
+export const UNCHECKED_BANNER_COPY = "Unchecked replay — this replay was not checked against the saved final board. Moves can be wrong if card data changed.";
+
+/** The link in that banner: the same address without ?unchecked=1. */
+export const BACK_TO_CHECKED_COPY = "Back to checked view";
+
+/** `unchecked`: the failed request was the owner's unchecked one, so a REPLAY_UNVERIFIED says that it also failed. */
+export function replayFailure(error: unknown, fallback = "Could not load this replay.", unchecked = false): ReplayFailure {
   if (error instanceof DuelRequestError) {
-    const typed = error.code ? FAILURE_COPY[error.code] : undefined;
+    const unverified = error.code === "REPLAY_UNVERIFIED";
+    const reason = error.detail?.reason;
+    // no_saved_board: the copy follows finalBoard, so the text never says "no final board" above a Final board link.
+    const noBoardCopy = error.finalBoard === "available" ? UNVERIFIED_COPY.partialBoard : UNVERIFIED_COPY.noBoard;
+    const typed = unverified
+      ? (reason === "no_saved_board" ? noBoardCopy : unchecked ? UNVERIFIED_COPY.uncheckedFailed : UNVERIFIED_COPY.mismatch)
+      : error.code ? FAILURE_COPY[error.code] : undefined;
     const message = typed ?? (error.message || fallback);
     const reasonFinalBoard = error.code === "ENGINE_UNAVAILABLE_FOR_SOURCE" || error.code === "REPLAY_MISMATCH"
       || error.code === "NOT_PLAYABLE";
     // A typed engine failure says "final board is still available" in its copy; honor an explicit "none".
     const none = error.finalBoard === "none";
     const text = reasonFinalBoard && none ? message.replace(/ The saved final board is still available\.$/, "") : message;
-    return { message: text, finalBoard: !none && error.code !== "ACCESS_DENIED" };
+    return {
+      message: text,
+      finalBoard: !none && error.code !== "ACCESS_DENIED",
+      // The no_saved_board message already says it: one message, never two.
+      noFinalBoard: none && !(unverified && reason === "no_saved_board"),
+      // The host refuses a command mismatch even for an unchecked request: the button could never work.
+      canOpenUnchecked: unverified && reason !== "command_mismatch" && error.detail?.canOpenUnchecked === true,
+    };
   }
-  return { message: error instanceof Error && error.message ? error.message : fallback, finalBoard: true };
+  return {
+    message: error instanceof Error && error.message ? error.message : fallback,
+    finalBoard: true,
+    noFinalBoard: false,
+    canOpenUnchecked: false,
+  };
 }
 
 /* ------------------------------------------------------------------------------------------------
@@ -213,6 +297,7 @@ export function useReplayData(
   slug: string,
   visibility: ReplayVisibility,
   owner: { enabled: boolean; seat: number | null; reveal: boolean } | null = null,
+  unchecked = false,
 ): ReplayData {
   const [model, setModel] = useState<ReplayModel | null>(null);
   const [failure, setFailure] = useState<{ slug: string; key: string; error: unknown } | null>(null);
@@ -225,7 +310,7 @@ export function useReplayData(
   const ownerOn = owner?.enabled === true;
   const seat = ownerOn ? owner.seat : null;
   const reveal = ownerOn ? owner.reveal : false;
-  const requestKey = replayRequestKey({ visibility, seat, reveal }, ownerOn);
+  const requestKey = replayRequestKey({ visibility, seat, reveal, unchecked }, ownerOn);
 
   // A new request starts clean: an old failure of the same view must not answer for it.
   const requestId = `${slug}|${requestKey}`;
@@ -243,17 +328,18 @@ export function useReplayData(
     // After a failed switch the page goes back to the view it still holds; that answer is already in state.
     if (!reloaded && held.current && held.current.slug === slug && held.current.requestKey === requestKey) return;
     const abort = new AbortController();
-    const view: ReplayRequestView = { visibility, seat, reveal };
+    const view: ReplayRequestView = { visibility, seat, reveal, unchecked };
     const load = ownerOn
       ? getOwnerReplayFrames(slug, view, abort.signal).catch((error: unknown) => {
           // The old privileged answer must disappear before an ordinary fallback can load.
           if (isDuelAccessError(error) && mine === generation.current && !abort.signal.aborted) setModel(null);
           if (error instanceof DuelRequestError && error.code === "ACCESS_DENIED" && !abort.signal.aborted) {
+            // Never unchecked here: the ordinary route refuses it for everyone who is not the owner.
             return getDuelReplayFrames(slug, visibility, abort.signal);
           }
           throw error;
         })
-      : getDuelReplayFrames(slug, visibility, abort.signal);
+      : getDuelReplayFrames(slug, visibility, abort.signal, unchecked);
     load
       .then((raw) => {
         if (mine !== generation.current) return;
@@ -267,7 +353,7 @@ export function useReplayData(
         setFailure({ slug, key: requestKey, error });
       });
     return () => abort.abort();
-  }, [slug, visibility, seat, reveal, ownerOn, requestKey, nonce]);
+  }, [slug, visibility, seat, reveal, ownerOn, unchecked, requestKey, nonce]);
 
   const current = model && model.slug === slug && (ownerOn || !model.requestKey.startsWith("owner:")) ? model : null;
   const error = failure && failure.slug === slug && failure.key === requestKey ? failure.error : null;
@@ -290,6 +376,16 @@ export function useReplayData(
 export function readFrameParam(search: string): string | null {
   const value = new URLSearchParams(search).get(FRAME_PARAM);
   return value && value.length <= 200 ? value : null;
+}
+
+/** The query parameter of an owner who opened a replay without the check. */
+export const UNCHECKED_PARAM = "unchecked";
+
+export function withUncheckedParam(href: string, on: boolean): string {
+  const url = new URL(href, "http://replay.local");
+  if (on) url.searchParams.set(UNCHECKED_PARAM, "1");
+  else url.searchParams.delete(UNCHECKED_PARAM);
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 export function withFrameParam(href: string, frameId: string | null): string {

@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Pause, Play, PlayCircle, SkipBack, SkipForward } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ChevronLeft, ChevronRight, Pause, Play, PlayCircle, SkipBack, SkipForward, TriangleAlert } from "lucide-react";
 import { isCustomDomain, seatCountFor, type DuelCard, type DuelMasterRule, type ReplayVisibility } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
 import { CardHoverInfo } from "./card-interactions";
@@ -18,6 +19,8 @@ import { useDuelPreferences } from "./preferences";
 import {
   SPEEDS,
   createReadOnlyTableController,
+  NO_FINAL_BOARD_COPY,
+  UNCHECKED_PARAM,
   frameCaption,
   replayFailure,
   replayResultHeadline,
@@ -26,12 +29,15 @@ import {
   stepButtonProps,
   useReplayController,
   useReplayData,
+  withUncheckedParam,
+  checkNoteOf,
 } from "./replay-controller";
 import { ReplayOwnerTools, forkTarget, isOwnerModel, useForkStart, type OwnerViewState } from "./replay-fork-button";
 import { useOpenForks } from "./replay-open-forks";
 import { ReplayTag } from "./replay-tag";
 import { ReplayFfa, isFfaFormat } from "./replay-ffa";
 import { ReplayStatus } from "./replay-status";
+import { ReplayVerificationNote } from "./replay-verification";
 import { buildReplayTimeline, type ReplayLogEntry } from "./replay-timeline";
 import { formatLabel } from "./table-format";
 import type { TableController } from "./table/types";
@@ -128,8 +134,13 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const [ownerView, setOwnerView] = useState<OwnerViewState>({ seat: null, reveal: false });
   const [forkStepId, setForkStepId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The owner opened a replay that could not be checked. It rides in the address too (?unchecked=1), so a reload keeps it.
+  // Only the owner page may ask; the routes refuse anyone else.
+  const routed = useSearchParams();
+  const uncheckedInUrl = canInspectSource && routed?.get(UNCHECKED_PARAM) === "1";
+  const [unchecked, setUnchecked] = useState(uncheckedInUrl);
   const { model, settled, error, reload } = useReplayData(
-    slug, visibility, canInspectSource ? { enabled: true, ...ownerView } : null,
+    slug, visibility, canInspectSource ? { enabled: true, ...ownerView } : null, unchecked,
   );
   const preferences = useDuelPreferences();
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
@@ -153,7 +164,26 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const openForks = useOpenForks(ownerAnswer);
   const fork = useForkStart({ slug, model, frame: forkTarget(model, model?.frames[index], forkStepId), onReload: reload, onPause: controller.pause, openForks });
 
+  // The button that opened the unchecked replay is gone by the time the answer comes: put focus on the new page (the
+  // replay controls, or the failure) instead of leaving it on the body.
+  const refocus = useRef(false);
   useEffect(() => {
+    if (!refocus.current) return;
+    const answered = model != null && settled;
+    const failed = !answered && error != null && model == null;
+    if (!answered && !failed) return;
+    // The first answer or error ends the hand-over, also when the answer has no moves (then the empty page takes focus).
+    refocus.current = false;
+    const target = answered
+      ? document.querySelector<HTMLElement>('[role="group"][aria-label="Replay controls"]') ?? document.querySelector<HTMLElement>("[data-replay-empty]")
+      : document.querySelector<HTMLElement>("[data-replay-failure]");
+    if (!target) return;
+    target.tabIndex = -1;
+    target.focus({ preventScroll: true });
+  }, [model, settled, error]);
+
+  useEffect(() => {
+    setUnchecked(uncheckedInUrl);
     setVisibility("mine");
     setOwnerView({ seat: null, reveal: false });
     setNotice(null);
@@ -209,12 +239,27 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
     setOwnerView(next);
   }
 
+  // Reload with ?unchecked=1: the address changes (so a browser reload keeps it) and the replay is asked for again.
+  function openUnchecked() {
+    window.history.replaceState(window.history.state, "", withUncheckedParam(
+      `${window.location.pathname}${window.location.search}${window.location.hash}`, true,
+    ));
+    refocus.current = true;
+    setUnchecked(true);
+  }
+
   if (!model && !error) return <div className="p-6 text-sm text-text-secondary" aria-busy="true">Loading replay…</div>;
   if (error && !model) {
-    const failure = replayFailure(error);
+    const failure = replayFailure(error, undefined, unchecked);
     return (
-      <div className={replayStyles.state}>
+      <div className={replayStyles.state} data-replay-failure tabIndex={-1}>
         <p role="alert" className="text-accent-cta">{failure.message}</p>
+        {failure.noFinalBoard ? <p className="text-text-secondary" data-replay-no-final-board>{NO_FINAL_BOARD_COPY}</p> : null}
+        {failure.canOpenUnchecked && !unchecked ? (
+          <button type="button" className={replayStyles.stateButton} data-replay-open-unchecked onClick={openUnchecked}>
+            <TriangleAlert size={14} aria-hidden /> Open unchecked replay
+          </button>
+        ) : null}
         <div className={replayStyles.stateLinks}>
           {failure.finalBoard ? <Link href={`/duels/${slug}`} className="text-sm text-text-secondary underline">Final board</Link> : null}
           <Link href={historyHref} className="text-sm text-text-secondary underline">Match history</Link>
@@ -232,7 +277,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const ownerTools = renderOwnerTools(false);
   if (!model || !timeline || !engine || timeline.length === 0) {
     return (
-      <div className={replayStyles.state}>
+      <div className={replayStyles.state} data-replay-empty tabIndex={-1}>
         <p role="alert" className="text-accent-cta">{ownerTools && model?.forkSteps
           ? "Move views exceed the size limit. Choose a move to Jump in."
           : model ? "This replay has no recorded moves." : "Could not load this replay."}</p>
@@ -449,6 +494,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
                 ) : null}
                 {renderOwnerTools(true)}
               </div>
+              <ReplayVerificationNote verification={checkNoteOf(model)} />
               {notice ? <p role="alert" className={replayStyles.note}>{notice}</p> : null}
               {model.mySeat == null || model.visibility === "public"
                 ? <p className={replayStyles.note}>Public view — hidden cards stay hidden</p> : null}

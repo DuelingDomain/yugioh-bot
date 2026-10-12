@@ -5,9 +5,9 @@ import {
   type OwnerPlayerActor, type ResolvedOwnerActor,
 } from "../access/owner-access.js";
 import {
-  isDuelKindSetup, isReplayFork, isEngineIdentity, isReplayForkRequest, isReplayForkSetup, isReplaySeed, seatCountFor,
+  isDuelKindSetup, isReplayFork, isEngineIdentity, isReplayForkRequest, isReplayForkSetup, isReplaySeed, seatCountFor, sourceEngineChoice,
   REPLAY_SOURCE_SLUG_MAX_LENGTH,
-  type DuelSession, type ForkOrigin, type ReplayForkSetup, type ReplayJournalEntry, type ReplaySource,
+  type DuelSession, type EngineIdentity, type ForkOrigin, type ReplayForkSetup, type ReplayJournalEntry, type ReplaySource,
 } from "../duels/index.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { createDuelService, DuelServiceError, validateSetup, type DuelPrivateState, type DuelSetup } from "./duels.js";
@@ -28,6 +28,8 @@ export interface ReplayForkCreateInput {
   /** The source snapshot used by the detached runner, not browser-supplied state. */
   source: ReplaySource;
   origin: ForkOrigin;
+  /** Selected and checked by the host. Original source matching and prefix copying still use source. */
+  resources?: { bundleVersion: string; engineIdentity: EngineIdentity; firstTurnDraw: boolean; scriptErrorMode: "strict" | "tolerant" };
 }
 
 export interface ReplayForkRetryInput {
@@ -191,6 +193,17 @@ export function createReplayForkService(db: Database.Database): ReplayForkServic
     const replayFork: ReplayForkSetup = { ownerUserId: owner.userId, control: "all-manual", origin: input.origin };
     validateSource(input.source, replayFork, owner);
     const setup = forkSetup(input.source, replayFork), source = input.source;
+    if (input.resources) {
+      const identity = input.resources.engineIdentity;
+      if (!isEngineIdentity(identity) || identity.mode !== source.session.mode
+        || identity.coreFamily !== (source.session.format === "1v1" ? sourceEngineChoice(source) : "multi")
+        || !input.resources.bundleVersion.trim() || typeof input.resources.firstTurnDraw !== "boolean"
+        || (input.resources.scriptErrorMode !== "strict" && input.resources.scriptErrorMode !== "tolerant")) mismatch("Invalid selected fork resources");
+      setup.engineIdentity = identity;
+      setup.firstTurnDraw = input.resources.firstTurnDraw;
+      setup.scriptErrorMode = input.resources.scriptErrorMode;
+      if (identity.coreFamily !== "multi") setup.engine = identity.coreFamily;
+    }
     // Retain recorded engine rules in settings. A null clock disables live timers; no opening or invite is created.
     const settings = { ...source.session.settings, visibility: "private" };
     const slug = generateWebSlug();
@@ -199,7 +212,7 @@ export function createReplayForkService(db: Database.Database): ReplayForkServic
       seed_json,bundle_version,setup_json,best_of,ranked,series_id,game_number,clock_json,opening_json,invite_code,last_activity_at
     ) values (?,?,?,?,?,?,'active','replay-fork',?,?,?,?,?,1,0,null,null,null,null,null,datetime('now'))`)
       .run(owner.guildId, slug, "Replay fork", owner.playerId, source.session.mode, source.session.masterRule,
-        source.session.format, JSON.stringify(settings), JSON.stringify(source.seed), source.bundleVersion, JSON.stringify(setup));
+        source.session.format, JSON.stringify(settings), JSON.stringify(source.seed), input.resources?.bundleVersion ?? source.bundleVersion, JSON.stringify(setup));
     const duelId = Number(inserted.lastInsertRowid);
     const insertSeat = db.prepare("insert into duel_seats(duel_id,seat,player_id,is_bot,ready,deck_json) values(?,?,?,?,1,?)");
     for (let seat = 0; seat < source.decks.length; seat++) {

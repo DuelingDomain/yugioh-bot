@@ -1,8 +1,8 @@
 import { createHmac } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { seatCountFor, type DuelAnswer, type DuelCardInfo, type DuelDeck, type DuelEngineView, type DuelFormat, type DuelMasterRule, type DuelMode } from "@yugidraft/shared/duels";
@@ -11,13 +11,16 @@ import type { DuelHost } from "../src/host.js";
 import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
-import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
 
 // DUEL_1V1_ENGINE chooses the engine of a NEW 1v1 table. The engine a table started on is saved with it, so recover and replay
 // use that engine after the switch changes. Tables with 3 or 4 seats ignore the switch. A fake worker records what the host asks for.
 
 const SECRET = "engine-switch-secret";
+const DATA = createHostDataFixture([...Array.from({ length: 60 }, (_, code) => ({ code: code + 1, name: `Fixture ${code + 1}` })),
+  { code: 48305365, name: "Master fixture" }]);
+afterAll(() => rmSync(DATA, { recursive: true, force: true }));
 const MANIFEST = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")) as { bundleVersion: string };
 
 class FakeWorker implements DuelGameWorker {
@@ -312,7 +315,7 @@ describe("server-recorded engine identity", () => {
     expect(t.duels.privateState(t.session.slug, "g1").bundleVersion).toBe(current.bundleVersion);
   });
 
-  it("replays an old source with current resources and keeps its saved final board", async () => {
+  it("verifies a null-identity source at the current label and keeps its saved final board", async () => {
     const t = await table("1v1");
     t.duels.activate(t.session.slug, "g1", t.player, ["1", "2", "3", "4"], MANIFEST.bundleVersion, null, { engine: "legacy" });
     const board = await new FakeWorker().view(null);
@@ -320,22 +323,23 @@ describe("server-recorded engine identity", () => {
     const before = t.db.prepare("select * from duels where id = ?").get(t.session.id);
     const replay = await post(t.host, { op: "replay", version: 2, ...t.organizer });
     expect(replay.status).toBe(200);
+    expect(replay.data.verification).toBe("verified");
     expect(replay.data.frames[0].cursor).toBeNull();
     expect(t.workers).toHaveLength(1);
-    expect(t.workers[0]!.created?.engineIdentity).toBeUndefined();
+    expect(t.workers[0]!.created?.engineIdentity).toEqual(getCurrentEngineResources(DATA, { mode: "normal", engine: "legacy" }).identity);
     expect(t.db.prepare("select * from duels where id = ?").get(t.session.id)).toEqual(before);
     expect(setupOf(t.duels, t.session.slug)?.engineIdentity).toBeUndefined();
     expect(t.duels.room(t.session.slug, "g1", t.player).engine).toMatchObject({ revision: board.revision, seats: board.seats });
   });
 
-  it("refuses an old source with a different bundle and keeps its final board", async () => {
+  it("verifies an old source with a different bundle and keeps its saved final board", async () => {
     const t = await table("1v1");
     t.duels.activate(t.session.slug, "g1", t.player, ["1", "2", "3", "4"], "old-bundle", null);
     const board = await new FakeWorker().view(null);
     t.duels.interrupt(t.session.slug, "g1", "Saved end", { public: board, seats: [board, board] });
-    expect(await post(t.host, { op: "replay", ...t.organizer })).toMatchObject({ status: 409,
-      data: { code: "ENGINE_UNAVAILABLE_FOR_SOURCE", finalBoard: "available" } });
-    expect(t.workers).toHaveLength(0);
+    expect(await post(t.host, { op: "replay", ...t.organizer })).toMatchObject({ status: 200, data: { verification: "verified" } });
+    expect(t.workers).toHaveLength(1);
+    expect(t.duels.privateState(t.session.slug, "g1").bundleVersion).toBe("old-bundle");
   });
 
   it("checks recorded identity before returning a cached replay", async () => {
@@ -349,8 +353,8 @@ describe("server-recorded engine identity", () => {
       engineIdentity: { ...saved.engineIdentity!, hostRuleVersion: "previous-rules" } }), t.session.id);
     const workers = t.workers.length;
     const before = t.db.prepare("select * from duels where id = ?").get(t.session.id);
-    expect(await post(t.host, { op: "replay", ...t.organizer })).toMatchObject({ status: 409, data: { code: "ENGINE_UNAVAILABLE_FOR_SOURCE" } });
-    expect(t.workers).toHaveLength(workers);
+    expect(await post(t.host, { op: "replay", ...t.organizer })).toMatchObject({ status: 200, data: { verification: "verified" } });
+    expect(t.workers).toHaveLength(workers + 1);
     expect(t.db.prepare("select * from duels where id = ?").get(t.session.id)).toEqual(before);
   });
 

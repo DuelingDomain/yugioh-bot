@@ -101,11 +101,12 @@ describe("current engine identity", () => {
     const directory = fileURLToPath(new URL("../src/", import.meta.url));
     for (const name of ENGINE_HOST_RULE_FILES) hash.update(`${name}\0`).update(fingerprintSource(readFileSync(join(directory, `${name}.ts`), "utf8")));
     // These are the shared runtime helpers imported by the engine/journal path, not all of shared/dist/duels.
-    for (const name of ["index", "settings", "banlist-options", "pool", "replay", "sandbox-board"]) {
+    for (const name of ["index", "settings", "banlist-options", "pool", "replay", "sandbox-board", "source-engine-choice"]) {
       hash.update(`shared/${name}\0`).update(fingerprintSource(readFileSync(new URL(`../../shared/src/duels/${name}.ts`, import.meta.url), "utf8")));
     }
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
-    // Local sandbox prompts and raw snapshot support require the merged version 3.
+    // Local version 3 keeps sandbox rules. The source engine-choice helper and retry
+    // metadata do not change command behavior; refresh only the version 3 fingerprint.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 
@@ -189,6 +190,26 @@ describe("current engine identity", () => {
     const { value } = source(directory);
     value.bundleVersion = "old-bundle";
     expect(() => resolveEngineResourcesForSource(directory, value)).toThrowError(expect.objectContaining({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE" }));
+  });
+  it.each([
+    ["normal", "1v1", "legacy"], ["normal", "1v1", "pinned"],
+    ["domain", "1v1", "legacy"], ["domain", "1v1", "pinned"],
+    ["normal", "tag", "legacy"], ["domain", "ffa4", "pinned"],
+  ] as const)("selects the installed %s %s %s family for cross-version verification", (mode, format, engine) => {
+    const directory = bundle(), { value, resources } = source(directory, mode, format, engine);
+    value.bundleVersion = "older-bundle";
+    value.engineIdentity = { ...value.engineIdentity!, cardScriptsHash: "e".repeat(64) };
+    const before = structuredClone(value);
+    expect(resolveEngineResourcesForSource(directory, value, undefined, "replay-verification")).toEqual(resources);
+    expect(value).toEqual(before);
+    value.engineIdentity = null;
+    expect(resolveEngineResourcesForSource(directory, value, undefined, "replay-verification")).toEqual(resources);
+  });
+  it("refuses a missing pinned core during cross-version selection", () => {
+    const directory = bundle(), { value } = source(directory);
+    value.bundleVersion = "older-bundle"; rmSync(join(directory, "ocgcore.standard.wasm"));
+    expect(() => resolveEngineResourcesForSource(directory, value, undefined, "replay-verification"))
+      .toThrowError(expect.objectContaining({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE" }));
   });
 
   it("keeps saved legacy choice when the current switch selects pinned", () => {

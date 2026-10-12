@@ -87,6 +87,20 @@ function identity(): EngineIdentity { return { version: 1, coreFamily: "legacy",
   domainScriptHash: null, multiOverlayHash: null, hostRuleVersion: "1" }; }
 
 describe("journal prefix runner", () => {
+  it("uses selected current resources for an authorized cross-version run without changing the source", async () => {
+    const input = source(); input.bundleVersion = "old-bundle"; input.engineIdentity = { ...identity(), cardScriptsHash: "e".repeat(64) };
+    const before = structuredClone(input), worker = new TestWorker();
+    await runJournalPrefix({ source: input, prefixCount: 1, resources: { ...resources(), engineIdentity: identity(), allowVersionMismatch: true }, createWorker: () => worker });
+    expect(worker.created!.engineIdentity).toEqual(identity()); expect(input).toEqual(before);
+    await worker.close();
+  });
+  it("keeps prompt checks on authorized cross-version runs", async () => {
+    const input = source(); input.bundleVersion = "old-bundle"; input.commands[0]!.command.promptId = "changed";
+    const worker = new TestWorker();
+    await expect(runJournalPrefix({ source: input, prefixCount: 1, resources: { ...resources(), engineIdentity: identity(), allowVersionMismatch: true }, createWorker: () => worker }))
+      .rejects.toMatchObject({ code: "REPLAY_MISMATCH" });
+    expect(worker.running).toBe(false);
+  });
   it.each([0, 1, 2, 3])("stops at ordered count %i and leaves the worker paused", async (prefixCount) => {
     const input = source(); const original = structuredClone(input); const worker = new TestWorker();
     const checkpoints: number[] = [];

@@ -55,12 +55,15 @@ import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { EngineResourceCache } from "./engine-resource-cache.js";
 import { ReplayJsonEncoder, replayJsonResponse, type ReplayHttpResult } from "./replay-json.js";
-import { buildReplayData, projectReplayFrames, projectReplaySteps, type ReplayBuildData, type ReplayBuildErrorCode, replayBuildError, replayHasUnsequencedLoss, revealReplayHands, ReplayBuildCache } from "./replay-builder.js";
+import { buildReplayData, projectReplayFrames, projectReplaySteps, type ReplayBuildData, type ReplayBuildErrorCode, replayBuildError, replayHasUnsequencedLoss, revealReplayHands, ReplayBuildCache, ReplayBuildError } from "./replay-builder.js";
 import { createReplayCursorCodec, replaySourceVersion, ReplayCursorError } from "./replay-cursor.js";
 import { createReplayForkLauncher, listActiveReplayForks, REPLAY_FORK_ACTIVE_LIMIT, ReplayForkLaunchError } from "./replay-fork.js";
 import { initialForkSeat, resolveReplayForkSeat, replayForkRoom } from "./replay-fork-seats.js";
 import { JournalRunnerError, runJournalPrefix, type JournalResources } from "./journal-runner.js";
 import { EngineResourceUnavailableError, resolveEngineResourcesForSource, type EngineResources } from "./engine-resource-resolver.js";
+import { isEngineIdentity, sourceEngineChoice, sameEngineIdentity, type ReplayVerification, type ReplayUnverifiedReason } from "@yugidraft/shared/duels";
+import { sameReplayBoard } from "./replay-board-comparator.js";
+import { createReplayVerificationStore, type ReplayVerificationKey } from "./replay-verification-store.js";
 import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
 import {
   freezeContinueClock,
@@ -159,7 +162,8 @@ function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> 
 }
 
 class RequestError extends Error {
-  constructor(message: string, readonly status: number, readonly code?: DuelErrorCode | ReplayBuildErrorCode, readonly finalBoard?: "available" | "none") { super(message); }
+  constructor(message: string, readonly status: number, readonly code?: DuelErrorCode | ReplayBuildErrorCode, readonly finalBoard?: "available" | "none",
+    readonly unverified?: { canOpenUnchecked: boolean; reason: ReplayUnverifiedReason }) { super(message); }
 }
 
 type BotOutcome = { kind: "stop" } | { kind: "replan" } | { kind: "acted"; visible: boolean };
@@ -356,6 +360,7 @@ export function createDuelHost(options: {
     pinnedEngineVersion(manifest.bundleVersion, seatCountFor(format), seatCountFor(format) > 2 ? activeMultiScriptsHash(options.dataDirectory) : null);
   const games = new Map<string, LiveGame>();
   const replayCache = new ReplayBuildCache<ReplayBuildData>(value => value.cacheBytes);
+  const replayVerifications = createReplayVerificationStore(options.db);
   const replayJsonEncoder = new ReplayJsonEncoder();
   const engineResourceCache = new EngineResourceCache();
   const replayCursorCodec = createReplayCursorCodec(options.secret);
@@ -519,16 +524,16 @@ export function createDuelHost(options: {
       setup, engineIdentity: engineIdentity ?? null, commands: state.commands };
   }
 
-  async function resourcesOfSource(state: DuelPrivateState, purpose: "replay" | "live-recovery" = "replay"): Promise<EngineResources | undefined> {
-    // Old records use current resources under the runner's bundle gate. Never invent an identity.
-    if (state.setup?.engineIdentity == null) return undefined;
+  async function resourcesOfSource(state: DuelPrivateState, purpose: "replay" | "live-recovery" | "fork-recovery" = "replay"): Promise<EngineResources | undefined> {
+    // Old live recovery keeps its historical path. Replays always resolve and check resources.
+    if (state.setup?.engineIdentity == null && purpose !== "replay") return undefined;
     try {
       const current = await engineResourceCache.get(options.dataDirectory, { mode: state.session.mode, format: state.session.format,
-        engine: state.setup.engine ?? (state.setup.startupScripts?.length ? "pinned" : "legacy") });
+        engine: sourceEngineChoice({ setup: state.setup, engineIdentity: state.setup?.engineIdentity ?? null }) });
       return resolveEngineResourcesForSource(options.dataDirectory, {
         session: state.session, setup: state.setup, bundleVersion: state.bundleVersion ?? "",
         engineIdentity: state.setup?.engineIdentity ?? null,
-      }, current, purpose);
+      }, current, purpose === "replay" ? "replay-verification" : purpose === "fork-recovery" ? "replay" : purpose);
     } catch (error) {
       if (error instanceof EngineResourceUnavailableError) throw new RequestError(error.message, error.status, error.code);
       throw error;
@@ -539,7 +544,7 @@ export function createDuelHost(options: {
   function journalResourcesOf(resources?: EngineResources): JournalResources {
     return {
       dataDirectory: resources?.dataDirectory ?? options.dataDirectory,
-      bundleVersion: manifest.bundleVersion,
+      bundleVersion: resources?.rawBundleVersion ?? manifest.bundleVersion,
       ...(resources ? { engineIdentity: resources.identity,
         ...(resources.multiScriptsDirectory ? { multiScriptsDirectory: resources.multiScriptsDirectory } : {}) } : {}),
     };
@@ -1240,7 +1245,7 @@ export function createDuelHost(options: {
     let resources: EngineResources | undefined;
     if (state.setup?.engineIdentity) {
       try {
-        resources = await resourcesOfSource(state, fork ? "replay" : "live-recovery");
+        resources = await resourcesOfSource(state, fork ? "fork-recovery" : "live-recovery");
       } catch (error) {
         service.interrupt(slug, guildId, "The recorded engine resources or runtime rules changed; this duel cannot be recovered safely.");
         await emitChange(slug, guildId);
@@ -1304,7 +1309,30 @@ export function createDuelHost(options: {
   }
 
   const forkLauncher = createReplayForkLauncher({ db: options.db, codec: replayCursorCodec,
-    sourceOf: journalSourceOf, resourcesOf: async state => journalResourcesOf(await resourcesOfSource(state)),
+    sourceOf: journalSourceOf, resourcesOf: async (state, purpose) => {
+      const resources = await resourcesOfSource(state, purpose === "restart" ? "fork-recovery" : "replay");
+      return journalResourcesOf(resources);
+    },
+    authorizeSource: async (state, actor, unchecked, signal) => {
+      const source = journalSourceOf(state), resources = await resourcesOfSource(state);
+      const crossVersion = isCrossVersion(source, resources);
+      const selected = { ...journalResourcesOf(resources), ...(crossVersion ? { allowVersionMismatch: true } : {}) };
+      if (unchecked || !crossVersion) return selected;
+      const owner = resolveOwnerPlayer(options.db, actor);
+      if (!owner) throw new ReplayAccessError();
+      const saved = savedReplayBoards(state.session.slug, actor.guildId);
+      const previous = replayVerifications.get(verificationKeyOf(source, resources!, saved));
+      if (previous?.result === "verified") return selected;
+      if (previous?.result === "unverified") {
+        throw new RequestError("Replay could not be verified against the saved final board.", 409, "REPLAY_UNVERIFIED",
+          readStoredBoard(saved, null) ? "available" : "none", { canOpenUnchecked: previous.reason !== "command_mismatch", reason: previous.reason! });
+      }
+      await replay(state.session.slug, actor.guildId, { session: state.session, role: "spectator", mySeat: null,
+        myDeck: null, engine: null, clock: null, metadataOnly: true },
+      { version: 2, visibility: "public", dataSeat: null, ownerUserId: owner.userId, ownerPlayerId: owner.playerId }, signal, resources);
+      // Keep the full verification and the prefix launch in separate bounded requests.
+      throw new RequestError("Replay source is verified. Retry Jump in to start the fork.", 503, "REPLAY_VERIFIED_RETRY");
+    },
     createWorker: duelId => spawn(duelId), timeoutMs: options.forkTimeoutMs, isStopped: () => stopped,
     remove: async (slug, game) => { if (games.get(slug)?.game === game) await disposeGame(slug); },
     register: (session, game, views) => {
@@ -1582,10 +1610,25 @@ export function createDuelHost(options: {
     dataSeat: number | null;
     reveal?: boolean;
     ownerUserId?: string;
+    ownerPlayerId?: number;
+    unchecked?: boolean;
+  }
+
+  function isCrossVersion(source: ReplaySource, resources?: EngineResources): boolean {
+    return source.engineIdentity === null || source.bundleVersion !== (resources?.bundleVersion ?? pinnedVersionFor(source.session.format))
+      || (source.engineIdentity !== null && (!isEngineIdentity(source.engineIdentity) || !resources
+        || !sameEngineIdentity(source.engineIdentity, resources.identity)));
+  }
+
+  function verificationKeyOf(source: ReplaySource, resources: EngineResources, saved: StoredDuelBoards | undefined, readSaved = createStoredBoardReader(saved)): ReplayVerificationKey {
+    return { duelId: source.session.id, bundleVersion: resources.bundleVersion, sourceVersion: replaySourceVersion(source),
+      resourceStamp: createHash("sha256").update(JSON.stringify(resources.identity)).digest("hex"),
+      boardStamp: storedBoardStamp(saved, null, true, readSaved, source.session.seats.length) };
   }
 
   async function replay(slug: string, guildId: string, room: DuelRoom,
-    projection: ReplayProjection = { version: 1, visibility: "mine", dataSeat: room.mySeat }, signal?: AbortSignal): Promise<ReplayHttpResult> {
+    projection: ReplayProjection = { version: 1, visibility: "mine", dataSeat: room.mySeat }, signal?: AbortSignal,
+    selectedResources?: EngineResources): Promise<ReplayHttpResult> {
     const saved = savedReplayBoards(slug, guildId);
     const readSaved = createStoredBoardReader(saved);
     let finalView = readSaved(projection.dataSeat);
@@ -1593,21 +1636,68 @@ export function createDuelHost(options: {
     if (room.session.status !== "completed" && room.session.status !== "interrupted") {
       throw new RequestError("Replays are available after the duel ends", 409, "NOT_PLAYABLE", finalBoard);
     }
+    let verificationKey: ReplayVerificationKey | undefined;
+    const refuseUnverified = (reason: ReplayUnverifiedReason): never => {
+      // Recheck the current owner mapping even on a cached failure or a late command failure.
+      const canOpenUnchecked = reason !== "command_mismatch" && projection.ownerUserId !== undefined && projection.ownerPlayerId !== undefined
+        && !!resolveOwnerPlayer(options.db, { guildId, playerId: projection.ownerPlayerId, userId: projection.ownerUserId });
+      throw new RequestError("Replay could not be verified against the saved final board.", 409, "REPLAY_UNVERIFIED", finalBoard,
+        { canOpenUnchecked, reason });
+    };
     try {
       const state = service.privateState(slug, guildId);
       const source = journalSourceOf(state);
       const sourceVersion = replaySourceVersion(source);
-      const resources = await resourcesOfSource(state);
+      const resources = selectedResources ?? await resourcesOfSource(state);
+      const crossVersion = isCrossVersion(source, resources);
+      const unchecked = crossVersion && projection.unchecked === true;
+      const verification: ReplayVerification = unchecked ? "unverified" : crossVersion ? "verified" : "exact";
+      if (crossVersion) {
+        verificationKey = verificationKeyOf(source, resources!, saved, readSaved);
+        if (!unchecked) {
+          const previous = replayVerifications.get(verificationKey);
+          if (previous?.result === "unverified") refuseUnverified(previous.reason!);
+          if (!previous && (!readSaved(null) || source.session.seats.some(seat => !readSaved(seat.seat)))) {
+            replayVerifications.set(verificationKey, "no_saved_board");
+            refuseUnverified("no_saved_board");
+          }
+        }
+      }
       if (projection.reveal && finalView) {
         const ownViews = source.session.seats.map(seat => readSaved(seat.seat));
         if (ownViews.every((view): view is DuelEngineView => view !== null)) finalView = revealReplayHands(finalView, ownViews);
       }
-      const key = createHash("sha256").update(JSON.stringify([guildId, slug, sourceVersion, resources?.identity ?? null, resources?.bundleVersion ?? pinnedVersionFor(state.session.format), projection.visibility, projection.dataSeat, projection.reveal,
-        storedBoardStamp(saved, projection.dataSeat, projection.reveal)])).digest("hex");
+      const key = createHash("sha256").update(JSON.stringify([guildId, slug, sourceVersion, resources?.identity ?? null, resources?.bundleVersion ?? pinnedVersionFor(state.session.format), verification, projection.visibility, projection.dataSeat, projection.reveal,
+        crossVersion ? verificationKey!.boardStamp : storedBoardStamp(saved, projection.dataSeat, projection.reveal, readSaved, source.session.seats.length)])).digest("hex");
       const built = await replayCache.getOrBuild(key, () => buildReplayData({ source, sourceVersion,
         ...(isReplayFork(state.session) ? { manualLossAnswersAfter: state.setup!.replayFork!.origin.prefixCount } : {}),
-        resources: journalResourcesOf(resources), dataSeat: projection.dataSeat,
-        reveal: projection.reveal, retainStepsOnOverflow: true, finalView, signal, encodeView: view => replayJsonEncoder.encode(view), createWorker: () => spawn() }));
+        resources: { ...journalResourcesOf(resources), ...(crossVersion ? { allowVersionMismatch: true } : {}) }, dataSeat: projection.dataSeat,
+        verifyFinalViews: crossVersion && !unchecked ? views => {
+          const previous = replayVerifications.get(verificationKey!);
+          if (previous?.result === "verified") return;
+          if (previous?.result === "unverified") throw new ReplayBuildError("Replay could not be verified.", "REPLAY_UNVERIFIED");
+          // Reproduce host finalization from the session after checking the engine winner.
+          const expected: NonNullable<DuelEngineView["result"]> = {
+            winnerSeat: source.session.winnerSeat, reason: source.session.resultReason ?? "Duel ended",
+            ...(source.session.format === "tag" ? { winnerTeam: source.session.winnerSeat === null ? null
+              : teamOfSeat("tag", source.session.winnerSeat) } : {}),
+          };
+          const matchesView = (savedView: DuelEngineView, rebuilt: DuelEngineView): boolean => {
+            if (rebuilt.result && (rebuilt.result.winnerSeat !== expected.winnerSeat
+              || (source.session.format === "tag" && rebuilt.result.winnerTeam !== expected.winnerTeam))) return false;
+            return sameReplayBoard(savedView, freezeView(rebuilt, expected));
+          };
+          const matches = matchesView(readSaved(null)!, views.public)
+            && source.session.seats.every(seat => matchesView(readSaved(seat.seat)!, views.seats[seat.seat]!));
+          if (signal?.aborted) signal.throwIfAborted();
+          if (sourceVersion !== replaySourceVersion(journalSourceOf(service.privateState(slug, guildId)))) {
+            throw new ReplayBuildError("The source changed. Refresh the replay.", "SOURCE_CHANGED");
+          }
+          replayVerifications.set(verificationKey!, matches ? null : "board_mismatch");
+          if (!matches) throw new ReplayBuildError("Replay could not be verified.", "REPLAY_UNVERIFIED");
+        } : undefined,
+        reveal: projection.reveal, retainStepsOnOverflow: true, finalView: unchecked ? null : finalView,
+        signal, encodeView: view => replayJsonEncoder.encode(view), createWorker: () => spawn() }));
       if (sourceVersion !== replaySourceVersion(journalSourceOf(service.privateState(slug, guildId)))) {
         throw new RequestError("The source changed. Refresh the replay.", 409, "SOURCE_CHANGED");
       }
@@ -1618,9 +1708,9 @@ export function createDuelHost(options: {
       const canFork = projection.ownerUserId !== undefined && !isReplayFork(state.session)
         && !state.session.sandbox && !state.setup?.sandbox
         && !replayHasUnsequencedLoss(source) && built.steps.some(step => step.cursor !== null);
-      if (projection.version === 1) return { viewJson, replay: { session: room.session, role: room.role, mySeat: room.mySeat,
+      if (projection.version === 1) return { viewJson, replay: { verification, session: room.session, role: room.role, mySeat: room.mySeat,
         frames: frames.map(({ step, actorSeat, view }) => ({ step, actorSeat, view })) } };
-      return { viewJson, replay: { version: 2, sourceVersion, visibility: projection.visibility,
+      return { viewJson, replay: { verification, version: 2, sourceVersion, visibility: projection.visibility,
         ...(projection.reveal !== undefined ? { reveal: projection.reveal } : {}),
         session: room.session, role: room.role, mySeat: room.mySeat, dataSeat: projection.dataSeat,
         frames: projectReplayFrames(frames, replayCursorCodec, canFork),
@@ -1637,6 +1727,10 @@ export function createDuelHost(options: {
       }
       if (error instanceof RequestError && error.code) throw error;
       const failure = replayBuildError(error);
+      if (verificationKey && (failure.code === "REPLAY_MISMATCH" || failure.code === "REPLAY_UNVERIFIED")) {
+        if (failure.code === "REPLAY_MISMATCH") replayVerifications.set(verificationKey, "command_mismatch");
+        refuseUnverified(replayVerifications.get(verificationKey)?.reason ?? "board_mismatch");
+      }
       throw new RequestError(failure.message, failure.status, failure.code,
         ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE", "REPLAY_TOO_LARGE"].includes(failure.code) ? finalBoard : undefined);
     }
@@ -1645,6 +1739,9 @@ export function createDuelHost(options: {
   async function replayRequest(body: Record<string, unknown>, slug: string, guildId: string, actor: number, signal?: AbortSignal): Promise<ReplayHttpResult> {
     const privileged = body.op === "owner-replay";
     const accessActor = { guildId, playerId: actor, ...(body.userId !== undefined ? { userId: body.userId as string } : {}) };
+    if (body.unchecked === true && !resolveOwnerPlayer(options.db, accessActor)) {
+      throw new RequestError("Unchecked replay requires owner access.", 403, "ACCESS_DENIED");
+    }
     // A signed web request is not owner authority. Check the database mapping and current list first.
     if (privileged) assertOwnerReplaySourceAccess(options.db, slug, accessActor);
     if (body.as !== undefined || (!privileged && (body.seat !== undefined || body.reveal !== undefined))) {
@@ -1653,7 +1750,8 @@ export function createDuelHost(options: {
     const version = body.version ?? (privileged ? 2 : 1);
     if ((version !== 1 && version !== 2) || (privileged && version !== 2)
       || (body.visibility !== undefined && body.visibility !== "mine" && body.visibility !== "public")
-      || (body.reveal !== undefined && typeof body.reveal !== "boolean")) {
+      || (body.reveal !== undefined && typeof body.reveal !== "boolean")
+      || (body.unchecked !== undefined && typeof body.unchecked !== "boolean")) {
       throw new RequestError("Invalid replay request", 400, "INVALID_CURSOR");
     }
     let room: DuelRoom;
@@ -1680,7 +1778,8 @@ export function createDuelHost(options: {
     const owner = resolveOwnerPlayer(options.db, accessActor);
     const result = await replay(slug, guildId, room, { version, visibility, dataSeat,
       ...(privileged && body.reveal !== undefined ? { reveal: body.reveal as boolean } : {}),
-      ...(owner ? { ownerUserId: owner.userId } : {}) }, signal);
+      unchecked: body.unchecked === true,
+      ...(owner ? { ownerUserId: owner.userId, ownerPlayerId: owner.playerId } : {}) }, signal);
     // Access can be revoked while a detached worker is building a private projection.
     if (privileged) assertOwnerReplaySourceAccess(options.db, slug, accessActor);
     else {
@@ -2551,10 +2650,13 @@ export function createDuelHost(options: {
     const accessActor = { guildId, playerId: actor, ...(body.userId !== undefined ? { userId: body.userId as string } : {}) };
     if (op === "fork-list") return { forks: listActiveReplayForks(options.db, accessActor), limit: REPLAY_FORK_ACTIVE_LIMIT };
     if (op === "replay-fork") {
+      if (body.unchecked === true && !resolveOwnerPlayer(options.db, accessActor)) {
+        throw new RequestError("Unchecked replay fork requires owner access.", 403, "ACCESS_DENIED");
+      }
       if (typeof body.slug !== "string" || !body.slug) throw new RequestError("Duel slug is required", 400, "INVALID_CURSOR");
       if (body.as !== undefined || body.reveal !== undefined) throw new RequestError("Invalid replay fork request", 400, "INVALID_CURSOR");
       const result = await forkLauncher.launch(body.slug, accessActor, { cursor: body.cursor, sourceVersion: body.sourceVersion,
-        requestId: body.requestId } as import("@yugidraft/shared/duels").ReplayForkRequest, ctl?.signal);
+        requestId: body.requestId, ...(body.unchecked !== undefined ? { unchecked: body.unchecked } : {}) } as import("@yugidraft/shared/duels").ReplayForkRequest, ctl?.signal);
       await emitChange(result.slug, guildId);
       assertReplayForkAccess(options.db, result.slug, accessActor);
       return result;
@@ -3302,7 +3404,8 @@ export function createDuelHost(options: {
         return Response.json({ error: unexpected ? "Duel server error" : error instanceof Error ? error.message : "Duel request failed",
           ...((error instanceof RequestError || error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError || error instanceof ReplayForkStorageError) && error.code ? { code: error.code } : {}),
           ...(error instanceof ReplayForkLaunchError ? error.recovery : {}),
-          ...(error instanceof RequestError && error.finalBoard ? { finalBoard: error.finalBoard } : {}) }, { status: unexpected ? 500 : status });
+          ...(error instanceof RequestError && error.finalBoard ? { finalBoard: error.finalBoard } : {}),
+          ...(error instanceof RequestError ? error.unverified : {}) }, { status: unexpected ? 500 : status });
       } finally { clearTimeout(replayDeadline); }
     },
     async close(): Promise<void> {

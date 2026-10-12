@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DuelRequestError } from "@/components/duel/api";
 import {
+  checkNoteOf,
   createReadOnlyTableController,
   frameCaption,
   isReplayV2,
@@ -27,6 +28,29 @@ function key(init: KeyboardEventInit & { key: string }, target?: Element): Keybo
 const noDialog = { querySelector: () => null };
 
 describe("normalizeReplay", () => {
+  it("reads the verification and treats a missing or unknown value as exact", () => {
+    const withValue = (verification: unknown) => normalizeReplay({ ...replayV2(), verification } as never, "game-1", "mine").verification;
+    expect(withValue("unverified")).toBe("unverified");
+    expect(withValue("verified")).toBe("verified");
+    expect(withValue("exact")).toBe("exact");
+    expect(withValue(undefined)).toBe("exact");
+    expect(withValue("surprise")).toBe("exact");
+    expect(normalizeReplay(replayV1(), "game-1", "mine").verification).toBe("exact");
+    expect(normalizeReplay({ ...replayV1(), verification: "unverified" }, "game-1", "mine").verification).toBe("unverified");
+  });
+
+  it("marks the saved final board by its replayError, so it is not read as an unchecked move replay", () => {
+    const replayError = { code: "REPLAY_TOO_LARGE" as const, error: "Too large." };
+    const saved = normalizeReplay({ ...replayV2(), verification: "unverified", replayError }, "game-1", "mine");
+    expect(saved.savedBoard).toBe(true);
+    expect(checkNoteOf(saved)).toBe("saved-board");
+    const savedV1 = normalizeReplay({ ...replayV1(), verification: "unverified", replayError } as never, "game-1", "mine");
+    expect(checkNoteOf(savedV1)).toBe("saved-board");
+    const unchecked = normalizeReplay({ ...replayV2(), verification: "unverified" }, "game-1", "mine");
+    expect(unchecked.savedBoard).toBe(false);
+    expect(checkNoteOf(unchecked)).toBe("unverified");
+  });
+
   it("passes v2 frames through with their IDs and strips private prompt fields from every view", () => {
     const raw = replayV2();
     // A careless producer leaves live fields behind; the viewer must not show them.
@@ -218,10 +242,11 @@ describe("replay words", () => {
     expect(unavailable.finalBoard).toBe(true);
     const none = replayFailure(new DuelRequestError("x", 409, "NOT_PLAYABLE", "none"));
     expect(none.finalBoard).toBe(false);
+    expect(none.noFinalBoard).toBe(true);
     expect(none.message).not.toMatch(/still available/);
     // Older servers send no code: keep their message and the final board link.
     const old = replayFailure(new DuelRequestError("Replay is not available for this duel.", 409));
-    expect(old).toEqual({ message: "Replay is not available for this duel.", finalBoard: true });
+    expect(old).toEqual({ message: "Replay is not available for this duel.", finalBoard: true, noFinalBoard: false, canOpenUnchecked: false });
     expect(replayFailure(new DuelRequestError("denied", 404, "ACCESS_DENIED")).finalBoard).toBe(false);
     expect(replayFailure(null).message).toBe("Could not load this replay.");
   });

@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { GitFork, Eye, X } from "lucide-react";
+import { GitFork, Eye, TriangleAlert, X } from "lucide-react";
 import type { ReplayFrameV2, ReplayForkStep } from "@yugidraft/shared/duels";
 import { Sheet } from "@/components/ui/sheet";
 import { isDuelAccessError, postReplayFork } from "./api";
@@ -12,6 +12,8 @@ import styles from "./replay-fork.module.css";
 
 /** How long Jump in stays shut after the fork was made, while the page loads it. */
 const FORK_NAVIGATION_WAIT_MS = 15_000;
+/** The wait before the one automatic retry, after the server verified the replay and asked for a second try. */
+const VERIFIED_RETRY_WAIT_MS = 500;
 
 /** A fresh retry key. It matches the server's key syntax (letters, digits, ".", "_", ":", "-"; at most 128). */
 export function newForkRequestId(): string {
@@ -39,6 +41,8 @@ export function forkDisabledReason(frame: Pick<ReplayFrameV2, "cursor" | "kind">
 /** What the Jump in request holds. It lives above the replay shells: a seek remounts their header, and this must survive it. */
 export interface ForkStartState {
   pending: boolean;
+  /** The server checked the replay and asked for one more try. The retry runs by itself. */
+  checking: boolean;
   /** The open forks sheet that opens when Jump in is refused for the limit. */
   limitOpen: boolean;
   setLimitOpen: (open: boolean) => void;
@@ -64,6 +68,7 @@ export function useForkStart({ slug, model, frame, onReload, onPause, openForks 
 }): ForkStartState {
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [limitOpen, setLimitOpen] = useState(false);
   const [failure, setFailure] = useState<{ message: string; code?: string } | null>(null);
   const requestIds = useRef(new Map<string, string>());
@@ -73,11 +78,13 @@ export function useForkStart({ slug, model, frame, onReload, onPause, openForks 
   // a second fork. If the page never leaves (a stalled navigation) the button opens again after a while; the request id
   // is kept, so even then the same click again returns the same fork.
   const navigating = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryWait = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
       if (navigating.current) clearTimeout(navigating.current);
+      if (retryWait.current) clearTimeout(retryWait.current);
     };
   }, []);
 
@@ -99,14 +106,31 @@ export function useForkStart({ slug, model, frame, onReload, onPause, openForks 
     onPause?.();
     setPending(true);
     setFailure(null);
-    const key = `${slug}:${frame.frameId}:${cursor}:${sourceVersion}`;
+    // A fork of an unchecked replay is asked for as such: the server refuses it otherwise. It is part of the retry key.
+    const unchecked = model.verification === "unverified" && !model.savedBoard;
+    const key = `${slug}:${frame.frameId}:${cursor}:${sourceVersion}${unchecked ? ":unchecked" : ""}`;
     let requestId = requestIds.current.get(key);
     if (!requestId) {
       requestId = newForkRequestId();
       requestIds.current.set(key, requestId);
     }
+    const request = unchecked ? { cursor, sourceVersion, requestId, unchecked: true } : { cursor, sourceVersion, requestId };
     try {
-      const result = await postReplayFork(slug, { cursor, sourceVersion, requestId });
+      let result;
+      try {
+        result = await postReplayFork(slug, request);
+      } catch (first) {
+        // The first Jump in after a card data update: the server checked the replay and asks for a second try. It is made
+        // once, with the same request id, so it cannot make a second fork. A failure of that try is a normal failure.
+        if ((first as { code?: string } | null)?.code !== "REPLAY_VERIFIED_RETRY") throw first;
+        if (mounted.current) setChecking(true);
+        await new Promise<void>((resolve) => {
+          retryWait.current = setTimeout(() => { retryWait.current = null; resolve(); }, VERIFIED_RETRY_WAIT_MS);
+        });
+        if (!mounted.current) return;
+        result = await postReplayFork(slug, request);
+      }
+      if (mounted.current) setChecking(false);
       // Pending and the request id both stay until the page has left.
       navigating.current = setTimeout(() => {
         navigating.current = null;
@@ -127,10 +151,10 @@ export function useForkStart({ slug, model, frame, onReload, onPause, openForks 
       if (mounted.current) setFailure({ message: text.message, code });
     }
     inFlight.current = false;
-    if (mounted.current) setPending(false);
+    if (mounted.current) { setChecking(false); setPending(false); }
   }
 
-  return { pending, limitOpen, setLimitOpen, failure, clearFailure: () => setFailure(null), start };
+  return { pending, checking, limitOpen, setLimitOpen, failure, clearFailure: () => setFailure(null), start };
 }
 
 /** "Jump in here". The request state comes from `useForkStart`, which the replay view owns. */
@@ -147,7 +171,7 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, f
   /** The tools sit in the classic bottom dock: the failure box hangs just above the button, not at the top. */
   low?: boolean;
 }) {
-  const { pending, failure, limitOpen } = fork;
+  const { pending, checking, failure, limitOpen } = fork;
   const groupRef = useRef<HTMLSpanElement>(null);
   const [anchorBottom, setAnchorBottom] = useState<number | null>(null);
   // The limit sheet already says why Jump in was refused, and the failure box would sit over its first row.
@@ -159,15 +183,20 @@ export function ReplayForkButton({ slug, model, frame, busy = false, onReload, f
   if (!canOfferFork(model)) return null;
   const reason = forkDisabledReason(frame);
   const disabled = pending || busy || reason != null;
+  const unchecked = model.verification === "unverified" && !model.savedBoard;
 
   return (
     <span ref={groupRef} className={styles.group} data-replay-fork>
       <button type="button" className={`${styles.btn} ${styles.primary}`} disabled={disabled} aria-busy={pending || undefined}
-        title={reason ?? "Make a private copy from this move and play every seat"}
+        title={reason ?? (unchecked
+          ? "Unchecked replay: the copy can differ from the saved duel. Make a private copy from this move and play every seat"
+          : "Make a private copy from this move and play every seat")}
         aria-describedby={reason ? `fork-reason-${slug}` : undefined}
         onClick={() => void fork.start()}>
         <GitFork size={14} aria-hidden />
-        <span>{pending ? "Starting…" : <>Jump in<span className={styles.wide}> here</span></>}</span>
+        <span>{checking ? "Checking replay…" : pending ? "Starting…" : <>Jump in<span className={styles.wide}> here</span></>}</span>
+        {unchecked ? <TriangleAlert size={13} aria-hidden data-fork-unchecked-mark className={styles.warnMark} /> : null}
+        {unchecked ? <span className="sr-only">Unchecked replay</span> : null}
       </button>
       {reason && !pending ? <span id={`fork-reason-${slug}`} className="sr-only">{reason}</span> : null}
       {failure && showFailure ? (

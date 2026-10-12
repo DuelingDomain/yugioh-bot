@@ -7,11 +7,13 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService, createReplayForkService } from "@yugidraft/shared/services";
 import { seatCountFor, type DuelEngineView, type DuelFormat, type ReplaySource } from "@yugidraft/shared/duels";
+import { EngineResourceCache } from "../src/engine-resource-cache.js";
+import { EngineResourceUnavailableError } from "../src/engine-resource-resolver.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createReplayCursorCodec, replayFrameId, replayPrefixHash, replaySourceVersion } from "../src/replay-cursor.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { seedIdentity } from "./helpers/identity.js";
-import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
+import { ReplayWorker, replaySource, replayFixtureResources } from "./support/replay-fixtures.js";
 
 const resourceRead = vi.hoisted(() => vi.fn());
 vi.mock("../src/engine-resource-resolver.js", async original => ({
@@ -59,7 +61,7 @@ function source(format: DuelFormat = "1v1", mode: "normal" | "domain" = "normal"
   }
   const bundle = pinnedEngineVersion("test-bundle", seatCountFor(format), activeMultiScriptsHash(dir));
   db.prepare("update duels set status = 'interrupted', seed_json = ?, bundle_version = ?, setup_json = ?, ended_at = datetime('now') where id = ?")
-    .run(JSON.stringify(fixture.seed), bundle, JSON.stringify({ ...fixture.setup, engine: "legacy" }), session.id);
+    .run(JSON.stringify(fixture.seed), bundle, JSON.stringify({ ...fixture.setup, engine: "legacy", engineIdentity: replayFixtureResources(dir, format, mode).identity }), session.id);
   for (const entry of fixture.commands) db.prepare("insert into duel_commands(duel_id,seq,seat,command_json) values(?,?,?,?)")
     .run(session.id, entry.storedSeq, entry.seat, JSON.stringify(entry.command));
 }
@@ -93,13 +95,15 @@ beforeEach(() => {
   db = new Database(":memory:"); migrate(db);
   dir = mkdtempSync(join(tmpdir(), "host-fork-"));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "test-bundle" }));
-  resourceRead.mockReset().mockReturnValue({ dataDirectory: dir, bundleVersion: "test-bundle" });
+  vi.spyOn(EngineResourceCache.prototype, "get").mockImplementation(async (_directory, options) =>
+    replayFixtureResources(dir, options.format, options.mode));
+  resourceRead.mockReset().mockImplementation((_directory, _source, current) => current);
   for (const [playerId, userId] of [[61, "101"], [62, "102"], [63, "103"], [64, "201"], [65, "202"], [66, "203"], [67, "204"]] as const) {
     seedIdentity(db, { guildId: owner.guildId, playerId, userId });
   }
   source(); workers = []; onChange = vi.fn(); makeWorker = () => new ForkWorker(); startHost();
 });
-afterEach(async () => { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs(); });
+afterEach(async () => { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 it("lists only the caller's active forks with exact metadata and deterministic creation order", async () => {
   const input = request(), before = sourceRows();
@@ -296,7 +300,7 @@ it("denies alpha, host forgery, wrong guild, revoked owner and unsigned launch b
   expect(workers).toHaveLength(0);
 });
 it("cleans up on resource, target, transaction and registration failures", async () => {
-  db.prepare("update duels set bundle_version = ? where web_slug = ?").run("old-bundle", slug);
+  vi.mocked(EngineResourceCache.prototype.get).mockRejectedValueOnce(new EngineResourceUnavailableError("source core is missing"));
   expect((await post({ op: "replay-fork", ...request() })).body.code).toBe("ENGINE_UNAVAILABLE_FOR_SOURCE");
   db.prepare("update duels set bundle_version = ? where web_slug = ?").run("test-bundle", slug);
   makeWorker = () => { const w = new ForkWorker(); w.revision = 90; return w; };

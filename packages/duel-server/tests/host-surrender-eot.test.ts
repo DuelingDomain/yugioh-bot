@@ -14,7 +14,7 @@ import { GameWorker, type GameOptions } from "../src/worker-client.js";
 import { buildPracticeBotDeck, chooseSurrenderedAnswer } from "../src/practice-bot.js";
 import { resolveCard } from "../src/presets/catalog.js";
 import { compileBoard, type BoardSpec } from "../src/presets/board.js";
-import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
+import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
 import { loadSource, replaySource, type DuelSource } from "../scripts/lib/replay-source.js";
 import { parseJournalText } from "../scripts/lib/journal-file.js";
 import { loadNSource, replaySeats } from "../scripts/failure-to-scenario.js";
@@ -89,9 +89,11 @@ e:SetCode(EVENT_PHASE_START+PHASE_END)
 e:SetOperation(function() Duel.SelectYesNo(0,30) end)
 Duel.RegisterEffect(e,0)`);
   scripts.push(...extraScripts);
-  service.activate(session.slug, "g", players[0]!, ["1", "2", "3", "4"], pinnedEngineVersion(JSON.parse(readFileSync(`${DATA}/manifest.json`, "utf8")).bundleVersion, count, count > 2 ? activeMultiScriptsHash(DATA) : null),
+  // These fixtures exercise surrender and recovery, including interrupted games without boards.
+  const resources = getCurrentEngineResources(DATA, { mode, format, engine: "pinned" });
+  service.activateRecorded(session.slug, "g", players[0]!, ["1", "2", "3", "4"], resources.bundleVersion,
     { turn: 1, remainingMs: Array(count).fill(60_000), activeSeat: 0, startedAt: Date.now() },
-    { startupScripts: scripts, firstTurnDraw: mode === "domain" });
+    { startupScripts: scripts, firstTurnDraw: mode === "domain", scriptErrorMode: "tolerant" }, resources.identity);
   const workers: TestWorker[] = [];
   let failReplays = false;
   const makeHost = () => {

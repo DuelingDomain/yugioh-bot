@@ -3,7 +3,7 @@ import { chainModeOf, toOrdinaryReplayView, teamOfSeat,
 import { EngineLoopError } from "./engine-loop-error.js";
 import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
 import { eliminationCodeOf } from "./engine.js";
-import { JournalRunnerError, runJournalPrefix, type JournalResources } from "./journal-runner.js";
+import { JournalRunnerError, runJournalPrefix, type JournalResources, type JournalTargetViews } from "./journal-runner.js";
 import { replayFrameId, replayPrefixHashes, type ReplayCursorCodec, type ReplayCursorClaims } from "./replay-cursor.js";
 import { ReplayJsonEncoder, type SerializedReplayView } from "./replay-json.js";
 import type { DuelGameWorker } from "./worker-client.js";
@@ -50,6 +50,8 @@ export interface ReplayBuildOptions {
   /** Server-authorized owner projection only; do not accept this option on the normal replay operation. */
   reveal?: boolean;
   finalView: DuelEngineView | null;
+  /** Internal final-state check, before any saved final frame replaces the rebuilt view. */
+  verifyFinalViews?: (views: JournalTargetViews) => void;
   createWorker: () => DuelGameWorker;
   maxBytes?: number;
   timeoutMs?: number;
@@ -179,6 +181,8 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
       },
     });
     if (expired) throw new ReplayBuildError("Replay timed out.", "ENGINE_BUSY");
+    check();
+    options.verifyFinalViews?.(result.views);
     const last = dataSeat === null ? result.views.public : result.views.seats[dataSeat]!;
     if (!last.result) {
       const session = source.session;

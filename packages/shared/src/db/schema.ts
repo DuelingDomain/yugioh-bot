@@ -681,6 +681,18 @@ export function migrate(db: Database.Database) {
       primary key (owner_user_id, request_id)
     );
     create index if not exists replay_fork_requests_duel_idx on replay_fork_requests (fork_duel_id);
+    create table if not exists duel_replay_verifications (
+      duel_id integer not null references duels(id) on delete cascade,
+      bundle_version text not null,
+      source_version text not null,
+      resource_stamp text not null,
+      board_stamp text not null,
+      result text not null check (result in ('verified','unverified')),
+      reason text check (reason in ('board_mismatch','command_mismatch','no_saved_board')),
+      checked_at text not null default current_timestamp,
+      primary key (duel_id,bundle_version),
+      check ((result='verified' and reason is null) or (result='unverified' and reason is not null))
+    );
   `);
 
   db.transaction(() => {

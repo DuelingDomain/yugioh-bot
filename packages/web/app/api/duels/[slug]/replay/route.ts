@@ -4,6 +4,7 @@ import { callDuelHost, duelErrorResponse, readReplayQuery, requireDuelActor } fr
 import { assertDuelForkAccess } from "@/lib/replay-fork-access";
 import { getDb } from "@/lib/db";
 import { savedReplayBoardResponse } from "@/lib/saved-replay-board";
+import { isOwnerUser } from "@yugidraft/shared/access/owner-access";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   }
   const query = readReplayQuery(request);
   if (!query.ok) return query.response;
+  const uncheckedAccessError = () => noStore(NextResponse.json({ error: "Unchecked replay requires owner access", code: "ACCESS_DENIED" }, { status: 403 }));
+  if (query.input.unchecked && !isOwnerUser(actor.userId)) return uncheckedAccessError();
   const { slug } = await params;
 
   try {
@@ -48,6 +51,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     userId: actor.userId,
     ...query.input,
   });
+  if (query.input.unchecked && !isOwnerUser(actor.userId)) return uncheckedAccessError();
   if (!result.ok) {
     if (result.response.status === 413 || result.response.status === 409) {
       try {

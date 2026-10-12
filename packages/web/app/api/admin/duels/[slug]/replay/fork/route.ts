@@ -8,7 +8,11 @@ const noStore = (response: NextResponse) => { response.headers.set("cache-contro
 
 export async function POST(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const actor = await requireReplayOwnerActor();
-  if (!actor.ok) return actor.response;
+  if (!actor.ok) {
+    const body = await request.clone().json().catch(() => null);
+    return actor.response.status === 404 && body?.unchecked === true
+      ? noStore(NextResponse.json({ error: "Unchecked replay fork requires owner access", code: "ACCESS_DENIED" }, { status: 403 })) : actor.response;
+  }
   let body: unknown;
   try { body = await request.json(); } catch { body = null; }
   if (!isReplayForkRequest(body) || new URL(request.url).searchParams.size > 0) {

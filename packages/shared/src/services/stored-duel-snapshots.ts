@@ -72,17 +72,20 @@ export function freezeStoredBoard(view: DuelEngineView, result: NonNullable<Duel
   return encodeStoredSnapshot({ ...view, prompt: null, prioritySeat: null, result });
 }
 
-/** Storage changes intentionally invalidate replay caches, without parsing large boards for a key. */
-export function storedBoardStamp(row: StoredDuelBoards | undefined, seat: number | null, reveal = false): string {
-  const selected = !row ? [] : reveal ? [row.snapshot_public_json, row.snapshot_seat0_json, row.snapshot_seat1_json, row.snapshot_seats_json]
-    : seat === null ? [row.snapshot_public_json]
-      : [row.snapshot_seats_json, seat === 0 ? row.snapshot_seat0_json : seat === 1 ? row.snapshot_seat1_json : null];
-  const hash = createHash("sha256");
-  for (const raw of selected) {
-    hash.update(raw === null || raw === undefined ? "null" : typeof raw === "string" ? "json" : "gzip").update("\0");
-    hash.update(raw ?? "null").update("\0");
-  }
-  return hash.digest("hex");
+/** Canonical decoded projections survive gzip and legacy-column deduplication. */
+export function storedBoardStamp(row: StoredDuelBoards | undefined, seat: number | null, reveal = false,
+  read = createStoredBoardReader(row), seatCount?: number): string {
+  const count = seatCount ?? read(null)?.seats.length ?? read(0)?.seats.length ?? read(1)?.seats.length
+    ?? readStoredSeatBoards(row?.snapshot_seats_json).length;
+  const selected = reveal ? [read(null), ...Array.from({ length: Math.max(2, count) }, (_, index) => read(index))]
+    : [read(seat)];
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, entry]) => [key, canonical(entry)]));
+    return value;
+  };
+  return createHash("sha256").update(JSON.stringify(canonical(selected))).digest("hex");
 }
 
 export function storedTurnCount(row: StoredDuelBoards & { clock_json?: StoredSnapshot }): number | null {

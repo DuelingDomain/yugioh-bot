@@ -7,6 +7,7 @@ import type { ReplayForkControl } from "./replay-fork.js";
 export * from "./duel-kind.js";
 export * from "./replay.js";
 export * from "./replay-fork.js";
+export { sourceEngineChoice } from "./source-engine-choice.js";
 
 export * from "./sandbox-board.js";
 export * from "./sandbox-share.js";
@@ -659,6 +660,7 @@ export interface DuelReplayFrame {
 }
 
 export interface DuelReplay {
+  verification: import("./replay.js").ReplayVerification;
   session: DuelSession;
   role: DuelActorRole;
   mySeat: number | null;

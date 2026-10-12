@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { defaultDuelSettings, type DuelAnswer, type DuelCardInfo, type DuelDeck, type DuelEngineView, type DuelPrompt, type DuelRoom, type DuelSettings } from "@yugidraft/shared/duels";
@@ -10,8 +10,11 @@ import { createDuelHost, type DuelHost } from "../src/host.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import type { DecisionClockState } from "../src/clock.js";
-import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 
+// Fake-worker tests need complete resource identities but never load a real core.
+const DATA = createHostDataFixture(Array.from({ length: 60 }, (_, index) => ({ code: index + 1, name: `Fixture ${index + 1}` })));
+afterAll(() => rmSync(DATA, { recursive: true, force: true }));
 const SECRET = "duel-host-test-secret";
 const MANIFEST = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")) as { bundleVersion: string };
 
@@ -145,6 +148,7 @@ class FakeWorker implements DuelGameWorker {
 
 type HostHarness = {
   db?: Database.Database;
+  dataDirectory?: string;
   onChange?: (slug: string, guildId: string) => void | Promise<void>;
   archiveAfterMs?: number;
   idleWorkerMs?: number;
@@ -168,7 +172,7 @@ function openHost(createWorker: (() => DuelGameWorker) | undefined, extra: HostH
   if (!extra.db) migrate(db);
   const host = createDuelHost({
     db,
-    dataDirectory: DATA,
+    dataDirectory: extra.dataDirectory ?? DATA,
     secret: SECRET,
     searchCards: () => [],
     archiveAfterMs: extra.archiveAfterMs ?? 60 * 60 * 1000,
@@ -1303,15 +1307,32 @@ describe("duel host replay", () => {
     expect(readHostError(res.data)).toBe("Replays are available after the duel ends");
   });
 
-  it("refuses a changed engine bundle without touching the duel", async () => {
+  it("verifies a changed engine bundle without touching the duel", async () => {
     const { host, session, p1, db, duels } = await playedDuel(true);
     db.prepare("update duels set bundle_version = 'old-bundle' where web_slug = ?").run(session.slug);
-    const before = duels.get(session.slug, "g1");
+    const before = duels.privateState(session.slug, "g1");
     const res = await post(host, { op: "replay", slug: session.slug, guildId: "g1", playerId: p1 });
-    expect(res.status).toBe(409);
-    expect(readHostError(res.data)).toContain("engine changed");
-    expect(duels.get(session.slug, "g1")).toEqual(before);
-    expect(before.status).toBe("completed");
+    expect(res).toMatchObject({ status: 200, data: { verification: "verified" } });
+    expect(duels.privateState(session.slug, "g1")).toEqual(before);
+    expect(before.session.status).toBe("completed");
+    expect(before.bundleVersion).toBe("old-bundle");
+  });
+
+  it("refuses a missing source engine before spawning without touching the duel", async () => {
+    const { session, p1, db, duels } = await playedDuel(true);
+    const directory = createHostDataFixture([]);
+    let spawned = 0;
+    try {
+      rmSync(join(directory, "ocgcore.standard.wasm"));
+      db.prepare("update duels set setup_json=json_set(setup_json,'$.engine','pinned','$.engineIdentity.coreFamily','pinned') where id=?")
+        .run(session.id);
+      const other = openHost(() => { spawned++; return new LoggingWorker(); }, { db, dataDirectory: directory });
+      const before = duels.privateState(session.slug, "g1");
+      const res = await post(other.host, { op: "replay", slug: session.slug, guildId: "g1", playerId: p1 });
+      expect(res).toMatchObject({ status: 409, data: { code: "ENGINE_UNAVAILABLE_FOR_SOURCE" } });
+      expect(spawned).toBe(0);
+      expect(duels.privateState(session.slug, "g1")).toEqual(before);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
   it("reports a replay that cannot be reproduced and closes its worker", async () => {

@@ -19,7 +19,7 @@ it("serializes a large view in a worker and streams reusable JSON without serial
   try {
     const serialized = await encoder.encode(view);
     expect(serialized.bytes).toBe(Buffer.byteLength(serialized.json));
-    const replay = { session: source.session, role: "spectator" as const, mySeat: null, frames };
+    const replay = { verification: "exact" as const, session: source.session, role: "spectator" as const, mySeat: null, frames };
     const response = replayJsonResponse({ replay, viewJson: [serialized.json] });
     expect(response.headers.get("content-type")).toBe("application/json");
     expect(await response.json()).toEqual(replay);
@@ -34,7 +34,7 @@ it("streams metadata-only checkpoints without stringifying the entire step list 
   const source = replaySource();
   const forkSteps = Array.from({ length: 1500 }, (_, step) => ({ step, frameId: `frame-${step}`, actorSeat: 0,
     kind: "engine" as const, cursor: `sealed-${step}` }));
-  const replay = { version: 2 as const, sourceVersion: "version", visibility: "public" as const, session: source.session,
+  const replay = { verification: "exact" as const, version: 2 as const, sourceVersion: "version", visibility: "public" as const, session: source.session,
     role: "spectator" as const, mySeat: null, dataSeat: null, frames: [], forkSteps };
   const stringify = JSON.stringify;
   const spy = vi.spyOn(JSON, "stringify").mockImplementation((value, ...args) => {

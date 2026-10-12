@@ -15,12 +15,14 @@ import {
   replayRoom,
   type ReplayController,
   type ReplayModel,
+  checkNoteOf,
 } from "./replay-controller";
 import type { ReplayTimeline } from "./replay-timeline";
 import { defaultTeamNames } from "./tag/live-tag";
 import { TagShell } from "./tag/tag-shell";
 import { useMatchHistoryHref } from "./history-link";
 import { ReplayStatus } from "./replay-status";
+import { ReplayVerificationNote } from "./replay-verification";
 import styles from "./replay-tag.module.css";
 
 const noop = () => undefined;
@@ -80,6 +82,8 @@ export function ReplayTag({ slug, viewerId, model, timeline, engine, controller,
   const canSwitchCards = model.version === 2 && model.mySeat != null;
   const publicOnly = model.mySeat == null || model.visibility === "public";
   const seats = [0, 1, 2, 3];
+  const note = checkNoteOf(model);
+  const checked = note !== "exact";
 
   // The seat, card view and page links: in the header on a wide screen, in the transport bar on a narrow one.
   const viewControls = (
@@ -108,6 +112,8 @@ export function ReplayTag({ slug, viewerId, model, timeline, engine, controller,
 
   const transport = (
     <div className={styles.panel} data-narrow={narrow ? "true" : undefined}>
+      {/* In the bar, not the notices: the notices float over the top of the roof and would cover a field. */}
+      {checked ? <div className={styles.check}><ReplayVerificationNote verification={note} /></div> : null}
       <div className={styles.text} aria-live="off">
         {result ? (
           <div role="status" data-replay-result className={styles.result}>

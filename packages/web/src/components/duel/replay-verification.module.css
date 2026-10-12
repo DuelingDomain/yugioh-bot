@@ -1,0 +1,29 @@
+/* The check result of a replay. Amber for a warning (like the gold of the dock), quiet grey for a passed check. */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid #a9772a;
+  border-radius: 6px;
+  background: #2a1d0a;
+  color: #f3d28f;
+  font-size: 12px;
+  line-height: 1.3;
+  min-width: 0;
+}
+.banner svg { flex: none; margin-top: 1px; color: #e8b34f; }
+.banner span { min-width: 0; overflow-wrap: anywhere; }
+.back { flex: none; margin-left: auto; color: #f3d28f; text-decoration: underline; white-space: nowrap; }
+.back:hover { color: #fff1cf; }
+.back:focus-visible { outline: 2px solid #c4a35a; outline-offset: 2px; border-radius: 3px; }
+.verified { margin: 0; color: #9db0c4; font-size: 12px; line-height: 1.3; }
+/* The free-for-all strip is one line tall: cut with an ellipsis (the full text is the title of the text). */
+.banner[data-strip] { align-items: center; flex: 1 0 100%; padding: 2px 8px; }
+.banner[data-strip] span { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A quiet note gives way to the move caption: it can shrink and is cut, never the caption. */
+.verified[data-strip] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container (min-width: 460px) {
+  .banner[data-strip] { flex: 0 1 auto; max-width: 70%; }
+}

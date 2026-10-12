@@ -9,7 +9,7 @@ import {
   TournamentDuelError,
   type DuelService,
 } from "@yugidraft/shared/services";
-import { isReplayFork, seatCountFor, type  SandboxHostOp, CardQuery, DuelChainMode, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove, SandboxBoard, SandboxRun, SandboxBotMode, type DuelRoom, type ReplayForkRequest } from "@yugidraft/shared/duels";
+import { isReplayFork, seatCountFor, type  SandboxHostOp, CardQuery, DuelChainMode, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove, SandboxBoard, SandboxRun, SandboxBotMode, type DuelRoom, type ReplayForkRequest, type ReplayUnverifiedReason } from "@yugidraft/shared/duels";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -118,7 +118,8 @@ export function duelErrorResponse(error: unknown) {
   return NextResponse.json({ error: "Failed to process duel request" }, { status: 500, headers: { "cache-control": "private, no-store" } });
 }
 
-function hostErrorBody(text: string, status: number): { error: string; code?: string; finalBoard?: "available" | "none"; limit?: number; forksUrl?: string } {
+function hostErrorBody(text: string, status: number): { error: string; code?: string; finalBoard?: "available" | "none";
+  canOpenUnchecked?: boolean; reason?: ReplayUnverifiedReason; limit?: number; forksUrl?: string } {
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") {
@@ -126,11 +127,14 @@ function hostErrorBody(text: string, status: number): { error: string; code?: st
         && "limit" in parsed && typeof parsed.limit === "number" && Number.isSafeInteger(parsed.limit) && parsed.limit > 0
         && "forksUrl" in parsed && parsed.forksUrl === "/api/admin/duels/forks"
         ? { limit: parsed.limit, forksUrl: parsed.forksUrl } : {};
+      const unverified: { reason?: ReplayUnverifiedReason; canOpenUnchecked?: boolean } = status === 409 && "code" in parsed && parsed.code === "REPLAY_UNVERIFIED"
+        && "reason" in parsed && (parsed.reason === "board_mismatch" || parsed.reason === "command_mismatch" || parsed.reason === "no_saved_board")
+        ? { reason: parsed.reason, canOpenUnchecked: "canOpenUnchecked" in parsed && parsed.canOpenUnchecked === true } : {};
       return { error: parsed.error, ...("code" in parsed && typeof parsed.code === "string" ? { code: parsed.code } : {}),
         ...("code" in parsed && typeof parsed.code === "string"
-          && ((status === 409 && ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE"].includes(parsed.code))
+          && ((status === 409 && ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE", "REPLAY_UNVERIFIED"].includes(parsed.code))
             || (status === 413 && parsed.code === "REPLAY_TOO_LARGE"))
-          && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery };
+          && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery, ...unverified };
     }
   } catch {
     // Host may return a plain-text error body.
@@ -161,6 +165,7 @@ export async function callDuelHost(input: {
   cursor?: ReplayForkRequest["cursor"];
   sourceVersion?: string;
   requestId?: string;
+  unchecked?: boolean;
   /** Replay contract and server card projection. Camera position stays in the browser. */
   version?: 1 | 2;
   visibility?: "mine" | "public";
@@ -228,6 +233,7 @@ export async function callDuelHost(input: {
   if (input.cursor !== undefined) payload.cursor = input.cursor;
   if (input.sourceVersion !== undefined) payload.sourceVersion = input.sourceVersion;
   if (input.requestId !== undefined) payload.requestId = input.requestId;
+  if (input.unchecked !== undefined) payload.unchecked = input.unchecked;
   if (input.version !== undefined) payload.version = input.version;
   if (input.visibility !== undefined) payload.visibility = input.visibility;
   if (input.reveal !== undefined) payload.reveal = input.reveal;
@@ -289,19 +295,22 @@ export async function callDuelHost(input: {
 /** Strict query parsing prevents private view flags from reaching the ordinary host operation. */
 export function readReplayQuery(request: Request, privileged = false) {
   const query = new URL(request.url).searchParams;
-  const allowed = privileged ? ["version", "visibility", "seat", "reveal"] : ["version", "visibility"];
+  const allowed = privileged ? ["version", "visibility", "seat", "reveal", "unchecked"] : ["version", "visibility", "unchecked"];
   const invalid = () => ({ ok: false as const, response: NextResponse.json({ error: "Invalid replay request", code: "INVALID_CURSOR" },
     { status: 400, headers: { "cache-control": "private, no-store" } }) });
   if ([...query.keys()].some(key => !allowed.includes(key) || query.getAll(key).length !== 1)) return invalid();
   const version = query.get("version"); const visibility = query.get("visibility");
   const seat = query.get("seat"); const reveal = query.get("reveal");
+  const unchecked = query.get("unchecked");
   if ((version !== null && (privileged ? version !== "2" : version !== "1" && version !== "2"))
     || (visibility !== null && visibility !== "mine" && visibility !== "public")
-    || (seat !== null && !/^[0-3]$/.test(seat)) || (reveal !== null && reveal !== "0" && reveal !== "1")) return invalid();
+    || (seat !== null && !/^[0-3]$/.test(seat)) || (reveal !== null && reveal !== "0" && reveal !== "1")
+    || (unchecked !== null && unchecked !== "1")) return invalid();
   return { ok: true as const, input: {
     ...(version !== null ? { version: Number(version) as 1 | 2 } : privileged ? { version: 2 as const } : {}),
     ...(visibility !== null ? { visibility: visibility as "mine" | "public" } : {}),
     ...(seat !== null ? { seat: Number(seat) } : {}), ...(reveal !== null ? { reveal: reveal === "1" } : {}),
+    ...(unchecked !== null ? { unchecked: true } : {}),
   } };
 }
 
