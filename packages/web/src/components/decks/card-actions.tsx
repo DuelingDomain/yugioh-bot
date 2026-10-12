@@ -36,6 +36,7 @@ export function CardActions({
   onAdd,
   onRemove,
   onMaster,
+  onClearMaster,
   onArchetype,
   artwork,
   hideSummary = false,
@@ -55,6 +56,8 @@ export function CardActions({
   onAdd: (section: DeckSection) => void;
   onRemove: (section: DeckSection) => void;
   onMaster: () => void;
+  /** Takes the card out of the Deck Master slot. */
+  onClearMaster: () => void;
   onArchetype: (archetype: CardArchetype) => void;
   /** The art picker for this card; it renders nothing for a card with one art. */
   artwork?: ReactNode;
@@ -115,9 +118,9 @@ export function CardActions({
       </ul>
 
       {canMaster ? (
-        <DeckButton size="sm" kind={isMaster ? "quiet" : "secondary"} block disabled={isMaster || !!card.unavailableReason} onClick={onMaster}>
+        <DeckButton size="sm" kind={isMaster ? "quiet" : "secondary"} block disabled={!isMaster && !!card.unavailableReason} onClick={isMaster ? onClearMaster : onMaster}>
           <Crown size={15} strokeWidth={1.6} aria-hidden />
-          {isMaster ? "This is your Deck Master" : "Use as Deck Master"}
+          {isMaster ? "Remove as Deck Master" : "Use as Deck Master"}
         </DeckButton>
       ) : null}
 

@@ -39,7 +39,7 @@ describe("blocked cards in the deck builder", () => {
   it("shows the reason and disables add and Deck Master controls while allowing removal", () => {
     render(<CardActions card={card} deck={{ main: [10], extra: [], side: [] }} mode="domain"
       copies={1} limit={3} banlistName={null} archetypes={[]} onAdd={vi.fn()} onRemove={vi.fn()}
-      onMaster={vi.fn()} onArchetype={vi.fn()} />);
+      onMaster={vi.fn()} onClearMaster={vi.fn()} onArchetype={vi.fn()} />);
     expect(screen.getByText(`Unavailable: ${reason}`)).toBeVisible();
     expect(screen.getByRole("button", { name: "Add one Blocked Dragon to Main" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Add one Blocked Dragon to Side" })).toBeDisabled();

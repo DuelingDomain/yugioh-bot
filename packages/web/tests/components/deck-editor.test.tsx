@@ -1038,7 +1038,7 @@ describe("Domain one copy of each card", () => {
     stored = domainDeck([BLUE_EYES.code]);
     render(<SavedDeckEditor deckId="7" />);
     const tile = await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
-    expect(tile).toHaveAttribute("aria-keyshortcuts", "Delete ContextMenu Shift+F10");
+    expect(tile).toHaveAttribute("aria-keyshortcuts", "Delete M ContextMenu Shift+F10");
     fireEvent.keyDown(tile, { key: "+" });
     expect(mainCards()).toHaveLength(1);
     expect(screen.queryAllByRole("status").map((node) => node.textContent).join(" | ")).not.toContain("Domain decks hold one copy");
@@ -1061,6 +1061,50 @@ describe("Domain one copy of each card", () => {
     expect(screen.queryByRole("button", { name: "Use as Deck Master" })).toBeNull();
   });
 
+  it("sets the Deck Master from a Main Deck monster with the M key and the crown, and lets a new one replace it", async () => {
+    stored = { ...domainDeck([BLUE_EYES.code, POT.code]), deck: { main: [BLUE_EYES.code, POT.code], extra: [FUSION.code], side: [] } };
+    render(<SavedDeckEditor deckId="7" />);
+    const monster = await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
+    expect(monster).toHaveAttribute("aria-keyshortcuts", expect.stringContaining("M"));
+    fireEvent.keyDown(monster, { key: "m" });
+    expect(await screen.findByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" })).toBeInTheDocument();
+    expect(mainCards()).toHaveLength(1);
+    // The crown on a tile does the same as the key, and the new Master replaces the old one.
+    const crown = within(screen.getByRole("region", { name: "Extra Deck" })).getByTitle("Set Blue-Eyes Ultimate Dragon as Deck Master (M)");
+    fireEvent.click(crown);
+    expect(await screen.findByRole("button", { name: "Deck Master: Blue-Eyes Ultimate Dragon" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" })).toBeNull();
+  });
+
+  it("offers no Deck Master key or crown on a Spell or in Standard", async () => {
+    stored = { ...domainDeck([BLUE_EYES.code, POT.code]), deck: { main: [BLUE_EYES.code, POT.code], extra: [], side: [] } };
+    const { unmount } = render(<SavedDeckEditor deckId="7" />);
+    const spell = await screen.findByRole("button", { name: /^Pot of Greed, Main Deck card 2/ });
+    expect(spell.getAttribute("aria-keyshortcuts")).not.toMatch(/\bM\b/);
+    fireEvent.keyDown(spell, { key: "m" });
+    expect(screen.queryByRole("button", { name: /^Deck Master:/ })).toBeNull();
+    expect(screen.queryByTitle(/Set Pot of Greed as Deck Master/)).toBeNull();
+    unmount();
+
+    stored = savedDeck([BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    const monster = await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
+    fireEvent.keyDown(monster, { key: "m" });
+    expect(screen.queryByRole("region", { name: "Deck Master" })).toBeNull();
+    expect(screen.queryByTitle(/as Deck Master/)).toBeNull();
+  });
+
+  it("removes the Deck Master from the card panel and from the Deck Master row", async () => {
+    stored = { ...savedDeck([]), mode: "domain", deck: { main: [], extra: [], side: [], deckMaster: BLUE_EYES.code } };
+    render(<SavedDeckEditor deckId="7" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" }));
+    const [remove] = await screen.findAllByRole("button", { name: "Remove as Deck Master" });
+    expect(remove).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "This is your Deck Master" })).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove as Deck Master" })[0]);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Deck Master:/ })).toBeNull());
+  });
+
   it("renders a saved Spell Deck Master without crashing and offers no Master control for it", async () => {
     stored = { ...domainDeck([BLUE_EYES.code]), deck: { main: [BLUE_EYES.code], extra: [], side: [], deckMaster: POT.code } };
     render(<SavedDeckEditor deckId="7" />);
@@ -1069,7 +1113,7 @@ describe("Domain one copy of each card", () => {
     expect(screen.queryByRole("button", { name: "This is your Deck Master" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use as Deck Master" })).toBeNull();
     expect(screen.getByRole("alert")).toHaveTextContent("You can't use a Spell or Trap as your Deck Master.");
-    expect(screen.getByRole("button", { name: "Clear" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Remove as Deck Master" })).toBeEnabled();
   });
 
   it("shows no Spell or Trap message for a monster Deck Master", async () => {

@@ -1022,6 +1022,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     onDrop: dropCard,
     onArtMenu: openArtMenu,
     artMenu,
+    // Domain only: the crown and the M key on a deck card. Whether a card can be the Master is decided by canBeDeckMaster.
+    canMaster: mode === "domain" ? (code: number) => { const card = catalog.get(code); return !!card && !card.unavailableReason && canBeDeckMaster(card.type); } : undefined,
+    onMaster: mode === "domain" ? (copy: { code: number; section: DeckSection }) => makeMaster(copy.code, copy.section) : undefined,
   };
   const clearButton = (section: DeckSection, label: string) => (
     <SvButton
@@ -1057,6 +1060,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       onAdd={(section) => addFromList(inspected, section)}
       onRemove={(section) => removeCopy({ code: inspected.code, from: section })}
       onMaster={() => makeMaster(inspected.code, selected?.code === inspected.code ? selected.section : undefined)}
+      onClearMaster={() => commit(selectDomainMaster(selection, undefined))}
       onArchetype={showArchetype}
       artwork={
         <ArtworkPicker
@@ -1199,7 +1203,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
           <aside className={styles["de-read"]} aria-label="Card details" ref={inspectScrollRef}>
             {shownCode == null ? <DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /> : shown ? <CardPreview card={shown} /> : missingReader}
             {cardControls}
-            <ControlsLegend />
+            <ControlsLegend domain={mode === "domain"} />
           </aside>
           <main ref={deckFitRef} className={styles["de-deck"]} aria-label="Deck" id="deck-editor-deck">
             {registration ? (
@@ -1232,7 +1236,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
                 onDrop={(event) => { setMasterDropping(false); const drag = readCardDrag(event); if (!drag || drag.from === "master") return; event.preventDefault(); makeMaster(drag.code, drag.from === "list" ? undefined : drag.from); }}>
                 <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}${masterArts > 0 ? `, ${artCountLabel(masterArts)}` : ""}`} aria-keyshortcuts="ContextMenu Shift+F10" aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /><ArtChip otherArts={masterArts} corner open={artMenu?.section === "deckMaster"} onOpen={(anchor) => openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor })} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "var(--fit-tw, 58px)" } as CSSProperties} />}</div>
-                <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, or select one and press Use as Deck Master.</p>{masterIsSpellTrap ? <p role="alert" className={styles.errorText}>{SPELL_TRAP_MASTER_MESSAGE}</p> : null}{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Clear</SvButton> : null}</div>
+                <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, press M on a deck card, or select one and press Use as Deck Master.</p>{masterIsSpellTrap ? <p role="alert" className={styles.errorText}>{SPELL_TRAP_MASTER_MESSAGE}</p> : null}{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Remove as Deck Master</SvButton> : null}</div>
               </section>
             ) : null}
             <DeckSectionGrid {...sectionProps} title="Main" section="main" codes={deck.main} minimum={mainLow} maximum={DRAFT_MAIN_MAX} target={mode === "domain" ? "60" : `${mainLow}–${DRAFT_MAIN_MAX}`} emptyHint="Add cards from the list on the right." actions={clearButton("main", "Main")} />
