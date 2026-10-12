@@ -5,7 +5,7 @@ import { seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
 import { ChainRoomContext, type ChainStripSize } from "../table/chain-room";
 import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
-import { LOCATION_HAND, zoneKey } from "../constants";
+import { LOCATION_FZONE, LOCATION_MZONE, LOCATION_PZONE, LOCATION_SZONE, zoneKey } from "../constants";
 import { isChainStripPrompt } from "../prompt-center";
 import { useStripRoom } from "../table/use-strip-room";
 import { hexToRgbTriplet } from "../table/seat-angle";
@@ -55,6 +55,8 @@ export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
 }
 
 const TAG = "tag" as const;
+/** Locations of the field zones: a pick there sits on a field, unlike a pile, a Deck or a hand. */
+const FIELD_LOCATIONS: ReadonlySet<number> = new Set([LOCATION_MZONE, LOCATION_SZONE, LOCATION_FZONE, LOCATION_PZONE]);
 const HALF_W = ROOF_FIELD.width / 2;
 const HALF_H = ROOF_FIELD.height / 2;
 /** Space between the phase hub and the chain hub while both are on the helipad. */
@@ -508,7 +510,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const seats = new Set<number>();
     for (const key of legalKeys) {
       const [controllerSeat, location] = key.split(":").map(Number);
-      if (Number.isInteger(controllerSeat) && location !== LOCATION_HAND && controllerSeat !== camera.focusSeat) seats.add(controllerSeat);
+      // Only a zone on the field counts: a card in a Graveyard, a banished pile, a Deck or a hand is not on the field the pill zooms to.
+      if (Number.isInteger(controllerSeat) && FIELD_LOCATIONS.has(location) && controllerSeat !== camera.focusSeat) seats.add(controllerSeat);
     }
     return [...seats];
   }, [camera.mode, camera.focusSeat, camera.aiming, controller.canAct, controller.aim, prompt, promptSeat, viewerSeat, legalKeys]);
