@@ -336,7 +336,7 @@ export type Ffa3PreviewPick = "def" | "cards" | "cards2" | "attack" | "attack-di
  * A preview variant of the 3-way fixtures: `out` sweeps those seats (as the engine does: no LP, an empty board, the
  * elimination order); `defense` lays Defense Position monsters on every field; `pick: "def"` asks you to pick one monster
  * on any field (yours included), so the turned cards are the targets; `pick: "cards"` asks for one of 14 Deck cards (`"cards2"`: one of 2).
- * `pair: true` reports the facing pair 0+1 (`sharedExtraWith`), which puts the table on the grid.
+ * `pair: true` reports the facing pair 0+1 (`sharedExtraWith`), which draws the link between those two fields on the plaza.
  * `pick: "attack"` is the battle action prompt (click your
  * monster, aim, click a target); `"attack-direct"` is the same with the first living rival's monsters gone (a direct attack).
  */
