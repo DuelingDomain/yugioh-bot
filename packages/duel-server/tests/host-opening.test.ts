@@ -57,6 +57,15 @@ function setup() {
 }
 type App = ReturnType<typeof setup>;
 
+/** Await timer-driven activation without polling the room or advancing the fake opening clock. */
+function startNotice(app: App) {
+  let resolveStarted!: () => void;
+  const started = new Promise<void>(resolve => { resolveStarted = resolve; });
+  return { started, onChange: (slug: string, guildId: string) => {
+    if (app.duels.get(slug, guildId).status === "active") resolveStarted();
+  } };
+}
+
 function openHost(app: App, random: () => number = Math.random, onChange?: (slug: string, guildId: string) => void) {
   const workers: FakeWorker[] = [];
   const control = { failCreate: false };
@@ -223,8 +232,9 @@ describe("rock-paper-scissors opening", () => {
   it("makes a missing pick at random after about 30 seconds, and a winner who does not choose goes first", async () => {
     vi.useFakeTimers();
     const app = setup();
+    const notice = startNotice(app);
     const randoms = [0.5];
-    const { host, workers } = openHost(app, () => randoms.shift() ?? 0);
+    const { host, workers } = openHost(app, () => randoms.shift() ?? 0, notice.onChange);
     const slug = openTable(app);
     await post(host, { op: "start", slug, playerId: app.p1 });
     await post(host, { op: "opening-pick", slug, playerId: app.p1, move: "rock" });
@@ -241,7 +251,8 @@ describe("rock-paper-scissors opening", () => {
 
     await vi.advanceTimersByTimeAsync(34_000);
     await settle();
-    await vi.waitFor(() => expect(app.duels.get(slug, GUILD).status).toBe("active"));
+    await notice.started;
+    expect(app.duels.get(slug, GUILD).status).toBe("active");
     expect(workers).toHaveLength(1);
     expect(seatPlayer(app, slug, 0)).toBe(app.p2);
   });
@@ -260,9 +271,10 @@ describe("rock-paper-scissors opening", () => {
   it("plays against the practice bot: the human sees the result first, then the bot goes first when it wins", async () => {
     vi.useFakeTimers();
     const app = setup();
+    const notice = startNotice(app);
     // The bot's random pick: index 1 is paper.
     const randoms = [0.5];
-    const { host, workers } = openHost(app, () => randoms.shift() ?? 0);
+    const { host, workers } = openHost(app, () => randoms.shift() ?? 0, notice.onChange);
     const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Bot", mode: "normal" });
     app.duels.setDeck(table.slug, GUILD, app.p1, deckFor());
     app.duels.markReady(table.slug, GUILD, app.p1);
@@ -290,7 +302,8 @@ describe("rock-paper-scissors opening", () => {
     // The reveal ends: the bot chooses to go first and the duel starts.
     await vi.advanceTimersByTimeAsync(1_500);
     await settle();
-    await vi.waitFor(() => expect(app.duels.get(table.slug, GUILD).status).toBe("active"));
+    await notice.started;
+    expect(app.duels.get(table.slug, GUILD).status).toBe("active");
     expect(app.duels.get(table.slug, GUILD).seats.find((seat) => seat.seat === 0)?.isBot).toBe(true);
     expect(workers).toHaveLength(1);
   });
