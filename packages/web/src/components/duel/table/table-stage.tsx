@@ -793,6 +793,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               handCount={view.hand.length}
               deckCount={view.deckCount}
               clockMs={room.clock?.remainingMs[slot.seat] ?? null}
+              clock={room.clock}
               status={holoStatus(engine, slot.seat, promptSeat)}
               me={anchor.me}
               x={anchor.x}
