@@ -39,7 +39,7 @@ const locked = (state: CameraState = HOME, ms = 1000): CameraState => run(state,
 describe("initialCamera", () => {
   it("starts at home with fly-in preferred", () => {
     expect(HOME).toMatchObject({
-      mode: "home", focusSeat: null, lookSeat: null, lock: null, upright: false, compact: "auto",
+      mode: "home", focusSeat: null, lookSeat: null, lock: null, compact: "auto",
     });
     expect(HOME.flyIn).not.toBe(false);
     expect(HOME.fly).toEqual(FLY_HOME);
@@ -186,11 +186,6 @@ describe("cameraReducer: fly-in", () => {
 });
 
 describe("cameraReducer: toggles", () => {
-  it("toggleUpright flips upright", () => {
-    expect(run(HOME, { type: "toggleUpright" }).upright).toBe(true);
-    expect(run(run(HOME, { type: "toggleUpright" }), { type: "toggleUpright" }).upright).toBe(false);
-  });
-
   it("toggleCompact cycles auto, on, off", () => {
     const a = run(HOME, { type: "toggleCompact" });
     const b = run(a, { type: "toggleCompact" });
@@ -244,7 +239,6 @@ describe("preview lock", () => {
 
   it("still takes toggles and more locks while locked", () => {
     const l = locked();
-    expect(run(l, { type: "toggleUpright" }).upright).toBe(true);
     expect(run(l, { type: "toggleCompact" }).compact).toBe("on");
     expect(run(l, { type: "lock", reason: "direct", nowMs: 1000, ms: 4000 }).lock?.untilMs).toBe(5000);
   });
@@ -273,7 +267,7 @@ describe("preview lock", () => {
   it("effectiveCamera swaps the pose and keeps the rest", () => {
     const focus = run(HOME, { type: "focus", seat: 2 });
     const l = locked(focus);
-    expect(effectiveCamera(l, 1200)).toMatchObject({ mode: "home", focusSeat: null, upright: false, lock: l.lock });
+    expect(effectiveCamera(l, 1200)).toMatchObject({ mode: "home", focusSeat: null, lock: l.lock });
     expect(effectiveCamera(l, 3000)).toBe(l);
     const orbit = locked(run(run(HOME, { type: "overview" }), { type: "orbit", dYawDeg: 25, dTiltDeg: 0 }));
     expect(effectiveCamera(orbit, 1100)).toMatchObject({ mode: "fly", fly: FLY_HOME });
@@ -303,8 +297,9 @@ describe("cameraActionForKey", () => {
     expect(key("O")).toEqual({ type: "overview" });
     expect(key("0")).toEqual({ type: "overview" });
     expect(key("f")).toEqual({ type: "toggleFly" });
-    expect(key("s")).toEqual({ type: "toggleUpright" });
-    expect(key("S")).toEqual({ type: "toggleUpright" });
+    // S is free: no upright switch is left.
+    expect(key("s")).toBeNull();
+    expect(key("S")).toBeNull();
   });
 
   it("P looks from the next rival's seat, then back home", () => {

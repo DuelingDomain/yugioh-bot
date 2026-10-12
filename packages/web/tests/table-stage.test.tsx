@@ -119,17 +119,25 @@ describe("TableShell on the 3-way fixtures", () => {
     }
   });
 
-  it("toggles upright text with the S key", () => {
+  it("has no upright text mode: the S key and the View panel change nothing, so a rival field stays turned", () => {
     const { container } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-table-stage]")!;
-    expect(stage.getAttribute("data-upright")).toBe("false");
-    act(() => {
-      fireEvent.keyDown(window, { key: "s" });
-    });
-    expect(stage.getAttribute("data-upright")).toBe("true");
-    act(() => {
-      fireEvent.keyDown(window, { key: "S" });
-    });
-    expect(stage.getAttribute("data-upright")).toBe("false");
+    const turned = () => Array.from(container.querySelectorAll("[data-seat-field]")).map((el) => `${el.getAttribute("data-seat-field")}:${el.getAttribute("data-seat-angle")}`);
+    const before = turned();
+    let allowed = true;
+    for (const name of ["s", "S"]) {
+      act(() => {
+        allowed = fireEvent.keyDown(window, { key: name });
+      });
+      expect(allowed).toBe(true);
+    }
+    expect(stage.hasAttribute("data-upright")).toBe(false);
+    expect(container.querySelector("[data-cam='upright']")).toBeNull();
+    expect(container.textContent).not.toMatch(/upright text/i);
+    expect(turned()).toEqual(before);
+    for (const el of container.querySelectorAll("[data-seat-field]")) {
+      expect(el.hasAttribute("data-straight")).toBe(false);
+      for (const zone of el.querySelectorAll("[data-zones]")) if (!zone.closest("[data-hand-seat]")) expect(zone.getAttribute("data-side")).not.toBe("opp");
+    }
   });
 });

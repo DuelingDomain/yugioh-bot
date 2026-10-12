@@ -234,7 +234,7 @@ function TableShellBody({
   const suspended = inputSuspended || ui.suspended || (narrow && sheetOpen);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
-  const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, seatKeys: flow.seatKeys, suspended, uprightOnly: grid });
+  const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, seatKeys: flow.seatKeys, suspended, keysOff: grid });
   // The grid starts on the full table (all fields). The turn strip and the keys (1 to 4, O, Esc) move the focus.
   const gridShown = useMemo(() => engine.seats.filter((view) => !view.eliminated).map((view) => view.seat), [engine.seats]);
   const gates = gridKeyGates({ prompt: controller.prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudOpen });

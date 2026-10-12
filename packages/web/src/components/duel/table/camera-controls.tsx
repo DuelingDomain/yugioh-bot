@@ -90,8 +90,8 @@ function ViewButton({ action, label, icon, seatStyle, hotkey, pressed, disabled,
 }
 
 /**
- * The camera UI of a table: the View panel (home, overview, focus, look from a seat, fly into a seat, the fly-in,
- * and the upright switch), the camera chip with its preview lock mark, the target hint and the look-from-seat
+ * The camera UI of a table: the View panel (home, overview, focus, look from a seat, fly into a seat
+ * and the fly-in), the camera chip with its preview lock mark, the target hint and the look-from-seat
  * banner. It only dispatches camera actions that the viewer asked for. While the preview lock is on the buttons are off.
  */
 export function CameraControls({ layout, camera, locked, hint = null, nameOf, dispatch, out = [], variant = "float", view }: CameraControlsProps) {
@@ -193,7 +193,6 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
               </>
             ) : null}
             <ViewButton action="fly" label={`Fly-in overview ${flyReady ? "on" : "off"}`} icon={<Orbit size={13} aria-hidden="true" />} hotkey="F" pressed={flyReady} disabled={locked} wide onClick={() => dispatch({ type: "toggleFly" })} />
-            <ViewButton action="upright" label={`Upright text ${camera.upright ? "on" : "off"}`} icon={<Focus size={13} aria-hidden="true" />} hotkey="S" pressed={camera.upright} wide onClick={() => dispatch({ type: "toggleUpright" })} />
         </div>
       </div>
       ) : null}

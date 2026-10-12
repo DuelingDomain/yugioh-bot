@@ -2055,7 +2055,7 @@
 /* ---------- seat field: one seat of a 3 or 4 seat table ----------
    A standalone board of 5.83 x 3.39 zone sizes. --z comes from --sf-z (default 112px, the 3-way prototype size);
    everything else is a multiple of --z, so the table stage scales and turns the whole box. --t is the seat tone
-   (an rgb triplet) and --lab the turn of labels (the counter-rotation, so text reads level at any seat angle). */
+   (an rgb triplet). Cards, labels and stats all turn with the field, so everything faces the seat that owns it. */
 
 .seatField {
   --z: var(--sf-z, 112px);
@@ -2067,7 +2067,6 @@
   --pile-col: var(--cw);
   --pad: calc(var(--z) * 0.125);
   --ts: var(--sf-ts, 1);
-  --lab: 0deg;
   /* On-screen text floors, in this field's own px: 12px for labels and 14px for names and counts, times the Text size
      setting (--tt). --sk is the whole scale from the field's px to the screen (stage fit times pose scale; 1 in the grid).
      The floor fades out below 0.5 (--fk) and is capped by the zone size: a docked or overview field is a thumbnail, and floored
@@ -2399,17 +2398,6 @@
   inset: calc((var(--z) - var(--cw)) / 2 - 1px) calc((var(--z) - var(--cw)) / -2 - 1px);
 }
 
-/* Labels, stats, counters and marks turn against the field so they read level (--lab). */
-.seatField .pileLabel,
-.seatField .plate,
-.seatField .overlayBadge,
-.seatField .mark,
-.seatField .zoneName,
-.seatField .pendulumMark,
-.seatField .openChip {
-  rotate: var(--lab);
-}
-
 .seatField .plate {
   font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
 }
@@ -2419,7 +2407,7 @@
   font-size: min(max(calc(var(--z) * 0.116 * var(--ts)), var(--fl)), calc(var(--cardw) * 0.2));
 }
 
-/* At a big text size the hand card is too narrow for "1400 / 1200" at the text floor: the plate shows ATK only, like a quarter-turned field. */
+/* At a big text size the hand card is too narrow for "1400 / 1200" at the text floor: the plate shows ATK only. */
 [data-text-big="true"] .seatField .handCard .plate {
   font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
 }
@@ -2427,27 +2415,6 @@
 [data-text-big="true"] .seatField .handCard .plate .plateSep,
 [data-text-big="true"] .seatField .handCard .plate .plateDef {
   display: none;
-}
-
-/* A field turned a quarter: the level plate has only a card's width to sit in, so it shows one stat (ATK, or DEF in defense) and sizes to it. */
-.seatField[data-quarter="true"] .plate {
-  right: auto;
-  left: 50%;
-  width: max-content;
-  translate: -50% 0;
-}
-
-.seatField[data-quarter="true"] .plate .plateSep,
-.seatField[data-quarter="true"] .plate .plateDef {
-  display: none;
-}
-
-.seatField[data-quarter="true"] .zone[data-defense="true"] .plate b {
-  display: none;
-}
-
-.seatField[data-quarter="true"] .zone[data-defense="true"] .plate .plateDef {
-  display: inline;
 }
 
 /* A docked rival is a thumbnail at about a third of its size: its pile counts would be 4px text lying over the next pile. */
@@ -2473,7 +2440,6 @@
     0 0 8px rgb(0 0 0 / 0.85);
   text-transform: uppercase;
   translate: -50% 100%;
-  rotate: var(--lab);
   white-space: nowrap;
   /* A long name stops at the board's width instead of running off the table area. */
   max-width: 10em;
@@ -2539,7 +2505,6 @@
   pointer-events: none;
   text-transform: uppercase;
   translate: -50% -50%;
-  rotate: var(--lab);
 }
 
 /* The viewer's hand sits right below the board and turns with it. */
