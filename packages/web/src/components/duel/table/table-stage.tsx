@@ -10,6 +10,7 @@ import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
 import { onCrumbleStart } from "./crumble-gate";
+import { openAttack } from "../battle-trigger";
 import { watchMeasure } from "./measure-watch";
 import { BAR_HUD, promptUnit } from "./grid-stage";
 import { planPickBarRoom } from "./pick-bar-room";
@@ -361,7 +362,11 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   // when the field is full of targets, the free room off every board takes it.
   // While the board is zoomed the prompts keep their dock (the HUD stays put), and the pick bar docks off the HUD.
   const floating = centerPrompts && !fly && !portrait && k > 0;
-  const near = floating && !zoom.zoomed ? poses.get(play.slots[0]?.seat ?? -1) : undefined;
+  // A declared attack on a card of the near field: the prompt leaves the middle of that field, as it does in the own-field
+  // zoom, and takes the free room off every board, so the ring on the target and the end of the arrow stay in view.
+  const nearSeat = play.slots[0]?.seat ?? -1;
+  const attackTarget = useMemo(() => (engine.result == null ? openAttack(engine.events)?.target ?? null : null), [engine.events, engine.result]);
+  const near = floating && !zoom.zoomed && attackTarget?.controller !== nearSeat ? poses.get(nearSeat) : undefined;
   const nearBox = useMemo(() => {
     if (!near) return null;
     const b = boardBounds(near);
@@ -438,7 +443,11 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   // of the box. It is measured and planned at rest, once (use-strip-room.ts); the camera never moves for it.
   const stripCount = controller.prompt && isChainStripPrompt(controller.prompt) ? controller.prompt.options.length : 0;
   const stripAnchor = useMemo(() => (nearBox ? { x: nearBox.x + nearBox.width / 2, y: nearBox.y + nearBox.height / 2 } : undefined), [nearBox]);
-  const sourceKeys = useMemo(() => engine.chain.flatMap((link) => (link.zone ? [zoneKey(link.zone.controller, link.zone.location, link.zone.sequence)] : [])), [engine.chain]);
+  // The chain's cards and the declared attack's target: the panel keeps off them while another place exists.
+  const sourceKeys = useMemo(() => [
+    ...engine.chain.flatMap((link) => (link.zone ? [zoneKey(link.zone.controller, link.zone.location, link.zone.sequence)] : [])),
+    ...(attackTarget ? [zoneKey(attackTarget.controller, attackTarget.location, attackTarget.sequence)] : []),
+  ], [engine.chain, attackTarget]);
   const { room: stripRoom, pending: stripPending } = useStripRoom({
     rootRef,
     active: floating && stripCount > 0,

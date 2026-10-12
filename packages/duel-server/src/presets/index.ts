@@ -13,6 +13,7 @@ import { preset as ffa4RulesExtraZones } from "./ffa4-rules-extra-zones.js";
 import { preset as ffa3Direct } from "./ffa3-table-direct.js";
 import { preset as turnPlayerLast } from "./ffa3-turn-player-last.js";
 import { preset as thirdResponse } from "./ffa3-third-response.js";
+import { preset as ffa3AttackDefender } from "./ffa3-attack-defender.js";
 import { preset as jinzo } from "./jinzo-stops-trap.js";
 import { preset as mindCrush } from "./mind-crush-ffa4-pick.js";
 import { preset as negationVeiler } from "./negation-veiler-ffa4.js";
@@ -48,6 +49,7 @@ export const PRESETS: readonly Preset[] = [
   ffa3Direct,
   turnPlayerLast,
   thirdResponse,
+  ffa3AttackDefender,
 ];
 
 export function getPreset(id: string): Preset | undefined {
