@@ -520,6 +520,38 @@ describe("import request boundary", () => {
 });
 
 describe("preview", () => {
+  it.each(["ydk", "ydke"])("routes %s cards by real type and reports each move in preview warnings", async format => {
+    for (const [id, name, type, frame] of [
+      [901, "Test Spell", "Spell Card", "link"],
+      [902, "Test Trap", "Trap Card", "fusion"],
+      [903, "Test Fusion", "Fusion Monster", "normal"],
+      [904, "Test Pendulum", "Pendulum Effect Monster", "xyz"],
+      [905, "Test Link", "Link Monster", "pendulum"],
+      [906, "Test Ritual", "Ritual Monster", "fusion"],
+    ] as const) {
+      db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,?,'','','[]','test')").run(id, name, type, frame);
+    }
+    const original = { main: [903, 905, 904], extra: [901, 902, 906], side: [902], deckMaster: null };
+    const text = format === "ydke" ? encodeYdke(original) : "#main\n903\n905\n904\n#extra\n901\n902\n906\n!side\n902";
+    const [shown] = await previewRows([source(text)]);
+    expect(shown.errors).toEqual([]);
+    expect(shown.deck).toEqual({ main: [904, 901, 902, 906], extra: [903, 905], side: [902], deckMaster: null });
+    expect(shown.counts).toEqual({ main: 4, extra: 2, side: 1 });
+    expect(shown.warnings).toContainEqual({ code: "section_moved", message: "3 cards moved from Extra Deck to Main Deck: Test Spell, Test Trap, Test Ritual." });
+    expect(shown.warnings).toContainEqual({ code: "section_moved", message: "2 cards moved from Main Deck to Extra Deck: Test Fusion, Test Link." });
+    expect(decks.list("g", "owner")).toEqual([]);
+  });
+
+  it("checks storage limits again after preview routing without dropping copies", async () => {
+    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','link','','','[]','test')").run();
+    const [shown] = await previewRows([source(`#main\n901\n#extra\n${"901\n".repeat(300)}`)]);
+    expect(shown.deck.main).toHaveLength(301);
+    expect(shown.deck.extra).toEqual([]);
+    expect(shown.counts).toEqual({ main: 301, extra: 0, side: 0 });
+    expect(shown.errors).toContainEqual(expect.objectContaining({ code: "invalid_deck", message: expect.stringContaining("300") }));
+    expect(shown.warnings).toContainEqual(expect.objectContaining({ code: "section_moved", message: expect.stringContaining("300 cards moved") }));
+  });
+
   it("accepts an omitted source name and defaults to Standard", async () => {
     const response = await preview(request({ sources: [{ id: "paste", text: "#main\n89631139" }] }));
     expect(response.status).toBe(200);
@@ -613,6 +645,14 @@ describe("preview", () => {
     expect(rows[3].duplicateOf).toBeUndefined();
   });
 
+  it("detects a saved duplicate when type routing corrects the imported section", async () => {
+    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','link','','','[]','test')").run();
+    const saved = decks.create("g", "owner", { name: "Saved", mode: "normal", deck: { main: [901], extra: [], side: [] } });
+    const [shown] = await previewRows([source("#extra\n901")]);
+    expect(shown.deck).toEqual({ main: [901], extra: [], side: [], deckMaster: null });
+    expect(shown.duplicateOf).toEqual({ kind: "saved", deckId: saved.id, name: "Saved" });
+  });
+
   it("includes Deck Master in duplicate identity and never reveals foreign decks", async () => {
     for (const [guildId, userId] of [["g", "other"], ["other", "owner"]] as const) {
       decks.create(guildId, userId, { name: "Private", mode: "normal", deck: { main: [89631139], extra: [], side: [] } });
@@ -622,6 +662,7 @@ describe("preview", () => {
   });
 
   it("returns storage overflow as an error and game size issues as warnings", async () => {
+    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (44508094,'Stardust Dragon','Synchro Monster','synchro','','','[]','test')").run();
     const rows = await previewRows([source(`#main\n${"89631139\n".repeat(301)}`), source(`#main\n89631139\n#extra\n${"44508094\n".repeat(16)}!side\n${"14558127\n".repeat(16)}`, "f2")]);
     expect(rows[0].errors).toContainEqual(expect.objectContaining({ code: "invalid_deck" }));
     expect(rows[1].errors).toEqual([]);
@@ -654,6 +695,34 @@ describe("preview", () => {
 });
 
 describe("bulk", () => {
+  it("rejects a bad Extra card even when another card cannot be resolved", async () => {
+    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','link','','','[]','test')").run();
+    const response = await bulk(request({ rows: [row("Bad", { main: [999], extra: [901], side: [] })] }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Test Spell") });
+    expect(decks.list("g", "owner")).toEqual([]);
+  });
+
+  it("rejects an Extra card with an unknown type with the normal-save code", async () => {
+    const response = await bulk(request({ rows: [row("Unknown Extra", { main: [], extra: [999], side: [] })] }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("card 999") });
+    expect(decks.list("g", "owner")).toEqual([]);
+  });
+
+  it.each([
+    [901, "Spell Card"], [902, "Trap Card"], [904, "Pendulum Effect Monster"], [906, "Ritual Monster"],
+  ])("rejects a forged Extra %s with the normal-save 400 code before writing any row", async (id, type) => {
+    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,'fusion','','','[]','test')").run(id, `Test ${type}`, type);
+    const bad = { main: [], extra: [id], side: [] };
+    const expected = await createDeck(request({ name: "Bad", mode: "normal", deck: bad }));
+    expect(expected.status).toBe(400);
+    const response = await bulk(request({ rows: [row("Good"), row("Bad", bad)] }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual(await expected.json());
+    expect(decks.list("g", "owner")).toEqual([]);
+  });
+
   it("saves Standard by default, explicit Domain, and unfinished Domain without a master", async () => {
     const response = await bulk(request({ rows: [
       row("Default", { ...deck(), side: [46986414] }),

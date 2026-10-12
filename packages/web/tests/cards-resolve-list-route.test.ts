@@ -1,11 +1,16 @@
 import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { migrate } from "@yugidraft/shared/db";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth }));
 vi.mock("@/lib/db", () => ({ getDb }));
+
 let db: Database.Database;
+let engineDirectory: string;
 let upstream: Mock<typeof globalThis.fetch>;
 let before: ReturnType<typeof cubeRows>;
 const resolve = async (body: unknown) => (await import("../app/api/cards/resolve/route")).POST(
@@ -24,6 +29,10 @@ function seed(id: number, name: string, type = "Spell Card", frame = "spell") {
 
 beforeEach(() => {
   vi.resetModules();
+  // An empty temporary directory makes the default engine map deterministic.
+  engineDirectory = mkdtempSync(join(tmpdir(), "list-import-empty-engine-"));
+  vi.stubEnv("DUEL_DATA_DIR", engineDirectory);
+  vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
   auth.mockReset(); getDb.mockReset();
   auth.mockResolvedValue({ user: { id: "owner" } });
   upstream = vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 }));
@@ -44,10 +53,26 @@ beforeEach(() => {
 });
 afterEach(() => {
   try { expect(cubeRows()).toEqual(before); }
-  finally { db.close(); vi.unstubAllGlobals(); }
+  finally { db.close(); rmSync(engineDirectory, { recursive: true, force: true }); vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
 });
 
 describe("POST /api/cards/resolve listText", () => {
+  it("shares one engine map across all entries in a list preview", async () => {
+    const services = await import("@yugidraft/shared/services");
+    const engine = new Map([
+      [1, { name: "Fixture Spell", type: 2 }], [2, { name: "Fixture Synchro", type: 0x2001 }],
+      [3, { name: "Fixture Monster", type: 0x21 }],
+    ]);
+    const load = vi.spyOn(services, "loadArtworkIdentityCatalog").mockReturnValue(engine);
+    const create = vi.spyOn(services, "createDeckTypeLookup");
+    try {
+      const response = await resolve({ listText: "1\n2\n3" });
+      expect(response.status).toBe(200);
+      expect((await response.json()).entries.map((entry: { pool: string }) => entry.pool)).toEqual(["main", "extra", "main"]);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(create).toHaveBeenCalledWith(db, engine);
+    } finally { load.mockRestore(); create.mockRestore(); }
+  });
   it("reports a 20,000 character line as unknown without a lookup and resolves the other lines", async () => {
     const long = `Dark Hole ${"(note) ".repeat(3300)}`;
     const started = performance.now();
@@ -180,7 +205,7 @@ describe("POST /api/cards/resolve listText", () => {
     ["0 Dark Hole", 'Invalid copy count in "0 Dark Hole".'],
     ["999999999999999999999 Dark Hole", 'Invalid copy count in "999999999999999999999 Dark Hole".'],
     ["#deckmaster\n1\n#deckmaster\n2", "YDK contains multiple #deckmaster sections."],
-    ["#deckmaster\nnope", "Invalid Deck Master id in #deckmaster."],
+    ["#deckmaster\n0", "Invalid Deck Master id in #deckmaster."],
     ["#deckmaster\n1\n2", "YDK #deckmaster must contain exactly one card id."],
   ])("returns the parser's 400 for invalid text before upstream access: %#", async (listText, error) => {
     const response = await resolve({ listText });

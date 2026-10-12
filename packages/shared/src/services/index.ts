@@ -63,3 +63,5 @@ export * from "./duel-access.js";
 
 export * from "./stored-duel-snapshots.js";
 export * from "./duel-snapshot-retention.js";
+export { createDeckTypeLookup } from "./deck-sections.js";
+export { createDeckCopyRepairService } from "./deck-copy-repair.js";

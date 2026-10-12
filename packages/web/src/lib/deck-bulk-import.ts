@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { decodeYdke, MAX_DECK_ISSUES, parseYdk, splitImportText, type DeckSections, type FormatIssue } from "@yugidraft/shared/decks";
-import type { DuelDeck, DuelMode } from "@yugidraft/shared/duels";
-import { CARD_LOOKUP_LIMIT, SavedDeckServiceError, validateSavedDeckWrite } from "@yugidraft/shared/services";
+import { assertExtraDeckCards, ExtraDeckCardError, routeDeckSections, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
+import { CARD_LOOKUP_LIMIT, createDeckTypeLookup, SavedDeckServiceError, validateSavedDeckWrite } from "@yugidraft/shared/services";
+import { getDb } from "@/lib/db";
 import { normalizeDraftCardCodes } from "@/lib/draft-deck-codes";
 import { requireDuelActor } from "@/lib/duel-host";
 import { checkSavedDeckMaster, type SavedDeckActor } from "@/lib/saved-decks";
@@ -317,15 +318,20 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
     const key = importDeckIdentity(stored.deck, savedCodes.canonicalCodes);
     if (!duplicates.has(key)) duplicates.set(key, { kind: "saved", deckId: stored.id, name: stored.name });
   }
+  const findCard = createDeckTypeLookup(getDb()).snapshot();
   for (const row of valid) {
     const key = importDeckIdentity(row.deck, resolved.canonicalCodes);
     const masterLine = row.deck.deckMaster == null ? undefined : sourceLines.get(row)?.get(row.deck.deckMaster);
     const mapped = resolveImportDeck(row.deck, resolved.codes, resolved.lookupLimitedCodes, sourceLines.get(row));
-    row.deck = mapped.deck;
-    const master = mapped.errors.length ? [] : await masterIssues(mapped.deck);
+    // The engine type takes priority over catalog frames and file section labels.
+    const routed = routeDeckSections({ ...mapped.deck, deckMaster: mapped.deck.deckMaster ?? undefined }, findCard);
+    row.deck = { ...routed.deck, deckMaster: routed.deck.deckMaster ?? null };
+    row.counts = { main: row.deck.main.length, extra: row.deck.extra.length, side: row.deck.side.length };
+    const final = validateImportRow({ name: row.name, mode: row.mode, deck: row.deck });
+    const master = mapped.errors.length || !final.ok ? [] : await masterIssues(row.deck);
     if (master.some(issue => issue.code === "validation_unavailable")) return errorResponse("Duel engine unavailable, try again", 503);
-    row.errors.push(...mapped.errors, ...master.map(issue => masterLine === undefined ? issue : { ...issue, line: masterLine }));
-    row.warnings.push(...mapped.warnings, ...sizeWarnings(mapped.deck));
+    row.errors.push(...mapped.errors, ...(final.ok ? [] : final.errors), ...master.map(issue => masterLine === undefined ? issue : { ...issue, line: masterLine }));
+    row.warnings.push(...mapped.warnings, ...routed.messages.map(message => ({ code: "section_moved", message })), ...sizeWarnings(row.deck));
     const duplicate = duplicates.get(key);
     if (duplicate) row.duplicateOf = duplicate;
     else duplicates.set(key, { kind: "row", rowId: row.rowId, name: row.name });
@@ -341,12 +347,19 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
   const created: Array<{ id: number; name: string }> = [];
   const failed: Array<{ index: number; errors: ImportIssue[] }> = [];
   const prepared: Array<{ index: number; name: string; mode: DuelMode; deck: DuelDeck }> = [];
+  const findCard = createDeckTypeLookup(getDb()).snapshot();
   for (const [index, row] of checked.entries()) {
     if (!row.ok) {
       failed.push({ index, errors: row.errors });
       continue;
     }
     const mapped = resolveImportDeck(row.deck, resolved.codes, resolved.lookupLimitedCodes);
+    // Recheck edited preview rows before any writes, with the same 400/code as ordinary saves.
+    try { assertExtraDeckCards(mapped.deck, findCard); }
+    catch (error) {
+      if (error instanceof ExtraDeckCardError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+      throw error;
+    }
     const master = mapped.errors.length ? [] : await masterIssues(mapped.deck);
     if (master.some(issue => issue.code === "validation_unavailable")) return errorResponse("Duel engine unavailable, try again", 503);
     const errors = [...mapped.errors, ...master];

@@ -349,7 +349,7 @@ export async function removePracticeBot(slug: string, seat?: number): Promise<{ 
 export async function setDuelDeck(
   slug: string,
   deck: DuelDeck,
-): Promise<{ session: DuelSession }> {
+): Promise<{ session: DuelSession; startBlocked?: string }> {
   return parseBody(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/deck`, {
       method: "POST",
@@ -377,11 +377,11 @@ export async function validateDuelDeck(
 }
 
 /** A seated player clicks Ready in a series game lobby (tournament games use the registered deck). */
-export async function markDuelReady(slug: string): Promise<{ session: DuelSession }> {
+export async function markDuelReady(slug: string): Promise<{ session: DuelSession; startBlocked?: string }> {
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/ready`, { method: "POST" }));
 }
 
-export async function markDuelUnready(slug: string): Promise<{ session: DuelSession }> {
+export async function markDuelUnready(slug: string): Promise<{ session: DuelSession; startBlocked?: string }> {
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/unready`, { method: "POST" }));
 }
 
@@ -397,7 +397,7 @@ export async function saveSeriesSideDeck(slug: string, deck: DuelDeck): Promise<
 }
 
 /** Ready for the next game. `nextSlug` is set once the next game exists. */
-export async function readySeries(slug: string): Promise<{ series: DuelSeriesSummary; nextSlug: string | null }> {
+export async function readySeries(slug: string): Promise<{ series: DuelSeriesSummary; nextSlug: string | null; startBlocked?: string }> {
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/series/ready`, { method: "POST" }));
 }
 

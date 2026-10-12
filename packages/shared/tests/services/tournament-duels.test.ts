@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createSavedDeckService } from "../../src/services/saved-decks.js";
 import { createTournamentDuelService, TournamentDuelError } from "../../src/services/tournament-duels.js";
@@ -17,8 +17,9 @@ function setup() {
   databases.push(db);
   migrate(db);
   const tournaments = createTournamentService(db);
-  const duels = createTournamentDuelService(db);
-  const savedDecks = createSavedDeckService(db);
+  const engine = new Map([[4, { name: "Fixture Fusion", type: 0x41 }]]);
+  const duels = createTournamentDuelService(db, engine);
+  const savedDecks = createSavedDeckService(db, engine);
   const insertPlayer = (userId: string, name: string) =>
     Number(
       db
@@ -56,6 +57,41 @@ function attachDraft(db: Database.Database, tournamentId: number) {
   );
   return draftId;
 }
+
+describe("legacy tournament Extra repair", () => {
+  it.each([false, true])("repairs known types on registration read (locked=%s) without changing metadata", locked => {
+    const { db, tournament, alice } = setup();
+    const engine = new Map([
+      [901, { name: "Fixture Spell", type: 2 }], [902, { name: "Fixture Trap", type: 4 }],
+      [903, { name: "Fixture Fusion", type: 0x41 }],
+    ]);
+    const raw = { main: [1], extra: [901, 903, 902, 901, 999], side: [5], deckMaster: 1, metadata: "keep" };
+    db.prepare("update tournament_participants set deck_json=?, deck_registered_at='fixture registration', deck_locked_at=? where tournament_id=? and player_id=?")
+      .run(JSON.stringify(raw), locked ? "fixture lock" : null, tournament.id, alice);
+    const service = createTournamentDuelService(db, engine);
+    expect(service.registration(tournament.id, alice)).toMatchObject({
+      deck: { main: [1, 901, 902, 901], extra: [903, 999], side: [5], deckMaster: 1 },
+      registeredAt: "fixture registration", lockedAt: locked ? "fixture lock" : null,
+    });
+    const stored = db.prepare("select deck_json, deck_registered_at, deck_locked_at from tournament_participants where tournament_id=? and player_id=?")
+      .get(tournament.id, alice) as { deck_json: string };
+    expect(JSON.parse(stored.deck_json)).toEqual({ ...raw, main: [1, 901, 902, 901], extra: [903, 999] });
+    expect(service.registration(tournament.id, alice)?.deck.extra).toEqual([903, 999]);
+  });
+
+  it("leaves unknown registration JSON untouched without a write transaction", () => {
+    const { db, tournament, alice } = setup();
+    const raw = JSON.stringify({ main: [1], extra: [999], side: [], metadata: "keep" });
+    db.prepare("update tournament_participants set deck_json=?, deck_registered_at='fixture', deck_locked_at='fixture' where tournament_id=? and player_id=?")
+      .run(raw, tournament.id, alice);
+    const service = createTournamentDuelService(db, new Map());
+    const transaction = vi.spyOn(db, "transaction");
+    expect(service.registration(tournament.id, alice)?.deck.extra).toEqual([999]);
+    expect(db.prepare("select deck_json from tournament_participants where tournament_id=? and player_id=?").get(tournament.id, alice)).toEqual({ deck_json: raw });
+    expect(transaction).not.toHaveBeenCalled();
+    transaction.mockRestore();
+  });
+});
 
 describe("tournament duel rules", () => {
   it("defaults to best of 3 with a normal duel", () => {

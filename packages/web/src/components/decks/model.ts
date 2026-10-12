@@ -1,4 +1,4 @@
-import { cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
+import { isExtraDeckCard, cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
 import {
   TYPE_FUSION,
   TYPE_LINK,
@@ -13,8 +13,6 @@ import { applyDomainMaster, selectDomainMaster, serializeYdk, type DeckMasterSel
 export const EMPTY_DECK: DuelDeck = { main: [], extra: [], side: [] };
 export const DEFAULT_NAME = "Untitled deck";
 export const MAX_NAME_LENGTH = 100;
-
-export const EXTRA_TYPE_MASK = TYPE_FUSION | TYPE_SYNCHRO | TYPE_XYZ | TYPE_LINK;
 
 /** Cuts a name to at most `max` characters of the length the API counts, never inside a surrogate pair, without trailing spaces. */
 export function cutName(name: string, max = MAX_NAME_LENGTH): string {
@@ -58,12 +56,79 @@ export function uniqueCodes(codes: number[]): number[] {
   return out;
 }
 
-export function isExtraMonster(card: DuelCardInfo): boolean {
-  return (card.type & TYPE_MONSTER) !== 0 && (card.type & EXTRA_TYPE_MASK) !== 0;
+export function defaultAddSection(card: Pick<DuelCardInfo, "type">): "main" | "extra" {
+  return isExtraDeckCard(card) ? "extra" : "main";
 }
 
-export function defaultAddSection(card: DuelCardInfo): "main" | "extra" {
-  return isExtraMonster(card) ? "extra" : "main";
+/** What a card is for deck building: it decides which sections take it. */
+export type CardKind = "extra" | "spelltrap" | "monster";
+
+export function cardKind(card: Pick<DuelCardInfo, "type">): CardKind {
+  if (isExtraDeckCard(card)) return "extra";
+  return (card.type & (TYPE_SPELL | TYPE_TRAP)) !== 0 ? "spelltrap" : "monster";
+}
+
+export const SPELL_TRAP_EXTRA_MESSAGE = "Spell and Trap cards cannot go in the Extra Deck.";
+export const MAIN_MONSTER_EXTRA_MESSAGE = "Only Fusion, Synchro, Xyz and Link monsters can go in the Extra Deck.";
+export const EXTRA_MONSTER_MAIN_MESSAGE = "Fusion, Synchro, Xyz and Link monsters cannot go in the Main Deck.";
+export const CARD_DETAILS_PENDING_MESSAGE = "Card details are still loading. Try again in a moment.";
+
+/** Why a card of this kind cannot go in the section, or null when it can. The Side Deck takes any card. */
+export function placementBlockForKind(kind: CardKind, section: DeckSection): string | null {
+  if (section === "extra" && kind !== "extra") return kind === "spelltrap" ? SPELL_TRAP_EXTRA_MESSAGE : MAIN_MONSTER_EXTRA_MESSAGE;
+  if (section === "main" && kind === "extra") return EXTRA_MONSTER_MAIN_MESSAGE;
+  return null;
+}
+
+/**
+ * Why this card cannot go in the section, or null when it can. A card without details (still loading, or
+ * not in the card database) cannot be told apart, so it only goes to the Side Deck or stays in its section.
+ */
+export function placementBlock(card: Pick<DuelCardInfo, "type"> | undefined, section: DeckSection, from?: CardSource["from"]): string | null {
+  if (section === "side") return null;
+  if (!card) return from === section ? null : CARD_DETAILS_PENDING_MESSAGE;
+  return placementBlockForKind(cardKind(card), section);
+}
+
+export interface MisplacedCards {
+  /** Cards in the Extra Deck that are not Extra Deck monsters. */
+  inExtra: number[];
+  /** Extra Deck monsters in the Main Deck. */
+  inMain: number[];
+}
+
+/** Cards that sit in a section that does not take them (old saves, imports). Cards without details are left alone. */
+export function misplacedCards(deck: DuelDeck, catalog: CardCatalog): MisplacedCards {
+  const pick = (codes: readonly number[], misplaced: (card: DuelCardInfo | DeckCardInfo) => boolean) =>
+    codes.filter((code) => {
+      const card = catalog.get(code);
+      return card != null && misplaced(card);
+    });
+  return {
+    inExtra: pick(deck.extra, (card) => !isExtraDeckCard(card)),
+    inMain: pick(deck.main, (card) => isExtraDeckCard(card)),
+  };
+}
+
+function keepOrigin(origin: DeckMasterSelection["masterOrigin"], section: DeckSection, before: readonly number[], keep: (code: number) => boolean) {
+  if (!origin || origin.section !== section) return origin;
+  return { ...origin, index: before.slice(0, origin.index).filter(keep).length };
+}
+
+/**
+ * Moves the misplaced cards of one section to the end of the section that takes them: non-Extra cards from
+ * `Extra` to Main, Extra monsters from `Main` to Extra. Order is kept. Returns the same selection when nothing moves.
+ */
+export function fixMisplaced(selection: DeckMasterSelection, catalog: CardCatalog, from: "main" | "extra"): DeckMasterSelection {
+  const { deck } = selection;
+  const found = misplacedCards(deck, catalog);
+  const moving = new Set(from === "extra" ? found.inExtra : found.inMain);
+  if (moving.size === 0) return selection;
+  const stays = (code: number) => !moving.has(code);
+  const leaving = deck[from].filter((code) => moving.has(code));
+  const other = from === "extra" ? "main" : "extra";
+  const next: DuelDeck = { ...deck, [from]: deck[from].filter(stays), [other]: [...deck[other], ...leaving] };
+  return { deck: next, masterOrigin: keepOrigin(selection.masterOrigin, from, deck[from], stays) };
 }
 
 
