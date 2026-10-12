@@ -33,7 +33,11 @@ function eventNotice(event: WebhookEvent): JoinRequestNotice | undefined {
 
 export async function POST(request: NextRequest): Promise<Response> {
   const headers = { "Cache-Control": "no-store" };
-  if (Number(request.headers.get("content-length")) > MAX_BODY_BYTES) {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength === null) {
+    return Response.json({ error: "length_required" }, { status: 411, headers });
+  }
+  if (Number(contentLength) > MAX_BODY_BYTES) {
     return Response.json({ error: "body_too_large" }, { status: 413, headers });
   }
   const signingSecret = process.env.CLERK_WEBHOOK_SIGNING_SECRET;

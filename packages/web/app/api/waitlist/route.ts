@@ -1,5 +1,6 @@
 import { createWaitlistService } from "@yugidraft/shared/services";
 import { createClerkBackend } from "@yugidraft/shared/clerk";
+import { domainToASCII } from "node:url";
 import { getDb } from "@/lib/db";
 
 const MAX_BODY_BYTES = 2048;
@@ -96,9 +97,12 @@ export async function POST(request: Request): Promise<Response> {
 
   if (typeof data.company === "string" && data.company.length > 0) return respond("joined");
   const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
-  // Host labels permit ASCII and punycode, with no URL syntax or edge hyphens.
+  // Reject URL syntax before domainToASCII, which can strip paths and queries.
+  if (email.length > 254 || !/^[^\s@]+@[^\s@:/\\?#%]+$/.test(email)) return respond("invalid");
+  const domain = domainToASCII(email.slice(email.lastIndexOf("@") + 1));
+  // Convert IDNs for the host check while preserving the submitted email.
   const hostLabel = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
-  if (email.length > 254 || !new RegExp(`^[^\\s@]+@${hostLabel}(?:\\.${hostLabel})+$`).test(email)) return respond("invalid");
+  if (!new RegExp(`^${hostLabel}(?:\\.${hostLabel})+$`).test(domain)) return respond("invalid");
 
   let result: { status: "joined" | "exists" };
   try {

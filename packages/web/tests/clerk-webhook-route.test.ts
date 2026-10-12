@@ -24,7 +24,7 @@ function signed(event: unknown = waitlist, id = "msg_placeholder", seconds = Mat
   const body = JSON.stringify(event);
   const signature = createHmac("sha256", signingKey).update(`${id}.${seconds}.${body}`).digest("base64");
   return new NextRequest("https://app.example.test/api/webhooks/clerk", {
-    method: "POST", headers: { "Content-Type": "application/json", "svix-id": id, "svix-timestamp": String(seconds), "svix-signature": `v1,${signature}` }, body,
+    method: "POST", headers: { "Content-Type": "application/json", "content-length": String(Buffer.byteLength(body)), "svix-id": id, "svix-timestamp": String(seconds), "svix-signature": `v1,${signature}` }, body,
   });
 }
 function receipts() { return state.db!.prepare("select * from clerk_webhook_receipts").all(); }
@@ -59,7 +59,7 @@ describe("POST /api/webhooks/clerk", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(receipts()).toEqual([{ svix_id: "msg_placeholder", received_at: expect.any(String) }]);
     expect(messages()[0]).toMatchObject({ allowed_mentions: { parse: [] }, embeds: [{ title: "New join request", timestamp: new Date(createdAt).toISOString(),
-      fields: [{ name: "Email", value: "`p\\*\\*\\*@example\\.test`" }, { name: "Source", value: "Clerk waitlist" }] }] });
+      fields: [{ name: "Email", value: "`p***@example.test`" }, { name: "Source", value: "Clerk waitlist" }] }] });
   });
 
   it("rejects an invalid signature before database or Discord effects", async () => {
@@ -116,6 +116,21 @@ describe("POST /api/webhooks/clerk", () => {
     expect((await POST(signed(event))).status).toBe(200);
     expect(receipts()).toEqual([{ svix_id: "msg_placeholder", received_at: expect.any(String) }]);
     expect(state.db!.prepare("select * from join_request_notifications").all()).toEqual([]);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing content-length before reading or verifying the body", async () => {
+    const request = signed();
+    request.headers.delete("content-length");
+    request.headers.set("svix-signature", "v1,invalid-placeholder");
+    const read = vi.spyOn(request, "text");
+    const response = await POST(request);
+    expect(response.status).toBe(411);
+    expect(await response.json()).toEqual({ error: "length_required" });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(read).not.toHaveBeenCalled();
+    expect(request.bodyUsed).toBe(false);
+    expect(receipts()).toEqual([]);
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -200,14 +215,14 @@ describe("POST /api/webhooks/clerk", () => {
     await POST(signed(signup, "msg_signup_placeholder"));
     await POST(signed(signup, "msg_signup_placeholder"));
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(messages()[0].embeds[0]).toMatchObject({ title: "New user sign-up", fields: [{ name: "Email", value: "`p\\*\\*\\*@example\\.test`" }, { name: "Source", value: "sign\\-up" }] });
+    expect(messages()[0].embeds[0]).toMatchObject({ title: "New user sign-up", fields: [{ name: "Email", value: "`p***@example.test`" }, { name: "Source", value: "sign\\-up" }] });
   });
 
   it("supports an email-less user and a missing primary email", async () => {
     vi.stubEnv("DISCORD_SIGNUP_ALERTS_ENABLED", "1");
     await POST(signed({ ...signup, data: { ...signup.data, email_addresses: [] } }));
     await POST(signed({ ...signup, data: { ...signup.data, id: "user_other_placeholder", primary_email_address_id: null } }, "msg_other_placeholder"));
-    expect(messages().map(message => message.embeds[0].fields[0].value)).toEqual(["Email unavailable", "`o\\*\\*\\*@example\\.test`"]);
+    expect(messages().map(message => message.embeds[0].fields[0].value)).toEqual(["Email unavailable", "`o***@example.test`"]);
   });
 
   it("returns 2xx while Discord is pending and after Discord fails", async () => {

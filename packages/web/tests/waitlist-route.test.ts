@@ -157,6 +157,8 @@ describe("POST /api/waitlist", () => {
   it.each([
     "x@https://evil.example.test/claim",
     "x@example.test/path",
+    "x@example.test\\path",
+    "x@example%2etest",
     "x@example.test:443",
     "x@example.test?claim",
     "x@example.test#claim",
@@ -179,6 +181,13 @@ describe("POST /api/waitlist", () => {
     ("accepts host labels in %s", async email => {
       expect((await post(json({ email }))).status).toBe(201);
     });
+
+  it("accepts a Unicode domain while preserving the email for storage and Clerk", async () => {
+    const email = "player@bücher.test";
+    expect((await post(json({ email }))).status).toBe(201);
+    expect(rows()).toEqual([expect.objectContaining({ email })]);
+    expect(state.createWaitlistEntry).toHaveBeenCalledExactlyOnceWith({ emailAddress: email, notify: true });
+  });
 
   it.each([{ body: null }, { body: [] }, { body: "string" }])("rejects a non-object JSON body $body", async ({ body }) => {
     const response = await post(json(body));

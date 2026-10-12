@@ -20,7 +20,7 @@ const escapeMarkdown = (value: string) => value.replace(/[\\`*_{}\[\]()<>#+\-.!|
 function emailCode(value: string): string {
   // Backslashes do not escape backticks inside code. Replace user delimiters
   // and line breaks so even unvalidated Clerk text stays in one code span.
-  return "`" + escapeMarkdown(value.replace(/`/g, "\u02cb").replace(/[\r\n\u2028\u2029]/g, " ")) + "`";
+  return "`" + value.replace(/`/g, "\u02cb").replace(/[\r\n\u2028\u2029]/g, " ") + "`";
 }
 
 function takeAlertSlot(): boolean {
