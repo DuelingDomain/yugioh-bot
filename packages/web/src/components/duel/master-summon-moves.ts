@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 import { LOCATION_DMZONE, LOCATION_MZONE } from "./constants";
 
@@ -8,19 +9,17 @@ const sameZone = (a: DuelZoneRef | undefined, b: DuelZoneRef | undefined): boole
 const moveIdOf = (event: DuelEvent): number => event.id - 0.5;
 
 /**
- * The seat views one step before each seat views array. The table gets a new array per update (the poll or the socket), so the
- * first call that sees an array reads the one seen before as its previous. Every layer asks with the same array in one
- * render, and only the first ask moves the pair on.
+ * The seat views of the update before the one on screen, for `withMasterSummonMoves`. A table gets a new views array per
+ * update (poll, socket, lab step), and keeps the one it had until then. Derived in render from state (not a module
+ * variable), so each shell has its own, a double render changes nothing, and nothing is left over from another duel:
+ * a table that has not seen an earlier update has none (null), and then no flight is added.
  */
-const previousOf = new WeakMap<readonly DuelSeatView[], readonly DuelSeatView[] | null>();
-let lastSeats: readonly DuelSeatView[] | null = null;
-
-function previousSeats(seats: readonly DuelSeatView[]): readonly DuelSeatView[] | null {
-  if (!previousOf.has(seats)) {
-    previousOf.set(seats, lastSeats === seats ? null : lastSeats);
-    lastSeats = seats;
-  }
-  return previousOf.get(seats) ?? null;
+export function usePreviousSeats(seats: readonly DuelSeatView[] | undefined): readonly DuelSeatView[] | null {
+  const [track, setTrack] = useState<{ current: readonly DuelSeatView[] | undefined; previous: readonly DuelSeatView[] | null }>({ current: seats, previous: null });
+  if (track.current === seats) return track.previous;
+  const next = { current: seats, previous: track.current ?? null };
+  setTrack(next);
+  return next.previous;
 }
 
 const filled = new WeakMap<readonly DuelEvent[], { seats: string; events: readonly DuelEvent[] }>();
@@ -36,17 +35,21 @@ const filled = new WeakMap<readonly DuelEvent[], { seats: string; events: readon
  * moves, and a card that already has a move into its zone keeps it. The same array comes back when nothing needed
  * one, and the same input gives the same output.
  *
- * The seat view must show the card leaving: in the view before, `deckMaster.inZone` was true, and in this one it is false.
+ * Pure: the views before (`prevSeats`, see `usePreviousSeats`) come in as an argument. The seat view must show the card
+ * leaving: in the view before, `deckMaster.inZone` was true, and in this one it is false.
  * Another copy of the master (Special Summoned from Xyz material, whose moves the server drops too) arrives the same way,
  * but the real master stays in its zone, so it gets no flight from the plate.
  */
-export function withMasterSummonMoves(events: readonly DuelEvent[], seats: readonly DuelSeatView[] | undefined): DuelEvent[] {
+export function withMasterSummonMoves(
+  events: readonly DuelEvent[],
+  prevSeats: readonly DuelSeatView[] | null | undefined,
+  seats: readonly DuelSeatView[] | undefined,
+): DuelEvent[] {
   if (!seats) return events as DuelEvent[];
-  const before = previousSeats(seats);
   const masters = new Map<number, number>();
   for (const seat of seats) {
     const master = seat.deckMaster;
-    const was = before?.find((item) => item.seat === seat.seat)?.deckMaster;
+    const was = prevSeats?.find((item) => item.seat === seat.seat)?.deckMaster;
     // Leaving its zone: in the zone in the view before, out of it in this one.
     if (master && !master.inZone && was?.inZone && was.card.code === master.card.code) masters.set(seat.seat, master.card.code);
   }

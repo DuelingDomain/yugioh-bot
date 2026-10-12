@@ -21,7 +21,7 @@ import { SEAT_TONE_HEX, type TableController } from "../table/types";
 import { tagResponseOrder } from "./live-tag";
 import { chainDecidingSeat } from "./use-chain-passes";
 import { withDestroyCards } from "../destroy-cards";
-import { withMasterSummonMoves } from "../master-summon-moves";
+import { usePreviousSeats, withMasterSummonMoves } from "../master-summon-moves";
 
 /** The part of the live controller the effects read. `TableController` fits, so the shell passes its own. */
 export type TagFxController = Pick<TableController, "engine" | "room" | "viewerSeat" | "cameraSeat" | "nameOf" | "prompt" | "reducedMotion">;
@@ -73,6 +73,7 @@ export function tagPriority(engine: DuelEngineView, passed: readonly number[], c
 export function TagFx({ controller, preferences, fxActive = true, passedSeats = [] }: TagFxProps) {
   const { engine, room, viewerSeat, cameraSeat, nameOf, prompt, reducedMotion } = controller;
   const events = useMemo(() => dedupeTeamDamage(engine.events), [engine.events]);
+  const previousSeats = usePreviousSeats(engine.seats);
   const layout = useMemo(
     () => controllerLayout("tag", engine, { viewerSeat, cameraSeat }),
     // The layout depends on who sits where, never on a card: the seat list is enough.
@@ -91,8 +92,8 @@ export function TagFx({ controller, preferences, fxActive = true, passedSeats = 
     <FxBoundary>
       <CoinTossFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <DuelFeedback events={events} duelKey={duelKey} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={reducedMotion} />
-      <SummonFx events={withMasterSummonMoves(withDestroyCards(events), engine.seats)} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
-      <MoveFx events={withMasterSummonMoves(withDestroyCards(events), engine.seats)} duelKey={duelKey} reducedMotion={reducedMotion} />
+      <SummonFx events={withMasterSummonMoves(withDestroyCards(events), previousSeats, engine.seats)} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
+      <MoveFx events={withMasterSummonMoves(withDestroyCards(events), previousSeats, engine.seats)} duelKey={duelKey} reducedMotion={reducedMotion} />
       <PositionFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <ChainFx events={withDestroyCards(events)} chain={engine.chain} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={room.session.status !== "active" || engine.result != null} table="tag" seats={engine.seats} promptOpen={ownPromptOpen(prompt, viewerSeat)} />
       <MasterReturnFx events={events} seats={engine.seats} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} />
