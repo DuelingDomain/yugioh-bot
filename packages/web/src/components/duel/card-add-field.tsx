@@ -29,6 +29,8 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
   const [picked, setPicked] = useState<number | null>(null);
   const [section, setSection] = useState<AddSection | null>(null);
   const [added, setAdded] = useState("");
+  /** Why the add went to another section than the one chosen; shown until the next search. */
+  const [addedWhy, setAddedWhy] = useState("");
   // The query Enter or Add was pressed for before its results came; it runs when they arrive.
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -72,8 +74,13 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waitingFor, trimmed, search]);
 
+  /** Why the chosen section was set aside for this card, or null when it was kept. */
+  function sectionWhy(card?: DeckCardInfo): string | null {
+    return section != null && card != null ? placementBlock(card, section) : null;
+  }
+
   function sectionFor(card?: DeckCardInfo): AddSection {
-    const wanted = section != null && card != null && placementBlock(card, section) != null
+    const wanted = sectionWhy(card) != null && card != null
       ? defaultAddSection(card)
       : section ?? (card ? defaultAddSection(card) : "main");
     return wanted === "side" && !sideAllowed ? "main" : wanted;
@@ -87,8 +94,10 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
       onError(block);
       return;
     }
+    const why = sectionWhy(card);
     onAdd(card.code, target);
     setAdded(`Added ${card.name} to ${target}.`);
+    setAddedWhy(why ? `${card.name} went to ${target}, not ${section}. ${why}` : "");
     setQuery("");
     setPicked(null);
     setOpen(false);
@@ -132,8 +141,10 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
         onError(block);
         return;
       }
+      const why = known >= 0 ? sectionWhy(cards[known]) : null;
       onAdd(code, target);
-      setAdded(`Added passcode ${code}.`);
+      setAdded(`Added passcode ${code}${why ? ` to ${target}` : ""}.`);
+      setAddedWhy(why ? `Passcode ${code} went to ${target}, not ${section}. ${why}` : "");
       setSection(null);
       setQuery("");
       setPicked(null);
@@ -155,7 +166,7 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
     setPicked(next);
   }
 
-  const status = added || (showList ? `${cards.length} ${cards.length === 1 ? "card" : "cards"} found.` : "");
+  const status = added ? `${added} ${addedWhy}`.trim() : (showList ? `${cards.length} ${cards.length === 1 ? "card" : "cards"} found.` : "");
 
   return (
     <div className={styles.addRow}>
@@ -179,6 +190,7 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
             setQuery(event.target.value);
             setPicked(null);
             setAdded("");
+            setAddedWhy("");
             setWaitingFor(null);
             setOpen(true);
           }}
@@ -254,6 +266,7 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
       <SheetButton size="sm" className={styles.addBtn} onClick={requestSubmit}>
         <Plus size={15} strokeWidth={1.7} aria-hidden />Add
       </SheetButton>
+      {addedWhy ? <p className={styles.addWhy}>{addedWhy}</p> : null}
     </div>
   );
 }

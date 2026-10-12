@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, X, type LucideIcon } from "lucide-react";
 import { isCustomDomain, type DuelDeck, type DuelRoom, type DuelSeat } from "@yugidraft/shared/duels";
@@ -13,6 +13,8 @@ import { SeriesBadges } from "./series-banner";
 import { deckCounts } from "./side-deck-model";
 import { DuelSettingsSummary, RoomInvite } from "./room-settings";
 import { practiceBotNote } from "./series-model";
+import { StartBlockedNotice } from "./start-blocked-notice";
+import { ownStartBlocked } from "./start-blocked";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./room-lobby.module.css";
@@ -99,6 +101,7 @@ export function RoomLobby({
   busy,
   starting = false,
   actionError,
+  startNotice = null,
   onDeckLocked,
   onTakeSeat,
   onAddBot,
@@ -117,6 +120,8 @@ export function RoomLobby({
   /** Start duel was clicked and the server has not answered yet. */
   starting?: boolean;
   actionError: string | null;
+  /** The neutral line a Ready or start call answered when another player's deck blocks the start. */
+  startNotice?: string | null;
   /** A deck check was refused because the duel already started: refresh the room. */
   onDeckLocked?: () => void;
   onTakeSeat: (seat: number) => void;
@@ -135,6 +140,8 @@ export function RoomLobby({
   const session = room.session;
   const mySeat = room.mySeat;
   const [previewCode, setPreviewCode] = useState<number | null>(null);
+  const deckPanel = useRef<HTMLElement>(null);
+  const ownBlocked = ownStartBlocked(room);
   const occupied = session.seats.length;
   const readyCount = session.seats.filter((seat) => seat.ready).length;
   const myMeta = mySeat != null ? session.seats.find((seat) => seat.seat === mySeat) : undefined;
@@ -236,6 +243,9 @@ export function RoomLobby({
                 </p>
               )}
               {actionError ? <p role="alert" className={ui.alert}>{actionError}</p> : null}
+              <StartBlockedNotice own={ownBlocked} neutral={ownBlocked ? null : startNotice}
+                onEditDeck={!lockedDeck ? () => { deckPanel.current?.scrollIntoView?.({ block: "start" }); deckPanel.current?.focus(); } : undefined}
+                deckHref={lockedDeck ? "/decks" : undefined} />
               <div className={styles.footer}>
                 {myMeta?.ready ? (
                   <SheetButton kind="secondary" size="lg" disabled={busy || starting || room.opening != null || !onMarkUnready} onClick={onMarkUnready}>
@@ -281,7 +291,7 @@ export function RoomLobby({
                 <p className={ui.hint}>The deck you registered for this tournament is used for every game. You cannot change it here.</p>
               </section>
             ) : mySeat != null ? (
-              <section className={cx(styles.panel, styles.deckPanel)} aria-label="Deck import">
+              <section ref={deckPanel} tabIndex={-1} className={cx(styles.panel, styles.deckPanel)} aria-label="Deck import">
                 <DeckEditor
                   slug={slug}
                   mode={session.mode}

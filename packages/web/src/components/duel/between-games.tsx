@@ -5,6 +5,8 @@ import type { DuelDeck, DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/du
 import { CardArt } from "@/components/decks/card-art";
 import deckStyles from "@/components/decks/editor.module.css";
 import { useDeckCardMeta } from "./deck-card-types";
+import { StartBlockedNotice } from "./start-blocked-notice";
+import { neutralStartBlocked, ownStartBlocked } from "./start-blocked";
 import { cancelSeries, chooseSeriesFirst, readySeries, saveSeriesSideDeck, unreadySeries } from "./api";
 import { DeckCardPreview } from "./deck-card-preview";
 import { cx, sheetRoot, SheetButton } from "./sheet-ui";
@@ -125,6 +127,9 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const [busy, setBusy] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The neutral line Ready answered when the other player's deck blocks the next game. */
+  const [blockedNotice, setBlockedNotice] = useState<string | null>(null);
+  const ownBlocked = ownStartBlocked(room);
   const meta = useDeckCardMeta(current, { initial: knownCards });
   const [hovered, setHovered] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -359,6 +364,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
       setMarks(NO_MARKS);
     }
     const result = await readySeries(slug);
+    setBlockedNotice(neutralStartBlocked(result));
     setKnownReady(result.series.sideReady[index]);
     setUnreadied(false);
     if (result.nextSlug) follow(result.nextSlug);
@@ -527,6 +533,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
             </div>
             {notice ? <p className={styles.reason} role="status" data-testid="between-notice">{notice}</p> : null}
             {error ? <p className={styles.error} role="alert">{error}</p> : null}
+            <StartBlockedNotice own={ownBlocked} neutral={ownBlocked ? null : blockedNotice} />
           </div>
         </aside>
       </div>

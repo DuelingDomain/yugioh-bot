@@ -557,6 +557,19 @@ describe("Extra Deck rule: import and paste", () => {
     expect(screen.queryByTestId("import-messages")).toBeNull();
   });
 
+  it("keeps the move message when a later edit is undone, and clears it when the import itself is undone", async () => {
+    importAnswer = () => ({ deck: { main: [POT.code], extra: [], side: [] }, moves: [], messages: ["1 card moved from Extra Deck to Main Deck: Pot of Greed."] });
+    await pasteList(`#main\n${POT.code}`);
+    await screen.findByTestId("import-messages");
+    fireEvent.doubleClick(await tile(MIRROR.name));
+    expect(namesIn("Main")).toContain(MIRROR.name);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(namesIn("Main")).not.toContain(MIRROR.name);
+    expect(screen.getByTestId("import-messages")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.queryByTestId("import-messages")).toBeNull();
+  });
+
   it("clears the move message when the next import fails", async () => {
     importAnswer = () => ({ deck: { main: [POT.code], extra: [], side: [] }, moves: [], messages: ["1 card moved from Extra Deck to Main Deck: Pot of Greed."] });
     await pasteList(`#main\n${POT.code}`);
@@ -583,6 +596,8 @@ describe("Extra Deck rule: import and paste", () => {
     const file = new File([`#main\n${POT.code}`], "Pot.ydk", { type: "text/plain" });
     fireEvent.change(within(popover).getByLabelText("YDK file"), { target: { files: [file] } });
     await waitFor(() => expect(popover.querySelector('[aria-busy="true"]')).not.toBeNull());
+    // The drop zone itself says so, not only the paste button.
+    expect(popover.querySelector('[aria-busy="true"]')).toHaveTextContent("Importing…");
     answer();
     await waitFor(() => expect(namesIn("Main")).toEqual([POT.name]));
   });

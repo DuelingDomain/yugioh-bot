@@ -135,8 +135,8 @@ export function DeckImportPopover({ open, onOpenChange, disabled, mode, fileName
         onDrop={(event) => { event.preventDefault(); setDragging(false); const file = event.dataTransfer.files?.[0]; if (file) void loadFile(file); }}>
         <input type="file" accept=".ydk,text/plain" className="sr" aria-label="YDK file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadFile(file); event.target.value = ""; }} />
         <FileUp className="ic" aria-hidden />
-        <span>{fileName ?? "Drop a .ydk file here"}</span>
-        <small>{fileName ? "Choose another file to replace it" : "or click to choose one"}</small>
+        <span>{importing ? "Importing…" : fileName ?? "Drop a .ydk file here"}</span>
+        <small>{importing ? "Checking the cards on the server" : fileName ? "Choose another file to replace it" : "or click to choose one"}</small>
       </label>
       <label><span className="label">Or paste YDK text or a ydke:// link</span><textarea value={paste} rows={3} spellCheck={false} className={cn("input", styles["de-paste"])} placeholder="#main" onChange={(event) => setPaste(event.target.value)} /></label>
       <div className={styles["de-pop-a"]}><SvButton variant="ghost" disabled={!paste.trim() || importing} aria-busy={importing || undefined} onClick={() => void loadPaste()}>{importing ? "Importing…" : "Load paste"}</SvButton></div>

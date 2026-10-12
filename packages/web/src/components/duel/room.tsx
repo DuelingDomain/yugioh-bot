@@ -95,6 +95,7 @@ import { isBattlePhase, phaseTitle, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { closeDuelWindow, duelWindowName, duelWindowPath, exitDuelWindow, isDuelWindow, liveDuelWindow, openDuelWindow, renameDuelWindow } from "./duel-window";
 import { ownWindowGateVisible } from "./start-flow";
+import { neutralStartBlocked, withoutNeutralStartBlocked } from "./start-blocked";
 import { SeriesBanner, SeriesGameLabel } from "./series-banner";
 import { BetweenGamesScreen, isStartingNextGame, NextGameStarting } from "./between-games";
 import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from "./series-model";
@@ -218,6 +219,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // Set when an answer is sent; the next prompt then decides whether an open pile viewer stays.
   const pileAnswered = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** The neutral answer to a Ready, deck or start call that another player's deck blocked. Names no card. */
+  const [startNotice, setStartNotice] = useState<string | null>(null);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [pane, setPane] = useState<SidePane>(DEFAULT_SIDE_PANE);
   // Log rows that arrived while the Log tab was out of view (the badge on the tab).
@@ -536,9 +539,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setMenu(null);
       setHover(null);
       setActionError(null);
+      setStartNotice(null);
       try {
         const result = await work();
-        if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
+        setStartNotice(neutralStartBlocked(result));
+        if (seq === mutationSeq.current) await applyAnswerResult(mutate, withoutNeutralStartBlocked(result));
       } catch (err) {
         setActionError(duelActionErrorText(err, { seatPick: kind === "seat-pick" }));
         await mutate();
@@ -807,7 +812,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   if (data.session.status === "lobby" && !ownWindowGate) {
     const opening = data.opening;
     const lobby = (
-      <RoomLobby room={data} presence={realtime.presence} slug={slug} busy={busy} starting={starting} actionError={actionError}
+      <RoomLobby room={data} presence={realtime.presence} slug={slug} busy={busy} starting={starting} actionError={actionError} startNotice={startNotice}
         onDeckLocked={() => void refreshRoom()}
         onTakeSeat={(seat) => void run(() => takeDuelSeat(slug, seat))}
         onAddBot={(seat) => void run(() => addPracticeBot(slug, seat))}

@@ -254,6 +254,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [artMenu, setArtMenu] = useState<ArtMenuTarget | null>(null);
   const press = useCardPress();
   const importGeneration = useRef(0);
+  /** The deck as it was just before the last import. Undoing back to it removes the import and its notes. */
+  const importBase = useRef<DeckMasterSelection | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const inspectScrollRef = useRef<HTMLDivElement>(null);
   const hoverTimer = useRef<number | undefined>(undefined);
@@ -468,8 +470,11 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   function restore(step: Snapshot) {
     importGeneration.current += 1;
-    // The note describes an import; undo or redo leaves a deck it no longer describes.
-    setImportMessages([]);
+    // The note describes an import: it goes when undo takes the import out, not for a later edit.
+    if (step.selection === importBase.current) {
+      importBase.current = null;
+      setImportMessages([]);
+    }
     repointPanel(step);
     setSelection(step.selection);
     setMode(step.mode);
@@ -810,6 +815,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       throw new Error("No cards found. Import a YDK deck or a ydke:// link.");
     }
     const nextMode = raw.deckMaster != null ? "domain" : mode;
+    importBase.current = selection;
     commit(importForLibrary(raw, nextMode), nextMode);
     setSelected(null);
     setImportOpen(false);

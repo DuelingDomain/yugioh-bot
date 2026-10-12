@@ -187,6 +187,12 @@ describe("deck editor add card by name", () => {
     fireEvent.keyDown(field(), { key: "Enter" });
     expect(cardsIn("Extra")).toHaveLength(0);
     expect(cardsIn("Main")).toHaveLength(1);
+    // The row says why the card did not go where it was chosen.
+    // (once in the polite status for screen readers, once in view)
+    expect(screen.getAllByText(/went to main, not extra\. Spell and Trap cards cannot go in the Extra Deck\./)).toHaveLength(2);
+    // The note goes with the next search.
+    type("x");
+    expect(screen.queryByText(/went to main, not extra/)).toBeNull();
   });
 
   it("puts a typed passcode of a Spell in Main when Extra was chosen, and adds an unknown passcode where chosen", async () => {

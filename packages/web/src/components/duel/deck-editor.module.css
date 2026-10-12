@@ -48,6 +48,7 @@
 .addText strong { overflow-wrap: anywhere; font-weight: 500; }
 .addText span { color: var(--duel-ink-3); font-size: 12px; overflow-wrap: anywhere; }
 .addReason { flex: none; color: var(--duel-loss-ink); font-size: 12px; }
+.addWhy { flex: 1 0 100%; margin: 0; color: var(--duel-ink-3); font-size: 13px; line-height: 1.5; }
 .addNote { padding: 10px 12px; color: var(--duel-ink-3); font-size: 13px; }
 
 .muted { color: var(--duel-ink-3); }
