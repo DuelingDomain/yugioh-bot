@@ -21,10 +21,45 @@ describe("callDuelHost error messages", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     delete process.env.DUEL_INTERNAL_URL;
     delete process.env.DUEL_INTERNAL_SECRET;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it.each(["normalize-codes", "validate-deck-master"] as const)("times out stalled %s calls after twenty seconds", async op => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((_url: unknown, _init: RequestInit) => new Promise<Response>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const { callDuelHost } = await loadHost();
+    let settled = false;
+    const pending = callDuelHost({ ...call, op, codes: [123], lookupLimit: 50 });
+    void pending.then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(19999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBe(true);
+    if (!settled) return;
+    const result = await pending;
+    if (result.ok) throw new Error("expected timeout");
+    expect(result.response.status).toBe(503);
+    expect((await result.response.json()).error).toContain("timed out");
+    expect(fetchMock.mock.calls[0]![1].signal!.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("times out a stalled normalize-codes response body", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, text: () => new Promise<string>(() => {}) })));
+    const { callDuelHost } = await loadHost();
+    const pending = callDuelHost({ ...call, op: "normalize-codes", codes: [123], lookupLimit: 50 });
+    await vi.advanceTimersByTimeAsync(20000);
+    const result = await pending;
+    if (result.ok) throw new Error("expected timeout");
+    expect(result.response.status).toBe(503);
+    expect((await result.response.json()).error).toContain("timed out");
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("names the missing secret instead of 'not configured'", async () => {
@@ -155,7 +190,9 @@ it("transports draft pool context and artwork-preserving normalization", async (
     const { callDuelHost } = await loadHost();
     await callDuelHost({ ...call, op: "check-deck", draftId: 7 });
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body as string)).toMatchObject({ draftId: 7 });
-    await callDuelHost({ ...call, op: "normalize-codes", codes: [10], preserveArtwork: true });
-    expect(JSON.parse(fetchMock.mock.calls[1]![1].body as string)).toMatchObject({ preserveArtwork: true, codes: [10] });
+    await callDuelHost({ ...call, op: "normalize-codes", codes: [10], preserveArtwork: true, lookupLimit: 50, includeCanonical: true });
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body as string)).toMatchObject({ preserveArtwork: true, codes: [10], lookupLimit: 50, includeCanonical: true });
+    await callDuelHost({ ...call, op: "normalize-codes", codes: [10], lookupLimit: 0, cacheOnly: true });
+    expect(JSON.parse(fetchMock.mock.calls[2]![1].body as string)).toMatchObject({ lookupLimit: 0, cacheOnly: true });
   } finally { vi.unstubAllGlobals(); delete process.env.DUEL_INTERNAL_URL; delete process.env.DUEL_INTERNAL_SECRET; }
 });

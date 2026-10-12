@@ -23,7 +23,9 @@ describe("deck editor presentation", () => {
 
   it("scopes phone button sizing and hiding to beat the kit's .ms .sv-btn", () => {
     expect(phone).toMatch(/:global\(\.ms\)\s+\.de-back\s*\{[^}]*width:\s*34px;[^}]*height:\s*44px;[^}]*padding:\s*0/);
-    expect(phone).toMatch(/:global\(\.ms\)\s+:global\(\.sv-btn\)\.de-export\s*\{[^}]*display:\s*none/);
+    // Export is a menu wrapper (a div), not an SvButton, so the kit's .ms .sv-btn rule never reaches it.
+    // The wrapper hides with the Import wrapper; its trigger button goes with it.
+    expect(phone).toMatch(/\.de-import,\s*\.de-export\s*\{[^}]*display:\s*none/);
     expect(phone).toMatch(/:global\(\.ms\)\s+\.de-clear\s+:global\(\.sv-btn\.quiet\)\s*\{[^}]*width:\s*38px;[^}]*padding:\s*0/);
   });
 
