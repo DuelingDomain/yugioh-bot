@@ -123,7 +123,7 @@ sequenceDiagram
 | Host | Flag `MULTIPLAYER_TABLES` (Compose: on) | `shared/src/duels/multiplayer-tables.ts` |
 | Rules | Rule list and tests | `docs/adr/0002`, `docs/specs/multiplayer-rule-coverage.md` |
 | UI | 3-way and 4-way: Plaza table, aim arrow, seat crumble | `web/src/components/duel/table/` |
-| UI | 4-way 2x2 grid and the FFA3 facing pair (seats 0+1 share one Extra Monster Zone row; seat 2 has its own). A seat that is out crumbles and its place stays empty; fields never move or join and the camera never zooms by itself. No "choose an opponent" UI | `web/src/components/duel/table/grid-stage.tsx`, `grid-layout.ts` |
+| UI | 4-way 2x2 grid and the FFA3 facing pair (seats 0+1 share one Extra Monster Zone row; seat 2 has its own). A seat that is out crumbles and its place stays empty; fields never move or join and the camera never zooms by itself. The column pick has no UI; the ordinary "choose an opponent" prompt keeps its pick buttons | `web/src/components/duel/table/grid-stage.tsx`, `grid-layout.ts` |
 | UI | Tag 2v2: Rooftop, shared team LP | `web/src/components/duel/tag/` |
 
 Not on main yet: the 4-way 2x2 grid UI, and PR #178, which changes the FFA4 shared zones from across seats (0+2, 1+3, patch 0077) to facing seats (0+1, 2+3).
