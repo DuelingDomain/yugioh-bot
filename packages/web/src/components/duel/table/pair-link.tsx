@@ -11,7 +11,7 @@ export interface PairLinkProps {
   b: number;
   /** Text on the link, e.g. "Linked columns". */
   label: string;
-  /** Changes when the view moves (camera mode and seats, board size, seats out): the link measures again for a short while. */
+  /** Changes when the view moves (camera mode, seats and fly pose, board size, seats out): the link measures again for a short while. */
   stamp: string;
 }
 
@@ -74,8 +74,8 @@ export function routeAround(p0: Pt, p1: Pt, ring: { x: number; y: number; r: num
 /**
  * The plaza link of a facing pair: a thin gold and violet line from each Extra Monster Zone of one seat to the same
  * zone on the facing seat's field, with a small label on one line. The lines route round the turn ring. It measures the
- * live zone elements, but only for a moment after something moved the view (a new `stamp`, a resize, a transition, a pointer
- * or wheel gesture on the stage), not on every frame. No pointer events; the motion stops under reduced motion.
+ * live zone elements, but only for a moment after something moved the view (a new `stamp`, which includes the fly pose, a resize, a transition, a pointer
+ * or wheel gesture on the stage, a key), not on every frame. No pointer events; the motion stops under reduced motion.
  */
 export function PairLink({ a, b, label, stamp }: PairLinkProps) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -148,7 +148,16 @@ export function PairLink({ a, b, label, stamp }: PairLinkProps) {
     window.addEventListener("resize", wake);
     const events = ["transitionend", "animationend", "pointerup", "wheel", "keyup"] as const;
     events.forEach((name) => root.addEventListener(name, wake, true));
+    // Camera keys (1-3, F, arrows) may be pressed with the focus on the page body, outside the stage.
+    window.addEventListener("keyup", wake);
+    // A free fly drag moves the world between the camera states: measure while a button is down.
+    const drag = (event: PointerEvent) => {
+      if (event.buttons !== 0) wake();
+    };
+    window.addEventListener("pointermove", drag);
     return () => {
+      window.removeEventListener("keyup", wake);
+      window.removeEventListener("pointermove", drag);
       if (frame) cancelAnimationFrame(frame);
       resize?.disconnect();
       window.removeEventListener("resize", wake);
