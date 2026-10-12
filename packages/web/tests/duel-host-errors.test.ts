@@ -99,7 +99,7 @@ describe("callDuelHost error messages", () => {
     const host = await loadHost();
     vi.spyOn(host, "requireDuelActor").mockResolvedValue({
       ok: true, guildId: call.guildId, playerId: call.playerId,
-      duels: { room: () => ({ session: payload.session,
+      duels: { room: () => ({ session: payload.session, mySeat: 0,
         series: state === "between_games" ? { status: "between_games" } : null }) } as never,
     });
     const { GET } = await import("../app/api/duels/[slug]/route");
@@ -108,6 +108,22 @@ describe("callDuelHost error messages", () => {
     expect(await response.json()).toEqual(payload);
     expect(fetch).toHaveBeenCalledOnce();
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ op: "view", playerId: call.playerId });
+  });
+
+  it.each(["lobby", "between_games"] as const)("returns the local %s room when the host is unavailable", async state => {
+    const local = { session: { status: state === "lobby" ? "lobby" : "completed" }, mySeat: 0,
+      role: "player", myDeck: { main: [901], extra: [], side: [] },
+      series: state === "between_games" ? { status: "between_games" } : null };
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId,
+      duels: { room: () => local } as never,
+    });
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    const response = await GET(new Request("http://web.test/api/duels/abc"), { params: Promise.resolve({ slug: call.slug }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(local);
   });
 
   it("keeps the seat-left code and text for duel answers", async () => {
