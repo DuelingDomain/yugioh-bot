@@ -221,6 +221,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const [actionError, setActionError] = useState<string | null>(null);
   /** The neutral answer to a Ready, deck or start call that another player's deck blocked. Names no card. */
   const [startNotice, setStartNotice] = useState<string | null>(null);
+  // The neutral line stops when another seat changes. This player's own Ready is not a change: it comes with the line.
+  const seatsKey = useMemo(
+    () => (data?.session.seats ?? []).map((seat) => `${seat.seat}:${seat.playerId ?? "-"}:${seat.isBot ? "b" : "p"}:${seat.seat === data?.mySeat ? "" : seat.ready ? "r" : "n"}`).join("|"),
+    [data?.session.seats, data?.mySeat],
+  );
+  useEffect(() => { setStartNotice(null); }, [seatsKey]);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [pane, setPane] = useState<SidePane>(DEFAULT_SIDE_PANE);
   // Log rows that arrived while the Log tab was out of view (the badge on the tab).
@@ -542,8 +548,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setStartNotice(null);
       try {
         const result = await work();
-        setStartNotice(neutralStartBlocked(result));
+        const neutral = neutralStartBlocked(result);
+        setStartNotice(neutral);
         if (seq === mutationSeq.current) await applyAnswerResult(mutate, withoutNeutralStartBlocked(result));
+        // The answer carried the neutral line in place of this player's own blocker; read the room for the own note.
+        if (neutral && seq === mutationSeq.current) await mutate();
       } catch (err) {
         setActionError(duelActionErrorText(err, { seatPick: kind === "seat-pick" }));
         await mutate();

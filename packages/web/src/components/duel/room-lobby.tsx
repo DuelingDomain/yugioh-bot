@@ -14,7 +14,7 @@ import { deckCounts } from "./side-deck-model";
 import { DuelSettingsSummary, RoomInvite } from "./room-settings";
 import { practiceBotNote } from "./series-model";
 import { StartBlockedNotice } from "./start-blocked-notice";
-import { ownStartBlocked } from "./start-blocked";
+import { LOCKED_DECK_BLOCKED_TEXT, ownStartBlocked } from "./start-blocked";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./room-lobby.module.css";
@@ -244,8 +244,9 @@ export function RoomLobby({
               )}
               {actionError ? <p role="alert" className={ui.alert}>{actionError}</p> : null}
               <StartBlockedNotice own={ownBlocked} neutral={ownBlocked ? null : startNotice}
+                reasonShown={ownBlocked != null && actionError != null && actionError.includes(ownBlocked.reason)}
                 onEditDeck={!lockedDeck ? () => { deckPanel.current?.scrollIntoView?.({ block: "start" }); deckPanel.current?.focus(); } : undefined}
-                deckHref={lockedDeck ? "/decks" : undefined} />
+                lockedText={lockedDeck ? LOCKED_DECK_BLOCKED_TEXT : undefined} />
               <div className={styles.footer}>
                 {myMeta?.ready ? (
                   <SheetButton kind="secondary" size="lg" disabled={busy || starting || room.opening != null || !onMarkUnready} onClick={onMarkUnready}>

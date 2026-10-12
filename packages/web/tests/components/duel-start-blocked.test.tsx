@@ -55,6 +55,8 @@ describe("start-blocked helpers", () => {
   it("names the cards only when the reason does not", () => {
     expect(ownStartBlockedText(OWN)).toBe(`Your deck cannot start. ${OWN.reason} Cards: Fixture Trap.`);
     expect(ownStartBlockedText({ reason: "Move Fixture Spell.", cardNames: ["Fixture Spell"] })).toBe("Your deck cannot start. Move Fixture Spell.");
+    expect(ownStartBlockedText(OWN, true)).toBe("Cards: Fixture Trap.");
+    expect(ownStartBlockedText({ reason: "Move Fixture Spell.", cardNames: ["Fixture Spell"] }, true)).toBe("");
   });
 
   it("takes the neutral line only as a string and strips it from a room answer", () => {
@@ -97,25 +99,41 @@ describe("RoomLobby: start blocked", () => {
     expect(screen.getByTestId("start-blocked")).toHaveTextContent("Your deck cannot start.");
   });
 
-  it("shows nothing when no deck blocks the start", () => {
+  it("keeps an empty status region on the page when no deck blocks the start", () => {
     render(<RoomLobby {...lobbyProps(lobbyRoom())} />);
-    expect(screen.queryByTestId("start-blocked")).toBeNull();
+    const note = screen.getByTestId("start-blocked");
+    expect(note).toHaveAttribute("role", "status");
+    expect(note).toHaveTextContent("");
+    expect(screen.queryByRole("button", { name: "Edit your deck" })).toBeNull();
   });
 
-  it("links a tournament player to their decks, because the registered deck is locked here", () => {
+  it("tells a tournament player the registered deck is locked, with no edit link", () => {
     const data = lobbyRoom();
     data.series = makeSeries({ tournamentId: 4 });
     data.startBlocked = OWN;
     render(<RoomLobby {...lobbyProps(data)} />);
-    expect(screen.getByRole("link", { name: "Edit your deck" })).toHaveAttribute("href", "/decks");
+    expect(screen.getByTestId("start-blocked")).toHaveTextContent("Your registered deck is locked. Ask the tournament organizer.");
+    expect(screen.queryByRole("link", { name: "Edit your deck" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit your deck" })).toBeNull();
+  });
+
+  it("does not say the reason twice when the error line already shows it", () => {
+    const data = lobbyRoom();
+    data.startBlocked = OWN;
+    render(<RoomLobby {...lobbyProps(data, { actionError: OWN.reason })} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(OWN.reason);
+    const note = screen.getByTestId("start-blocked");
+    expect(note.textContent).not.toContain(OWN.reason);
+    expect(note).toHaveTextContent("Cards: Fixture Trap.");
+    expect(screen.getByRole("button", { name: "Edit your deck" })).toBeInTheDocument();
   });
 });
 
 describe("BetweenGamesScreen: start blocked", () => {
   const base = makeDeck();
+  const nextGameAt = new Date(Date.now() + 60_000).toISOString();
   const between = (overrides: Parameters<typeof makeSeries>[0] = {}) => makeSeries({
-    status: "between_games", nextGameAt: new Date(Date.now() + 60_000).toISOString(), hasSide: [true, true], ...overrides,
+    status: "between_games", nextGameAt, hasSide: [true, true], ...overrides,
   });
   beforeEach(() => {
     api.readySeries.mockReset();
@@ -143,5 +161,30 @@ describe("BetweenGamesScreen: start blocked", () => {
     expect(note).toHaveTextContent(NEUTRAL);
     expect(note.textContent).not.toMatch(/Fixture/);
     await waitFor(() => expect(api.readySeries).toHaveBeenCalledOnce());
+  });
+
+  it("drops the neutral line on Not ready", async () => {
+    api.readySeries.mockResolvedValue({ series: between({ sideReady: [true, false] }), nextSlug: null, startBlocked: NEUTRAL });
+    api.unreadySeries.mockReset().mockResolvedValue({ series: between(), nextSlug: null });
+    render(<BetweenGamesScreen slug="game-1" room={roomFor()} onChanged={vi.fn()} onNavigate={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ready" }));
+    expect(await screen.findByTestId("start-blocked")).toHaveTextContent(NEUTRAL);
+    fireEvent.click(await screen.findByRole("button", { name: "Not ready" }));
+    await waitFor(() => expect(screen.getByTestId("start-blocked")).toHaveTextContent(""));
+  });
+
+  it("drops the neutral line when the other player's side of the series changes, not when the own Ready arrives", async () => {
+    api.readySeries.mockResolvedValue({ series: between({ sideReady: [true, false] }), nextSlug: null, startBlocked: NEUTRAL });
+    const props = { slug: "game-1", onChanged: vi.fn(), onNavigate: vi.fn() };
+    const first = roomFor();
+    const view = render(<BetweenGamesScreen {...props} room={first} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ready" }));
+    expect(await screen.findByTestId("start-blocked")).toHaveTextContent(NEUTRAL);
+    const mine = { ...first, series: between({ sideReady: [true, false] }) };
+    view.rerender(<BetweenGamesScreen {...props} room={mine} />);
+    expect(screen.getByTestId("start-blocked")).toHaveTextContent(NEUTRAL);
+    const theirs = { ...first, series: between({ sideReady: [true, true] }) };
+    view.rerender(<BetweenGamesScreen {...props} room={theirs} />);
+    await waitFor(() => expect(screen.getByTestId("start-blocked")).toHaveTextContent(""));
   });
 });

@@ -130,6 +130,9 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   /** The neutral line Ready answered when the other player's deck blocks the next game. */
   const [blockedNotice, setBlockedNotice] = useState<string | null>(null);
   const ownBlocked = ownStartBlocked(room);
+  // The neutral line stops when the series moves on. This player's own Ready and side deck are not a change: they come with the line.
+  const seriesKey = JSON.stringify({ ...series, sideReady: series.sideReady.map((value, at) => (at === index ? null : value)), hasSide: series.hasSide.map((value, at) => (at === index ? null : value)) });
+  useEffect(() => { setBlockedNotice(null); }, [seriesKey]);
   const meta = useDeckCardMeta(current, { initial: knownCards });
   const [hovered, setHovered] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -342,6 +345,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   function notReady() {
     if (busy || moving || advancing.current || !imReady) return;
     setError(null);
+    setBlockedNotice(null);
     setUnreadyPending(true);
     notReadyClicked.current = true;
     leaveReady();
@@ -351,6 +355,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   }
 
   const ready = () => run(async () => {
+    setBlockedNotice(null);
     if (plan.reason) return;
     const readyGeneration = generation.current;
     // Wait out every un-ready, a queued one included, so none can land after this Ready.
