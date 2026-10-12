@@ -1,11 +1,16 @@
-import type { DuelFormat, DuelMasterRule, DuelMode } from "@yugidraft/shared/duels";
+import { DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT, supportsFirstTurnDrawSetting,
+  type DuelFormat, type DuelMasterRule, type DuelMode, type DuelSettings } from "@yugidraft/shared/duels";
 
 /** Resolve the rule once when a duel starts. 1v1 Domain skips turn 1 at every Master Rule. */
 export function firstTurnDrawFor(
   mode: DuelMode,
   masterRule: DuelMasterRule = 5,
   format: DuelFormat = "1v1",
+  settings: Pick<DuelSettings, "firstTurnDraw"> = {},
 ): boolean {
+  if (supportsFirstTurnDrawSetting(mode, format)) {
+    return settings.firstTurnDraw ?? DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT;
+  }
   return mode === "domain" ? format !== "1v1" : masterRule <= 2;
 }
 
