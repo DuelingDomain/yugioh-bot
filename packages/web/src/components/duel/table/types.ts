@@ -49,7 +49,7 @@ export interface SeatPose {
   x: number;
   y: number; // field centre in stage px
   scale: number;
-  rotateDeg: number; // effective rotation (text counter-rotates when upright)
+  rotateDeg: number; // effective rotation: the field, its cards and its text all turn with it
   tiltDeg?: number; // perspective tilt of a far field (rotateX), default 0
   /** Width of the field box at scale 1 (default SEAT_BOX.width): a wide 3-way table gives every zone column a card height, for full-size Defense cards. */
   width?: number;
@@ -76,7 +76,6 @@ export interface CameraState {
   mode: CameraMode;
   focusSeat: number | null;
   lookSeat: number | null;
-  upright: boolean;
   compact: "auto" | "on" | "off";
   fly: FlyPose;
   lock: { reason: CameraLockReason; untilMs: number } | null; // a preview switch only: the duel never sets it
@@ -94,7 +93,6 @@ export type CameraAction =
   | { type: "flyTo"; seat: number }
   | { type: "orbit"; dYawDeg: number; dTiltDeg: number }
   | { type: "zoom"; factor: number }
-  | { type: "toggleUpright" }
   | { type: "toggleCompact" }
   | { type: "lock"; reason: CameraLockReason; nowMs: number; ms: number }
   | { type: "tick"; nowMs: number };
@@ -117,7 +115,6 @@ export interface SeatFieldProps {
   /** Value of the `data-side` attribute when it must differ from `side` (Tag: "partner"). Default: `side`. */
   dataSide?: "you" | "opp" | "partner";
   angleDeg: number;
-  upright: boolean;
   tone: SeatTone;
   density: "full" | "rival" | "compact";
   hand: "face" | "backs" | "none";

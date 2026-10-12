@@ -290,7 +290,7 @@ function TableShellBody({
   const suspended = inputSuspended || ui.suspended || (narrow && sheetOpen);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
-  const camera = useCamera({ controller, layout, initial: replayCarry?.current.camera ?? initialCamera, initialLock: replay ? null : initialLock, seatKeys: flow.seatKeys, suspended, uprightOnly: grid });
+  const camera = useCamera({ controller, layout, initial: replayCarry?.current.camera ?? initialCamera, initialLock: replay ? null : initialLock, seatKeys: flow.seatKeys, suspended, keysOff: grid });
   // A replay seek remounts the table: remember what the viewer chose, so the next mount starts from it.
   useEffect(() => {
     if (replayCarry) replayCarry.current.camera = carriedCamera(camera.state);

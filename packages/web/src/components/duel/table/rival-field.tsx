@@ -16,7 +16,7 @@ export interface RivalFieldProps {
   field: Omit<SeatFieldProps, "angleDeg" | "scale">;
   /** SeatField from field.tsx. A render prop, so this file does not import the duel field. */
   render: SeatFieldRenderer;
-  /** Extra turn of the whole world (the fly-in view), added to the angle the field reads for upright text. */
+  /** Extra turn of the whole world (the fly-in view), added to the angle of the field. */
   angleOffsetDeg?: number;
   /**
    * A fixed place in the parent's px (the grid table): the box sits at `left`/`top` and turns with the CSS `rotate`
@@ -47,8 +47,8 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
 
 /**
  * One seat of the table at its pose. The wrapper owns the place, tilt, turn and scale; the seat field inside
- * draws the board at a fixed card size (`--sf-z`) and counter-rotates its own text when upright is on.
- * It serves the viewer's own seat too: that pose is simply upright at full size.
+ * draws the board at a fixed card size (`--sf-z`) and turns with it: cards and text face the seat's owner.
+ * It serves the viewer's own seat too: that pose is simply level at full size.
  */
 /** What a double click keeps for itself: a card, a zone, a pile, a hand, a control. Only the rest of the field (felt, name, plate) enlarges it. */
 const OWN_DOUBLE_CLICK = "[data-uid], [data-zones], [data-hand-seat], [data-pile], button, a, input, select, textarea, [role='button'], [data-legal='true'], [data-holo]";

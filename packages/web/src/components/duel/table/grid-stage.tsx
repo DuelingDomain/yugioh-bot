@@ -647,7 +647,6 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       data-camera-want={wantMode ?? camera.mode}
       data-camera-lock={locked ? "true" : undefined}
       data-fly="false"
-      data-upright={camera.upright ? "true" : "false"}
       data-stage-scale={((placed?.sizes.equal ?? 0) / SEAT_Z).toFixed(3)}
       data-ready={placed ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
@@ -726,7 +725,6 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               viewerSeat,
               masterRule,
               side: cell.home ? "you" : "opp",
-              upright: camera.upright,
               tone: slot.tone,
               density: "full",
               hand: self ? "face" : "backs",

@@ -17,8 +17,6 @@ export interface SharedBandProps {
   far: DuelSeatView;
   /** World x of the pair (both fields of a pair share a column). */
   x: number;
-  /** The camera turns far cards upright (they read straight instead of facing the far side). */
-  upright: boolean;
   nameOf: (seat: number) => string;
   /** How a seat relates to the viewer: "self", "partner", "opponent" or "other" (a spectator). */
   relationOf: (seat: number) => string;
@@ -36,7 +34,7 @@ export interface SharedBandProps {
  * cell is the near seat's zone 5 and the far seat's zone 6, its right cell the near seat's zone 6 and the far seat's zone 5.
  * A cell shows the card of whoever controls it; its zone keys name both seats, the exact key of the card first.
  */
-export function SharedExtraBand({ near, far, x, upright, nameOf, relationOf, outOf, legalKeys, selectedKeys, onActivate, onHoverCard }: SharedBandProps) {
+export function SharedExtraBand({ near, far, x, nameOf, relationOf, outOf, legalKeys, selectedKeys, onActivate, onHoverCard }: SharedBandProps) {
   const nearOff = disabledZones(near);
   const farOff = disabledZones(far);
   const nearName = nameOf(near.seat);
@@ -51,8 +49,8 @@ export function SharedExtraBand({ near, far, x, upright, nameOf, relationOf, out
       card,
       keys: withExact(card, extraMonsterKeys(near.seat, far.seat, column)),
       offId,
-      // A far card faces the far side, as it does on its own field; `upright` turns it to read straight.
-      flip: card != null && card.controller === far.seat && !upright,
+      // A far card faces the far side, as it does on its own field.
+      flip: card != null && card.controller === far.seat,
       callbacks: { legalKeys, selectedKeys, onActivate, onHoverCard },
     });
     // The cell looks like the field of whoever it belongs to: the controller of its card, or for an empty cell the seat of

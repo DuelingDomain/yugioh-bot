@@ -253,8 +253,7 @@ describe("actions", () => {
     expect(run(base, { type: "zoom", factor: 1.18 }).mode).toBe("fly");
   });
 
-  it("toggles flip upright and compact", () => {
-    expect(run(base, { type: "toggleUpright" }).upright).toBe(!base.upright);
+  it("toggles compact", () => {
     expect(run(base, { type: "toggleCompact" }).compact).not.toBe(base.compact);
   });
 });
@@ -299,7 +298,7 @@ describe("FX lock", () => {
 
   it("keeps toggles and aiming working during a lock", () => {
     const l = run(focus, { type: "lock", reason: "battle", nowMs: 0, ms: 2000 });
-    expect(roofReducer(l, { type: "toggleUpright" }).upright).toBe(!l.upright);
+    expect(roofReducer(l, { type: "toggleCompact" }).compact).not.toBe(l.compact);
   });
 
   it("a tick before the end keeps the lock", () => {
@@ -400,7 +399,7 @@ describe("key map", () => {
     expect(roofKeyAction("+", ctx)).toEqual({ type: "zoom", factor: 1.18 });
     expect(roofKeyAction("=", ctx)).toEqual({ type: "zoom", factor: 1.18 });
     expect(roofKeyAction("-", ctx)).toEqual({ type: "zoom", factor: 1 / 1.18 });
-    expect(roofKeyAction("s", ctx)).toEqual({ type: "toggleUpright" });
+    expect(roofKeyAction("s", ctx)).toBeNull();
     // Auto follow and pin are gone: the duel never moves the camera in, so A and K are no camera keys.
     expect(roofKeyAction("a", ctx)).toBeNull();
     expect(roofKeyAction("k", ctx)).toBeNull();

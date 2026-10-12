@@ -595,7 +595,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       // `data-side="you"` is the viewer's own field only (e2e own-zone locators); a spectator has none.
       dataSide: relation === "self" ? "you" : relation === "partner" ? "partner" : "opp",
       angleDeg: near ? 0 : 180,
-      upright: camera.upright,
       tone: layout.slots.find((s) => s.seat === seat)?.tone ?? "violet",
       density: near ? "full" : "rival",
       hand: "none",
@@ -747,7 +746,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
                   near={nearView}
                   far={farView}
                   x={(firstAt.near ? firstAt : secondAt).x}
-                  upright={camera.upright}
                   nameOf={nameOf}
                   relationOf={relationOf}
                   outOf={outOf}

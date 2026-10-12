@@ -122,8 +122,8 @@ const SEAT_TILT = 22;
 
 /**
  * Close pose on one field before the screen is known: the biggest close-up a roomy screen gives, aimed at the field.
- * The camera stays on the viewer's side for every field: a far field is drawn to read upright from there, so a zoom is
- * easier to read than the rival's end (which turns its text upside down). The stage swaps it for `fitSeatPose` once it
+ * The camera stays on the viewer's side for every field: a far field faces its own owner, and the card panel on hover
+ * reads a card there. The stage swaps it for `fitSeatPose` once it
  * has measured the free box.
  */
 export function seatPose(anchorSeat: number, seat: number): RoofPose {
@@ -283,7 +283,6 @@ export function initialRoofCamera(opts: { anchorSeat: number; camera?: Partial<C
     mode,
     focusSeat,
     lookSeat,
-    upright: c.upright ?? false,
     compact: c.compact ?? "auto",
     aiming: c.aiming ?? false,
     fly: mode === "fly" ? { yawDeg: pose.yaw, tiltDeg: pose.tilt, zoom: pose.zoom, targetSeat: fly.targetSeat } : fly,
@@ -385,8 +384,6 @@ export function roofReducer(state: RoofCameraState, action: CameraAction): RoofC
       const dur = Math.abs(Math.log(action.factor)) > 0.1 ? 300 : 0;
       return moved(state, { mode: "fly", focusSeat: null, lookSeat: null, pose, fly: freeFly(pose, state.fly) }, dur);
     }
-    case "toggleUpright":
-      return { ...state, upright: !state.upright };
     case "toggleCompact":
       return { ...state, compact: state.compact === "auto" ? "on" : state.compact === "on" ? "off" : "auto" };
     case "aiming":
@@ -491,8 +488,6 @@ export function roofKeyAction(key: string, ctx: RoofKeyContext, mods: RoofKeyMod
     case "-":
     case "_":
       return { type: "zoom", factor: 1 / 1.18 };
-    case "s":
-      return { type: "toggleUpright" };
     default:
       return null;
   }
