@@ -3,7 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { canonicalCardCode, mapDeckCodes, type DuelDeck } from "@yugidraft/shared/duels";
-import { createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
+import { createCardCatalogService, createDraftService, type CardLookupBudget } from "@yugidraft/shared/services";
 import { DeckLegalityError, type InspectDeckOptions } from "./deck-legality.js";
 
 type FetchLike = (
@@ -14,6 +14,9 @@ type FetchLike = (
 type NormalizeImportedDeckOptions = {
   fetch?: FetchLike;
   keepUnresolved?: boolean;
+  lookupBudget?: CardLookupBudget;
+  cacheOnly?: boolean;
+  lookupLimitedCodes?: Set<number>;
 };
 
 type EngineRow = {
@@ -165,7 +168,17 @@ async function resolveMissingIds(
     for (const card of cached) nameByInputId.set(card.ygoprodeckId, card.name);
     for (const id of missing) {
       if (nameByInputId.has(id)) continue;
-      const card = await catalog.syncCardById(id);
+      // An earlier response or a concurrent request can fill this cache during the loop.
+      const newlyCached = catalog.findByIds([id])[0];
+      if (newlyCached) { nameByInputId.set(id, newlyCached.name); continue; }
+      if (options.cacheOnly) continue;
+      if (options.lookupBudget && options.lookupBudget.remaining <= 0) {
+        options.lookupBudget.lookupLimited = true;
+        options.lookupLimitedCodes?.add(id);
+        continue;
+      }
+      const card = await catalog.syncCardById(id, { lookupBudget: options.lookupBudget,
+        ...(options.lookupBudget ? { enrichArtwork: false } : {}) });
       if (card) nameByInputId.set(id, card.name);
     }
     for (const id of missing) {
@@ -217,18 +230,24 @@ export async function normalizeCardCodes(
   codes: number[],
   dataDirectory: string,
   db: Database.Database,
-  options: Pick<NormalizeImportedDeckOptions, "fetch"> & { preserveArtwork?: boolean } = {},
+  options: Omit<NormalizeImportedDeckOptions, "keepUnresolved"> & {
+    preserveArtwork?: boolean; canonicalCodes?: Map<number, number | null>;
+  } = {},
 ): Promise<Map<number, number | null>> {
   const inputIds = requireCardIds(codes);
   const graduated = loadCardPasscodeRemaps(dataDirectory);
   const ids = inputIds.map(id => graduated.get(id) ?? id);
   const index = loadEngineIndex(dataDirectory);
-  const resolved = await resolveMissingIds(index, ids, db, { ...options, keepUnresolved: true });
+  const limited = new Set<number>();
+  const resolved = await resolveMissingIds(index, ids, db, { ...options, keepUnresolved: true, lookupLimitedCodes: limited });
   const result = new Map<number, number | null>();
   for (const inputId of inputIds) {
     const id = graduated.get(inputId) ?? inputId;
     const known = index.byId.has(id) ? id : resolved.get(id);
-    result.set(inputId, known === undefined ? null : options.preserveArtwork ? known : canonicalCardCode(known, index.byId));
+    const canonical = known === undefined ? null : canonicalCardCode(known, index.byId);
+    result.set(inputId, known === undefined ? null : options.preserveArtwork ? known : canonical);
+    options.canonicalCodes?.set(inputId, canonical);
+    if (limited.has(id)) options.lookupLimitedCodes?.add(inputId);
   }
   return result;
 }

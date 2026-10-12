@@ -155,7 +155,9 @@ it("transports draft pool context and artwork-preserving normalization", async (
     const { callDuelHost } = await loadHost();
     await callDuelHost({ ...call, op: "check-deck", draftId: 7 });
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body as string)).toMatchObject({ draftId: 7 });
-    await callDuelHost({ ...call, op: "normalize-codes", codes: [10], preserveArtwork: true });
-    expect(JSON.parse(fetchMock.mock.calls[1]![1].body as string)).toMatchObject({ preserveArtwork: true, codes: [10] });
+    await callDuelHost({ ...call, op: "normalize-codes", codes: [10], preserveArtwork: true, lookupLimit: 50, includeCanonical: true });
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body as string)).toMatchObject({ preserveArtwork: true, codes: [10], lookupLimit: 50, includeCanonical: true });
+    await callDuelHost({ ...call, op: "normalize-codes", codes: [10], lookupLimit: 0, cacheOnly: true });
+    expect(JSON.parse(fetchMock.mock.calls[2]![1].body as string)).toMatchObject({ lookupLimit: 0, cacheOnly: true });
   } finally { vi.unstubAllGlobals(); delete process.env.DUEL_INTERNAL_URL; delete process.env.DUEL_INTERNAL_SECRET; }
 });

@@ -236,9 +236,9 @@ export function createCardCatalogService(
     }
     return enriched;
   };
-  const fetchArtworkFamily = async (id: number, lookupBudget?: CardLookupBudget) => {
+  const fetchArtworkFamily = async (id: number, lookupBudget?: CardLookupBudget, enrichArtwork = true) => {
     const cards = await fetchCardsWith({ id: String(id) }, lookupBudget);
-    if (cards.length > 0) return enrichArtworkFamilies(cards);
+    if (cards.length > 0) return enrichArtwork ? enrichArtworkFamilies(cards) : cards;
     // Engine-only IDs can have images but no API ID result. Use their validated
     // original's printed name only after the ID endpoint reports no match.
     const engine = engineIdentity();
@@ -548,14 +548,14 @@ export function createCardCatalogService(
       };
     },
 
-    async syncCardById(id: number, options: { lookupBudget?: CardLookupBudget } = {}): Promise<CardCatalogCard | undefined> {
+    async syncCardById(id: number, options: { lookupBudget?: CardLookupBudget; enrichArtwork?: boolean } = {}): Promise<CardCatalogCard | undefined> {
       ensureLegacyEngineArtwork(id);
       if (hasCatalogRow(id)) {
         ensureEngineArtwork(id);
         return findByIds([id])[0];
       }
       let cards: YgoprodeckCard[];
-      try { cards = await fetchArtworkFamily(id, options.lookupBudget); }
+      try { cards = await fetchArtworkFamily(id, options.lookupBudget, options.enrichArtwork); }
       catch (error) {
         // A card with invalid data is unknown, not a lost connection: the caller reports it and goes on.
         if (error instanceof CardDataError) return findByIds([id])[0];

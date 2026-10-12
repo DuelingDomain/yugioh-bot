@@ -1,6 +1,7 @@
 /** Pure deck text formats. Passcodes, copies, artwork ids and section order are retained. */
 export type DeckSections = { main: number[]; extra: number[]; side: number[]; deckMaster?: number | null };
-export type FormatIssue = { code: string; message: string; line?: number };
+export type FormatIssue = { code: string; message: string; line?: number; count?: number };
+export const MAX_DECK_ISSUES = 20;
 
 const sections = ["main", "extra", "side"] as const;
 const validCode = (code: number): boolean => Number.isInteger(code) && code > 0 && code <= 0xffffffff;
@@ -59,8 +60,8 @@ export function decodeYdke(uri: string): { deck: DeckSections } | { error: Forma
   return { deck };
 }
 
-/** Exact headers, comments, CRLF and BOM. Diagnostics use one-based source lines. */
-export function parseYdk(text: string): { deck: DeckSections; issues: FormatIssue[] } {
+/** Tolerant section labels, comments, CRLF and BOM. Diagnostics use one-based source lines. */
+export function parseYdk(text: string, options: { onCard?: (code: number, line: number) => void } = {}): { deck: DeckSections; issues: FormatIssue[] } {
   const deck = emptyDeck();
   const issues: FormatIssue[] = [];
   let section: typeof sections[number] | "deckmaster" | null = null;
@@ -69,7 +70,11 @@ export function parseYdk(text: string): { deck: DeckSections; issues: FormatIssu
   let sawHeader = false;
   const seenSections = new Set<string>();
   let lastSection = -1;
-  const issue = (code: string, message: string, line?: number) => issues.push({ code, message, ...(line === undefined ? {} : { line }) });
+  let omitted = 0;
+  const issue = (code: string, message: string, line?: number) => {
+    if (issues.length === MAX_DECK_ISSUES) { omitted++; return; }
+    issues.push({ code, message, ...(line === undefined ? {} : { line }) });
+  };
   const finishMaster = () => {
     if (section === "deckmaster" && masterCards !== 1) {
       issue("invalid_deck_master", "#deckmaster must contain exactly one valid passcode.", masterLine);
@@ -78,11 +83,12 @@ export function parseYdk(text: string): { deck: DeckSections; issues: FormatIssu
   text.split(/\r\n|\n|\r/).forEach((raw, index) => {
     const line = raw.trim();
     if (!line) return;
-    const header = line.toLowerCase();
-    if (["#main", "#extra", "!side", "#deckmaster"].includes(header)) {
+    const headerMatch = /^(?:#\s*(main|extra|deckmaster)|!\s*(side))(?:\s.*)?$/i.exec(line);
+    if (headerMatch) {
+      const header = (headerMatch[1] ?? headerMatch[2]).toLowerCase();
       finishMaster();
       sawHeader = true;
-      section = header.slice(1) as typeof sections[number] | "deckmaster";
+      section = header as typeof sections[number] | "deckmaster";
       if (section === "deckmaster") {
         if (masterLine !== undefined) issue("invalid_deck_master", "YDK contains multiple #deckmaster sections.", index + 1);
         masterLine = index + 1;
@@ -99,7 +105,7 @@ export function parseYdk(text: string): { deck: DeckSections; issues: FormatIssu
     if (line.startsWith("#") || line.startsWith("!") || line.startsWith("//")) return;
     const code = Number(line);
     if (!/^\d{1,10}$/.test(line) || !validCode(code)) {
-      issue("invalid_passcode", `Invalid card passcode: ${line}`, index + 1);
+      issue("invalid_passcode", `Invalid card passcode: ${line.slice(0, 120)}`, index + 1);
       return;
     }
     if (section === null) {
@@ -107,12 +113,15 @@ export function parseYdk(text: string): { deck: DeckSections; issues: FormatIssu
     } else if (section === "deckmaster") {
       masterCards++;
       if (deck.deckMaster == null) deck.deckMaster = code;
+      options.onCard?.(code, index + 1);
     } else {
       deck[section].push(code);
+      options.onCard?.(code, index + 1);
     }
   });
   finishMaster();
   if (!sawHeader && issues.length === 0) issue("invalid_ydk", "No YDK sections found.");
+  if (omitted) issues.push({ code: "more_issues", message: `and ${omitted} more issues`, count: omitted });
   return { deck, issues };
 }
 
