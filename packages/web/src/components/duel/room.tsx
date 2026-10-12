@@ -1074,7 +1074,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       legalActionsFor={legalActionsFor}
       onChooseAction={onChooseAction}
       onActivate={onFieldActivate} topSeat={multi ? focusSeat : undefined}
-      onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
+      onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} showInUse />
   ) : null;
   // The Log list stays mounted behind the other tabs (SidePanel keepMounted), so it keeps the rows it has built.
   // Only the instance in the column counts unread rows; the narrow sheet gets its own, uncounted copy.
@@ -1201,7 +1201,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     (engine?.seats ?? []).map((seat) => [seat.seat, seat.seat === localSeat ? SEAT_TONE_HEX.ice : SEAT_TONE_HEX.rose]),
   );
   const hudMaster = (seatView: NonNullable<typeof engine>["seats"][number] | undefined, local: boolean, title: string) =>
-    hudMasterProps({ legalKeys: fieldLegalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title);
+    hudMasterProps({ legalKeys: fieldLegalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title, true);
 
   // The pieces of the flat page, built once so the classic page and the 3D mode page (SolidRoom) show the same nodes.
   const wordmark = <Link href="/duels" replace={inDuelWindow}>Dueling Domain</Link>;
