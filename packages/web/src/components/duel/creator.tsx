@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, Check, Copy, Globe, Info, Lock, Swords } from "lucide-react";
 import {
   defaultDuelSettings,
+  DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT,
+  supportsFirstTurnDrawSetting,
   type DuelBestOf,
   DUEL_BANLIST_OPTIONS,
   duelClockRulesText,
@@ -57,10 +59,24 @@ const TIMEOUTS: readonly Choice<DuelSettings["timeout"]>[] = [
 ];
 const VALIDATION: readonly Choice<boolean>[] = [{ value: true, label: "Forbid invalid decks" }, { value: false, label: "Allow invalid decks" }];
 const SHUFFLE: readonly Choice<boolean>[] = [{ value: true, label: "Shuffled" }, { value: false, label: "Not shuffled" }];
+const FIRST_TURN_DRAW: readonly Choice<boolean>[] = [{ value: true, label: "On" }, { value: false, label: "Off" }];
 const SERIES_LENGTHS: readonly Choice<DuelBestOf>[] = [
   { value: 1, label: "Best of 1" },
   { value: 3, label: "Best of 3" },
 ];
+/**
+ * The setting set for a new table format: the format sets the default for the window stops, and the first-turn draw
+ * exists only for Domain free-for-all tables (it keeps its value while the table stays one, else it is dropped).
+ */
+function settingsForFormat(current: DuelSettings, mode: DuelMode, format: DuelFormat): DuelSettings {
+  const { firstTurnDraw, ...rest } = current;
+  return {
+    ...rest,
+    stopAtEveryWindow: defaultDuelSettings(mode, format).stopAtEveryWindow,
+    ...(supportsFirstTurnDrawSetting(mode, format) ? { firstTurnDraw: firstTurnDraw ?? DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT } : {}),
+  };
+}
+
 const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label: `Banlist: ${label}` }));
 
 /**
@@ -95,6 +111,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const matchLocked = format !== "1v1";
   const visibility = challenge ? "private" : settings.visibility;
   const customDomain = mode === "domain" && isCustomDomain(masterRule, settings);
+  const firstTurnDrawOffered = supportsFirstTurnDrawSetting(mode, format);
   // Domain is offered only where its core exists (see multiDomainBlockReason).
   const domainBlocked = multiDomainBlockReason("domain", format, multiDomainCoreReady);
   const duelTypes = domainBlocked ? FORMATS.filter((choice) => choice.value !== "domain") : FORMATS;
@@ -235,7 +252,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 <div className={styles.wide}>
                   <SheetSelect label="Table type" value={format} choices={TABLE_FORMATS.map((choice) => ({ ...choice, disabled: choice.value !== "1v1" && !multiCoreReady }))} onChange={(value) => {
                     setFormat(value);
-                    setSettings((current) => ({ ...current, stopAtEveryWindow: defaultDuelSettings(mode, value).stopAtEveryWindow }));
+                    setSettings((current) => settingsForFormat(current, mode, value));
                     // A challenge, Best of 3 and Ranked need a 1v1 table.
                     if (value !== "1v1") {
                       setOpponent(null);
@@ -287,6 +304,11 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 <div className={styles.wide}>
                   <SheetSegmented label="Opening deck order" value={settings.shuffleDeck} choices={SHUFFLE} onChange={(value) => update("shuffleDeck", value)} />
                 </div>
+                {firstTurnDrawOffered ? (
+                  <div className={styles.wide}>
+                    <SheetSegmented label="First player draws on turn 1" value={settings.firstTurnDraw ?? DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT} choices={FIRST_TURN_DRAW} onChange={(value) => update("firstTurnDraw", value)} />
+                  </div>
+                ) : null}
               </div>
             </section>
 
@@ -327,7 +349,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                         {customDomain ? " — these overrides differ from official Domain rules." : " — 60 singleton Main Deck cards, a separate Deck Master, up to 15 Extra Deck cards, no Side Deck."}
                         {/* The host does not send its 1v1 engine choice to the creator. */}
                         {format !== "1v1"
-                          ? " Tag and free-for-all duels use Master Rule 5. In Domain, every duelist draws on their first turn."
+                          ? ` Tag and free-for-all duels use Master Rule 5. ${firstTurnDrawOffered && settings.firstTurnDraw === false ? "At this table the first player skips the draw on turn 1; every other duelist draws on their first turn." : "In Domain, every duelist draws on their first turn."}`
                           : " In 1v1 Domain, the duelist who goes first skips the draw on their first turn at every Master Rule. The second duelist always draws."}
                       </span>
                     </p>
