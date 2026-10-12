@@ -1,5 +1,7 @@
 # FFA3 columns: local validation
 
+> **Superseded (owner, 2026-10-11).** FFA3 seats 0 and 1 are a fixed facing pair that share one Extra Monster Zone row. The table has no "choose an opponent" column pick and no cross-opponent column alignment UI, and the engine no longer sends that prompt (engine commit 927a99f2c). This page is kept as history.
+
 Date: 2026-10-05. Rule: `R-FFA-THREE-COLUMNS`. Worktree: `/home/sulman633/orca/workspaces/yugioh-bot/ffa3-columns`. Branch: `feat/ffa3-columns-pick`, from `origin/main` at `049a4df7`.
 
 See [card groups and UI needs](ffa3-columns.md). No host, preset, web, service or production-data changes were made.
