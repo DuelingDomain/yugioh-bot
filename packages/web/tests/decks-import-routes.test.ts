@@ -32,22 +32,175 @@ const previewRows = async (sources: unknown[] = [source()]) => (await (await pre
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.spyOn(Date, "now").mockReturnValue(testTime += 600000);
+  vi.spyOn(Date, "now").mockReturnValue(testTime += 3600000);
   db = new Database(":memory:");
   migrate(db);
   db.exec("insert into users(id, username, display_name) values (1, 'owner', 'Owner'), (2, 'other', 'Other')");
   decks = createSavedDeckService(db);
   mocks.savedActor.mockResolvedValue({ ok: true, guildId: "g", ownerUserId: 1, discordUserId: null, decks });
   mocks.duelActor.mockResolvedValue({ ok: true, guildId: "g", playerId: 7 });
-  mocks.callDuelHost.mockImplementation(async (input: { op: string; codes?: number[] }) => ({
+  mocks.callDuelHost.mockImplementation(async (input: { op: string; codes?: number[]; lookupLimit: number }) => ({
     ok: true, data: input.op === "normalize-codes"
-      ? { codes: Object.fromEntries(input.codes!.map(id => [id, id === 999 ? null : id === 101402052 ? 40235813 : id])) }
+      ? { codes: Object.fromEntries(input.codes!.map(id => [id, id === 999 ? null : id === 101402052 ? 40235813 : id])), lookupRemaining: input.lookupLimit }
       : { ok: true },
   }));
 });
 afterEach(() => { db.close(); vi.restoreAllMocks(); });
 
 describe("backend review fixes", () => {
+  const unknownCodes = (offset = 0) => Array.from({ length: 50 }, (_, i) => 91000000 + offset + i);
+  function unknownHost() {
+    const fetch = vi.fn();
+    mocks.callDuelHost.mockImplementation(async (input: { codes: number[]; lookupLimit: number }) => {
+      const used = Math.min(input.codes.length, input.lookupLimit);
+      for (const code of input.codes.slice(0, used)) fetch(code);
+      return { ok: true, data: { codes: Object.fromEntries(input.codes.map(id => [id, null])),
+        lookupRemaining: input.lookupLimit - used, lookupLimited: input.codes.slice(used) } };
+    });
+    return fetch;
+  }
+
+  it.each([false, true])("bounds remote fetches to 100 across 20 requests (mix bulk: %s)", async mixed => {
+    const fetch = unknownHost();
+    for (let i = 0; i < 20; i++) {
+      const codes = unknownCodes(i * 50);
+      const response = mixed && i % 2
+        ? await bulk(request({ rows: [row("Unknown", deck(codes))] }))
+        : await preview(request({ sources: [source(`#main\n${codes.join("\n")}`)] }));
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      const errors = mixed && i % 2 ? body.failed[0].errors : body.rows[0].errors;
+      expect(errors[0].code).toBe(i < 2 ? "unknown_card" : "lookup_limited");
+    }
+    expect(fetch).toHaveBeenCalledTimes(100);
+    expect(mocks.callDuelHost.mock.calls.map(([input]) => input.lookupLimit)).toEqual([50, 50, ...Array(18).fill(0)]);
+  });
+
+  it("charges only used lookups and keeps cached imports working at zero tokens", async () => {
+    const fetch = unknownHost();
+    const first = unknownCodes().slice(0, 45);
+    const second = unknownCodes(50).slice(0, 45);
+    for (const codes of [first, second, unknownCodes(100)]) {
+      expect((await preview(request({ sources: [source(`#main\n${codes.join("\n")}`)] }))).status).toBe(200);
+    }
+    expect(mocks.callDuelHost.mock.calls.map(([input]) => input.lookupLimit)).toEqual([50, 50, 10]);
+    expect(fetch).toHaveBeenCalledTimes(100);
+    mocks.callDuelHost.mockImplementation(async (input: { codes: number[]; lookupLimit: number }) => ({ ok: true,
+      data: { codes: Object.fromEntries(input.codes.map(id => [id, id])), lookupRemaining: input.lookupLimit } }));
+    const [shown] = await previewRows();
+    expect(shown.errors).toEqual([]);
+    const saved = await bulk(request({ rows: [row()] }));
+    expect(saved.status).toBe(200);
+    expect((await saved.json()).created).toHaveLength(1);
+    expect(mocks.callDuelHost.mock.calls.slice(3).every(([input]) => input.lookupLimit === 0)).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(100);
+  });
+
+  it.each([[5999, 0], [6000, 1], [60000, 10], [120000, 20], [600000, 50]])(
+    "refills the lookup bucket after %i ms without resetting it early", async (elapsed, expected) => {
+      const fetch = unknownHost();
+      for (const offset of [0, 50]) await previewRows([source(`#main\n${unknownCodes(offset).join("\n")}`)]);
+      vi.spyOn(Date, "now").mockReturnValue(testTime + elapsed);
+      await previewRows([source(`#main\n${unknownCodes(100).join("\n")}`)]);
+      expect(mocks.callDuelHost.mock.calls.at(-1)![0].lookupLimit).toBe(expected);
+      expect(fetch).toHaveBeenCalledTimes(100 + expected);
+    },
+  );
+
+  it.each([[preview, preview], [preview, bulk], [bulk, preview], [bulk, bulk]])(
+    "rejects a second import while another is in flight", async (firstRoute, secondRoute) => {
+      let release!: (value: unknown) => void;
+      let started!: () => void;
+      const entered = new Promise<void>(resolve => { started = resolve; });
+      mocks.callDuelHost.mockImplementationOnce(() => {
+        started();
+        return new Promise(resolve => { release = resolve; });
+      });
+      const body = (route: typeof preview) => route === preview ? { sources: [source()] } : { rows: [row()] };
+      const pending = firstRoute(request(body(firstRoute)));
+      await entered;
+      const second = await secondRoute(request(body(secondRoute)));
+      expect(second.status).toBe(429);
+      expect(second.headers.get("retry-after")).toBe("1");
+      expect(await second.json()).toEqual({ error: "A deck import is already in progress, try again shortly", retryAfterSeconds: 1 });
+      expect(mocks.callDuelHost).toHaveBeenCalledTimes(1);
+      release({ ok: true, data: { codes: { 89631139: 89631139 }, lookupRemaining: 50 } });
+      expect((await pending).status).toBe(200);
+      expect((await secondRoute(request(body(secondRoute)))).status).toBe(200);
+    },
+  );
+
+  it.each([preview, bulk])("releases the in-flight lock after invalid bodies and host failures", async route => {
+    expect((await route(new Request("http://test", { method: "POST", body: "{" }))).status).toBe(400);
+    const body = route === preview ? { sources: [source()] } : { rows: [row()] };
+    mocks.callDuelHost.mockRejectedValueOnce(new Error("timeout"));
+    expect((await route(request(body))).status).toBe(503);
+    expect((await route(request(body))).status).toBe(200);
+  });
+
+  it("caches confirmed unknown codes for ten minutes across preview and bulk", async () => {
+    const fetch = unknownHost();
+    const codes = unknownCodes();
+    for (let i = 0; i < 3; i++) {
+      const [shown] = await previewRows([source(`#main\n${codes.join("\n")}`)]);
+      expect(shown.errors[0].code).toBe("unknown_card");
+    }
+    const saved = await bulk(request({ rows: [row("Unknown", deck(codes))] }));
+    expect((await saved.json()).failed[0].errors[0].code).toBe("unknown_card");
+    expect(fetch).toHaveBeenCalledTimes(50);
+    vi.spyOn(Date, "now").mockReturnValue(testTime + 599999);
+    await previewRows([source(`#main\n${codes.join("\n")}`)]);
+    expect(fetch).toHaveBeenCalledTimes(50);
+    vi.spyOn(Date, "now").mockReturnValue(testTime + 600000);
+    await previewRows([source(`#main\n${codes.join("\n")}`)]);
+    expect(fetch).toHaveBeenCalledTimes(100);
+  });
+
+  it("does not cache lookup-limited codes as unknown", async () => {
+    const fetch = unknownHost();
+    for (const offset of [0, 50]) await previewRows([source(`#main\n${unknownCodes(offset).join("\n")}`)]);
+    const codes = unknownCodes(100);
+    expect((await previewRows([source(`#main\n${codes.join("\n")}`)]))[0].errors[0].code).toBe("lookup_limited");
+    vi.spyOn(Date, "now").mockReturnValue(testTime + 60000);
+    expect((await previewRows([source(`#main\n${codes.join("\n")}`)]))[0].errors[0].code).toBe("unknown_card");
+    expect(fetch).toHaveBeenCalledTimes(110);
+  });
+
+  it("does not renew unconfirmed lookup allowance after a timeout or missing remainder", async () => {
+    mocks.callDuelHost.mockRejectedValueOnce(new Error("timeout"));
+    expect((await preview(request({ sources: [source()] }))).status).toBe(503);
+    mocks.callDuelHost.mockResolvedValueOnce({ ok: true, data: { codes: { 89631139: 89631139 } } });
+    expect((await preview(request({ sources: [source()] }))).status).toBe(200);
+    expect((await preview(request({ sources: [source()] }))).status).toBe(200);
+    expect(mocks.callDuelHost.mock.calls.map(([input]) => input.lookupLimit)).toEqual([50, 50, 0]);
+  });
+
+  it("keeps the lookup bucket separate for each authenticated user", async () => {
+    const fetch = unknownHost();
+    for (const offset of [0, 50]) await previewRows([source(`#main\n${unknownCodes(offset).join("\n")}`)]);
+    mocks.savedActor.mockResolvedValueOnce({ ok: true, guildId: "g", ownerUserId: 2, decks });
+    await previewRows([source(`#main\n${unknownCodes(100).join("\n")}`)]);
+    expect(mocks.callDuelHost.mock.calls.at(-1)![0].lookupLimit).toBe(50);
+    await previewRows([source(`#main\n${unknownCodes(150).join("\n")}`)]);
+    expect(mocks.callDuelHost.mock.calls.at(-1)![0].lookupLimit).toBe(0);
+    expect(fetch).toHaveBeenCalledTimes(150);
+  });
+
+  it("bounds the negative cache and evicts the oldest confirmed misses", async () => {
+    // These null mappings represent cached cards the engine cannot resolve; they spend no lookup.
+    mocks.callDuelHost.mockImplementation(async (input: { codes: number[]; lookupLimit: number }) => ({ ok: true,
+      data: { codes: Object.fromEntries(input.codes.map(id => [id, null])), lookupRemaining: input.lookupLimit } }));
+    const codes = Array.from({ length: 5100 }, (_, i) => 92000000 + i);
+    for (const group of [codes.slice(0, 4500), codes.slice(4500)]) {
+      const rows = Array.from({ length: Math.ceil(group.length / 300) }, (_, i) => row(`Unknown ${i}`, deck(group.slice(i * 300, (i + 1) * 300))));
+      expect((await bulk(request({ rows }))).status).toBe(200);
+    }
+    mocks.callDuelHost.mockClear();
+    await previewRows([source(`#main\n${codes[0]}\n${codes.at(-1)}`)]);
+    expect(mocks.callDuelHost).toHaveBeenCalledTimes(1);
+    expect(mocks.callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ codes: [codes[0]], lookupLimit: 50 }));
+  });
+
   it("sends one import budget and uses cache only for saved-deck identities", async () => {
     decks.create("g", 1, { name: "Old", mode: "normal", deck: { main: [777], extra: [], side: [] } });
     const response = await preview(request({ sources: [source()] }));

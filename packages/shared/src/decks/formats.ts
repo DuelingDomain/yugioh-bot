@@ -83,7 +83,7 @@ export function parseYdk(text: string, options: { onCard?: (code: number, line: 
   text.split(/\r\n|\n|\r/).forEach((raw, index) => {
     const line = raw.trim();
     if (!line) return;
-    const headerMatch = /^(?:#\s*(main|extra|deckmaster)|!\s*(side))(?:\s.*)?$/i.exec(line);
+    const headerMatch = /^(?:#\s*(main|extra|deckmaster)|!\s*(side))(?:deck)?(?:[^a-z].*)?$/i.exec(line);
     if (headerMatch) {
       const header = (headerMatch[1] ?? headerMatch[2]).toLowerCase();
       finishMaster();

@@ -126,7 +126,8 @@ export async function callDuelHost(input: {
     console.error(`[duel-host] ${configProblem}`);
     return { ok: false, response: NextResponse.json({ error: configProblem }, { status: 503 }) };
   }
-  const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 } : {}) });
+  const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 }
+    : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 } : {}) });
   const payload: Record<string, unknown> = {
     op: input.op,
     guildId: input.guildId,

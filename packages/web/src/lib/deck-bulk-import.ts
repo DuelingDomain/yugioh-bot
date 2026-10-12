@@ -45,26 +45,59 @@ function boundIssues(errors: ImportIssue[], warnings: ImportIssue[] = []) {
   return { errors: keptErrors, warnings: keptWarnings };
 }
 
-// One shared bucket for preview and bulk. Idle buckets expire without a background timer.
-const importBuckets = new Map<string, { tokens: number; updated: number }>();
+// Preview and bulk share request/lookup buckets and a lock. Idle, fully refilled buckets expire.
+type ImportBucket = { tokens: number; lookupTokens: number; updated: number; inFlight: boolean };
+const importBuckets = new Map<string, ImportBucket>();
 const IMPORT_BURST = 20;
 const IMPORT_REFILL_MS = 6000;
-export function checkImportRateLimit(actor: Actor): NextResponse | null {
+const LOOKUP_BURST = 100;
+const LOOKUP_REFILL_MS = 6000;
+const actorKey = (actor: Actor) => `${actor.guildId}:${actor.ownerUserId}`;
+
+function importBucket(actor: Actor): ImportBucket {
   const now = Date.now();
   for (const [key, bucket] of importBuckets) {
-    if (now - bucket.updated >= IMPORT_BURST * IMPORT_REFILL_MS) importBuckets.delete(key);
+    if (!bucket.inFlight && now - bucket.updated >= LOOKUP_BURST * LOOKUP_REFILL_MS) importBuckets.delete(key);
   }
-  const key = `${actor.guildId}:${actor.ownerUserId}`;
-  const bucket = importBuckets.get(key) ?? { tokens: IMPORT_BURST, updated: now };
-  bucket.tokens = Math.min(IMPORT_BURST, bucket.tokens + Math.max(0, now - bucket.updated) / IMPORT_REFILL_MS);
+  const key = actorKey(actor);
+  const bucket = importBuckets.get(key) ?? { tokens: IMPORT_BURST, lookupTokens: LOOKUP_BURST, updated: now, inFlight: false };
+  const elapsed = Math.max(0, now - bucket.updated);
+  bucket.tokens = Math.min(IMPORT_BURST, bucket.tokens + elapsed / IMPORT_REFILL_MS);
+  bucket.lookupTokens = Math.min(LOOKUP_BURST, bucket.lookupTokens + elapsed / LOOKUP_REFILL_MS);
   bucket.updated = now;
   importBuckets.set(key, bucket);
+  return bucket;
+}
+
+export function checkImportRateLimit(actor: Actor): NextResponse | null {
+  const bucket = importBucket(actor);
+  if (bucket.inFlight) {
+    return NextResponse.json({ error: "A deck import is already in progress, try again shortly", retryAfterSeconds: 1 },
+      { status: 429, headers: { "Retry-After": "1" } });
+  }
   if (bucket.tokens < 1) {
     const retryAfterSeconds = Math.ceil((1 - bucket.tokens) * IMPORT_REFILL_MS / 1000);
     return NextResponse.json({ error: "Too many deck imports, try again shortly", retryAfterSeconds }, { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } });
   }
   bucket.tokens--;
+  bucket.inFlight = true;
   return null;
+}
+
+/** Always release in a route's finally, including malformed bodies and host errors. */
+export function finishImportRequest(actor: Actor): void {
+  const bucket = importBuckets.get(actorKey(actor));
+  if (bucket) bucket.inFlight = false;
+}
+
+const negativeCodes = new Map<number, number>();
+const NEGATIVE_CACHE_MS = 10 * 60 * 1000;
+const MAX_NEGATIVE_CODES = 5000;
+
+function rememberUnknown(code: number): void {
+  negativeCodes.delete(code);
+  if (negativeCodes.size >= MAX_NEGATIVE_CODES) negativeCodes.delete(negativeCodes.keys().next().value!);
+  negativeCodes.set(code, Date.now() + NEGATIVE_CACHE_MS);
 }
 
 /** Enforce the actual streamed JSON byte count, including requests without Content-Length. */
@@ -196,11 +229,32 @@ const allCodes = (deck: DeckSections) => [...deck.main, ...deck.extra, ...deck.s
 export async function resolveImportCodes(actor: Actor, decks: DeckSections[], cacheOnly = false) {
   const codes = [...new Set(decks.flatMap(allCodes))];
   if (!cacheOnly && codes.length > MAX_IMPORT_CODES) return { ok: false as const, response: errorResponse(`Import must contain at most ${MAX_IMPORT_CODES} unique card codes`) };
-  if (codes.length === 0) return { ok: true as const, codes: new Map<number, number | null>(), canonicalCodes: new Map<number, number | null>(), lookupLimitedCodes: new Set<number>() };
+  const now = Date.now();
+  for (const [code, expires] of negativeCodes) if (expires <= now) negativeCodes.delete(code);
+  const unknown = cacheOnly ? [] : codes.filter(code => negativeCodes.has(code));
+  const pending = cacheOnly ? codes : codes.filter(code => !negativeCodes.has(code));
+  if (pending.length === 0) return { ok: true as const, codes: new Map<number, number | null>(unknown.map(code => [code, null])),
+    canonicalCodes: new Map<number, number | null>(unknown.map(code => [code, null])), lookupLimitedCodes: new Set<number>() };
   const duelActor = await requireDuelActor();
   if (!duelActor.ok) return duelActor;
-  return normalizeDraftCardCodes({ guildId: actor.guildId, playerId: duelActor.playerId, codes, preserveArtwork: true,
-    lookupLimit: cacheOnly ? 0 : CARD_LOOKUP_LIMIT, ...(cacheOnly ? { cacheOnly: true } : {}), includeCanonical: true });
+  const bucket = importBucket(actor);
+  const lookupLimit = cacheOnly ? 0 : Math.min(CARD_LOOKUP_LIMIT, Math.floor(bucket.lookupTokens));
+  // Reserve before calling the host. Refund only a validated remainder; a lost response cannot grant fresh lookups.
+  bucket.lookupTokens -= lookupLimit;
+  const result = await normalizeDraftCardCodes({ guildId: actor.guildId, playerId: duelActor.playerId, codes: pending, preserveArtwork: true,
+    lookupLimit, ...(cacheOnly ? { cacheOnly: true } : {}), includeCanonical: true });
+  if (!result.ok) return result;
+  bucket.lookupTokens = Math.min(LOOKUP_BURST, bucket.lookupTokens + (result.lookupRemaining ?? 0));
+  if (!cacheOnly) {
+    for (const [code, resolved] of result.codes) {
+      if (resolved === null && !result.lookupLimitedCodes.has(code)) rememberUnknown(code);
+    }
+  }
+  for (const code of unknown) {
+    result.codes.set(code, null);
+    result.canonicalCodes.set(code, null);
+  }
+  return result;
 }
 
 export function resolveImportDeck(deck: DeckSections, codes: ReadonlyMap<number, number | null>, limited: ReadonlySet<number> = new Set(), lines: ReadonlyMap<number, number> = new Map()) {
