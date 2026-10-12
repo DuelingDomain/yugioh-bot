@@ -5,7 +5,6 @@ export type CameraState = TableCameraState & { aiming: boolean };
 export type CameraAction =
   | TableCameraAction
   /** A prompt needs these field seats on screen: a focus on any other field goes back to the overview. */
-  | { type: "needSeats"; seats: readonly number[] }
   | { type: "aiming"; on: boolean };
 
 /**
@@ -333,11 +332,6 @@ function goOverview(state: RoofCameraState, dur = ROOF_ZOOM_MS): RoofCameraState
   return moved(state, { mode: "overview", focusSeat: null, lookSeat: null, pose: { ...ROOF_PRESETS.overview } }, dur);
 }
 
-/** The saved view after a lock, turned into the overview (the lock itself has already eased the camera there). */
-function overviewResume(r: RoofResume): RoofResume {
-  return { mode: "overview", focusSeat: null, lookSeat: null, pose: { ...ROOF_PRESETS.overview }, fly: r.fly };
-}
-
 function focusOn(state: RoofCameraState, seat: number): RoofCameraState {
   if (state.mode === "focus" && state.focusSeat === seat) return state;
   return moved(state, { mode: "focus", focusSeat: seat, lookSeat: null, pose: seatPose(state.anchor, seat) }, ROOF_ZOOM_MS);
@@ -388,25 +382,9 @@ export function roofReducer(state: RoofCameraState, action: CameraAction): RoofC
       return { ...state, upright: !state.upright };
     case "toggleCompact":
       return { ...state, compact: state.compact === "auto" ? "on" : state.compact === "on" ? "off" : "auto" };
-    case "aiming": {
-      // An aim needs the rival field in view: a close-up on one field goes back to the overview first.
-      if (action.on && (state.mode === "focus" || state.mode === "look") && !state.lock) return { ...goOverview(state), aiming: true };
-      // Under an FX lock the camera is already on the overview: make the saved close-up the overview too.
-      if (action.on && state.lock && state.resume && (state.resume.mode === "focus" || state.resume.mode === "look")) {
-        return { ...state, aiming: true, resume: overviewResume(state.resume) };
-      }
+    case "aiming":
+      // An aim never moves the camera: a close-up stays, and the viewer steps to a rival field with its pill.
       return { ...state, aiming: action.on };
-    }
-    case "needSeats": {
-      if (state.lock) {
-        // Same under a lock: the close-up that comes back after the lock must not hide the field a prompt needs.
-        const r = state.resume;
-        if (r?.mode !== "focus" || !action.seats.some((seat) => seat !== r.focusSeat)) return state;
-        return { ...state, resume: overviewResume(r) };
-      }
-      if (state.mode !== "focus") return state;
-      return action.seats.some((seat) => seat !== state.focusSeat) ? goOverview(state) : state;
-    }
     case "lock": {
       const untilMs = action.nowMs + action.ms;
       if (state.lock) {

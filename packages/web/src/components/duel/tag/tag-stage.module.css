@@ -445,6 +445,33 @@ button.bpill[data-zoomed="true"] {
 
 button.bpill[data-zoomed="true"] span { color: #f6d9bd; }
 
+/* Targets for the open prompt or aim sit on a field out of view: a soft gold dot after the name that pulses slowly. The camera
+   does not move; the viewer presses the pill. */
+.bhint {
+  flex: none;
+  margin-left: -4px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: rgb(240 192 96);
+  box-shadow: 0 0 0 4px rgb(240 192 96 / 0.3), 0 0 14px rgb(240 192 96 / 0.8);
+  animation: bhintPulse 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+button.bpill[data-targets="true"] { border-color: rgb(240 192 96 / 0.85); }
+
+@keyframes bhintPulse {
+  0%, 100% { transform: scale(1); opacity: 0.95; }
+  50% { transform: scale(1.35); opacity: 0.6; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bhint { animation: none; }
+}
+
+.bhint[data-calm="true"] { animation: none; }
+
 .bpill b {
   flex: none;
   font: 700 24px / 1 var(--disp);

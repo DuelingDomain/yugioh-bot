@@ -20,6 +20,10 @@ export interface CameraRailProps {
   nameOf: (seat: number) => string;
   /** Seats that are out of the duel: they stay listed but cannot be picked. */
   out?: ReadonlySet<number>;
+  /** Seats with targets for the open prompt or aim: a soft dot on their button (the camera does not move for it). */
+  hintSeats?: readonly number[];
+  /** Reduced motion: the dot stays still. */
+  calm?: boolean;
   dispatch: (action: CameraRailAction) => void;
 }
 
@@ -27,7 +31,7 @@ export interface CameraRailProps {
  * Shown only while the camera is close on one field: the way back to the overview (also the Esc key), and a small
  * switcher so another field is one tap away without a trip through the overview. The overview needs no rail.
  */
-export function CameraRail({ focusSeat, seats, nameOf, out, dispatch }: CameraRailProps) {
+export function CameraRail({ focusSeat, seats, nameOf, out, hintSeats, calm, dispatch }: CameraRailProps) {
   return (
     <div className={styles.rail} data-camera-rail role="group" aria-label="Camera">
       <button type="button" className={styles.back} data-camera-back aria-label="Back to overview" title="Back to overview (Esc)" onClick={() => dispatch({ type: "overview" })}>
@@ -38,7 +42,9 @@ export function CameraRail({ focusSeat, seats, nameOf, out, dispatch }: CameraRa
         <kbd aria-hidden="true">Esc</kbd>
       </button>
       <div className={styles.switch} role="group" aria-label="Switch field">
-        {seats.map((entry) => (
+        {seats.map((entry) => {
+          const hint = entry.seat !== focusSeat && (hintSeats?.includes(entry.seat) ?? false);
+          return (
           <button
             key={entry.seat}
             type="button"
@@ -46,14 +52,17 @@ export function CameraRail({ focusSeat, seats, nameOf, out, dispatch }: CameraRa
             style={{ ["--seat" as string]: entry.rgb } as CSSProperties}
             data-camera-seat-button={entry.seat}
             aria-pressed={entry.seat === focusSeat}
-            aria-label={`Focus ${nameOf(entry.seat)}'s field`}
+            data-targets={hint ? "true" : undefined}
+            data-calm={hint && calm ? "true" : undefined}
+            aria-label={hint ? `Focus ${nameOf(entry.seat)}'s field, it has targets` : `Focus ${nameOf(entry.seat)}'s field`}
             title={nameOf(entry.seat)}
             disabled={out?.has(entry.seat) === true}
             onClick={() => dispatch({ type: "focus", seat: entry.seat })}
           >
             {entry.code}
           </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
