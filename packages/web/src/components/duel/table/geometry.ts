@@ -777,7 +777,7 @@ export function promptRooms(input: {
   const panelMax = Math.min(320, Math.max(220, box.width * 0.27));
   const base = { layout: input.layout, camera: input.camera, poses: input.poses, anchors: input.anchors, spread: input.spread, meFooter: input.meFooter, hint };
   const hub = hubPose(input.layout, input.camera, { box: { width: box.width, height: k * STAGE.height }, meFooter: input.meFooter });
-  const ring = ringPose(input.layout, input.camera, input.spread);
+  const ring = ringPose(input.layout, input.camera);
   const furniture: PromptRoom[] = [
     { x: hub.x - hub.width / 2, y: hub.y - hub.height / 2, width: hub.width, height: hub.height },
     { x: ring.x - 70 * ring.scale, y: ring.y - 70 * ring.scale, width: 140 * ring.scale, height: 154 * ring.scale },
@@ -921,7 +921,7 @@ export function holoAnchor(layout: TableLayout, seat: number, camera?: CameraVie
 }
 
 /** Where the turn ring stands in a camera mode: it keeps clear of every field. */
-export function ringPose(layout: TableLayout, camera: CameraView, spread = 0): { x: number; y: number; scale: number } {
+export function ringPose(layout: TableLayout, camera: CameraView): { x: number; y: number; scale: number } {
   if (arrangementOf(layout) === "ffa4") {
     if (camera.mode === "fly") return { x: 550, y: 410, scale: 1 };
     if (camera.mode === "overview") return { x: 550, y: 395, scale: 0.9 };
@@ -1084,7 +1084,7 @@ function wideHubPose(
   fallback: HubPose,
   hud?: { width: number; height: number },
 ): HubPose {
-  const ring = ringPose(layout, camera, spread);
+  const ring = ringPose(layout, camera);
   const obstacles = hubObstacles(layout, poses, plates, meFooter, hint, spread, ring);
   if (hud) {
     const right = STAGE.width + spread;

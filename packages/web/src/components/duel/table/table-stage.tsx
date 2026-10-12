@@ -12,7 +12,7 @@ import { watchMeasure } from "./measure-watch";
 import { BAR_HUD, promptUnit } from "./grid-stage";
 import { planPickBarRoom } from "./pick-bar-room";
 import { isChainStripPrompt } from "../prompt-center";
-import { boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
+import { boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -495,7 +495,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   };
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
-  const ringAt = ringPose(layout, camera, spread);
+  const ringAt = ringPose(layout, camera);
   // Your own field enlarged: the camera eases (360 ms, as the Tag camera) to the zoom that fits the field, and the plates and the
   // phase strip that follow it, into the free box between the HUD parts. Leaving it eases back. A resize while it stays refits at once.
   const ownFit = useRef(false);
@@ -541,7 +541,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   const peekKey = pinnedRect ? `${pinnedRect.x + pinnedRect.width / 2 < box.width / 2 ? "l" : "r"}${[pinnedRect.x, pinnedRect.y, pinnedRect.width, pinnedRect.height].map((v) => Math.round(v / 16)).join(",")}` : "0";
   const softKey = `${peekKey}|${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}|${Math.round(chainInset)}`;
   const lastFitKey = useRef("");
-  const { zoomFit, zoomTo, byHand, refit: clampToBox } = zoom;
+  const { zoomFit, zoomTo, byHand } = zoom;
   useLayoutEffect(() => {
     const root = rootRef.current;
     const was = ownFit.current;
