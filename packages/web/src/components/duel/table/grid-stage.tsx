@@ -744,7 +744,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               onHoverCard: controller.onHoverCard,
             };
             const exitRow = exitState.exits.find((entry) => entry.seat === cell.seat);
-            const outline = out ? placed.cells[cellIndex(cell)].own : null;
+            // The lone seat of the 3-way table has its own Extra Monster row inside its box, so its outline covers the whole box.
+            const outline = out ? (cell.partner == null ? spot.rect : placed.cells[cellIndex(cell)].own) : null;
             return (
               <div
                 key={cell.seat}
