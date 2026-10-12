@@ -69,7 +69,7 @@ export function DeckImportPanel({
   dragging: boolean;
   onClose: () => void;
 }) {
-  const { tab, setTab, mode, setMode, view, error, notes, heldCount, previewFiles, previewPaste, retryHeld, dropHeld, recheck, rename, toggle, toggleAll, importSelected, reset } = importer;
+  const { tab, setTab, mode, setMode, view, error, notes, heldCount, cards, previewFiles, previewPaste, retryHeld, dropHeld, recheck, rename, toggle, toggleAll, importSelected, reset } = importer;
   const [paste, setPaste] = useState("");
   const busy = view.phase === "loading" || view.phase === "importing";
   const showSource = view.phase === "idle" || view.phase === "loading" || view.phase === "preview";
@@ -176,6 +176,7 @@ export function DeckImportPanel({
       {listed ? (
         <ImportPreviewList
           items={items}
+          cards={cards}
           maxDecks={maxDecks}
           busy={view.phase !== "preview"}
           onRename={rename}

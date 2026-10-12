@@ -121,6 +121,11 @@
 .pvRow:not([data-selected]) .counts { opacity: 0.8; }
 .pvMain { display: grid; gap: 7px; min-width: 0; }
 .pvName { max-width: 420px; }
+.pvTop { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.pvHead { display: grid; flex: 1 1 0; gap: 7px; min-width: 0; }
+.pvLead { flex: 1 1 200px; min-width: 0; font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.pvLead[data-tone="error"] { color: var(--loss-ink); }
+.pvLead[data-tone="warn"] { color: var(--warn-ink); }
 .pvChips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; }
 .pvDup { padding: 2px 10px; border: 1px solid rgb(228 182 79 / 0.4); border-radius: 999px; background: var(--chain-soft); color: var(--chain-ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .pvFail { margin: 0; color: var(--loss-ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
