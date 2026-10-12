@@ -1105,6 +1105,29 @@ describe("Domain one copy of each card", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: /^Deck Master:/ })).toBeNull());
   });
 
+  it("puts a saved Deck Master with no origin back into the deck when it is removed", async () => {
+    stored = { ...savedDeck([]), mode: "domain", deck: { main: [POT.code], extra: [], side: [], deckMaster: BLUE_EYES.code } };
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove as Deck Master" })[0]);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Deck Master:/ })).toBeNull());
+    expect(mainCards().map((tile) => tile.getAttribute("aria-label")?.split(",")[0])).toEqual(["Pot of Greed", "Blue-Eyes White Dragon"]);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(await screen.findByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" })).toBeInTheDocument();
+    expect(mainCards()).toHaveLength(1);
+  });
+
+  it("sets the Deck Master once per key press and says so in the status line", async () => {
+    stored = { ...domainDeck([BLUE_EYES.code, POT.code]), deck: { main: [BLUE_EYES.code, POT.code], extra: [], side: [] } };
+    render(<SavedDeckEditor deckId="7" />);
+    const monster = await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
+    fireEvent.keyDown(monster, { key: "m", repeat: true });
+    expect(screen.queryByRole("button", { name: /^Deck Master:/ })).toBeNull();
+    fireEvent.keyDown(monster, { key: "m" });
+    await screen.findByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" });
+    expect(screen.queryAllByRole("status").map((node) => node.textContent).join(" | ")).toContain("Blue-Eyes White Dragon is now your Deck Master.");
+  });
+
   it("renders a saved Spell Deck Master without crashing and offers no Master control for it", async () => {
     stored = { ...domainDeck([BLUE_EYES.code]), deck: { main: [BLUE_EYES.code], extra: [], side: [], deckMaster: POT.code } };
     render(<SavedDeckEditor deckId="7" />);

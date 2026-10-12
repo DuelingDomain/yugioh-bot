@@ -381,6 +381,21 @@ export function removeCard(selection: DeckMasterSelection, source: CardSource): 
   return { deck: removeAt(deck, source.from, index), masterOrigin: shiftMasterOrigin(masterOrigin, source.from, index) };
 }
 
+/**
+ * Takes the Deck Master out of its slot. The card goes back to where it came from; a saved deck has no origin,
+ * so the card goes to its home section (Main or Extra) instead of being deleted.
+ */
+export function removeMaster(selection: DeckMasterSelection, home: "main" | "extra" = "main"): DeckMasterSelection {
+  const master = selection.deck.deckMaster;
+  const cleared = selectDomainMaster(selection, undefined);
+  if (master == null || selection.masterOrigin != null) return cleared;
+  return { deck: addCodeTo(cleared.deck, home, master), masterOrigin: null };
+}
+
+function addCodeTo(deck: DuelDeck, section: DeckSection, code: number): DuelDeck {
+  return { ...deck, [section]: [...deck[section], code] };
+}
+
 /** Makes a card the Deck Master, taking the copy from `section` when the deck has one there. */
 export function chooseMaster(selection: DeckMasterSelection, code: number, section?: DeckSection): DeckMasterSelection {
   if (selection.deck.deckMaster === code) return selection;
