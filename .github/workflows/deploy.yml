@@ -1,10 +1,14 @@
 name: Deploy
 
 on:
+  workflow_run:
+    workflows: [Test]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       ref:
-        description: "Ref or SHA to deploy (must be on main; use the tested staging SHA)"
+        description: "Ref or SHA to deploy (must be on main and have passed a push Test run)"
         required: true
         default: main
         type: string
@@ -19,34 +23,44 @@ on:
         default: false
         type: boolean
 
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
-
 permissions:
   contents: read
+  actions: read
 
 jobs:
   deploy:
     name: Deploy to Production VM
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 90
+    # Only eligible jobs join the queue: a failed Test must not displace a passing deploy.
+    # Keep the running deployment; GitHub replaces an older pending job with the newest one.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    timeout-minutes: 180
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
       VM_DEPLOY_ENABLED: ${{ secrets.VM_HOST != '' && secrets.VM_USER != '' && secrets.VM_SSH_PRIVATE_KEY != '' && 'true' || 'false' }}
       VM_PORT: ${{ secrets.VM_PORT || '22' }}
-      DEPLOY_FORCE: ${{ inputs.force && 'true' || 'false' }}
-      DEPLOY_ROLLBACK: ${{ inputs.rollback && 'true' || 'false' }}
+      DEPLOY_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref }}
+      DEPLOY_FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force && 'true' || 'false' }}
+      DEPLOY_ROLLBACK: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback && 'true' || 'false' }}
+      DEPLOY_WAIT_SECONDS: ${{ github.event_name == 'workflow_run' && '3600' || '0' }}
       # Public production key only. The secret remains in the protected VM runtime env.
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
     steps:
-      - name: Skip deploy when VM secrets are not configured
+      - name: Fail when VM secrets are not configured
         if: ${{ env.VM_DEPLOY_ENABLED != 'true' }}
-        run: echo "VM deploy secrets are not configured yet; skipping deploy."
+        run: |
+          echo "VM deploy secrets are not configured; production was not deployed." >&2
+          exit 1
 
       - name: Checkout
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -63,7 +77,7 @@ jobs:
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ env.DEPLOY_REF }}
           fetch-depth: 0
 
       - name: Verify deploy ref is on main
@@ -73,6 +87,18 @@ jobs:
       - name: Record checked-out deploy commit
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
         run: echo "DEPLOY_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Verify manual deploy commit passed Test
+        if: ${{ env.VM_DEPLOY_ENABLED == 'true' && github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/test.yml/runs" \
+            -f head_sha="$DEPLOY_COMMIT" -f branch=main -f event=push -f status=success --jq '.total_count')
+          if [ "$passed" -lt 1 ]; then
+            echo "Production deploy refused: $DEPLOY_COMMIT has no successful push Test run on main." >&2
+            exit 1
+          fi
 
       - name: Compute bundle cache key
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -272,7 +298,7 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_RUNTIME_PREPARE='$remote_prepare' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_RUNTIME_PREPARE='$remote_prepare' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
@@ -297,7 +323,14 @@ jobs:
                echo "flock is required for the shared VM build lock. Install util-linux." >&2
                exit 1
              fi
-             python3 "$DEPLOY_GUARD" /opt/yugioh-bot/data/bot.sqlite --force "$DEPLOY_FORCE"
+             # One total idle-wait budget, shared with the check immediately before service stops.
+             idle_deadline=$(( $(date +%s) + DEPLOY_WAIT_SECONDS ))
+             check_prod_activity() {
+               remaining=$(( idle_deadline - $(date +%s) ))
+               if [ "$remaining" -lt 0 ]; then remaining=0; fi
+               python3 "$DEPLOY_GUARD" /opt/yugioh-bot/data/bot.sqlite --force "$DEPLOY_FORCE" --wait-seconds "$remaining"
+             }
+             check_prod_activity
              cd /opt/yugioh-bot
              git fetch origin "$DEPLOY_COMMIT"
              git fetch origin main && git merge-base --is-ancestor "$DEPLOY_COMMIT" FETCH_HEAD || exit 1
@@ -354,7 +387,7 @@ jobs:
              docker compose -f docker-compose.yml build --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
              # Recheck after the build, immediately before any production service is stopped.
              # A game may have started since the first check. Refusal leaves production running.
-             if ! python3 "$DEPLOY_GUARD" /opt/yugioh-bot/data/bot.sqlite --force "$DEPLOY_FORCE"; then
+             if ! check_prod_activity; then
                echo "Do not run compose up. Run Deploy again." >&2
                exit 1
              fi
@@ -414,4 +447,6 @@ jobs:
                  .catch(() => process.exit(1));
              '
              docker image prune -f
+             echo "Production deployed SHA: $DEPLOY_COMMIT"
           REMOTE
+          printf 'Production deployed SHA: `%s`\n' "$DEPLOY_COMMIT" >> "$GITHUB_STEP_SUMMARY"

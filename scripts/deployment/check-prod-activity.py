@@ -5,6 +5,7 @@ from contextlib import closing
 from pathlib import Path
 import sqlite3
 import sys
+import time
 
 
 def main():
@@ -12,7 +13,11 @@ def main():
     parser.add_argument("database", type=Path)
     parser.add_argument("--force", choices=("true", "false"), default="false")
     parser.add_argument("--target", choices=("production", "staging"), default="production")
+    parser.add_argument("--wait-seconds", type=int, default=0,
+                        help="Wait up to this many seconds for idle gameplay (default: refuse immediately)")
     args = parser.parse_args()
+    if args.wait_seconds < 0:
+        parser.error("--wait-seconds must be nonnegative")
     if args.force == "true":
         print("Force set: skipping the gameplay activity guard. Engine preflight still applies.")
         return 0
@@ -38,26 +43,37 @@ def main():
             (select count(*) from duel_series where status in ('active', 'between_games'))
         """
 
-    try:
-        # mode=ro sees committed WAL writes without opening the app or running migrations.
-        # One SELECT gives all counts from the same SQLite snapshot.
-        with closing(sqlite3.connect(args.database.resolve().as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
-            db.execute("pragma query_only=on")
-            counts = db.execute(query).fetchone()
-    except (OSError, sqlite3.Error) as error:
-        print(f"{label}: cannot read gameplay activity ({error}).", file=sys.stderr)
-        return 1
+    deadline = time.monotonic() + args.wait_seconds
+    while True:
+        try:
+            # Reopen on each check to see a fresh committed WAL snapshot without migrations.
+            with closing(sqlite3.connect(args.database.resolve().as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+                db.execute("pragma query_only=on")
+                counts = db.execute(query).fetchone()
+        except (OSError, sqlite3.Error) as error:
+            print(f"{label}: cannot read gameplay activity ({error}).", file=sys.stderr)
+            return 1
 
-    print("Production activity: " + " ".join(
-        f"{name}={count}" for name, count in zip(names, counts)
-    ))
-    if any(counts):
+        print("Production activity: " + " ".join(
+            f"{name}={count}" for name, count in zip(names, counts)
+        ), flush=True)
+        if not any(counts):
+            return 0
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            pause = min(120, remaining)
+            print(f"Production busy; rechecking in {pause:.0f} seconds ({remaining:.0f} seconds left).", flush=True)
+            time.sleep(pause)
+            continue
+        if args.wait_seconds:
+            print(f"{label}: gameplay is still active after waiting {args.wait_seconds} seconds. "
+                  "Retry with a manual Deploy or the next merge; live games were left running.", file=sys.stderr)
+            return 1
         if args.target == "staging":
             print(f"{label}: production is busy.", file=sys.stderr)
         else:
             print(f"{label}: gameplay is active. Wait for downtime, or explicitly set force.", file=sys.stderr)
         return 1
-    return 0
 
 
 if __name__ == "__main__":

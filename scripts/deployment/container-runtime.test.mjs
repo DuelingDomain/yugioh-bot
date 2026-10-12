@@ -293,8 +293,8 @@ for (const [filename, jobName, saveName, runName, variable] of [
     const saved = join(f.dir, "controls");
     mkdirSync(saved);
     const save = job.steps.find(step => step.name === saveName);
-    const env = { ...f.env, RUNNER_TEMP: saved, TEST_REMOTE_ENTRY: join(f.dir, "remote.sh"), TEST_SAVED_HELPER: join(saved, "prepare-runtime-data.sh"), TEST_DATA: f.data,
-      INPUT_ACTION: "deploy", INPUT_REF: "main", DEPLOY_COMMIT: "a".repeat(40), INPUT_REFRESH_DB: "false", INPUT_IGNORE_PROD_ACTIVITY: "false", STAGING_HOST: "localhost", STAGING_DOMAIN: "", STAGING_HTTP_PORT: "8080", STAGING_CLERK_ENV: "/tmp/staging.env", STAGING_UID: "1000", STAGING_GID: "1000", VM_PORT: "22", VM_USER: "root", VM_HOST: "localhost", DEPLOY_FORCE: "false", DEPLOY_ROLLBACK: "true", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_test" };
+    const env = { ...f.env, RUNNER_TEMP: saved, GITHUB_STEP_SUMMARY: join(f.dir, "summary.md"), TEST_REMOTE_ENTRY: join(f.dir, "remote.sh"), TEST_SAVED_HELPER: join(saved, "prepare-runtime-data.sh"), TEST_DATA: f.data,
+      INPUT_ACTION: "deploy", INPUT_REF: "main", DEPLOY_COMMIT: "a".repeat(40), INPUT_REFRESH_DB: "false", INPUT_IGNORE_PROD_ACTIVITY: "false", STAGING_HOST: "localhost", STAGING_DOMAIN: "", STAGING_HTTP_PORT: "8080", STAGING_CLERK_ENV: "/tmp/staging.env", STAGING_UID: "1000", STAGING_GID: "1000", VM_PORT: "22", VM_USER: "root", VM_HOST: "localhost", DEPLOY_FORCE: "false", DEPLOY_ROLLBACK: "true", DEPLOY_WAIT_SECONDS: "0", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_test" };
     const preserved = spawnSync("sh", ["-ec", save.run], { cwd: root, env, encoding: "utf8" });
     assert.equal(preserved.status, 0, preserved.stderr);
     assert.ok(existsSync(env.TEST_SAVED_HELPER), "runtime helper must be saved before the selected checkout");

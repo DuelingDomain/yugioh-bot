@@ -1,5 +1,7 @@
 """Local deploy safety checks. No SSH, Docker daemon or production files are used."""
 import fcntl
+import importlib.util
+import io
 import os
 from pathlib import Path
 import sqlite3
@@ -7,6 +9,8 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,6 +41,73 @@ class ProductionActivityTests(unittest.TestCase):
             command,
             text=True, capture_output=True, timeout=10,
         )
+
+    def run_waiting_guard(self, wait, sleep_action=None, force="false"):
+        spec = importlib.util.spec_from_file_location("activity_guard", GUARD)
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        clock = [0]
+
+        def sleep(seconds):
+            clock[0] += seconds
+            if sleep_action:
+                sleep_action()
+
+        out, err = io.StringIO(), io.StringIO()
+        with patch("sys.argv", [str(GUARD), str(self.path), "--wait-seconds", str(wait), "--force", force]), \
+                patch("time.monotonic", side_effect=lambda: clock[0]), \
+                patch("time.sleep", side_effect=sleep) as slept, \
+                redirect_stdout(out), redirect_stderr(err):
+            try:
+                result = guard.main()
+            except SystemExit as error:
+                result = error.code
+        return result, out.getvalue(), err.getvalue(), slept
+
+    def test_wait_rechecks_committed_activity_then_deploys_when_idle(self):
+        self.db.execute("pragma journal_mode=wal")
+        self.db.execute("insert into duels (status) values ('active')")
+        self.db.commit()
+
+        def finish_game():
+            self.db.execute("update duels set status='completed'")
+            self.db.commit()
+
+        result, out, err, slept = self.run_waiting_guard(3600, finish_game)
+        self.assertEqual(result, 0, err)
+        slept.assert_called_once_with(120)
+        self.assertIn("duels=1", out)
+        self.assertIn("duels=0", out)
+
+    def test_wait_times_out_after_an_hour_without_changing_active_games(self):
+        self.db.execute("insert into drafts values ('active')")
+        self.db.commit()
+        result, out, err, slept = self.run_waiting_guard(3600)
+        self.assertEqual(result, 1)
+        self.assertEqual(slept.call_count, 30)
+        self.assertEqual(sum(call.args[0] for call in slept.call_args_list), 3600)
+        self.assertIn("still active after waiting 3600 seconds", err)
+        self.assertIn("manual Deploy or the next merge", err)
+        self.assertEqual(self.db.execute("select status from drafts").fetchone()[0], "active")
+
+    def test_wait_uses_remaining_budget_and_manual_force_still_bypasses_only_activity(self):
+        self.db.execute("insert into duel_series values ('between_games')")
+        self.db.commit()
+        result, _, _, slept = self.run_waiting_guard(121)
+        self.assertEqual(result, 1)
+        self.assertEqual([call.args[0] for call in slept.call_args_list], [120, 1])
+        result, out, _, slept = self.run_waiting_guard(3600, force="true")
+        self.assertEqual(result, 0)
+        slept.assert_not_called()
+        self.assertIn("Engine preflight still applies", out)
+
+    def test_wait_fails_closed_immediately_when_activity_cannot_be_read(self):
+        self.db.execute("drop table drafts")
+        self.db.commit()
+        result, _, err, slept = self.run_waiting_guard(3600)
+        self.assertEqual(result, 1)
+        self.assertIn("cannot read gameplay activity", err)
+        slept.assert_not_called()
 
     def test_idle_database_passes_without_changes(self):
         self.db.executescript("""

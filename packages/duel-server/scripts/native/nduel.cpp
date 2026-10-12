@@ -41,6 +41,8 @@
 #include <vector>
 #include "ocgapi.h"
 #include "ocgapi_constants.h"
+#include "duel.h"
+#include "field.h"
 #include "response-order.h"
 
 namespace fs = std::filesystem;
@@ -390,10 +392,6 @@ static Deck build_deck(Rng& rng) {
 
 // ---------------------------------------------------------------------------------------------------------------
 // Answers
-
-static const int MSG_DUELIST_ELIMINATED = 200;
-static const int MSG_ATTACK_DUELIST = 201;
-static const int MSG_FIELD_DISABLED_N = 202;
 
 struct Prompt {
 	int id = 0;
@@ -998,6 +996,7 @@ int main(int argc, char** argv) {
 
 	// State of the multi-duelist order checks (all "future" checks, see the header comment).
 	ResponseOrder response_order(n, opt.tag);
+	int activating_player = -1;     // saved across cost/target prompts until MSG_CHAINING
 	bool seg_open = false;          // consecutive forced trigger links in progress
 	bool last_opt_chain = false;    // the newest prompt was an optional SELECT_CHAIN: the link that follows is a chosen response, not a forced trigger
 	int seg_prev_pos = -1;
@@ -1056,6 +1055,7 @@ int main(int argc, char** argv) {
 				g_as.toggle_steps = 0;
 				phase = 0;
 				response_order.reset(); seg_open = false; pick_expect = -1;
+				activating_player = -1;
 				if(tp >= n) fail("turn-order", "turn player " + std::to_string(tp) + " out of range");
 				if(turn_player >= 0) {
 					const int expected = alive_after(turn_player);
@@ -1092,8 +1092,10 @@ int main(int argc, char** argv) {
 				break;
 			}
 			case MSG_CHAINING: {
-				mr.skip(4 + 10);
-				const int L = mr.get<uint8_t>();
+				// MSG_CHAINING names the card's controller, which can differ from its activator.
+				// Automatic and yes/no triggers use the new link's trigger-window player.
+				const int L = activating_player >= 0 ? activating_player :
+					static_cast<::duel*>(duel)->game_field->core.current_chain.back().triggering_player;
 				check_response(response_order.chaining(L, turn_player));
 				if(multi && L < n) {
 					if(last_opt_chain) {
@@ -1107,6 +1109,7 @@ int main(int argc, char** argv) {
 					}
 				}
 				last_opt_chain = false;
+				activating_player = -1;
 				break;
 			}
 			case MSG_CHAIN_SOLVING:
@@ -1120,6 +1123,7 @@ int main(int argc, char** argv) {
 				check_response(response_order.end(turn_player));
 				seg_open = false;
 				last_opt_chain = false;
+				activating_player = -1;
 				break;
 			case MSG_MOVE: {
 				mr.skip(4 + 10);
@@ -1297,6 +1301,12 @@ int main(int argc, char** argv) {
 			int32_t idx = -1;
 			if(answer.v.size() >= 4) std::memcpy(&idx, answer.v.data(), 4);
 			last_opt_chain = !last_prompt.payload[2] && last_prompt.payload[1] != 0x7f && idx >= 0;
+			activating_player = idx >= 0 ? last_prompt.player : -1;
+		} else if(last_prompt.id == MSG_SELECT_IDLECMD || last_prompt.id == MSG_SELECT_BATTLECMD) {
+			int32_t choice = -1;
+			if(answer.v.size() >= 4) std::memcpy(&choice, answer.v.data(), 4);
+			const int activate_cmd = last_prompt.id == MSG_SELECT_IDLECMD ? 5 : 0;
+			activating_player = (choice & 0xffff) == activate_cmd ? last_prompt.player : -1;
 		}
 		if(last_prompt.id == MSG_SELECT_OPTION && multi && last_prompt.payload.size() >= 2) {
 			const int cnt = last_prompt.payload[1];
