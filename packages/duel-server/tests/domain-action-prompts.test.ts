@@ -54,12 +54,12 @@ for (const [name, map, answer] of [["pinned and multi", mapPrompt, resolveAnswer
       expect(map(message(), cards, "standard").prompt.options.every(option => !option.label.includes("costs"))).toBe(true);
     });
 
-    it("names both summon and activation costs in the recall description", () => {
+    it("names summon, set and activation costs in the recall description", () => {
       const card = cards.get(CODE)!;
       const prompt = map({ type: OcgMessageType.SELECT_YESNO, player: 0, description: 1n }, cards, "recall", undefined,
         { recall: { card, returns: 1, nextCost: 1000 } }).prompt;
       expect(prompt.context).toMatchObject({ type: "deck-master-recall", returns: 1, nextCost: 1000 });
-      expect(prompt.description).toBe("Next summon or activation from the Deck Master Zone costs 1000 LP.");
+      expect(prompt.description).toBe("Next summon, set or activation from the Deck Master Zone costs 1000 LP.");
     });
   });
 }

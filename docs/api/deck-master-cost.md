@@ -39,11 +39,14 @@ and pendulum activations include `(costs N LP)` in `label`. Their `location`
 is `0x4000`. The server restores this location because the core message uses a
 one-byte location field. Option IDs and response indices stay the same.
 The displayed amount is the DMZ cost. Other card costs can also apply.
+Summons by card effect from the DMZ (such as Instant Fusion or Ritual summons),
+Pendulum Summons, and `SELECT_CARD` picks of the Deck Master still pay the DMZ
+cost, but show no cost text on their options.
 
 The recall prompt uses `context.type = "deck-master-recall"`. Its `returns`
 value is the count before the player accepts the return. Its `nextCost` is
 `(returns + 1) * 500`, the cost after that return. Its `description` says
-`Next summon or activation from the Deck Master Zone costs N LP.` Returning
+`Next summon, set or activation from the Deck Master Zone costs N LP.` Returning
 the card does not deduct LP.
 
 The core checks and pays the cost. The action is not offered when the player

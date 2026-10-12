@@ -461,7 +461,7 @@ function buildPrompt(message: OcgMessage, cards: CardDatabase, id: string, selec
           message.player,
           id,
           hint || `Return ${card.name} to the Deck Master Zone?`,
-          `Next summon or activation from the Deck Master Zone costs ${nextCost} LP.`,
+          `Next summon, set or activation from the Deck Master Zone costs ${nextCost} LP.`,
           card,
         );
         built.message = message;
