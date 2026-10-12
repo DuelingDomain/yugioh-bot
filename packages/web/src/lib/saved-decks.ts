@@ -62,7 +62,7 @@ export async function readSavedDeckBody(
   return { ok: true, name: record.name, mode: record.mode, deck: record.deck };
 }
 
-/** Library and import writes share this check; reads never validate or change old decks. */
+/** Library and import writes share this Deck Master check. */
 export async function checkSavedDeckMaster(mode: unknown, deck: unknown): Promise<
   { ok: true } | { ok: false; response: NextResponse }
 > {
@@ -85,7 +85,7 @@ export async function checkSavedDeckMaster(mode: unknown, deck: unknown): Promis
 
 export function savedDeckErrorResponse(error: unknown) {
   if (error instanceof SavedDeckServiceError) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
+    return NextResponse.json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, { status: error.status });
   }
   console.error("[api/decks]", error);
   return NextResponse.json({ error: "Failed to process deck request" }, { status: 500 });

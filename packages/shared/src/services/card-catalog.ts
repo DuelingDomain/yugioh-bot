@@ -1,3 +1,4 @@
+import { isExtraDeckCard as classifyExtraDeckCard } from "../duels/extra-deck.js";
 import type Database from "better-sqlite3";
 import type { Card } from "../types/index.js";
 import { foldCardText } from "../duels/card-query.js";
@@ -75,7 +76,6 @@ export type SyncDraftPoolInput = {
 const YGOPRODECK_API_URL = "https://db.ygoprodeck.com/api/v7/cardinfo.php";
 const YGOPRODECK_CARDSETS_URL = "https://db.ygoprodeck.com/api/v7/cardsets.php";
 const YGOPRODECK_ARCHETYPES_URL = "https://db.ygoprodeck.com/api/v7/archetypes.php";
-const EXTRA_DECK_FRAME_TYPES = new Set(["fusion", "synchro", "xyz", "link"]);
 const warnedArtworkConflicts = new Set<string>();
 
 function normalizeName(name: string) {
@@ -108,19 +108,8 @@ export function rankCardsByName<T extends { name: string }>(cards: readonly T[],
     .map((entry) => entry.card);
 }
 
-/**
- * Fusion, Synchro, Xyz and Link monsters live in the Extra Deck, Pendulum variants included
- * (frame `synchro_pendulum`, type "Synchro Pendulum Effect Monster"). Mirrors the web
- * `isExtraDeckMonster`.
- */
-export function isExtraDeckFrame(card: { frameType: string; type: string }) {
-  const frameType = card.frameType.trim().toLowerCase();
-  if (EXTRA_DECK_FRAME_TYPES.has(frameType) || [...EXTRA_DECK_FRAME_TYPES].some((f) => frameType.startsWith(`${f}_`))) {
-    return true;
-  }
-  const type = card.type.toLowerCase();
-  return type.includes("monster") && /\b(fusion|synchro|xyz|link)\b/.test(type);
-}
+/** Compatibility name for the shared deck-building rule. */
+export const isExtraDeckFrame = classifyExtraDeckCard;
 
 function isExtraDeckCard(card: YgoprodeckCard) {
   return isExtraDeckFrame(card);

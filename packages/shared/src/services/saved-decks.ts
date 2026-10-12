@@ -1,3 +1,5 @@
+import { assertExtraDeckCards, ExtraDeckCardError, isExtraDeckCard } from "../duels/extra-deck.js";
+import { createDeckTypeLookup } from "./deck-sections.js";
 import type Database from "better-sqlite3";
 import type { DuelDeck, DuelMode, SavedDeck } from "../duels/index.js";
 
@@ -8,7 +10,7 @@ const UINT32_MAX = 0xffff_ffff;
 export class SavedDeckServiceError extends Error {
   readonly status: number;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, readonly code?: string) {
     super(message);
     this.name = "SavedDeckServiceError";
     this.status = status;
@@ -163,6 +165,27 @@ function mapSavedDeck(row: SavedDeckRow): SavedDeck {
 }
 
 export function createSavedDeckService(db: Database.Database): SavedDeckService {
+  const findCard = createDeckTypeLookup(db);
+  const validateExtra = (deck: DuelDeck) => {
+    try { assertExtraDeckCards(deck, findCard); }
+    catch (error) {
+      if (error instanceof ExtraDeckCardError) throw new SavedDeckServiceError(error.message, error.status, error.code);
+      throw error;
+    }
+  };
+  // Read and repair under a write lock. Keep card order, every copy and all metadata, including timestamps.
+  // Unknown Extra types move to Main as well: an unproved type cannot remain in Extra.
+  const repairRow = (row: SavedDeckRow): SavedDeck => {
+    const saved = mapSavedDeck(row);
+    const moved = saved.deck.extra.filter(code => !isExtraDeckCard(findCard(code)));
+    if (!moved.length) return saved;
+    saved.deck = { ...saved.deck, main: [...saved.deck.main, ...moved],
+      extra: saved.deck.extra.filter(code => isExtraDeckCard(findCard(code))) };
+    const raw = JSON.parse(row.deck_json);
+    db.prepare("update saved_decks set deck_json = ? where id = ? and deck_json = ?")
+      .run(JSON.stringify({ ...raw, ...saved.deck }), row.id, row.deck_json);
+    return saved;
+  };
   const selectOwned = db.prepare<[number, string, number], SavedDeckRow>(
     `select id, name, mode, deck_json, created_at, updated_at, draft_id
      from saved_decks
@@ -199,15 +222,15 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
     `delete from saved_decks where id = ? and guild_id = ? and owner_user_id = ?`,
   );
 
-  const loadOwned = (id: number, guildId: string, ownerUserId: number): SavedDeck => {
+  const loadOwned = db.transaction((id: number, guildId: string, ownerUserId: number): SavedDeck => {
     const row = selectOwned.get(id, guildId, ownerUserId);
     if (!row) throw new SavedDeckServiceError("Deck not found", 404);
-    return mapSavedDeck(row);
-  };
+    return repairRow(row);
+  }).immediate;
 
   return {
     list(guildId: string, ownerUserId: number): SavedDeck[] {
-      return selectList.all(guildId, ownerUserId).map(mapSavedDeck);
+      return db.transaction(() => selectList.all(guildId, ownerUserId).map(repairRow)).immediate();
     },
 
     get(id: number, guildId: string, ownerUserId: number): SavedDeck {
@@ -218,6 +241,7 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
       const name = normalizeName(input.name);
       const mode = normalizeMode(input.mode);
       const deck = normalizeDeck(input.deck);
+      validateExtra(deck);
       const draftId = normalizeDraftId(input.draftId) ?? null;
       let result;
       try {
@@ -234,6 +258,7 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
       const name = normalizeName(input.name);
       const mode = normalizeMode(input.mode);
       const deck = normalizeDeck(input.deck);
+      validateExtra(deck);
       const draftId = normalizeDraftId(input.draftId);
       try {
         updateRow.run(
@@ -261,8 +286,10 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
     },
 
     findByDraft(guildId: string, ownerUserId: number, draftId: number): SavedDeck | null {
-      const row = selectByDraft.get(guildId, ownerUserId, draftId);
-      return row ? mapSavedDeck(row) : null;
+      return db.transaction(() => {
+        const row = selectByDraft.get(guildId, ownerUserId, draftId);
+        return row ? repairRow(row) : null;
+      }).immediate();
     },
   };
 }
