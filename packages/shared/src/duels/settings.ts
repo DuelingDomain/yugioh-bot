@@ -13,6 +13,15 @@ export type DuelFormat = "1v1" | "tag" | "ffa3" | "ffa4";
 
 export const DUEL_FORMATS: readonly DuelFormat[] = ["1v1", "tag", "ffa3", "ffa4"];
 export const DEFAULT_DUEL_FORMAT: DuelFormat = "1v1";
+export const DOMAIN_FFA_FIRST_TURN_DRAW_SETTING = "firstTurnDraw" as const;
+/** Rulebook v1.4: the first player draws in a Domain free-for-all by default. */
+export const DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT = true;
+
+/** Whether to offer the per-duel "First player draws on turn 1" setting. */
+export function supportsFirstTurnDrawSetting(mode: DuelSettingsMode, format: DuelFormat): boolean {
+  return mode === "domain" && (format === "ffa3" || format === "ffa4");
+}
+
 /** The most seats any format uses. */
 export const MAX_DUEL_SEATS = 4;
 
@@ -85,6 +94,7 @@ const SETTINGS_KEYS = [
   "validateDeck",
   "shuffleDeck",
   "stopAtEveryWindow",
+  DOMAIN_FFA_FIRST_TURN_DRAW_SETTING,
 ] as const;
 
 /**
@@ -147,6 +157,8 @@ export interface DuelSettings {
    * true, and a replay of a saved duel therefore sees the same prompts it was played with.
    */
   stopAtEveryWindow?: boolean;
+  /** Domain ffa3/ffa4 only; omitted on older rows. New tables default to true. */
+  firstTurnDraw?: boolean;
 }
 
 export interface DuelClockState {
@@ -244,6 +256,9 @@ function parseSettingsObject(value: Record<string, unknown>, fallback: DuelSetti
     validateDeck: readSetting(value, "validateDeck", fallback.validateDeck, (field) => asBoolean(field, "validateDeck")),
     shuffleDeck: readSetting(value, "shuffleDeck", fallback.shuffleDeck, (field) => asBoolean(field, "shuffleDeck")),
     stopAtEveryWindow: readSetting(value, "stopAtEveryWindow", fallback.stopAtEveryWindow, (field) => asBoolean(field, "stopAtEveryWindow")),
+    ...(value.firstTurnDraw !== undefined || fallback.firstTurnDraw !== undefined ? {
+      firstTurnDraw: readSetting(value, "firstTurnDraw", fallback.firstTurnDraw, (field) => asBoolean(field, "firstTurnDraw")),
+    } : {}),
   };
 }
 
@@ -260,6 +275,7 @@ export function defaultDuelSettings(mode: DuelSettingsMode, format: DuelFormat =
     validateDeck: true,
     shuffleDeck: true,
     stopAtEveryWindow: format !== "1v1",
+    ...(supportsFirstTurnDrawSetting(mode, format) ? { firstTurnDraw: DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT } : {}),
   };
 }
 
@@ -286,6 +302,9 @@ export function normalizeDuelSettings(mode: DuelSettingsMode, input: unknown, fo
   if (!isObject(input)) fail("settings must be an object");
   const extra = firstUnknownKey(input, SETTINGS_KEYS);
   if (extra) fail(`Unknown duel setting: ${extra}`);
+  if (input.firstTurnDraw !== undefined && !supportsFirstTurnDrawSetting(mode, format)) {
+    fail("firstTurnDraw is only available for Domain ffa3 and ffa4");
+  }
   return parseSettingsObject(input, defaultDuelSettings(mode, format));
 }
 
@@ -297,6 +316,7 @@ export function isCustomDomain(masterRule: DuelSettingsMasterRule, settings: Due
     settings.startingLP !== 8000 ||
     settings.startingHand !== 5 ||
     settings.drawPerTurn !== 1 ||
+    settings.firstTurnDraw === false ||
     !settings.validateDeck ||
     !settings.shuffleDeck
   );
