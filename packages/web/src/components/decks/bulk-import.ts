@@ -150,6 +150,44 @@ export function renumberImported(rows: ImportPreviewRow[], base: number): { rows
   return { rows: renamed, top };
 }
 
+/** A row is a YDKE deck that still has the server's default name when it is "Imported deck N". */
+export function hasDefaultName(item: PreviewItem): boolean {
+  return importedNumber(item.row.name) > 0 && item.name === item.row.name;
+}
+
+/** Every passcode of the rows (all sections and the Deck Master), each once, for one batched card lookup. */
+export function deckCodes(items: PreviewItem[]): number[] {
+  const seen = new Set<number>();
+  for (const { row } of items) {
+    const { main, extra, side, deckMaster } = row.deck;
+    for (const code of [...(deckMaster != null ? [deckMaster] : []), ...main, ...extra, ...side]) seen.add(code);
+  }
+  return [...seen];
+}
+
+/**
+ * A YDKE deck with a Deck Master takes the Master's name when the person has not changed the name. A name the
+ * person typed (or any file name) is never touched. Returns the same array when nothing changes.
+ */
+export function withMasterNames(items: PreviewItem[], names: ReadonlyMap<number, string>): PreviewItem[] {
+  let changed = false;
+  const next = items.map((item) => {
+    const master = item.row.deck.deckMaster;
+    const name = master != null ? names.get(master)?.trim() : undefined;
+    if (!name || !hasDefaultName(item)) return item;
+    changed = true;
+    return { ...item, name: cutName(name) };
+  });
+  return changed ? next : items;
+}
+
+/** A section as distinct cards in the order they first appear, with how many copies each has. */
+export function groupCopies(codes: number[]): Array<{ code: number; copies: number }> {
+  const counts = new Map<number, number>();
+  for (const code of codes) counts.set(code, (counts.get(code) ?? 0) + 1);
+  return [...counts].map(([code, copies]) => ({ code, copies }));
+}
+
 /** The server caps the issues of a row and ends the list with one "more_issues" entry. It is not an issue. */
 export const MORE_ISSUES = "more_issues";
 

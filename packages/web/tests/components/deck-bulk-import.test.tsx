@@ -36,10 +36,23 @@ const calls: Call[] = [];
 let previewReply: () => Response | Promise<Response>;
 let bulkReply: (body: { rows: Array<{ name: string }> }) => Response | Promise<Response>;
 let listCount = 0;
+/** Card names by passcode for the batched card lookup. An empty map answers 404, as a lookup that is down. */
+let cardNames: Map<number, string>;
+let cardsReply: (codes: number[]) => Response | Promise<Response>;
+const cardCalls: number[][] = [];
+
+function cardInfo(code: number, name: string) {
+  return { code, name, description: `${name} effect text.`, type: 1, attack: 0, defense: 0, level: 4, attribute: 1, race: "Warrior" };
+}
 
 beforeEach(() => {
   calls.length = 0;
+  cardCalls.length = 0;
   listCount = 0;
+  cardNames = new Map();
+  cardsReply = (codes) => cardNames.size === 0
+    ? Response.json({ error: "down" }, { status: 503 })
+    : Response.json({ cards: codes.filter((code) => cardNames.has(code)).map((code) => cardInfo(code, cardNames.get(code)!)), missing: [] });
   previewReply = () => Response.json({ maxDecks: 50, rows: [] });
   bulkReply = () => Response.json({ created: [], failed: [] });
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
@@ -47,6 +60,11 @@ beforeEach(() => {
       const body = JSON.parse(String(init?.body));
       calls.push({ url, body });
       return url.endsWith("preview") ? previewReply() : bulkReply(body);
+    }
+    if (url === "/api/duels/cards") {
+      const { codes } = JSON.parse(String(init?.body)) as { codes: number[] };
+      cardCalls.push(codes);
+      return cardsReply(codes);
     }
     if (url === "/api/decks") {
       listCount += 1;
@@ -107,9 +125,12 @@ describe("bulk deck import panel", () => {
     expect(broken).toBeDisabled();
     expect(screen.getByText(/1 selected, 1 with errors/)).toBeInTheDocument();
 
-    expect(screen.queryByText("Card 123 does not exist.")).toBeNull();
+    // The first problem reads inline while the list is closed, and only once when it is open.
+    expect(screen.getAllByText("Card 123 does not exist.")).toHaveLength(1);
+    expect(screen.queryByText("unknown_card")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /1 error/ }));
-    expect(screen.getByText("Card 123 does not exist.")).toBeInTheDocument();
+    expect(screen.getAllByText("Card 123 does not exist.")).toHaveLength(1);
+    expect(screen.getByText("unknown_card")).toBeInTheDocument();
 
     // Select all never checks the blocked row.
     fireEvent.click(screen.getByLabelText("Select all"));
@@ -500,6 +521,227 @@ describe("bulk deck import panel", () => {
     // The name the person typed stays, and the row can be imported now.
     expect(screen.getByLabelText("Deck name for Limited")).toHaveValue("My name");
     expect(screen.getByLabelText("Import My name")).toBeChecked();
+  });
+
+  describe("card icons and previews", () => {
+    const MASTER = 14558127;
+    const domainRow = (id: string, name: string, extra: Partial<ImportPreviewRow> = {}) => row(id, name, {
+      deck: { main: [89631139, 89631139, 89631139, 55144522], extra: [MASTER], side: [55144522], deckMaster: MASTER },
+      counts: { main: 4, extra: 1, side: 1 },
+      mode: "domain",
+      ...extra,
+    });
+
+    it("shows the Deck Master art as the row icon and the first Main card when there is none", async () => {
+      previewReply = () => Response.json({ maxDecks: 50, rows: [domainRow("b1-paste#0", "Imported deck 1"), row("b1-paste#1", "Imported deck 2")] });
+      await openPaste(TWO_CODES);
+      await screen.findByRole("list", { name: "Decks to import" });
+
+      const [first, second] = screen.getAllByRole("listitem");
+      const masterIcon = first.querySelector("[data-icon]")!;
+      expect(masterIcon).toHaveAttribute("data-icon", "master");
+      const masterImg = masterIcon.querySelector("img")!;
+      expect(masterImg).toHaveAttribute("src", `/api/cards/${MASTER}/image?size=small`);
+      expect(masterImg).toHaveAttribute("loading", "lazy");
+      const plainIcon = second.querySelector("[data-icon]")!;
+      expect(plainIcon).toHaveAttribute("data-icon", "first");
+      expect(plainIcon.querySelector("img")).toHaveAttribute("src", "/api/cards/89631139/image?size=small");
+    });
+
+    it("looks every card up in one batched request and shows the Master's name only when there is one", async () => {
+      cardNames = new Map([[MASTER, "Dark Magician"], [89631139, "Blue-Eyes White Dragon"], [55144522, "Pot of Greed"]]);
+      previewReply = () => Response.json({ maxDecks: 50, rows: [domainRow("b1-paste#0", "Imported deck 1"), row("b1-paste#1", "Imported deck 2")] });
+      await openPaste(TWO_CODES);
+      const list = await screen.findByRole("list", { name: "Decks to import" });
+
+      const [first, second] = within(list).getAllByRole("listitem");
+      await waitFor(() => expect(within(first).getByText("Dark Magician", { selector: "b" })).toBeInTheDocument());
+      expect(within(first).getByText("Master")).toBeInTheDocument();
+      // A deck with no Master has no Master label at all.
+      expect(within(second).queryByText("Master")).toBeNull();
+      expect(cardCalls).toHaveLength(1);
+      expect([...cardCalls[0]].sort()).toEqual([MASTER, 55144522, 89631139].sort());
+    });
+
+    it("names an unnamed YDKE deck after its Deck Master, but never a typed name or a file name", async () => {
+      cardNames = new Map([[MASTER, "Dark Magician"], [89631139, "Blue-Eyes White Dragon"]]);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      cardsReply = async (codes) => {
+        await gate;
+        return Response.json({ cards: codes.filter((code) => cardNames.has(code)).map((code) => cardInfo(code, cardNames.get(code)!)), missing: [] });
+      };
+      previewReply = () => Response.json({
+        maxDecks: 50,
+        rows: [
+          domainRow("b1-paste#0", "Imported deck 1"),
+          domainRow("b1-paste#1", "Imported deck 2"),
+          domainRow("b1-f0#0", "Kept.ydk", { sourceId: "b1-f0" }),
+          row("b1-paste#2", "Imported deck 3"),
+        ],
+      });
+      await openPaste(TWO_CODES);
+      await screen.findByLabelText("Deck name for Imported deck 1");
+      fireEvent.change(screen.getByLabelText("Deck name for Imported deck 2"), { target: { value: "My own name" } });
+      release();
+
+      await waitFor(() => expect(screen.getByLabelText("Deck name for Imported deck 1")).toHaveValue("Dark Magician"));
+      expect(screen.getByLabelText("Deck name for Imported deck 2")).toHaveValue("My own name");
+      expect(screen.getByLabelText("Deck name for Kept.ydk")).toHaveValue("Kept.ydk");
+      expect(screen.getByLabelText("Deck name for Imported deck 3")).toHaveValue("Imported deck 3");
+
+      bulkReply = () => Response.json({ created: [], failed: [] });
+      fireEvent.click(screen.getByRole("button", { name: "Import 4 decks" }));
+      await waitFor(() => expect(calls.some((call) => call.url.endsWith("bulk"))).toBe(true));
+      expect((calls.at(-1)!.body as { rows: Array<{ name: string }> }).rows.map((r) => r.name))
+        .toEqual(["Dark Magician", "My own name", "Kept.ydk", "Imported deck 3"]);
+    });
+
+    it("keeps Imported deck N when the card lookup is down", async () => {
+      previewReply = () => Response.json({ maxDecks: 50, rows: [domainRow("b1-paste#0", "Imported deck 1")] });
+      await openPaste("ydke://o6lXBQ==!!!");
+      await screen.findByLabelText("Deck name for Imported deck 1");
+      await waitFor(() => expect(cardCalls).toHaveLength(1));
+      expect(screen.getByLabelText("Deck name for Imported deck 1")).toHaveValue("Imported deck 1");
+      expect(screen.getByText(`Card ${MASTER}`, { selector: "b" })).toBeInTheDocument();
+    });
+
+    it("shows the first warning inline and the rest in the list", async () => {
+      previewReply = () => Response.json({
+        maxDecks: 50,
+        rows: [row("b1-paste#0", "Warned", {
+          warnings: [
+            { code: "main_size", message: "Main has 60 cards" },
+            { code: "remapped", message: "2 cards use new codes" },
+          ],
+        })],
+      });
+      await openPaste("ydke://o6lXBQ==!!!");
+      await screen.findByLabelText("Deck name for Warned");
+
+      expect(screen.getByText("Main has 60 cards")).toBeInTheDocument();
+      expect(screen.queryByText("2 cards use new codes")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /2 warnings/ }));
+      expect(screen.getAllByText("Main has 60 cards")).toHaveLength(1);
+      expect(screen.getByText("2 cards use new codes")).toBeInTheDocument();
+    });
+
+    it("keeps the card strip collapsed, and the open strip groups the deck by section with copy counts", async () => {
+      cardNames = new Map([[89631139, "Blue-Eyes White Dragon"], [55144522, "Pot of Greed"], [MASTER, "Dark Magician"]]);
+      previewReply = () => Response.json({ maxDecks: 50, rows: [domainRow("b1-paste#0", "Imported deck 1")] });
+      await openPaste("ydke://o6lXBQ==!!!");
+      await screen.findByLabelText("Deck name for Imported deck 1");
+
+      const strip = screen.getByRole("group", { name: /Cards in/ });
+      expect(within(strip).getAllByRole("button").length).toBeGreaterThan(0);
+      expect(strip.querySelectorAll("img")[0]).toHaveAttribute("loading", "lazy");
+      expect(screen.queryByRole("region", { name: /Main, 4 cards/ })).toBeNull();
+
+      const toggle = screen.getByRole("button", { name: "Show all cards" });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(toggle);
+      expect(screen.getByRole("button", { name: "Hide cards" })).toHaveAttribute("aria-expanded", "true");
+
+      const main = screen.getByRole("region", { name: "Main, 4 cards" });
+      await waitFor(() => expect(within(main).getByRole("button", { name: "Blue-Eyes White Dragon, 3 copies" })).toBeInTheDocument());
+      expect(within(main).getByText("×3")).toBeInTheDocument();
+      expect(within(main).getAllByRole("button")).toHaveLength(2);
+      expect(screen.getByRole("region", { name: "Extra, 1 cards" })).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Side, 1 cards" })).toBeInTheDocument();
+    });
+
+    it("shows the large card with its name and text on hover, and in a sheet on click", async () => {
+      cardNames = new Map([[89631139, "Blue-Eyes White Dragon"], [55144522, "Pot of Greed"]]);
+      previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Plain")] });
+      await openPaste("ydke://o6lXBQ==!!!");
+      await screen.findByLabelText("Deck name for Plain");
+      const strip = screen.getByRole("group", { name: /Cards in/ });
+      const thumb = await within(strip).findByRole("button", { name: "Blue-Eyes White Dragon" });
+
+      fireEvent.pointerEnter(thumb, { pointerType: "mouse" });
+      const popover = await screen.findByTestId("card-popover");
+      expect(within(popover).getByText("Blue-Eyes White Dragon")).toBeInTheDocument();
+      expect(within(popover).getByText("Blue-Eyes White Dragon effect text.")).toBeInTheDocument();
+      fireEvent.pointerLeave(thumb);
+      expect(screen.queryByTestId("card-popover")).toBeNull();
+
+      fireEvent.click(thumb);
+      const sheet = await screen.findByRole("dialog", { name: "Blue-Eyes White Dragon" });
+      expect(within(sheet).getByText("Blue-Eyes White Dragon effect text.")).toBeInTheDocument();
+    });
+
+    it("does not open the sheet later for a tap that came before the card lookup ended", async () => {
+      cardNames = new Map([[89631139, "Blue-Eyes White Dragon"], [55144522, "Pot of Greed"]]);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      cardsReply = async (codes) => {
+        await gate;
+        return Response.json({ cards: codes.map((code) => cardInfo(code, cardNames.get(code)!)), missing: [] });
+      };
+      previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Plain")] });
+      await openPaste("ydke://o6lXBQ==!!!");
+      const strip = await screen.findByRole("group", { name: /Cards in/ });
+      fireEvent.click(within(strip).getByRole("button", { name: "Card 89631139" }));
+      release();
+      await within(strip).findByRole("button", { name: "Blue-Eyes White Dragon" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      // A new tap now opens it.
+      fireEvent.click(within(strip).getByRole("button", { name: "Blue-Eyes White Dragon" }));
+      expect(await screen.findByRole("dialog", { name: "Blue-Eyes White Dragon" })).toBeInTheDocument();
+    });
+
+    it("shows a card that is in two sections once in the strip, with no key warning", async () => {
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      previewReply = () => Response.json({
+        maxDecks: 50,
+        rows: [row("b1-paste#0", "Twice", { deck: { main: [89631139, 55144522], extra: [], side: [89631139], deckMaster: null }, counts: { main: 2, extra: 0, side: 1 } })],
+      });
+      await openPaste("ydke://o6lXBQ==!!!");
+      const strip = await screen.findByRole("group", { name: /Cards in/ });
+      expect(within(strip).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Card 89631139", "Card 55144522"]);
+      expect(errors.mock.calls.flat().join(" ")).not.toMatch(/same key|unique "key"/);
+      errors.mockRestore();
+    });
+
+    it("keeps the strip out of the Tab order, and the open grid in it", async () => {
+      previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Plain")] });
+      await openPaste("ydke://o6lXBQ==!!!");
+      const strip = await screen.findByRole("group", { name: /Cards in/ });
+      for (const button of within(strip).getAllByRole("button")) expect(button).toHaveAttribute("tabindex", "-1");
+      fireEvent.click(screen.getByRole("button", { name: "Show all cards" }));
+      const main = screen.getByRole("region", { name: /^Main/ });
+      for (const button of within(main).getAllByRole("button")) expect(button).not.toHaveAttribute("tabindex");
+    });
+
+    it("closes the card a keyboard focus opened with Escape, and keeps the focus", async () => {
+      cardNames = new Map([[89631139, "Blue-Eyes White Dragon"], [55144522, "Pot of Greed"]]);
+      previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Plain")] });
+      await openPaste("ydke://o6lXBQ==!!!");
+      await screen.findByLabelText("Deck name for Plain");
+      fireEvent.click(screen.getByRole("button", { name: "Show all cards" }));
+      const main = screen.getByRole("region", { name: /^Main/ });
+      const thumb = await within(main).findByRole("button", { name: /Blue-Eyes White Dragon/ });
+      // jsdom has no keyboard focus ring, so the check for it answers yes here.
+      const matches = vi.spyOn(thumb, "matches").mockImplementation(() => true);
+      thumb.focus();
+      const popover = await screen.findByTestId("card-popover");
+      expect(within(popover).getByText("Blue-Eyes White Dragon")).toBeInTheDocument();
+      fireEvent.keyDown(thumb, { key: "Escape" });
+      expect(screen.queryByTestId("card-popover")).toBeNull();
+      expect(thumb).toHaveFocus();
+      matches.mockRestore();
+    });
+
+    it("does not open the hover card for a touch", async () => {
+      cardNames = new Map([[89631139, "Blue-Eyes White Dragon"]]);
+      previewReply = () => Response.json({ maxDecks: 50, rows: [row("b1-paste#0", "Plain")] });
+      await openPaste("ydke://o6lXBQ==!!!");
+      const thumb = await within(await screen.findByRole("group", { name: /Cards in/ })).findByRole("button", { name: "Blue-Eyes White Dragon" });
+      fireEvent.pointerEnter(thumb, { pointerType: "touch" });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(screen.queryByTestId("card-popover")).toBeNull();
+    });
   });
 
   it("keeps a turned-down pick on screen with its buttons when a new pick arrives, until it is sent or removed", async () => {
