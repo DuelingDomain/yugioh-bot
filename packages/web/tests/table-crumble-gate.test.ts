@@ -9,7 +9,6 @@ import {
   crumbleMayStart,
   crumbleWaiting,
   onCrumbleStart,
-  pauseRegroup,
 } from "@/components/duel/table/crumble-gate";
 
 type Stub = { finished: Promise<unknown>; playState: string; effect: { getTiming: () => { iterations: number }; target: Element } };
@@ -110,73 +109,5 @@ describe("the crumble wait", () => {
     await Promise.resolve();
     expect(seen).toHaveBeenCalledTimes(2);
     off();
-  });
-});
-
-describe("pauseRegroup", () => {
-  class CSSTransition {
-    playState = "running";
-    effect: { target: Element; getTiming: () => { delay: number } };
-    constructor(public delay: number, target: Element, public currentTime: number | null = 0) {
-      this.effect = { target, getTiming: () => ({ delay: this.delay }) };
-    }
-    pause = vi.fn(() => { this.playState = "paused"; });
-    play = vi.fn(() => { this.playState = "running"; });
-    finished = Promise.resolve();
-  }
-  class CSSAnimation extends CSSTransition {}
-  const stage = (list: unknown[]) => ({ getAnimations: () => list as never[] });
-  const glideSeat = () => {
-    const el = document.createElement("div");
-    el.setAttribute("data-glide", "true");
-    document.body.append(el);
-    return el;
-  };
-
-  it("pauses the glide transitions that are still in their delay and lets them go on after", () => {
-    const seat = glideSeat();
-    const waiting = new CSSTransition(2200, seat, 40);
-    const moving = new CSSTransition(2200, seat, 2600);
-    const quick = new CSSTransition(0, seat, 0);
-    const script = new CSSAnimation(2200, seat, 0);
-    const resume = pauseRegroup(stage([waiting, moving, quick, script]));
-    expect(waiting.pause).toHaveBeenCalledTimes(1);
-    expect(moving.pause).not.toHaveBeenCalled();
-    expect(quick.pause).not.toHaveBeenCalled();
-    expect(script.pause).not.toHaveBeenCalled();
-    resume();
-    expect(waiting.play).toHaveBeenCalledTimes(1);
-    resume();
-    expect(waiting.play).toHaveBeenCalledTimes(1);
-    seat.remove();
-  });
-
-  it("leaves the transitions that are not part of the regroup alone (the LP colour, the chain slot, the HUD)", () => {
-    const seat = glideSeat();
-    const other = document.createElement("div");
-    document.body.append(other);
-    const strip = document.createElement("div");
-    strip.setAttribute("data-regroup", "true");
-    const hub = document.createElement("div");
-    hub.setAttribute("data-hub-slot", "true");
-    const plain = document.createElement("div");
-    strip.append(hub, plain);
-    document.body.append(strip);
-    const lp = new CSSTransition(2200, other, 0);
-    const slot = new CSSTransition(2200, plain, 0);
-    const hubTransition = new CSSTransition(2200, hub, 0);
-    const resume = pauseRegroup(stage([lp, slot, hubTransition]));
-    expect(lp.pause).not.toHaveBeenCalled();
-    expect(slot.pause).not.toHaveBeenCalled();
-    expect(hubTransition.pause).toHaveBeenCalledTimes(1);
-    resume();
-    seat.remove();
-    other.remove();
-    strip.remove();
-  });
-
-  it("does nothing without getAnimations", () => {
-    expect(() => pauseRegroup(null)()).not.toThrow();
-    expect(() => pauseRegroup({} as never)()).not.toThrow();
   });
 });
