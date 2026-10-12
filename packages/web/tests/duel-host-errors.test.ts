@@ -110,6 +110,21 @@ describe("callDuelHost error messages", () => {
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ op: "view", playerId: call.playerId });
   });
 
+  it("preserves the neutral flag on the next lobby read after series advancement", async () => {
+    const payload = { session: { status: "lobby", slug: "next-game" }, role: "player", mySeat: 1,
+      startBlockedByOther: true };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(payload)));
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId,
+      duels: { room: () => ({ session: payload.session, mySeat: 1 }) } as never,
+    });
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    const response = await GET(new Request("http://web.test/api/duels/next-game"), { params: Promise.resolve({ slug: "next-game" }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(payload);
+  });
+
   it.each(["lobby", "between_games"] as const)("returns the local %s room when the host is unavailable", async state => {
     const local = { session: { status: state === "lobby" ? "lobby" : "completed" }, mySeat: 0,
       role: "player", myDeck: { main: [901], extra: [], side: [] },

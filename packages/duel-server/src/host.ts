@@ -147,7 +147,7 @@ class RequestError extends Error {
 
 /** Start checks can fail on a different player's private deck. */
 class SeatDeckLegalityError extends DeckLegalityError {
-  constructor(readonly playerId: number, readonly legalityError: DeckLegalityError) {
+  constructor(readonly playerId: number, readonly legalityError: DeckLegalityError, readonly startState: string) {
     super(legalityError.message);
     this.name = "SeatDeckLegalityError";
   }
@@ -383,7 +383,11 @@ export function createDuelHost(options: {
   const openingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const random = options.random ?? Math.random;
   /** Series games whose last start failed: the tick sweep skips a slug until `retryAt`. */
-  const startBackoff = new Map<string, { failures: number; retryAt: number }>();
+  const startBackoff = new Map<string, {
+    failures: number;
+    retryAt: number;
+    deckBlock?: { playerId: number; state: string };
+  }>();
   const pacedBot = typeof options.botStepDelayMs === "function" || (options.botStepDelayMs ?? 0) > 0;
   const envStall = Number(process.env.DUEL_STALL_MS);
   // The watchdog is a test tool (it reads every seat's view and writes report folders): on only where DUEL_SCENARIOS=1,
@@ -1450,6 +1454,14 @@ export function createDuelHost(options: {
         console.warn("[duel] could not check the viewer's start blocker", error);
       }
     }
+    const deckBlock = startBackoff.get(slug)?.deckBlock;
+    if (deckBlock) {
+      if (room.session.status !== "lobby" || deckBlock.state !== startDeckState(service.privateState(slug, guildId))) {
+        startBackoff.delete(slug);
+      } else if (room.role === "player" && room.mySeat !== null && playerId !== deckBlock.playerId && !room.startBlocked) {
+        room.startBlockedByOther = true;
+      }
+    }
     return room;
   }
 
@@ -2106,7 +2118,7 @@ export function createDuelHost(options: {
         await validateSessionDeck(state.session.mode, deck, settings, state.session.format,
           { session: state.session, playerId });
       } catch (error) {
-        if (error instanceof DeckLegalityError) throw new SeatDeckLegalityError(playerId, error);
+        if (error instanceof DeckLegalityError) throw new SeatDeckLegalityError(playerId, error, startDeckState(state));
         throw error;
       }
     }
@@ -2140,6 +2152,7 @@ export function createDuelHost(options: {
       service.activate(slug, guildId, organizer, seed, pinnedVersionFor(state.session.format), clock, {
         ...(state.setup ?? {}), firstTurnDraw, scriptErrorMode, ...(engine ? { engine } : {}),
       });
+      startBackoff.delete(slug);
       games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, game);
@@ -2296,11 +2309,21 @@ export function createDuelHost(options: {
     return service.get(slug, guildId);
   }
 
+  /** Track seat identity, readiness and decks, including changes made outside host operations. */
+  function startDeckState(state: { session: DuelSession; decks: DuelDeck[] }): string {
+    return JSON.stringify({
+      seats: state.session.seats.map(seat => [seat.seat, seat.playerId, seat.isBot, seat.ready]),
+      decks: state.decks,
+    });
+  }
+
   /** Records a failed start of a series game and logs it once. The tick sweep skips the slug for a growing wait. */
   function noteStartFailure(slug: string, error: unknown): void {
     const failures = (startBackoff.get(slug)?.failures ?? 0) + 1;
     const waitMs = START_BACKOFF_MS[Math.min(failures, START_BACKOFF_MS.length) - 1]!;
-    startBackoff.set(slug, { failures, retryAt: now() + waitMs });
+    startBackoff.set(slug, { failures, retryAt: now() + waitMs,
+      ...(error instanceof SeatDeckLegalityError
+        ? { deckBlock: { playerId: error.playerId, state: error.startState } } : {}) });
     const reason = error instanceof Error ? error.message : String(error);
     console.warn(`[duel] series game ${slug} did not start (attempt ${failures}, next retry in ${waitMs / 1000}s): ${reason}`);
   }

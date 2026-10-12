@@ -597,6 +597,8 @@ export interface DuelRoom {
   error?: string;
   /** Only this viewer's own deck blocker, on lobby or between-game room reads. Absent for other viewers. */
   startBlocked?: { reason: string; cardNames: string[] };
+  /** A recorded lobby start failed on another seat's deck. Seated viewers only; no private deck details. */
+  startBlockedByOther?: true;
   inviteCode?: string;
   /** The series of this game, or null. */
   series?: DuelSeriesSummary | null;
