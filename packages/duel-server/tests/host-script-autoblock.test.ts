@@ -18,7 +18,8 @@ import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 
 // Keep the host's real worker callbacks and recorder; replace only the core transport.
 // One deterministic accepted answer reproduces an error on recovery and replay.
-vi.mock("../src/worker-client.js", () => ({
+vi.mock("../src/worker-client.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/worker-client.js")>(),
   GameWorker: class implements DuelGameWorker {
     running = true;
     private step = 0;

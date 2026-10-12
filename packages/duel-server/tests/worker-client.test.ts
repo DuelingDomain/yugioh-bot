@@ -4,11 +4,12 @@ import { GameWorker } from "../src/worker-client.js";
 
 // Only the thread transport is mocked; prompts go through GameWorker's message handler.
 const transports = vi.hoisted(() => [] as import("node:events").EventEmitter[]);
+const workerOptions = vi.hoisted(() => [] as import("node:worker_threads").WorkerOptions[]);
 vi.mock("node:worker_threads", async () => {
   const { EventEmitter } = await import("node:events");
   return {
     Worker: class extends EventEmitter {
-      constructor() { super(); transports.push(this); }
+      constructor(_module: unknown, options: import("node:worker_threads").WorkerOptions) { super(); transports.push(this); workerOptions.push(options); }
       postMessage() {}
       async terminate() { return 0; }
     },
@@ -19,6 +20,7 @@ const games: GameWorker[] = [];
 afterEach(async () => {
   for (const game of games.splice(0)) await game.close();
   transports.length = 0;
+  workerOptions.length = 0;
 });
 
 function makeWorker() {
@@ -126,4 +128,19 @@ describe("GameWorker prompt history", () => {
     emitPrompt(5_002);
     expect(game.promptLog()).toHaveLength(0);
   });
+});
+
+
+it("limits each worker's heap", () => {
+  games.push(new GameWorker(undefined, undefined, { heapMb: 64 }));
+  expect(workerOptions.at(-1)?.resourceLimits).toEqual({ maxOldGenerationSizeMb: 64 });
+});
+
+
+it("uses a 256 MB heap limit by default", async () => {
+  vi.stubEnv("DUEL_WORKER_HEAP_MB", "");
+  try {
+    const game = new GameWorker(); games.push(game);
+    expect(workerOptions.at(-1)?.resourceLimits).toEqual({ maxOldGenerationSizeMb: 256 });
+  } finally { vi.unstubAllEnvs(); }
 });
