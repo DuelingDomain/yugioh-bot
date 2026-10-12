@@ -70,6 +70,7 @@ function DeckRow({
           {deck.deck.deckMaster != null ? <span>Master</span> : null}
           <span className={styles.when}>Updated {formatWhen(deck.updatedAt)}</span>
         </p>
+        {deck.extraDeckRepair ? <p className={styles.repairTag}>{deck.extraDeckRepair.applied ? `${deck.extraDeckRepair.moves.length} ${deck.extraDeckRepair.moves.length === 1 ? "card" : "cards"} moved from Extra to Main. Open to review.` : "Some Extra Deck cards do not belong there. Open to fix."}</p> : null}
         {deck.draftId != null ? <p className={styles.draftTag}>Made in a draft. Only cards you drafted.</p> : null}
         {registered ? <RegistrationMark registration={deck.registration} className={styles.mark} /> : null}
       </div>

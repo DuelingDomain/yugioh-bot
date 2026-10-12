@@ -48,6 +48,18 @@ afterEach(() => {
 });
 
 describe("SavedDeckLibrary", () => {
+  it("marks a deck the server repaired", async () => {
+    const base: Omit<SavedDeck, "id" | "name"> = { mode: "normal", deck: { main: [89631139], extra: [], side: [] }, createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00" };
+    const decks: SavedDeck[] = [
+      { ...base, id: 1, name: "Fixed", extraDeckRepair: { applied: true, mainCount: 1, message: "x", moves: [{ code: 5318639, name: "Mystical Space Typhoon", from: "extra", to: "main" }] } },
+      { ...base, id: 2, name: "Clean" },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "Fixed" });
+    expect(screen.getAllByText(/moved from Extra to Main/)).toHaveLength(1);
+  });
+
   it("lists each row's counts as plain items with no dots and omits an absent Master", async () => {
     const decks: SavedDeck[] = [
       {

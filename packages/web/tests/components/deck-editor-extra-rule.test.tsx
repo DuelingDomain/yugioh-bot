@@ -384,6 +384,59 @@ describe("Extra Deck rule: decks that already have the bug", () => {
   });
 });
 
+describe("Extra Deck rule: decks the server repaired", () => {
+  const repairOf = (count: number, mainCount: number, extra: Partial<NonNullable<SavedDeck["extraDeckRepair"]>> = {}): SavedDeck["extraDeckRepair"] => ({
+    applied: true, mainCount, message: "server text",
+    moves: Array.from({ length: count }, () => ({ code: POT.code, name: POT.name, from: "extra" as const, to: "main" as const })),
+    ...extra,
+  });
+  const repairNotice = () => screen.queryByTestId("extra-repair-notice");
+
+  async function renderRepaired(deck: Partial<SavedDeck["deck"]>, repair: SavedDeck["extraDeckRepair"]) {
+    stored = { ...savedDeck(deck), extraDeckRepair: repair };
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findByTestId("extra-repair-notice");
+    await waitFor(() => expect(screen.getAllByRole("button").some((button) => / Deck card /.test(button.getAttribute("aria-label") ?? ""))).toBe(true));
+  }
+
+  it("shows one quiet notice and no section warning or summary note", async () => {
+    await renderRepaired({ main: [BLUE_EYES.code, POT.code, MIRROR.code], extra: [FUSION.code] }, repairOf(2, 3));
+    expect(repairNotice()).toHaveTextContent("We moved 2 cards from your Extra Deck to your Main Deck.");
+    expect(repairNotice()).not.toHaveTextContent("Trim");
+    expect(screen.queryByRole("button", { name: /Move to/ })).toBeNull();
+    expect(screen.queryAllByText(/Extra holds/)).toHaveLength(0);
+  });
+
+  it("tells the user to trim a Main Deck above 60 and still lets the user save", async () => {
+    const main = Array.from({ length: 61 }, () => POT.code);
+    await renderRepaired({ main, extra: [] }, repairOf(1, 61));
+    expect(repairNotice()).toHaveTextContent("Main now has 61 cards. Trim it to 60 or fewer. You can still edit and save.");
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    await waitFor(() => expect(repairNotice()).toBeNull());
+  });
+
+  it("drops the trim hint once Main is back at 60", async () => {
+    const main = Array.from({ length: 61 }, () => POT.code);
+    await renderRepaired({ main, extra: [] }, repairOf(1, 61));
+    fireEvent.keyDown(cardsIn("Main")[0]!, { key: "Delete" });
+    await waitFor(() => expect(repairNotice()).not.toHaveTextContent("Trim"));
+  });
+
+  it("shows the server message when the repair was not applied, with the section fix still there", async () => {
+    await renderRepaired({ extra: [POT.code] }, repairOf(1, 301, { applied: false, message: "Too big to move." }));
+    expect(repairNotice()).toHaveTextContent("Too big to move.");
+    expect(screen.queryAllByText(/Extra holds/)).toHaveLength(0);
+    expect(within(region("Extra")).getByRole("button", { name: "Move to Main Deck" })).toBeInTheDocument();
+  });
+
+  it("can be dismissed", async () => {
+    await renderRepaired({ main: [POT.code] }, repairOf(1, 1));
+    fireEvent.click(within(repairNotice()!).getByRole("button", { name: "Dismiss" }));
+    expect(repairNotice()).toBeNull();
+  });
+});
+
 describe("Extra Deck rule: import and paste", () => {
   async function pasteList(text: string) {
     render(<SavedDeckEditor />);

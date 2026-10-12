@@ -234,6 +234,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [facetsError, setFacetsError] = useState(false);
   const [facetsRetry, setFacetsRetry] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The server moved bad Extra cards to Main when it read this deck. Stays until dismissed or saved. */
+  const [repair, setRepair] = useState<SavedDeckView["extraDeckRepair"] | null>(null);
   const [hand, setHand] = useState<TestHand | null>(null);
   const [masterDropping, setMasterDropping] = useState(false);
   const [hover, setHover] = useState<HoverTarget | null>(null);
@@ -430,6 +432,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     setSelection({ deck: cloneDeck(record.deck), masterOrigin: null });
     setHistory({ past: [], future: [] });
     setParseError(null);
+    setRepair(record.extraDeckRepair ?? null);
     setBaseline(snapshotOf(record.name, record.mode, record.deck));
   }
 
@@ -895,6 +898,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
         setSelection({ deck: cloneDeck(record.deck), masterOrigin });
         setBaseline(snapshotOf(record.name, record.mode, record.deck));
         setSavedId(record.id);
+        setRepair(null);
         setSavedFlash(true);
       });
       // Keep selection provenance when a new deck acquires its permanent URL.
@@ -950,7 +954,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   }, []);
 
   const notes = pool ? draftDeckNotes(deck, pool.mainPoolCount) : guidanceNotes(mode, deck);
-  if (misplaced.inExtra.length > 0) notes.unshift(`Extra holds ${misplaced.inExtra.length} ${misplaced.inExtra.length === 1 ? "card" : "cards"} that ${misplaced.inExtra.length === 1 ? "is" : "are"} not Extra Deck monsters. Use Move to Main Deck.`);
+  // The repair notice already says it, so the summary does not repeat it.
+  if (misplaced.inExtra.length > 0 && !repair) notes.unshift(`Extra holds ${misplaced.inExtra.length} ${misplaced.inExtra.length === 1 ? "card" : "cards"} that ${misplaced.inExtra.length === 1 ? "is" : "are"} not Extra Deck monsters. Use Move to Main Deck.`);
   if (misplaced.inMain.length > 0) notes.unshift(`Main holds ${misplaced.inMain.length} Extra Deck ${misplaced.inMain.length === 1 ? "monster" : "monsters"}. Use Move to Extra Deck.`);
   const mainMinimum = pool ? draftMainMinimum(pool.mainPoolCount) : 40;
   const inspected = inspectCode == null ? undefined : catalog.get(inspectCode);
@@ -1048,6 +1053,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     setNotice(`Moved ${moved} ${moved === 1 ? "card" : "cards"} to the ${from === "extra" ? "Main" : "Extra"} Deck. Press Ctrl+Z to undo.`);
   }
   const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
+  const mainCap = pool ? DRAFT_MAIN_MAX : 60;
+  const repairText = repair
+    ? repair.applied
+      ? `We moved ${repair.moves.length} ${plural(repair.moves.length, "card", "cards")} from your Extra Deck to your Main Deck. Only Fusion, Synchro, Xyz and Link monsters go in the Extra Deck.${deck.main.length > mainCap ? ` Main now has ${deck.main.length} cards. Trim it to ${mainCap} or fewer. You can still edit and save.` : ""}`
+      : repair.message
+    : null;
   const extraWarning: SectionWarning | undefined = misplaced.inExtra.length > 0 ? {
     message: `${misplaced.inExtra.length} ${plural(misplaced.inExtra.length, "card here is", "cards here are")} not ${plural(misplaced.inExtra.length, "an Extra Deck monster", "Extra Deck monsters")}. Only Fusion, Synchro, Xyz and Link monsters go in the Extra Deck.`,
     actionLabel: "Move to Main Deck",
@@ -1237,6 +1248,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
               <div className={styles["de-reg"]}>
                 <RegistrationMark registration={registration} />
                 {lockedNote(registration) ? <StatusLine tone="warn">{lockedNote(registration)}</StatusLine> : null}
+              </div>
+            ) : null}
+            {repairText ? (
+              <div className={styles["de-alert"]} role="status" data-testid="extra-repair-notice">
+                <StatusLine tone="warn">{repairText}</StatusLine>
+                <SvButton variant="quiet" onClick={() => setRepair(null)}>Dismiss</SvButton>
               </div>
             ) : null}
             {isPhone ? <details className={styles["de-pchk"]} data-s={tone}><summary>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span>{flag}</span><ChevronDown className="ic sm" aria-hidden /></summary><DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /></details> : null}
