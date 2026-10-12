@@ -2,10 +2,11 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parseDeckText } from "../../src/components/duel/ydk";
 import type { DuelDeckValidation, DuelSettings, SavedDeck } from "@yugidraft/shared/duels";
 import { DeckEditor } from "../../src/components/duel/deck-editor";
 
-const { listSavedDecks, createSavedDeck } = vi.hoisted(() => ({ listSavedDecks: vi.fn(), createSavedDeck: vi.fn() }));
+const { listSavedDecks, createSavedDeck, prepareDeckTextImport } = vi.hoisted(() => ({ listSavedDecks: vi.fn(), createSavedDeck: vi.fn(), prepareDeckTextImport: vi.fn() }));
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
@@ -16,7 +17,7 @@ vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }));
 
-vi.mock("../../src/components/decks/api", () => ({ listSavedDecks, createSavedDeck }));
+vi.mock("../../src/components/decks/api", () => ({ listSavedDecks, createSavedDeck, prepareDeckTextImport }));
 vi.mock("../../src/components/duel/api", () => ({
   validateDuelDeck: vi.fn(async () => ({ issues: [] }) as unknown as DuelDeckValidation),
   searchDuelCards: vi.fn(async () => ({ cards: [] })),
@@ -42,6 +43,10 @@ const YDK = "#main\n111\n112\n#extra\n!side\n";
 
 describe("saving an imported deck to My Decks", () => {
   beforeEach(() => {
+    prepareDeckTextImport.mockImplementation(async (text: string, mode: "normal" | "domain") => {
+      const deck = parseDeckText(text);
+      return { mode: deck.deckMaster ? "domain" : mode, deck, moves: [], messages: [] };
+    });
     listSavedDecks.mockResolvedValue([saved(1, "Alpha", [221])]);
     createSavedDeck.mockImplementation(async (input: { name: string; mode: SavedDeck["mode"]; deck: SavedDeck["deck"] }) => (
       { id: 9, name: input.name, mode: input.mode, deck: input.deck, createdAt: "", updatedAt: "" }
@@ -58,6 +63,18 @@ describe("saving an imported deck to My Decks", () => {
     expect(createSavedDeck).toHaveBeenCalledWith({ name: "Red Eyes", mode: "normal", deck: { main: [111, 112], extra: [], side: [] } }, expect.any(AbortSignal));
     expect(screen.getByRole("option", { name: /^Red Eyes ·/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove 111 from Main" })).toBeInTheDocument();
+  });
+
+  it("shows moved cards and uses the routed deck for the duel and saved library", async () => {
+    const deck = { main: [901, 902], extra: [903], side: [] };
+    const message = "2 cards moved from Extra Deck to Main Deck: Test Spell, Test Trap.";
+    prepareDeckTextImport.mockResolvedValue({ mode: "normal", deck, moves: [], messages: [message] });
+    renderEditor();
+    importFile("Test.ydk", "#extra\n901\n902\n903");
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    await waitFor(() => expect(createSavedDeck).toHaveBeenCalledWith({ name: "Test", mode: "normal", deck }, expect.any(AbortSignal)));
+    expect(screen.getByRole("button", { name: "Remove 901 from Main" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove 901 from Extra" })).not.toBeInTheDocument();
   });
 
   it("names a paste Imported deck with the date and time", async () => {
@@ -133,9 +150,22 @@ describe("saving an imported deck to My Decks", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load paste" }));
     fireEvent.click(screen.getByRole("button", { name: "Load paste" }));
 
-    expect(await screen.findByText(/^Already in your decks: Imported deck/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Saved to your decks as Imported deck/)).toBeInTheDocument();
     expect(createSavedDeck).toHaveBeenCalledOnce();
-    expect(screen.queryByText(/^Saved to your decks as/)).not.toBeInTheDocument();
+  });
+
+  it("keeps a newer import when an older server response arrives later", async () => {
+    let release: (result: unknown) => void = () => undefined;
+    prepareDeckTextImport.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    renderEditor();
+    importFile("Old.ydk", "#main\n901");
+    await waitFor(() => expect(prepareDeckTextImport).toHaveBeenCalledOnce());
+    importFile("New.ydk", "#main\n902");
+    expect(await screen.findByText("Saved to your decks as New")).toBeInTheDocument();
+    release({ mode: "normal", deck: { main: [901], extra: [], side: [] }, moves: [], messages: [] });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove 902 from Main" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Remove 901 from Main" })).not.toBeInTheDocument();
+    expect(createSavedDeck).toHaveBeenCalledOnce();
   });
 
   it("saves an import made while the list loads, and the list then shows it", async () => {

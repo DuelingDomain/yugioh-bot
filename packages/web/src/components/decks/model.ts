@@ -1,4 +1,4 @@
-import { cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
+import { isExtraDeckCard, cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
 import {
   TYPE_FUSION,
   TYPE_LINK,
@@ -59,7 +59,7 @@ export function uniqueCodes(codes: number[]): number[] {
 }
 
 export function isExtraMonster(card: DuelCardInfo): boolean {
-  return (card.type & TYPE_MONSTER) !== 0 && (card.type & EXTRA_TYPE_MASK) !== 0;
+  return isExtraDeckCard(card);
 }
 
 export function defaultAddSection(card: DuelCardInfo): "main" | "extra" {

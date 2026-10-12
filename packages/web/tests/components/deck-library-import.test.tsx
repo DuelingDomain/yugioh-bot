@@ -2,6 +2,7 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parseDeckText } from "../../src/components/duel/ydk";
 import type { SavedDeck } from "@yugidraft/shared/duels";
 import { SavedDeckLibrary } from "../../src/components/decks/library";
 
@@ -19,6 +20,14 @@ const created: Array<{ name: string; mode: string }> = [];
 function stubApi() {
   let nextId = 1;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/decks/import") {
+      const { text, mode } = JSON.parse(String(init?.body));
+      const deck = parseDeckText(text);
+      if (!deck.main.length && !deck.extra.length && !deck.side.length && !deck.deckMaster) {
+        return Response.json({ error: "No cards found. Is this a YDK file?", code: "INVALID_DECK_IMPORT" }, { status: 400 });
+      }
+      return Response.json({ deck, mode: deck.deckMaster ? "domain" : mode, moves: [], messages: [] });
+    }
     if (url === "/api/decks" && init?.method === "POST") {
       const body = JSON.parse(String(init.body)) as Omit<SavedDeck, "id" | "createdAt" | "updatedAt">;
       created.push({ name: body.name, mode: body.mode });
@@ -95,6 +104,28 @@ describe("SavedDeckLibrary", () => {
     expect(list).toBeDefined();
     expect(within(list!).getByText("Blue Eyes")).toBeInTheDocument();
     expect(within(list!).getByRole("link", { name: "Master" })).toBeInTheDocument();
+  });
+
+  it("shows the moved-card report and saves the server-routed deck", async () => {
+    const routed = { main: [901, 902], extra: [903], side: [] };
+    const message = "2 cards moved from Extra Deck to Main Deck: Test Spell, Test Trap.";
+    const writes: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/decks/import") return Response.json({ mode: "normal", deck: routed, moves: [
+        { code: 901, name: "Test Spell", from: "extra", to: "main" }, { code: 902, name: "Test Trap", from: "extra", to: "main" },
+      ], messages: [message] });
+      if (url === "/api/decks" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)); writes.push(body.deck);
+        return Response.json({ deck: { ...body, id: 91, createdAt: "", updatedAt: "" } }, { status: 201 });
+      }
+      return Response.json({ decks: [] });
+    }));
+    render(<SavedDeckLibrary />);
+    await screen.findByText("No saved decks yet");
+    fireEvent.click(screen.getByRole("button", { name: "Import YDK files" }));
+    fireEvent.change(screen.getByLabelText("YDK files"), { target: { files: [ydkFile("Test.ydk", "#extra\n901\n902\n903")] } });
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(writes).toEqual([routed]);
   });
 
   it("with no decks: one primary, Import YDK files opens the import panel, bar buttons are secondary", async () => {

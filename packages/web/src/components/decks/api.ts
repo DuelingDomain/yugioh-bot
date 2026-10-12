@@ -13,7 +13,7 @@ export class DeckRequestError extends Error {
   /** The caller's existing deck, when a 409 says a deck for this draft exists. */
   readonly deckId?: number;
 
-  constructor(message: string, status: number, deckId?: number) {
+  constructor(message: string, status: number, deckId?: number, readonly code?: string) {
     super(message);
     this.name = "DeckRequestError";
     this.status = status;
@@ -35,7 +35,8 @@ async function parseBody<T>(res: Response): Promise<T> {
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     const deckId = body && typeof body === "object" && "deckId" in body && typeof body.deckId === "number" ? body.deckId : undefined;
-    throw new DeckRequestError(errorMessage(body, res.status), res.status, deckId);
+    const code = body && typeof body === "object" && "code" in body && typeof body.code === "string" ? body.code : undefined;
+    throw new DeckRequestError(errorMessage(body, res.status), res.status, deckId, code);
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new DeckRequestError("The server returned an invalid response.", 502);
@@ -191,4 +192,15 @@ export async function swapDeckArtwork(request: DeckArtworkSwapRequest, signal?: 
   }));
   if (!body.deck) throw new DeckRequestError("The server returned no deck.", 502);
   return body.deck;
+}
+
+/** Catalog-resolved import with a report for every copy moved between Main and Extra. */
+export async function prepareDeckTextImport(text: string, mode: DuelMode, signal?: AbortSignal): Promise<{
+  mode: DuelMode; deck: DuelDeck; moves: import("@yugidraft/shared/duels").DeckSectionMove[]; messages: string[];
+}> {
+  const body = await parseBody<{ mode: DuelMode; deck: DuelDeck; moves: import("@yugidraft/shared/duels").DeckSectionMove[]; messages: string[] }>(await fetch("/api/decks/import", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, mode }), signal,
+  }));
+  if (!body.deck || !Array.isArray(body.moves) || !Array.isArray(body.messages)) throw new DeckRequestError("The server returned an invalid deck import.", 502);
+  return body;
 }

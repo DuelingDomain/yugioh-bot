@@ -1,5 +1,7 @@
 "use client";
 
+import { prepareDeckTextImport } from "./api";
+
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
@@ -34,7 +36,7 @@ import {
   X,
 } from "lucide-react";
 import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE } from "@/components/duel/deck-card-types";
-import { parseDeckText, selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
+import { selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
 import { SheetRoot, StatusLine, SvButton, Zone, segmentSlide } from "@/components/sheet";
 import { useTabDirection } from "@/lib/tab-motion";
 import { cn } from "@/lib/utils";
@@ -791,7 +793,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     requestAnimationFrame(() => { searchRef.current?.focus(); searchRef.current?.select(); });
   }
 
-  function applyImported(raw: DuelDeck) {
+  function applyImported(raw: DuelDeck, messages: string[] = []) {
     if (allCodes(raw).length === 0) {
       throw new Error("No cards found. Import a YDK deck or a ydke:// link.");
     }
@@ -799,7 +801,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     commit(importForLibrary(raw, nextMode), nextMode);
     setSelected(null);
     setImportOpen(false);
-    setNotice("Deck imported. Press Ctrl+Z to undo.");
+    setNotice(["Deck imported. Press Ctrl+Z to undo.", ...messages].join(" "));
   }
 
   function onFile(file: File) {
@@ -811,14 +813,16 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     const generation = ++importGeneration.current;
     setFileName(file.name);
     void file.text().then(
-      (text) => {
+      async (text) => {
         if (generation !== importGeneration.current) return;
         try {
-          applyImported(parseDeckText(text));
+          const prepared = await prepareDeckTextImport(text, mode);
+          if (generation !== importGeneration.current) return;
+          applyImported(prepared.deck, prepared.messages);
           // A new deck that still has the default name takes the file's name.
           if (savedId == null && name.trim() === DEFAULT_NAME) setName(deckNameFromFile(file.name));
         } catch (reason: unknown) {
-          setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
+          if (generation === importGeneration.current) setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
         }
       },
       (reason: unknown) => {
@@ -829,12 +833,14 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     );
   }
 
-  function onPaste(text: string) {
-    importGeneration.current += 1;
+  async function onPaste(text: string) {
+    const generation = ++importGeneration.current;
     try {
-      applyImported(parseDeckText(text));
+      const prepared = await prepareDeckTextImport(text, mode);
+      if (generation !== importGeneration.current) return;
+      applyImported(prepared.deck, prepared.messages);
     } catch (reason: unknown) {
-      setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
+      if (generation === importGeneration.current) setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
     }
   }
 

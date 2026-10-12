@@ -16,7 +16,7 @@ const MODE_CHOICES = [
 ] as const;
 
 type ImportOutcome =
-  | { state: "saved"; deck: SavedDeckView }
+  | { state: "saved"; deck: SavedDeckView; messages: string[] }
   | { state: "failed"; error: string };
 
 type ImportRow = { key: number; fileName: string } & ({ state: "saving" } | ImportOutcome);
@@ -26,8 +26,8 @@ async function importOne(file: File, mode: DuelMode): Promise<ImportOutcome> {
     if (file.size > MAX_IMPORT_FILE_BYTES) {
       throw new Error("This file is too large to be a YDK deck.");
     }
-    const prepared = prepareDeckImport(await file.text(), file.name, mode);
-    return { state: "saved", deck: await createSavedDeck(prepared) };
+    const prepared = await prepareDeckImport(await file.text(), file.name, mode);
+    return { state: "saved", deck: await createSavedDeck(prepared), messages: prepared.messages };
   } catch (reason: unknown) {
     return { state: "failed", error: reason instanceof Error ? reason.message : "Could not import this file." };
   }
@@ -130,6 +130,7 @@ export function DeckImportPanel({
                       <span>{modeLabel(row.deck.mode)}</span>
                       <span>Main <b>{row.deck.deck.main.length}</b></span>
                       <span>Extra <b>{row.deck.deck.extra.length}</b></span>
+                      {row.messages.map((message, index) => <span key={index}>{message}</span>)}
                     </span>
                     <Link href={`/decks/${row.deck.id}`} className={styles.resLink}>Open</Link>
                   </>

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { assertExtraDeckCards, ExtraDeckCardError } from "@yugidraft/shared/duels";
 import type { SavedDeck } from "@yugidraft/shared/duels";
 import {
+  createDeckTypeLookup,
   createPlayerService,
   createSavedDeckService,
   createTournamentRegistrationService,
@@ -62,11 +64,20 @@ export async function readSavedDeckBody(
   return { ok: true, name: record.name, mode: record.mode, deck: record.deck };
 }
 
-/** Library and import writes share this Deck Master check. */
+/** Check Extra types on every write, then check the Domain Deck Master type. */
 export async function checkSavedDeckMaster(mode: unknown, deck: unknown): Promise<
   { ok: true } | { ok: false; response: NextResponse }
 > {
-  if (mode !== "domain" || !deck || typeof deck !== "object" || Array.isArray(deck)) return { ok: true };
+  if (!deck || typeof deck !== "object" || Array.isArray(deck)) return { ok: true };
+  const extra = (deck as { extra?: unknown }).extra;
+  if (Array.isArray(extra) && extra.length && extra.every(code => typeof code === "number" && Number.isInteger(code) && code > 0 && code <= 0xffff_ffff)) {
+    try { assertExtraDeckCards({ extra }, createDeckTypeLookup(getDb())); }
+    catch (error) {
+      if (error instanceof ExtraDeckCardError) return { ok: false, response: NextResponse.json({ error: error.message, code: error.code }, { status: 400 }) };
+      throw error;
+    }
+  }
+  if (mode !== "domain") return { ok: true };
   const code = (deck as { deckMaster?: unknown }).deckMaster;
   // The saved-deck service reports shape errors and permits unfinished decks.
   if (code === undefined || typeof code !== "number" || !Number.isInteger(code) || code < 1 || code > 0xffff_ffff) return { ok: true };

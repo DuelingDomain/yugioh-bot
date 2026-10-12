@@ -185,7 +185,7 @@ describe("POST /api/cards/resolve listText", () => {
     ["0 Dark Hole", 'Invalid copy count in "0 Dark Hole".'],
     ["999999999999999999999 Dark Hole", 'Invalid copy count in "999999999999999999999 Dark Hole".'],
     ["#deckmaster\n1\n#deckmaster\n2", "YDK contains multiple #deckmaster sections."],
-    ["#deckmaster\nnope", "Invalid Deck Master id in #deckmaster."],
+    ["#deckmaster\n0", "Invalid Deck Master id in #deckmaster."],
     ["#deckmaster\n1\n2", "YDK #deckmaster must contain exactly one card id."],
   ])("returns the parser's 400 for invalid text before upstream access: %#", async (listText, error) => {
     const response = await resolve({ listText });
