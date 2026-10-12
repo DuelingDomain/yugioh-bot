@@ -53,7 +53,7 @@ It has these jobs:
 | Job | What it runs |
 |---|---|
 | `cores` | Builds the standard, domain and multi cores, or restores them from the Actions cache. The key hashes the pins, the core patches, the build scripts and `package-lock.json`. The other core jobs use this bundle (`data/duel-engine-next`). |
-| `unit` | `npm ci`, build shared, `npm run typecheck`, then the tests that need no core: shared, bot, web, duel-server `test:unit`, e2e `test:unit`. |
+| `unit` | `npm ci`, build shared, `npm run typecheck`, then the tests that need no core: shared, bot, worker, WS, web, duel-server `test:unit`, e2e `test:unit`. |
 | `changes` | Computes the `engine` flag from changed paths, with the fallbacks above. |
 | `engine` | When `engine=true`: `DUEL_REQUIRE_CORES=1 npm run test:engine`, the web tests with real duels and the engine smoke scripts. A missing core fails any selected test. |
 | `engine-legacy` | When `engine=true`: the engine suite with `DUEL_1V1_ENGINE=legacy`, including the legacy main tests. |

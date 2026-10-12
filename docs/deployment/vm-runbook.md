@@ -59,7 +59,7 @@ Deploy jobs run in the `production` / `staging` GitHub Environments and require 
 
 ## Deployment Pipeline
 
-1. Merge code to `main`. Its push **Test** run must succeed in full: unit/typecheck/web shards,
+1. Merge code to `main`. Its push **Test** run must succeed in full: unit/typecheck (including WS)/web shards,
    engine core build/restore, pinned and legacy engine shards (including web engine tests and smoke),
    native ASan/UBSan checks and strict rule coverage. All regular suites run on every main push.
    Native golden checks run when core/data/native inputs or their CI wiring change. The scheduled nduel
