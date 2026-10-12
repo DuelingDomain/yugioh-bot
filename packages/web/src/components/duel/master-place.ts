@@ -48,3 +48,35 @@ export function masterSummonLine(view: DuelSeatView | undefined): string | null 
   if (!master?.inZone) return null;
   return master.nextCost > 0 ? `Summon: costs ${master.nextCost.toLocaleString("en-US")} LP` : "Summon: free";
 }
+
+/** The server may end a Deck Master Zone label with "(costs N LP)"; the table shows that cost itself, once. */
+const COST_SUFFIX = /\s*\(costs ([\d,]+) LP\)\s*$/i;
+
+function costText(cost: number): string {
+  return cost > 0 ? `${cost.toLocaleString("en-US")} LP` : "Free";
+}
+
+/**
+ * The text of a Deck Master action button. A Summon or Set from the zone shows its cost after the word ("Summon · 500 LP",
+ * "Summon · Free" for the first), taken from the label suffix when the server sends one, else from `deckMaster.nextCost`.
+ * The suffix is always removed so the cost shows once. With `short` the plate form is used: Summon and Set lose the
+ * card name, and Activate loses the master's own name (the plate already names it), so the key words stay in a small
+ * space. The full option text stays in the title and the accessible name.
+ */
+export function masterActionText(label: string, view: DuelSeatView | undefined, short: boolean): string {
+  const suffix = COST_SUFFIX.exec(label);
+  const base = label.replace(COST_SUFFIX, "");
+  const fromSuffix = suffix ? Number.parseInt(suffix[1].replace(/,/g, ""), 10) : null;
+  const move = /^(?:\w+ )?Summon\b/i.test(base) ? "Summon" : /^Set\b/i.test(base) ? "Set" : null;
+  if (move) {
+    const cost = fromSuffix ?? view?.deckMaster?.nextCost;
+    const word = short ? move : base;
+    return cost === undefined ? word : `${word} · ${costText(cost)}`;
+  }
+  let text = base;
+  if (short) {
+    const name = view?.deckMaster?.card.name;
+    if (name && text.startsWith(`Activate ${name}`)) text = `Activate${text.slice(`Activate ${name}`.length)}`;
+  }
+  return fromSuffix === null ? text : `${text} · ${costText(fromSuffix)}`;
+}
