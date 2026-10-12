@@ -32,16 +32,58 @@ function reasonOf(event: DuelEvent): CameraLockReason | null {
   }
 }
 
-/** Events a player causes by acting: the actor is `event.seat`. A destroy or a move names the owner of the card, not who acted. */
-const ACTOR_KINDS: ReadonlySet<DuelEvent["kind"]> = new Set(["activate", "chain-resolving", "summon", "set", "attack"]);
+/**
+ * The seats an event touches and the seat that caused it, for a close-up that must go out when another player acts. Only an
+ * activate, a summon, a set and an attack are actions; a destroy or a move names the owner of the card, not who acted.
+ * - activate: the actor is `event.seat` (the activating player). It touches the field the card is on and the field of each target.
+ * - attack: the actor is the attacking seat. It touches that field and the attacked one (the target zone, or `targetSeat` for a
+ *   direct attack).
+ * - summon / set: `event.seat` is the controller of the card, not the actor (a Kaiju goes to the rival's field, a token to
+ *   another seat). The actor is the owner of the chain link that is resolving, else the turn player.
+ */
+function actionOf(event: DuelEvent, resolvingSeat: number | null, turnSeat: number | null): { actor: number | null; touched: number[] } | null {
+  switch (event.kind) {
+    case "activate": {
+      const own = event.zone?.controller ?? event.seat;
+      return { actor: event.seat ?? null, touched: [own, ...(event.targets ?? []).map((zone) => zone.controller)].filter((seat): seat is number => seat != null) };
+    }
+    case "attack": {
+      const attacked = event.target?.controller ?? event.targetSeat;
+      return { actor: event.seat ?? null, touched: [event.seat, attacked].filter((seat): seat is number => seat != null) };
+    }
+    case "summon":
+    case "set": {
+      const controller = event.zone?.controller ?? event.seat;
+      return { actor: resolvingSeat ?? turnSeat, touched: controller == null ? [] : [controller] };
+    }
+    default:
+      return null;
+  }
+}
 
 /**
- * True when another player acted since `afterId`: an actor event of a seat that is neither the viewer nor the field in
- * close-up (`focusSeat`, null when no field is). It is the one reason the Rooftop camera moves by itself, and it only
- * moves out: the shell sends the camera to the overview once and leaves it there.
+ * True when another player acted since `afterId` on a field other than the one in close-up (`focusSeat`). It is the one
+ * reason the Rooftop camera moves by itself, and it only moves out: the shell sends the camera to the overview once and
+ * leaves it there. The viewer's own actions never count, wherever they land. `turnSeat` is the actor of a summon or a set
+ * that no chain link causes.
  */
-export function otherPlayerActed(events: readonly DuelEvent[], afterId: number, viewerSeat: number | null, focusSeat: number | null): boolean {
-  return events.some((event) => event.id > afterId && ACTOR_KINDS.has(event.kind) && event.seat != null && event.seat !== viewerSeat && event.seat !== focusSeat);
+export function otherPlayerActed(
+  events: readonly DuelEvent[],
+  afterId: number,
+  viewerSeat: number | null,
+  focusSeat: number | null,
+  turnSeat: number | null = null,
+): boolean {
+  let resolvingSeat: number | null = null;
+  for (const event of events) {
+    if (event.kind === "chain-resolving") resolvingSeat = event.seat ?? null;
+    else if (event.kind === "chain-resolved" || event.kind === "chain-negated" || event.kind === "chain-end") resolvingSeat = null;
+    if (event.id <= afterId) continue;
+    const action = actionOf(event, resolvingSeat, turnSeat);
+    if (!action || action.actor == null || action.actor === viewerSeat) continue;
+    if (action.touched.some((seat) => seat !== focusSeat)) return true;
+  }
+  return false;
 }
 
 /** The newest event id, or `afterId` when there is none. A caller that skips the lock still moves its cursor with this. */
