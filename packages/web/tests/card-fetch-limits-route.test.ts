@@ -68,6 +68,38 @@ describe("member card request routes", () => {
     } finally { release(); await pending; }
   });
 
+  it.each([
+    { op: "import", ids: [111] },
+    { op: "import", ids: [111, 222] },
+    { op: "import", ids: [111, 222, 333] },
+    { op: "importYdk", ids: [111] },
+    { op: "importYdk", ids: [111, 222] },
+    { op: "importYdk", ids: [111, 222, 333] },
+  ])("returns 429 for $op with a full member budget and uncached passcodes ($ids)", async ({ op, ids }) => {
+    vi.stubEnv("DISCORD_GUILD_ID", "guild");
+    state.db!.exec(`insert into users(id, username, display_name) values(1, 'member', 'Member');
+      insert into cubes(id, guild_id, name, created_by_user_id, created_at, updated_at)
+      values(1, 'guild', 'Cube', 1, 't', 't');`);
+    let release!: () => void;
+    const fetcher = vi.fn(() => new Promise<Response>(resolve => {
+      release = () => resolve(Response.json({ data: [] }));
+    }));
+    vi.stubGlobal("fetch", fetcher);
+    const { fetchCardResource } = await import("@yugidraft/shared/services");
+    const { POST } = await import("../app/api/cubes/[id]/cards/route");
+    const pending = fetchCardResource("https://db.ygoprodeck.com/card", fetch, r => r.json(), [], 1);
+    try {
+      const body = op === "import" ? { op, codes: ids } : { op, text: `#main\n${ids.join("\n")}\n` };
+      const refused = await POST(request(body), { params: Promise.resolve({ id: "1" }) });
+      expect(refused.status).toBe(429);
+      expect((await refused.json()).error).toContain("pending card requests");
+      expect(refused.headers.get("retry-after")).toBe("1");
+      expect(state.db!.prepare("select * from cube_cards where cube_id = 1").all()).toEqual([]);
+      expect(state.db!.prepare("select updated_at from cubes where id = 1").get()).toEqual({ updated_at: "t" });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } finally { release(); await pending; }
+  });
+
   it("applies the member budget before a draft start fetches its pool", async () => {
     vi.stubEnv("DISCORD_GUILD_ID", "guild");
     state.db!.exec(`insert into users(id, username, display_name) values(1, 'member', 'Member');
