@@ -7,7 +7,7 @@
      whole at any window size, with the next one peeking in to say there are more. */
   --cs-w: calc(132 * var(--cs-u));
   --cs-gap: calc(12 * var(--cs-u));
-  /* Room inside the scroller for the lift (4), the pick ring (5) and the badges that hang off a corner (10): overflow-x: auto clips y as well. Every host's pad below stays above 14 on the sides and 18 on top. */
+  /* Room inside the scroller for the lift (4) and the pick mark that hangs off the top right corner (8, and its ring): overflow-x: auto clips y as well. A card shows at least 14 of room on every side it hangs over. */
   --cs-pad-x: calc(24 * var(--cs-u));
   --cs-pad-top: calc(24 * var(--cs-u));
   --cs-pad-bottom: calc(12 * var(--cs-u));
@@ -129,6 +129,8 @@
   font: inherit;
   text-align: center;
   cursor: pointer;
+  /* A focused card scrolls into view with its mark: keep the room above it when the panel is the scroller (a phone). */
+  scroll-margin-top: var(--cs-pad-top);
 }
 .card:disabled { cursor: not-allowed; opacity: 0.55; }
 .card:focus-visible { outline: none; }
@@ -171,9 +173,9 @@
 
 .num {
   position: absolute;
-  /* Hangs off the top left corner, as the pick mark does off the top right: inside the art it covered the card's printed name. It sits above the name line and only 6 off the side, so it keeps off the pick mark of the card before it. The scroller's padding leaves room for it. */
-  top: calc(-10 * var(--cs-u));
-  left: calc(-6 * var(--cs-u));
+  /* At the bottom left, inside the art: the printed name is along the top, and the pick mark hangs off the top right, so the badge never covers the name and never touches the mark of the card before it. It covers only a corner of the effect text box. */
+  bottom: max(3px, calc(4 * var(--cs-u)));
+  left: max(3px, calc(4 * var(--cs-u)));
   display: grid;
   place-items: center;
   min-width: calc(18 * var(--cs-u));
@@ -192,10 +194,9 @@
 
 .mark {
   position: absolute;
-  /* Hangs only a little off the corner, above the number badge of the next card; the scroller's padding leaves room for it. */
-  z-index: 1;
+  /* Hangs only a little off the corner; the scroller's padding leaves room for it. */
   top: calc(-8 * var(--cs-u));
-  right: calc(-6 * var(--cs-u));
+  right: calc(-4 * var(--cs-u));
   display: grid;
   place-items: center;
   min-width: calc(28 * var(--cs-u));
@@ -284,12 +285,14 @@
  */
 @media (min-width: 901px) {
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) {
-    --cs-w: clamp(70px, calc((var(--pr-strip-h, 300px) - 170px * var(--tt, 1)) / 1.46), max(112px, calc(128 * var(--cs-u))));
+    --cs-w: clamp(70px, calc((var(--pr-strip-h, 300px) - 200px * var(--tt, 1)) / 1.46), max(112px, calc(128 * var(--cs-u))));
     --cs-gap: calc(10 * var(--cs-u));
     --cs-pad-x: 16px;
-    --cs-pad-top: 20px;
+    /* The lift (4) and the pick mark (8) scale with the unit, which grows past 1px on a big window. */
+    --cs-pad-top: max(16px, calc(12 * var(--cs-u) + 4px));
     --cs-pad-bottom: 4px;
-    --cs-fade: 28px;
+    /* The bottom fade is 28px on a panel tall enough for one full row of names above it. A short panel (the 3-way table on a 720p window) holds the 70px tile with only a few px to spare, so the fade shrinks with the panel (down to 4px) and stays off the first row's names. */
+    --cs-fade: clamp(4px, calc(var(--pr-strip-h, 300px) - 276px * var(--tt, 1)), 28px);
     flex: 1 1 auto;
   }
   :global([data-prompt-dense]) .wrap:not([data-tone="chain"]) .frame {
@@ -313,7 +316,7 @@
     flex-wrap: wrap;
     align-content: start;
     justify-content: center;
-    /* A row gap above the lift (4px) and the badges (10px) that hang off the corners. */
+    /* A row gap above the lift (4px) and the pick mark (8px) that hangs off the corner. */
     row-gap: 18px;
     overflow-x: hidden;
     overflow-y: auto;
@@ -349,7 +352,7 @@
   --cs-w: var(--sr-card, 130px);
   --cs-gap: 12px;
   --cs-pad-x: 16px;
-  --cs-pad-top: 20px;
+  --cs-pad-top: 16px;
   --cs-pad-bottom: 4px;
   --cs-fade: 28px;
   flex: 1 1 auto;
