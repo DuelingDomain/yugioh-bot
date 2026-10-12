@@ -35,9 +35,16 @@ export function redactEvent<T>(event: T): T {
     const result: Record<string, unknown> = {};
     for (const [field, item] of Object.entries(value)) {
       if (key === "headers" && !["accept", "content-type", "content-length"].includes(field.toLowerCase())) continue;
-      if (field === "sdkProcessingMetadata" && depth === 0) {
-        // Captured scopes can reference the client; the SDK removes this metadata before sending.
+      if (key === "dynamicSamplingContext" && field === "public_key" && typeof item === "string" && /^[\da-f]{32}$/i.test(item)) {
         result[field] = item;
+      } else if (field === "sdkProcessingMetadata" && depth === 0) {
+        // Keep captured scope references; sampling context is copied into envelope headers.
+        const metadata = item as Record<string, unknown> | null;
+        const context = metadata?.dynamicSamplingContext;
+        if (context && typeof context === "object") {
+          const fields = Object.entries(context).filter(([name]) => !/transaction|url|uri|target|query|fragment|path|route|href/i.test(name));
+          result[field] = { ...metadata, dynamicSamplingContext: clean(Object.fromEntries(fields), "dynamicSamplingContext", depth + 1) };
+        } else result[field] = item;
       } else if (field === "user") {
         const id = (item as { id?: unknown } | null)?.id;
         if (typeof id === "string" && /^\d+$/.test(id)) result.user = { id };

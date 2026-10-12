@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,9 +10,9 @@ import { expect, it } from "vitest";
 import { openDatabase } from "@yugidraft/shared/db";
 import { createDraftService, createPlayerService } from "@yugidraft/shared/services";
 
-function startWorker(root: string, extra: NodeJS.ProcessEnv = {}) {
+function startWorker(root: string, extra: NodeJS.ProcessEnv = {}, imports: string[] = []) {
   const health = join(root, "health.json");
-  const child = spawn(process.execPath, [fileURLToPath(new URL("../dist/index.js", import.meta.url))], {
+  const child = spawn(process.execPath, [...imports.flatMap(path => ["--import", path]), fileURLToPath(new URL("../dist/index.js", import.meta.url))], {
     cwd: root,
     env: {
       PATH: process.env.PATH, DATABASE_PATH: join(root, "test.sqlite"),
@@ -38,6 +38,36 @@ async function until(predicate: () => boolean, milliseconds = 5000) {
   while (!predicate() && Date.now() < deadline) await delay(20);
   expect(predicate()).toBe(true);
 }
+
+it.each(["0", "1"])("flushes heartbeat cleanup errors on the real SIGTERM path (blocked flush %s)", async blocked => {
+  const root = mkdtempSync(join(tmpdir(), "worker-cleanup-"));
+  const db = openDatabase(join(root, "test.sqlite"));
+  db.prepare("insert into card_sets(set_name,synced_at) values('Seed',current_timestamp)").run();
+  db.close();
+  const output = join(root, "observability.jsonl");
+  const worker = startWorker(root, {
+    SENTRY_DSN: "configured", WORKER_OBSERVABILITY_OUTPUT: output, WORKER_FLUSH_BLOCK: blocked,
+  }, [fileURLToPath(new URL("./helpers/shutdown-observability.mjs", import.meta.url))]);
+  try {
+    await until(() => existsSync(worker.health) || worker.stopped());
+    expect(existsSync(worker.health), worker.output()).toBe(true);
+    rmSync(worker.health);
+    mkdirSync(worker.health);
+    const signalledAt = Date.now();
+    worker.child.kill("SIGTERM");
+    await until(worker.stopped);
+    expect(await worker.exit).toEqual({ code: 1 });
+    const flushes = readFileSync(output, "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(flushes).toHaveLength(2);
+    expect(flushes[0]).toEqual({ timeout: 2000, errors: [] });
+    expect(flushes[1]).toMatchObject({ timeout: 2000, errors: [{ code: "ERR_FS_EISDIR" }] });
+    if (blocked === "1") expect(Date.now() - signalledAt).toBeGreaterThanOrEqual(1900);
+  } finally {
+    if (!worker.stopped()) worker.child.kill("SIGKILL");
+    await worker.exit;
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 10000);
 
 it("SIGTERM removes the heartbeat before a clean process exit", async () => {
   const root = mkdtempSync(join(tmpdir(), "worker-process-"));

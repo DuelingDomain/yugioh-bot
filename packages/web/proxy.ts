@@ -22,6 +22,7 @@ function unauthorized(request: NextRequest) {
 // Construct Clerk lazily: an E2E request must never initialize its middleware.
 let clerkProxy: NextMiddleware | undefined;
 export default async function proxy(request: NextRequest, event: NextFetchEvent) {
+  if (request.nextUrl.pathname === "/monitoring") return NextResponse.next();
   // Disabled test endpoints remain unavailable even when Clerk cannot initialize.
   if (request.nextUrl.pathname.startsWith("/api/test-auth/") && !isE2EAuthEnabled()) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });

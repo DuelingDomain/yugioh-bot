@@ -1,12 +1,28 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type * as Sentry from "@sentry/nextjs";
-import { Scope, type TransactionEvent } from "@sentry/core";
+import { createEventEnvelope, getEnvelopeEndpointWithUrlEncodedAuth, makeDsn, Scope, type TransactionEvent } from "@sentry/core";
+import { makeFetchTransport } from "@sentry/browser";
 import { initializeSentry } from "../src/lib/sentry";
 import { ExpectedError, log, report } from "@yugidraft/shared/observability";
 
 const sdk = vi.hoisted(() => ({ init: vi.fn<(options: Parameters<typeof Sentry.init>[0]) => void>(), captureException: vi.fn(), addBreadcrumb: vi.fn(), flush: vi.fn(async () => true) }));
 vi.mock("@sentry/nextjs", () => sdk);
-afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
+afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+it("sends browser envelopes to the monitoring handler without credentials", async () => {
+  vi.stubGlobal("window", {});
+  initializeSentry("https://public@o123.ingest.sentry.io/456", "test", "release-one");
+  const options = sdk.init.mock.calls[0][0]!;
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+  const transport = makeFetchTransport({ ...options.transportOptions, url: "/monitoring", recordDroppedEvent() {} }, fetch);
+  await transport.send(createEventEnvelope({ message: "failed", event_id: "a".repeat(32) }));
+  expect(fetch.mock.calls[0][1]?.credentials).toBe("omit");
+  expect(options.tunnel).toBe("/monitoring");
+});
+it("keeps server reporting on the DSN endpoint", () => {
+  initializeSentry("https://public@o123.ingest.sentry.io/456", "test", "release-one");
+  const options = sdk.init.mock.calls[0][0]!;
+  expect(getEnvelopeEndpointWithUrlEncodedAuth(makeDsn(options.dsn!)!, options.tunnel)).toBe("https://o123.ingest.sentry.io/api/456/envelope/?sentry_version=7&sentry_key=public");
+});
 it("does not initialize remote reporting with an empty DSN", () => {
   initializeSentry("", "test", "release-one");
   expect(sdk.init).not.toHaveBeenCalled();

@@ -10,7 +10,7 @@ it.each(["", "https://public@example.test/1"])("keeps uploads disabled without c
   vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", dsn);
   await import("../next.config");
   const options = configure.mock.calls[0][1];
-  expect(options).toMatchObject({ tunnelRoute: "/monitoring", sourcemaps: { disable: true, deleteSourcemapsAfterUpload: true } });
+  expect(options).toMatchObject({ sourcemaps: { disable: true, deleteSourcemapsAfterUpload: true } });
   for (const key of ["org", "project", "authToken"]) expect(options).not.toHaveProperty(key);
 });
 it.each([

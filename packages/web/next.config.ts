@@ -27,7 +27,6 @@ const authToken = process.env.SENTRY_AUTH_TOKEN?.trim();
 const uploadSourceMaps = process.env.SENTRY_UPLOAD_SOURCEMAPS === "1" && !!org && !!project?.length && !!authToken;
 
 export default withSentryConfig(nextConfig, {
-  tunnelRoute: "/monitoring",
   ...(uploadSourceMaps ? { org, project, authToken } : {}),
   silent: true,
   sourcemaps: { disable: !uploadSourceMaps, deleteSourcemapsAfterUpload: true },

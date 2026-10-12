@@ -6,6 +6,7 @@ export function initializeSentry(dsn: string | undefined, environment: string | 
   try {
     Sentry.init({
       dsn, environment, release,
+      ...(typeof window === "undefined" ? {} : { tunnel: "/monitoring", transportOptions: { fetchOptions: { credentials: "omit" } } }),
       sendDefaultPii: false,
       dataCollection: {
         urlQueryParams: false, userInfo: false, cookies: false, httpHeaders: false, httpBodies: [],

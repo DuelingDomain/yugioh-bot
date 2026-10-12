@@ -48,6 +48,7 @@ it("never initializes Clerk in E2E mode and rechecks the gate", async () => {
 });
 it("opens only the exact monitoring tunnel", async () => {
   expect((await proxy(request("/monitoring", "POST"), {} as never))?.status ?? 200).toBe(200);
+  expect(state.invoke).not.toHaveBeenCalled();
   for (const path of ["/monitoringx", "/monitoring/extra"]) {
     expect((await proxy(request(path, "POST"), {} as never))?.status).toBe(307);
   }

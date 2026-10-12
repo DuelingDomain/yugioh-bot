@@ -10,6 +10,13 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
+it("keeps monitoring requests out of external Next rewrites", async () => {
+  const { default: config } = await import("../next.config");
+  const rewrites = await config.rewrites?.() ?? [];
+  const routes = Array.isArray(rewrites) ? rewrites : [...rewrites.beforeFiles ?? [], ...rewrites.afterFiles ?? [], ...rewrites.fallback ?? []];
+  expect(routes.filter(route => route.source.startsWith("/monitoring"))).toEqual([]);
+});
+
 it.each(["", "https://public@example.test/1"])("runs the installed production hook without upload credentials (DSN %s)", async dsn => {
   vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", dsn);
   const { default: config } = await import("../next.config");

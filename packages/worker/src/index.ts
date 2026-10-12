@@ -54,10 +54,18 @@ const jobs = [
 let draining: Promise<void> | undefined;
 function stop() {
   return draining ??= (async () => {
-    await Promise.all(jobs.map(job => job.stop()));
-    rmSync(healthPath, { force: true });
-    db.close();
-    await awaitObservabilityShutdown();
+    const cleanup = async (run: () => unknown) => {
+      try { await run(); }
+      catch (error) {
+        report(error, { tags: { operation: "[worker] cleanup failed" } });
+        process.exitCode = 1;
+      }
+    };
+    try {
+      await Promise.all(jobs.map(job => cleanup(() => job.stop())));
+      await cleanup(() => rmSync(healthPath, { force: true }));
+      await cleanup(() => db.close());
+    } finally { await awaitObservabilityShutdown(); }
   })();
 }
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
