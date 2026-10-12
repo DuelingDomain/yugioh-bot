@@ -67,7 +67,7 @@ describe("the Deck Master plate token", () => {
 });
 
 describe("the wide Deck Master plate of the 3-way plaza", () => {
-  const summon = { id: "s1", label: "Normal Summon Dark Magician" } as DuelPromptOption;
+  const summon = { id: "summon:0", label: "Normal Summon Dark Magician" } as DuelPromptOption;
 
   it("shows the name, the facts and the ability text, and keeps the actions", () => {
     plate({ legal: false, wide: true, actions: [summon] });
@@ -82,7 +82,7 @@ describe("the wide Deck Master plate of the 3-way plaza", () => {
   });
 
   it("shortens every Summon label to Summon, not only Normal Summon", () => {
-    const special = { id: "s2", label: "Special Summon Black Luster Soldier" } as DuelPromptOption;
+    const special = { id: "spsummon:0", label: "Special Summon Black Luster Soldier" } as DuelPromptOption;
     plate({ legal: false, wide: true, actions: [special] });
     expect(screen.getByTestId("hud-master-action")).toHaveTextContent(/^Summon$/);
     expect(screen.getByTestId("hud-master-action").getAttribute("title") ?? screen.getByTestId("hud-master-action").getAttribute("aria-label")).toMatch(/Special Summon/);

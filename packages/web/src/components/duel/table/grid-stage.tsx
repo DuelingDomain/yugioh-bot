@@ -846,7 +846,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   fit={lpFit(lp, placeLabels?.has(cell.seat) === true)}
                   beam="none"
                   master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
-                  masterInUse={masterInUse(view)}
+                  masterInUse={masterInUse(view, engine.seats)}
                   onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
                   lastDamage={lastSeatDamage(engine.events, cell.seat)}
                   legal={pickable}

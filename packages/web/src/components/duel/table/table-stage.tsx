@@ -797,7 +797,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               beam={fly ? "none" : threeWay ? anchor.beam : place === 0 ? "none" : "down"}
               floating={fly}
               master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
-              masterInUse={masterInUse(view)}
+              masterInUse={masterInUse(view, engine.seats)}
               onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
               lastDamage={lastSeatDamage(engine.events, slot.seat)}
               legal={pickable}

@@ -40,7 +40,7 @@ import {
   zoneKey,
 } from "./constants";
 import { disabledZones } from "./multi-seat";
-import { findMasterCard, masterActionText, masterInUse, masterPlace, masterSummonLine, type MasterPlace } from "./master-place";
+import { findMasterCard, masterActionText, masterInUse, masterPlace, masterSummonLine, useMasterSeats, type MasterPlace } from "./master-place";
 import type { InspectTarget } from "./inspector";
 import { RivalHand } from "./table/rival-hand";
 import { hexToRgbTriplet, isStraight, labelTurnDeg, normalizeDeg, textScale } from "./table/seat-angle";
@@ -74,7 +74,7 @@ type CssVars = CSSProperties & Record<`--${string}`, string | number>;
 // DuelField, SeatField and the row components keep the base styles; the skinned primitives below read the skin.
 const styles = baseStyles;
 
-export function masterCard(view: DuelSeatView): DuelCard | null {
+export function masterCard(view: DuelSeatView, seats: readonly DuelSeatView[] = []): DuelCard | null {
   const master = view.deckMaster;
   if (!master) return null;
   if (master.inZone) {
@@ -94,7 +94,7 @@ export function masterCard(view: DuelSeatView): DuelCard | null {
       race: master.card.race,
     };
   }
-  return findMasterCard(view, master.card.code);
+  return findMasterCard(view, master.card.code, seats);
 }
 
 const PLACE_STATUS: Record<MasterPlace, string> = {
@@ -104,8 +104,8 @@ const PLACE_STATUS: Record<MasterPlace, string> = {
   elsewhere: "Elsewhere",
 };
 
-export function masterStatus(view: DuelSeatView): string {
-  return PLACE_STATUS[masterPlace(view)];
+export function masterStatus(view: DuelSeatView, seats: readonly DuelSeatView[] = []): string {
+  return PLACE_STATUS[masterPlace(view, seats)];
 }
 
 /** Two short lines for a dock: "DARK · Level 7" and "Spellcaster". */
@@ -1219,13 +1219,16 @@ export function MasterDock({
 }) {
   const styles = useSkinStyles(baseStyles, "field");
   const master = view?.deckMaster;
-  const inUse = showInUse && masterInUse(view);
-  const card = view ? masterCard(view) : null;
+  const seats = useMasterSeats();
+  const inUse = showInUse && masterInUse(view, seats);
+  const card = view ? masterCard(view, seats) : null;
   const keys = view ? withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]) : [];
   const legal = anyLegal(keys, legalKeys);
   const selected = anySelected(keys, selectedKeys);
   const actions = local && canAct ? legalActionsFor(card, keys) : [];
-  const status = view ? masterStatus(view) : "";
+  const status = view ? masterStatus(view, seats) : "";
+  // The rail of a multi-seat table says the cost once, in the summon line; 1v1 keeps "Next surcharge".
+  const summonLine = showInUse ? masterSummonLine(view) : null;
   const stats = master ? cardStatsText(master.card) : null;
   const details = master ? masterDetailLines(master.card) : [];
 
@@ -1280,12 +1283,14 @@ export function MasterDock({
               <dt>Returns</dt>
               <dd>{master.returns}</dd>
             </div>
-            <div>
-              <dt>Next surcharge</dt>
-              <dd>{master.nextCost} LP</dd>
-            </div>
+            {summonLine ? null : (
+              <div>
+                <dt>Next surcharge</dt>
+                <dd>{master.nextCost} LP</dd>
+              </div>
+            )}
           </dl>
-          {showInUse && masterSummonLine(view) ? <p className={styles.masterSummon} data-testid="master-dock-summon">{masterSummonLine(view)}</p> : null}
+          {summonLine ? <p className={styles.masterSummon} data-testid="master-dock-summon">{summonLine}</p> : null}
           {local ? (
             <div className={styles.masterActions}>
               {actions.map((option, index) => (
@@ -1298,7 +1303,7 @@ export function MasterDock({
                   title={showInUse ? option.label : undefined}
                   onClick={() => onChooseAction(option)}
                 >
-                  {showInUse ? masterActionText(option.label, view, false) : option.label}
+                  {showInUse ? masterActionText(option, view, false) : option.label}
                 </button>
               ))}
               <button type="button" className={styles.masterInspect} onClick={inspect}>

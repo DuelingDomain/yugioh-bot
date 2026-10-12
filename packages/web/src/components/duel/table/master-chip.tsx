@@ -2,7 +2,7 @@
 
 import type { DuelSeatView } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
-import { masterInUse } from "../master-place";
+import { masterInUse, useMasterSeats } from "../master-place";
 import styles from "./master-chip.module.css";
 
 /**
@@ -11,9 +11,10 @@ import styles from "./master-chip.module.css";
  */
 export function MasterChip({ view, label, onOpen }: { view: DuelSeatView; label: string; onOpen: () => void }) {
   const master = view.deckMaster;
+  const seats = useMasterSeats();
   if (!master) return null;
   // Out of its zone the master is "in use": the chip keeps its place and shows an empty slot instead of the art.
-  const inUse = masterInUse(view);
+  const inUse = masterInUse(view, seats);
   return (
     <button
       type="button"

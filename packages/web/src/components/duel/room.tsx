@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
-import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
+import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom, type DuelSeatView } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
@@ -62,6 +62,7 @@ import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
 import { TableShell, type TableShellProps } from "./table/table-shell";
 import type { ReplayCarry } from "./table/replay-mode";
 import { ForkLabelsContext } from "./table/fork-labels";
+import { MasterSeatsContext } from "./master-place";
 import { TagShell } from "./tag/tag-shell";
 import { fieldWaitsForReveal } from "./field-gate";
 import { defaultTeamNames } from "./tag/live-tag";
@@ -149,6 +150,7 @@ const SolidRoom = dynamic<SolidRoomProps>(() => import("./solid/solid-room").the
 });
 
 /** Slack after the crumble ends before an eliminated viewer switches to spectating. */
+const NO_SEATS: readonly DuelSeatView[] = [];
 const SPECTATE_AFTER_CRUMBLE_MS = 200;
 /** The Card/Log/Settings sheet in 3D mode is a solid panel (the tokens come from the 3D mode root, which holds the sheet). */
 const SOLID_SHEET_CLASS = "bg-[color:var(--ink-1)] border-t border-[color:var(--gold-b)] rounded-t-[16px] md:rounded-t-none";
@@ -1296,7 +1298,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // zoom stay where the creator put them.
     const shellKey = forkMode ? `${slug}:fork` : watchingOnly ? `${slug}:watching` : slug;
     return <ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
-      {liveTagTable ? <TagShell key={shellKey} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={shellKey} {...shellProps} />}
+      <MasterSeatsContext.Provider value={data?.engine?.seats ?? NO_SEATS}>
+        {liveTagTable ? <TagShell key={shellKey} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={shellKey} {...shellProps} />}
+      </MasterSeatsContext.Provider>
       {forkResult}
     </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>;
   }

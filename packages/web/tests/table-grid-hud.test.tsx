@@ -52,8 +52,8 @@ function masterState(): TableFixtureState {
     ...engine.prompt!,
     options: [
       ...engine.prompt!.options,
-      { id: "dm-summon", label: "Normal Summon Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
-      { id: "dm-set", label: "Set monster Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
+      { id: "summon:0", label: "Normal Summon Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
+      { id: "mset:0", label: "Set monster Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
     ],
   };
   return state;
@@ -153,19 +153,19 @@ describe("the Deck Master token", () => {
     const actions = screen.getAllByTestId("hud-master-action");
     expect(actions.map((button) => button.textContent)).toEqual(["Summon · 1,000 LP", "Set · 1,000 LP"]);
     fireEvent.click(actions[1]);
-    expect(info).toHaveBeenCalledWith("[table-preview] answer", expect.objectContaining({ answer: { choice: "dm-set" } }));
+    expect(info).toHaveBeenCalledWith("[table-preview] answer", expect.objectContaining({ answer: { choice: "mset:0" } }));
   });
 
   it("shows short labels on the buttons and keeps the full option text as the accessible name", () => {
     render(<Shell state={masterState()} />);
     const [summon, set] = screen.getAllByTestId("hud-master-action");
     expect(summon.textContent).toBe("Summon · 1,000 LP");
-    expect(summon.getAttribute("aria-label")).toBe("Normal Summon Sage with Eyes of Blue");
+    expect(summon.getAttribute("aria-label")).toBe("Normal Summon Sage with Eyes of Blue · 1,000 LP");
     expect(summon.getAttribute("title")).toBe("Normal Summon Sage with Eyes of Blue");
     expect(set.textContent).toBe("Set · 1,000 LP");
-    expect(set.getAttribute("aria-label")).toBe("Set monster Sage with Eyes of Blue");
-    expect(screen.getByRole("button", { name: "Normal Summon Sage with Eyes of Blue" })).toBe(summon);
-    expect(screen.getByRole("button", { name: "Set monster Sage with Eyes of Blue" })).toBe(set);
+    expect(set.getAttribute("aria-label")).toBe("Set monster Sage with Eyes of Blue · 1,000 LP");
+    expect(screen.getByRole("button", { name: "Normal Summon Sage with Eyes of Blue · 1,000 LP" })).toBe(summon);
+    expect(screen.getByRole("button", { name: "Set monster Sage with Eyes of Blue · 1,000 LP" })).toBe(set);
     expect(screen.getByTestId("hud-master-inspect").getAttribute("aria-label")).toBe("Inspect");
   });
 
@@ -173,7 +173,7 @@ describe("the Deck Master token", () => {
     const state = masterState();
     const prompt = state.room.engine!.prompt!;
     prompt.options = [
-      ...prompt.options.filter((option) => !option.id.startsWith("dm-")),
+      ...prompt.options.filter((option) => !/^(?:summon|mset):/.test(option.id)),
       { id: "dm-attack", label: "Attack with Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
       { id: "dm-direct", label: "Attack directly with Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
     ];
