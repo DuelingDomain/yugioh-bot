@@ -486,34 +486,6 @@ function aux.MPColumnChainFilter(fn)
 	end
 end
 
--- Opt in only the named activated operations, only in FFA3. This also covers
--- operations that do not read a column until after a card or zone selection.
--- Keep continuous descendants unmarked; the last two living seats need no opt-in.
-function aux.MPColumnEffects(initial,operations)
-	return function(source,...)
-		local c=type(source)=="Effect" and source:GetHandler() or source
-		if not Duel.MPColumnGeometry or not Duel.MPColumnGeometry() or aux.MPGeometryShared() then return initial(source,...) end
-		local register=Card.RegisterEffect
-		Card.RegisterEffect=function(card,e,...)
-			if card==c and e:IsHasType(EFFECT_TYPE_ACTIONS) and not e:IsHasType(EFFECT_TYPE_CONTINUOUS) then
-				e:SetColumnPeer(false) -- a Clone can inherit another operation's opt-in
-				for _,operation in ipairs(operations) do
-					if e:GetOperation()==operation then
-						e:SetColumnPeer(true)
-						e:SetTarget(aux.MPTarget(e:GetTarget() or function() return true end))
-						break
-					end
-				end
-			end
-			return register(card,e,...)
-		end
-		local ok,result=pcall(initial,source,...)
-		Card.RegisterEffect=register
-		if not ok then error(result,0) end
-		return result
-	end
-end
-
 -- Resolve exact seats before choosing the stock own-column comparison.
 local mp_is_column=Card.IsColumn
 function Card.IsColumn(c,seq,tp,loc,source)

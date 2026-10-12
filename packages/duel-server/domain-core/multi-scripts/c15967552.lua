@@ -33,8 +33,3 @@ function s.spop(...)
 	if Duel.MPMode()==1 and not aux.MPGeometryShared() then return aux.MPOne(mp_column_spop)(...) end
 	return mp_column_spop(...)
 end
-
--- R-FFA-THREE-COLUMNS: choose the column opponent before cards or zones.
-if aux.MPColumnEffects then
-	s.initial_effect=aux.MPColumnEffects(s.initial_effect,{s.spop})
-end

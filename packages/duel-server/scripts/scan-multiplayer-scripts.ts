@@ -879,7 +879,7 @@ export const RULES: readonly PatternRule[] = [
     cls: "O",
     ambiguous: false,
     tables: "all",
-    why: "Column queries need a format-specific peer: FFA4 uses its fixed living facing seat; FFA3 uses R-FFA-THREE-COLUMNS (a declared opponent for approved activated effects, or the sole remaining opponent for all column logic). Review activated operations for an early opponent declaration; keep Link/EMZ sharing separate.",
+    why: "Column queries use the same fixed living facing seat as EMZ and Link arrows: FFA3 seats 0/1 (seat 2 has none), FFA4 and Tag seats 0/1 and 2/3. Never choose a column opponent or regroup after elimination.",
     detect: (s) => callRule(s, "column", (c) => c.owner === "method" && (c.fn === "GetColumnGroup" || c.fn === "GetColumnZone")),
   },
   // ----- C: the class behaviour of the fold is enough

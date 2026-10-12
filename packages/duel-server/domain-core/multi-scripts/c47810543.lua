@@ -22,8 +22,3 @@ function s.spop(e,tp,eg,ep,ev,re,r,rp)
 		end
 	end
 end
-
--- R-FFA-THREE-COLUMNS: choose the column opponent before cards or zones.
-if aux.MPColumnEffects then
-	s.initial_effect=aux.MPColumnEffects(s.initial_effect,{s.spop})
-end
