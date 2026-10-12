@@ -1103,6 +1103,21 @@ export function migrate(db: Database.Database) {
     );
   `);
 
+  // Claim before external I/O: form retries and Clerk deliveries share one alert attempt.
+  // Hashes avoid another stored copy of an email; kinds keep optional sign-up alerts separate.
+  db.exec(`
+    create table if not exists join_request_notifications (
+      kind text not null check (kind in ('join', 'signup')),
+      subject_hash text not null,
+      attempted_at text not null,
+      primary key (kind, subject_hash)
+    );
+    create table if not exists clerk_webhook_receipts (
+      svix_id text primary key not null,
+      received_at text not null
+    );
+  `);
+
   addColumnIfMissing(db, "card_script_error_occurrences", "engine_kind", "text");
   addColumnIfMissing(db, "card_script_error_occurrences", "code", "integer not null default 0");
   // Historical samples have no reliable revision/policy; they cannot trigger automatic blocks.
