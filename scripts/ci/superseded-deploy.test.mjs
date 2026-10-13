@@ -14,6 +14,7 @@ const evaluate = (expression, values) => Function(...Object.keys(values), `retur
 async function run({ eventName = 'workflow_run', status = 'ahead', tests = [], deploys = [], pages = [[newer, main]] } = {}) {
   const outputs = {};
   const messages = [];
+  const summaries = [];
   const requests = [];
   const github = {
     request: async (route, options) => {
@@ -45,8 +46,9 @@ async function run({ eventName = 'workflow_run', status = 'ahead', tests = [], d
   await new AsyncFunction('github', 'context', 'core', step.with.script)(github,
     { repo: { owner: 'DuelingDomain', repo: 'yugioh-bot' }, eventName, runId: 100,
       payload: { workflow_run: { head_sha: target } } },
-    { setOutput: (key, value) => { outputs[key] = String(value); }, info: message => messages.push(message) });
-  return { outputs, messages, requests };
+    { setOutput: (key, value) => { outputs[key] = String(value); }, info: message => messages.push(message),
+      summary: { addRaw: line => ({ write: async () => { summaries.push(line); } }) } });
+  return { outputs, messages, requests, summaries };
 }
 
 test('a newer main commit with a successful push Test supersedes an automatic deploy', async () => {
@@ -66,6 +68,18 @@ test('the queue guard uses the actual trigger SHA and successful Test conclusion
   }
 });
 
+test('a superseded release writes one summary line with the newer commit and the reason', async () => {
+  for (const [options, reason] of [
+    [{ tests: [{ head_sha: newer }] }, 'passed push Test'],
+    [{ deploys: [{ id: 101, status: 'queued', display_title: `Deploy ${newer} (Test success)` }] }, 'has a newer deploy run queued'],
+  ]) {
+    const result = await run(options);
+    assert.equal(result.outputs.skip, 'true');
+    assert.equal(result.summaries.length, 1);
+    assert.equal(result.summaries[0], `Superseded by ${newer}: ${reason}.\n`);
+  }
+});
+
 test('a newer main head alone, failed tests, or an old queued deploy never supersede the target', async () => {
   for (const deploys of [[],
     [{ id: 101, status: 'queued', head_sha: main, display_title: `Deploy ${target} (Test success)` }],
@@ -73,7 +87,9 @@ test('a newer main head alone, failed tests, or an old queued deploy never super
     [{ id: 101, status: 'completed', display_title: `Deploy ${newer} (Test success)` }],
     [{ id: 101, status: 'queued', display_title: `Deploy ${old} (Test success)` }],
   ]) {
-    assert.equal((await run({ tests: [{ head_sha: target }, { head_sha: old }], deploys })).outputs.skip, 'false');
+    const result = await run({ tests: [{ head_sha: target }, { head_sha: old }], deploys });
+    assert.equal(result.outputs.skip, 'false');
+    assert.deepEqual(result.summaries, []);
   }
 });
 
@@ -81,6 +97,7 @@ test('manual dispatch never calls the superseded-run APIs', async () => {
   const result = await run({ eventName: 'workflow_dispatch', tests: [{ head_sha: newer }] });
   assert.equal(result.outputs.skip, 'false');
   assert.equal(result.requests.length, 0);
+  assert.deepEqual(result.summaries, []);
 });
 
 test('an unchanged, older or diverged main head does not supersede the target', async () => {

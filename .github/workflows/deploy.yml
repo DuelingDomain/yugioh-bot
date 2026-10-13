@@ -85,15 +85,16 @@ jobs:
               if (newer.size >= data.total_commits) break;
               if (!data.commits.length) throw new Error('Cannot read all newer main commits.');
             }
-            const superseded = (sha, reason) => {
+            const superseded = async (sha, reason) => {
               core.info(`Superseded: ${target}; newer main commit ${sha} ${reason}. Skipping prepare, build and deploy.`);
+              await core.summary.addRaw(`Superseded by ${sha}: ${reason}.\n`).write();
               core.setOutput('skip', 'true');
             };
             const tests = await github.paginate('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs', {
               owner, repo, workflow_id: 'test.yml', branch: 'main', event: 'push', status: 'success', per_page: 100
             });
             const passed = tests.find(run => newer.has(run.head_sha));
-            if (passed) { superseded(passed.head_sha, 'passed push Test'); return; }
+            if (passed) { await superseded(passed.head_sha, 'passed push Test'); return; }
             const queued = await github.paginate('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs', {
               owner, repo, workflow_id: 'deploy.yml', branch: 'main', event: 'workflow_run', per_page: 100
             });
@@ -101,7 +102,7 @@ jobs:
               if (run.id === context.runId || !['queued', 'pending', 'waiting', 'requested'].includes(run.status)) continue;
               // workflow_run head_sha can describe the workflow revision. Use the trigger SHA in run-name.
               const match = /^Deploy ([0-9a-f]{40}) \(Test success\)$/.exec(run.display_title || '');
-              if (match && newer.has(match[1])) { superseded(match[1], 'has a newer deploy run queued'); return; }
+              if (match && newer.has(match[1])) { await superseded(match[1], 'has a newer deploy run queued'); return; }
             }
 
       - name: Fail when VM secrets are not configured
