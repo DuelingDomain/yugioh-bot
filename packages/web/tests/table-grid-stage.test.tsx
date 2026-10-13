@@ -421,16 +421,15 @@ describe("pair frames", () => {
     expect(container.querySelector("[data-grid-finale]")).toBeNull();
   });
 
-  it("keeps every field where it is when two seats are left: no 1v1 board, the empty places stay empty", () => {
+  it("opens on the face-off when two seats are left: the other fields are gone and the pairs are not joined", () => {
     for (const out of [[2, 3], [1, 2], [0, 3]]) {
       const { container, unmount } = render(<Shell id="main" out={out} />);
-      expect(container.querySelector("[data-grid-finale]")).toBeNull();
-      const quadrant = (seat: number) => cellOf(container, seat).getAttribute("data-quadrant");
-      expect([0, 1, 2, 3].map(quadrant)).toEqual(["bl", "tl", "tr", "br"]);
+      expect(container.querySelector("[data-grid-finale]")).not.toBeNull();
       for (const seat of out) expect(cellOf(container, seat).getAttribute("data-cell-state")).toBe("empty");
-      // The seats left keep their rotation: the top fields stay turned.
+      // The seats left each draw their own Extra Monster row and no joined mat.
       for (const seat of [0, 1, 2, 3].filter((entry) => !out.includes(entry))) {
-        expect(/rotate: 180deg/.test(turnOf(container, seat))).toBe(quadrant(seat) === "tl" || quadrant(seat) === "tr");
+        expect(fieldOf(container, seat).hasAttribute("data-emz")).toBe(false);
+        expect(fieldOf(container, seat).hasAttribute("data-framed")).toBe(false);
       }
       unmount();
     }

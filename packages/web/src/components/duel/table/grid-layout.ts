@@ -6,7 +6,8 @@ import type { TableFormat, TableLayout } from "./types";
  * column FACE each other and are partners (pairs 0+1 and 2+3; fixed for the whole duel). They share one row of two Extra Monster Zones in the middle band between them, over the 2nd and 4th
  * monster columns, like the two sides of a 1v1 table. The life plates sit above and below the pair, not in the band, so
  * the free cells of the band are free for the phase hub. Fields never move when a player is out: the field crumbles and
- * its place stays empty.
+ * its place stays empty. With two seats left (`finale`) their two fields glide to sit in front of each other in the middle (the
+ * 1v1 composition): a visual change only, each field keeps its own Extra Monster row and nothing joins.
  *
  * `gridFocusLayout` is the one place that sizes and places the fields: it returns the final px rect of every field and
  * life plate for a focus. The focus lifts the whole pair (about 1.16x of the rest size, by the column width); the other
@@ -204,6 +205,15 @@ export const OTHER_MIN_SHARE = 0.66;
 /** A field narrower than this (px) is "small": no zone labels, ATK only. */
 export const SMALL_FIELD_WIDTH = 520;
 
+/** The face-off: the plates sit left of the board (shares of the card height); the same room is kept on its right. */
+export const FINALE_SIDE = 2;
+export const FINALE_GAP = 0.22;
+/**
+ * How far the two fields of the face-off overlap: only their pads. Each keeps its own Extra Monster row (nothing is shared in
+ * the face-off, also for a facing pair), so the two rows lie face to face in a double band.
+ */
+export const FINALE_OVERLAP = PAD;
+
 export interface GridWorld {
   masterRule: DuelMasterRule;
   /** Width of a field box in card heights. */
@@ -240,16 +250,28 @@ export interface GridLayoutOptions {
    */
   drawerRow?: readonly [0 | 1, 0 | 1];
   /**
+   * The last two seats: laid out in the middle (the 1v1 composition), `bottom` turned 0 and `top` turned 180, as two
+   * separate fields that each keep their own Extra Monster row. `homeHand`: the bottom seat is yours and draws your hand
+   * (its lane is the larger one).
+   */
+  finale?: GridFinaleCells | null;
+  /**
    * A box at the bottom right of the viewport that no field, life plate or bottom lane may cover (px): the turn
    * controls of the floating HUD. The table then gives up only as much width at the right as it must.
    */
   corner?: { width: number; height: number } | null;
 }
 
+export interface GridFinaleCells {
+  bottom: GridFocusTarget;
+  top: GridFocusTarget;
+  homeHand: boolean;
+}
+
 export interface GridCellRect {
   column: 0 | 1;
   row: 0 | 1;
-  /** The turn of the field: 180 on the top row, else 0. */
+  /** The turn of the field: 180 on the top row, and for the top seat of the face-off; else 0. */
   turn: 0 | 180;
   /** Card height of this field in px (the field is `zones * z` wide). */
   z: number;
@@ -276,12 +298,22 @@ export interface GridBandRect {
   rect: GridRect;
 }
 
+/** The face-off: one frame round both fields, and the Extra Monster row where the phase hub sits (the bottom seat's). */
+export interface GridFinaleRect {
+  frame: GridRect;
+  band: GridBandRect;
+}
+
 export interface GridFocusLayout {
   /** Cells in the order column 0 top, column 0 bottom, column 1 top, column 1 bottom. */
   cells: GridCellRect[];
   bands: [GridBandRect, GridBandRect];
+  /** The cells as they lie without the face-off (the same as `cells` when there is none). */
+  regular: GridCellRect[];
   /** Card heights in px: all fields equal, the rest size, the lifted pair, and the pair that is not lifted. */
   sizes: { equal: number; rest: number; focus: number; other: number };
+  /** The face-off, else null. */
+  finale: GridFinaleRect | null;
 }
 
 export const cellIndex = (cell: GridFocusTarget): number => cell.column * 2 + cell.row;
@@ -293,6 +325,56 @@ const rect = (x: number, y: number, width: number, height: number): GridRect => 
 /** Height of a column from the top of its top lane to the bottom of its bottom lane (px). The fields overlap by the Extra Monster rows. */
 function columnHeight(z: number, drawerRow: 0 | 1, lane: number): number {
   return (TOP_LANE + FIELD_ZONES_HIGH) * z - OVERLAP * z + FIELD_ZONES_HIGH * z + lane;
+}
+
+/** The box round two rects. */
+function union(a: GridRect, b: GridRect): GridRect {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return rect(x, y, Math.max(a.x + a.width, b.x + b.width) - x, Math.max(a.y + a.height, b.y + b.height) - y);
+}
+
+/** Height of the face-off from the top of its top lane to the bottom of its bottom lane (px; `lane` in card heights). */
+function finaleHeight(z: number, lane: number): number {
+  return (TOP_LANE + 2 * FIELD_ZONES_HIGH - FINALE_OVERLAP + lane) * z;
+}
+
+/**
+ * The face-off in the box: the bottom seat under the top seat, in the middle, both plates on the left (the 1v1 room). The
+ * two fields are separate: they overlap by their pads only, and each draws its own Extra Monster row.
+ */
+function placeFinale(finale: GridFinaleCells, zones: number, edge: number, width: number, height: number): { top: GridCellRect; bottom: GridCellRect; rect: GridFinaleRect } {
+  const lane = finale.homeHand ? HOME_LANE : RIVAL_BOTTOM_LANE;
+  const z = Math.max(0, Math.min(height / finaleHeight(1, lane), width / (zones + 2 * (FINALE_SIDE + FINALE_GAP))));
+  const top0 = edge + (height - finaleHeight(z, lane)) / 2;
+  const x = edge + width / 2 - (zones * z) / 2;
+  const topBox = rect(x, top0 + TOP_LANE * z, zones * z, FIELD_ZONES_HIGH * z);
+  const bottomBox = rect(x, topBox.y + topBox.height - FINALE_OVERLAP * z, zones * z, FIELD_ZONES_HIGH * z);
+  const plateX = x - (FINALE_GAP + FINALE_SIDE) * z;
+  const bottomPlate = rect(plateX, bottomBox.y + bottomBox.height - PLATE_H * z, FINALE_SIDE * z, PLATE_H * z);
+  const topPlate = rect(plateX, topBox.y, FINALE_SIDE * z, PLATE_H * z);
+  const at = (target: GridFocusTarget, turn: 0 | 180, box: GridRect, plate: GridRect, drawer: boolean): GridCellRect => ({
+    column: target.column,
+    row: target.row,
+    turn,
+    z: round2(z),
+    rect: box,
+    drawer,
+    small: box.width < SMALL_FIELD_WIDTH,
+    lh: round2(HAND_SHARE * z),
+    plate,
+    // The plates sit beside the board, so a hand takes the whole board width.
+    hand: { shift: 0, width: zones },
+    // Each field is whole: its own part is the box.
+    own: box,
+  });
+  const rowTop = bottomBox.y + PAD * z;
+  const band: GridBandRect = { column: finale.bottom.column, z: round2(z), rect: rect(bottomBox.x + EMZ_REGION_INSET * z, rowTop, bottomBox.width - 2 * EMZ_REGION_INSET * z, ROW * z) };
+  return {
+    top: at(finale.top, 180, topBox, topPlate, false),
+    bottom: at(finale.bottom, 0, bottomBox, bottomPlate, true),
+    rect: { frame: union(topBox, bottomBox), band },
+  };
 }
 
 interface PlacedColumn {
@@ -429,14 +511,26 @@ function layoutIn(world: GridWorld, viewport: GridViewport, focus: GridFocusTarg
     placeColumn(column, zs[column], drawerOf(column), centers[column], line - probe[column].offset, zones, rest, column === homeColumn),
   ) as [PlacedColumn, PlacedColumn];
 
+  const regular = [...columns[0].cells, ...columns[1].cells];
+  const cells = [...regular];
+  let finale: GridFinaleRect | null = null;
+  if (options.finale != null) {
+    const board = placeFinale(options.finale, zones, EDGE, width, height);
+    cells[cellIndex(options.finale.top)] = board.top;
+    cells[cellIndex(options.finale.bottom)] = board.bottom;
+    finale = board.rect;
+    for (const target of [options.finale.top, options.finale.bottom]) zs[target.column] = board.bottom.z;
+  }
   return {
-    cells: [...columns[0].cells, ...columns[1].cells],
+    cells,
     bands: [columns[0].band, columns[1].band],
+    regular,
     sizes: {
       equal: round2(equal),
       rest: round2(rest),
       focus: round2(focus ? zs[focus.column] : equal),
       other: round2(focus ? zs[focus.column === 0 ? 1 : 0] : equal),
     },
+    finale,
   };
 }
