@@ -10,6 +10,7 @@ import { duelReplayKey, getDuelReplay } from "./api";
 import { CardHoverInfo } from "./card-interactions";
 import { phaseLabel } from "./constants";
 import { DeckMasterRail, DuelField } from "./field";
+import { FieldCracksScope } from "./field-cracks/context";
 import { CoinTossFx } from "./coin-toss-fx";
 import { useCoinPlaying, useHeldTossLogIds, withoutHeldTossLines } from "./coin-toss-lock";
 import { DuelFeedback } from "./feedback";
@@ -264,12 +265,15 @@ export function DuelReplayView({ slug }: { slug: string }) {
         <section className={styles.boardColumn} aria-label="Replay field">
           <div className={styles.board} ref={boardRef}>
             <MoveSourceBoundary events={engine.events} duelKey={`${slug}:replay:${epoch}`} root={boardRef}>
+            {/* A replay shows the cracks of the seek position and never animates them. */}
+            <FieldCracksScope duelKey={slug} format={session.format} settings={session.settings} replay>
             <DuelField key={slug} engine={engine} mySeat={data.mySeat} masterRule={session.masterRule}
               reducedMotion={preferences.reducedMotion}
               legalKeys={EMPTY_KEYS} selectedKeys={EMPTY_KEYS} onActivate={onActivate}
               onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
               bottomName={playerName(localSeat)}
               topName={playerName(top?.seat ?? 1 - localSeat)} />
+            </FieldCracksScope>
             <DuelFeedback events={engine.events} duelKey={`${slug}:replay:${epoch}`} attackToast
               soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} />
             {/* The replay plays the coin too, passive: nothing is locked and the cover takes no pointer. */}

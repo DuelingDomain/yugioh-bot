@@ -25,7 +25,8 @@ export interface CrackSeg {
   t1: number;
 }
 export interface CrackChunk {
-  stage: 1 | 2 | 3;
+  /** 1..3 = the cracking stages, 4 = the mat shattering at 0 LP (a last few bites after the connecting cracks). */
+  stage: 1 | 2 | 3 | 4;
   /** The removed area (closed polygon; first and last point sit outside the mat). */
   poly: readonly Pt[];
   /** Path of the removed area. */
@@ -460,7 +461,7 @@ export function genField(seed: number, input: FieldLayout, sides: EdgeSides = AL
   /** Corner k (0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left) crumbles when both its edges may. */
   const cornerOpen = (k: number) => sides[k] && sides[(k + 3) % 4];
   interface ChunkKind { corner?: number; a?: [number, number]; b?: [number, number]; side?: number; L?: [number, number]; D?: [number, number] }
-  function tryChunk(stage: 1 | 2 | 3, kind: ChunkKind) {
+  function tryChunk(stage: 1 | 2 | 3 | 4, kind: ChunkKind) {
     if (!openSides.length) return;
     for (let attempt = 0; attempt < 18; attempt++) {
       let shrink = 1;
@@ -514,7 +515,7 @@ export function genField(seed: number, input: FieldLayout, sides: EdgeSides = AL
   /* stage 1: a few small notches and corner chips (4). Stage 2: bigger bites (5). Stage 3: ragged nicks all round (8). */
   const cOrder = [0, 1, 2, 3].filter(cornerOpen).sort(() => r() - 0.5);
   /** A corner bite where the mat has the corner; a wide notch on an open edge where it has not (a half of a shared mat). */
-  const corner = (stage: 1 | 2 | 3, k: number | null, a: [number, number], b: [number, number]) => {
+  const corner = (stage: 1 | 2 | 3 | 4, k: number | null, a: [number, number], b: [number, number]) => {
     const which = k == null ? (cOrder[0] != null && cornerOpen((cOrder[0] + 2) % 4) ? (cOrder[0] + 2) % 4 : undefined) : cOrder[k];
     tryChunk(stage, which != null ? { corner: which, a, b } : { L: [a[0] * 1.6, a[1] * 1.6], D: [b[0] * 0.5, b[1] * 0.5] });
   };
@@ -526,6 +527,9 @@ export function genField(seed: number, input: FieldLayout, sides: EdgeSides = AL
   corner(3, 3, [26, 54], [22, 54]);
   corner(3, null, [8, 16], [8, 16]);
   for (let n = 0; n < 7 && chunks.filter((c) => c.stage === 3).length < 8; n++) tryChunk(3, { L: [12, 40], D: [3, 16] });
+  /* stage 4 (0 LP): the mat lets go of a last few pieces while the cracks connect. Drawn after stage 3, so stages 1 to 3 do not change. */
+  corner(4, null, [30, 60], [26, 56]);
+  for (let n = 0; n < 5; n++) tryChunk(4, { L: [28, 80], D: [6, 26] });
 
   return { seed, cw: CW, ch: CH, segs, chunks, origin };
 }
