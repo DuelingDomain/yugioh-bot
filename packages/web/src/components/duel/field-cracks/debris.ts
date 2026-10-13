@@ -43,6 +43,10 @@ function layerFor(face: HTMLElement): HTMLElement | null {
   layer.style.top = `${face.offsetTop + face.clientTop}px`;
   layer.style.width = `${face.clientWidth}px`;
   layer.style.height = `${face.clientHeight}px`;
+  // A tilted mat (the 3D plane) lets its chunks fall from the tilted box: the layer takes the mat's own transform. The perspective is on an ancestor both share.
+  const look = getComputedStyle(face);
+  layer.style.transform = look.transform && look.transform !== "none" ? look.transform : "";
+  layer.style.transformOrigin = look.transformOrigin || "";
   return layer;
 }
 
