@@ -98,3 +98,11 @@ test('cleanup reports packages with no candidates', async () => {
     assert.ok(messages.includes(`yugioh-bot-${service}: no candidates`));
   }
 });
+
+test('production and production-prev protect old or untagged deployed digests beyond the ten SHA limit', async () => {
+  const versions = Array.from({ length: 12 }, (_, i) => version(i + 1, [(i + 1).toString(16).padStart(40, '0')], 1));
+  versions.push(version(20, ['production'], 30), version(21, ['production-prev', 'a'.repeat(40)], 40), version(22, [], 30));
+  const deleted = await run(versions);
+  assert.ok(deleted.every(([, id]) => ![20, 21].includes(id)));
+  assert.equal(deleted.filter(([, id]) => id === 22).length, 4);
+});
