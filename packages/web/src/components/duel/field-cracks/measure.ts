@@ -56,7 +56,10 @@ export function measureFace(face: HTMLElement, zoneSelector: string, avoidSelect
     const rect = split ? rectOf(split, face) : null;
     if (rect) splitY = (rect[1] + rect[3]) / 2;
   }
+  // The bounding box of a seat turned a quarter is the face's height wide: divide by the turned extent, not by the width.
+  const angle = ((Number(face.closest("[data-seat-angle]")?.getAttribute("data-seat-angle") ?? 0) || 0) * Math.PI) / 180;
+  const extent = Math.max(1, Math.abs(Math.cos(angle)) * face.offsetWidth + Math.abs(Math.sin(angle)) * face.offsetHeight);
   const box = face.getBoundingClientRect();
-  const scale = box.width > 0 ? box.width / Math.max(1, face.offsetWidth) : 1;
+  const scale = box.width > 0 ? box.width / extent : 1;
   return { w, h, zones, splitY, scale: Number.isFinite(scale) && scale > 0 ? scale : 1 };
 }
