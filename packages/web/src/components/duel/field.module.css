@@ -997,6 +997,11 @@
     transform 0.18s var(--ease);
 }
 
+/* A card flying to this zone hides what shows the card, also what React adds meanwhile; the outline and the zone label stay. */
+.frame[data-card-hidden] > :not([data-zone-label]) {
+  visibility: hidden;
+}
+
 .zone[data-kind="emz"] .frame {
   border-color: var(--sheet-hi);
 }

@@ -481,6 +481,13 @@ export function screenPose(box: HTMLElement): { w: number; h: number; turn: numb
   return { w, h, turn: Math.abs(turn) < 0.05 ? 0 : Math.round(turn * 100) / 100 };
 }
 
+/** The four corners of a positioned box as they are on screen (top-left, top-right, bottom-right, bottom-left), also in a tilted 3D view; null if unreadable. */
+export function screenCorners(box: HTMLElement): [Pt, Pt, Pt, Pt] | null {
+  const rects = probeRects(box, [["0", "0"], ["100%", "0"], ["100%", "100%"], ["0", "100%"]]);
+  if (!rects) return null;
+  return rects.map((r) => ({ x: r.left, y: r.top })) as [Pt, Pt, Pt, Pt];
+}
+
 /**
  * How big a positioned box is on screen, in px: the distance between the middles of its opposite edges. That is its
  * layout size times every scale on the way up (the camera zoom of the Tag Rooftop, the scale of a grid seat field), and

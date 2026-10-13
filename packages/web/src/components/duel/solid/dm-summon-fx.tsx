@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import type { DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
 import { LOCATION_DMZONE, LOCATION_MZONE } from "../constants";
-import { collectFreshEvents, findZoneElement, maxEventId } from "../event-queue";
+import { collectFreshEvents, findZoneElement, maxEventId, zoneCardParts, zoneFrameOf } from "../event-queue";
 import { duelFxClock } from "../fx-clock";
 import { getMovePlan, planMoves, setSilentMoveRule } from "../move-plan";
 import { deckMasterSummonReady, playDeckMasterSummon, prewarmDeckMasterArt } from "./dm-summon-bridge";
@@ -22,12 +22,9 @@ export function isDeckMasterSummonMove(event: DuelEvent, seats: readonly DuelSea
   return code <= 0 || code === master.card.code;
 }
 
-/** The part of the zone that shows the card (same pick as MoveFx hides): the card body, else the art. */
+/** The box of the card in the zone: its frame, else the art. */
 function cardBodyIn(zone: HTMLElement): HTMLElement | null {
-  const art = zone.querySelector<HTMLElement>("[data-card-art]");
-  if (!art) return null;
-  const body = art.parentElement?.parentElement;
-  return body && body !== zone && zone.contains(body) ? body : art;
+  return zoneFrameOf(zone) ?? zone.querySelector<HTMLElement>("[data-card-art]");
 }
 
 /**
@@ -96,11 +93,13 @@ export function SolidDmSummonFx({ events, seats, duelKey, reducedMotion, planeRe
       const code = event.card?.code && event.card.code > 0 ? event.card.code : seatsRef.current.find((s) => s.seat === seat)?.deckMaster?.card.code ?? 0;
       if (!zone || code <= 0) continue;
       const card = cardBodyIn(zone);
+      // Only what shows the card goes; the zone frame stays drawn as the zone outline (same pick as MoveFx hides).
+      const parts = zoneCardParts(zone);
       const abort = new AbortController();
       let timer = 0;
       let waiting = false;
       const release = () => {
-        if (waiting && card) card.style.removeProperty("visibility");
+        if (waiting) for (const part of parts) part.style.removeProperty("visibility");
         waiting = false;
       };
       const cleanup = () => {
@@ -116,14 +115,14 @@ export function SolidDmSummonFx({ events, seats, duelKey, reducedMotion, planeRe
         const reduced = reducedRef.current;
         const still = findZoneElement(event.zone) ?? zone;
         const fresher = cardBodyIn(still) ?? card;
-        void playDeckMasterSummon({ code, seat, zone: still, card: fresher, plane: planeRef.current, reduced, signal: abort.signal })
+        void playDeckMasterSummon({ code, seat, zone: still, card: fresher, parts: zoneCardParts(still), plane: planeRef.current, reduced, signal: abort.signal })
           .catch(() => false)
           .finally(() => cleanups.current.delete(cleanup));
       };
       const delay = plan.startAt - now;
       if (delay > 16) {
         // The card is on the board already; it waits invisible until the effect starts.
-        if (card) { card.style.visibility = "hidden"; waiting = true; }
+        if (parts.length > 0) { for (const part of parts) part.style.visibility = "hidden"; waiting = true; }
         timer = duelFxClock.setTimeout(run, delay);
       } else run();
     }

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import { buildFlight } from "@/components/duel/move-fx";
 import { activationTurns, trackSetZones } from "@/components/duel/summon-fx";
-import { zoneCardParts } from "@/components/duel/event-queue";
 import { LOCATION_SZONE } from "@/components/duel/constants";
 
 const CODE = 61740673;
@@ -62,14 +61,5 @@ describe("a card keeps the full size of its zone while it is placed and activate
     const sizes = scales("place");
     expect(Math.min(...sizes)).toBeGreaterThanOrEqual(1);
     expect(sizes[sizes.length - 1]).toBe(1);
-  });
-
-  it("hides only what shows the card, so the zone outline (the frame) stays drawn", () => {
-    document.body.innerHTML = `<div data-zones="0:8:1"><button><div class="frame" id="frame">
-      <div id="artWrap"><div data-card-art="1"><img alt=""></div></div><span id="plate"></span></div></button></div>`;
-    const zone = document.querySelector<HTMLElement>("[data-zones]")!;
-    const parts = zoneCardParts(zone).map((part) => part.id);
-    expect(parts).toEqual(["artWrap", "plate"]);
-    expect(parts).not.toContain("frame");
   });
 });

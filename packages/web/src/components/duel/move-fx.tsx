@@ -24,7 +24,7 @@ import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, isDefenseAt, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED, TYPE_PENDULUM } from "./constants";
-import { collectFreshEvents, departureTurn, destinationCardSize, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation, zoneCardParts } from "./event-queue";
+import { collectFreshEvents, departureTurn, destinationCardSize, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation, zoneCardParts, zoneFrameOf } from "./event-queue";
 import {
   getMovePlan,
   planMoves,
@@ -188,16 +188,22 @@ export function buildFlight(params: FlightParams): Flight {
 
 const hiddenCounts = new WeakMap<HTMLElement, number>();
 
-function hideElement(el: HTMLElement): () => void {
+export function hideElement(el: HTMLElement): () => void {
   hiddenCounts.set(el, (hiddenCounts.get(el) ?? 0) + 1);
-  el.style.visibility = "hidden";
+  // A card frame stays drawn (it is the zone outline): a mark on it hides what is inside, also what is added later.
+  const frame = el.hasAttribute("data-card-frame");
+  if (frame) el.setAttribute("data-card-hidden", "");
+  else el.style.visibility = "hidden";
   let released = false;
   return () => {
     if (released) return;
     released = true;
     const left = (hiddenCounts.get(el) ?? 1) - 1;
     hiddenCounts.set(el, left);
-    if (left <= 0) el.style.removeProperty("visibility");
+    if (left <= 0) {
+      if (frame) el.removeAttribute("data-card-hidden");
+      else el.style.removeProperty("visibility");
+    }
   };
 }
 
@@ -226,7 +232,10 @@ function hideTargetOf(dest: HTMLElement, plan: MovePlan): HTMLElement[] {
     return pile ? [pile] : [];
   }
   if (location === LOCATION_EXTRA || location === LOCATION_DECK) return [];
-  if (location !== LOCATION_HAND) return zoneCardParts(dest);
+  if (location !== LOCATION_HAND) {
+    const frame = zoneFrameOf(dest);
+    return frame?.hasAttribute("data-card-frame") && dest.querySelector("[data-card-art]") ? [frame] : zoneCardParts(dest);
+  }
   const art = dest.querySelector<HTMLElement>("[data-card-art]");
   if (!art) return [];
   const body = art.parentElement?.parentElement;

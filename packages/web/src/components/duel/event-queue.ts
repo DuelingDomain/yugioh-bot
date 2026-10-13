@@ -217,16 +217,37 @@ export function findZoneElement(zone: DuelZoneRef | undefined | null): HTMLEleme
 }
 
 /**
+ * The zone frame of a field zone: the box that is the card's own size and draws the zone outline. Null for a zone
+ * without one (a seat cell whose button holds the card directly), whose card then fills the zone itself.
+ */
+export function zoneFrameOf(zone: HTMLElement): HTMLElement | null {
+  const marked = zone.querySelector<HTMLElement>("[data-card-frame]");
+  if (marked) return marked;
+  const frame = zone.querySelector<HTMLElement>("[data-card-art]")?.parentElement?.parentElement;
+  return frame && frame !== zone && zone.contains(frame) ? frame : null;
+}
+
+/**
+ * The box of the card itself in a field zone: the layer that holds its art (inside the zone frame, so inside its outline
+ * and, for a Field Spell, at the size of its own smaller frame), else the frame, else null (measure the zone then).
+ */
+export function zoneCardBox(zone: HTMLElement): HTMLElement | null {
+  const wrap = zone.querySelector<HTMLElement>("[data-card-art]")?.parentElement;
+  return wrap && wrap !== zone && zone.contains(wrap) ? wrap : zoneFrameOf(zone);
+}
+
+/**
  * What shows the card of a field zone: its art, stat plate and markers, which sit inside the zone frame. The frame
- * itself is the zone outline, so an effect that hides the real card hides these and leaves the outline drawn.
- * A zone whose card is not framed (no art, or an art without a frame) gives the art alone, or nothing.
+ * itself is the zone outline and a label of the zone (the Pendulum "P") belongs to the zone, so an effect that hides the
+ * real card hides these and leaves both drawn. A zone whose card is not framed (no art, or an art without a frame)
+ * gives the art alone, or nothing.
  */
 export function zoneCardParts(zone: HTMLElement): HTMLElement[] {
   const art = zone.querySelector<HTMLElement>("[data-card-art]");
   if (!art) return [];
-  const frame = art.parentElement?.parentElement;
-  if (!frame || frame === zone || !zone.contains(frame)) return [art];
-  return Array.from(frame.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+  const frame = zoneFrameOf(zone);
+  if (!frame) return [art];
+  return Array.from(frame.children).filter((child): child is HTMLElement => child instanceof HTMLElement && !child.hasAttribute("data-zone-label"));
 }
 
 /**

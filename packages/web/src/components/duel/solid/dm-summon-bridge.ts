@@ -27,6 +27,8 @@ export type DeckMasterSummonInput = {
   zone: Element;
   /** The page card standing in that zone. It is hidden until the settle beat. Null: nothing to hide. */
   card?: Element | null;
+  /** What shows the card, to hide in its place (the zone frame, which is the outline, stays). Default: the card itself. */
+  parts?: readonly HTMLElement[];
   /** `.sv-plane`: its computed `--tilt` is the table tilt. Null or flat: 0. */
   plane?: Element | null;
   reduced: boolean;
@@ -114,8 +116,9 @@ export async function playDeckMasterSummon(input: DeckMasterSummonInput): Promis
 
   // Hide what the hologram stands in for.
   const card = cardEl as HTMLElement | null;
-  const saved = card ? card.style.opacity : "";
-  if (card && !input.reduced) card.style.opacity = "0";
+  const parts = input.parts ?? (card ? [card] : []);
+  const saved = parts.map((part) => part.style.opacity);
+  if (!input.reduced) for (const part of parts) part.style.opacity = "0";
   const dockImg = dock && dock instanceof HTMLImageElement && !input.reduced ? dock : null;
   const dockSaved = dockImg ? dockImg.style.visibility : "";
   if (dockImg) dockImg.style.visibility = "hidden";
@@ -124,12 +127,13 @@ export async function playDeckMasterSummon(input: DeckMasterSummonInput): Promis
 
   let cardShown = false;
   const showCard = (): void => {
-    if (cardShown || !card) return;
+    if (cardShown || parts.length === 0) return;
     cardShown = true;
-    card.style.opacity = saved;
-    if (!input.reduced) {
-      try { duelFxClock.animate(card, [{ opacity: 0 }, { opacity: 1 }], { duration: DM_CARD_FADE_MS, easing: "ease-out", fill: "backwards" }); } catch { /* no animation: the card just shows */ }
-    }
+    parts.forEach((part, index) => {
+      part.style.opacity = saved[index];
+      if (input.reduced) return;
+      try { duelFxClock.animate(part, [{ opacity: 0 }, { opacity: 1 }], { duration: DM_CARD_FADE_MS, easing: "ease-out", fill: "backwards" }); } catch { /* no animation: the card just shows */ }
+    });
   };
   const safety = duelFxClock.setTimeout(showCard, SAFETY_MS);
 
