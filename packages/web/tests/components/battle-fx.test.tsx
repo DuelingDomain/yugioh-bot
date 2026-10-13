@@ -87,6 +87,11 @@ describe("BattleFx", () => {
     lp1: { left: 20, top: 20, width: 200, height: 50 } as DOMRect,
     lp2: { left: 500, top: 20, width: 200, height: 50 } as DOMRect,
     lp3: { left: 900, top: 20, width: 200, height: 50 } as DOMRect,
+    // The row of Monster Zones of each seat: where a direct attack is aimed (the plates keep the damage).
+    row0: { left: 300, top: 380, width: 420, height: 110 } as DOMRect,
+    row1: { left: 300, top: 90, width: 420, height: 110 } as DOMRect,
+    row2: { left: 760, top: 90, width: 120, height: 400 } as DOMRect,
+    row3: { left: 1000, top: 200, width: 120, height: 400 } as DOMRect,
   };
 
   beforeEach(() => {
@@ -101,7 +106,8 @@ describe("BattleFx", () => {
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       const zone = this.closest("[data-zones]")?.getAttribute("data-zones");
       const lpSeat = this.closest("[data-lp-seat]")?.getAttribute("data-lp-seat");
-      const box = zone ? boxes[zone] : lpSeat != null ? boxes[`lp${lpSeat}`] : undefined;
+      const rowSeat = this.closest("[data-monster-row]")?.getAttribute("data-monster-row");
+      const box = zone ? boxes[zone] : rowSeat != null ? boxes[`row${rowSeat}`] : lpSeat != null ? boxes[`lp${lpSeat}`] : undefined;
       return (box ?? { left: 0, top: 0, width: 0, height: 0 }) as DOMRect;
     });
   });
@@ -110,6 +116,28 @@ describe("BattleFx", () => {
     vi.restoreAllMocks();
     board.remove();
   });
+
+  /** The end of the arrow of an aim layer. */
+  const tipOfAim = (aim: Element) => {
+    const nums = (aim.querySelector('path[class*="aimLine"]')?.getAttribute("d") ?? "").match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+    return { x: nums[nums.length - 2], y: nums[nums.length - 1] };
+  };
+  /** The seat whose row is nearest to a point (the arrow stops a little short of the row's edge). */
+  const nearestRow = (at: { x: number; y: number }) => {
+    const dist = (seat: number) => {
+      const b = boxes[`row${seat}`];
+      return Math.hypot(Math.max(b.left - at.x, 0, at.x - (b.left + b.width)), Math.max(b.top - at.y, 0, at.y - (b.top + b.height)));
+    };
+    return [0, 1, 2, 3].sort((a, b) => dist(a) - dist(b))[0];
+  };
+  /** The rects that wrap a seat's row (a ring or a wash drawn around it). */
+  const rowRings = (root: Element, seat: number) => {
+    const row = boxes[`row${seat}`];
+    return [...root.querySelectorAll("rect")].filter((r) => {
+      const x = Number(r.getAttribute("x")), y = Number(r.getAttribute("y")), w = Number(r.getAttribute("width")), h = Number(r.getAttribute("height"));
+      return x <= row.left && y <= row.top && x + w >= row.left + row.width && y + h >= row.top + row.height;
+    });
+  };
 
   const phase: DuelEvent = { id: 1, kind: "phase", text: "battle" };
   const attack: DuelEvent = {
@@ -143,18 +171,21 @@ describe("BattleFx", () => {
     }
     const declaration: DuelEvent = { ...direct, id: 2, seat: attacker, targetSeat: defender,
       zone: { controller: attacker, location: 4, sequence: 0 } };
+    for (let rowSeat = 0; rowSeat < 4; rowSeat += 1) board.insertAdjacentHTML("beforeend", `<div data-monster-row="${rowSeat}"></div>`);
     const box = boxes[`lp${defender}`];
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
     rerender(<BattleFx events={[phase, declaration]} reducedMotion />);
-    // The locked aim rings the defender's LP, independent of the viewer's local LP.
+    // The locked aim points at the defender's field (the nearest row to the arrow tip), independent of the viewer's local LP,
+    // and draws no ring around that row.
     const aim = document.querySelector('[data-aim="locked"]');
     expect(aim).not.toBeNull();
-    expect(aim!.querySelector(`rect[x="${box.left - 5}"][y="${box.top - 5}"]`)).not.toBeNull();
+    expect(nearestRow(tipOfAim(aim!))).toBe(defender);
+    expect(rowRings(aim!, defender)).toEqual([]);
     const damage: DuelEvent = { id: 3, kind: "damage", seat: defender, amount: 1400, cause: "battle", text: "" };
     rerender(<BattleFx events={[phase, declaration, damage]} reducedMotion />);
-    // The reduced-motion strike and the LP flash use the same defending seat.
+    // The reduced-motion strike draws no box around the row; the LP flash stays on the same defending seat's plate.
     expect(playLayer()).not.toBeNull();
-    expect(playLayer()!.querySelector(`rect[x="${box.left - 5}"][y="${box.top - 5}"]`)).not.toBeNull();
+    expect(rowRings(playLayer()!, defender)).toEqual([]);
     const flash = playLayer()!.querySelector<HTMLElement>('[class*="lpFlash"]');
     expect(flash?.style.left).toBe(`${box.left - 8}px`);
     expect(takeLpHold(defender)).toBe(0);
@@ -286,7 +317,15 @@ describe("BattleFx", () => {
     const seats = emptySeats(2);
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={seats} />);
     rerender(<BattleFx events={[phase, { ...direct, id: 2 }]} reducedMotion seats={seats} />);
-    expect(document.querySelector('[data-aim="locked"] rect[x="15"][y="15"]') != null).toBe(arrow);
+    // The arrow ends at seat 1's plate here (this page draws no rows) and no ring is drawn around it; with no plate, no arrow.
+    const aim = document.querySelector('[data-aim="locked"]');
+    expect(aim != null).toBe(arrow);
+    if (aim) {
+      const tip = tipOfAim(aim);
+      const lp1 = boxes.lp1;
+      expect(Math.hypot(tip.x - (lp1.left + lp1.width / 2), tip.y - (lp1.top + lp1.height / 2))).toBeLessThan(lp1.width);
+      expect(aim.querySelector('rect[x="15"][y="15"]')).toBeNull();
+    }
   });
 
   it.each([0, 1, null])("keeps a face-down Defense target's calculation stats hidden for viewer %s", viewer => {
