@@ -102,12 +102,14 @@ case "$operation" in
             if printf '%s' "$tag" | grep -Eq '^[0-9a-f]{40}$'; then
               image_id=$(docker image inspect --format '{{.Id}}' "$reference")
               if [ "$image_id" = "$latest_id" ] || [ "$image_id" = "$previous_id" ]; then continue; fi
-              # No force and no global prune. Local safety tags remain intact.
+              # No force. Local safety tags remain intact.
               docker image rm "$reference" || echo "Warning: could not remove $reference" >&2
             fi
             ;;
         esac
       done
     done
+    # Only dangling images from this project. Every tagged image stays protected.
+    docker image prune -f --filter 'label=org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot'
     ;;
 esac

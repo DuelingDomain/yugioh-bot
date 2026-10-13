@@ -91,8 +91,16 @@ test('retention removes only GHCR SHA tags and keeps all local and cache tags', 
   const result = f.run('prune');
   assert.equal(result.status, 0, result.stderr);
   assert.match(f.commands(), new RegExp(`image rm ${registry}-web:${sha}`));
-  assert.doesNotMatch(f.commands(), /image rm yugioh-bot-|image prune|image rm .*:(pre-ghcr|buildcache|nextcache)/);
-  assert.doesNotMatch(f.commands(), /image rm .*:(latest|prev)|image rm .*caddy|build|container/);
+  assert.doesNotMatch(f.commands(), /image rm yugioh-bot-|image rm .*:(pre-ghcr|buildcache|nextcache)/);
+  assert.doesNotMatch(f.commands(), /image rm .*:(latest|prev)|image rm .*caddy|^(build|container)\b/m);
+});
+
+test('successful retention prunes only dangling images with this project source label', t => {
+  const f = fixture(t);
+  assert.equal(f.run('prune').status, 0);
+  const commands = f.commands().trim().split('\n');
+  assert.equal(commands.at(-1), 'image prune -f --filter label=org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot');
+  assert.equal(commands.filter(line => line.startsWith('image prune')).length, 1);
 });
 
 test('invalid SHA and command fail before Docker is called', t => {
