@@ -14,6 +14,10 @@ export async function GET(request: NextRequest) {
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   try {
+    if (request.nextUrl.searchParams.get("hostedWaiting") === "1") {
+      return NextResponse.json({ table: actor.duels.waitingHostedTable(actor.guildId, actor.playerId) },
+        { headers: { "cache-control": "private, no-store" } });
+    }
     const archived = request.nextUrl.searchParams.get("archived") === "1";
     if (!archived) {
       return NextResponse.json({ duels: actor.duels.list(actor.guildId, actor.playerId) });
@@ -113,24 +117,33 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const creation = {
+      guildId: actor.guildId, organizerPlayerId: actor.playerId,
+      requestKey: request.headers.get("Idempotency-Key") ?? undefined,
+      fingerprint: JSON.stringify([name.trim(), mode, format, body.masterRule ?? 5, body.settings ?? null, bestOf, ranked, opponentPlayerId]),
+    };
     if (opponentPlayerId !== null) {
       const db = getDb();
       const opponentDiscordUserId = env.discordBotEnabled
         ? playerIdentity(db, opponentPlayerId as number)?.discordUserId : null;
       if (opponentDiscordUserId) assertDuelInviteUrl(actor.guildId, request);
-      const { series, duel } = createDuelSeriesService(db).createChallenge({
-        guildId: actor.guildId,
-        challengerPlayerId: actor.playerId,
-        opponentPlayerId: opponentPlayerId as number,
-        bestOf,
-        ranked,
-        mode,
-        masterRule: body.masterRule as 1 | 2 | 3 | 4 | 5 | undefined,
-        settings: body.settings,
-        name: name || undefined,
+      const created = actor.duels.createRequest(creation, () => {
+        const { series, duel } = createDuelSeriesService(db).createChallenge({
+          guildId: actor.guildId,
+          challengerPlayerId: actor.playerId,
+          opponentPlayerId: opponentPlayerId as number,
+          bestOf,
+          ranked,
+          mode,
+          masterRule: body.masterRule as 1 | 2 | 3 | 4 | 5 | undefined,
+          settings: body.settings,
+          name: name || undefined,
+        });
+        return { session: duel, series };
       });
-      await notifyDuelChange(duel.slug, actor.guildId).catch(() => undefined);
-      if (env.discordBotEnabled && opponentDiscordUserId) {
+      const { session: duel, series } = created;
+      await Promise.allSettled(created.changedSlugs.map(slug => notifyDuelChange(slug, actor.guildId)));
+      if (!created.replayed && env.discordBotEnabled && opponentDiscordUserId) {
         try {
           const challenger = playerIdentity(db, actor.playerId);
           await sendDuelInvite(
@@ -140,8 +153,8 @@ export async function POST(request: NextRequest) {
               opponentDiscordUserId,
               challengerName: challenger?.displayName ?? "A player",
               duelName: duel.name,
-              bestOf: series.bestOf,
-              ranked: series.ranked,
+              bestOf: series!.bestOf,
+              ranked: series!.ranked,
               tournamentName: null,
             },
             request,
@@ -153,7 +166,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ session: duel, series, shareUrl: duelUrl(duel.slug, request) }, { status: 201 });
     }
 
-    const session = actor.duels.create({
+    const created = actor.duels.createRequest(creation, () => ({ session: actor.duels.create({
       guildId: actor.guildId,
       organizerPlayerId: actor.playerId,
       name,
@@ -163,12 +176,9 @@ export async function POST(request: NextRequest) {
       settings: body.settings,
       bestOf,
       ranked,
-    });
-    try {
-      await notifyDuelChange(session.slug, actor.guildId);
-    } catch {
-      // Create already committed.
-    }
+    }) }));
+    const { session } = created;
+    await Promise.allSettled(created.changedSlugs.map(slug => notifyDuelChange(slug, actor.guildId)));
     return NextResponse.json({ session, shareUrl: duelUrl(session.slug, request) }, { status: 201 });
   } catch (error) {
     return duelErrorResponse(error);

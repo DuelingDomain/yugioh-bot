@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, Check, Copy, Globe, Info, Lock, Swords } from "lucide-react";
@@ -22,6 +22,7 @@ import {
 } from "@yugidraft/shared/duels";
 import { createDuel, type DuelPlayerOption } from "./api";
 import { OpponentPicker } from "./opponent-picker";
+import { HostedTableNotice } from "./hosted-table-notice";
 import { TURN_TIMER_CHOICES } from "./turn-timer";
 import { cx, sheetButtonClass, SheetButton, SheetSegmented, SheetSelect, sheetPage, type Choice } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
@@ -105,6 +106,23 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
+  const creationRequest = useRef<{ fingerprint: string; key: string } | null>(null);
+  const navigatedToRoom = useRef(false);
+  useEffect(() => {
+    const returned = () => {
+      if (!navigatedToRoom.current || window.location.pathname !== "/duels/new") return;
+      navigatedToRoom.current = false;
+      creationRequest.current = null;
+      inFlight.current = false;
+      setCreating(false);
+    };
+    window.addEventListener("pageshow", returned);
+    window.addEventListener("popstate", returned);
+    return () => {
+      window.removeEventListener("pageshow", returned);
+      window.removeEventListener("popstate", returned);
+    };
+  }, []);
   // A challenge room is always private; the server forces it, so the form shows it that way.
   const challenge = opponent != null;
   // A challenge, Best of 3 and Ranked belong to 1v1 tables. Tag and free-for-all tables are open tables, one game.
@@ -127,7 +145,12 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
     setCreating(true);
     setError(null);
     try {
+      const fingerprint = JSON.stringify([name.trim(), mode, masterRule, settings, visibility, format, opponent?.id ?? null, bestOf, ranked]);
+      if (creationRequest.current?.fingerprint !== fingerprint) {
+        creationRequest.current = { fingerprint, key: crypto.randomUUID() };
+      }
       const { session, shareUrl } = await createDuel(name.trim(), mode, masterRule, { ...settings, visibility }, {
+        requestKey: creationRequest.current.key,
         // A 1v1 request carries no format: the body stays the one the server has always read.
         ...(format !== "1v1" ? { format } : {}),
         opponentPlayerId: opponent?.id ?? null, bestOf, ranked,
@@ -138,6 +161,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
         setCreating(false);
         return;
       }
+      navigatedToRoom.current = true;
       router.push(`/duels/${session.slug}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not create the game.");
@@ -184,6 +208,8 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
           <h1 className={ui.title}>Custom game creator</h1>
           <p className={ui.lede}>Set the rules once. They lock when the table opens and stay in match history.</p>
         </header>
+
+        <HostedTableNotice disabled={creating} />
 
         <div className={styles.layout}>
           <fieldset disabled={creating || sent != null} className={styles.sections}>

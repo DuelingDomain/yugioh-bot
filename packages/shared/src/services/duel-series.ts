@@ -890,6 +890,8 @@ export function createDuelSeriesService(db: Database.Database, engine?: DeckType
     };
     const name = input.name?.trim() || `${challenger.display_name} vs ${opponent.display_name}`;
 
+    duels.replaceWaitingHostedTables(input.guildId, input.challengerPlayerId);
+
     const seriesId = store.insertSeries(
       input.guildId,
       input.bestOf,
@@ -1203,7 +1205,7 @@ export function createDuelSeriesService(db: Database.Database, engine?: DeckType
 
   return {
     createChallenge(input) {
-      return createChallengeTx(input);
+      return createChallengeTx.immediate(input);
     },
     startTournamentMatch(input) {
       return startTournamentMatchTx(input);

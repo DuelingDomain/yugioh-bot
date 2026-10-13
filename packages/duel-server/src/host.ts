@@ -3377,6 +3377,8 @@ export function createDuelHost(options: {
     }
     if (stopped) return;
     try {
+      const expired = service.expireWaitingTables(t, ARCHIVE_SWEEP_LIMIT);
+      for (const session of expired) await emitChange(session.slug, session.guildId);
       const archived = service.archiveDue(ARCHIVE_SWEEP_LIMIT, archiveAfterMs);
       for (const session of archived) {
         await emitChange(session.slug, session.guildId);

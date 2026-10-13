@@ -159,6 +159,7 @@ describe("system start and ready", () => {
     const active = start(app, duel.slug, null);
     expect(active.status).toBe("active");
 
+    app.duels.complete(duel.slug, "g1", 0, "done");
     const open = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Open", mode: "normal" });
     app.duels.takeSeat(open.slug, "g1", app.p2);
     app.duels.setDeck(open.slug, "g1", app.p1, validDeck(1));
@@ -505,7 +506,7 @@ describe("Best of 3", () => {
     const grants = (game: DuelSession) =>
       app.db.prepare("select player_id from duel_invite_grants where duel_id = ? order by player_id").all(game.id);
     const unrelated = app.duels.create({
-      guildId: "g1", organizerPlayerId: app.p1, name: "Other table", mode: "normal", settings: { visibility: "private" },
+      guildId: "g1", organizerPlayerId: uninvited, name: "Other table", mode: "normal", settings: { visibility: "private" },
     });
     app.duels.admit(unrelated.slug, "g1", uninvited, inviteCode(unrelated));
     for (const playerId of [app.p3, spectator2]) {
@@ -1080,7 +1081,9 @@ describe("side decking", () => {
 
   it("clears Ready on request while the player edits, before anything is saved", () => {
     const app = setup();
-    expectStatus(() => app.series.clearSideReady(challenge(app, 3).series.id, "g1", app.p1), 409);
+    const initial = challenge(app, 3);
+    expectStatus(() => app.series.clearSideReady(initial.series.id, "g1", app.p1), 409);
+    app.series.cancel(initial.series.id, "g1");
     const series = betweenGames(app);
     const index = series.playerIds.indexOf(app.p1);
     expectStatus(() => app.series.clearSideReady(series.id, "g1", app.p3), 403);
@@ -1963,7 +1966,7 @@ describe("room and list", () => {
   it("lists the series on its games", () => {
     const app = setup();
     const { duel, series } = challenge(app, 3);
-    app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Plain", mode: "normal" });
+    app.duels.create({ guildId: "g1", organizerPlayerId: app.p3, name: "Plain", mode: "normal" });
     const items = app.duels.list("g1", app.p1);
     expect(items.find((item) => item.slug === duel.slug)?.series?.id).toBe(series.id);
     expect(items.find((item) => item.name === "Plain")?.series).toBeNull();

@@ -39,7 +39,7 @@ describe("DuelCreator match options", () => {
     expect((screen.getByRole("checkbox", { name: /Ranked/ }) as HTMLInputElement).checked).toBe(false);
     create();
     await waitFor(() => expect(push).toHaveBeenCalledWith("/duels/table-1"));
-    expect(api.createDuel.mock.calls[0][4]).toEqual({ opponentPlayerId: null, bestOf: 1, ranked: false });
+    expect(api.createDuel.mock.calls[0][4]).toMatchObject({ opponentPlayerId: null, bestOf: 1, ranked: false });
   });
 
   it("sends Best of 3 and Ranked for an open table", async () => {
@@ -48,7 +48,7 @@ describe("DuelCreator match options", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /Ranked/ }));
     create();
     await waitFor(() => expect(push).toHaveBeenCalled());
-    expect(api.createDuel.mock.calls[0][4]).toEqual({ opponentPlayerId: null, bestOf: 3, ranked: true });
+    expect(api.createDuel.mock.calls[0][4]).toMatchObject({ opponentPlayerId: null, bestOf: 3, ranked: true });
   });
 
   it("waits for a pause in typing, then searches once", async () => {
@@ -79,7 +79,7 @@ describe("DuelCreator match options", () => {
     expect(screen.queryByText(/direct message|DM/)).toBeNull();
     create();
     expect(await screen.findByText("Challenge created. Send Imran this link to join the table.")).toBeTruthy();
-    expect(api.createDuel.mock.calls[0][4]).toEqual({ opponentPlayerId: 9, bestOf: 1, ranked: false });
+    expect(api.createDuel.mock.calls[0][4]).toMatchObject({ opponentPlayerId: 9, bestOf: 1, ranked: false });
     expect(screen.getByRole("textbox", { name: "Challenge link" })).toHaveValue("https://app.example/duels/table-1");
     fireEvent.click(screen.getByRole("button", { name: "Copy the link" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://app.example/duels/table-1"));
