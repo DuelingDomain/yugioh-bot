@@ -452,10 +452,6 @@ jobs:
       # Public production key only. The secret remains in the protected VM runtime env.
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
-    outputs:
-      image-digests: ${{ steps.image-refs.outputs.digests }}
-      confirmed-attempt: ${{ steps.confirmed.outputs.attempt }}
-
     steps:
       - name: Checkout verified deploy commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -504,7 +500,6 @@ jobs:
           done
 
       - name: Prepare deployment transfer
-        id: image-refs
         run: |
           mkdir -p "$RUNNER_TEMP/deploy-bundle"
           tar -C "$RUNNER_TEMP/deploy-bundle" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
@@ -514,11 +509,6 @@ jobs:
           for service in duel web worker ws; do
             cat "$RUNNER_TEMP/image-digests/$service.digest" >> "$RUNNER_TEMP/release/image-digests"
           done
-          {
-            echo 'digests<<RELEASE_DIGESTS'
-            cat "$RUNNER_TEMP/release/image-digests"
-            echo 'RELEASE_DIGESTS'
-          } >> "$GITHUB_OUTPUT"
 
       - name: Configure SSH key
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -805,13 +795,23 @@ jobs:
           printf 'Production deployed SHA: `%s`\n' "$DEPLOY_COMMIT" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record healthy deployment attempt
-        id: confirmed
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
-        run: echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+        run: printf '%s\n' "$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/release/confirmed-attempt"
+
+      - name: Upload healthy deployment record
+        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: production-deployed-${{ env.DEPLOY_COMMIT }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/release/image-digests
+            ${{ runner.temp }}/release/confirmed-attempt
+          if-no-files-found: error
+          retention-days: 1
 
   retain:
     name: Retain healthy production images in GHCR
-    needs: deploy
+    needs: [prepare, deploy]
     if: ${{ !cancelled() && needs.deploy.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -819,23 +819,36 @@ jobs:
       packages: write
     env:
       GHCR_TOKEN: ${{ github.token }}
-      DEPLOY_IMAGE_DIGESTS: ${{ needs.deploy.outputs.image-digests }}
-      DEPLOY_CONFIRMED_ATTEMPT: ${{ needs.deploy.outputs.confirmed-attempt }}
       RUN_ATTEMPT: ${{ github.run_attempt }}
     steps:
+      - name: Download healthy deployment record
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: production-deployed-${{ needs.prepare.outputs.commit }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/deployed-release
+
       - name: Tag deployed and previous healthy manifests
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
+            const { readFile } = await import('node:fs/promises');
+            const release = `${process.env.RUNNER_TEMP}/deployed-release`;
+            let confirmedAttempt, imageDigests;
+            try {
+              confirmedAttempt = (await readFile(`${release}/confirmed-attempt`, 'utf8')).trim();
+              imageDigests = await readFile(`${release}/image-digests`, 'utf8');
+            } catch {
+              throw new Error('Missing healthy deployment record; no tags were changed.');
+            }
             // A failed-job retry can follow a newer deploy. Require fresh health checks.
             if (!/^[1-9][0-9]*$/.test(process.env.RUN_ATTEMPT || '') ||
-                process.env.DEPLOY_CONFIRMED_ATTEMPT !== process.env.RUN_ATTEMPT) {
+                confirmedAttempt !== process.env.RUN_ATTEMPT) {
               throw new Error('Registry retention requires deploy health checks in the current run attempt. Dispatch a new Deploy run for the intended current release.');
             }
             const { createHash } = await import('node:crypto');
             const services = ["duel", "web", "worker", "ws"];
             const digests = new Map();
-            for (const line of process.env.DEPLOY_IMAGE_DIGESTS.trim().split('\n')) {
+            for (const line of imageDigests.trim().split('\n')) {
               const [service, digest, extra] = line.trim().split(/\s+/);
               if (!services.includes(service) || !/^sha256:[0-9a-f]{64}$/.test(digest || '') || extra || digests.has(service)) {
                 throw new Error('Invalid deployed image digest list; no tags were changed.');
