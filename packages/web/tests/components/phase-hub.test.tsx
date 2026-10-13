@@ -131,9 +131,53 @@ describe("PhaseHub on your turn", () => {
     expect(container.textContent).toContain("Main 2");
   });
 
-  it("names the Battle Phase step on the lit phase", () => {
-    const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
-    expect(container.textContent).toContain("Battle, Damage step");
+  it.each([
+    ["start", "Start step"],
+    ["battle", "Battle step"],
+    ["damage", "Damage step"],
+    ["damage-calculation", "Damage calculation"],
+    ["end", "End step"],
+  ] as const)("keeps the Battle pill short and puts the %s step in a caption above it", (battleStep, caption) => {
+    const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep, actionOptions: [] })} />);
+    const pill = container.querySelector<HTMLElement>('[data-phase="BP"][title]')!;
+    expect(pill.querySelector("[aria-hidden='true']:not(svg)")?.textContent).toBe("Battle");
+    // The step is the caption, outside the pill and in the middle pair (above it in the layout).
+    const step = container.querySelector<HTMLElement>('[data-part="step"]')!;
+    expect(step.textContent).toBe(caption);
+    expect(pill.contains(step)).toBe(false);
+    expect(step.closest("[data-cell]")).toBe(pill.closest("[data-cell]"));
+    // A screen reader hears the phase and the step on the pill.
+    expect(pill.textContent).toContain(`Battle Phase, ${caption}`);
+    expect(pill.textContent).not.toMatch(/Battle step.*Battle step/);
+  });
+
+  it("changes the caption as the battle step changes", () => {
+    const { container, rerender } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "start" })} />);
+    const caption = () => container.querySelector('[data-part="step"]')?.textContent;
+    expect(caption()).toBe("Start step");
+    rerender(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
+    expect(caption()).toBe("Damage step");
+    rerender(<PhaseHub {...hubProps({ phase: "main2" })} />);
+    expect(caption()).toBeUndefined();
+  });
+
+  it("puts the step in the caption line above the strip at a table", () => {
+    const { container } = render(<PhaseHub {...hubProps({ variant: "table", phase: "battle", battleStep: "damage-calculation" })} />);
+    const caption = container.querySelector<HTMLElement>('[data-part="owner"]')!;
+    expect(caption.querySelector('[data-part="step"]')?.textContent).toBe("Damage calculation");
+    expect(container.querySelector('[data-phase="BP"][title]')?.textContent).toContain("Battle");
+    expect(caption.textContent).not.toContain("Battle,");
+  });
+
+  it("shows no step caption outside the Battle Phase or before the step is known", () => {
+    for (const phase of ["draw", "main1", "main2", "end"]) {
+      const { container, unmount } = render(<PhaseHub {...hubProps({ phase, battleStep: "damage" })} />);
+      expect(container.querySelector('[data-part="step"]')).toBeNull();
+      unmount();
+    }
+    const { container } = render(<PhaseHub {...hubProps({ phase: "battle" })} />);
+    expect(container.querySelector('[data-part="step"]')).toBeNull();
+    expect(container.querySelector('[data-phase="BP"][title]')?.textContent).toContain("Battle");
   });
 
   it("writes no middle dot anywhere in the hub", () => {
@@ -143,10 +187,10 @@ describe("PhaseHub on your turn", () => {
     expect(css).not.toMatch(/\\00b7|\u00b7/i);
   });
 
-  it("does not repeat the name when the battle step is called Battle", () => {
+  it("says Battle on the pill and Battle step above it when the step is called Battle", () => {
     const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "battle" })} />);
     expect(container.textContent).not.toContain("Battle, Battle");
-    expect(container.textContent).toContain("Battle step");
+    expect(container.querySelector('[data-part="step"]')?.textContent).toBe("Battle step");
   });
 });
 
@@ -342,7 +386,7 @@ describe("PhaseHub turn owner", () => {
     const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
     const lit = container.querySelector<HTMLElement>("[aria-current='step']")!;
     expect(lit.getAttribute("data-phase")).toBe("BP");
-    expect(lit.querySelector("[class*='name']")!.textContent).toBe("Battle, Damage step");
+    expect(lit.querySelector("[class*='name']")!.textContent).toBe("Battle");
     expect(container.querySelectorAll("[class*='name']")).toHaveLength(1);
     expect([...container.querySelectorAll("[data-state='done']")].map((chip) => chip.getAttribute("data-phase"))).toEqual(["DP", "SP", "M1"]);
   });
@@ -352,7 +396,7 @@ describe("PhaseHub turn owner", () => {
     const under = container.querySelectorAll<HTMLElement>("[class*='under']");
     // One label, in the pair of the lit chip (the centre one), decoration only.
     expect(under).toHaveLength(1);
-    expect(under[0].textContent).toBe("Battle, Damage step");
+    expect(under[0].textContent).toBe("Battle");
     expect(under[0].getAttribute("aria-hidden")).toBe("true");
     const lit = container.querySelector("[aria-current='step']")!;
     expect(under[0].parentElement).toBe(lit.parentElement);
