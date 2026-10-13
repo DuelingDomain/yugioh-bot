@@ -10,6 +10,8 @@ import { duelFontClasses } from "../../fonts";
 import type { CameraLockReason, CameraMode, TableController } from "../types";
 import { TABLE_STATE_IDS, isTableStateId, type TableFixtureSet, type TableFixtureState } from "./common";
 import { useFixtureController } from "./use-fixture-controller";
+import { FieldCracksScope } from "../../field-cracks/context";
+import { formatStartingLp } from "../../table-format";
 import { engineAtStep, isSceneId, sceneSteps } from "./scenes";
 import styles from "./preview-harness.module.css";
 
@@ -136,6 +138,32 @@ function useSceneOverride(state: TableFixtureState, query: URLSearchParams): Tab
   }, [state, id, steps, count]);
 }
 
+/**
+ * `?lp=4000,2000,700` sets the life points of every seat (one value sets all; Tag reads one per team) and `&lpafter=2500` waits
+ * that many ms first, so the field cracks can be watched as they spread. `&lp=` is how the crack stages are checked by eye.
+ */
+function useLpOverride(state: TableFixtureState, query: URLSearchParams, format: string): TableFixtureState {
+  const raw = query.get("lp");
+  const afterText = query.get("lpafter");
+  const after = afterText != null && /^\d+$/.test(afterText) ? Number(afterText) : 0;
+  const [late, setLate] = useState(after <= 0);
+  useEffect(() => {
+    if (after <= 0) return;
+    const timer = setTimeout(() => setLate(true), after);
+    return () => clearTimeout(timer);
+  }, [after]);
+  return useMemo(() => {
+    const engine = state.room.engine;
+    const list = (raw ?? "").split(",").map((part) => Number(part)).filter((value) => Number.isFinite(value));
+    if (!engine || list.length === 0 || !late) return state;
+    const seats = engine.seats.map((seat) => {
+      const index = format === "tag" ? (seat.team ?? seat.seat % 2) : seat.seat;
+      return { ...seat, lp: list[index % list.length] };
+    });
+    return { ...state, room: { ...state.room, engine: { ...engine, seats } } };
+  }, [state, raw, late, format]);
+}
+
 function HarnessBody({
   state,
   preview,
@@ -168,7 +196,7 @@ export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage,
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const activeId = isTableStateId(stateId) ? stateId : "main";
-  const state = useSceneOverride(useAttackOverride((stateId != null ? set.extra?.[stateId] : undefined) ?? set.states[activeId], query), query);
+  const state = useLpOverride(useSceneOverride(useAttackOverride((stateId != null ? set.extra?.[stateId] : undefined) ?? set.states[activeId], query), query), query, set.format);
   const chainFromUrl = query.get("chain");
   // The live room draws the switch for a seated player; so does the preview, on Auto, unless `?chain=none`.
   const [chain, setChain] = useState<DuelChainMode | null>(isDuelChainMode(chainFromUrl) ? chainFromUrl : chainFromUrl === "none" ? null : "auto");
@@ -198,7 +226,9 @@ export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage,
         <span className={styles.size}>{viewport.width}&times;{viewport.height}</span>
       </header>
       <main className={styles.stage}>
-        <HarnessBody key={state.id} state={state} preview={preview} renderStage={renderStage} onToast={showToast} />
+        <FieldCracksScope duelKey={`preview:${set.format}`} startLp={formatStartingLp(set.format, state.room.session?.settings ?? { startingLP: 8000 })}>
+          <HarnessBody key={state.id} state={state} preview={preview} renderStage={renderStage} onToast={showToast} />
+        </FieldCracksScope>
       </main>
       {toast ? <div className={styles.toast} role="status">{toast}</div> : null}
     </div>
