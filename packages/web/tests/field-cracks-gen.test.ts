@@ -42,7 +42,20 @@ const TAG: FieldLayout = grid(7, 4, 70, 98, 10, 10, [[10 + 2 * 80, 10 + 2 * 108 
 const PEND_BASE = grid(5, 2, 76, 108, 12, 14, [[14, 14 + 2 * 120, 14 + 76, 14 + 2 * 120 + 100], [14 + 4 * 88, 14 + 2 * 120, 14 + 4 * 88 + 76, 14 + 2 * 120 + 100]]);
 const PEND: FieldLayout = { ...PEND_BASE, h: 14 + 3 * 120 + 14 };
 
+/** The top half of the 1v1 mat as measured at 1920x1080: a full-width hand strip over five hand cards, rows of zones below. */
+const ONE_V_ONE_TOP: FieldLayout = {
+  w: 1072,
+  h: 456,
+  zones: [
+    [472, 0, 535, 52], [538, 0, 601, 52], [605, 0, 668, 52], [671, 0, 734, 52], [738, 0, 801, 52], [22, 3, 1062, 60],
+    [22, 63, 127, 215], [138, 63, 290, 215], [302, 63, 454, 215], [466, 63, 618, 215], [630, 63, 782, 215], [793, 63, 945, 215], [957, 63, 1062, 215],
+    [22, 222, 127, 374], [138, 222, 290, 374], [302, 222, 454, 374], [466, 222, 618, 374], [630, 222, 782, 374], [793, 222, 945, 374], [957, 222, 1062, 374],
+    [22, 380, 127, 456], [302, 380, 454, 456], [630, 380, 782, 456],
+  ],
+};
+
 const LAYOUTS: Record<string, FieldLayout> = {
+  "1v1 top half": ONE_V_ONE_TOP,
   demo: DEMO,
   "1v1": ONE_V_ONE,
   "ffa3 seat": grid(7, 3, 78, 110, 12, 16),
@@ -116,6 +129,14 @@ describe("field cracks generator", () => {
       // The shatter at 0 LP is a few more bites, drawn after the others (so stages 1 to 3 stay as they were).
       expect(n(4)).toBeGreaterThanOrEqual(3);
       expect(n(4)).toBeLessThanOrEqual(6);
+    }
+  });
+
+  it("still cracks a half mat whose hand strip spans the whole width", () => {
+    for (const seed of [1, 5, 9, 33]) {
+      const f = genField(seed, ONE_V_ONE_TOP, [true, true, false, true]);
+      expect(f.segs.length).toBeGreaterThan(0);
+      expect(f.chunks.length).toBeGreaterThan(0);
     }
   });
 

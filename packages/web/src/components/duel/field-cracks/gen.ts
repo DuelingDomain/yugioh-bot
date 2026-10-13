@@ -179,8 +179,9 @@ export function genField(seed: number, input: FieldLayout, sides: EdgeSides = AL
     edgeSamples(a, 1).some(([x, y]) => pointInPoly(x, y, b)) || edgeSamples(b, 1).some(([x, y]) => pointInPoly(x, y, a));
 
   /* ------------------------------------------------------------ the gutter graph */
-  const VX = lanesOf(ZONES.map((z) => [z[0], z[2]] as [number, number]), CW);
-  const HY = lanesOf(ZONES.map((z) => [z[1], z[3]] as [number, number]), CH);
+  // A bar that spans most of the mat (the hand strip of 1v1) must not merge every column into one block: it only blocks the lanes that cross it.
+  const VX = lanesOf(ZONES.filter((z) => z[2] - z[0] <= CW * 0.6).map((z) => [z[0], z[2]] as [number, number]), CW);
+  const HY = lanesOf(ZONES.filter((z) => z[2] - z[0] <= CW * 0.6 && z[3] - z[1] <= CH * 0.6).map((z) => [z[1], z[3]] as [number, number]), CH);
   const NV = VX.length;
   const NH = HY.length;
   const nodeXY = (i: number, j: number): Pt => [VX[i], HY[j]];
@@ -232,6 +233,18 @@ export function genField(seed: number, input: FieldLayout, sides: EdgeSides = AL
     return pts;
   }
 
+  /* A lane between two nodes is walkable only when it is clear of every zone: a bar that spans the mat (the hand strip of 1v1) blocks the lanes under it. */
+  const freeEdges = new Map<string, boolean>();
+  const edgeFree = (i: number, j: number, ni: number, nj: number) => {
+    const key = ek(i, j, ni, nj);
+    let free = freeEdges.get(key);
+    if (free === undefined) {
+      free = !polyHitsZone([nodeXY(i, j), nodeXY(ni, nj)], CHECK_PAD);
+      freeEdges.set(key, free);
+    }
+    return free;
+  };
+
   /* a crack: a random walk along the lanes from a start node */
   function walkFrom(i0: number, j0: number, maxLen: number, jitter: boolean, dir?: Pt | null): Walk {
     const pts: Pt[] = [nodeXY(i0, j0)];
@@ -247,7 +260,7 @@ export function genField(seed: number, input: FieldLayout, sides: EdgeSides = AL
         const nj = j + dy;
         if (ni < 0 || nj < 0 || ni >= NV || nj >= NH) return false;
         if (prev && dx === -prev[0] && dy === -prev[1]) return false;
-        return !used.has(ek(i, j, ni, nj));
+        return !used.has(ek(i, j, ni, nj)) && edgeFree(i, j, ni, nj);
       });
       if (!cand.length) break;
       const straight = prev && cand.find(([dx, dy]) => dx === prev![0] && dy === prev![1]);
@@ -351,7 +364,7 @@ export function genField(seed: number, input: FieldLayout, sides: EdgeSides = AL
 
   /* stage 1: two cracks from one border node; stage 2 a third + branches; stage 3 a fourth + more + twigs */
   const borders: [number, number][] = [];
-  for (let j = 0; j < NH; j++) for (let i = 0; i < NV; i++) if (isBorder(i, j)) borders.push([i, j]);
+  for (let j = 0; j < NH; j++) for (let i = 0; i < NV; i++) if (isBorder(i, j) && !inZone(VX[i], HY[j], CHECK_PAD)) borders.push([i, j]);
   if (!borders.length || NV < 2 || NH < 2) return empty;
   const bFar = (a: [number, number]) => borders.filter(([i, j]) => Math.abs(i - a[0]) >= 3 || Math.abs(j - a[1]) >= 2);
   const s1 = pick(borders);
@@ -405,7 +418,7 @@ export function genField(seed: number, input: FieldLayout, sides: EdgeSides = AL
       for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
         const ni = i + dx;
         const nj = j + dy;
-        if (ni >= NV || nj >= NH || used.has(ek(i, j, ni, nj))) continue;
+        if (ni >= NV || nj >= NH || used.has(ek(i, j, ni, nj)) || !edgeFree(i, j, ni, nj)) continue;
         if (!nodeSet.has(`${i},${j}`) && !nodeSet.has(`${ni},${nj}`)) continue;
         const a = nodeXY(i, j);
         const b = nodeXY(ni, nj);
