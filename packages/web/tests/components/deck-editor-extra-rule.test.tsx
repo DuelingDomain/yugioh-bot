@@ -144,6 +144,7 @@ describe("Extra Deck rule: drag from the card list", () => {
     expect(cardsIn("Extra")).toHaveLength(0);
     expect(cardsIn("Main")).toHaveLength(0);
     expect(notice()).toContain(message);
+    expect(notice()).toContain(subject.name);
   });
 
   it.each([FUSION, SYNCHRO, XYZ, LINK, MAGIA, FAIRY, ALT_ART, PRE_RELEASE])("takes $name in the Extra Deck", async (subject) => {
@@ -164,6 +165,7 @@ describe("Extra Deck rule: drag from the card list", () => {
     expect(cardsIn("Main")).toHaveLength(0);
     expect(cardsIn("Extra")).toHaveLength(0);
     expect(notice()).toContain(EXTRA_MONSTER_MAIN_MESSAGE);
+    expect(notice()).toContain(FUSION.name);
 
     for (const subject of [POT, PENDULUM]) {
       const next = drag(await tile(subject.name));
@@ -286,10 +288,10 @@ describe("Extra Deck rule: add and move actions", () => {
     fireEvent.click(await tile("Pot of Greed, 1 in deck"));
     const details = screen.getByRole("complementary", { name: "Card details" });
     // Not `disabled`, so it keeps focus; its name carries the reason.
-    const add = within(details).getByRole("button", { name: `Add one Pot of Greed to Extra. Not allowed: ${SPELL_TRAP_EXTRA_MESSAGE}` });
+    const add = within(details).getByRole("button", { name: `Add one Pot of Greed to Extra. Not allowed: Pot of Greed: ${SPELL_TRAP_EXTRA_MESSAGE}` });
     expect(add).toHaveAttribute("aria-disabled", "true");
     expect(add).not.toBeDisabled();
-    expect(add).toHaveAttribute("title", SPELL_TRAP_EXTRA_MESSAGE);
+    expect(add).toHaveAttribute("title", `Pot of Greed: ${SPELL_TRAP_EXTRA_MESSAGE}`);
     fireEvent.click(add);
     expect(namesIn("Extra")).toEqual([POT.name]);
     // Main and Side work.
@@ -302,7 +304,7 @@ describe("Extra Deck rule: add and move actions", () => {
     fireEvent.click(await tile("Blue-Eyes Ultimate Dragon, 1 in deck"));
     const add = within(screen.getByRole("complementary", { name: "Card details" })).getByRole("button", { name: /^Add one Blue-Eyes Ultimate Dragon to Main/ });
     expect(add).toHaveAttribute("aria-disabled", "true");
-    expect(add).toHaveAttribute("title", EXTRA_MONSTER_MAIN_MESSAGE);
+    expect(add).toHaveAttribute("title", `${FUSION.name}: ${EXTRA_MONSTER_MAIN_MESSAGE}`);
   });
 
   it("moves a Side card back to where it belongs on Ctrl+click: Spell to Main, Extra monster to Extra", async () => {
