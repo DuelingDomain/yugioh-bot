@@ -81,16 +81,49 @@ describe("hosted table creation", () => {
     expect(duels.list("g", host).map(table => table.slug)).toEqual([next.session.slug]);
   });
 
-  it("protects a later practice-series lobby with saved wins", () => {
+  it.each(["between_games", "lobby", "opening", "active"] as const)("allows creation while a practice series is %s and keeps its wins", (state) => {
     const old = create({ bestOf: 3 });
     duels.addPracticeBot(old.slug, "g", host, deck);
     duels.setDeck(old.slug, "g", host, deck);
     duels.activate(old.slug, "g", host, ["seed"], "bundle", null);
     duels.complete(old.slug, "g", 0, "test");
-    // The next series game has bot seats but the preceding win must stay recorded.
     const seriesId = duels.get(old.slug, "g").seriesId!;
-    const next = createDuelSeriesService(db).createNextGame(seriesId, "g");
+    expect(duels.room(old.slug, "g", host).series).toMatchObject({ vsBot: true, wins: [1, 0], status: "between_games" });
+    const game = state === "between_games" ? old : createDuelSeriesService(db).createNextGame(seriesId, "g");
+    if (state === "opening") duels.startOpening(game.slug, "g", host, Date.now());
+    if (state === "active") duels.activate(game.slug, "g", host, ["seed"], "bundle", null);
+    const before = db.prepare("select * from duel_series where id = ?").get(seriesId);
+    const retained = duels.get(game.slug, "g");
+    expect(duels.waitingHostedTable("g", host)).toBeNull();
+    expect(create().status).toBe("lobby");
+    expect(duels.get(game.slug, "g")).toEqual(retained);
+    expect(db.prepare("select * from duel_series where id = ?").get(seriesId)).toEqual(before);
+  });
+
+  it("protects a later human-series lobby with saved wins", () => {
+    const series = createDuelSeriesService(db);
+    const { duel: old } = series.createChallenge({ guildId: "g", challengerPlayerId: host, opponentPlayerId: guest, bestOf: 3, ranked: false, mode: "normal" });
+    duels.setDeck(old.slug, "g", host, deck);
+    duels.setDeck(old.slug, "g", guest, deck);
+    duels.activate(old.slug, "g", host, ["seed"], "bundle", null);
+    const hostSeat = duels.get(old.slug, "g").seats.find(seat => seat.playerId === host)!.seat;
+    duels.complete(old.slug, "g", hostSeat, "test");
+    const seriesId = duels.get(old.slug, "g").seriesId!;
+    const next = series.createNextGame(seriesId, "g");
     expect(() => create()).toThrow(/already started/i);
+    expect(duels.get(next.slug, "g").status).toBe("lobby");
+    expect(duels.room(next.slug, "g", host).series).toMatchObject({ vsBot: false, wins: [1, 0] });
+  });
+
+  it("protects a practice-series lobby if another human occupies the bot seat", () => {
+    const old = create({ bestOf: 3 });
+    duels.addPracticeBot(old.slug, "g", host, deck);
+    duels.setDeck(old.slug, "g", host, deck);
+    duels.activate(old.slug, "g", host, ["seed"], "bundle", null);
+    duels.complete(old.slug, "g", 0, "test");
+    const next = createDuelSeriesService(db).createNextGame(duels.get(old.slug, "g").seriesId!, "g");
+    db.prepare("update duel_seats set player_id = ?, is_bot = 0 where duel_id = ? and is_bot = 1").run(guest, next.id);
+    expect(() => create()).toThrow(/another player|already started/i);
     expect(duels.get(next.slug, "g").status).toBe("lobby");
   });
 

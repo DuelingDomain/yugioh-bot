@@ -1291,9 +1291,10 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       and coalesce(json_extract(setup_json, '$.presetId'), '') = ''
       order by id
   `).all(guildId, playerId).filter(row => {
-    // A bot game becomes active as soon as the engine starts. It can remain active after the host leaves.
+    // Practice games and their series can remain open after the host leaves.
     const seats = selectSeats.all(row.id);
-    return row.status !== "active" || !seats.some(seat => seat.is_bot)
+    const practiceSeries = row.series_id !== null && series.byId(row.series_id)?.vs_bot === 1;
+    return (row.status !== "active" && !practiceSeries) || !seats.some(seat => seat.is_bot)
       || seats.some(seat => !seat.is_bot && seat.player_id !== playerId);
   });
   const isEmptyWaiting = (row: DuelRow) => row.status === "lobby" && row.started_at === null

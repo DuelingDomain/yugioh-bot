@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { createDuelService } from "@yugidraft/shared/services";
+import { createDuelService, createDuelSeriesService } from "@yugidraft/shared/services";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 
 const mocks = vi.hoisted(() => ({ requireDuelActor: vi.fn(), callDuelHost: vi.fn(), notifyDuelChange: vi.fn() }));
@@ -58,6 +58,23 @@ it("does not cancel a table with another human or send invalidations on rejectio
   expect((await response.json()).error).toMatch(/another player|already started/i);
   expect(duels.get(old.slug, "g").status).toBe("lobby");
   expect(mocks.notifyDuelChange).not.toHaveBeenCalled();
+});
+
+it.each([false, true])("allows creation after a practice-series game, with next game created: %s", async (nextGame) => {
+  const old = duels.create({ guildId: "g", organizerPlayerId: host, name: "Practice", mode: "normal", bestOf: 3 });
+  const deck = { main: Array(40).fill(1), extra: [], side: [] };
+  duels.addPracticeBot(old.slug, "g", host, deck);
+  duels.setDeck(old.slug, "g", host, deck);
+  duels.activate(old.slug, "g", host, ["seed"], "bundle", null);
+  duels.complete(old.slug, "g", 0, "test");
+  const seriesId = duels.get(old.slug, "g").seriesId!;
+  const game = nextGame ? createDuelSeriesService(db).createNextGame(seriesId, "g") : old;
+  const before = db.prepare("select * from duel_series where id = ?").get(seriesId);
+  const response = await POST(request());
+  expect(response.status).toBe(201);
+  expect(duels.get(game.slug, "g").status).toBe(nextGame ? "lobby" : "completed");
+  expect(db.prepare("select * from duel_series where id = ?").get(seriesId)).toEqual(before);
+  expect(mocks.notifyDuelChange).not.toHaveBeenCalledWith(game.slug, "g");
 });
 
 it("rejects a request key reused for different settings", async () => {
