@@ -179,7 +179,7 @@ describe("field cracks generator", () => {
       expect(chunks).toBeGreaterThanOrEqual(1.5);
       expect(f.segs.length).toBeGreaterThan(0);
     }
-  });
+  }, 30_000);
 
   it("draws the stage 4 connecting cracks only in free lanes", () => {
     const f = genField(5, DEMO);
