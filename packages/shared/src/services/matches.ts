@@ -287,6 +287,15 @@ export function createMatchService(db: Database.Database) {
     approve(matchId: number, approverId: number): Match {
       const match = findById(matchId);
       ensureOpponentCanResolve(match, approverId);
+      // A report that waited past the end of its tournament no longer counts: no Elo, no points.
+      if (match.tournamentId !== null) {
+        const tournament = db
+          .prepare("select status from tournaments where id = ?")
+          .get(match.tournamentId) as { status: string } | undefined;
+        if (tournament && (tournament.status === "cancelled" || tournament.status === "completed")) {
+          throw new Error(`Tournament is ${tournament.status}; this report can no longer be confirmed`);
+        }
+      }
 
       db.prepare(
         `

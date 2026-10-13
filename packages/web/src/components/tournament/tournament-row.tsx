@@ -1,9 +1,8 @@
-import { useState } from "react";
 import Link from "next/link";
 import { FloorRow, LiveDot, LocatorStrip, Mono, ringColour } from "@/components/sheet";
 import type { TournamentRounds } from "@/components/dashboard/tournament-rounds";
 import type { Participant } from "./types";
-import { CancelTournamentDialog } from "./cancel-tournament-dialog";
+import { TournamentRowCancel } from "./tournament-row-cancel";
 import { TournamentRowAction } from "./tournament-row-actions";
 import {
   buildRoundStrip,
@@ -50,7 +49,6 @@ export interface TournamentRowProps {
  * Render inside a `SheetRoot`.
  */
 export function TournamentRow({ tournament, variant, rounds, viewerId = null, you: youProp, showYou = false, canCancel = false, onCancelled, className }: TournamentRowProps) {
-  const [cancelOpen, setCancelOpen] = useState(false);
   const href = tournamentHref(tournament);
   const input = rounds ? { format: tournament.format, status: tournament.status, participants: rounds.participants, matches: rounds.matches } : null;
   const you = youProp ?? (viewerId !== null && !!rounds?.participants.some((p) => p.playerId === viewerId));
@@ -96,19 +94,7 @@ export function TournamentRow({ tournament, variant, rounds, viewerId = null, yo
           <span>{running ? playersLabel(tournament.participantCount) : `${tournament.participantCount} joined`}</span>
           {liveCount > 0 && <span>{liveCount === 1 ? "1 duel live" : `${liveCount} duels live`}</span>}
         </p>
-        {canCancel && tournament.webSlug && (
-          <button type="button" className={styles.cancelLink} aria-label={`Cancel ${tournament.name}`} aria-haspopup="dialog" onClick={() => setCancelOpen(true)}>
-            Cancel tournament
-          </button>
-        )}
-        {canCancel && tournament.webSlug && (
-          <CancelTournamentDialog
-            open={cancelOpen}
-            target={{ name: tournament.name, status: tournament.status, participantCount: tournament.participantCount, slug: tournament.webSlug }}
-            onClose={() => setCancelOpen(false)}
-            onCancelled={() => onCancelled?.(tournament)}
-          />
-        )}
+        {canCancel && <TournamentRowCancel tournament={tournament} onCancelled={onCancelled} />}
       </div>
       {strip && strip.slots.length > 0 && (
         <div className={styles.strip}>

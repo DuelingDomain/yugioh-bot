@@ -11,6 +11,7 @@ import { MyDeckPanel } from "./my-deck-panel";
 import { DeckMarker } from "./deck-marker";
 import { RulesPanel } from "./sheet/rules-panel";
 import { CancelTournamentDialog } from "./cancel-tournament-dialog";
+import { useOptionalRouter } from "./use-optional-router";
 import { formatLabel, rulesSummary } from "./sheet-rules";
 import rail from "./sheet/rail.module.css";
 import { UNRATED_ELO, type PlayerRatings } from "./sheet-contracts";
@@ -54,6 +55,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const router = useOptionalRouter();
   const [announced, setAnnounced] = useState(false);
 
   const isParticipant = tournament.isParticipant;
@@ -238,7 +240,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
               open={cancelOpen}
               target={{ name: tournament.name, status: tournament.status, participantCount: count, slug: tournamentSlug }}
               onClose={() => setCancelOpen(false)}
-              onCancelled={onChanged}
+              onCancelled={() => router?.push("/tournaments")}
             />
           </section>
         )}

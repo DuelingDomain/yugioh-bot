@@ -17,6 +17,26 @@ vi.mock("@/lib/session-identity", async () => {
 vi.mock("@/lib/notify", () => ({ announcer, broadcaster }));
 const notifyDuelChange = vi.fn(async (_slug: string, _guildId: string) => {});
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange }));
+// Lets a test play another process: the status changes between the route's check and its transaction.
+const race: { mode: null | "closed" | "unchanged" } = { mode: null };
+vi.mock("@yugidraft/shared/services", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@yugidraft/shared/services")>();
+  return {
+    ...real,
+    createTournamentService: (db: Parameters<typeof real.createTournamentService>[0]) => {
+      const service = real.createTournamentService(db);
+      const interfere = (id: number) => {
+        if (race.mode === "closed") db.prepare("update tournaments set status = 'completed' where id = ?").run(id);
+        throw new Error("database is busy");
+      };
+      return {
+        ...service,
+        cancelWithChanges: (id: number) => (race.mode ? interfere(id) : service.cancelWithChanges(id)),
+        completeWithChanges: (id: number) => (race.mode ? interfere(id) : service.completeWithChanges(id)),
+      };
+    },
+  };
+});
 const tempDirs: string[] = [];
 
 function as(key: string, name = key) {
@@ -64,6 +84,7 @@ describe("DELETE /api/tournaments/[slug] (cancel)", () => {
     announcer.announce.mockClear();
     broadcaster.tournament.mockClear();
     notifyDuelChange.mockClear();
+    race.mode = null;
   });
   afterEach(() => {
     for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID"]) delete process.env[key];
@@ -157,6 +178,42 @@ describe("DELETE /api/tournaments/[slug] (cancel)", () => {
     expect((await del("active-cup")).status).toBe(200);
     broadcaster.tournament.mockClear();
     expect((await del("active-cup")).status).toBe(409);
+    expect(broadcaster.tournament).not.toHaveBeenCalled();
+  });
+
+  it("answers 409 when another process closed the tournament between the check and the cancel", async () => {
+    const s = seed();
+    as("u-org");
+    race.mode = "closed";
+    const res = await del("active-cup");
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("Tournament is already completed");
+    expect(s.status(s.active.id)).toBe("completed");
+    expect(broadcaster.tournament).not.toHaveBeenCalled();
+    expect(notifyDuelChange).not.toHaveBeenCalled();
+  });
+
+  it("answers 500 when the cancel fails and the tournament is still open", async () => {
+    const s = seed();
+    as("u-org");
+    race.mode = "unchanged";
+    const res = await del("active-cup");
+    expect(res.status).toBe(500);
+    expect(s.status(s.active.id)).toBe("active");
+    expect(broadcaster.tournament).not.toHaveBeenCalled();
+  });
+
+  it("End now answers 409 for a closed tournament and when another process closed it first", async () => {
+    const s = seed();
+    as("u-org");
+    const { POST } = await import("../app/api/tournaments/[slug]/complete/route");
+    const end = () => POST(new Request("http://localhost/x", { method: "POST" }), { params: Promise.resolve({ slug: "active-cup" }) });
+    race.mode = "closed";
+    const raced = await end();
+    expect(raced.status).toBe(409);
+    expect(s.status(s.active.id)).toBe("completed");
+    race.mode = null;
+    expect((await end()).status).toBe(409);
     expect(broadcaster.tournament).not.toHaveBeenCalled();
   });
 });

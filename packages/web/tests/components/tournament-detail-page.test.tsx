@@ -149,6 +149,7 @@ describe("TournamentDetailPage one sheet", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Host tools" })).toBeNull());
     expect(dialog).toHaveTextContent("Live games in progress keep running, but their results do not count for the tournament.");
     expect(dialog).toHaveTextContent("Results already confirmed stay");
+    expect(dialog).toHaveTextContent("Reports that wait for a confirm are dropped");
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(0);
     fireEvent.click(within(dialog).getByRole("button", { name: "Yes, cancel" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(SLUG, { method: "DELETE" }));
@@ -192,6 +193,16 @@ describe("TournamentDetailPage one sheet", () => {
     await ready();
     expect(screen.queryByRole("button", { name: /Cancel/ })).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("the End now confirm says live games are not recorded and unconfirmed reports are dropped", async () => {
+    setup();
+    render(<TournamentDetailPage />);
+    await ready();
+    const tools = await openHostTools();
+    fireEvent.click(within(tools).getByRole("button", { name: "End now" }));
+    expect(tools).toHaveTextContent("Live games keep running, but their results are not recorded.");
+    expect(tools).toHaveTextContent("Reports that wait for a confirm are dropped.");
   });
 
   it("going back from the end-now confirm changes nothing", async () => {

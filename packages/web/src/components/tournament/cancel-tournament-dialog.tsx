@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { SheetPortal } from "@/components/sheet";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -17,8 +17,8 @@ export interface CancelTournamentTarget {
 /**
  * The words the dialog shows. A pending tournament has nothing played, so cancelling only removes it.
  * An active one has open matches and maybe live games: the service closes unplayed matches and lobby
- * games, a game already being played keeps running but no longer counts, and results confirmed
- * before the cancel keep their Elo.
+ * games and drops reports nobody confirmed, a game already being played keeps running but no
+ * longer counts, and results confirmed before the cancel keep their Elo.
  */
 export function cancelDialogText(target: Pick<CancelTournamentTarget, "name" | "status" | "participantCount">): { title: string; lead: string; points: string[] } {
   const title = `Cancel ${target.name}?`;
@@ -35,6 +35,7 @@ export function cancelDialogText(target: Pick<CancelTournamentTarget, "name" | "
     lead: "No champion or final standings are recorded.",
     points: [
       "Open matches are cancelled and games not yet started are closed.",
+      "Reports that wait for a confirm are dropped and do not count.",
       "Live games in progress keep running, but their results do not count for the tournament.",
       "Results already confirmed stay, and so does their Elo.",
       "You can't undo this. To keep the standings as they are, use End now (keep results) instead.",
@@ -58,6 +59,7 @@ export function CancelTournamentDialog({ open, target, onClose, onCancelled }: {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { if (open) setError(null); }, [open]);
   const text = cancelDialogText(target);
+  const describedBy = useId();
 
   async function confirm() {
     setBusy(true);
@@ -79,8 +81,8 @@ export function CancelTournamentDialog({ open, target, onClose, onCancelled }: {
 
   return (
     <SheetPortal>
-      <Modal open={open} onClose={() => { if (!busy) onClose(); }} title={text.title}>
-        <div className="space-y-3 text-sm text-text-secondary">
+      <Modal open={open} onClose={() => { if (!busy) onClose(); }} title={text.title} describedBy={describedBy}>
+        <div id={describedBy} className="space-y-3 text-sm text-text-secondary">
           <p>{text.lead}</p>
           <ul className="list-disc space-y-1 pl-5">
             {text.points.map((point) => <li key={point}>{point}</li>)}

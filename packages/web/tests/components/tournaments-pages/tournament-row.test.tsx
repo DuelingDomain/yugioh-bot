@@ -60,7 +60,7 @@ describe("TournamentRow", () => {
       vi.stubGlobal("fetch", fetchMock);
       const onCancelled = vi.fn();
       render(<ul><TournamentRow tournament={withSlug("running")} variant="running" canCancel onCancelled={onCancelled} /></ul>);
-      fireEvent.click(screen.getByRole("button", { name: "Cancel Friday tournament" }));
+      fireEvent.click(screen.getByRole("button", { name: "Cancel tournament Friday tournament" }));
       const dialog = await screen.findByRole("dialog", { name: "Cancel Friday tournament?" });
       expect(dialog).toHaveTextContent("Live games in progress keep running");
       expect(fetchMock).not.toHaveBeenCalled();
@@ -69,9 +69,26 @@ describe("TournamentRow", () => {
       await waitFor(() => expect(onCancelled).toHaveBeenCalledWith(expect.objectContaining({ id: 7 })));
     });
 
+    it("puts the visible text in the accessible name and mounts no dialog until asked", () => {
+      render(<ul><TournamentRow tournament={withSlug("open")} variant="open" canCancel /></ul>);
+      const button = screen.getByRole("button", { name: /Cancel tournament/ });
+      expect(button.getAttribute("aria-label")).toContain(button.textContent ?? "");
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(document.body.querySelectorAll("[role=dialog]")).toHaveLength(0);
+    });
+
+    it("describes the dialog with its list of consequences", async () => {
+      render(<ul><TournamentRow tournament={withSlug("running")} variant="running" canCancel /></ul>);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel tournament Friday tournament" }));
+      const dialog = await screen.findByRole("dialog", { name: "Cancel Friday tournament?" });
+      const described = document.getElementById(dialog.getAttribute("aria-describedby") ?? "");
+      expect(described).not.toBeNull();
+      expect(described).toHaveTextContent("Reports that wait for a confirm are dropped");
+    });
+
     it("tells an open row's organizer that nothing was played", async () => {
       render(<ul><TournamentRow tournament={withSlug("open")} variant="open" canCancel /></ul>);
-      fireEvent.click(screen.getByRole("button", { name: "Cancel Friday tournament" }));
+      fireEvent.click(screen.getByRole("button", { name: "Cancel tournament Friday tournament" }));
       expect(await screen.findByRole("dialog", { name: "Cancel Friday tournament?" })).toHaveTextContent("5 players who joined");
     });
   });

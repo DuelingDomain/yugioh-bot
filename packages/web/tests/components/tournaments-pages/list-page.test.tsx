@@ -16,7 +16,8 @@ vi.mock("@/lib/session-identity", async () => {
 });
 vi.mock("@/lib/db", () => ({ getDb }));
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g1" } }));
-vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
+const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock("next/navigation", () => ({ redirect: vi.fn(), useRouter: () => ({ refresh, push: vi.fn() }) }));
 
 import TournamentsPage from "../../../app/(app)/tournaments/page";
 import { OPEN_DRAFT, stubOpenNow } from "../../fixtures/open-now";
@@ -142,9 +143,9 @@ describe("TournamentsPage", () => {
     add("Mine open", "pending", "2026-02-01 00:00:00", "mine-open");
     add("Mine finished", "completed", "2026-01-01 00:00:00", "mine-fin");
     render(await TournamentsPage());
-    expect(screen.getByRole("button", { name: "Cancel Mine running" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Cancel Mine open" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Cancel Mine finished" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel tournament Mine running" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel tournament Mine open" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel tournament Mine finished" })).toBeNull();
   });
 
   it("shows no Cancel tournament control on another organizer's rows", async () => {
@@ -160,10 +161,23 @@ describe("TournamentsPage", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: 1, status: "cancelled" })));
     add("Mine open", "pending", "2026-02-01 00:00:00", "mine-open");
     render(await TournamentsPage());
-    fireEvent.click(screen.getByRole("button", { name: "Cancel Mine open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel tournament Mine open" }));
     const dialog = await screen.findByRole("dialog", { name: "Cancel Mine open?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Yes, cancel" }));
     await waitFor(() => expect(screen.queryByText("Mine open")).toBeNull());
+  });
+
+  it("after a cancel, focus moves to a status line and the header counts are refreshed", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: 1, status: "cancelled" })));
+    add("Mine open", "pending", "2026-02-01 00:00:00", "mine-open");
+    render(await TournamentsPage());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel tournament Mine open" }));
+    const dialog = await screen.findByRole("dialog", { name: "Cancel Mine open?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Yes, cancel" }));
+    const status = await screen.findByText("Cancelled Mine open.");
+    expect(status.getAttribute("role")).toBe("status");
+    await waitFor(() => expect(document.activeElement).toBe(status));
+    expect(refresh).toHaveBeenCalled();
   });
 });
 

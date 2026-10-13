@@ -61,7 +61,7 @@ export function EndingEarly({ tournament, tournamentSlug, onChanged, onCancel }:
         <div className={styles.confirmBox}>
           <StatusLine tone="warn">
             <strong>End the tournament now?</strong>{" "}
-            Unplayed matches stay unplayed and open games close. The standings so far are kept. No champion is recorded.
+            Unplayed matches stay unplayed and open games close. Live games keep running, but their results are not recorded. Reports that wait for a confirm are dropped. The standings so far are kept. No champion is recorded.
           </StatusLine>
           <div className={styles.endActs}>
             <SvButton variant="quiet" disabled={busy} onClick={() => { setConfirming(false); setError(null); }}>Go back</SvButton>

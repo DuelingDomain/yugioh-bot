@@ -8,7 +8,8 @@ vi.mock("next/font/google", () => {
   const font = () => ({ className: "font", variable: "font-var", style: {} });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+const { push } = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }));
 
 import { SheetRoot } from "@/components/sheet";
 import { TournamentLobby, firstRoundNote } from "../../src/components/tournament/tournament-lobby";
@@ -118,7 +119,8 @@ describe("TournamentLobby", () => {
     expect(dialog).toHaveTextContent("Nothing has been played yet");
     fireEvent.click(within(dialog).getByRole("button", { name: "Yes, cancel" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/slug1", { method: "DELETE" }));
-    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    // A cancelled tournament has no lobby to stay on: the creator goes to the list.
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/tournaments"));
   });
 
   it("keeps the tournament when the dialog is dismissed", async () => {
