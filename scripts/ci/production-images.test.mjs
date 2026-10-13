@@ -28,6 +28,13 @@ case "$1 $2" in
   'info '*) printf '%s\\n' /fake/docker ;;
   'image inspect')
     case "$*" in
+      *'.Id'*)
+        case "$5" in
+          yugioh-bot-*:latest) printf '%s\\n' latest-id ;;
+          yugioh-bot-*:prev) printf '%s\\n' previous-id ;;
+          *ghcr.io*) printf '%s\\n' "\${TEST_SHA_ID:-old-id}" ;;
+          *) printf '%s\\n' "$5" ;;
+        esac ;;
       *'.Os'*) printf '%s\\n' "linux/\${TEST_ARCH:-arm64} \${TEST_REVISION:-${sha}}" ;;
       *'org.opencontainers.image.revision'*) printf '%s\\n' "\${TEST_CURRENT_REVISION:-}" ;;
       *) [ "\${TEST_PREV_EXISTS:-true}" = true ] ;;
@@ -57,7 +64,8 @@ test('pull validates all four ARM64 images without changing live or previous tag
   for (const service of ['duel', 'web', 'worker', 'ws']) {
     assert.match(f.commands(), new RegExp(`pull --platform=linux/arm64 ${registry}-${service}@${digest}`));
   }
-  assert.doesNotMatch(f.commands(), /tag|build|compose|prune/);
+  assert.doesNotMatch(f.commands(), /tag .*yugioh-bot-.*:(latest|prev)|build|compose|prune/);
+  assert.match(f.commands(), new RegExp(`tag ${registry}-web@${digest} ${registry}-web:${sha}`));
 });
 
 test('a failed pull, wrong architecture or wrong revision cannot promote any image', t => {
@@ -122,7 +130,7 @@ test('an unconfirmed GHCR release keeps the first-cutover rollback until health 
   const revision = 'b'.repeat(40);
   assert.equal(f.run('preserve', sha, { TEST_CURRENT_REVISION: revision }, ['unconfirmed-id', previous]).status, 0);
   assert.doesNotMatch(f.commands(), /tag unconfirmed-id/);
-  assert.equal(f.run('preserve', sha, { TEST_CURRENT_REVISION: revision, DEPLOY_CONFIRMED_COMMIT: revision }, ['confirmed-id', previous]).status, 0);
+  assert.equal(f.run('preserve', sha, { TEST_CURRENT_REVISION: revision, DEPLOY_CONFIRMED_IMAGE: 'confirmed-id' }, ['confirmed-id', previous]).status, 0);
   assert.match(f.commands(), /tag confirmed-id yugioh-bot-web:prev/);
 });
 
@@ -138,4 +146,22 @@ test('all digests must be valid before any Docker call', t => {
     assert.notEqual(f.run('pull').status, 0);
     assert.equal(f.commands(), '');
   }
+});
+
+
+test('prune retains SHA bookkeeping tags while their image is latest or prev', t => {
+  for (const imageId of ['latest-id', 'previous-id']) {
+    const f = fixture(t);
+    assert.equal(f.run('prune', sha, { TEST_SHA_ID: imageId }).status, 0);
+    assert.doesNotMatch(f.commands(), /image rm/);
+  }
+});
+
+test('a failed rebuild of a confirmed SHA cannot replace the good rollback image', t => {
+  const f = fixture(t);
+  const result = f.run('preserve', sha, {
+    TEST_CURRENT_REVISION: 'b'.repeat(40), DEPLOY_CONFIRMED_IMAGE: 'good-build-id',
+  }, ['failed-rebuild-id', 'yugioh-bot-web:prev']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(f.commands(), /tag failed-rebuild-id/);
 });

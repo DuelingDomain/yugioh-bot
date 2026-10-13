@@ -613,17 +613,20 @@ jobs:
              cp "$DEPLOY_IMAGE_REFS" "$release_dir/image-digests"
              : > "$release_dir/previous-image-digests.jsonl"
              : > "$release_dir/images.jsonl"
-             DEPLOY_CONFIRMED_COMMIT=
-             if [ -f data/production-image-commit ]; then DEPLOY_CONFIRMED_COMMIT=$(cat data/production-image-commit); fi
-             export DEPLOY_CONFIRMED_COMMIT
+             preserve_previous_image() {
+               confirmed_image=
+               if [ -f data/production-image-ids ]; then
+                 confirmed_image=$(awk -v service="$1" '$1 == service { print $2 }' data/production-image-ids)
+               fi
+               DEPLOY_CONFIRMED_IMAGE="$confirmed_image" sh "$DEPLOY_IMAGES" preserve "$DEPLOY_COMMIT" "$2" "$3"
+             }
              for container in $(docker compose -f docker-compose.yml ps -aq); do
                service=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$container")
                case "$service" in duel|web|bot|ws|worker)
                  image_id=$(docker inspect -f '{{.Image}}' "$container")
-                 image_ref=$(docker inspect -f '{{.Config.Image}}' "$container")
                  docker image inspect --format '{{json .RepoDigests}}' "$image_id" >> "$release_dir/previous-image-digests.jsonl"
                  docker inspect -f '{"service":"{{index .Config.Labels "com.docker.compose.service"}}","imageId":"{{.Image}}","imageRef":"{{.Config.Image}}"}' "$container" >> "$release_dir/images.jsonl"
-                 sh "$DEPLOY_IMAGES" preserve "$DEPLOY_COMMIT" "$image_id" "${image_ref%:*}:prev"
+                 preserve_previous_image "$service" "$image_id" "yugioh-bot-$service:prev"
                  ;;
                esac
              done
@@ -631,7 +634,7 @@ jobs:
              for service in duel web worker ws; do
                if ! grep -q "\"service\":\"$service\"" "$release_dir/images.jsonl" && \
                  docker image inspect "yugioh-bot-$service:latest" >/dev/null 2>&1; then
-                 sh "$DEPLOY_IMAGES" preserve "$DEPLOY_COMMIT" "yugioh-bot-$service:latest" "yugioh-bot-$service:prev"
+                 preserve_previous_image "$service" "yugioh-bot-$service:latest" "yugioh-bot-$service:prev"
                fi
              done
              DUELING_BACKUP_DIR="$release_dir/online" python3 scripts/backup/dueling-backup
@@ -722,6 +725,13 @@ jobs:
                  .catch(() => process.exit(1));
              '
              # Record success only after every health check passes. Retries keep the good :prev.
+             : > data/production-image-ids.tmp
+             for service in duel web worker ws; do
+               container=$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q "$service")
+               image_id=$(docker inspect -f '{{.Image}}' "$container")
+               printf '%s %s\n' "$service" "$image_id" >> data/production-image-ids.tmp
+             done
+             mv data/production-image-ids.tmp data/production-image-ids
              printf '%s\n' "$DEPLOY_COMMIT" > data/production-image-commit.tmp
              mv data/production-image-commit.tmp data/production-image-commit
              sh "$DEPLOY_IMAGES" prune

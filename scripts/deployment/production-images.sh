@@ -61,16 +61,22 @@ case "$operation" in
       docker pull --platform=linux/arm64 "$image"
       verify_image "$image"
     done
+    # Keep a SHA bookkeeping tag until this image leaves :latest and :prev.
+    # Digest-only pulls have no tag, so scoped tag pruning could not find them later.
+    for service in $services; do
+      docker tag "$(image_reference "$service")" "$registry-$service:$commit"
+    done
     ;;
   preserve)
     image=${3:?Image ID or local latest tag is required}
     previous=${4:?Previous image tag is required}
     revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
+    image_id=$(docker image inspect --format '{{.Id}}' "$image")
     # A failed-health retry must not replace the good rollback image with itself.
     if [ "$revision" = "$commit" ]; then exit 0; fi
     # A different unconfirmed GHCR deploy must also retain the first-cutover image.
     if printf '%s' "$revision" | grep -Eq '^[0-9a-f]{40}$' &&
-      [ "$revision" != "${DEPLOY_CONFIRMED_COMMIT:-}" ] &&
+      [ "$image_id" != "${DEPLOY_CONFIRMED_IMAGE:-}" ] &&
       docker image inspect "$previous" >/dev/null 2>&1; then
       echo "Keeping $previous: the running GHCR release has not passed health checks."
       exit 0
@@ -86,12 +92,16 @@ case "$operation" in
     ;;
   prune)
     for service in $services; do
+      latest_id=$(docker image inspect --format '{{.Id}}' "yugioh-bot-$service:latest" 2>/dev/null || true)
+      previous_id=$(docker image inspect --format '{{.Id}}' "yugioh-bot-$service:prev" 2>/dev/null || true)
       repository="$registry-$service"
       for reference in $(docker image ls --format '{{.Repository}}:{{.Tag}}' "$repository"); do
         case "$reference" in
           "$repository":*)
             tag=${reference##*:}
             if printf '%s' "$tag" | grep -Eq '^[0-9a-f]{40}$'; then
+              image_id=$(docker image inspect --format '{{.Id}}' "$reference")
+              if [ "$image_id" = "$latest_id" ] || [ "$image_id" = "$previous_id" ]; then continue; fi
               # No force and no global prune. Local safety tags remain intact.
               docker image rm "$reference" || echo "Warning: could not remove $reference" >&2
             fi
