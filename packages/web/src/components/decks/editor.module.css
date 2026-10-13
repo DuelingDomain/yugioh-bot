@@ -302,3 +302,45 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-legend ul { margin: 0; padding: 0; list-style: none; }
 .de-legend kbd { padding: 1px 5px; border-radius: 4px; background: rgb(5 8 15 / 0.7); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.16); color: rgb(239 231 213 / 0.9); font: inherit; font-size: 11.5px; }
 .de-legend-phone { margin: 0 0 8px; font-size: 12px; color: rgb(239 231 213 / 0.55); }
+
+/* Desktop fit. `useDeckFit` sizes the tiles (--fit-*) so the Deck Master, Main, Extra and Side all show in the pane without scrolling.
+   Each tile area keeps the height of its reserved rows, so adding a card never moves the sections below it. */
+.de-deck[data-fit] { gap: 10px; padding: 8px 14px 10px; }
+.de-deck[data-fit] .de-dbar { min-height: 30px; }
+.de-deck[data-fit] .de-sec-b { gap: 6px; }
+.de-deck[data-fit] .de-sh { flex-wrap: nowrap; min-height: 28px; gap: 10px; padding-bottom: 4px; }
+.de-deck[data-fit] .de-st { font-size: 16px; }
+.de-deck[data-fit] .de-n { font-size: 20px; }
+.de-deck[data-fit] .de-tg { overflow: hidden; text-overflow: ellipsis; }
+.de-deck[data-fit] .de-sec-b[data-section="main"] { --rows: var(--fit-rows-main); }
+.de-deck[data-fit] .de-sec-b[data-section="extra"] { --rows: var(--fit-rows-extra); }
+.de-deck[data-fit] .de-sec-b[data-section="side"] { --rows: var(--fit-rows-side); }
+.de-deck[data-fit] .de-sec-b > [data-fit-area] { --fit-th: calc(var(--fit-tw) * 614 / 421); min-height: calc(var(--rows) * var(--fit-th) + (var(--rows) - 1) * var(--fit-gap)); }
+.de-deck[data-fit] .de-sec-b > .de-grid { grid-template-columns: repeat(var(--fit-cols), var(--fit-tw)); align-content: start; gap: var(--fit-gap); }
+.de-deck[data-fit] .de-sec-b > .de-empty { padding: 0; }
+/* The Side section of a format without one keeps its header and drops the empty area. */
+.de-deck[data-fit] .de-sec-b[data-unused] > .de-empty { display: none; }
+.de-deck[data-fit] .de-master { --fit-th: calc(var(--fit-tw) * 614 / 421); grid-template-columns: var(--fit-tw) minmax(0, 1fr); gap: 12px; height: var(--fit-th); padding: 0; border: 0; }
+.de-deck[data-fit] .de-mslot { width: var(--fit-tw); min-height: 0; }
+.de-deck[data-fit] .de-mslot img { width: var(--fit-tw); }
+.de-deck[data-fit] .de-master .de-st { margin-bottom: 0; }
+/* Nothing in the deck pane may take height from the tiles: the notice floats over the bottom of the pane, and the flag stays on one line. */
+.de-deck[data-fit] { position: relative; }
+.de-deck[data-fit] > .notice { position: absolute; left: 14px; right: 14px; bottom: 8px; z-index: 5; padding: 6px 6px 6px 12px; border: 1px solid var(--rule-lo); border-radius: 8px; background: var(--panel-2); box-shadow: 0 6px 20px rgb(0 0 0 / 0.45); }
+.de-deck[data-fit] .de-flag { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; }
+.de-deck[data-fit] .de-dbar .de-tools { flex: none; }
+/* The Deck Master row is one tile tall: the heading and its Remove button share a line, and the hint keeps to one line. An alert takes the hint's place. */
+.de-deck[data-fit] .de-master { overflow: hidden; }
+.de-deck[data-fit] .de-master .masterText { display: flex; flex-wrap: wrap; align-items: center; align-content: center; justify-content: flex-start; gap: 2px 12px; height: 100%; overflow: hidden; }
+.de-deck[data-fit] .de-master .masterText > h2 { order: 0; }
+.de-deck[data-fit] .de-master .masterText > button { order: 1; }
+.de-deck[data-fit] .de-master .masterText > p { order: 2; flex: 0 0 100%; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.de-deck[data-fit] .de-master .masterText:has(> [role="alert"]) > p:not([role="alert"]) { display: none; }
+/* The test hand never takes more than a small, fixed height from the tiles: its cards are small and the area scrolls when more are drawn. */
+.de-deck[data-fit] .de-hand { gap: 4px; padding: 4px 0; }
+/* The list scrolls, not the section: a scrolling grid item would be squeezed to nothing when the pane is short. */
+.de-deck[data-fit] .de-hand-g { grid-template-columns: repeat(auto-fill, 38px); gap: 5px; max-height: 58px; overflow-y: auto; scrollbar-width: thin; }
+/* Wide desktops keep the side panes narrower, so the deck gets the room. */
+@container de-editor (1200px <= width < 1500px) {
+  .de-body { grid-template-columns: 230px minmax(0, 1fr) 320px; }
+}

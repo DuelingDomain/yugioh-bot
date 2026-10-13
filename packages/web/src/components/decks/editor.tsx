@@ -54,6 +54,7 @@ import { CardPreview } from "./card-preview";
 import { DeckSegmented, DeckSelect } from "./controls";
 import { useCopyYdke } from "./copy-ydke";
 import { DeckSummary, type DeckCheckProps } from "./deck-check";
+import { useDeckFit } from "./deck-fit";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { useEditorViewport } from "./editor-viewport";
 import {
@@ -75,6 +76,7 @@ import {
   allCodes,
   altArtCount,
   chooseMaster,
+  removeMaster,
   clearSection,
   cardKind,
   cloneDeck,
@@ -272,6 +274,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   }, []);
 
   const { deck, masterOrigin } = selection;
+  // On a desktop screen the tiles are sized so the whole deck shows at once; the phone layout scrolls.
+  const deckFitRef = useDeckFit({ main: deck.main.length, extra: deck.extra.length, side: deck.side.length, master: mode === "domain", sideUsed: mode !== "domain" }, !isPhone);
   const busy = saveBusy || deleteBusy;
   const dirty = baseline == null ? isNewDeckDirty(name.trim() === startName ? DEFAULT_NAME : name, mode, deck) : snapshotOf(name.trim(), mode, deck) !== baseline;
   const dirtyRef = useRef(dirty);
@@ -797,6 +801,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     commit(chooseMaster(selection, code, section));
     setInspectCode(code);
     setSelected(null);
+    // The notice region is a status line, so a screen reader hears the change.
+    setNotice(`${cardName(code)} is now your Deck Master.`);
   }
 
   function cardName(code: number): string {
@@ -1051,10 +1057,15 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     const section = (["main", "extra", "side"] as const).find((value) => deck[value].includes(code));
     inspect(code, section ? { section, code, index: deck[section].indexOf(code) } : null);
   }
+  /** Takes the Deck Master out of its slot; a card with no origin goes back into the deck, not away. */
+  function removeDeckMaster() {
+    const card = deck.deckMaster != null ? catalog.get(deck.deckMaster) : undefined;
+    commit(removeMaster(selection, card ? defaultAddSection(card) : "main"));
+  }
   const masterArts = deck.deckMaster != null ? altArtCount(deck.deckMaster, catalog) : 0;
   const masterIsSpellTrap = deck.deckMaster != null && isSpellOrTrapType(catalog.get(deck.deckMaster)?.type);
   const masterGesture = press({
-    remove: () => commit(selectDomainMaster(selection, undefined)),
+    remove: removeDeckMaster,
     moveSide: () => setNotice("Domain has no Side Deck."),
     select: () => { if (deck.deckMaster != null) inspect(deck.deckMaster, null, true, true); },
     menu: (anchor) => { if (deck.deckMaster != null) openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster, anchor }); },
@@ -1073,6 +1084,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     onDrop: dropCard,
     onArtMenu: openArtMenu,
     artMenu,
+    // Domain only: the crown and the M key on a deck card. Whether a card can be the Master is decided by canBeDeckMaster.
+    canMaster: mode === "domain" && !isPhone ? (code: number) => { const card = catalog.get(code); return !!card && !card.unavailableReason && canBeDeckMaster(card.type); } : undefined,
+    onMaster: mode === "domain" && !isPhone ? (copy: { code: number; section: DeckSection }) => makeMaster(copy.code, copy.section) : undefined,
   };
   /** The warning or notice that held focus goes away; focus moves to the heading of the section it was about. */
   function focusSection(section: "main" | "extra") {
@@ -1140,6 +1154,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       onAdd={(section) => addFromList(inspected, section)}
       onRemove={(section) => removeCopy({ code: inspected.code, from: section })}
       onMaster={() => makeMaster(inspected.code, selected?.code === inspected.code ? selected.section : undefined)}
+      onClearMaster={removeDeckMaster}
       onArchetype={showArchetype}
       artwork={
         <ArtworkPicker
@@ -1282,9 +1297,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
           <aside className={styles["de-read"]} aria-label="Card details" ref={inspectScrollRef}>
             {shownCode == null ? <DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /> : shown ? <CardPreview card={shown} /> : missingReader}
             {cardControls}
-            <ControlsLegend />
+            <ControlsLegend domain={mode === "domain"} />
           </aside>
-          <main className={styles["de-deck"]} aria-label="Deck" id="deck-editor-deck">
+          <main ref={deckFitRef} className={styles["de-deck"]} aria-label="Deck" id="deck-editor-deck">
             {registration ? (
               <div className={styles["de-reg"]}>
                 <RegistrationMark registration={registration} />
@@ -1322,12 +1337,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
               </section>
             ) : null}
             {mode === "domain" ? (
-              <section className={styles["de-master"]} aria-label="Deck Master" data-dropping={masterDropping || undefined}
+              <section className={styles["de-master"]} aria-label="Deck Master" data-fit-area data-dropping={masterDropping || undefined}
                 onDragOver={(event) => { if (hasCardDrag(event)) { event.preventDefault(); setMasterDropping(true); } }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
                 onDrop={(event) => { setMasterDropping(false); const drag = readCardDrag(event); if (!drag || drag.from === "master") return; event.preventDefault(); makeMaster(drag.code, drag.from === "list" ? undefined : drag.from); }}>
-                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}${masterArts > 0 ? `, ${artCountLabel(masterArts)}` : ""}`} aria-keyshortcuts="ContextMenu Shift+F10" aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); const master = catalog.get(deck.deckMaster!); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }, master ? cardKind(master) : undefined); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /><ArtChip otherArts={masterArts} corner open={artMenu?.section === "deckMaster"} onOpen={(anchor) => openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor })} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
-                <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, or select one and press Use as Deck Master.</p>{masterIsSpellTrap ? <p role="alert" className={styles.errorText}>{SPELL_TRAP_MASTER_MESSAGE}</p> : null}{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Clear</SvButton> : null}</div>
+                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}${masterArts > 0 ? `, ${artCountLabel(masterArts)}` : ""}`} aria-keyshortcuts="ContextMenu Shift+F10" aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); const master = catalog.get(deck.deckMaster!); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }, master ? cardKind(master) : undefined); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /><ArtChip otherArts={masterArts} corner open={artMenu?.section === "deckMaster"} onOpen={(anchor) => openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor })} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "var(--fit-tw, 58px)" } as CSSProperties} />}</div>
+                <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, press M on a deck card, or select one and press Use as Deck Master.</p>{masterIsSpellTrap ? <p role="alert" className={styles.errorText}>{SPELL_TRAP_MASTER_MESSAGE}</p> : null}{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={removeDeckMaster}>Remove as Deck Master</SvButton> : null}</div>
               </section>
             ) : null}
             <DeckSectionGrid {...sectionProps} title="Main" section="main" codes={deck.main} minimum={mainLow} maximum={DRAFT_MAIN_MAX} target={mode === "domain" ? "60" : `${mainLow}–${DRAFT_MAIN_MAX}`} emptyHint="Add cards from the list on the right." actions={clearButton("main", "Main")} warning={mainWarning} />
