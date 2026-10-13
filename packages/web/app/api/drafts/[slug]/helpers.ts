@@ -207,6 +207,11 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
   const isParticipant = currentPlayer
     ? players.some((p: any) => p.playerId === currentPlayer.id)
     : false;
+  if (!isParticipant && draft.created_by_user_id !== userId) {
+    // Visitors can join an open lobby, but its authored pools and cube references stay private.
+    for (const key of ["poolSource", "allowedCubeIds", "customCardIds", "customExtraCardIds", "cubeCardIds", "poolCardIds",
+      "setNames", "includeNames", "excludeNames"] as const) delete config[key];
+  }
 
   // A player who passed the pick (nothing in the pack they may take) is done for the step too.
   const pickedPlayerIds = new Set(
@@ -333,8 +338,8 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
   let themeProgress: { main: number; mainTotal: number; extra: number; extraTotal: number } | undefined;
   if (isTheme) {
     const ids = draftModel.config.allowedCubeIds ?? [];
-    // The host's allowed theme pool is public; per-player assignments stay private.
-    if (ids.length > 0) {
+    // Cube details belong to the draft's host and seats; open-lobby visitors must join first.
+    if (ids.length > 0 && (isParticipant || draft.created_by_user_id === userId)) {
       const placeholders = ids.map(() => "?").join(",");
       const rows = db
         .prepare(`select id, name, archetype from cubes where guild_id = ? and id in (${placeholders})`)

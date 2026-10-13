@@ -334,7 +334,7 @@ describe("ThemeTableLobby the box", () => {
 
   it("opens the whole pool of a cube read-only", async () => {
     mockFetch({
-      "GET /api/cubes/10": () => ({
+      "GET /api/drafts/theme-night/cubes/10": () => ({
         cards: [{ id: 1, name: "Blue-Eyes White Dragon", type: "Normal Monster", frameType: "normal", effectText: "", imageUrl: "", imageUrlSmall: "" }],
         pools: { main: [{ catalogCardId: 1, maxCopies: 3 }], extra: [] },
       }),

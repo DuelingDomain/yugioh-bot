@@ -1,7 +1,7 @@
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
-import { cubeWriteAccess } from "@/lib/cube-access";
+import { cubeOwnerAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardLookupBudget, createCardCatalogService, createCubeService, createPlayerService } from "@yugidraft/shared/services";
@@ -41,7 +41,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const db = getDb();
-  const denied = await cubeWriteAccess(db, cubeId, actor);
+  const denied = cubeOwnerAccess(db, cubeId, actor);
   if (denied) return denied;
 
   const catalog = createCardCatalogService(db, { memberId: actor.userId });

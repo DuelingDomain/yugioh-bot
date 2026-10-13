@@ -132,7 +132,7 @@ describe("cube editor list import", () => {
     auth.mockResolvedValue(null);
     expect((await mutate({ op: "importList", text: "Dark Hole" })).status).toBe(401);
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("stranger")), discordUserId: fixtureDiscordId("stranger"), name: "Stranger" } });
-    expect((await mutate({ op: "importList", text: "Dark Hole" })).status).toBe(403);
+    expect((await mutate({ op: "importList", text: "Dark Hole" })).status).toBe(404);
     db.exec("update cubes set guild_id = 'other' where id = 1");
     expect((await mutate({ op: "importList", text: "Dark Hole" })).status).toBe(404);
     db.exec("update cubes set guild_id = 'guild-1' where id = 1");
@@ -243,7 +243,7 @@ describe("cube subtract op", () => {
     auth.mockResolvedValue(null);
     expect((await mutate(body)).status).toBe(401);
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("stranger")), discordUserId: fixtureDiscordId("stranger"), name: "Stranger" } });
-    expect((await mutate(body)).status).toBe(403);
+    expect((await mutate(body)).status).toBe(404);
     db.exec("update cubes set guild_id = 'other' where id = 1");
     expect((await mutate(body)).status).toBe(404);
     db.exec("update cubes set guild_id = 'guild-1' where id = 1");

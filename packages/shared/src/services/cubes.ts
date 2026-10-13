@@ -366,9 +366,9 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
             .prepare(
               `select cc.catalog_card_id, cc.max_copies from cube_cards cc
                  join cubes c on c.id = cc.cube_id
-                where cc.cube_id = ? and cc.pool = 'extra' and c.guild_id = ? order by cc.rowid asc`,
+                where cc.cube_id = ? and cc.pool = 'extra' and c.guild_id = ? and c.created_by_user_id = ? order by cc.rowid asc`,
             )
-            .all(opts.copyExtraFromCubeId, guildId) as Array<{ catalog_card_id: number; max_copies: number }>;
+            .all(opts.copyExtraFromCubeId, guildId, createdByUserId) as Array<{ catalog_card_id: number; max_copies: number }>;
           for (const r of rows) {
             const card = catalog.findByIds([r.catalog_card_id])[0];
             upsertCard.run(cubeId, r.catalog_card_id, isCubeExtra(card, findType) ? "extra" : "main", r.max_copies, null);
@@ -596,10 +596,10 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
 
     findCube,
 
-    listCubes(guildId: string): Cube[] {
+    listCubes(guildId: string, userId: number): Cube[] {
       return db
-        .prepare("select * from cubes where guild_id = ? order by name asc")
-        .all(guildId)
+        .prepare("select * from cubes where guild_id = ? and created_by_user_id = ? order by name asc")
+        .all(guildId, userId)
         .map(mapCube);
     },
 
@@ -609,7 +609,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     save(guildId: string, name: string, config: DraftConfig, createdByUserId: number): Cube {
       const trimmed = name.trim();
       // Saving over an existing cube replaces its draft config but keeps what the cube is for.
-      const previous = db.prepare("select config_json from cubes where guild_id = ? and name = ?").get(guildId, trimmed) as
+      const previous = db.prepare("select config_json from cubes where guild_id = ? and name = ? and created_by_user_id = ?").get(guildId, trimmed, createdByUserId) as
         | { config_json: string | null }
         | undefined;
       if (previous) {
@@ -623,37 +623,38 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         for (const key of CUBE_META_KEYS) if (old[key] !== undefined && !(key in config)) kept[key] = old[key];
         config = { ...kept, ...config };
       }
-      db.prepare(
+      const result = db.prepare(
         `
           insert into cubes (guild_id, name, config_json, created_by_user_id)
           values (?, ?, ?, ?)
           on conflict(guild_id, name) do update set
             config_json = excluded.config_json,
-            created_by_user_id = excluded.created_by_user_id,
             updated_at = current_timestamp
+          where cubes.created_by_user_id = excluded.created_by_user_id
         `,
       ).run(guildId, trimmed, JSON.stringify(config), createdByUserId);
+      if (result.changes === 0) throw new CubeNameTakenError(trimmed);
       const row = db.prepare("select * from cubes where guild_id = ? and name = ?").get(guildId, trimmed);
       return mapCube(row);
     },
 
-    findByName(guildId: string, name: string): Cube | undefined {
-      const row = db.prepare("select * from cubes where guild_id = ? and name = ?").get(guildId, name);
+    findByName(guildId: string, name: string, userId: number): Cube | undefined {
+      const row = db.prepare("select * from cubes where guild_id = ? and name = ? and created_by_user_id = ?").get(guildId, name, userId);
       return row ? mapCube(row) : undefined;
     },
 
-    list(guildId: string): Cube[] {
+    list(guildId: string, userId: number): Cube[] {
       return db
-        .prepare("select * from cubes where guild_id = ? order by name asc")
-        .all(guildId)
+        .prepare("select * from cubes where guild_id = ? and created_by_user_id = ? order by name asc")
+        .all(guildId, userId)
         .map(mapCube);
     },
 
-    delete(guildId: string, name: string): void {
+    delete(guildId: string, name: string, userId: number): void {
       db.prepare(
-        "delete from cube_cards where cube_id in (select id from cubes where guild_id = ? and name = ?)",
-      ).run(guildId, name);
-      db.prepare("delete from cubes where guild_id = ? and name = ?").run(guildId, name);
+        "delete from cube_cards where cube_id in (select id from cubes where guild_id = ? and name = ? and created_by_user_id = ?)",
+      ).run(guildId, name, userId);
+      db.prepare("delete from cubes where guild_id = ? and name = ? and created_by_user_id = ?").run(guildId, name, userId);
     },
   };
 }

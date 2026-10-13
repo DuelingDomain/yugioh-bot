@@ -60,11 +60,27 @@ describe("cube service core", () => {
     expect(cubes.getCubePools(cube.id).main[0].maxCopies).toBe(2);
   });
 
-  it("lists cubes for a guild", () => {
+  it("lists only cubes owned by the application user in the guild", () => {
     const { db, cubes } = setup();
     cubes.createBlank("g", "Stun", seedUser(db, "u").userId);
     cubes.createBlank("g", "Blue-Eyes", seedUser(db, "u").userId);
-    expect(cubes.listCubes("g").map((t) => t.name).sort()).toEqual(["Blue-Eyes", "Stun"]);
+    const owner = seedUser(db, "u").userId;
+    const other = seedUser(db, "other").userId;
+    cubes.createBlank("g", "Other pool", other);
+    expect(cubes.listCubes("g", owner).map((t) => t.name).sort()).toEqual(["Blue-Eyes", "Stun"]);
+    expect(cubes.list("g", other).map((t) => t.name)).toEqual(["Other pool"]);
+    expect(cubes.findByName("g", "Other pool", owner)).toBeUndefined();
+    cubes.delete("g", "Other pool", owner);
+    expect(cubes.findCube(3).createdByUserId).toBe(other);
+  });
+
+  it("does not overwrite or take ownership of another user's named cube", () => {
+    const { db, cubes } = setup();
+    const owner = seedUser(db, "owner").userId;
+    const other = seedUser(db, "other").userId;
+    const cube = cubes.save("g", "Private", { packSize: 8 }, owner);
+    expect(() => cubes.save("g", "Private", { packSize: 9 }, other)).toThrow();
+    expect(cubes.findCube(cube.id)).toMatchObject({ createdByUserId: owner, config: { packSize: 8 } });
   });
 
   it("renameCube renames and rejects a duplicate name", () => {
@@ -250,7 +266,7 @@ describe("cube service core", () => {
         JSON.stringify({ customCardIds: [1, 2], packSize: 9, draftType: "theme" }),
         cube.id,
       );
-      const again = cubes.save("g", "Pool", { setNames: ["LOB"], packSize: 12 }, seedUser(db, "u2").userId);
+      const again = cubes.save("g", "Pool", { setNames: ["LOB"], packSize: 12 }, seedUser(db, "u").userId);
       expect(again.id).toBe(cube.id);
       expect(raw(db, cube.id)).toEqual({ setNames: ["LOB"], packSize: 12, draftType: "theme" });
     });
@@ -411,25 +427,25 @@ describe("cube service Discord-template-compatible ops", () => {
     expect(saved.name).toBe("My Booster");
     expect(saved.config).toEqual(config);
 
-    const found = cubes.findByName("g", "My Booster");
+    const found = cubes.findByName("g", "My Booster", seedUser(db, "u").userId);
     expect(found?.config).toEqual(config);
-    expect(cubes.list("g").map((c) => c.name)).toContain("My Booster");
+    expect(cubes.list("g", seedUser(db, "u").userId).map((c) => c.name)).toContain("My Booster");
   });
 
   it("save upserts on (guild, name) conflict", () => {
     const { db, cubes } = setup();
     cubes.save("g", "T", { packsPerPlayer: 3 }, seedUser(db, "u").userId);
     cubes.save("g", "T", { packsPerPlayer: 7 }, seedUser(db, "u").userId);
-    expect(cubes.findByName("g", "T")?.config.packsPerPlayer).toBe(7);
-    expect(cubes.list("g").filter((c) => c.name === "T")).toHaveLength(1);
+    expect(cubes.findByName("g", "T", seedUser(db, "u").userId)?.config.packsPerPlayer).toBe(7);
+    expect(cubes.list("g", seedUser(db, "u").userId).filter((c) => c.name === "T")).toHaveLength(1);
   });
 
   it("delete removes a template cube by name; deleting a missing one is a no-op", () => {
     const { db, cubes } = setup();
     cubes.save("g", "T", {}, seedUser(db, "u").userId);
-    cubes.delete("g", "T");
-    expect(cubes.findByName("g", "T")).toBeUndefined();
-    expect(() => cubes.delete("g", "Missing")).not.toThrow();
+    cubes.delete("g", "T", seedUser(db, "u").userId);
+    expect(cubes.findByName("g", "T", seedUser(db, "u").userId)).toBeUndefined();
+    expect(() => cubes.delete("g", "Missing", seedUser(db, "u").userId)).not.toThrow();
   });
 
   it("list is scoped to the guild and ordered by name", () => {
@@ -437,9 +453,9 @@ describe("cube service Discord-template-compatible ops", () => {
     cubes.save("g", "Zoo", { setNames: ["Z"] }, seedUser(db, "u").userId);
     cubes.save("g", "Alpha", { setNames: ["A"] }, seedUser(db, "u").userId);
     cubes.save("other", "Modern", { setNames: ["M"] }, seedUser(db, "u").userId);
-    expect(cubes.list("g").map((c) => c.name)).toEqual(["Alpha", "Zoo"]);
-    expect(cubes.findByName("other", "Modern")?.config).toEqual({ setNames: ["M"] });
-    expect(cubes.findByName("g", "Modern")).toBeUndefined();
+    expect(cubes.list("g", seedUser(db, "u").userId).map((c) => c.name)).toEqual(["Alpha", "Zoo"]);
+    expect(cubes.findByName("other", "Modern", seedUser(db, "u").userId)?.config).toEqual({ setNames: ["M"] });
+    expect(cubes.findByName("g", "Modern", seedUser(db, "u").userId)).toBeUndefined();
   });
 
   it("applyCubeToConfig expands each main-pool copy", () => {
