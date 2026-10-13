@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
-import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom, type DuelSeatView } from "@yugidraft/shared/duels";
+import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelChainLink, type DuelDeck, type DuelEvent, type DuelPromptOption, type DuelRoom, type DuelSeatView } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
@@ -134,6 +134,7 @@ import { useBoardView, type BoardMode } from "./board-view";
 import { useQuietViewChange } from "./quiet-view-change";
 import type { SolidRoomProps } from "./solid/solid-room";
 import { buildAttackPreview } from "./solid/attack-preview";
+import { useLiveChainLinks } from "./pile-chain-marks";
 import { PileViewer } from "./pile-viewer";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "./pile-focus";
 import { MatchSheetLog } from "./text-log";
@@ -153,6 +154,8 @@ const SolidRoom = dynamic<SolidRoomProps>(() => import("./solid/solid-room").the
 
 /** Slack after the crumble ends before an eliminated viewer switches to spectating. */
 const NO_SEATS: readonly DuelSeatView[] = [];
+const NO_CHAIN_EVENTS: readonly DuelEvent[] = [];
+const NO_CHAIN_LINKS: readonly DuelChainLink[] = [];
 const SPECTATE_AFTER_CRUMBLE_MS = 200;
 /** The Card/Log/Settings sheet in 3D mode is a solid panel (the tokens come from the 3D mode root, which holds the sheet). */
 const SOLID_SHEET_CLASS = "bg-[color:var(--ink-1)] border-t border-[color:var(--gold-b)] rounded-t-[16px] md:rounded-t-none";
@@ -449,6 +452,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const viewerLeaving = viewerOut && viewerSeat?.eliminated !== true && viewerSeat?.pendingElimination === true;
   // Auto-spectate only watches the REMAINING duel; once it is over the eliminated seat keeps its own result screen.
   const duelOver = data?.session.status !== "active" || data?.engine?.result != null;
+  // The chain as the pile viewer marks it (the card a link activated from), live while the viewer is open.
+  const pileChainLinks = useLiveChainLinks(data?.engine?.events ?? NO_CHAIN_EVENTS, data?.engine?.chain ?? NO_CHAIN_LINKS, duelOver);
   // A fork plays every seat: one that is out is not a viewer who goes to spectate.
   const viewerEliminated = !forkMode && (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true && !duelOver;
   // The own crumble plays on the table first: the spectate switch re-keys the room and would unmount it at once.
@@ -1685,7 +1690,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           onInspectCard={(card) => { setInspect({ type: "card", card }); if (pane !== "log") setPane("card"); }}
           onHoverCard={(card) => { if (pane === "card" && !hud) setInspect({ type: "card", card }); }}
           onActivateCard={onInspectorActivate}
-          legalKeys={fieldLegalKeys} selectedKeys={selectedKeys}
+          legalKeys={fieldLegalKeys} selectedKeys={selectedKeys} chainLinks={pileChainLinks}
           reducedMotion={preferences.reducedMotion} />
       ) : null}
     </MoveSourceBoundary>

@@ -72,6 +72,7 @@ import {
   type ChainState,
 } from "./chain-state";
 import { buildPanelView, buildStripView, chainOutcomes, rememberTargetNames, type TargetMemory, type Who } from "./chain-narrate";
+import { ChainGlyph } from "./chain-glyph";
 import { ChainPanel, ChainStrip } from "./chain-panel";
 import { CHAIN_PANEL_TIMING } from "./duel-timing";
 import panelStyles from "./chain-panel.module.css";
@@ -305,18 +306,6 @@ const SHEET_WIDE_FROM = 900;
 const SHEET_WIDTH = 480;
 /** Below this much room under the strip, the sheet opens upward when there is more room above it. */
 const SHEET_ROOMY = 460;
-
-/** Two interlocked links. */
-function ChainGlyph() {
-  return (
-    <svg className={baseStyles.glyph} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <g transform="rotate(-40 12 12)" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round">
-        <rect x="1.5" y="8" width="12" height="8" rx="4" />
-        <rect x="10.5" y="8" width="12" height="8" rx="4" />
-      </g>
-    </svg>
-  );
-}
 
 /**
  * The links whose targets are marked on the board. They follow the live engine, so a replacement
