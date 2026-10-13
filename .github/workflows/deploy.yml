@@ -169,7 +169,7 @@ jobs:
       # The multi-duelist core (Tag and 3 and 4 player tables) is NOT part of the pinned bundle: it travels next to the bundle in the
       # deploy tarball and is installed by packages/duel-server/scripts/install-engine-bundle.sh. The server loads it only for tables
       # with more than 2 seats, and MULTIPLAYER_TABLES (default on; set 0 in .env to close) controls those tables.
-      # Same inputs as staging, with a separate production prefix: pins, full series, build scripts and Domain sources.
+      # Production cache inputs: pins, full series, build scripts and Domain sources.
       # The version prefix is a literal: raise it when the build step below changes (the hash cannot see it).
       - name: Compute multi core cache key
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -562,12 +562,12 @@ jobs:
              trap 'exit 1' HUP INT TERM
              printf '%s' "$DEPLOY_COMMIT" | grep -Eq '^[0-9a-f]{40}$' || exit 1
              case "$DEPLOY_ROLLBACK" in true|false) ;; *) exit 1 ;; esac
-             # Keep the shared build lock: staging still uses it, and production deploys must not overlap.
+             # Keep the lock for production deploys and owner maintenance; these must not overlap.
              if command -v flock >/dev/null 2>&1; then
                exec 9>/var/lock/yugidraft-build.lock
-               flock -w 900 9 || { echo "Another build (maybe the staging deploy) holds the build lock." >&2; exit 1; }
+               flock -w 900 9 || { echo "Another production deploy or maintenance task holds the lock." >&2; exit 1; }
              else
-               echo "flock is required for the shared VM build lock. Install util-linux." >&2
+               echo "flock is required for the production deployment lock. Install util-linux." >&2
                exit 1
              fi
              cd /opt/yugioh-bot
