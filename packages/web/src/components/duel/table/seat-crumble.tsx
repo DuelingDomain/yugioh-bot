@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { genField, type Rect } from "../field-cracks/gen";
 import { BOARD_H, buildCrumble, COL, ROW, type CrumbleCard, type Fall } from "./crumble-model";
 import { hexToRgbTriplet } from "./seat-angle";
 import { SEAT_TONE_HEX, type SeatTone } from "./types";
@@ -9,21 +10,34 @@ import styles from "./seat-crumble.module.css";
 /** The mat face, drawn once per tone and width: one data-URI svg shared by every tile. */
 const FACES = new Map<string, string>();
 
-function matFace(tone: SeatTone, width: number): string {
-  const key = `${tone}:${width}`;
+/** The fully connected cracks (stage 4) of a mat of this width, as svg paths in the face's own px: the field that goes out has cracked all the way. */
+function crackPaths(seed: number, width: number, zones: readonly Rect[]): string {
+  const field = genField(seed, { w: width, h: BOARD_H, zones });
+  const sx = width / field.cw;
+  const sy = BOARD_H / field.ch;
+  const all = field.segs.map((seg) => seg.d).join("");
+  return `<g transform="scale(${sx.toFixed(4)} ${sy.toFixed(4)})" fill="none" stroke-linecap="round" stroke-linejoin="round">`
+    + `<path d="${all}" stroke="rgb(2,4,10)" stroke-opacity=".62" stroke-width=".8"/>`
+    + `<path d="${all}" transform="translate(.7 .8)" stroke="rgb(190,208,238)" stroke-opacity=".24" stroke-width=".45"/></g>`;
+}
+
+function matFace(tone: SeatTone, width: number, crackSeed: number | null): string {
+  const key = `${tone}:${width}:${crackSeed ?? "-"}`;
   const known = FACES.get(key);
   if (known) return known;
   const rgb = hexToRgbTriplet(SEAT_TONE_HEX[tone].main).split(" ").join(",");
   const stretch = width / 653;
   let zones = "";
+  const rects: Rect[] = [];
   const zone = (col: number, row: number) => {
+    rects.push([COL[col] * stretch - 38.4, ROW[row] - 56, COL[col] * stretch + 38.4, ROW[row] + 56]);
     zones += `<rect x="${(COL[col] * stretch - 38.4).toFixed(1)}" y="${ROW[row] - 56}" width="76.8" height="112" rx="3.5" fill="rgba(239,231,213,.018)" stroke="rgba(181,153,99,.17)"/>`;
   };
   [1, 2, 3, 4, 5].forEach((col) => { zone(col, 1); zone(col, 2); });
   zone(2, 0); zone(4, 0); zone(0, 1); zone(6, 1); zone(0, 2); zone(6, 2);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="380" viewBox="0 0 ${width} 380"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgb(10,17,34)" stop-opacity=".62"/><stop offset="1" stop-color="rgb(5,8,15)" stop-opacity=".58"/></linearGradient></defs>`
     + `<rect x=".5" y=".5" width="${width - 1}" height="379" rx="6" fill="url(#g)" stroke="rgba(${rgb},.45)"/><rect x="5.5" y="5.5" width="${width - 11}" height="369" rx="3" fill="none" stroke="rgba(181,153,99,.17)"/>`
-    + `<path d="M14 9H${width - 14}M14 121H${width - 14}" stroke="rgba(181,153,99,.34)"/>${zones}</svg>`;
+    + `<path d="M14 9H${width - 14}M14 121H${width - 14}" stroke="rgba(181,153,99,.34)"/>${zones}${crackSeed != null ? crackPaths(crackSeed, width, rects) : ""}</svg>`;
   const url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   FACES.set(key, url);
   return url;
@@ -43,6 +57,8 @@ export interface SeatCrumbleProps {
   width: number;
   /** Seeds the shapes, so one seat crumbles the same way on every render. */
   seed?: number;
+  /** Draws the fully connected field cracks of this seed on the mat (the shatter tiles carry them). Leave out for none. */
+  crackSeed?: number | null;
   /** No pieces: the flat board fades and slides down 28 px. */
   reducedMotion?: boolean;
   /** The board waits whole, with no motion, until the attack and the LP roll that put the seat out are over. */
@@ -59,7 +75,7 @@ export interface SeatCrumbleProps {
  * `transform-style: preserve-3d` and has no opacity, filter or overflow above the leaf, or the depth is lost.
  * It draws nothing when the browser has no `animate`; the caller removes the layer on a timer as well.
  */
-export function SeatCrumble({ cards, tone, rotateDeg, scale = 1, width, seed = 1234, reducedMotion = false, held = false, onDone }: SeatCrumbleProps) {
+export function SeatCrumble({ cards, tone, rotateDeg, scale = 1, width, seed = 1234, crackSeed = null, reducedMotion = false, held = false, onDone }: SeatCrumbleProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const done = useRef(onDone);
   done.current = onDone;
@@ -69,7 +85,7 @@ export function SeatCrumble({ cards, tone, rotateDeg, scale = 1, width, seed = 1
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [width, rotateDeg, scale, seed],
   );
-  const face = matFace(tone, width);
+  const face = matFace(tone, width, crackSeed ?? null);
 
   useLayoutEffect(() => {
     const box = boxRef.current;
