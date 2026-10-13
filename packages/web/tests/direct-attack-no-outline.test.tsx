@@ -32,9 +32,10 @@ function draw(plan: AttackFxPlan) {
   }));
   const veils = [...html.querySelectorAll(".veil")].map((v) => v as HTMLElement);
   const lpFlash = html.querySelectorAll(".lpFlash").length;
-  const circles = svg.querySelectorAll("circle").length;
+  const radii = [...svg.querySelectorAll("circle")].map((c) => Number(c.getAttribute("r")));
+  const circles = radii.length;
   stop();
-  return { rects, veils, lpFlash, circles };
+  return { rects, veils, lpFlash, circles, radii };
 }
 
 /** The rect wraps the row: it starts at or before the row's corner and ends at or after the other one. */
@@ -51,6 +52,15 @@ describe("a direct hit draws no outline around the defender's row", () => {
     expect(out.veils.filter(veilOnRow)).toEqual([]);
     expect(out.circles).toBeGreaterThan(0);
     expect(out.lpFlash).toBe(1);
+  });
+
+  // The row is wide: a disc sized by its width would cover the board. The disc grows 1.6x, so keep it well inside the row's height.
+  it.each(STYLES)("%s: the burst disc stays within the row's height (full, reduced and 3D)", (style) => {
+    for (const over of [{}, { reduced: true }, { layer3d: true }] as Array<Partial<AttackFxPlan>>) {
+      const { radii } = draw(planOf(style, over));
+      expect(radii.length).toBeGreaterThan(0);
+      for (const r of radii) expect(r * 1.6).toBeLessThanOrEqual(ROW.height);
+    }
   });
 
   it.each(STYLES)("%s, reduced motion: no rect and no wash on the row", (style) => {

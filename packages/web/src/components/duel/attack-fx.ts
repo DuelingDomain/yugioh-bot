@@ -323,12 +323,17 @@ function hitRing(cx: Ctx, box: Box, at: number, color: string, pad = 5): void {
   add(cx, r, [{ opacity: 0, strokeWidth: 1 }, { opacity: 1, strokeWidth: 2.4, offset: 0.3 }, { opacity: 0, strokeWidth: 1.2 }], { at, dur: 380 * HIT_LINGER, easing: "ease-out" });
 }
 
-function flashDisc(cx: Ctx, c: Pt, at: number, color: string, r: number, dur = 320): void {
+/** The disc of a direct hit is sized by the row's height (the row is wide): at most this share of it, before the 1.6x grow. */
+const DIRECT_DISC = 0.5;
+/** Its peak is lower than a hit on a card, so the burst does not wash the board; sparks and the shake carry the hit. */
+const DIRECT_PEAK = 0.55;
+
+function flashDisc(cx: Ctx, c: Pt, at: number, color: string, r: number, dur = 320, peak = 0.9): void {
   dur *= HIT_LINGER;
   const d = place(cx, svgEl("circle", { cx: c.x, cy: c.y, r, fill: color }));
   d.style.filter = "blur(6px)";
   d.style.transformOrigin = `${c.x}px ${c.y}px`;
-  add(cx, d, [{ opacity: 0, transform: "scale(.3)" }, { opacity: 0.9, offset: 0.2 }, { opacity: 0, transform: "scale(1.6)" }], { at, dur, easing: "ease-out" });
+  add(cx, d, [{ opacity: 0, transform: "scale(.3)" }, { opacity: peak, offset: 0.2 }, { opacity: 0, transform: "scale(1.6)" }], { at, dur, easing: "ease-out" });
 }
 
 function veil(cx: Ctx, box: Box, color: string, at: number, dur: number, peak: number, radius = 4): HTMLElement {
@@ -577,7 +582,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
       const P = { x: p.x - vx * ext, y: p.y - vy * ext };
       const Q = { x: q.x + vx * ext, y: q.y + vy * ext };
       drawIn(cx, [stroke(cx, seg(P, Q), tint.main, 9 * u, { blur: 4 }), stroke(cx, seg(P, Q), tint.hi, 2.4 * u, { glow: 3 })], T(470), 360 * k);
-      flashDisc(cx, g.e, T(505), tint.hi, Math.min(b.width, b.height) * (g.direct ? 0.9 : 0.5));
+      flashDisc(cx, g.e, T(505), tint.hi, Math.min(b.width, b.height) * (g.direct ? DIRECT_DISC : 0.5));
       if (!g.direct) hitRing(cx, b, T(500), tint.main);
       emit(cx, { at: T(515), life: 320, count: 10, x: g.e.x, y: g.e.y, color: tint.hi, size: 2, angle: Math.atan2(vy, vx), spread: 0.9, speed: 260, gravity: 300, seed: g.seed + 3 });
       emit(cx, { at: T(515), life: 320, count: 10, x: g.e.x, y: g.e.y, color: tint.main, size: 2, angle: Math.atan2(vy, vx) + Math.PI, spread: 0.9, speed: 260, gravity: 300, seed: g.seed + 4 });
@@ -699,7 +704,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
       hot.style.transformOrigin = `${g.e.x}px ${g.e.y}px`;
       add(cx, hot, [{ opacity: 0, transform: "scale(.3)" }, { opacity: 1, transform: "scale(1)", offset: 0.15 }, { opacity: 1, transform: "scale(1.3)", offset: 0.7 }, { opacity: 0, transform: "scale(2)" }], { at: T(440), dur: 340 * k, easing: "ease-out" });
       if (!g.direct) hitRing(cx, g.to, T(440), tint.main);
-      flashDisc(cx, g.e, T(445), tint.hi, Math.min(g.to.width, g.to.height) * (g.direct ? 0.9 : 0.55), 300);
+      flashDisc(cx, g.e, T(445), tint.hi, Math.min(g.to.width, g.to.height) * (g.direct ? DIRECT_DISC : 0.55), 300);
       const back = Math.atan2(-g.dir.y, -g.dir.x);
       emit(cx, { at: T(445), life: 300, count: 12, x: g.e.x, y: g.e.y, color: tint.hi, size: 1.6, angle: back, spread: 2.2, speed: 180, gravity: 120, seed: g.seed + 6 });
       emit(cx, { at: T(560), life: 260, count: 8, x: g.e.x, y: g.e.y, color: tint.main, size: 1.4, angle: back, spread: 2.4, speed: 140, gravity: 120, seed: g.seed + 7 });
@@ -757,7 +762,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
       lunge(cx, g, T(240), k);
       emit(cx, { at: T(340), life: 260, count: 18, color: tint.main, size: 1.8, mode: "trail", path: { a: g.s, c: mid, b: g.e, span: 210 * k }, speed: 20, gravity: -30, shape: "dot", shrink: true, seed: g.seed + 9 });
       // impact: burst, a second rune ring expands at the target
-      flashDisc(cx, g.e, T(550), tint.hi, Math.min(g.to.width, g.to.height) * (g.direct ? 0.9 : 0.6), 340);
+      flashDisc(cx, g.e, T(550), tint.hi, Math.min(g.to.width, g.to.height) * (g.direct ? DIRECT_DISC : 0.6), 340);
       const burst = place(cx, svgEl("circle", { cx: g.e.x, cy: g.e.y, r: 18 * u, fill: "none", stroke: tint.main, "stroke-width": 2, "stroke-dasharray": "5 3 12 3" }));
       burst.style.transformOrigin = `${g.e.x}px ${g.e.y}px`;
       burst.style.filter = glow(tint.main, 5);
@@ -826,7 +831,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
         const white = veil(cx, b, tint.hi, T(440), 300 * k, 0.95);
         add(cx, white, [{ opacity: 0 }, { opacity: 0.95, offset: 0.1 }, { opacity: 0.5, offset: 0.35 }, { opacity: 0.85, offset: 0.5 }, { opacity: 0 }], { at: T(440), dur: 300 * k });
       }
-      flashDisc(cx, g.e, T(445), tint.hi, Math.min(b.width, b.height) * (g.direct ? 0.9 : 0.7), 320);
+      flashDisc(cx, g.e, T(445), tint.hi, Math.min(b.width, b.height) * (g.direct ? DIRECT_DISC : 0.7), 320);
       if (!g.direct) hitRing(cx, b, T(445), tint.main);
       for (let i = 0; i < 3; i++) {
         const p = { x: b.left + rnd() * b.width, y: b.top + rnd() * b.height };
@@ -895,7 +900,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
       bloom.style.filter = "blur(5px)";
       bloom.style.transformOrigin = `${g.e.x}px ${g.e.y}px`;
       add(cx, bloom, [{ opacity: 0, transform: "scale(.4)" }, { opacity: 0.95, transform: "scale(1.6)", offset: 0.25 }, { opacity: 0, transform: "scale(3.2)" }], { at: T(535), dur: 420 * k, easing: "cubic-bezier(.2,.7,.3,1)" });
-      flashDisc(cx, g.e, T(540), tint.hi, Math.min(g.to.width, g.to.height) * (g.direct ? 0.9 : 0.55), 300);
+      flashDisc(cx, g.e, T(540), tint.hi, Math.min(g.to.width, g.to.height) * (g.direct ? DIRECT_DISC : 0.55), 300);
       if (!g.direct) hitRing(cx, g.to, T(540), tint.main);
       emit(cx, { at: T(545), life: 520, count: 20, x: g.e.x, y: g.e.y, color: tint.main, size: 2.2, speed: 170, gravity: -90, drag: 1.6, shape: "dot", shrink: true, seed: g.seed + 17 });
       emit(cx, { at: T(545), life: 300, count: 8, x: g.e.x, y: g.e.y, color: tint.hi, size: 1.6, speed: 240, gravity: 100, seed: g.seed + 18 });
@@ -973,7 +978,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
       for (const el of cracks) {
         add(cx, el, [{ strokeDashoffset: 1, opacity: 1 }, { strokeDashoffset: 0, opacity: 1, offset: 0.3 }, { strokeDashoffset: 0, opacity: 1, offset: 0.7 }, { strokeDashoffset: 0, opacity: 0 }], { at: T(470), dur: 480 * k, easing: "cubic-bezier(.2,.7,.3,1)" });
       }
-      flashDisc(cx, g.e, T(470), tint.hi, Math.min(b.width, b.height) * (g.direct ? 0.9 : 0.5), 260);
+      flashDisc(cx, g.e, T(470), tint.hi, Math.min(b.width, b.height) * (g.direct ? DIRECT_DISC : 0.5), 260);
       if (!g.direct) hitRing(cx, b, T(470), tint.main);
       emit(cx, { at: T(475), life: 520, count: 18, x: g.e.x, y: g.e.y, color: tint.main, size: 2.4, angle: -Math.PI / 2, spread: 2.6, speed: 150, gravity: 420, drag: 1.2, shape: "dot", alpha: 0.85, seed: g.seed + 25 });
       shake(cx, g.toEl, T(470), 4.5 * u, 300);
@@ -1038,7 +1043,7 @@ function reflectPulse(cx: Ctx, from: Box, lp: Box, at: number): void {
  * defender's field, so no ring or box is drawn around it (the damage and the red flash are on the LP plate).
  */
 function directImpact(cx: Ctx, box: Box, at: number): void {
-  flashDisc(cx, centre(box), at, "#ffffff", Math.max(box.width, box.height) * 0.7, 480);
+  flashDisc(cx, centre(box), at, "#ffffff", Math.min(box.width, box.height) * DIRECT_DISC, 480, DIRECT_PEAK);
 }
 
 /** A red wash and ring on an LP tally when its counter starts to roll. */
@@ -1083,7 +1088,7 @@ function runReduced(cx: Ctx, plan: AttackFxPlan): void {
   };
   if (attacker.caption) caption(cx, geoFor(attacker, plan.hit, null, attacker.tint, plan.seed, !defender, cx.u), attacker.caption, attacker.tint, 0);
   mark(attacker.box, 0, attacker.tint.main);
-  if (!defender) flashDisc(cx, centre(plan.hit), 200, "#ffffff", Math.max(plan.hit.width, plan.hit.height) * 0.4, 480);
+  if (!defender) flashDisc(cx, centre(plan.hit), 200, "#ffffff", Math.min(plan.hit.width, plan.hit.height) * DIRECT_DISC, 480, DIRECT_PEAK);
   else mark(plan.hit, 200, (plan.kind === "held" || plan.kind === "bounce") && plan.defenderInDefense ? "#dbe9ff" : attacker.tint.main);
   // The counter flash on the attacker comes before any break: hit, counter, then the loser fades.
   if (hasCounterStrike(plan.kind) && defender) mark(attacker.box, plan.timing.attackerDamageMs, defender.tint.main);
