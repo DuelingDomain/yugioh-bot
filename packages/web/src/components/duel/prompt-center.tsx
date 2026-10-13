@@ -909,9 +909,9 @@ function ResponseBody({
             <p className={styles.recallFacts}>
               Return this Deck Master to the Deck Master Zone?
               <br />
-              Returns: <b>{context.returns}</b> · Next summon after this recall: <b>{context.nextCost} LP</b>
+              Returns: <b>{context.returns}</b> · Next summon, set or activation after this recall: <b>{context.nextCost} LP</b>
               <br />
-              Each return adds 500 LP to the next summon.
+              Each return adds 500 LP to the next summon, set or activation from the Deck Master Zone.
             </p>
           </div>
         </div>
