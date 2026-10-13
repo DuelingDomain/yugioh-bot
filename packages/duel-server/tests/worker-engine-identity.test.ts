@@ -7,6 +7,7 @@ import { handleWorkerRequest } from "../src/worker.js";
 import { GameWorker } from "../src/worker-client.js";
 
 const { create, legacyCreate } = vi.hoisted(() => ({ create: vi.fn(), legacyCreate: vi.fn() }));
+vi.mock("../src/cards.js", () => ({ loadCardDatabase: vi.fn() }));
 vi.mock("../src/engine.js", () => ({ createEngineGame: create }));
 vi.mock("../src/legacy/index.js", () => ({ createLegacyEngineGame: legacyCreate }));
 vi.mock("node:worker_threads", async () => {

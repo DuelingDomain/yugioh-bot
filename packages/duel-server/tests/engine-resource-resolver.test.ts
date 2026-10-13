@@ -107,6 +107,8 @@ describe("current engine identity", () => {
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
     // Version 4 records main's Deck Master prompt costs and seat-bound card declaration
     // suggestions, including both new runtime helpers. Historical baselines remain unchanged.
+    // PR #354 only adds worker startup timings and preloads the same cached card catalog.
+    // Refresh version 4's fingerprint: journal decoding and engine rules do not change.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 

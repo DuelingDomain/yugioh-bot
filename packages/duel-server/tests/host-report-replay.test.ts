@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { isDuelKindSetup } from "@yugidraft/shared/duels";
@@ -20,6 +20,7 @@ afterEach(async () => {
   while (hosts.length > 0) await hosts.pop()!.close();
   delete process.env.DUEL_SCENARIOS;
   delete process.env.DUEL_REPORT_DIR;
+  vi.restoreAllMocks();
 });
 
 async function post(host: DuelHost, body: Record<string, unknown>) {
@@ -48,6 +49,7 @@ it("removes private creator and prefix metadata from valid fork report setup", (
 
 describe("a manual report journal replays", () => {
   it("replay-journal.ts replays the journal.jsonl of a real preset duel, startup scripts included", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     process.env.DUEL_SCENARIOS = "1";
     const dir = mkdtempSync(join(tmpdir(), "duel-report-replay-"));
     process.env.DUEL_REPORT_DIR = dir;
@@ -61,6 +63,14 @@ describe("a manual report journal replays", () => {
       const started = await post(host, { op: "start-preset", presetId: "dust-tornado-chain", ...who });
       expect(started.status).toBe(200);
       const slug = started.data.slug as string;
+      expect(info).toHaveBeenCalledTimes(1);
+      const timing = JSON.parse(info.mock.calls[0]![0]);
+      expect(timing).toEqual({ event: "duel_start", slug, outcome: "ready", totalMs: expect.any(Number),
+        resourceChecksMs: expect.any(Number), workerSpawnMs: expect.any(Number), cardDbLoadMs: expect.any(Number),
+        engineCreateMs: expect.any(Number), firstViewMs: expect.any(Number) });
+      for (const [key, value] of Object.entries(timing)) if (key.endsWith("Ms")) expect(value).toBeGreaterThanOrEqual(0);
+      expect(JSON.stringify(timing)).not.toContain(DATA);
+      expect(JSON.stringify(timing)).not.toContain(SECRET);
       const engine = started.data.room.engine as { revision: number; prompt: { id: string; options: Array<{ id: string }> } };
       const pass = engine.prompt.options.find((option) => option.id === "to_ep") ?? engine.prompt.options[0]!;
       const responded = await post(host, {

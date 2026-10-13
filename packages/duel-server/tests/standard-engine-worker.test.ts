@@ -19,6 +19,9 @@ describeWithCores("Standard-only switch on a real 1v1 worker", [needs.cards(DATA
       const deck = buildPracticeBotDeck(mode, DATA);
       await worker.create({ mode, engine, decks: [deck, deck], dataDirectory: DATA, seed: ["1", "2", "3", "4"],
         scriptErrorMode: "strict", firstTurnDraw: false });
+      const timings = worker.startupTimings();
+      expect(timings).toEqual({ workerSpawnMs: expect.any(Number), cardDbLoadMs: expect.any(Number), engineCreateMs: expect.any(Number) });
+      for (const ms of Object.values(timings!)) expect(ms).toBeGreaterThanOrEqual(0);
       const manifest = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8"));
       expect(worker.debugState()).toMatchObject(mode === "normal"
         ? { wasmFile: "ocgcore.standard.wasm", wasmSha: manifest.integrity.standardWasm }

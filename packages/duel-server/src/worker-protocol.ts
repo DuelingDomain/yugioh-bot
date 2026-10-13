@@ -33,6 +33,11 @@ export interface DuelWorkerCreateOptions {
   engine?: DuelEngineChoice;
 }
 
+export interface WorkerCreateTimings {
+  cardDbLoadMs: number;
+  engineCreateMs: number;
+}
+
 export type DuelWorkerRequest =
   | { id: number; op: "create"; options: DuelWorkerCreateOptions }
   | { id: number; op: "view"; seat: number | null }
@@ -44,5 +49,5 @@ export type DuelWorkerRequest =
   | { id: number; op: "close" };
 
 export type DuelWorkerResponse =
-  | { id: number; ok: true; value?: DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] }
+  | { id: number; ok: true; value?: DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; createTimings?: WorkerCreateTimings; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] }
   | { id: number; ok: false; error: string; answerError?: true; engineLoop?: true; code?: DuelErrorCode | "ENGINE_UNAVAILABLE_FOR_SOURCE"; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] };

@@ -9,6 +9,7 @@ import { tracePrompt } from "./prompt-trace.js";
 import { EngineAnswerError } from "./prompts.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { EngineResourceUnavailableError, verifyWorkerEngineIdentity } from "./engine-resource-resolver.js";
+import { loadCardDatabase } from "./cards.js";
 
 let game: EngineGame | null = null;
 let queue = Promise.resolve();
@@ -85,11 +86,17 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
         }
         // The legacy engine plays two-seat tables only; every other table uses the merged engine and its multi core.
         const legacy = request.options.engine === "legacy" && (request.options.format ?? "1v1") === "1v1";
+        const cardsAt = performance.now();
+        // Both engine factories reuse this thread's catalog cache. Time its cold load separately.
+        loadCardDatabase(request.options.dataDirectory);
+        const cardDbLoadMs = performance.now() - cardsAt;
+        const engineAt = performance.now();
         game = await (legacy ? createLegacyEngineGame : createEngineGame)({ ...request.options,
           onScriptError: (error) => scriptErrors.push(error), onFatalScriptError: (error) => fatalScriptErrors.push(error) });
+        const engineCreateMs = performance.now() - engineAt;
         traceSeats = process.env.DUEL_SCENARIOS === "1" && (request.options.format ?? "1v1") !== "1v1"
           ? seatCountFor(request.options.format!) : 0;
-        return { id: request.id, ok: true };
+        return { id: request.id, ok: true, createTimings: { cardDbLoadMs, engineCreateMs } };
       }
       case "view": {
         if (!game) return { id: request.id, ok: false, error: "No game" };
