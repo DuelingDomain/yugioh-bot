@@ -247,9 +247,11 @@ export interface HudLayerProps {
   /** The pile viewer is open, or a pick hint is shown: the preview hides. An open card menu does not hide it. */
   previewHidden: boolean;
   reducedMotion: boolean;
+  /** The seats of the viewer (and the partner in Tag): the card peek is as wide as the free room up to their field zones, so it never covers them. */
+  ownSeats?: readonly number[];
 }
 
-export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, equipLinks, previewHidden, reducedMotion }: HudLayerProps) {
+export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, equipLinks, previewHidden, reducedMotion, ownSeats }: HudLayerProps) {
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   // A hovered board card says only what the art already shows (negated); a pinned one adds its equip, counter and material lines.
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
@@ -296,6 +298,7 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
         pinned={preview?.pinned === true}
         extras={extras}
         avoid={preview?.pinned === true ? hud.pinAnchor : null}
+        ownSeats={ownSeats}
         onClose={closePin}
       />
     </>
