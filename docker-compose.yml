@@ -79,6 +79,7 @@ services:
     user: *user
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
+      - DUEL_DATA_DIR=/app/data/duel-engine
       - CARD_IMAGE_CACHE_DIR=/app/data/card-images
       - DISCORD_BOT_ENABLED=0
       - WEB_URL=${WEB_URL:?WEB_URL is required}

@@ -3,7 +3,7 @@ import type Database from "better-sqlite3";
 import type { Card } from "../types/index.js";
 import { foldCardText } from "../duels/card-query.js";
 import { canonicalCardCode, type CardIdentityCatalog } from "../duels/pool.js";
-import { loadArtworkIdentityCatalog, mainArtworkId, type CardArtwork } from "./card-artworks.js";
+import { deckEngineDataDirectory, loadArtworkIdentityCatalog, mainArtworkId, type CardArtwork } from "./card-artworks.js";
 import { CardDataError, CardFetchError, CardFetchLimitError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
 import { createCardLookupBudget, takeCardLookup, type CardLookupBudget } from "./card-lookup-budget.js";
 import { createImportedCardNameMatcher, normalizeImportedCardName, straightenCardQuotes } from "./card-name-match.js";
@@ -142,7 +142,7 @@ export function createCardCatalogService(
 ) {
   const fetchImpl = options.fetch ?? globalThis.fetch;
   let identity = options.identityCatalog;
-  const engineIdentity = () => identity ??= loadArtworkIdentityCatalog();
+  const engineIdentity = () => identity ??= loadArtworkIdentityCatalog(deckEngineDataDirectory(db.name));
   const mainId = (card: YgoprodeckCard): number | undefined => {
     const proven = mainArtworkId(card, engineIdentity());
     if (proven !== undefined) return proven;

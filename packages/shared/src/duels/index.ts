@@ -778,5 +778,5 @@ export type { CardArtworkFamily, SelectableCardArtwork, CardArtworksResponse, De
 export type { DuelDiceRound, DuelDiceOpeningState, DuelDiceOpeningView } from "./dice-opening.js";
 export { DUEL_DICE_REVEAL_MS, MAX_DICE_ROUNDS as DUEL_DICE_MAX_ROUNDS } from "./dice-opening.js";
 
-export { isExtraDeckCard, assertExtraDeckCards, routeDeckSections, ExtraDeckCardError, INVALID_EXTRA_DECK_CARD } from "./extra-deck.js";
+export { hasKnownDeckCardType, isExtraDeckCard, assertExtraDeckCards, routeDeckSections, ExtraDeckCardError, INVALID_EXTRA_DECK_CARD } from "./extra-deck.js";
 export type { DeckCardType, DeckSectionMove } from "./extra-deck.js";

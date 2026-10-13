@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isExtraDeckCard, routeDeckSections } from "../src/duels/extra-deck.js";
+import { assertExtraDeckCards, isExtraDeckCard, routeDeckSections } from "../src/duels/extra-deck.js";
 
 describe("Extra Deck card rule", () => {
   it.each([
@@ -23,6 +23,17 @@ describe("Extra Deck card rule", () => {
     for (const type of [0x42, 0x45, 0x4041, 0x8000041, "Fusion Token", "Link Skill Card"]) {
       expect(isExtraDeckCard({ type })).toBe(false);
     }
+  });
+  it("keeps cards with unknown types in their source section and reports their names", () => {
+    const cards = new Map([[997, { name: "Named unknown", type: "" }], [998, { name: "Unclassified", type: 0 }]]);
+    const deck = { main: [997], extra: [997, 998, 999], side: [999] };
+    const routed = routeDeckSections(deck, code => cards.get(code));
+    expect(routed.deck).toEqual(deck);
+    expect(routed.moves).toEqual([]);
+    expect(routed.messages.join(" ")).toContain("Named unknown");
+    expect(routed.messages.join(" ")).toContain("Unclassified");
+    expect(routed.messages.join(" ")).toContain("card 999");
+    expect(() => assertExtraDeckCards(deck, code => cards.get(code))).toThrow("Named unknown");
   });
   it("routes both directions, keeps Side and Master, and reports each copy without a size cap", () => {
     const cards = new Map([[901, { type: "Spell Card", name: "Test Spell" }],
