@@ -4,6 +4,8 @@ import { migrate } from "@yugidraft/shared/db";
 import { createCardCatalogService } from "@yugidraft/shared/services";
 import { resolveDeckImport } from "../src/lib/deck-import";
 
+import { domainDeck, domainEngine, domainList, domainYdk } from "./fixtures/domain-engine-deck";
+
 let db: Database.Database;
 let catalog: ReturnType<typeof createCardCatalogService>;
 beforeEach(() => {
@@ -21,6 +23,34 @@ function ydke(main: number[], extra: number[], side: number[]) {
   return `ydke://${encode(main)}!${encode(extra)}!${encode(side)}!`;
 }
 describe("deck import type routing", () => {
+  it.each(["YDK", "YDKE", "name list", "passcode list"])("keeps all sections in a 70-card Domain %s import without catalog rows", async format => {
+    const fetch = vi.fn(async () => { throw new Error("Offline"); });
+    const offline = createCardCatalogService(db, { fetch, identityCatalog: domainEngine });
+    const text = format === "YDK" ? domainYdk : format === "YDKE" ? ydke(domainDeck.main, domainDeck.extra, [domainDeck.deckMaster]) : format === "name list" ? domainList : domainYdk.replace("#main", "Main:").replace("#extra", "Extra:").replace("!side", "Side:");
+    const result = await resolveDeckImport(offline, text, "domain", domainEngine);
+    // Printed names resolve to the base artwork; the YDK keeps the selected artwork.
+    const expected = format === "YDKE" ? { ...domainDeck, side: [domainDeck.deckMaster], deckMaster: undefined } : format === "name list" ? { ...domainDeck, extra: domainDeck.extra.map(code => domainEngine.get(code)!.alias || code) } : domainDeck;
+    expect(result.deck).toEqual(expected);
+    expect(result.moves).toEqual([]);
+    expect(result.messages).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("resolves an engine-only printed name with a leading number offline", async () => {
+    const engine = new Map([[86188410, { name: "7 Colored Fish", type: 17 }]]);
+    const fetch = vi.fn(async () => { throw new Error("Offline"); });
+    const offline = createCardCatalogService(db, { fetch, identityCatalog: engine });
+    const result = await resolveDeckImport(offline, "Main:\n7 Colored Fish", "domain", engine);
+    expect(result.deck.main).toEqual([86188410]);
+    expect(result.moves).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("keeps a named card with unknown type in Extra on import", async () => {
+    db.exec("update card_catalog set type='' where ygoprodeck_id=903");
+    const result = await resolveDeckImport(catalog, "Extra:\nTest Fusion", "domain", new Map());
+    expect(result.deck.extra).toEqual([903]);
+    expect(result.moves).toEqual([]);
+    expect(result.messages.join(" ")).toContain("Test Fusion");
+  });
   it.each(["#main\n998\n#extra\n997\n997\n!side\n998", ydke([998], [997, 997], [998])])("imports engine-only codes offline, routes by engine bits, and reports engine names", async text => {
     const fetch = vi.fn(async () => { throw new Error("Offline"); });
     const engine = new Map([[998, { name: "Engine Fusion", type: 0x41 }], [997, { name: "Engine Spell", type: 0x2 }]]);
@@ -77,6 +107,12 @@ describe("deck import type routing", () => {
     const result = await resolveDeckImport(catalog, "#extra\n901", "normal", new Map([[901, { name: "Test Spell", type: 0x2 }]]));
     expect(result.deck).toEqual({ main: [901], extra: [], side: [] });
     expect(result.moves).toHaveLength(1);
+    expect(result.messages).toContain("1 card moved from Extra Deck to Main Deck: Test Spell.");
+  });
+  it("names a moved engine card from the catalog when its text row is missing", async () => {
+    db.prepare("update card_catalog set type='Fusion Monster' where ygoprodeck_id=901").run();
+    const result = await resolveDeckImport(catalog, "#extra\n901", "normal", new Map([[901, { name: "", type: 0x2 }]]));
+    expect(result.deck).toEqual({ main: [901], extra: [], side: [] });
     expect(result.messages).toContain("1 card moved from Extra Deck to Main Deck: Test Spell.");
   });
 

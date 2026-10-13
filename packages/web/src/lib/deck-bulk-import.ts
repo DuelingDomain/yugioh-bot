@@ -333,7 +333,7 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
     const master = mapped.errors.length || !final.ok ? [] : await masterIssues(row.deck);
     if (master.some(issue => issue.code === "validation_unavailable")) return errorResponse("Duel engine unavailable, try again", 503);
     row.errors.push(...mapped.errors, ...(final.ok ? [] : final.errors), ...master.map(issue => masterLine === undefined ? issue : { ...issue, line: masterLine }));
-    row.warnings.push(...mapped.warnings, ...routed.messages.map(message => ({ code: "section_moved", message })), ...sizeWarnings(row.deck));
+    row.warnings.push(...mapped.warnings, ...routed.messages.map(message => ({ code: message.startsWith("Card type is unknown") ? "unknown_card_type" : "section_moved", message })), ...sizeWarnings(row.deck));
     const duplicate = duplicates.get(key);
     if (duplicate) row.duplicateOf = duplicate;
     else duplicates.set(key, { kind: "row", rowId: row.rowId, name: row.name });
