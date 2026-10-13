@@ -4,13 +4,13 @@ import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
 import { scriptErrorModeFromEnv } from "./script-errors.js";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
 import { createGithubCardDataStatus } from "./github-card-data-status.js";
-import { CARD_LOOKUP_LIMIT, createCardLookupBudget, createDuelSeriesService, createDuelService, createTournamentDuelService, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
+import { CARD_LOOKUP_LIMIT, createCardLookupBudget, loadArtworkIdentityCatalog, createDeckCopyRepairService, createDuelSeriesService, createDuelService, createTournamentDuelService, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCommand,
@@ -39,7 +39,7 @@ import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, elimina
 import { EngineAnswerError } from "./prompts.js";
 import { ENGINE_LOOP_REASON, EngineLoopError } from "./engine-loop-error.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
-import { DeckLegalityError, inspectDeck, validateDeck, validateDeckMasterType, type InspectDeckOptions } from "./deck-legality.js";
+import { DeckLegalityError, ExtraDeckCardError, inspectDeck, validateDeck, validateExtraDeckTypes, validateDeckMasterType, type InspectDeckOptions } from "./deck-legality.js";
 import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
@@ -80,6 +80,8 @@ const CLOCK_SWEEP_LIMIT = 32;
 const SERIES_SWEEP_LIMIT = 16;
 /** Wait after the 1st, 2nd and later failed starts of one series game; the last value is the cap. */
 const START_BACKOFF_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
+const DECK_START_BLOCK_TTL_MS = 15 * 60 * 1000;
+const DECK_START_BLOCK_MAX = 256;
 const MAX_TIMER_MS = 2 ** 31 - 1;
 /** Bound one live coin presentation pause, including any already queued grace. */
 const MAX_COIN_TOSS_GRACE_MS = 60_000;
@@ -143,6 +145,14 @@ function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> 
 
 class RequestError extends Error {
   constructor(message: string, readonly status: number, readonly code?: DuelErrorCode) { super(message); }
+}
+
+/** Start checks can fail on a different player's private deck. */
+class SeatDeckLegalityError extends DeckLegalityError {
+  constructor(readonly slug: string, readonly playerId: number, readonly legalityError: DeckLegalityError, readonly startStateHash: string) {
+    super(legalityError.message);
+    this.name = "SeatDeckLegalityError";
+  }
 }
 
 class ReplayMismatchError extends Error {
@@ -322,8 +332,11 @@ export function createDuelHost(options: {
   rollDie?: () => number;
 }): DuelHost {
   if (!options.secret) throw new Error("DUEL_INTERNAL_SECRET is required");
+  let deckCopies: ReturnType<typeof createDeckCopyRepairService> | undefined;
+  const repairEngine = () => loadArtworkIdentityCatalog(options.dataDirectory);
+  const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(options.db, repairEngine);
   const service = createDuelService(options.db, { rollDie: options.rollDie });
-  const series = createDuelSeriesService(options.db);
+  const series = createDuelSeriesService(options.db, repairEngine);
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as EngineDataManifest;
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
   const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory, { manifest, now: options.now });
@@ -373,7 +386,13 @@ export function createDuelHost(options: {
   const openingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const random = options.random ?? Math.random;
   /** Series games whose last start failed: the tick sweep skips a slug until `retryAt`. */
-  const startBackoff = new Map<string, { failures: number; retryAt: number }>();
+  const startBackoff = new Map<string, {
+    failures: number;
+    retryAt: number;
+  }>();
+  /** Bounded, short-lived start blockers; hashes avoid retaining private deck data. */
+  const deckStartBlocks = new Map<string, { playerId: number; stateHash: string; blockedAt: number }>();
+  const deckBlockSession = options.db.prepare<[string], { status: string }>("select status from duels where web_slug = ?");
   const pacedBot = typeof options.botStepDelayMs === "function" || (options.botStepDelayMs ?? 0) > 0;
   const envStall = Number(process.env.DUEL_STALL_MS);
   // The watchdog is a test tool (it reads every seat's view and writes report folders): on only where DUEL_SCENARIOS=1,
@@ -423,6 +442,7 @@ export function createDuelHost(options: {
 
   async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
     const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format, cardBlocks: admissionEntries(mode, format) };
+    validateExtraDeckTypes(deck, options.dataDirectory);
     validateDeck(mode, deck, options.dataDirectory, settings, checks);
   }
 
@@ -1418,6 +1438,36 @@ export function createDuelHost(options: {
     markLegacyLosses(new Set([playerView, replayedView, room.engine]));
     rememberView(slug, playerSeat, playerView, game);
     if (spectate && !ownResult) rememberView(slug, room.mySeat, room.engine, game);
+    // Check only the viewer's own future deck, independent of who last attempted to start.
+    const pendingDeck = room.role === "player"
+      ? room.series?.status === "between_games" ? room.mySide?.currentDeck
+        : room.session.status === "lobby" ? room.myDeck : null
+      : null;
+    if (pendingDeck) {
+      try {
+        try {
+          await validateSessionDeck(room.session.mode, pendingDeck, room.session.settings, room.session.format,
+            { session: room.session, playerId });
+        } catch (error) {
+          if (!(error instanceof DeckLegalityError)) throw error;
+          const checks = await sessionDeckOptions(room.session, playerId);
+          const report = inspectDeck(room.session.mode, pendingDeck, options.dataDirectory, room.session.settings, checks);
+          room.startBlocked = { reason: error.message,
+            cardNames: [...new Set(report.issues.flatMap(issue => issue.cards.map(card => card.name ?? `card ${card.code}`)))] };
+        }
+      } catch (error) {
+        console.warn("[duel] could not check the viewer's start blocker", error);
+      }
+    }
+    const deckBlock = deckStartBlocks.get(slug);
+    if (deckBlock) {
+      if (room.session.status !== "lobby" || deckBlock.stateHash !== startDeckStateHash(service.privateState(slug, guildId))) {
+        deckStartBlocks.delete(slug);
+        startBackoff.delete(slug);
+      } else if (room.role === "player" && room.mySeat !== null && playerId !== deckBlock.playerId && !room.startBlocked) {
+        room.startBlockedByOther = true;
+      }
+    }
     return room;
   }
 
@@ -2046,7 +2096,11 @@ export function createDuelHost(options: {
 
   /** The checks every start makes: a lobby duel, every seat ready, and legal decks for the format. */
   async function assertStartable(slug: string, guildId: string) {
-    const session = service.get(slug, guildId);
+    let session = service.get(slug, guildId);
+    if (session.seriesId) {
+      repairDeckCopies().series(session.seriesId);
+      session = service.get(slug, guildId);
+    }
     if (session.status !== "lobby") throw new RequestError("Duel already started", 409);
     const seatCount = seatCountFor(session.format);
     // The flag is read here, on every start, so a restart with another value switches it.
@@ -2065,8 +2119,14 @@ export function createDuelHost(options: {
     const state = service.privateState(slug, guildId);
     const settings = state.session.settings;
     for (const [seat, deck] of state.decks.entries()) {
-      await validateSessionDeck(state.session.mode, deck, settings, state.session.format,
-        { session: state.session, playerId: state.session.seats[seat].playerId! });
+      const playerId = state.session.seats[seat].playerId!;
+      try {
+        await validateSessionDeck(state.session.mode, deck, settings, state.session.format,
+          { session: state.session, playerId });
+      } catch (error) {
+        if (error instanceof DeckLegalityError) throw new SeatDeckLegalityError(slug, playerId, error, startDeckStateHash(state));
+        throw error;
+      }
     }
     return { session, state, settings, seatCount };
   }
@@ -2098,6 +2158,8 @@ export function createDuelHost(options: {
       service.activate(slug, guildId, organizer, seed, pinnedVersionFor(state.session.format), clock, {
         ...(state.setup ?? {}), firstTurnDraw, scriptErrorMode, ...(engine ? { engine } : {}),
       });
+      deckStartBlocks.delete(slug);
+      startBackoff.delete(slug);
       games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, game);
@@ -2196,6 +2258,7 @@ export function createDuelHost(options: {
     } catch (error) {
       const session = service.get(slug, guildId);
       if (!session.seriesId && session.status === "lobby") {
+        recordDeckStartBlock(slug, error);
         // Nobody retries a start for a table. Give the lobby back to its players, and show them the error.
         service.abortOpening(slug, guildId);
         const reason = error instanceof Error ? error.message : String(error);
@@ -2214,19 +2277,24 @@ export function createDuelHost(options: {
    * opening first (when enabled). Every FFA3/FFA4 game rolls dice; Tag starts at once. Returns the live game, or null while the opening runs.
    */
   async function beginGame(slug: string, guildId: string, actor: number | null): Promise<DuelGameWorker | null> {
-    const existing = service.openingState(slug, guildId);
-    if (existing) {
-      // A settled opening waits only for the duel to start; a running one waits for the players.
+    try {
+      const existing = service.openingState(slug, guildId);
+      if (existing) {
+        // A settled opening waits only for the duel to start; a running one waits for the players.
+        await driveOpening(slug, guildId);
+        return games.get(slug)?.game ?? null;
+      }
+      const { session } = await assertStartable(slug, guildId);
+      const dice = session.format === "ffa3" || session.format === "ffa4";
+      const rps = options.openingRps && session.format === "1v1" && (session.gameNumber ?? 1) === 1;
+      if (!dice && !rps) return await startGame(slug, guildId, actor);
+      service.startOpening(slug, guildId, actor ?? session.organizerPlayerId, now());
       await driveOpening(slug, guildId);
       return games.get(slug)?.game ?? null;
+    } catch (error) {
+      recordDeckStartBlock(slug, error);
+      throw error;
     }
-    const { session } = await assertStartable(slug, guildId);
-    const dice = session.format === "ffa3" || session.format === "ffa4";
-    const rps = options.openingRps && session.format === "1v1" && (session.gameNumber ?? 1) === 1;
-    if (!dice && !rps) return startGame(slug, guildId, actor);
-    service.startOpening(slug, guildId, actor ?? session.organizerPlayerId, now());
-    await driveOpening(slug, guildId);
-    return games.get(slug)?.game ?? null;
   }
 
   /** Runs inside the duel queue. Starts a series game that sits in lobby with both seats ready. */
@@ -2254,11 +2322,29 @@ export function createDuelHost(options: {
     return service.get(slug, guildId);
   }
 
+  /** Hash seat identity, readiness and decks, including changes made outside host operations. */
+  function startDeckStateHash(state: { session: DuelSession; decks: DuelDeck[] }): string {
+    return createHash("sha256").update(JSON.stringify({
+      seats: state.session.seats.map(seat => [seat.seat, seat.playerId, seat.isBot, seat.ready]),
+      decks: state.decks,
+    })).digest("hex");
+  }
+
+  function recordDeckStartBlock(slug: string, error: unknown): void {
+    // Reinsert refreshed blocks so the oldest failed attempt is first in eviction order.
+    deckStartBlocks.delete(slug);
+    if (error instanceof SeatDeckLegalityError) {
+      deckStartBlocks.set(slug, { playerId: error.playerId, stateHash: error.startStateHash, blockedAt: now() });
+      if (deckStartBlocks.size > DECK_START_BLOCK_MAX) deckStartBlocks.delete(deckStartBlocks.keys().next().value!);
+    }
+  }
+
   /** Records a failed start of a series game and logs it once. The tick sweep skips the slug for a growing wait. */
   function noteStartFailure(slug: string, error: unknown): void {
     const failures = (startBackoff.get(slug)?.failures ?? 0) + 1;
     const waitMs = START_BACKOFF_MS[Math.min(failures, START_BACKOFF_MS.length) - 1]!;
     startBackoff.set(slug, { failures, retryAt: now() + waitMs });
+    recordDeckStartBlock(slug, error);
     const reason = error instanceof Error ? error.message : String(error);
     console.warn(`[duel] series game ${slug} did not start (attempt ${failures}, next retry in ${waitMs / 1000}s): ${reason}`);
   }
@@ -2284,8 +2370,10 @@ export function createDuelHost(options: {
       // The game waits in lobby with both seats ready; the tick sweep starts it (after a backoff).
       noteStartFailure(step.next, error);
       await emitChange(step.next, guildId);
+      if (error instanceof DeckLegalityError) throw error;
+    } finally {
+      if (step.tournamentSlug) await emitTournament("match-updated", step.tournamentSlug);
     }
-    if (step.tournamentSlug) await emitTournament("match-updated", step.tournamentSlug);
     return step.next;
   }
 
@@ -2295,6 +2383,32 @@ export function createDuelHost(options: {
       throw new RequestError("Authenticated guild and player are required", 400);
     }
     const actor = playerId as number;
+    try {
+      return await operateForActor(body, guildId, actor, ctl);
+    } catch (error) {
+      if (!(error instanceof SeatDeckLegalityError)) throw error;
+      recordDeckStartBlock(error.slug, error);
+      // A room read must still show the lobby after an opening's start attempt fails.
+      if (op === "view") return project(body.slug as string, guildId, actor, undefined, body.spectate === true);
+      if (error.playerId === actor) throw error.legalityError;
+      // Deck details stay with their owner; return the actor's already-saved state.
+      const slug = body.slug as string;
+      const startBlocked = "Start blocked: another player's deck needs attention.";
+      const session = service.get(slug, guildId);
+      if (op === "series-ready") {
+        const latest = series.get(session.seriesId!, guildId);
+        return { series: latest,
+          nextSlug: latest.status === "active" && latest.currentDuelSlug !== slug ? latest.currentDuelSlug : null,
+          startBlocked };
+      }
+      if (op === "deck" || op === "ready") return { session, startBlocked };
+      const room = await project(slug, guildId, actor, undefined, body.spectate === true);
+      return room.startBlocked ? room : { ...room, startBlocked };
+    }
+  }
+
+  async function operateForActor(body: Record<string, unknown>, guildId: string, actor: number, ctl?: { abandoned: boolean }): Promise<unknown> {
+    const { op } = body;
     if (op === "engine-data-status") {
       try {
         const local = localCardDataStatus();
@@ -2416,7 +2530,11 @@ export function createDuelHost(options: {
     }
     if (typeof body.slug !== "string" || !body.slug || body.slug.length > 128) throw new RequestError("Duel slug is required", 400);
     const slug = body.slug;
-    const room = service.room(slug, guildId, actor);
+    let room = service.room(slug, guildId, actor);
+    if (room.session.seriesId) {
+      repairDeckCopies().series(room.session.seriesId);
+      room = service.room(slug, guildId, actor);
+    }
     if (op === "view") {
       // A timeout that no timer caught yet (a restart, a late timer) is applied here.
       if (room.session.status === "lobby" && room.opening) {
@@ -2507,8 +2625,10 @@ export function createDuelHost(options: {
         if (cleared.readyCleared) await emitChange(cleared.series.currentDuelSlug ?? slug, guildId);
         return { series: cleared.series, nextSlug: null };
       }
+      const sideDeck = series.sideState(seriesId, guildId, actor).currentDeck;
+      validateExtraDeckTypes(sideDeck, options.dataDirectory);
       if (room.session.mode === "domain") {
-        await validateDeckMasterWrite(room.session.mode, series.sideState(seriesId, guildId, actor).currentDeck);
+        await validateDeckMasterWrite(room.session.mode, sideDeck);
       }
       const updated = series.setSideReady(seriesId, guildId, actor);
       await emitChange(updated.currentDuelSlug ?? slug, guildId);
@@ -2522,7 +2642,10 @@ export function createDuelHost(options: {
     const seat = room.mySeat;
     if (op === "ready") {
       if (room.session.status !== "lobby") throw new RequestError("Decks are locked after the duel starts", 409);
-      if (room.myDeck) await validateDeckMasterWrite(room.session.mode, room.myDeck);
+      if (room.myDeck) {
+        validateExtraDeckTypes(room.myDeck, options.dataDirectory);
+        await validateDeckMasterWrite(room.session.mode, room.myDeck);
+      }
       const session = service.markReady(slug, guildId, actor);
       await emitChange(slug, guildId);
       return { session: await autoStart(slug, guildId, session) };
@@ -2542,9 +2665,12 @@ export function createDuelHost(options: {
         }
       }
       const settings = room.session.settings;
-      if (op === "deck") await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
+      if (op === "deck") {
+        await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
+      }
       const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, {
-        keepUnresolved: op === "validate-deck",
+        // Unresolved codes remain visible to validation, including the stable Extra error.
+        keepUnresolved: true,
       });
       if (op === "validate-deck") {
         return inspectDeck(room.session.mode, deck, options.dataDirectory, settings, await sessionDeckOptions(room.session, actor));
@@ -2713,6 +2839,16 @@ export function createDuelHost(options: {
     if (stopped) return;
     const t = now();
     try {
+      // Casual lobbies have no backoff entry and may never be read again after a blocked start.
+      for (const [slug, entry] of deckStartBlocks) {
+        if (t - entry.blockedAt >= DECK_START_BLOCK_TTL_MS || deckBlockSession.get(slug)?.status !== "lobby") {
+          deckStartBlocks.delete(slug);
+        }
+      }
+    } catch (error) {
+      console.warn("[duel] deck start block sweep failed", error);
+    }
+    try {
       const due = service.dueClocks(t, CLOCK_SWEEP_LIMIT);
       for (const item of due) {
         if (stopped) return;
@@ -2769,7 +2905,10 @@ export function createDuelHost(options: {
       // An entry no sweep touched for a full backoff cap belongs to a game that is gone.
       const cap = START_BACKOFF_MS[START_BACKOFF_MS.length - 1]!;
       for (const [slug, entry] of startBackoff) {
-        if (t - entry.retryAt > cap) startBackoff.delete(slug);
+        if (t - entry.retryAt > cap) {
+          startBackoff.delete(slug);
+          deckStartBlocks.delete(slug);
+        }
       }
       // Ask for extra rows so games that wait out a backoff do not crowd out others.
       let attempts = 0;
@@ -2855,7 +2994,7 @@ export function createDuelHost(options: {
             ...(requestOp ? { op: requestOp } : {}) });
         }
         return Response.json({ error: unexpected ? "Duel server error" : error instanceof Error ? error.message : "Duel request failed",
-          ...(error instanceof RequestError && error.code ? { code: error.code } : {}) }, { status: unexpected ? 500 : status });
+          ...((error instanceof RequestError || error instanceof ExtraDeckCardError) && error.code ? { code: error.code } : {}) }, { status: unexpected ? 500 : status });
       }
     },
     async close(): Promise<void> {

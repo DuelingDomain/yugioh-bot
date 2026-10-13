@@ -174,15 +174,17 @@ export interface ImportRecord {
   unknown: string[];
   lookupLimited?: true;
   movedToMain?: number;
+  messages?: string[];
 }
 
 /** What an import left over, as the report shows it. */
-export function reportOf(from: Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain">): Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain"> {
+export function reportOf(from: Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain" | "messages">): Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain" | "messages"> {
   return {
     unknown: from.unknown,
     corrected: from.corrected,
     ...(from.lookupLimited ? { lookupLimited: true as const } : {}),
     ...(from.movedToMain ? { movedToMain: from.movedToMain } : {}),
+    ...(from.messages?.length ? { messages: from.messages } : {}),
   };
 }
 

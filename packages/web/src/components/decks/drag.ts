@@ -1,5 +1,5 @@
 import type { DragEvent } from "react";
-import type { DeckSection } from "./model";
+import type { CardKind, DeckSection } from "./model";
 
 /** Card drags carry their own type, so a file dropped on the editor is never read as a card. */
 export const CARD_DRAG_TYPE = "application/x-yugidraft-card";
@@ -15,14 +15,28 @@ export interface CardDrag {
 
 const SOURCES: readonly CardDragSource[] = ["list", "master", "main", "extra", "side"];
 
-export function writeCardDrag(event: DragEvent, drag: CardDrag): void {
+/**
+ * A drag cannot be read until the drop, but its types can be read while it moves. The kind of the card
+ * rides in a type of its own, so a section can refuse a card that does not belong there before the drop.
+ */
+const KIND_TYPE_PREFIX = `${CARD_DRAG_TYPE}-kind-`;
+const KINDS: readonly CardKind[] = ["extra", "spelltrap", "monster"];
+
+export function writeCardDrag(event: DragEvent, drag: CardDrag, kind?: CardKind): void {
   event.dataTransfer.setData(CARD_DRAG_TYPE, JSON.stringify(drag));
+  if (kind) event.dataTransfer.setData(`${KIND_TYPE_PREFIX}${kind}`, kind);
   event.dataTransfer.setData("text/plain", String(drag.code));
   event.dataTransfer.effectAllowed = drag.from === "list" ? "copy" : "move";
 }
 
 export function hasCardDrag(event: DragEvent): boolean {
   return Array.from(event.dataTransfer.types).includes(CARD_DRAG_TYPE);
+}
+
+/** The kind of the card in a drag, or null when the drag does not say (the card is not known yet). */
+export function dragCardKind(event: DragEvent): CardKind | null {
+  const types = Array.from(event.dataTransfer.types);
+  return KINDS.find((kind) => types.includes(`${KIND_TYPE_PREFIX}${kind}`)) ?? null;
 }
 
 export function readCardDrag(event: DragEvent): CardDrag | null {

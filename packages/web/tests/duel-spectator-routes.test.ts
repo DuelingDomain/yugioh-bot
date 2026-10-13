@@ -30,6 +30,45 @@ it("uses the public final view after completion", async () => {
   expect(await (await roomGet(request(), context)).json()).toEqual(watched);
   expect(mocks.host).toHaveBeenCalledTimes(1);
 });
+it.each([400, 403, 409])("passes host %s through for a seated lobby spectator request", async status => {
+  mocks.room.mockReturnValue({ session: { status: "lobby" }, mySeat: 0 });
+  const error = { error: "You can watch after your seat is eliminated", code: "fixture_error" };
+  mocks.host.mockResolvedValue({ ok: false, response: NextResponse.json(error, { status }) });
+  const response = await roomGet(request(), context);
+  expect(response.status).toBe(status);
+  expect(await response.json()).toEqual(error);
+});
+it.each([500, 503])("falls back to the local pending room on host %s", async status => {
+  const room = { session: { status: "lobby" }, mySeat: 0 };
+  mocks.room.mockReturnValue(room);
+  mocks.host.mockResolvedValue({ ok: false, response: NextResponse.json({ error: "Unavailable" }, { status }) });
+  const response = await roomGet(request(false), context);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual(room);
+});
+it.each(["rps", "choose"])("lets a spectator read settle an expired %s opening through the host", async phase => {
+  mocks.room.mockReturnValue({ session: { status: "lobby" }, mySeat: null,
+    opening: { phase, deadlineAt: new Date(Date.now() - 1000).toISOString() } });
+  expect(await (await roomGet(request(false), context)).json()).toEqual(watched);
+  expect(mocks.host).toHaveBeenCalledWith({ op: "view", slug: "abc", guildId: "guild", playerId: 7 });
+});
+it("keeps a spectator opening read local before its deadline", async () => {
+  const room = { session: { status: "lobby" }, mySeat: null,
+    opening: { phase: "rps", deadlineAt: new Date(Date.now() + 60_000).toISOString() } };
+  mocks.room.mockReturnValue(room);
+  expect(await (await roomGet(request(false), context)).json()).toEqual(room);
+  expect(mocks.host).not.toHaveBeenCalled();
+});
+it("keeps a due spectator opening readable when the host is unreachable", async () => {
+  const room = { session: { status: "lobby" }, mySeat: null,
+    opening: { phase: "rps", deadlineAt: new Date(Date.now() - 1000).toISOString() } };
+  mocks.room.mockReturnValue(room);
+  mocks.host.mockRejectedValue(new TypeError("fetch failed"));
+  const response = await roomGet(request(false), context);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual(room);
+  expect(mocks.host).toHaveBeenCalledOnce();
+});
 it("issues a spectator token with no seat after the host validates elimination", async () => {
   const result = await (await connectionGet(request(), context)).json();
   expect(verifyDuelConnectionToken(result.token, "spectator-token-test")).toMatchObject({ playerId: 7, slug: "abc", seat: null });

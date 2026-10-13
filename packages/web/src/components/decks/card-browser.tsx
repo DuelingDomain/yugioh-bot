@@ -14,7 +14,7 @@ import { CardFilters } from "./card-filters";
 import { hasCardDrag, readCardDrag, writeCardDrag, type CardDrag } from "./drag";
 import { SORT_CHOICES, clearFilters, filterChips, queryKey, type BrowserView } from "./filter-model";
 import { LimitBadge, limitName } from "./limit-badge";
-import type { BanlistLimits } from "./model";
+import { cardKind, type BanlistLimits } from "./model";
 import { queryPoolCards } from "./pool-search";
 import styles from "./card-browser.module.css";
 
@@ -381,7 +381,7 @@ export function CardBrowser({
                   onDoubleClick: () => { if (!card.unavailableReason) onAdd(card); },
                   onContextMenu: (event: MouseEvent) => { event.preventDefault(); if (!card.unavailableReason) onAdd(card); },
                   onKeyDown: (event: KeyboardEvent) => onTileKey(event, card),
-                  onDragStart: (event: DragEvent) => { if (card.unavailableReason) { event.preventDefault(); return; } onInspect(card, false); writeCardDrag(event, { code: card.code, from: "list" }); },
+                  onDragStart: (event: DragEvent) => { if (card.unavailableReason) { event.preventDefault(); return; } onInspect(card, false); writeCardDrag(event, { code: card.code, from: "list" }, cardKind(card)); },
                 };
                 if (view === "grid") {
                   return (
