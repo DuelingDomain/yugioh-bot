@@ -30,8 +30,8 @@ case "$1 $2" in
     case "$*" in
       *'.Id'*)
         case "$5" in
-          yugioh-bot-*:latest) printf '%s\\n' latest-id ;;
-          yugioh-bot-*:prev) printf '%s\\n' previous-id ;;
+          yugioh-bot-*:latest) printf '%s\\n' "\${TEST_LATEST_ID:-latest-id}" ;;
+          yugioh-bot-*:prev) printf '%s\\n' "\${TEST_PREVIOUS_ID:-previous-id}" ;;
           *ghcr.io*) printf '%s\\n' "\${TEST_SHA_ID:-old-id}" ;;
           *) printf '%s\\n' "$5" ;;
         esac ;;
@@ -42,6 +42,7 @@ case "$1 $2" in
 
   'image ls')
     case "$*" in
+      *--digests*) printf '%s\\n' "\${TEST_DIGEST_IMAGES:-}" ;;
       *ghcr.io*) printf '%s\\n' '${registry}-web:${sha}' '${registry}-web:latest' '${registry}-web:prev' '${registry}-web:pre-ghcr' '${registry}-web:buildcache' '${registry}-web:nextcache' ;;
       *) printf '%s\\n' 'yugioh-bot-web:latest' 'yugioh-bot-web:prev' 'yugioh-bot-web:obsolete' ;;
     esac ;;
@@ -101,6 +102,36 @@ test('successful retention prunes only dangling images with this project source 
   const commands = f.commands().trim().split('\n');
   assert.equal(commands.at(-1), 'image prune -f --filter label=org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot');
   assert.equal(commands.filter(line => line.startsWith('image prune')).length, 1);
+});
+
+test('retention removes old GHCR digest references while keeping latest, prev and other repositories', t => {
+  const f = fixture(t);
+  const latestId = `sha256:${'1'.repeat(64)}`;
+  const previousId = `sha256:${'2'.repeat(64)}`;
+  const oldId = `sha256:${'3'.repeat(64)}`;
+  const previousDigest = `sha256:${'c'.repeat(64)}`;
+  const oldDigest = `sha256:${'d'.repeat(64)}`;
+  const services = ['duel', 'web', 'worker', 'ws'];
+  const images = services.flatMap(service => [
+    `${registry}-${service}@${digest} ${latestId}`,
+    `${registry}-${service}@${previousDigest} ${previousId}`,
+    `${registry}-${service}@${oldDigest} ${oldId}`,
+    `${registry}-${service}@<none> ${oldId}`,
+  ]);
+  images.push(`caddy@${oldDigest} ${oldId}`, `yugioh-bot-web@${oldDigest} ${oldId}`,
+    `ghcr.io/another-project/web@${oldDigest} ${oldId}`);
+  const result = f.run('prune', sha, {
+    TEST_LATEST_ID: latestId, TEST_PREVIOUS_ID: previousId, TEST_DIGEST_IMAGES: images.join('\n'),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const commands = f.commands().trim().split('\n');
+  for (const service of services) {
+    assert.ok(commands.includes(`image ls --digests --no-trunc --format {{.Repository}}@{{.Digest}} {{.ID}} ${registry}-${service}`));
+    assert.ok(commands.includes(`image rm ${registry}-${service}@${oldDigest}`));
+  }
+  const removedDigests = commands.filter(line => line.startsWith('image rm') && line.includes('@'));
+  assert.deepEqual(removedDigests, services.map(service => `image rm ${registry}-${service}@${oldDigest}`));
+  assert.doesNotMatch(f.commands(), /image rm .*--force|image rm .* -f/);
 });
 
 test('invalid SHA and command fail before Docker is called', t => {

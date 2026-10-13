@@ -108,6 +108,18 @@ case "$operation" in
             ;;
         esac
       done
+      # Digest-only images can remain non-dangling after their SHA tag is removed.
+      # Use full IDs to compare with the protected local :latest and :prev images.
+      digest_references=$(docker image ls --digests --no-trunc --format '{{.Repository}}@{{.Digest}} {{.ID}}' "$repository")
+      printf '%s\n' "$digest_references" | while read -r reference image_id; do
+        case "$reference" in
+          "$repository"@sha256:*)
+            if [ "$image_id" = "$latest_id" ] || [ "$image_id" = "$previous_id" ]; then continue; fi
+            # Remove only this repository's digest reference, without force.
+            docker image rm "$reference" || echo "Warning: could not remove $reference" >&2
+            ;;
+        esac
+      done
     done
     # Only dangling images from this project. Every tagged image stays protected.
     docker image prune -f --filter 'label=org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot'
