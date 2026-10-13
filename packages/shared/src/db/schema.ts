@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
+import { migrateCubeOwnerNames } from "./cube-owner-names.js";
 
 function hasColumn(db: Database.Database, table: string, column: string) {
   return (db.pragma(`table_info(${table})`) as Array<{ name: string }>).some((info) => info.name === column);
@@ -98,7 +99,7 @@ create table cubes_identity_new (
   created_by_user_id integer not null references users(id),
   created_at text not null default current_timestamp,
   updated_at text not null default current_timestamp,
-  unique (guild_id, name)
+  unique (guild_id, created_by_user_id, name)
 );
 create table drafts_identity_new (
   id integer primary key autoincrement,
@@ -409,7 +410,7 @@ export function migrate(db: Database.Database) {
       created_by_user_id text not null,
       created_at text not null default current_timestamp,
       updated_at text not null default current_timestamp,
-      unique (guild_id, name)
+      unique (guild_id, created_by_user_id, name)
     );
 
     create table if not exists cube_cards (
@@ -1136,6 +1137,7 @@ export function migrate(db: Database.Database) {
   db.exec("create index if not exists card_script_error_revision_idx on card_script_error_occurrences (resolved_code, script_hash, created_at)");
   migrateConfigPoolsToCubeCards(db);
   migrateIdentity(db);
+  migrateCubeOwnerNames(db);
   migrateAccessIndexes(db);
 
   // Draft privacy follows identity migration so grants reference application users.

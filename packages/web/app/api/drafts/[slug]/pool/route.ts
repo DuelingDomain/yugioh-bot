@@ -20,12 +20,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   const row = db
     .prepare("select config_json, created_by_user_id from drafts where web_slug = ? and guild_id = ?")
     .get(slug, env.discordGuildId) as { config_json: string; created_by_user_id: number } | undefined;
-  if (!row || (row.created_by_user_id !== actor.userId && !findDraftReadAccess(db, slug, env.discordGuildId, actor.userId)?.isSeated)) {
+  if (!row) {
     return NextResponse.json({ error: "Draft not found" }, { status: 404 });
   }
 
   try {
     const config = JSON.parse(row.config_json) as DraftConfig;
+    if (config.mode === "theme" && row.created_by_user_id !== actor.userId
+      && !findDraftReadAccess(db, slug, env.discordGuildId, actor.userId)?.isSeated) {
+      return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+    }
     const drafts = createDraftService(db);
     const catalog = createCardCatalogService(db);
 

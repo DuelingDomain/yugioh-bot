@@ -358,6 +358,9 @@ describe("ThemeTableLobby deleting a theme", () => {
     expect(screen.queryByRole("button", { name: "More for Mermail" })).toBeNull();
     expect(screen.getByRole("button", { name: "Remove Mermail from the draft" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Remove Gravekeeper from the draft" })).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Edit cube Blue-Eyes" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Edit cube Mermail" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Edit cube Gravekeeper" })).not.toBeInTheDocument();
   });
 
   it("takes a cube out of the draft without a library call when the viewer cannot delete it", async () => {

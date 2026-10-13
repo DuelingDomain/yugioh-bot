@@ -117,12 +117,15 @@ describe("private cube boundaries", () => {
     expect((await PUT(request({ config: { poolSource: { cubeId: 1 } } }, "PUT") as any, draftContext)).status).toBe(404);
   });
 
-  it("does not expose attached cube details to an open-lobby visitor", async () => {
+  it.each(["visitor", "invite"])("does not expose theme cube details to a %s", async access => {
     const { getDb } = await import("@/lib/db");
-    getDb().exec("update drafts set visibility = 'open' where id = 1");
+    if (access === "visitor") getDb().exec("update drafts set visibility = 'open' where id = 1");
+    else getDb().prepare("insert into draft_invite_grants (draft_id, user_id) values (1, ?)").run(fixtureUserId("outsider"));
     login(fixtureUserId("outsider"));
     const preflight = await import("../app/api/drafts/[slug]/preflight/route");
     expect((await preflight.GET(request(undefined, "GET"), draftContext)).status).toBe(404);
+    const pool = await import("../app/api/drafts/[slug]/pool/route");
+    expect((await pool.GET(request(undefined, "GET"), draftContext)).status).toBe(404);
     const draft = await import("../app/api/drafts/[slug]/route");
     const result = await draft.GET(request(undefined, "GET") as any, draftContext);
     expect(result.status).toBe(200);
@@ -134,21 +137,58 @@ describe("private cube boundaries", () => {
     expect((await preview.GET(request(undefined, "GET"), { params: Promise.resolve({ slug: "private-cube-draft", id: "1" }) })).status).toBe(404);
   });
 
-  it("hides cube names and card snapshots in an open booster lobby until the viewer joins", async () => {
+  it.each(["visitor", "invite"])("shows the booster draft pool to a %s while hiding its source cube", async access => {
     const { getDb } = await import("@/lib/db");
-    getDb().prepare("update drafts set visibility = 'open', config_json = ? where id = 1").run(JSON.stringify({
+    const config = {
       mode: "booster", packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40,
       poolSource: { cubeId: 1, cubeName: "Private pool" }, customCardIds: [1, 2], cubeCardIds: [1, 2],
-      customExtraCardIds: [3], setNames: ["Private set"],
-    }));
+      customExtraCardIds: [3], setNames: ["Draft set"], includeNames: ["Card 1"], excludeNames: ["Card 50"],
+    };
+    getDb().prepare("update drafts set visibility = ?, config_json = ? where id = 1").run(access === "visitor" ? "open" : "private", JSON.stringify(config));
+    if (access === "invite") getDb().prepare("insert into draft_invite_grants (draft_id, user_id) values (1, ?)").run(fixtureUserId("outsider"));
     login(fixtureUserId("outsider"));
     const draft = await import("../app/api/drafts/[slug]/route");
     const body = await (await draft.GET(request(undefined, "GET") as any, draftContext)).json();
-    for (const key of ["poolSource", "customCardIds", "cubeCardIds", "customExtraCardIds", "setNames"]) expect(body.config).not.toHaveProperty(key);
+    expect(body.config).not.toHaveProperty("poolSource");
+    expect(body.config).toMatchObject(Object.fromEntries(Object.entries(config).filter(([key]) => key !== "poolSource")));
     const pool = await import("../app/api/drafts/[slug]/pool/route");
-    expect((await pool.GET(request(undefined, "GET"), draftContext)).status).toBe(404);
+    const response = await pool.GET(request(undefined, "GET"), draftContext);
+    expect(response.status).toBe(200);
+    expect((await response.json()).cards.map((card: { id: number }) => card.id)).toEqual([1, 2]);
+    const preflight = await import("../app/api/drafts/[slug]/preflight/route");
+    expect((await preflight.GET(request(undefined, "GET"), draftContext)).status).toBe(200);
     login(member);
     expect((await pool.GET(request(undefined, "GET"), draftContext)).status).toBe(200);
+  });
+
+  it.each(["pending", "active", "completed", "cancelled"])("does not preview a booster source cube in a %s draft", async status => {
+    const { getDb } = await import("@/lib/db");
+    getDb().prepare("update drafts set status = ?, config_json = ? where id = 1").run(status, JSON.stringify({ mode: "booster", poolSource: { cubeId: 1 }, allowedCubeIds: [1] }));
+    const { GET } = await import("../app/api/drafts/[slug]/cubes/[id]/route");
+    const context = { params: Promise.resolve({ slug: "private-cube-draft", id: "1" }) };
+    for (const user of [host, member]) {
+      login(user);
+      expect((await GET(request(undefined, "GET"), context)).status).toBe(404);
+    }
+  });
+
+  it.each([
+    { label: "blank", source: { kind: "blank" } },
+    { label: "pool", source: { kind: "pool", cards: [{ id: 1, copies: 1 }] } },
+    { label: "list", source: { kind: "list", importText: "Card 1" } },
+    { label: "config", source: { config: { customCardIds: [1] } } },
+  ])("allows two owners to create the same name from $label", async ({ source }) => {
+    const { POST, GET } = await import("../app/api/cubes/route");
+    const name = "Private pool";
+    const result = await POST(request({ ...source, name }));
+    expect(result.status).toBe(201);
+    const cube = (await result.json()).cube;
+    expect(cube).toMatchObject({ name, createdByUserId: host });
+    expect(cube.id).not.toBe(1);
+    expect((await (await GET()).json()).cubes.map((row: { id: number }) => row.id)).toContain(cube.id);
+    expect((await POST(request({ ...source, name }))).status).toBe(409);
+    login(owner);
+    expect((await (await GET()).json()).cubes.map((row: { id: number }) => row.id)).toEqual([1]);
   });
 
   it("does not reveal an unattached foreign cube through a detach request", async () => {

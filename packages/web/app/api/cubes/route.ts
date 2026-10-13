@@ -136,7 +136,7 @@ export async function POST(request: Request) {
       }
       const name = typeof body.name === "string" ? body.name.trim() : "";
       if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 });
-      if (db.prepare("select 1 from cubes where guild_id = ? and lower(name) = lower(?)").get(guildId, name)) {
+      if (db.prepare("select 1 from cubes where guild_id = ? and created_by_user_id = ? and lower(name) = lower(?)").get(guildId, actor.userId, name)) {
         throw new CubeNameTakenError(name);
       }
       const { entries, unknown, corrected, lookupLimited, moves, messages } = await prepareCubeListImport(catalog, body.importText);
@@ -176,8 +176,8 @@ export async function POST(request: Request) {
       if (extra && "error" in extra) return NextResponse.json({ error: extra.error }, { status: 400 });
       const entries = [...parsed.entries, ...(extra?.entries ?? []).map((e) => ({ ...e, pool: "extra" as const }))];
       const taken = db
-        .prepare("select id from cubes where guild_id = ? and lower(name) = lower(?)")
-        .get(guildId, name);
+        .prepare("select id from cubes where guild_id = ? and created_by_user_id = ? and lower(name) = lower(?)")
+        .get(guildId, actor.userId, name);
       if (taken) {
         return NextResponse.json({ error: `A cube named "${name}" already exists` }, { status: 409 });
       }
@@ -203,8 +203,8 @@ export async function POST(request: Request) {
     // settings: store it as a config-backed cube. Reject duplicates by name.
     if (body.config && body.kind !== "blank") {
       const existing = db
-        .prepare("select id from cubes where guild_id = ? and name = ?")
-        .get(guildId, name) as { id: number } | undefined;
+        .prepare("select id from cubes where guild_id = ? and created_by_user_id = ? and name = ?")
+        .get(guildId, actor.userId, name) as { id: number } | undefined;
       if (existing) {
         return NextResponse.json({ error: `A cube named "${name}" already exists` }, { status: 409 });
       }

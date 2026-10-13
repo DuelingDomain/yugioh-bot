@@ -123,7 +123,7 @@ describe("cube pool routes", () => {
     db.close();
   });
 
-  it("answers 409 when another save takes the name while the card list is being fetched", async () => {
+  it.each(["creator", "other"])("scopes a name taken during card fetch to %s", async user => {
     await setupDb();
     // The early name check has passed; the clashing cube lands during the card database request.
     let taken = false;
@@ -131,16 +131,16 @@ describe("cube pool routes", () => {
       if (!taken) {
         taken = true;
         const db = await rawDb();
-        db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'RACE', ${fixtureUserId("other")})`).run();
+        db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'RACE', ?)").run(fixtureUserId(user));
         db.close();
       }
       return Response.json({ data: [] });
     }));
     const res = await createPool({ name: "Race", cards: [{ id: 1, copies: 1 }, { id: 777, copies: 1 }] });
-    expect(res.status).toBe(409);
-    expect((await res.json()).error).toBe('A cube named "Race" already exists');
+    expect(res.status).toBe(user === "creator" ? 409 : 201);
+    if (user === "creator") expect((await res.json()).error).toBe('A cube named "Race" already exists');
     const db = await rawDb();
-    expect(db.prepare("select count(*) n from cubes where lower(name) = 'race'").get()).toEqual({ n: 1 });
+    expect(db.prepare("select count(*) n from cubes where lower(name) = 'race'").get()).toEqual({ n: user === "creator" ? 1 : 2 });
     db.close();
   });
 

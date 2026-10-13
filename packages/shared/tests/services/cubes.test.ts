@@ -79,8 +79,22 @@ describe("cube service core", () => {
     const owner = seedUser(db, "owner").userId;
     const other = seedUser(db, "other").userId;
     const cube = cubes.save("g", "Private", { packSize: 8 }, owner);
-    expect(() => cubes.save("g", "Private", { packSize: 9 }, other)).toThrow();
+    const otherCube = cubes.save("g", "Private", { packSize: 9 }, other);
+    expect(otherCube.id).not.toBe(cube.id);
+    expect(otherCube).toMatchObject({ createdByUserId: other, config: { packSize: 9 } });
+    cubes.save("g", "Private", { packSize: 10 }, other);
+    expect(cubes.findByName("g", "Private", other)?.config).toEqual({ packSize: 10 });
     expect(cubes.findCube(cube.id)).toMatchObject({ createdByUserId: owner, config: { packSize: 8 } });
+  });
+
+  it("allows a rename to another owner's cube name", () => {
+    const { db, cubes } = setup();
+    const owner = seedUser(db, "owner").userId;
+    const other = seedUser(db, "other").userId;
+    cubes.createBlank("g", "Blue-Eyes", owner);
+    const cube = cubes.createBlank("g", "Other", other);
+    expect(cubes.renameCube(cube.id, "Blue-Eyes")).toEqual({ ok: true });
+    expect(cubes.listCubes("g", other).map(c => c.name)).toEqual(["Blue-Eyes"]);
   });
 
   it("renameCube renames and rejects a duplicate name", () => {
@@ -127,6 +141,11 @@ describe("cube service core", () => {
     expect(pools.extra.map((c) => c.catalogCardId)).toEqual([11]);
     expect(pools.extra.some((c) => c.source === "generic-extra")).toBe(false);
     expect(cube.archetype).toBe("Blue-Eyes");
+    const other = seedUser(db, "other").userId;
+    const second = await cubes.createFromArchetype("g", "Blue-Eyes", other);
+    expect(second.id).not.toBe(cube.id);
+    expect(cubes.getCubePools(second.id)).toEqual(pools);
+    expect(cubes.listCubes("g", other).map(c => c.id)).toEqual([second.id]);
   });
 
   it("imports passcodes, routing extra-deck cards to the extra pool", async () => {
@@ -432,7 +451,7 @@ describe("cube service Discord-template-compatible ops", () => {
     expect(cubes.list("g", seedUser(db, "u").userId).map((c) => c.name)).toContain("My Booster");
   });
 
-  it("save upserts on (guild, name) conflict", () => {
+  it("save upserts on (guild, owner, name) conflict", () => {
     const { db, cubes } = setup();
     cubes.save("g", "T", { packsPerPlayer: 3 }, seedUser(db, "u").userId);
     cubes.save("g", "T", { packsPerPlayer: 7 }, seedUser(db, "u").userId);

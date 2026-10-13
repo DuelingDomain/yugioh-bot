@@ -19,6 +19,7 @@ interface AllowedCube {
   sampleImages?: string[];
   /** Absent in an old response: a cube with no type is "any". */
   draftType?: CubeDraftType;
+  canEdit?: boolean;
 }
 
 interface CubeDraftBuilderProps {
@@ -199,7 +200,11 @@ export function CubeDraftBuilder({
   return (
     <CubeLobbyPanel
       slug={slug}
-      allowedCubes={allowedCubes as Array<AllowedCube & { sampleImages: string[] }>}
+      allowedCubes={allowedCubes.map(cube => ({
+        ...cube,
+        sampleImages: cube.sampleImages ?? [],
+        canEdit: library.find(entry => entry.id === cube.id)?.canEdit === true,
+      }))}
       themeSelection={themeSelection}
       uniqueThemes={uniqueThemes}
       canClaim={canClaim}

@@ -1594,7 +1594,10 @@ describe("command handlers", () => {
     app.drafts.create("guild-1", "channel-1", "My draft", {}, player.userId, player.id);
     const other = app.players.ensureUser("900000000000009004", "Owner");
     const cube = app.templates.save("guild-1", "Hidden", { packSize: 9 }, other.id);
-    await expect(handleCommand(fakeInteraction({ commandName: "draft", subcommandGroup: "template", subcommand: "save", user, strings: { name: "Hidden", draft: "My draft" } }).interaction, app)).rejects.toThrow();
+    await handleCommand(fakeInteraction({ commandName: "draft", subcommandGroup: "template", subcommand: "save", user, strings: { name: "Hidden", draft: "My draft" } }).interaction, app);
+    const saved = app.templates.findByName("guild-1", "Hidden", player.userId);
+    expect(saved?.id).not.toBe(cube.id);
+    expect(saved?.createdByUserId).toBe(player.userId);
     expect(app.templates.findCube(cube.id)).toMatchObject({ createdByUserId: other.id, config: { packSize: 9 } });
   });
 

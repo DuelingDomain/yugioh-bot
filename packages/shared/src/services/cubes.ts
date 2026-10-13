@@ -351,7 +351,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     ): Cube {
       return db.transaction(() => {
         // Checked here, inside the write, so two saves of the same name cannot both pass an earlier check.
-        const clash = db.prepare("select 1 from cubes where guild_id = ? and lower(name) = lower(?)").get(guildId, name);
+        const clash = db.prepare("select 1 from cubes where guild_id = ? and created_by_user_id = ? and lower(name) = lower(?)").get(guildId, createdByUserId, name);
         if (clash) throw new CubeNameTakenError(name);
         const cubeId = insertCubeRow(guildId, name, createdByUserId, null, null);
         const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((c) => [c.ygoprodeckId, c]));
@@ -545,7 +545,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       }
       const dupe = db
         .prepare(
-          "select id from cubes where guild_id = (select guild_id from cubes where id = ?) and name = ? and id != ?",
+          "select id from cubes where (guild_id, created_by_user_id) = (select guild_id, created_by_user_id from cubes where id = ?) and name = ? and id != ?",
         )
         .get(cubeId, trimmed, cubeId) as { id: number } | undefined;
       if (dupe) {
@@ -627,14 +627,13 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         `
           insert into cubes (guild_id, name, config_json, created_by_user_id)
           values (?, ?, ?, ?)
-          on conflict(guild_id, name) do update set
+          on conflict(guild_id, created_by_user_id, name) do update set
             config_json = excluded.config_json,
             updated_at = current_timestamp
-          where cubes.created_by_user_id = excluded.created_by_user_id
         `,
       ).run(guildId, trimmed, JSON.stringify(config), createdByUserId);
       if (result.changes === 0) throw new CubeNameTakenError(trimmed);
-      const row = db.prepare("select * from cubes where guild_id = ? and name = ?").get(guildId, trimmed);
+      const row = db.prepare("select * from cubes where guild_id = ? and created_by_user_id = ? and name = ?").get(guildId, createdByUserId, trimmed);
       return mapCube(row);
     },
 

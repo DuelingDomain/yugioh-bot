@@ -180,15 +180,15 @@ describe("create cube from list", () => {
     expect(db.prepare("select count(*) n from cubes").get()).toEqual({ n: 1 });
   });
 
-  it("rejects duplicate names case-insensitively, including a name taken during resolution", async () => {
+  it.each(["owner", "other"])("scopes a name taken during resolution to %s, ignoring case", async user => {
     expect((await create({ name: "EXISTING", importText: "Dark Hole" })).status).toBe(409);
     upstream.mockImplementationOnce(async () => {
-      db.prepare("insert into cubes (guild_id,name,created_by_user_id) values ('guild-1','RACE',?)").run(fixtureUserId("other"));
+      db.prepare("insert into cubes (guild_id,name,created_by_user_id) values ('guild-1','RACE',?)").run(fixtureUserId(user));
       return Response.json({ error: "No card matching your query was found" }, { status: 400 });
     });
-    expect((await create({ name: "Race", importText: "Dark Hole\nMissing" })).status).toBe(409);
-    expect(db.prepare("select count(*) n from cubes where lower(name) = 'race'").get()).toEqual({ n: 1 });
-    expect(rows()).toEqual([]);
+    expect((await create({ name: "Race", importText: "Dark Hole\nMissing" })).status).toBe(user === "owner" ? 409 : 201);
+    expect(db.prepare("select count(*) n from cubes where lower(name) = 'race'").get()).toEqual({ n: user === "owner" ? 1 : 2 });
+    expect(rows()).toEqual(user === "owner" ? [] : [{ id: 1, pool: "main", copies: 1 }]);
   });
 
   it("creates nothing on upstream failure or a later card write failure", async () => {

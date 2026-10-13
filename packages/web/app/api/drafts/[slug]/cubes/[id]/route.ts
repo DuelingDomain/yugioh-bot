@@ -23,7 +23,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     .get(access.id) as { created_by_user_id: number; config_json: string };
   if (!access.isSeated && draft.created_by_user_id !== actor.userId) return missing();
   const config = JSON.parse(draft.config_json) as DraftConfig;
-  const attached = config.mode === "theme" ? config.allowedCubeIds?.includes(cubeId) : config.poolSource?.cubeId === cubeId;
+  const attached = config.mode === "theme" && config.allowedCubeIds?.includes(cubeId);
   if (!attached || !db.prepare("select 1 from cubes where id = ? and guild_id = ?").get(cubeId, env.discordGuildId)) return missing();
   const catalog = createCardCatalogService(db);
   return NextResponse.json(cubeDetail(cubeId, createCubeService(db, catalog), catalog));

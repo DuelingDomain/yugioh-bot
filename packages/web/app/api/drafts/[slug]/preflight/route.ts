@@ -27,12 +27,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
 
   const drafts = createDraftService(db);
   const draft = drafts.findById(draftRow.id);
-  if (draft.createdByUserId !== actor.userId && !findDraftReadAccess(db, draft.id, guildId, actor.userId)?.isSeated) {
-    return NextResponse.json({ error: "Draft not found" }, { status: 404 });
-  }
   if (draft.config.mode !== "theme") {
     const analysis = drafts.analyzeBoosterDraft(draft.config, Math.max(2, drafts.players(draft.id).length), draft.guildId);
     return NextResponse.json({ errors: analysis.errors, warnings: analysis.warnings });
+  }
+  if (draft.createdByUserId !== actor.userId && !findDraftReadAccess(db, draft.id, guildId, actor.userId)?.isSeated) {
+    return NextResponse.json({ error: "Draft not found" }, { status: 404 });
   }
   const closed = themeDraftSetupError(draft);
   if (closed) return NextResponse.json({ error: closed }, { status: 403 });
