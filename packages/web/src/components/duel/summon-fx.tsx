@@ -40,8 +40,11 @@ import {
   collectFreshEvents,
   DUEL_FX_CUE_EVENT,
   findZoneElement,
+  flipCoveredByActivation,
   isHeavySummon,
+  isPositionEvent,
   maxEventId,
+  positionChangeOf,
   slamCrackCount,
   slamStrengthOf,
   summonCoveredByFlip,
@@ -49,6 +52,7 @@ import {
   type DuelFxCue,
   type DuelFxCueDetail,
   type SummonStyle,
+  zoneCardParts,
 } from "./event-queue";
 import { battleBreakIs3d, battleDestroyAt, battleTakeover, HELD_CRACK_MS } from "./battle-hold";
 import { chainEffectAt, flipStrikeHideMs } from "./chain-beats";
@@ -332,14 +336,6 @@ function artOf(zone: HTMLElement): HTMLElement | null {
   return zone.querySelector<HTMLElement>("[data-card-art]");
 }
 
-/** The frame that holds the card art and its stat plate, so the whole card can be hidden at once. */
-function cardBodyOf(zone: HTMLElement): HTMLElement | null {
-  const art = artOf(zone);
-  if (!art) return null;
-  const body = art.parentElement?.parentElement;
-  return body && body !== zone && zone.contains(body) ? body : art;
-}
-
 function emitCue(cue: DuelFxCue, strength = 1): void {
   if (typeof window === "undefined") return;
   const detail: DuelFxCueDetail = { cue, strength };
@@ -415,8 +411,13 @@ export class Track {
  * animation, or disposing the track, shows the card at once.
  */
 function holdHidden(track: Track, zone: HTMLElement, ms: number): Animation | null {
-  const body = cardBodyOf(zone);
-  return track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: hiddenHoldMs(ms, 0), fill: "backwards" });
+  // Only what shows the card goes: the zone frame is the zone outline and stays drawn.
+  let first: Animation | null = null;
+  for (const part of zoneCardParts(zone)) {
+    const anim = track.play(part, [{ opacity: 0 }, { opacity: 0 }], { duration: hiddenHoldMs(ms, 0), fill: "backwards" });
+    first ??= anim;
+  }
+  return first;
 }
 
 function shakeFrames(amp: number, seed: number): Keyframe[] {
@@ -660,6 +661,15 @@ function SetFx({ item, overlay, done }: EffectProps) {
   );
 }
 
+/**
+ * Whether an activation turns its card over: only a card that lay Set, once, and only with motion on. A card that is
+ * already face-up (a Continuous Spell or a monster using its effect, or a Set card that a flip event turned before)
+ * never plays a turn, and a card that flew in from the hand showed its face the whole way.
+ */
+export function activationTurns(item: Pick<FxItem, "wasSet" | "plan" | "reduced">, flat: boolean): boolean {
+  return item.wasSet === true && flat && !item.plan && !item.reduced;
+}
+
 /** Activate: the card flips face-up and brightens; a chain link gets a gold edge, others a violet one. */
 function ActivateFx({ item, overlay, done }: EffectProps) {
   const anchor = useAnchor();
@@ -677,15 +687,14 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
     if (ghost.current) {
       const activationMs = item.reduced ? CARD_FX.reducedEffectMs : CARD_FX.activationMs;
       const total = Math.max(activationMs, item.activationHoldMs ?? 0);
-      const flips = flat && !item.plan && !item.reduced;
+      const flips = activationTurns(item, flat);
       // A card that flew in from the hand was showing its face the whole way: its copy is whole from the first frame and
       // the real card stays in its zone. Fading the copy in over a hidden card left the zone blank for a moment.
       const arrived = item.plan != null;
       // A Set card is already face-up on the board when its activation plays: its copy shows the sleeve first and turns it
       // over in place, over the hidden real card. Under reduced motion the face shows from the first frame.
       const sleeved = item.wasSet === true && !arrived && flips;
-      const initialTransform = flips && !sleeved ? "perspective(520px) rotateY(84deg)" : "none";
-      const finalTransform = flips ? "perspective(520px) rotateY(0deg)" : "none";
+      const finalTransform = "perspective(520px) rotateY(0deg)";
       // The face turns over fast, then stays up (CARD_FX.activationFaceMs) and fades in the last part of it.
       const flipAt = item.reduced ? 0.4 * activationMs / total : CARD_FX.activationFlipMs / total;
       const fadeAt = (activationMs - (item.reduced ? 0.25 * activationMs : CARD_FX.activationFadeMs)) / total;
@@ -695,7 +704,7 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
         { opacity: 1, transform: "perspective(520px) rotateY(84deg)", offset: turnAt },
         { opacity: 1, transform: "perspective(520px) rotateY(-84deg)", offset: turnAt },
         { opacity: 1, transform: finalTransform, offset: flipAt },
-      ] : [{ opacity: 1, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: flipAt }];
+      ] : [{ opacity: 1, transform: "none" }, { opacity: 1, transform: "none", offset: flipAt }];
       const frames: Keyframe[] = item.activationHoldMs ? [
         ...turned, { opacity: 1, offset: 0.9999 }, { opacity: 0 },
       ] : [...turned, { opacity: 1, offset: fadeAt }, { opacity: 0 }];
@@ -2149,9 +2158,11 @@ function planKind(event: DuelEvent, fresh: readonly DuelEvent[]): { kind: FxKind
 
 /**
  * Keeps `zones` as the Spell/Trap zones where a card lies Set. An activation of such a card is added to `activated`
- * (its zone stops being Set). A card that left the zone, or was put there to activate, is not Set.
+ * (its zone stops being Set). A card that left the zone, or was put there to activate, is not Set. A flip that turns
+ * the card face-up ends it too, unless an activation of that card in `fresh` turns it over instead (a card shows its
+ * sleeve turn only once).
  */
-function trackSetZones(zones: Set<string>, event: DuelEvent, activated: Set<number>): void {
+export function trackSetZones(zones: Set<string>, event: DuelEvent, activated: Set<number>, fresh: readonly DuelEvent[] = []): void {
   const key = (zone: DuelZoneRef | undefined) => (zone && zone.location === LOCATION_SZONE ? zoneKey(zone.controller, zone.location, zone.sequence) : null);
   const at = key(event.zone);
   if (event.kind === "set" && at) zones.add(at);
@@ -2165,6 +2176,7 @@ function trackSetZones(zones: Set<string>, event: DuelEvent, activated: Set<numb
       else zones.delete(at);
     }
   } else if (event.kind === "destroy" && at) zones.delete(at);
+  else if (isPositionEvent(event) && at && positionChangeOf(event).reveal && !flipCoveredByActivation(fresh, event)) zones.delete(at);
 }
 
 export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProps) {
@@ -2203,7 +2215,10 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
     if (cursorRef.current == null) {
       cursorRef.current = maxEventId(events) ?? 0;
       // Cards Set before this page loaded are known from the history the room still holds.
-      for (const event of collectFreshEvents(events, 0).fresh) trackSetZones(setZonesRef.current, event, new Set());
+      {
+        const history = collectFreshEvents(events, 0).fresh;
+        for (const event of history) trackSetZones(setZonesRef.current, event, new Set(), history);
+      }
       return;
     }
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
@@ -2211,7 +2226,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
     if (fresh.length === 0) return;
     // Set zones follow every event, also those of a hidden tab, which plays no effects.
     const setDown = new Set<number>();
-    for (const event of fresh) trackSetZones(setZonesRef.current, event, setDown);
+    for (const event of fresh) trackSetZones(setZonesRef.current, event, setDown, fresh);
     if (typeof document !== "undefined" && document.hidden) return;
 
     const now = typeof performance !== "undefined" ? duelFxClock.now() : 0;

@@ -35,6 +35,7 @@ import {
   type DuelFxCueDetail,
   type PositionChange,
   type PositionEvent,
+  zoneCardParts,
 } from "./event-queue";
 import { chainEffectAt, isSequenceFlip } from "./chain-beats";
 import { flipSequenceSteps } from "./flip-sequence";
@@ -114,14 +115,6 @@ function artOf(zone: HTMLElement): HTMLElement | null {
   return zone.querySelector<HTMLElement>("[data-card-art]");
 }
 
-/** The frame that holds the card art and its stat plate. */
-function cardBodyOf(zone: HTMLElement): HTMLElement | null {
-  const art = artOf(zone);
-  if (!art) return null;
-  const body = art.parentElement?.parentElement;
-  return body && body !== zone && zone.contains(body) ? body : art;
-}
-
 function emitCue(cue: DuelFxCue): void {
   if (typeof window === "undefined") return;
   const detail: DuelFxCueDetail = { cue, strength: 1 };
@@ -164,7 +157,7 @@ function useSetup(
 /** Reduced motion: the card in its new position fades in. */
 function FadeFx(props: EffectProps) {
   useSetup(props, ({ track, zone, d }) => {
-    track.play(cardBodyOf(zone), [{ opacity: 0 }, { opacity: 1 }], { duration: REDUCED_MS, delay: d, fill: "backwards", easing: "ease-out" });
+    for (const part of zoneCardParts(zone)) track.play(part, [{ opacity: 0 }, { opacity: 1 }], { duration: REDUCED_MS, delay: d, fill: "backwards", easing: "ease-out" });
   });
   return null;
 }
@@ -223,12 +216,11 @@ function FlipFx(props: EffectProps) {
     const base = flipCopyBase(geo);
     const from = base + (change.fromDefense ? 90 : 0);
     const to = base + (change.toDefense ? 90 : 0);
-    const body = cardBodyOf(zone);
     const faceMs = props.item.faceMs;
     const total = faceMs ? Math.round((FLIP_REVEAL_MS * faceMs) / FLIP_FACE_AT_MS) : FLIP_REVEAL_MS;
     const faceAt = FLIP_FACE_AT_MS / FLIP_REVEAL_MS;
-    // The real card is invisible for exactly as long as the copy is on top of it.
-    track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: total, delay: d, fill: "backwards" });
+    // The real card is invisible for exactly as long as the copy is on top of it. The zone outline stays drawn.
+    for (const part of zoneCardParts(zone)) track.play(part, [{ opacity: 0 }, { opacity: 0 }], { duration: total, delay: d, fill: "backwards" });
     track.play(
       anchor.current,
       [

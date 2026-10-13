@@ -24,7 +24,7 @@ import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, isDefenseAt, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED, TYPE_PENDULUM } from "./constants";
-import { collectFreshEvents, departureTurn, destinationCardSize, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation } from "./event-queue";
+import { collectFreshEvents, departureTurn, destinationCardSize, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation, zoneCardParts } from "./event-queue";
 import {
   getMovePlan,
   planMoves,
@@ -102,16 +102,16 @@ export type Flight = {
   flip: [number, number];
 };
 
-type Tuning = { lift: number; settle: number; arc: number; ease: (t: number) => number; liftPx: number; peak: number; landScale: number };
+type Tuning = { lift: number; settle: number; arc: number; ease: (t: number) => number; liftPx: number; peak: number; landScale: number; dip: number };
 
 function tuningFor(style: MoveStyle, cardH: number, dist: number): Tuning {
   switch (style) {
     case "toss":
-      return { lift: 0.1, settle: 0, arc: clamp(dist * 0.22, 16, 96), ease: easeInOutSine, liftPx: cardH * 0.04, peak: 1.05, landScale: 1 };
+      return { lift: 0.1, settle: 0, arc: clamp(dist * 0.22, 16, 96), ease: easeInOutSine, liftPx: cardH * 0.04, peak: 1.05, landScale: 1, dip: 1 };
     case "draw":
-      return { lift: 0.06, settle: 0.16, arc: clamp(dist * 0.08, 6, 30), ease: easeOutCubic, liftPx: cardH * 0.03, peak: 1.05, landScale: 1 };
+      return { lift: 0.06, settle: 0.16, arc: clamp(dist * 0.08, 6, 30), ease: easeOutCubic, liftPx: cardH * 0.03, peak: 1.05, landScale: 1, dip: 0.982 };
     default:
-      return { lift: 0.16, settle: 0.16, arc: clamp(dist * 0.1, 8, 36), ease: easeInOutCubic, liftPx: cardH * 0.07, peak: 1.08, landScale: 1 };
+      return { lift: 0.16, settle: 0.16, arc: clamp(dist * 0.1, 8, 36), ease: easeInOutCubic, liftPx: cardH * 0.07, peak: 1.08, landScale: 1, dip: 1 };
   }
 }
 
@@ -161,8 +161,9 @@ export function buildFlight(params: FlightParams): Flight {
       x = 0;
       y = 0;
       rot = endRot;
-      // 1.05 -> touches down slightly under size -> rests at 1.
-      scale = w < 0.55 ? lerp(1.05, 0.982, easeInOutSine(w / 0.55)) : lerp(0.982, 1, easeOutCubic((w - 0.55) / 0.45));
+      // 1.05 -> touches down (a drawn card slightly under size) -> rests at 1. A card settling into a zone never goes
+      // under the size of its zone: it only comes down to it.
+      scale = w < 0.55 ? lerp(1.05, tune.dip, easeInOutSine(w / 0.55)) : lerp(tune.dip, 1, easeOutCubic((w - 0.55) / 0.45));
       shadeOpacity = w < 0.35 ? lerp(0.5, 0.72, w / 0.35) : lerp(0.72, 0, (w - 0.35) / 0.65);
     }
     const offset = i / SAMPLES;
@@ -200,23 +201,36 @@ function hideElement(el: HTMLElement): () => void {
   };
 }
 
-/** The part of the destination that shows the arriving card: the whole card frame, or a pile's top card. */
-function hideTargetOf(dest: HTMLElement, plan: MovePlan): HTMLElement | null {
+/** Hides every element of a target; the returned function shows them again. */
+function hideElements(els: readonly HTMLElement[]): () => void {
+  const releases = els.map(hideElement);
+  return () => releases.forEach((release) => release());
+}
+
+const sameElements = (a: readonly HTMLElement[], b: readonly HTMLElement[]) => a.length === b.length && a.every((el, index) => el === b[index]);
+
+/**
+ * The parts of the destination that show the arriving card: what sits in a card frame (the frame is the zone outline and
+ * stays drawn), the hand slot, or a pile's top card.
+ */
+function hideTargetOf(dest: HTMLElement, plan: MovePlan): HTMLElement[] {
   const location = plan.event.zone?.location ?? 0;
   // A card added to a hand shows only when its showcase lands: the whole hand slot waits (a sleeve too).
-  if (plan.style === "add" && location === LOCATION_HAND) return dest;
+  if (plan.style === "add" && location === LOCATION_HAND) return [dest];
   // A drawn card, sleeve or face, shows only when it lands (the deal at the start of a duel is a row of these).
-  if (plan.style === "draw" && location === LOCATION_HAND) return dest;
+  if (plan.style === "draw" && location === LOCATION_HAND) return [dest];
   if (location === LOCATION_GRAVE || location === LOCATION_REMOVED) {
     // Several Tributes burn at once: each one waits at its own place in the pile, the newest on top.
     const fi = plan.tribute ? Math.max(0, plan.tribute.count - 1 - plan.tribute.index) : 0;
-    return dest.querySelector<HTMLElement>(`[data-fi="${fi}"]`) ?? dest.querySelector<HTMLElement>('[data-fi="0"]');
+    const pile = dest.querySelector<HTMLElement>(`[data-fi="${fi}"]`) ?? dest.querySelector<HTMLElement>('[data-fi="0"]');
+    return pile ? [pile] : [];
   }
-  if (location === LOCATION_EXTRA || location === LOCATION_DECK) return null;
+  if (location === LOCATION_EXTRA || location === LOCATION_DECK) return [];
+  if (location !== LOCATION_HAND) return zoneCardParts(dest);
   const art = dest.querySelector<HTMLElement>("[data-card-art]");
-  if (!art) return null;
+  if (!art) return [];
   const body = art.parentElement?.parentElement;
-  return body && body !== dest && dest.contains(body) ? body : art;
+  return [body && body !== dest && dest.contains(body) ? body : art];
 }
 
 /* ---------- the ghost ---------- */
@@ -823,23 +837,23 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
       if (!plan || plan.silent) continue;
       // The real card waits invisible at its destination until the ghost lands on it.
       const dest = findMoveDestination(plan.event);
-      const target = dest ? hideTargetOf(dest, plan) : null;
+      const target = dest ? hideTargetOf(dest, plan) : [];
       const waitMs = Math.max(0, plan.landAt + plan.holdMs - now) + HIDE_FAILSAFE_MS;
       const releases: Array<() => void> = [];
       if (plan.event.zone?.location === LOCATION_HAND) {
         let heldTarget = target;
-        let releaseTarget = target ? hideElement(target) : null;
+        let releaseTarget = hideElements(target);
         const stop = followMoveDestination(plan.event,
-          (destination) => destination ? hideTargetOf(destination, plan) : null,
+          (destination) => destination ? hideTargetOf(destination, plan) : [],
           (nextTarget) => {
-            if (nextTarget === heldTarget) return;
-            releaseTarget?.();
+            if (sameElements(nextTarget, heldTarget)) return;
+            releaseTarget();
             heldTarget = nextTarget;
-            releaseTarget = nextTarget ? hideElement(nextTarget) : null;
+            releaseTarget = hideElements(nextTarget);
           },
         );
-        releases.push(() => { stop(); releaseTarget?.(); });
-      } else if (target) releases.push(hideElement(target));
+        releases.push(() => { stop(); releaseTarget(); });
+      } else if (target.length > 0) releases.push(hideElements(target));
       if (plan.destroy && plan.event.from && plan.event.zone) {
         // The card is being destroyed: its zone shows empty from now (the ghost stands in until the break),
         // and the pile counts it when the flight lands, not before.
