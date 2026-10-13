@@ -136,7 +136,7 @@ describe("the attack line of a table (FFA, Tag) on a direct attack", () => {
 });
 
 describe("the declared-attack marker of a direct attack (BattleFx)", () => {
-  it("points the arrow and rings the field of the defender", async () => {
+  it("points the arrow at the field of the defender, with no outline around it", async () => {
     board();
     const { container } = render(
       <BattleFx events={[]} seats={[{ seat: 0, monsters: [] }, { seat: 1, monsters: [] }] as unknown as DuelSeatView[]} reducedMotion active aim={{ mode: "locked", from: "0:4:2", to: { lpSeat: 1 } }} />,
@@ -148,9 +148,10 @@ describe("the declared-attack marker of a direct attack (BattleFx)", () => {
     // The tip stops short of the target's edge, on the side of the attacker; it must be on the field, not near the plate.
     expect(tip.y).toBeLessThan(250);
     expect(tip.x).toBeGreaterThan(450);
-    // The last ring is the target's: it wraps the whole row (the first one is the attacker's).
-    const rings = container.querySelectorAll("[data-aim] rect");
-    expect(Number(rings[rings.length - 1]?.getAttribute("width"))).toBeGreaterThan(FIELD.w);
+    // No outline around the row: the only ring is the attacker's.
+    const rings = [...container.querySelectorAll("[data-aim] rect, [data-aim] path[data-turned]")];
+    expect(rings).toHaveLength(1);
+    expect(rings.some((r) => Number(r.getAttribute("width")) > FIELD.w)).toBe(false);
   });
 });
 
@@ -230,7 +231,7 @@ describe("the solid 1v1 plane (the real SolidField markup)", () => {
     expect(directTargetNode(1)).toBe(row);
   });
 
-  it("lands on the near edge of the defender's monster row, like a card target, and rings the row", async () => {
+  it("lands on the near edge of the defender's monster row, like a card target, with no ring around the row", async () => {
     const view = render(<SolidField {...fieldProps} />);
     const plane = view.container.querySelector<HTMLElement>("[data-sv-plane]")!;
     Object.defineProperties(plane, { offsetWidth: { configurable: true, value: 600 }, offsetHeight: { configurable: true, value: 400 } });
@@ -244,7 +245,8 @@ describe("the solid 1v1 plane (the real SolidField markup)", () => {
     const tip = tipOf(path);
     expect(tip.x).toBe(300);
     expect(tip.y).toBeGreaterThan(0);
-    expect(plane.querySelectorAll("svg rect").length).toBeGreaterThanOrEqual(2);
+    // Only the attacker's ring: none around the row.
+    expect(plane.querySelectorAll("svg rect[class*=aimRing]")).toHaveLength(1);
   });
 
   it("strikes the monster row of the defender in the plane, with the damage on the LP plate", async () => {
