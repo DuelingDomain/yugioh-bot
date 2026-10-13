@@ -21,7 +21,10 @@ export function migrateCubeOwnerNames(db: Database.Database): void {
       const objects = db.prepare("select sql from sqlite_master where tbl_name='cubes' and type in ('index','trigger') and sql is not null").all() as Array<{ sql: string }>;
       const highWater = (db.prepare("select seq from sqlite_sequence where name='cubes'").get() as { seq: number } | undefined)?.seq ?? 0;
       const count = (db.prepare("select count(*) n from cubes").get() as { n: number }).n;
-      const foreignKeyState = () => (db.pragma("foreign_key_check") as unknown[]).map(row => JSON.stringify(row)).sort();
+      // Avoid scanning unrelated tables (including large duel journals) under the write lock.
+      const foreignKeyState = () => ["cubes", "cube_cards", "draft_player_cube"]
+        .flatMap(table => db.pragma(`foreign_key_check(${table})`) as unknown[])
+        .map(row => JSON.stringify(row)).sort();
       const beforeForeignKeys = foreignKeyState();
       // Reuse the stored DDL so historical columns, defaults, checks and FKs survive.
       const replacement = schema
@@ -44,9 +47,6 @@ export function migrateCubeOwnerNames(db: Database.Database): void {
       // Preserve existing unknown-owner rows, but reject any new FK damage.
       if (JSON.stringify(foreignKeyState()) !== JSON.stringify(beforeForeignKeys)) {
         throw new Error("Cube name migration changed foreign keys");
-      }
-      if (db.pragma("integrity_check", { simple: true }) !== "ok") {
-        throw new Error("Cube name migration integrity check failed");
       }
     }).immediate();
   } finally {

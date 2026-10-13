@@ -1,11 +1,12 @@
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
+import { migrateCubeOwnerNames } from "../../src/db/cube-owner-names.js";
 import { migrate } from "../../src/db/schema.js";
 import { seedUser } from "../helpers/identity.js";
 
 const handles: Database.Database[] = [];
-function legacy(enabled = 1) {
-  const db = new Database(":memory:");
+function legacy(enabled = 1, statements?: string[]) {
+  const db = new Database(":memory:", { verbose: sql => { statements?.push(String(sql)); } });
   handles.push(db);
   migrate(db);
   // Model an existing post-identity database with the old guild name constraint.
@@ -30,6 +31,38 @@ function legacy(enabled = 1) {
 afterEach(() => {
   vi.restoreAllMocks();
   for (const db of handles.splice(0)) db.close();
+});
+
+it("limits rebuild validation to the cube tables", () => {
+  const statements: string[] = [];
+  const { db } = legacy(1, statements);
+  statements.length = 0;
+  migrateCubeOwnerNames(db);
+  const checks = statements.filter(sql => /^pragma\s+(?:foreign_key_check|integrity_check|quick_check)\b/i.test(sql));
+  expect(checks).toHaveLength(6);
+  for (const table of ["cubes", "cube_cards", "draft_player_cube"]) {
+    expect(checks.filter(sql => sql.toLowerCase() === `pragma foreign_key_check(${table})`)).toHaveLength(2);
+  }
+});
+
+it.each(["cubes", "cube_cards", "draft_player_cube"])("rolls back new foreign-key damage in %s", table => {
+  const { db } = legacy();
+  const snapshot = () => ["cubes", "cube_cards", "draft_player_cube", "sqlite_sequence"]
+    .map(name => db.prepare(`select * from ${name} order by rowid`).all());
+  const before = snapshot();
+  const exec = db.exec.bind(db);
+  vi.spyOn(db, "exec").mockImplementation(sql => {
+    const result = exec(sql);
+    if (/drop table cubes\s*;/i.test(sql)) {
+      exec(table === "cubes" ? "update cubes set created_by_user_id=999999 where id=12" : `update ${table} set cube_id=999999`);
+    }
+    return result;
+  });
+  expect(() => migrateCubeOwnerNames(db)).toThrow("Cube name migration changed foreign keys");
+  expect(db.inTransaction).toBe(false);
+  expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
+  expect(snapshot()).toEqual(before);
+  expect(db.prepare("select name from sqlite_master where name='cubes_owner_names_new'").all()).toEqual([]);
 });
 
 it.each([0, 1])("migrates existing cubes without data loss and restores FK pragma %s", enabled => {
