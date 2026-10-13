@@ -28,8 +28,8 @@ permissions:
   actions: read
 
 jobs:
-  deploy:
-    name: Deploy to Production VM
+  prepare:
+    name: Prepare verified production release
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
@@ -37,11 +37,6 @@ jobs:
       github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-latest
     environment: production
-    # Only eligible jobs join the queue: a failed Test must not displace a passing deploy.
-    # Keep the running deployment; GitHub replaces an older pending job with the newest one.
-    concurrency:
-      group: deploy-production
-      cancel-in-progress: false
     timeout-minutes: 180
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
@@ -55,6 +50,10 @@ jobs:
       DEPLOY_LIVE_ONLY: ${{ github.event_name == 'workflow_run' && 'true' || 'false' }}
       # Public production key only. The secret remains in the protected VM runtime env.
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+
+    outputs:
+      commit: ${{ steps.release.outputs.commit }}
+      rollback: ${{ env.DEPLOY_ROLLBACK }}
 
     steps:
       - name: Fail when VM secrets are not configured
@@ -70,7 +69,9 @@ jobs:
       # Keep the activity guard from the workflow revision, even when deploying an older main SHA.
       - name: Save deployment activity guard
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
-        run: cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/check-prod-activity.py"
+        run: |
+          cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/check-prod-activity.py"
+          cp scripts/deployment/production-images.sh "$RUNNER_TEMP/production-images.sh"
 
       - name: Checkout deploy ref
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -84,8 +85,12 @@ jobs:
         run: git fetch origin main && git merge-base --is-ancestor HEAD FETCH_HEAD
 
       - name: Record checked-out deploy commit
+        id: release
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
-        run: echo "DEPLOY_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+        run: |
+          commit=$(git rev-parse HEAD)
+          echo "DEPLOY_COMMIT=$commit" >> "$GITHUB_ENV"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Verify manual deploy commit passed Test
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' && github.event_name == 'workflow_dispatch' }}
@@ -224,6 +229,177 @@ jobs:
             cat "$bundle/$core.SOURCE" >> "$GITHUB_STEP_SUMMARY"
           done
           rm -rf "$RUNNER_TEMP/deploy-bundle-check"
+          tar -C "$bundle" -czf "$RUNNER_TEMP/deploy-bundle.tar.gz" .
+
+      - name: Upload verified release controls and bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-deploy-${{ env.DEPLOY_COMMIT }}
+          path: |
+            ${{ runner.temp }}/deploy-bundle.tar.gz
+            ${{ runner.temp }}/check-prod-activity.py
+            ${{ runner.temp }}/production-images.sh
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+          compression-level: 0
+
+  build:
+    name: Build ARM64 ${{ matrix.service }} image
+    needs: prepare
+    if: needs.prepare.outputs.rollback != 'true'
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: duel
+            target: duel-bundled
+          - service: web
+            target: web
+          - service: worker
+            target: worker
+          - service: ws
+            target: ws
+    env:
+      DEPLOY_COMMIT: ${{ needs.prepare.outputs.commit }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      IMAGE: ghcr.io/duelingdomain/yugioh-bot-${{ matrix.service }}
+    steps:
+      - name: Checkout verified deploy commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+
+      - name: Check production public key
+        run: |
+          printf '%s' "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" | grep -Eq '^pk_live_[A-Za-z0-9_-]+$' || {
+            echo "Set the production NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY repository variable." >&2
+            exit 1
+          }
+
+      - name: Download verified engine bundle
+        if: matrix.service == 'duel'
+        uses: actions/download-artifact@v4
+        with:
+          name: production-deploy-${{ needs.prepare.outputs.commit }}
+          path: ${{ runner.temp }}/release
+
+      - name: Prepare named engine context
+        run: |
+          mkdir -p "$RUNNER_TEMP/engine"
+          if [ "$IMAGE" = ghcr.io/duelingdomain/yugioh-bot-duel ]; then
+            tar -C "$RUNNER_TEMP/engine" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Find previous Next.js cache
+        if: matrix.service == 'web'
+        id: next-cache
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:nextcache" >/dev/null 2>&1; then
+            echo "context=nextcache=docker-image://$IMAGE:nextcache" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push runtime image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ env.DEPLOY_COMMIT }}
+          build-args: |
+            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          build-contexts: |
+            engine=${{ runner.temp }}/engine
+            ${{ steps.next-cache.outputs.context }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot
+            org.opencontainers.image.revision=${{ env.DEPLOY_COMMIT }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+
+      - name: Save Next.js cache for the next source revision
+        if: matrix.service == 'web'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: web-cache
+          platforms: linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:nextcache
+          build-args: |
+            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          build-contexts: ${{ steps.next-cache.outputs.context }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+
+  deploy:
+    name: Deploy to Production VM
+    needs: [prepare, build]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' &&
+      (needs.build.result == 'success' ||
+      (needs.prepare.outputs.rollback == 'true' && needs.build.result == 'skipped')) &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-latest
+    environment: production
+    # Only eligible jobs join the queue: a failed Test must not displace a passing deploy.
+    # Keep the running deployment; GitHub replaces an older pending job with the newest one.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    timeout-minutes: 180
+    env:
+      VM_HOST: ${{ secrets.VM_HOST }}
+      VM_USER: ${{ secrets.VM_USER }}
+      VM_DEPLOY_ENABLED: ${{ secrets.VM_HOST != '' && secrets.VM_USER != '' && secrets.VM_SSH_PRIVATE_KEY != '' && 'true' || 'false' }}
+      VM_PORT: ${{ secrets.VM_PORT || '22' }}
+      DEPLOY_COMMIT: ${{ needs.prepare.outputs.commit }}
+      DEPLOY_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref }}
+      DEPLOY_FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force && 'true' || 'false' }}
+      DEPLOY_ROLLBACK: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback && 'true' || 'false' }}
+      DEPLOY_WAIT_SECONDS: ${{ github.event_name == 'workflow_run' && '3600' || '0' }}
+      DEPLOY_LIVE_ONLY: ${{ github.event_name == 'workflow_run' && 'true' || 'false' }}
+      # Public production key only. The secret remains in the protected VM runtime env.
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+
+    steps:
+      - name: Checkout verified deploy commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+
+      - name: Download verified release controls and bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: production-deploy-${{ needs.prepare.outputs.commit }}
+          path: ${{ runner.temp }}/release
+
+      - name: Prepare deployment transfer
+        run: |
+          mkdir -p "$RUNNER_TEMP/deploy-bundle"
+          tar -C "$RUNNER_TEMP/deploy-bundle" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
+          cp "$RUNNER_TEMP/release/check-prod-activity.py" "$RUNNER_TEMP/check-prod-activity.py"
+          cp "$RUNNER_TEMP/release/production-images.sh" "$RUNNER_TEMP/production-images.sh"
 
       - name: Configure SSH key
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -260,6 +436,7 @@ jobs:
           bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
           remote_bundle=
           remote_guard=
+          remote_images=
           cleanup_transfer() {
             rm -f "$bundle_tar"
             if [ -n "$remote_bundle" ]; then
@@ -269,6 +446,10 @@ jobs:
             if [ -n "$remote_guard" ]; then
               ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_guard'" || true
+            fi
+            if [ -n "$remote_images" ]; then
+              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_images'" || true
             fi
           }
           trap cleanup_transfer EXIT
@@ -280,6 +461,11 @@ jobs:
           printf '%s' "$remote_guard" | grep -Eq '^/tmp/yugidraft-activity-guard\.[A-Za-z0-9]{6}\.py$' || exit 1
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$RUNNER_TEMP/check-prod-activity.py" "$VM_USER@$VM_HOST:$remote_guard"
+          remote_images=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            'mktemp /tmp/yugidraft-images.XXXXXX.sh')
+          printf '%s' "$remote_images" | grep -Eq '^/tmp/yugidraft-images\.[A-Za-z0-9]{6}\.sh$' || exit 1
+          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+            "$RUNNER_TEMP/production-images.sh" "$VM_USER@$VM_HOST:$remote_images"
           tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$bundle_tar" \
@@ -287,23 +473,22 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_IMAGES='$remote_images' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
-             context_ready=0
+             runtime_compose=
              cleanup() {
-               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD"
+               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "$DEPLOY_IMAGES"
                if [ -n "$installer" ]; then rm -f "$installer"; fi
                if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
-               if [ "$context_ready" = 1 ]; then rm -rf /opt/yugioh-bot/.deploy-duel-engine; fi
+               if [ -n "$runtime_compose" ]; then rm -f "$runtime_compose"; fi
              }
              trap cleanup EXIT
              trap 'exit 1' HUP INT TERM
              printf '%s' "$DEPLOY_COMMIT" | grep -Eq '^[0-9a-f]{40}$' || exit 1
              case "$DEPLOY_ROLLBACK" in true|false) ;; *) exit 1 ;; esac
-             # One build at a time on this VM: the staging deploy holds the same lock. Wait for it, then stop
-             # the staging containers (if any) so their memory is free for this build.
+             # Keep the shared build lock: staging still uses it, and production deploys must not overlap.
              if command -v flock >/dev/null 2>&1; then
                exec 9>/var/lock/yugidraft-build.lock
                flock -w 900 9 || { echo "Another build (maybe the staging deploy) holds the build lock." >&2; exit 1; }
@@ -342,11 +527,14 @@ jobs:
                exit 1
              fi
              rm -f "$installer"
+             # Pull all four release SHA tags before backups, retagging or stopping any service.
+             # Public GHCR packages need no VM login. A pull failure leaves live tags unchanged.
+             sh "$DEPLOY_IMAGES" pull "$DEPLOY_COMMIT"
              staging_ids=$(docker ps -q --filter label=com.docker.compose.project=yugidraft-staging)
              if [ -n "$staging_ids" ]; then
-               docker stop $staging_ids || true
+               for container in $staging_ids; do docker stop "$container" || true; done
              fi
-             # Preserve matching rollback code/env and the actual container image IDs before reset/build.
+             # Preserve matching rollback code/env and the actual container image IDs before checkout/promotion.
              # Record the previous service set, including its bot image for PR 1 rollback.
              umask 077
              release_dir="/var/backups/yugioh-bot/pr2-$(date -u +%Y%m%d-%H%M%SZ)"
@@ -366,26 +554,42 @@ jobs:
                  ;;
                esac
              done
+             # Also keep :latest when a service has no existing container (for example after an owner stop).
+             for service in duel web worker ws; do
+               if ! grep -q "\"service\":\"$service\"" "$release_dir/images.jsonl" && \
+                 docker image inspect "yugioh-bot-$service:latest" >/dev/null 2>&1; then
+                 docker tag "yugioh-bot-$service:latest" "yugioh-bot-$service:prev"
+               fi
+             done
              DUELING_BACKUP_DIR="$release_dir/online" python3 scripts/backup/dueling-backup
              git reset --hard "$DEPLOY_COMMIT"
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
-             # The image carries the same verified bundle as the data volume.
-             rm -rf .deploy-duel-engine
-             mkdir .deploy-duel-engine
-             context_ready=1
-             cp -a "$bundle_src/." .deploy-duel-engine/
-             docker compose -f docker-compose.yml build --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"
-             # Recheck after the build, immediately before any production service is stopped.
+             sh "$DEPLOY_IMAGES" promote "$DEPLOY_COMMIT"
+             # Remove build definitions even from an older rollback checkout. Compose run has no --no-build option.
+             # config resolves bind paths against /opt/yugioh-bot; keep the private runtime values in a 0600 temp file.
+             runtime_compose=$(mktemp /tmp/yugidraft-runtime-compose.XXXXXX.json)
+             docker compose -f docker-compose.yml config --format json | python3 -c '
+          import json,sys
+          config=json.load(sys.stdin)
+          for name, service in config["services"].items():
+              service.pop("build", None)
+              if name in ("duel", "web", "worker", "ws"):
+                  service["image"]="yugioh-bot-"+name+":latest"
+          json.dump(config, sys.stdout)
+             ' > "$runtime_compose"
+             # Refuse a missing local worker image before stopping production.
+             docker image inspect yugioh-bot-worker:latest >/dev/null
+             # Recheck after the pulls and promotion, immediately before any production service is stopped.
              # A game may have started since the first check. Refusal leaves production running.
              if ! check_prod_activity; then
                echo "Do not run compose up. Run Deploy again." >&2
                exit 1
              fi
              # Retire the bot container from the previous release before migration.
-             project=$(docker compose -f docker-compose.yml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')
+             project=$(docker compose -f "$runtime_compose" config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')
              retired_ids=$(docker ps -q --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=bot)
-             if [ -n "$retired_ids" ]; then docker stop $retired_ids; fi
-             docker compose -f docker-compose.yml stop web duel worker ws
+             for container in $retired_ids; do docker stop "$container"; done
+             docker compose -f "$runtime_compose" stop web duel worker ws
              # Once schema work can begin, failure must leave traffic stopped. Never restart old binaries.
              trap cleanup EXIT
              DUELING_BACKUP_DIR="$release_dir/drained" python3 scripts/backup/dueling-backup
@@ -393,7 +597,7 @@ jobs:
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
                exit 1
              fi
-             docker compose -f docker-compose.yml run --rm --no-deps worker node --input-type=module -e '
+             docker compose -f "$runtime_compose" run --rm --no-deps --pull never worker node --input-type=module -e '
                import {openDatabase} from "@yugidraft/shared/db";
                const db=openDatabase(process.env.DATABASE_PATH);
                try {
@@ -402,39 +606,41 @@ jobs:
                  console.log("identity migration verified");
                } finally {db.close();}
              '
-             docker compose -f docker-compose.yml down --remove-orphans
-             docker compose -f docker-compose.yml up -d ws duel web worker caddy
-             trap - EXIT
-             cleanup
-             docker compose -f docker-compose.yml ps
-             docker compose -f docker-compose.yml logs --tail=40
+             docker compose -f "$runtime_compose" down --remove-orphans
+             docker compose -f "$runtime_compose" up -d --no-build ws duel web worker caddy
+             docker compose -f "$runtime_compose" ps
+             docker compose -f "$runtime_compose" logs --tail=40
              sleep 20
-             duel_state=$(docker inspect -f "{{.State.Status}} restarts={{.RestartCount}}" "$(docker compose -f docker-compose.yml ps -q duel)")
+             duel_state=$(docker inspect -f "{{.State.Status}} restarts={{.RestartCount}}" "$(docker compose -f "$runtime_compose" ps -q duel)")
              echo "duel container: $duel_state"
              if [ "$duel_state" != "running restarts=0" ]; then
-               docker compose -f docker-compose.yml logs --tail=60 duel
+               docker compose -f "$runtime_compose" logs --tail=60 duel
                echo "The duel container is not running cleanly." >&2
                exit 1
              fi
              for service in ws worker; do
                healthy=0
-               for attempt in $(seq 1 36); do
-                 container=$(docker compose -f docker-compose.yml ps -q "$service")
+               for _attempt in $(seq 1 36); do
+                 container=$(docker compose -f "$runtime_compose" ps -q "$service")
                  state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.Health.Status}}' "$container")
                  if [ "$state" = "running 0 healthy" ]; then healthy=1; break; fi
                  sleep 5
                done
-               [ "$healthy" = 1 ] || { docker compose -f docker-compose.yml logs --tail=60 "$service"; exit 1; }
+               [ "$healthy" = 1 ] || { docker compose -f "$runtime_compose" logs --tail=60 "$service"; exit 1; }
              done
              # Anonymous auth checks: no redirects, no cookies and exact null body.
              # Next listens on the container's HOSTNAME, not on 127.0.0.1.
-             docker compose -f docker-compose.yml exec -T web node -e '
+             docker compose -f "$runtime_compose" exec -T web node -e '
                const base = `http://${process.env.HOSTNAME}:3000`;
                Promise.all([fetch(`${base}/sign-in`, {redirect:"manual"}), fetch(`${base}/api/auth/session`, {redirect:"manual"})])
                  .then(async ([page, session]) => { if(page.status !== 200 || session.status !== 200 || (await session.text()).trim() !== "null") process.exit(1); })
                  .catch(() => process.exit(1));
              '
-             docker image prune -f
+             sh "$DEPLOY_IMAGES" prune
+             cleanup
+             trap - EXIT
              echo "Production deployed SHA: $DEPLOY_COMMIT"
           REMOTE
+          # The backticks are literal Markdown for the Actions summary.
+          # shellcheck disable=SC2016
           printf 'Production deployed SHA: `%s`\n' "$DEPLOY_COMMIT" >> "$GITHUB_STEP_SUMMARY"

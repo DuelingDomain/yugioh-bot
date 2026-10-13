@@ -7,8 +7,9 @@ import { test } from "node:test";
 import { parse } from "yaml";
 
 const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8"));
-const value = (expression, inputs, github, vars = {}) => Function("inputs", "github", "vars", `return (${expression
-  .replace(/^\$\{\{\s*|\s*\}\}$/g, "")});`)(inputs, github, vars);
+const value = (expression, inputs, github, vars = {}, needs = {}, cancelled = () => false) =>
+  Function("inputs", "github", "vars", "needs", "cancelled", `return (${expression
+    .replace(/^\$\{\{\s*|\s*\}\}$/g, "")});`)(inputs, github, vars, needs, cancelled);
 
 function git(cwd, ...args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" } });
@@ -46,12 +47,12 @@ test("production follows successful main push tests and retains manual rollback 
   assert.equal(prod.on.workflow_dispatch.inputs.ref.default, "main");
   assert.equal(prod.on.workflow_dispatch.inputs.force.default, false);
   assert.equal(prod.on.workflow_dispatch.inputs.rollback.default, false);
-  const steps = prod.jobs.deploy.steps;
+  const steps = prod.jobs.prepare.steps;
   const save = steps.findIndex(step => step.name === "Save deployment activity guard");
   const target = steps.findIndex(step => step.name === "Checkout deploy ref");
   assert.ok(save >= 0 && save < target, "preserve the guard before target checkout replaces the source files");
   assert.match(steps[save].run, /cp scripts\/deployment\/check-prod-activity.py "\$RUNNER_TEMP\/check-prod-activity.py"/);
-  const remote = steps.find(step => step.name === "Deploy over SSH").run;
+  const remote = prod.jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
   assert.match(remote, /"\$RUNNER_TEMP\/check-prod-activity.py" "\$VM_USER@\$VM_HOST:\$remote_guard"/);
   assert.match(remote, /--wait-seconds "\$remaining"/);
   assert.match(remote, /DEPLOY_LIVE_ONLY='\$DEPLOY_LIVE_ONLY'/);
@@ -62,7 +63,7 @@ test("production follows successful main push tests and retains manual rollback 
 });
 
 test("automatic production deploys accept only a successful Test push on main and pin its SHA", () => {
-  const job = workflow("deploy.yml").jobs.deploy;
+  const job = workflow("deploy.yml").jobs.prepare;
   const sha = "a".repeat(40);
   const automatic = { event_name: "workflow_run", ref: "refs/heads/main", sha: "b".repeat(40),
     event: { workflow_run: { event: "push", conclusion: "success", head_branch: "main", head_sha: sha } } };
@@ -90,7 +91,7 @@ test("automatic production deploys accept only a successful Test push on main an
 });
 
 test("manual production refs require a successful push Test for that exact commit", t => {
-  const job = workflow("deploy.yml").jobs.deploy;
+  const job = workflow("deploy.yml").jobs.prepare;
   assert.equal(workflow("deploy.yml").permissions.actions, "read");
   const steps = job.steps;
   const verify = steps.find(step => step.name === "Verify manual deploy commit passed Test");
@@ -176,16 +177,17 @@ test("only manual staging dispatch can ignore production activity", () => {
 test("selected production code runs only after its main ancestry check, without the SSH key", t => {
   const prod = workflow("deploy.yml");
   assert.equal(prod.jobs.deploy.env.VM_SSH_PRIVATE_KEY, undefined);
-  const steps = prod.jobs.deploy.steps;
+  const steps = prod.jobs.prepare.steps;
   const checkout = steps.findIndex(step => step.name === "Checkout deploy ref");
   assert.equal(steps[checkout].with["fetch-depth"], 0);
   const verify = steps[checkout + 1];
   assert.equal(verify.name, "Verify deploy ref is on main");
   assert.match(verify.run, /git fetch origin main && git merge-base --is-ancestor HEAD FETCH_HEAD/);
   const install = steps.find(step => step.name === "Install duel-engine build dependencies");
-  const keyStep = steps.findIndex(step => step.name === "Configure SSH key");
-  assert.ok(steps.indexOf(install) > checkout + 1 && keyStep > steps.indexOf(install));
-  assert.deepEqual(steps.filter(step => step.env?.VM_SSH_PRIVATE_KEY).map(step => step.name), ["Configure SSH key"]);
+  assert.ok(steps.indexOf(install) > checkout + 1);
+  assert.deepEqual(steps.filter(step => step.env?.VM_SSH_PRIVATE_KEY), []);
+  assert.deepEqual(prod.jobs.deploy.steps.filter(step => step.env?.VM_SSH_PRIVATE_KEY).map(step => step.name), ["Configure SSH key"]);
+  assert.deepEqual(prod.jobs.deploy.needs, ["prepare", "build"]);
 
   const { dir, runner, base, unreviewed, release } = history(t);
   const bin = join(dir, "bin");
@@ -338,4 +340,81 @@ test("staging warnings reach the step summary even when the VM step fails", t =>
   const result = spawnSync("bash", ["-e", "-c", report.run], { encoding: "utf8", env: { ...process.env, RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: summary } });
   assert.equal(result.status, 0, result.stderr);
   assert.match(readFileSync(summary, "utf8"), /Staging skipped.*production is active/);
+});
+
+
+test("release images build on native ARM64 with separate registry caches before SSH deployment", () => {
+  const { prepare, build, deploy } = workflow("deploy.yml").jobs;
+  assert.equal(build.needs, "prepare");
+  assert.equal(build["runs-on"], "ubuntu-24.04-arm");
+  assert.deepEqual(build.permissions, { contents: "read", packages: "write" });
+  assert.deepEqual(build.strategy.matrix.include, [
+    { service: "duel", target: "duel-bundled" }, { service: "web", target: "web" },
+    { service: "worker", target: "worker" }, { service: "ws", target: "ws" },
+  ]);
+  const push = build.steps.find(step => step.name === "Build and push runtime image");
+  assert.equal(push.with.platforms, "linux/arm64");
+  assert.equal(push.with.push, true);
+  assert.equal(push.with.tags, "${{ env.IMAGE }}:${{ env.DEPLOY_COMMIT }}");
+  assert.match(push.with["cache-to"], /type=registry,.*:buildcache,mode=max/);
+  assert.match(push.with["build-contexts"], /engine=/);
+  assert.match(build.steps.find(step => step.name === "Save Next.js cache for the next source revision").with.tags, /:nextcache$/);
+  assert.ok(prepare.steps.every(step => !step.run?.includes("ssh ")));
+  assert.equal(deploy.env.DEPLOY_COMMIT, "${{ needs.prepare.outputs.commit }}");
+  assert.equal(build.if, "needs.prepare.outputs.rollback != 'true'");
+  assert.match(deploy.if, /needs.prepare.outputs.rollback == 'true'.*needs.build.result == 'skipped'/s);
+});
+
+test("production pulls before backup and keeps the drain, migration and health-check sequence without builds", () => {
+  const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
+  assert.doesNotMatch(remote, /docker (?:build|buildx build)|docker compose[^\n]* (?:build|--build)\b/);
+  const ordered = [
+    'DUEL_PREFLIGHT=1', 'sh "$DEPLOY_IMAGES" pull', 'staging_ids=',
+    '"$release_dir/images.jsonl"', '"$release_dir/online"', 'sh "$DEPLOY_IMAGES" promote',
+    'service.pop("build", None)', 'if ! check_prod_activity', '# Retire the bot container', 'stop web duel worker ws',
+    '"$release_dir/drained"', 'if ! DUEL_BUNDLE_SRC=', 'run --rm --no-deps --pull never worker',
+    'down --remove-orphans', 'up -d --no-build ws duel web worker caddy',
+    'running restarts=0', 'running 0 healthy', '/api/auth/session', 'sh "$DEPLOY_IMAGES" prune',
+  ];
+  let previous = -1;
+  for (const marker of ordered) {
+    const position = remote.indexOf(marker);
+    assert.ok(position > previous, `${marker} must follow the previous safety step`);
+    previous = position;
+  }
+  assert.match(remote, /flock -w 900 9/);
+  assert.match(remote, /docker tag "\$image_id" "\$\{image_ref%:\*\}:prev"/);
+});
+
+test("deploy accepts an intentional skipped rollback build but rejects failed or cancelled builds", () => {
+  const expression = workflow("deploy.yml").jobs.deploy.if;
+  const github = { event_name: "workflow_dispatch", ref: "refs/heads/main" };
+  for (const [prepareResult, buildResult, rollback, cancelled, expected] of [
+    ["success", "success", "false", false, true], ["success", "skipped", "true", false, true],
+    ["success", "skipped", "false", false, false], ["success", "failure", "true", false, false],
+    ["failure", "skipped", "true", false, false], ["success", "success", "false", true, false],
+  ]) {
+    const needs = { prepare: { result: prepareResult, outputs: { rollback } }, build: { result: buildResult } };
+    assert.equal(value(expression, {}, github, {}, needs, () => cancelled), expected);
+  }
+});
+
+test("runtime Compose uses pulled local images even for an older build-only checkout", () => {
+  const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
+  const transform = remote.match(/config --format json \| python3 -c '([\s\S]*?)' > "\$runtime_compose"/)[1];
+  const config = { name: "yugioh-bot", services: { caddy: { image: "caddy:2-alpine" } } };
+  for (const service of ["duel", "web", "worker", "ws"]) {
+    config.services[service] = { build: { context: "/opt/yugioh-bot", target: service },
+      volumes: [{ source: "/opt/yugioh-bot/data", target: "/app/data", type: "bind" }] };
+  }
+  const result = spawnSync("python3", ["-c", transform], { input: JSON.stringify(config), encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const runtime = JSON.parse(result.stdout);
+  assert.equal(runtime.name, config.name);
+  assert.equal(runtime.services.caddy.image, "caddy:2-alpine");
+  for (const service of ["duel", "web", "worker", "ws"]) {
+    assert.equal(runtime.services[service].build, undefined);
+    assert.equal(runtime.services[service].image, `yugioh-bot-${service}:latest`);
+    assert.deepEqual(runtime.services[service].volumes, config.services[service].volumes);
+  }
 });
