@@ -44,10 +44,14 @@ export type PhaseHubProps = {
 /** `pending`: lit only because the player just clicked it. `realState`: what a screen reader hears, the engine's own phase. */
 type ChipView = StationView & { pending?: boolean; realState?: StationView["state"] };
 
-/** The Battle Phase step as a short caption: "Battle step", "Start step", "Damage step", "Damage calculation", "End step". */
-export function battleStepCaption(step: { name: string }): string {
-  const name = step.name;
-  return name.charAt(0) + name.slice(1).toLowerCase();
+/** The Battle Phase step as a screen reader hears it: "Battle step", "Start step", "Damage step", "Damage calculation", "End step". */
+function heardStepName(step: { name: string }): string {
+  return step.name.charAt(0) + step.name.slice(1).toLowerCase();
+}
+
+/** The same step as the small visible caption. "Damage calculation" is too long for the narrow cells, so it is "Damage calc." there. */
+function visibleStepName(step: { id: string; name: string }): string {
+  return step.id === "damage-calculation" ? "Damage calc." : heardStepName(step);
 }
 
 function Chip({ view, litName, heardStep, onChoose }: { view: ChipView; litName: string; heardStep: string; onChoose: (optionId: string) => void }) {
@@ -146,9 +150,9 @@ export function PhaseHub({
   const realStep = base.current === BATTLE ? battleStepInfo(resolveBattleStep(phase, battleStep)) : null;
   // The pill always carries the phase's own short name ("Battle", like "Main 2"). The Battle Phase's current step is a caption above it.
   const litName = litStation?.name ?? "";
-  const stepCaption = step ? battleStepCaption(step) : "";
+  const stepCaption = step ? visibleStepName(step) : "";
   // The screen reader hears "Battle Phase, Battle step" on the Battle chip (the real step, not a pending move).
-  const heardStep = realStep ? battleStepCaption(realStep) : "";
+  const heardStep = realStep ? heardStepName(realStep) : "";
   const style = (tone ? { "--seat": tone.main, "--seat-ink": tone.ink } : undefined) as CSSProperties | undefined;
   const summary = noTurn
     ? "No active turn"
