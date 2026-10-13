@@ -228,7 +228,8 @@ describe("the Deck Master token", () => {
   it("says Free in the details flyout when the next summon costs nothing", () => {
     const state = structuredClone(stateOf("main"));
     const seat = state.room.engine!.seats.find((entry) => entry.seat === 0)!;
-    seat.deckMaster = { ...seat.deckMaster!, nextCost: 0 };
+    // In the zone: the next summon is the engine cost (out of the zone the panel shows the post-recall cost).
+    seat.deckMaster = { ...seat.deckMaster!, inZone: true, returns: 0, nextCost: 0 };
     render(<Shell state={state} />);
     fireEvent.click(screen.getByTestId("hud-master-token"));
     expect(screen.getByTestId("hud-master-cost").textContent).toBe("Free");
