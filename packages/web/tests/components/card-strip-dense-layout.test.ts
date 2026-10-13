@@ -82,7 +82,7 @@ describe("card strip in a dense host (3-way, Tag, 4-way)", () => {
   });
 
   it("sizes the tile from that cap and from the text scale", () => {
-    expect(rule(strip, dense)).toMatch(/var\(--pr-strip-h, 300px\) - 170px \* var\(--tt, 1\)/);
+    expect(rule(strip, dense)).toMatch(/var\(--pr-strip-h, 300px\) - 204px \* var\(--tt, 1\)/);
   });
 
   it("lays the rows out as a centred grid of equal columns, so Up and Down keep the column in a short last row", () => {
@@ -107,4 +107,67 @@ describe("card strip in a dense host (3-way, Tag, 4-way)", () => {
     expect(strip).not.toMatch(/\.arrow\[data-side="(up|down)"\]/);
   });
 
+});
+
+// jsdom: no layout, so the css itself is checked. These are guards against someone removing the room again, not proof that nothing clips: the proof
+// is a browser measurement (the preview pages, at five window sizes). The owner's screenshot of "Select a card": the first row of the grid sat 10px
+// under the top of the scroller (overflow clips the pick mark and the lift), and the number badge sat over the printed card name.
+describe("card strip: nothing is cut at the top, and the number badge keeps off the card name", () => {
+  // The smallest value of a pad: calc(N * unit [+ Mpx]) at the smallest unit (0.72), max(Npx, ...) at least N, a plain px as it is.
+  const SMALLEST_UNIT = 0.72;
+  const least = (value: string): number => {
+    const scaled = value.replace(/calc\((\d+(?:\.\d+)?) \* var\(--cs-u\)(?: \+ (\d+(?:\.\d+)?)px)?\)/g, (_, n: string, add?: string) => `${Number(n) * SMALLEST_UNIT + Number(add ?? 0)}px`);
+    const sizes = [...scaled.matchAll(/(-?\d+(?:\.\d+)?)px/g)].map((part) => Number(part[1]));
+    expect(sizes.length, value).toBeGreaterThan(0);
+    return value.startsWith("max(") ? Math.max(...sizes) : sizes[0];
+  };
+  const decls = (css: string, name: string) => [...css.matchAll(new RegExp(`${name}:\\s*([^;]+);`, "g"))].map((match) => match[1]);
+
+  it("puts the number badge inside the art at the bottom left, away from the printed name and the pick mark", () => {
+    const badge = rule(strip, ".num");
+    expect(badge).toMatch(/bottom:\s*max\(\d+px, calc\(\d+ \* var\(--cs-u\)\)\);/);
+    expect(badge).toMatch(/left:\s*max\(\d+px, calc\(\d+ \* var\(--cs-u\)\)\);/);
+    expect(badge).not.toMatch(/\btop:/);
+  });
+
+  it("keeps the number badge at least 16px high, and the pick mark above a selected neighbour's ring", () => {
+    const badge = rule(strip, ".num");
+    expect(badge).toMatch(/min-width:\s*max\(16px, calc\(18 \* var\(--cs-u\)\)\);/);
+    expect(badge).toMatch(/height:\s*max\(16px, calc\(18 \* var\(--cs-u\)\)\);/);
+    expect(rule(strip, ".mark")).toMatch(/z-index:\s*1;/);
+  });
+
+  it("hangs the pick mark off the top right corner", () => {
+    const mark = rule(strip, ".mark");
+    expect(mark).toMatch(/top:\s*calc\(-\d+ \* var\(--cs-u\)\);/);
+    expect(mark).toMatch(/right:\s*calc\(-\d+ \* var\(--cs-u\)\);/);
+  });
+
+  it("leaves room at the top for the lift (4px) and the pick mark (8px and its ring): every host keeps 14px at the smallest unit", () => {
+    const tops = decls(strip, "--cs-pad-top");
+    expect(tops.length).toBeGreaterThanOrEqual(4);
+    for (const value of tops) expect(least(value), value).toBeGreaterThanOrEqual(14);
+  });
+
+  it("leaves room at the sides for the pick mark and its ring: every host keeps 14px at the smallest unit", () => {
+    const sides = decls(strip, "--cs-pad-x");
+    expect(sides.length).toBeGreaterThanOrEqual(4);
+    for (const value of sides) expect(least(value), value).toBeGreaterThanOrEqual(14);
+  });
+
+  it("grows the top room of the wide dense grid with the unit, which passes 1px on a big window: the lift and the mark scale with it", () => {
+    expect(rule(strip, dense)).toMatch(/--cs-pad-top:\s*max\(16px, calc\(12 \* var\(--cs-u\) \+ 4px\)\);/);
+  });
+
+  it("shrinks the bottom fade with a short panel, so the first row's names stay clear of it", () => {
+    expect(rule(strip, dense)).toMatch(/--cs-fade:\s*clamp\(4px, calc\(var\(--pr-strip-h, 300px\) - 280px \* var\(--tt, 1\)\), 28px\);/);
+  });
+
+  it("keeps a followed row clear of the top edge by the same room", () => {
+    for (const value of decls(strip, "scroll-padding-block")) expect(least(value), value).toBeGreaterThanOrEqual(14);
+  });
+
+  it("scrolls a focused card into view with the room above it (a phone scrolls the panel)", () => {
+    expect(rule(strip, ".card")).toMatch(/scroll-margin-top:\s*var\(--cs-pad-top\);/);
+  });
 });
