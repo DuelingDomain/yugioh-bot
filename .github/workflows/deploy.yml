@@ -453,6 +453,7 @@ jobs:
 
     outputs:
       image-digests: ${{ steps.image-refs.outputs.digests }}
+      confirmed-attempt: ${{ steps.confirmed.outputs.attempt }}
 
     steps:
       - name: Checkout verified deploy commit
@@ -802,6 +803,11 @@ jobs:
           # shellcheck disable=SC2016
           printf 'Production deployed SHA: `%s`\n' "$DEPLOY_COMMIT" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Record healthy deployment attempt
+        id: confirmed
+        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        run: echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
   retain:
     name: Retain healthy production images in GHCR
     needs: deploy
@@ -813,11 +819,18 @@ jobs:
     env:
       GHCR_TOKEN: ${{ github.token }}
       DEPLOY_IMAGE_DIGESTS: ${{ needs.deploy.outputs.image-digests }}
+      DEPLOY_CONFIRMED_ATTEMPT: ${{ needs.deploy.outputs.confirmed-attempt }}
+      RUN_ATTEMPT: ${{ github.run_attempt }}
     steps:
       - name: Tag deployed and previous healthy manifests
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
+            // A failed-job retry can follow a newer deploy. Require fresh health checks.
+            if (!/^[1-9][0-9]*$/.test(process.env.RUN_ATTEMPT || '') ||
+                process.env.DEPLOY_CONFIRMED_ATTEMPT !== process.env.RUN_ATTEMPT) {
+              throw new Error('Registry retention requires deploy health checks in the current run attempt. Dispatch a new Deploy run for the intended current release.');
+            }
             const { createHash } = await import('node:crypto');
             const services = ["duel", "web", "worker", "ws"];
             const digests = new Map();

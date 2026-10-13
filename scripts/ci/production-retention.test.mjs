@@ -14,7 +14,7 @@ const current = body('current');
 const previous = body('previous');
 const references = services.map(service => `${service} ${digest(current)}`).join('\n');
 
-async function run({ old = previous, refs = references, failure = () => 0 } = {}) {
+async function run({ old = previous, refs = references, failure = () => 0, deployedAttempt = '1', runAttempt = '1' } = {}) {
   const writes = [];
   const reads = [];
   const fetch = async (url, options = {}) => {
@@ -42,7 +42,8 @@ async function run({ old = previous, refs = references, failure = () => 0 } = {}
   try {
     await new AsyncFunction('context', 'core', 'fetch', 'process', script)(
       { actor: 'owner', repo: { owner: 'DuelingDomain' } }, { info() {} }, fetch,
-      { env: { GHCR_TOKEN: 'job-token', DEPLOY_IMAGE_DIGESTS: refs } });
+      { env: { GHCR_TOKEN: 'job-token', DEPLOY_IMAGE_DIGESTS: refs,
+        DEPLOY_CONFIRMED_ATTEMPT: deployedAttempt, RUN_ATTEMPT: runAttempt } });
     return { writes, reads };
   } catch (error) {
     error.writes = writes;
@@ -59,6 +60,12 @@ test('only the successful deploy enables retention with the job package token', 
   assert.equal(retain.env.GHCR_TOKEN, '${{ github.token }}');
   assert.equal(retain.env.DEPLOY_IMAGE_DIGESTS, '${{ needs.deploy.outputs.image-digests }}');
   assert.equal(deploy.outputs['image-digests'], '${{ steps.image-refs.outputs.digests }}');
+  assert.equal(deploy.outputs['confirmed-attempt'], '${{ steps.confirmed.outputs.attempt }}');
+  assert.equal(retain.env.DEPLOY_CONFIRMED_ATTEMPT, '${{ needs.deploy.outputs.confirmed-attempt }}');
+  assert.equal(retain.env.RUN_ATTEMPT, '${{ github.run_attempt }}');
+  const confirm = deploy.steps.find(step => step.id === 'confirmed');
+  assert.match(confirm.run, /GITHUB_RUN_ATTEMPT.*GITHUB_OUTPUT/);
+  assert.ok(deploy.steps.indexOf(confirm) > deploy.steps.findIndex(step => step.name === 'Deploy over SSH'));
   const record = deploy.steps.find(step => step.id === 'image-refs');
   assert.match(record.run, /image-digests.*GITHUB_OUTPUT/s);
   assert.ok(retain.steps.every(step => !step.run?.includes('ssh')));
@@ -105,4 +112,18 @@ test('invalid digest input and a failed retained-manifest read stop before any t
 test('a failed production-prev write cannot move the production tag', async () => {
   await assert.rejects(run({ failure: (url, options) => options.method === 'PUT' && url.endsWith('/production-prev') ? 500 : 0 }),
     error => error.writes.length === 1 && error.writes[0].url.endsWith('/production-prev'));
+});
+
+test('an old failed retention retry cannot overwrite a newer production release', async () => {
+  const releaseB = body('release B');
+  // B is now healthy. Rerunning only A's failed retention must leave B's tags alone.
+  await assert.rejects(run({ old: releaseB, deployedAttempt: '1', runAttempt: '2' }),
+    error => /health checks.*current.*attempt.*Dispatch/s.test(error.message) && error.writes.length === 0);
+  // C must then preserve B, rather than A, as the rollback image.
+  const { writes } = await run({ old: releaseB });
+  assert.ok(writes.filter(write => write.url.endsWith('/production-prev')).every(write => write.body === releaseB));
+});
+
+test('a deploy that passes health checks in a retried attempt can retain its images', async () => {
+  assert.equal((await run({ deployedAttempt: '2', runAttempt: '2' })).writes.length, 8);
 });
