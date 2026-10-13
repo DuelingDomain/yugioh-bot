@@ -11,7 +11,7 @@ import { coveredArea, measureObstacles, obstaclesKey, peekPlaces, type Box, type
 
 /** The preview lingers this long after the pointer leaves, so a move between two cards does not flicker. */
 export const PREVIEW_HIDE_MS = 220;
-/** The art is dropped when a long text squeezes it under this height. */
+/** The art is dropped only when something squeezes it under this height. */
 const MIN_ART_PX = 90;
 /** How often a pinned panel looks at the clicked card, the board and the parts it stays clear of: a camera move or a prompt can change them with no event. */
 const WATCH_MS = 150;
@@ -41,9 +41,9 @@ const place = (aside: HTMLElement, spot: Place, layer: Box | null) => {
  * The hover preview of the shells (Tag, 3-way, 4-way, and the 1v1 table in the floating HUD): a 320-420 px wide panel that slides out from the left edge while
  * a card is hovered or focused (card, name, type, ATK/DEF, owner, effect text). It takes no pointer events, so it never blocks the board.
  * The card, its name and its facts stand side by side at the top and the effect text runs the full width under them, so a normal text shows whole.
- * The text size follows the "Text size" setting. The panel grows taller with it (not wider). The text comes first: when it still does not
- * fit the band, the art is dropped, and only a text that is longer even then scrolls inside the panel: only then the text takes the pointer
- * (a wheel scroll), and the pointer on it keeps the panel open.
+ * The text size follows the "Text size" setting. The panel grows taller with it (not wider). When the text does not fit the band, the art
+ * shrinks to 104 px wide (it is never dropped for that), and only a text that is longer even then scrolls inside the panel: only then the text
+ * takes the pointer (a wheel scroll), and the pointer on it keeps the panel open.
  * Face-down cards of a rival show nothing.
  * A click on a board card pins the panel (`pinned`): the same window in the same place, with the same size and layout. It only freezes: it stays when
  * the pointer leaves, until `onClose` (the X button, Esc, a press outside, or a click on another card, which pins that one), and it adds the
@@ -54,7 +54,7 @@ const place = (aside: HTMLElement, spot: Place, layer: Box | null) => {
  * It never goes to the other side. When the column is cut into short bands, the best one wins (the clicked card, the parts
  * kept clear and the board first).
  */
-export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, extras = [], avoid = null, ownSeats, onClose }: {
+export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, extras = [], avoid = null, hoverAnchor = null, ownSeats, onClose }: {
   /** A board card, or the card of a prompt row (`DuelCardInfo`: no position, no owner). */
   card: DuelCard | DuelCardInfo | null;
   owner: { name: string; main: string; ink: string } | null;
@@ -65,6 +65,8 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   extras?: readonly string[];
   /** The element that was clicked to pin the card: the pinned panel moves aside when it would cover it. */
   avoid?: HTMLElement | null;
+  /** The element the pointer or focus is on (a board, hand or Deck Master card): the panel never covers it (a pinned card is `avoid`). */
+  hoverAnchor?: HTMLElement | null;
   /** The seats of the viewer (and the partner in Tag): the panel is as wide as the free room up to the field zones of these seats. Absent: every board part limits it. */
   ownSeats?: readonly number[];
   /** The X button was pressed. `byKeyboard`: Enter or Space, so focus should go back to the card (a mouse click would show the card's hover peek again). */
@@ -100,15 +102,21 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   // The art gives way to a long text. When it is squeezed to a sliver it goes away for this card (a new card or size shows it again).
   const artKey = current ? `${current.code}:${textSize}` : "";
   const [squeezed, setSqueezed] = useState("");
+  // A text that still scrolls first shrinks the art to its small size (the art is never dropped for that); only a sliver of art goes away.
+  const [small, setSmall] = useState("");
+  // Where the panel stands (set by the placement below). The text is measured again in each new place: a place resets the art size.
+  const [spot, setSpot] = useState<Place>(FIRST_PLACE);
+  const placed = useRef<Place>(FIRST_PLACE);
   useLayoutEffect(() => {
     const text = textRef.current;
     if (!text) { setCut(false); return; }
     const measure = () => {
       const isCut = text.scrollHeight - text.clientHeight > 1;
       setCut(isCut);
-      // The text comes first: a text that still scrolls takes the room of the art (the art shows again in a new place or for a new card).
+      // A text that is cut shrinks the art to the small size (once); the rest of it scrolls. The art goes only when it is squeezed to a sliver.
+      if (isCut) setSmall(artKey);
       const art = asideRef.current?.querySelector("img");
-      if (art && art.clientHeight > 0 && (isCut || art.clientHeight < MIN_ART_PX)) setSqueezed(artKey);
+      if (art && art.clientHeight > 0 && art.clientHeight < MIN_ART_PX) setSqueezed(artKey);
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
@@ -116,25 +124,27 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     observer.observe(text);
     if (asideRef.current) observer.observe(asideRef.current);
     return () => observer.disconnect();
-  }, [current, textSize, artKey]);
+  }, [current, textSize, artKey, spot]);
   const frozen = showable ? pinned : shownPinned;
   // Where the panel stands: the same for hover and pin (a click adds the clicked card to the check, which the hover place passes already).
   // The first place of the left edge and the right edge that keeps clear of the clicked card, the chain tower,
   // the dock, the controls and the board; with none, the one that covers least. It is placed again when the card or the window changes.
-  const [spot, setSpot] = useState<Place>(FIRST_PLACE);
-  // A squeeze seen in a transient place (the CSS default before the first placement, a band that a camera move closes) must not hide the art for
-  // good: the art shows again in a new place, and it is measured again there.
-  useEffect(() => { setSqueezed(""); }, [spot.top, spot.maxH, spot.width]);
   const [resizeTick, setResizeTick] = useState(0);
   // What the placement saw last: the clicked card, the board and the parts kept clear. A change (a camera move, a chain that opens, a prompt)
   // places a pinned panel again (a hover panel is placed again by its next card).
   const watched = useRef("");
   // The place of the last hover panel: a click keeps it (the extra lines of the pin make the panel taller, and that must not pick another band).
   const hoverSpot = useRef<{ key: string; place: Place } | null>(null);
+  // The card the panel never covers: the clicked one of a pin, the hovered one of a hover.
+  const anchorOf = useCallback((pinnedNow: boolean): HTMLElement | null => {
+    const anchor = pinnedNow ? avoid : hoverAnchor;
+    return anchor?.isConnected ? anchor : null;
+  }, [avoid, hoverAnchor]);
   const watch = useCallback(() => {
-    const card = avoid?.isConnected ? avoid.getBoundingClientRect() : null;
+    const anchor = anchorOf(frozen);
+    const card = anchor ? anchor.getBoundingClientRect() : null;
     return `${card ? [card.left, card.top, card.width, card.height].map(Math.round).join(",") : ""}|${obstaclesKey(measureObstacles(asideRef.current, frozen, own))}`;
-  }, [avoid, frozen, own]);
+  }, [anchorOf, frozen, own]);
   const placing = open && current != null;
   // A hover panel watches too: a chain panel that folds or opens (a prompt comes and goes) must not leave it on the old room or under that panel.
   // The check reads many boxes, so a hover panel runs it at full speed only while a chain panel or tower is shown (the observer below covers
@@ -171,7 +181,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   useLayoutEffect(() => {
     const aside = asideRef.current;
     if (!aside || !placing) return;
-    const target = frozen && avoid?.isConnected ? avoid.getBoundingClientRect() : null;
+    const target = anchorOf(frozen)?.getBoundingClientRect() ?? null;
     const hasTarget = target != null && target.width > 0 && target.height > 0;
     const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
     // The part of the layer inside the window (jsdom has no window width: the whole layer then).
@@ -179,11 +189,13 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     const layer: Box = { left: parent.left, top: parent.top, right: windowRight > 0 ? Math.min(parent.right, windowRight) : parent.right, bottom: parent.bottom };
     const measured = parent.height > 0 ? layer : null;
     const obstacles = measureObstacles(aside, frozen, own);
+    if (hasTarget) obstacles.target = { left: target.left, top: target.top, right: target.right, bottom: target.bottom };
     const text = textRef.current;
     const candidates = peekPlaces(layer, obstacles);
     if (candidates.length === 0) {
       // Nothing to measure (no layout yet): the CSS places the panel.
       place(aside, FIRST_PLACE, null);
+      placed.current = FIRST_PLACE;
       watched.current = watch();
       setSpot((previous) => (previous === FIRST_PLACE ? previous : FIRST_PLACE));
       return;
@@ -230,8 +242,16 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     place(aside, chosen, measured);
     if (!frozen) hoverSpot.current = { key, place: chosen };
     watched.current = watch();
-    setSpot((previous) => (previous.side === chosen.side && previous.width === chosen.width && previous.top === chosen.top && previous.maxH === chosen.maxH ? previous : chosen));
-  }, [placing, frozen, avoid, current, textSize, resizeTick, watch, own]);
+    const last = placed.current;
+    if (!(last.side === chosen.side && last.width === chosen.width && last.top === chosen.top && last.maxH === chosen.maxH)) {
+      placed.current = chosen;
+      // A squeeze seen in a transient place (the CSS default before the first placement, a band that a camera move closes) must not shrink or hide the art for
+      // good: it is full size again in the new place, and measured again there. (This is a layout effect: it runs before the paint, so nothing flashes.)
+      setSmall("");
+      setSqueezed("");
+      setSpot(chosen);
+    }
+  }, [placing, frozen, anchorOf, current, textSize, resizeTick, watch, own]);
   if (!current) return null;
 
   const stats = cardStatsText(current);
@@ -251,6 +271,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       aria-label={frozen ? "Pinned card" : undefined}
       data-card-text={textSize}
       data-squeezed={squeezed === artKey ? "true" : undefined}
+      data-art={small === artKey ? "small" : undefined}
       style={{ ...cardTextStyle(textSize), ...(owner ? { "--seat-main": owner.main, "--seat-ink": owner.ink } : null) } as CSSProperties}
     >
       <div className={styles.previewHead}>

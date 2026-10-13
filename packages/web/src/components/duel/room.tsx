@@ -1558,6 +1558,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={pickHintShown || Boolean(pile?.open)}
           reducedMotion={preferences.reducedMotion}
+          hoverAnchor={hover?.anchor ?? null}
           ownSeats={[localSeat]}
         />
       ) : null}

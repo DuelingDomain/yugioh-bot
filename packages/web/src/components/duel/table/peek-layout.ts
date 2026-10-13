@@ -14,8 +14,11 @@ export interface Box { left: number; top: number; right: number; bottom: number 
 export interface Obstacles {
   board: Box[];
   keep: Box[];
-  /** The field zones of the viewer's own seats (a part of `board`), when the caller names them. The width of the panel stops short of these. */
+  /** The Monster Zones and Spell/Trap Zones 0-4 of the viewer's own seats (a part of `board`), when the caller names them. The width of the panel stops short of these.
+   *  The piles (Extra Deck, Field, Deck, GY, Banished) are not in it: the panel may stand over them (it has no pointer events as a hover). */
   own?: Box[];
+  /** The card the panel shows (a hovered or clicked one), when it can be found on the table: the panel never covers it. */
+  target?: Box;
 }
 
 /** One place to try: a free band of the left column. The panel stands on the bottom of the band; `maxH` is the room up to its top. */
@@ -38,7 +41,7 @@ export const MIN_WIDTH_PX = 320;
 export const MAX_WIDTH_PX = 420;
 export const WIDTH_RATIO = 0.22;
 /** The panel is never narrower than this, even where the viewer's own board is near (it then covers a part of the empty margin of the board frame, never a zone). */
-export const FLOOR_WIDTH_PX = 220;
+export const FLOOR_WIDTH_PX = 300;
 /** The panel width for a window (or layer) this wide. */
 export const peekWidth = (windowWidth: number): number => Math.round(Math.min(MAX_WIDTH_PX, Math.max(MIN_WIDTH_PX, windowWidth * WIDTH_RATIO)));
 /** The narrow column the shells keep free of the board (`--hud-left`): 14% of the window, from 220 to 284 px. The panel grows past it into free room. */
@@ -50,8 +53,6 @@ export const columnWidth = (windowWidth: number): number => Math.round(Math.min(
 export const peekColumnRight = (windowWidth: number): number => EDGE_LEFT_PX + columnWidth(windowWidth) + GAP_PX;
 /** A free band shorter than this is a short place: it comes after the tall ones (the art and some lines may not fit it). */
 const MIN_BAND_PX = 260;
-/** The height of a typical panel: the free width is measured beside the board over this span up from the bottom of a band. */
-const SPAN_PX = 520;
 /** Overlaps thinner than this are no overlap (a tilted zone has a loose bounding box). */
 const THIN_PX = 4;
 
@@ -110,13 +111,22 @@ export function measureObstacles(peek?: Element | null, pinned = false, ownSeats
   return obstacles;
 }
 
-/** The field zones of the given seats: a zone says `<seat>:<location>:<sequence>` (a pile of two kinds lists both). */
+const LOCATION_MZONE = 0x04;
+const LOCATION_SZONE = 0x08;
+
+/** Does a zone key (`<seat>:<location>:<sequence>`) of the given seats limit the width: a Monster Zone (the Extra Monster Zones too) or a Spell/Trap Zone 0-4. */
+function limitsWidth(key: string, seats: readonly number[]): boolean {
+  const [seat, location, sequence] = key.split(":").map(Number);
+  if (key === "" || !seats.includes(seat)) return false;
+  return location === LOCATION_MZONE || (location === LOCATION_SZONE && sequence < 5);
+}
+
+/** The zones that limit the width, of the given seats (a node lists the keys it stands for: a pile of two kinds lists both). */
 function ownZoneBoxes(peek: Element | null | undefined, seats: readonly number[]): Box[] {
   const found: Box[] = [];
   for (const node of Array.from(document.querySelectorAll("[data-zones]"))) {
     if (peek?.contains(node)) continue;
-    const mine = (node.getAttribute("data-zones") ?? "").split(" ").some((key) => key !== "" && seats.includes(Number(key.split(":")[0])));
-    if (!mine) continue;
+    if (!(node.getAttribute("data-zones") ?? "").split(" ").some((key) => limitsWidth(key, seats))) continue;
     const rect = node.getBoundingClientRect();
     if (rect.width > 1 && rect.height > 1) found.push(boxOf(rect));
   }
@@ -176,32 +186,42 @@ export function bandsOf(x0: number, x1: number, top: number, bottom: number, kee
   return bands.length === 0 ? [{ top, bottom }] : [bands.reduce((best, band) => (height(band) > height(best) ? band : best))];
 }
 
-/** The room from the panel edge to the nearest board part inside the band. `Infinity` with no board there. */
-export function freeWidth(layer: Box, band: Band, board: readonly Box[]): number {
-  // Only the board next to where the panel stands counts: a panel is about this tall, and it stands on the bottom of the band.
-  const inBand = board.filter((box) => box.bottom > Math.max(band.top, band.bottom - SPAN_PX) && box.top < band.bottom);
+/**
+ * The width of the panel in a layer: `peekWidth`, or the free room up to the nearest limit when that is less, never under `FLOOR_WIDTH_PX`. The limits are the
+ * own Monster and Spell/Trap Zones (`obstacles.own`: the rival boards and the piles do not limit it); without them (the caller does not know the seat) every board part.
+ */
+export function panelWidth(layer: Box, obstacles: Obstacles): number {
+  const full = peekWidth(layer.right - layer.left);
   const edge = layer.left + EDGE_LEFT_PX;
-  const limits = inBand.filter((box) => box.right > edge).map((box) => box.left);
-  return limits.length === 0 ? Infinity : Math.floor(Math.min(...limits) - GAP_PX - edge);
+  const limits = (obstacles.own && obstacles.own.length > 0 ? obstacles.own : obstacles.board).filter((box) => box.right > edge).map((box) => box.left);
+  const room = limits.length === 0 ? Infinity : Math.floor(Math.min(...limits) - GAP_PX - edge);
+  return Math.max(FLOOR_WIDTH_PX, Math.min(full, room));
 }
 
 /**
- * The places of the panel: one per free band of the left column (the highest first). The width is `peekWidth` of the layer, or the free
- * room beside the viewer's own board when that is less (never under `FLOOR_WIDTH_PX`). Without the own zones (the caller does not know the seat)
- * every board part limits it. A band is cut by the parts the panel stays clear of over the whole width it asks for. The Deck Master plates cut
- * nothing: the panel may stand over them. With no measurable layer it returns nothing: the CSS places it.
+ * The places of the panel: one per free band of the left column (the highest first), all of the width `panelWidth` says. A band is cut by the parts the panel stays
+ * clear of over that width. The Deck Master plates cut nothing: the panel may stand over them. The card the panel shows (`obstacles.target`) is never covered:
+ * the panel stops short of it when that leaves the floor width, and it cuts the bands when not. With no measurable layer it returns nothing: the CSS places it.
  * A column cut into short bands (a chain tower, the chain panel) is still the column: the short bands follow the tall ones
  * (a pin can take one to stay clear of the clicked card), they are the only places when no band is tall, and the panel never goes to the other side.
  */
 export function peekPlaces(layer: Box, obstacles: Obstacles): Place[] {
   if (layer.bottom - layer.top <= 0) return [];
-  const full = peekWidth(layer.right - layer.left);
   const x0 = layer.left + EDGE_LEFT_PX;
-  const limits = obstacles.own && obstacles.own.length > 0 ? obstacles.own : obstacles.board;
+  let width = panelWidth(layer, obstacles);
+  const target = obstacles.target;
+  let blockers: Box[] | null = null;
+  if (target && target.right > x0 && target.left < x0 + width) {
+    const room = Math.floor(target.left - GAP_PX - x0);
+    if (room >= FLOOR_WIDTH_PX) width = room;
+    else blockers = [...obstacles.keep, target];
+  }
+  const top = layer.top + TOP_PX;
+  const bottom = layer.bottom - BOTTOM_PX;
   const places: Place[] = [];
-  for (const band of bandsOf(x0, x0 + full, layer.top + TOP_PX, layer.bottom - BOTTOM_PX, obstacles.keep)) {
-    const width = Math.max(FLOOR_WIDTH_PX, Math.min(full, freeWidth(layer, band, limits)));
-    places.push({ side: "left", width, top: band.top, maxH: band.bottom - band.top });
+  // The bands that stay clear of the card come first; the bands that cover it follow (the least bad place when no clear band is tall enough: the caller ranks them).
+  for (const band of [...(blockers ? bandsOf(x0, x0 + width, top, bottom, blockers) : []), ...bandsOf(x0, x0 + width, top, bottom, obstacles.keep)]) {
+    if (!places.some((place) => place.top === band.top && place.maxH === band.bottom - band.top)) places.push({ side: "left", width, top: band.top, maxH: band.bottom - band.top });
   }
   return places;
 }
