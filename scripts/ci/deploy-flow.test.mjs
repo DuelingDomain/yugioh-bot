@@ -371,7 +371,7 @@ test("production pulls before backup and keeps the drain, migration and health-c
   const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
   assert.doesNotMatch(remote, /docker (?:build|buildx build)|docker compose[^\n]* (?:build|--build)\b/);
   const ordered = [
-    'DUEL_PREFLIGHT=1', 'sh "$DEPLOY_IMAGES" pull', 'staging_ids=',
+    'DUEL_PREFLIGHT=1', 'sh "$DEPLOY_IMAGES" pull',
     '"$release_dir/images.jsonl"', '"$release_dir/online"', 'sh "$DEPLOY_IMAGES" promote',
     'service.pop("build", None)', 'if ! check_prod_activity', '# Retire the bot container', 'stop web duel worker ws',
     '"$release_dir/drained"', 'if ! DUEL_BUNDLE_SRC=', 'run --rm --no-deps --pull never worker',
@@ -385,7 +385,7 @@ test("production pulls before backup and keeps the drain, migration and health-c
     previous = position;
   }
   assert.match(remote, /flock -w 900 9/);
-  assert.match(remote, /docker tag "\$image_id" "\$\{image_ref%:\*\}:prev"/);
+  assert.match(remote, /sh "\$DEPLOY_IMAGES" preserve "\$DEPLOY_COMMIT" "\$image_id" "\$\{image_ref%:\*\}:prev"/);
 });
 
 test("deploy accepts an intentional skipped rollback build but rejects failed or cancelled builds", () => {
@@ -437,4 +437,44 @@ test("staging requires a separate explicit host before any SSH or checkout", () 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /STAGING_HOST.*(required|production)/);
   }
+});
+
+
+test("runtime Compose comparison checks dollar values before any service stops", t => {
+  const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
+  const comparison = remote.match(/python3 - "\$runtime_compose" "\$resolved_compose" <<'PY'\n([\s\S]*?)\n\s*PY/);
+  assert.ok(comparison, "compare resolved Compose models before stopping services");
+  assert.ok(remote.indexOf(comparison[0]) < remote.indexOf('docker stop'));
+  for (const line of remote.split('\n').filter(line => line.includes('docker compose -f "$runtime_compose"'))) {
+    assert.match(line, /--project-directory \/opt\/yugioh-bot/);
+  }
+  const dir = mkdtempSync(join(tmpdir(), "compose-roundtrip-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const fixture = { name: "review-fixture", services: { web: {
+    image: "example:latest", environment: { VALUE: "${REVIEW_VALUE}" },
+    command: ["sh", "-c", "echo $$VALUE"], healthcheck: { test: ["CMD-SHELL", "echo $$VALUE"] },
+  } } };
+  const source = join(dir, "source.json");
+  const runtime = join(dir, "runtime.json");
+  const resolved = join(dir, "resolved.json");
+  writeFileSync(source, JSON.stringify(fixture));
+  const env = { ...process.env, REVIEW_VALUE: "secret$UNSET-value$$literal", DOCKER_HOST: "unix:///nonexistent-review-daemon" };
+  const compose = file => spawnSync('/usr/local/lib/docker/cli-plugins/docker-compose',
+    ['--env-file', '/dev/null', '--project-directory', dir, '-f', file, 'config', '--format', 'json'],
+    { cwd: dir, env, encoding: 'utf8' });
+  const before = compose(source);
+  assert.equal(before.status, 0, "daemon-free Compose config must succeed");
+  writeFileSync(runtime, before.stdout);
+  const after = compose(runtime);
+  assert.equal(after.status, 0, "Compose re-read must succeed");
+  writeFileSync(resolved, after.stdout);
+  const compare = () => spawnSync('python3', ['-', runtime, resolved], { input: comparison[1], encoding: 'utf8' });
+  assert.equal(compare().status, 0, 'dollar values must survive the local Compose parser');
+  const changed = JSON.parse(after.stdout);
+  changed.services.web.environment.VALUE = 'changed$private';
+  writeFileSync(resolved, JSON.stringify(changed));
+  const refused = compare();
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /runtime Compose configuration changed/);
+  assert.doesNotMatch(refused.stderr + refused.stdout, /secret|private/);
 });

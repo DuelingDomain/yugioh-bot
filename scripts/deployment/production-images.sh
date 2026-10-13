@@ -10,14 +10,14 @@ registry=ghcr.io/duelingdomain/yugioh-bot
 services='duel web worker ws'
 
 case "$operation" in
-  pull|promote)
+  pull|promote|preserve)
     printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$' || {
       echo 'A full lowercase commit SHA is required.' >&2
       exit 1
     }
     ;;
   prune) ;;
-  *) echo 'Usage: production-images.sh pull|promote <sha> | prune' >&2; exit 1 ;;
+  *) echo 'Usage: production-images.sh pull|promote <sha> | preserve <sha> <image> <prev-tag> | prune' >&2; exit 1 ;;
 esac
 
 verify_image() {
@@ -30,11 +30,35 @@ verify_image() {
 
 case "$operation" in
   pull)
+    # Pulls share the disk with SQLite. Refuse before downloading any layers.
+    docker_root=$(docker info --format '{{.DockerRootDir}}')
+    [ -n "$docker_root" ] || { echo 'Cannot find the Docker disk.' >&2; exit 1; }
+    free_kib=$(df -Pk "$docker_root" | awk 'NR == 2 { print $4 }')
+    case "$free_kib" in ''|*[!0-9]*) echo 'Cannot read free disk space.' >&2; exit 1 ;; esac
+    [ "$free_kib" -ge 6291456 ] || {
+      echo 'Deploy stopped before pull: at least 6 GiB of free Docker disk space is required.' >&2
+      exit 1
+    }
     for service in $services; do
       image="$registry-$service:$commit"
       docker pull --platform=linux/arm64 "$image"
       verify_image "$image"
     done
+    ;;
+  preserve)
+    image=${3:?Image ID or local latest tag is required}
+    previous=${4:?Previous image tag is required}
+    revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
+    # A failed-health retry must not replace the good rollback image with itself.
+    if [ "$revision" = "$commit" ]; then exit 0; fi
+    # A different unconfirmed GHCR deploy must also retain the first-cutover image.
+    if printf '%s' "$revision" | grep -Eq '^[0-9a-f]{40}$' &&
+      [ "$revision" != "${DEPLOY_CONFIRMED_COMMIT:-}" ] &&
+      docker image inspect "$previous" >/dev/null 2>&1; then
+      echo "Keeping $previous: the running GHCR release has not passed health checks."
+      exit 0
+    fi
+    docker tag "$image" "$previous"
     ;;
   promote)
     # A missing image must fail before any :latest tag changes.
@@ -45,18 +69,18 @@ case "$operation" in
     ;;
   prune)
     for service in $services; do
-      for repository in "yugioh-bot-$service" "$registry-$service"; do
-        for reference in $(docker image ls --format '{{.Repository}}:{{.Tag}}' "$repository"); do
-          case "$reference" in
-            "yugioh-bot-$service:latest"|"yugioh-bot-$service:prev"|*:'<none>') ;;
-            "$repository":*)
-              # No force: Docker must retain images still used by a container.
+      repository="$registry-$service"
+      for reference in $(docker image ls --format '{{.Repository}}:{{.Tag}}' "$repository"); do
+        case "$reference" in
+          "$repository":*)
+            tag=${reference##*:}
+            if printf '%s' "$tag" | grep -Eq '^[0-9a-f]{40}$'; then
+              # No force and no global prune. Local safety tags remain intact.
               docker image rm "$reference" || echo "Warning: could not remove $reference" >&2
-              ;;
-          esac
-        done
+            fi
+            ;;
+        esac
       done
     done
-    docker image prune -f
     ;;
 esac

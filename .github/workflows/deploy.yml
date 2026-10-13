@@ -477,11 +477,13 @@ jobs:
              bundle_src=
              installer=
              runtime_compose=
+             resolved_compose=
              cleanup() {
                rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "$DEPLOY_IMAGES"
                if [ -n "$installer" ]; then rm -f "$installer"; fi
                if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
                if [ -n "$runtime_compose" ]; then rm -f "$runtime_compose"; fi
+               if [ -n "$resolved_compose" ]; then rm -f "$resolved_compose"; fi
              }
              trap cleanup EXIT
              trap 'exit 1' HUP INT TERM
@@ -530,10 +532,6 @@ jobs:
              # Pull all four release SHA tags before backups, retagging or stopping any service.
              # Public GHCR packages need no VM login. A pull failure leaves live tags unchanged.
              sh "$DEPLOY_IMAGES" pull "$DEPLOY_COMMIT"
-             staging_ids=$(docker ps -q --filter label=com.docker.compose.project=yugidraft-staging)
-             if [ -n "$staging_ids" ]; then
-               for container in $staging_ids; do docker stop "$container" || true; done
-             fi
              # Preserve matching rollback code/env and the actual container image IDs before checkout/promotion.
              # Record the previous service set, including its bot image for PR 1 rollback.
              umask 077
@@ -544,13 +542,16 @@ jobs:
              cp -p .env "$release_dir/runtime.env"
              chmod 0600 "$release_dir/runtime.env"
              : > "$release_dir/images.jsonl"
+             DEPLOY_CONFIRMED_COMMIT=
+             if [ -f data/production-image-commit ]; then DEPLOY_CONFIRMED_COMMIT=$(cat data/production-image-commit); fi
+             export DEPLOY_CONFIRMED_COMMIT
              for container in $(docker compose -f docker-compose.yml ps -aq); do
                service=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$container")
                case "$service" in duel|web|bot|ws|worker)
                  image_id=$(docker inspect -f '{{.Image}}' "$container")
                  image_ref=$(docker inspect -f '{{.Config.Image}}' "$container")
                  docker inspect -f '{"service":"{{index .Config.Labels "com.docker.compose.service"}}","imageId":"{{.Image}}","imageRef":"{{.Config.Image}}"}' "$container" >> "$release_dir/images.jsonl"
-                 docker tag "$image_id" "${image_ref%:*}:prev"
+                 sh "$DEPLOY_IMAGES" preserve "$DEPLOY_COMMIT" "$image_id" "${image_ref%:*}:prev"
                  ;;
                esac
              done
@@ -558,7 +559,7 @@ jobs:
              for service in duel web worker ws; do
                if ! grep -q "\"service\":\"$service\"" "$release_dir/images.jsonl" && \
                  docker image inspect "yugioh-bot-$service:latest" >/dev/null 2>&1; then
-                 docker tag "yugioh-bot-$service:latest" "yugioh-bot-$service:prev"
+                 sh "$DEPLOY_IMAGES" preserve "$DEPLOY_COMMIT" "yugioh-bot-$service:latest" "yugioh-bot-$service:prev"
                fi
              done
              DUELING_BACKUP_DIR="$release_dir/online" python3 scripts/backup/dueling-backup
@@ -577,6 +578,18 @@ jobs:
                   service["image"]="yugioh-bot-"+name+":latest"
           json.dump(config, sys.stdout)
              ' > "$runtime_compose"
+             # Re-read the generated model before any service stops. Never print private values.
+             resolved_compose=$(mktemp /tmp/yugidraft-resolved-compose.XXXXXX.json)
+             if ! docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot config --format json > "$resolved_compose" 2>/dev/null; then
+               echo "Deploy stopped: runtime Compose configuration cannot be resolved." >&2
+               exit 1
+             fi
+             python3 - "$runtime_compose" "$resolved_compose" <<'PY'
+          import json,sys
+          with open(sys.argv[1]) as before, open(sys.argv[2]) as after:
+              if json.load(before) != json.load(after):
+                  sys.exit("Deploy stopped: runtime Compose configuration changed after re-read; no service was stopped.")
+          PY
              # Refuse a missing local worker image before stopping production.
              docker image inspect yugioh-bot-worker:latest >/dev/null
              # Recheck after the pulls and promotion, immediately before any production service is stopped.
@@ -586,10 +599,10 @@ jobs:
                exit 1
              fi
              # Retire the bot container from the previous release before migration.
-             project=$(docker compose -f "$runtime_compose" config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')
+             project=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$runtime_compose")
              retired_ids=$(docker ps -q --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=bot)
              for container in $retired_ids; do docker stop "$container"; done
-             docker compose -f "$runtime_compose" stop web duel worker ws
+             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot stop web duel worker ws
              # Once schema work can begin, failure must leave traffic stopped. Never restart old binaries.
              trap cleanup EXIT
              DUELING_BACKUP_DIR="$release_dir/drained" python3 scripts/backup/dueling-backup
@@ -597,7 +610,7 @@ jobs:
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
                exit 1
              fi
-             docker compose -f "$runtime_compose" run --rm --no-deps --pull never worker node --input-type=module -e '
+             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot run --rm --no-deps --pull never worker node --input-type=module -e '
                import {openDatabase} from "@yugidraft/shared/db";
                const db=openDatabase(process.env.DATABASE_PATH);
                try {
@@ -606,36 +619,39 @@ jobs:
                  console.log("identity migration verified");
                } finally {db.close();}
              '
-             docker compose -f "$runtime_compose" down --remove-orphans
-             docker compose -f "$runtime_compose" up -d --no-build ws duel web worker caddy
-             docker compose -f "$runtime_compose" ps
-             docker compose -f "$runtime_compose" logs --tail=40
+             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot down --remove-orphans
+             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot up -d --no-build ws duel web worker caddy
+             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps
+             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=40
              sleep 20
-             duel_state=$(docker inspect -f "{{.State.Status}} restarts={{.RestartCount}}" "$(docker compose -f "$runtime_compose" ps -q duel)")
+             duel_state=$(docker inspect -f "{{.State.Status}} restarts={{.RestartCount}}" "$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q duel)")
              echo "duel container: $duel_state"
              if [ "$duel_state" != "running restarts=0" ]; then
-               docker compose -f "$runtime_compose" logs --tail=60 duel
+               docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 duel
                echo "The duel container is not running cleanly." >&2
                exit 1
              fi
              for service in ws worker; do
                healthy=0
                for _attempt in $(seq 1 36); do
-                 container=$(docker compose -f "$runtime_compose" ps -q "$service")
+                 container=$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q "$service")
                  state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.Health.Status}}' "$container")
                  if [ "$state" = "running 0 healthy" ]; then healthy=1; break; fi
                  sleep 5
                done
-               [ "$healthy" = 1 ] || { docker compose -f "$runtime_compose" logs --tail=60 "$service"; exit 1; }
+               [ "$healthy" = 1 ] || { docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 "$service"; exit 1; }
              done
              # Anonymous auth checks: no redirects, no cookies and exact null body.
              # Next listens on the container's HOSTNAME, not on 127.0.0.1.
-             docker compose -f "$runtime_compose" exec -T web node -e '
+             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot exec -T web node -e '
                const base = `http://${process.env.HOSTNAME}:3000`;
                Promise.all([fetch(`${base}/sign-in`, {redirect:"manual"}), fetch(`${base}/api/auth/session`, {redirect:"manual"})])
                  .then(async ([page, session]) => { if(page.status !== 200 || session.status !== 200 || (await session.text()).trim() !== "null") process.exit(1); })
                  .catch(() => process.exit(1));
              '
+             # Record success only after every health check passes. Retries keep the good :prev.
+             printf '%s\n' "$DEPLOY_COMMIT" > data/production-image-commit.tmp
+             mv data/production-image-commit.tmp data/production-image-commit
              sh "$DEPLOY_IMAGES" prune
              cleanup
              trap - EXIT
