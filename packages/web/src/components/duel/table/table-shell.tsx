@@ -27,6 +27,7 @@ import { CardInspector, type InspectTarget } from "../inspector";
 import { MasterReturnFx } from "../master-return-fx";
 import { MoveFx } from "../move-fx";
 import { engineFormat, formatLabel, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds } from "../multi-seat";
+import { useLiveChainLinks } from "../pile-chain-marks";
 import { PileViewer } from "../pile-viewer";
 import { livePileCards } from "../pile-focus";
 import { MatchSheetLog } from "../text-log";
@@ -334,6 +335,8 @@ function TableShellBody({
     (seat.eliminated || (session.kind !== "replay-fork" && seat.pendingElimination)));
   const terminal = session.status !== "active";
   const hasResult = engine.result != null || terminal;
+  // The chain as the pile viewer marks it (the card a link activated from), live while the viewer is open.
+  const pileChainLinks = useLiveChainLinks(engine.events, namedChain, hasResult);
   const resultReady = useResultGate({
     slug: session.slug,
     status: session.status,
@@ -873,6 +876,7 @@ function TableShellBody({
                         onActivateCard={onInspectorActivate}
                         legalKeys={controller.legalKeys}
                         selectedKeys={controller.selectedKeys}
+                        chainLinks={pileChainLinks}
                         reducedMotion={controller.reducedMotion}
                       />
                     ) : null}

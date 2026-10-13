@@ -19,7 +19,10 @@ import {
 } from "./constants";
 import { duelFontClasses } from "./fonts";
 import { useFilledCard } from "./filled-card";
+import { ChainGlyph } from "./chain-glyph";
+import type { ChainLinkState } from "./chain-state";
 import { cardExtraLines } from "./inspector";
+import { chainMarkLabel, pileChainMarks, type PileChainMark } from "./pile-chain-marks";
 import { useSkinStyles } from "./skin";
 import baseStyles from "./pile-viewer.module.css";
 import { UsableGlow } from "./usable-glow";
@@ -44,9 +47,36 @@ export type PileViewerProps = {
   /** Zone keys legal in the current prompt: those cards glow (in the pile's summoning-circle tone, with a "Use" tag) and activate on click. */
   legalKeys?: Set<string>;
   selectedKeys?: Set<string>;
+  /**
+   * The chain right now (`useLiveChainLinks`). A card in this pile that a link activated from wears the link's number
+   * and chain glyph, like the badge on the field pile, and the detail says "Chain N · activating / resolving".
+   * Left out, nothing is marked.
+   */
+  chainLinks?: readonly ChainLinkState[];
 };
 
-type Entry = { card: DuelCard; key: string; index: number };
+type Entry = { card: DuelCard; key: string; index: number; marks: readonly PileChainMark[] };
+
+const NO_MARKS: readonly PileChainMark[] = [];
+
+/**
+ * The chain badge of a pile card: the number in a gold medallion with the chain-link chip, as on the field pile.
+ * One badge per link; a card two links activated from shows them side by side, lowest on the right.
+ */
+function ChainMarkBadges({ marks, styles, size }: { marks: readonly PileChainMark[]; styles: Record<string, string>; size: "thumb" | "detail" }) {
+  if (marks.length === 0) return null;
+  return (
+    <span className={styles.chainMarks} data-size={size} data-chain-mark={size} aria-hidden={size === "detail" ? "true" : undefined}>
+      {[...marks].reverse().map((mark) => (
+        <span key={mark.index} className={styles.chainBadge} role={size === "thumb" ? "img" : undefined} aria-label={size === "thumb" ? mark.ariaLabel : undefined}
+          data-chain-link={mark.index} data-status={mark.status} data-negated={mark.negated ? "true" : "false"}>
+          <span className={styles.chainNum}>{mark.index}</span>
+          <span className={styles.chainChip}><ChainGlyph /></span>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -78,7 +108,8 @@ function positionLine(index: number, total: number): string {
  * The text comes from `useFilledCard` (a pile card that came without its effect text is looked up by passcode, as the
  * card panel does) and takes the viewer's card text size. It scrolls inside its own box, so it is never cut.
  */
-function PileDetail({ entry, total, styles }: { entry: Entry; total: number; styles: Record<string, string> }) {
+function PileDetail({ entry, total, styles, reserveChain }: { entry: Entry; total: number; styles: Record<string, string>; reserveChain: boolean }) {
+  const marks = entry.marks;
   const textSize = useCardTextSize();
   const live = entry.card;
   const hidden = isHiddenCard(live) || live.code == null;
@@ -97,9 +128,16 @@ function PileDetail({ entry, total, styles }: { entry: Entry; total: number; sty
         ) : (
           <img src={cardArtUrl(live.code as number, "full")} alt="" draggable={false} />
         )}
+        <ChainMarkBadges marks={marks} styles={styles} size="detail" />
       </div>
       <div className={styles.previewBody}>
         <span className={styles.previewPos}>{positionLine(entry.index, total)}</span>
+        {marks.length > 0 ? (
+          <span className={styles.previewChain} data-testid="pile-chain-line" data-phase={marks[0].phase}>{chainMarkLabel(marks)}</span>
+        ) : reserveChain ? (
+          // The pile holds a chain card: every card keeps this line's height, so the detail never changes height between cards.
+          <span className={styles.previewChain} aria-hidden="true" data-empty="true">&nbsp;</span>
+        ) : null}
         <h3 className={styles.previewName}>{hidden ? "Face-down card" : card.name ?? `Card ${live.code}`}</h3>
         {details ? <p className={styles.previewDetails}>{details}</p> : null}
         {kind && kind !== details ? <p className={styles.previewDetails}>{kind}</p> : null}
@@ -149,6 +187,7 @@ export function PileViewer({
   reducedMotion,
   legalKeys,
   selectedKeys,
+  chainLinks,
 }: PileViewerProps) {
   const styles = useSkinStyles(baseStyles, "pile");
   const headingId = useId();
@@ -162,13 +201,16 @@ export function PileViewer({
   const [lookedNames, setLookedNames] = useState<ReadonlyMap<number, string>>(new Map());
 
   const entries = useMemo<Entry[]>(() => {
+    // The marks are keyed by the card's place in `cards`; the list below is reversed, newest first.
+    const marks = pileChainMarks(chainLinks ?? [], cards);
     const newestFirst = [...cards].reverse();
     return newestFirst.map((card, index) => ({
       card,
       key: `${zoneKey(card.controller, card.location, card.sequence)}:${card.code ?? "x"}`,
       index,
+      marks: marks.get(cards.length - 1 - index) ?? NO_MARKS,
     }));
-  }, [cards]);
+  }, [cards, chainLinks]);
 
   const preview = entries.find((entry) => entry.key === hoverKey) ?? entries.find((entry) => entry.key === pinnedKey) ?? entries[0] ?? null;
   const tone = usableGlowToneForPile(cards);
@@ -203,6 +245,18 @@ export function PileViewer({
       if (back && back.isConnected) back.focus({ preventScroll: true });
     };
   }, [open]);
+
+  // A chain card far down a long pile scrolls into view when the viewer opens (once per opening; the detail stays on the top card).
+  const scrolledRef = useRef(false);
+  const firstChainKey = entries.find((entry) => entry.marks.length > 0)?.key ?? null;
+  useEffect(() => {
+    if (!open) { scrolledRef.current = false; return; }
+    if (scrolledRef.current || firstChainKey == null) return;
+    scrolledRef.current = true;
+    const grid = gridRef.current;
+    const target = [...(grid?.querySelectorAll<HTMLElement>("[data-pile-card]") ?? [])].find((el) => el.dataset.chainLink != null);
+    target?.scrollIntoView?.({ block: "nearest" });
+  }, [open, firstChainKey]);
 
   // Esc closes from anywhere (the trap keeps focus inside, but a stray focus must not strand the user).
   useEffect(() => {
@@ -303,7 +357,7 @@ export function PileViewer({
         </header>
 
         {preview ? (
-          <PileDetail key={preview.key} entry={preview} total={total} styles={styles} />
+          <PileDetail key={preview.key} entry={preview} total={total} styles={styles} reserveChain={firstChainKey != null} />
         ) : (
           <div className={styles.preview} aria-live="polite">
             <p className={styles.empty}>This pile is empty.</p>
@@ -312,7 +366,7 @@ export function PileViewer({
 
         <ul ref={gridRef} className={styles.grid} role="list" aria-label={`${title}, newest first`} onMouseLeave={() => setHoverKey(null)}>
           {entries.map((entry) => {
-            const { card, key, index } = entry;
+            const { card, key, index, marks } = entry;
             const hidden = isHiddenCard(card) || card.code == null;
             const zone = zoneKey(card.controller, card.location, card.sequence);
             const legal = legalKeys?.has(zone) ?? false;
@@ -327,7 +381,8 @@ export function PileViewer({
                   data-legal={legal ? "true" : "false"}
                   data-selected={selected ? "true" : "false"}
                   data-active={preview?.key === key ? "true" : "false"}
-                  aria-label={`${name}, ${index + 1} of ${total}${legal ? ", can be chosen" : ""}`}
+                  data-chain-link={marks.length > 0 ? marks[0].index : undefined}
+                  aria-label={`${name}, ${index + 1} of ${total}${marks.length > 0 ? `, ${marks.map((mark) => `${mark.ariaLabel} ${mark.phase}`).join(", ")}` : ""}${legal ? ", can be chosen" : ""}`}
                   aria-pressed={selected}
                   onMouseEnter={() => {
                     setHoverKey(key);
@@ -357,6 +412,7 @@ export function PileViewer({
                     ) : legal ? (
                       <UsableGlow tone={tone} label="Use" still={reducedMotion} />
                     ) : null}
+                    <ChainMarkBadges marks={marks} styles={styles} size="thumb" />
                   </span>
                   <span className={styles.name}>{name}</span>
                 </button>

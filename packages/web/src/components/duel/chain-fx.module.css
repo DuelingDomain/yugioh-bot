@@ -250,7 +250,6 @@
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6);
   animation: chainClink 0.2s ease-out 0.08s both;
 }
-.glyph { width: 76%; height: 76%; }
 
 /* The burst ring around a badge: gold when the link resolves, red when it is negated. */
 .badge::after {
