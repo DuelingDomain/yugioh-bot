@@ -86,9 +86,9 @@ describe("state chips", () => {
 
   it("tells who goes first, and when time ran out", () => {
     const base = view({ phase: "start", winnerSeat: 0, choice: "second" });
-    expect(startText(base, 0, NAMES)).toBe("You choose to go second");
-    expect(startText(base, 1, NAMES)).toBe("Opponent chooses to go second");
-    expect(startText({ ...base, choice: "first", choiceByTimeout: true }, 0, NAMES)).toBe("You choose to go first (time ran out)");
-    expect(startText(base, null, NAMES)).toBe("Yugi chooses to go second");
+    expect(startText(base, 0, NAMES)).toBe("You chose to go second. Starting the duel…");
+    expect(startText(base, 1, NAMES)).toBe("Opponent chose to go second. Starting the duel…");
+    expect(startText({ ...base, choice: "first", choiceByTimeout: true }, 0, NAMES)).toBe("You chose to go first (time ran out). Starting the duel…");
+    expect(startText(base, null, NAMES)).toBe("Yugi chose to go second. Starting the duel…");
   });
 });

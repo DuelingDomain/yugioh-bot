@@ -97,6 +97,7 @@ export const CARDS = {
   torrential: trap(53582587, "Torrential Tribute", 0, "When a monster is Summoned: destroy all monsters on the field."),
   bottomless: trap(29401950, "Bottomless Trap Hole", 0, "When your opponent Summons a monster: destroy and banish it."),
   trapHole: trap(4206964, "Trap Hole", 0, "When your opponent Normal or Flip Summons a monster with 1000 or more ATK: destroy it."),
+  imperialOrder: trap(61740673, "Imperial Order", TYPE_CONTINUOUS, "Negate all Spell effects on the field. Each Standby Phase, pay 700 LP or destroy this card."),
   recklessGreed: trap(37576645, "Reckless Greed", 0, "Draw 2 cards, then skip your next 2 Draw Phases."),
   evenlyMatched: trap(15693423, "Evenly Matched", 0, "Banish cards your opponent controls until they control as many as you."),
   solemn: trap(41420027, "Solemn Judgment", 0, "Negate the Summon of a monster, or the activation of a Spell/Trap card."),

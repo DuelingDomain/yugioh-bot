@@ -16,7 +16,7 @@ beforeEach(() => {
   vi.clearAllMocks(); state.cookie = undefined; state.auth.mockResolvedValue({ userId: "user_one" }); state.getUser.mockResolvedValue(json); state.update.mockResolvedValue(json);
   vi.stubEnv("CLERK_SECRET_KEY", "test-secret"); vi.stubEnv("E2E_AUTH", "0");
 });
-afterEach(() => { state.db?.close(); vi.unstubAllEnvs(); });
+afterEach(() => { state.db?.close(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 it("uses a fresh row without a backend call", async () => {
   createUserService(state.db!).resolveClerkProfile({ clerkUserId: "user_one", username: "yugi", displayName: "Yugi", email: null, emailVerified: false, discordUserId: null, imageUrl: null });
   expect(await resolveSessionIdentity()).toMatchObject({ ok: true, identity: { name: "Yugi", clerkUserId: "user_one", discordUserId: null } });
@@ -46,6 +46,24 @@ it.each([0, 429, 500, 404])("maps backend status %s without advancing synced_at"
 });
 it("maps a missing secret to unavailable", async () => {
   vi.stubEnv("CLERK_SECRET_KEY", ""); expect(await resolveSessionIdentity()).toEqual({ ok: false, status: 503 }); expect(state.getUser).not.toHaveBeenCalled();
+});
+it.each([
+  { error: new ClerkBackendError("Clerk request timed out", 0, null, null), reason: "timeout" },
+  { error: new ClerkBackendError("private provider message", 429, null, null), reason: "rate_limited" },
+  { error: new Error("private user id and token"), reason: "session_check_failed" },
+])("logs a safe reason and duration for $reason", async ({ error, reason }) => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  state.getUser.mockRejectedValue(error);
+  expect(await resolveSessionIdentity()).toEqual({ ok: false, status: 503 });
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(warn).toHaveBeenCalledWith("[web-access] session check unavailable", {
+    reason, durationMs: expect.any(Number),
+  });
+  const diagnostic = warn.mock.calls[0]?.[1] as { durationMs: number };
+  expect(diagnostic.durationMs).toBeGreaterThanOrEqual(0);
+  expect(JSON.stringify(warn.mock.calls)).not.toContain("private");
+  expect(JSON.stringify(warn.mock.calls)).not.toContain("user_one");
+  expect(JSON.stringify(warn.mock.calls)).not.toContain("test-secret");
 });
 it("bypasses Clerk entirely only with the enabled gate and a signed cookie for an existing user", async () => {
   const user = createUserService(state.db!).createNonLogin("Offline"); const secret = "x".repeat(32);

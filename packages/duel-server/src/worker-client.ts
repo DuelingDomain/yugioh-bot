@@ -2,14 +2,18 @@ import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
 import { Worker } from "node:worker_threads";
 import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
-import type { DuelWorkerResponse } from "./worker-protocol.js";
+import type { DuelWorkerResponse, WorkerCreateTimings } from "./worker-protocol.js";
 import { EngineAnswerError } from "./prompts.js";
 import { EngineLoopError } from "./engine-loop-error.js";
-import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
+import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
+import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode, EngineIdentity } from "@yugidraft/shared/duels";
 
 const PROMPT_LOG_LIMIT = 5_000;
 
 export interface GameOptions {
+  /** Internal fork control boundary in accepted journal commands. Original prefix rules stay unchanged. */
+  manualLossAnswersAfter?: number;
+  engineIdentity?: EngineIdentity;
   scriptErrorMode?: DuelScriptErrorMode;
   mode: DuelMode;
   decks: DuelDeck[];
@@ -21,6 +25,8 @@ export interface GameOptions {
   format?: DuelFormat;
   /** Saved FIRST_TURN_DRAW flag. */
   firstTurnDraw?: boolean;
+  /** Server-selected exact multi overlay for a saved journal. */
+  multiScriptsDirectory?: string;
   /** Lua chunks that run before the duel starts (hand scenarios). */
   startupScripts?: EngineStartupScript[];
   /** Engine of a 1v1 table (see `DuelWorkerCreateOptions.engine`). Absent: the merged engine. */
@@ -46,7 +52,7 @@ export interface DuelGameWorker {
   create(options: GameOptions): Promise<void>;
   view(seat: number | null): Promise<DuelEngineView>;
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void>;
-  search(query: string): Promise<DuelCardInfo[]>;
+  search(query: string, seat?: number): Promise<DuelCardInfo[]>;
   /** Flag a core loss. `atTurnEnd` identifies retired journal commands, which the engine refuses. */
   eliminate?(seat: number, reason: number, atTurnEnd?: boolean): Promise<void>;
   /**
@@ -60,12 +66,16 @@ export interface DuelGameWorker {
   debugState?(): WorkerDebugState;
   /** Scenario-only snapshot of the last 5,000 prompts, oldest first, captured before any next answer. */
   promptLog?(): readonly PromptTraceEntry[];
+  /** Startup costs from this thread, without any game or actor data. */
+  startupTimings?(): (WorkerCreateTimings & { workerSpawnMs: number }) | null;
   close(): Promise<void>;
 }
 
 /** A worker owns exactly one core instance; no hidden state leaves via broadcasts. */
 export class GameWorker implements DuelGameWorker {
   private readonly worker: Worker;
+  private readonly spawnedAt = performance.now();
+  private createTimings: (WorkerCreateTimings & { workerSpawnMs: number }) | null = null;
   private sequence = 0;
   private stopped = false;
   private readonly pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
@@ -84,6 +94,11 @@ export class GameWorker implements DuelGameWorker {
       : new Worker(module);
     this.worker.on("message", (message: DuelWorkerResponse) => {
       if (this.stopped) return;
+      if (message.ok && message.createTimings) {
+        this.createTimings = { ...message.createTimings,
+          // Includes thread startup, module imports and transport overhead, before the first create reply.
+          workerSpawnMs: Math.max(0, performance.now() - this.spawnedAt - message.createTimings.cardDbLoadMs - message.createTimings.engineCreateMs) };
+      }
       for (const error of message.scriptErrors ?? []) onScriptError?.(error);
       for (const error of message.fatalScriptErrors ?? []) onFatalScriptError?.(error);
       if (message.ok && message.info) this.info = message.info;
@@ -101,7 +116,9 @@ export class GameWorker implements DuelGameWorker {
       if (!request) return;
       this.pending.delete(message.id);
       if (message.ok) request.resolve(message.value);
-      else request.reject(message.engineLoop ? new EngineLoopError() : message.answerError || message.code
+      else request.reject(message.code === "ENGINE_UNAVAILABLE_FOR_SOURCE"
+        ? new EngineResourceUnavailableError("the worker cannot use the recorded engine resources")
+        : message.engineLoop ? new EngineLoopError() : message.answerError || message.code
         ? new EngineAnswerError(message.error, message.code)
         : new Error(message.error ?? "Engine rejected the request"));
     });
@@ -117,6 +134,10 @@ export class GameWorker implements DuelGameWorker {
 
   get running(): boolean {
     return !this.stopped;
+  }
+
+  startupTimings(): (WorkerCreateTimings & { workerSpawnMs: number }) | null {
+    return this.createTimings ? { ...this.createTimings } : null;
   }
 
   promptLog(): readonly PromptTraceEntry[] {
@@ -158,8 +179,8 @@ export class GameWorker implements DuelGameWorker {
     return this.request({ op: "answer", seat, promptId, answer });
   }
 
-  search(query: string): Promise<DuelCardInfo[]> {
-    return this.request({ op: "search", query });
+  search(query: string, seat?: number): Promise<DuelCardInfo[]> {
+    return this.request({ op: "search", query, seat });
   }
 
   eliminate(seat: number, reason: number, atTurnEnd = false): Promise<void> {

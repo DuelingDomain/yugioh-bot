@@ -11,6 +11,7 @@ services:
     user: *user
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
+      - OWNER_USER_IDS=${OWNER_USER_IDS:-}
       - WEB_URL=${WEB_URL:?WEB_URL is required}
       - WS_PORT=3001
       - WS_INTERNAL_PORT=4002
@@ -36,6 +37,7 @@ services:
     user: *user
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
+      - OWNER_USER_IDS=${OWNER_USER_IDS:-}
       - DUEL_DATA_DIR=/app/data/duel-engine
       # The deploy installs on the host. Restarts verify the existing volume without replacing it.
       - DUEL_BUNDLE_SRC=${DUEL_BUNDLE_SRC_ON_START:-}
@@ -45,6 +47,10 @@ services:
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
       - DUEL_ARCHIVE_AFTER_MS=${DUEL_ARCHIVE_AFTER_MS:-600000}
+      - DUEL_SNAPSHOT_RETENTION_ENABLED=${DUEL_SNAPSHOT_RETENTION_ENABLED:-0}
+      - DUEL_TURN_BACKFILL_ENABLED=${DUEL_TURN_BACKFILL_ENABLED:-1}
+      - DUEL_SNAPSHOT_RETENTION_DAYS=${DUEL_SNAPSHOT_RETENTION_DAYS:-30}
+      - DUEL_SNAPSHOT_RETENTION_INTERVAL_MS=${DUEL_SNAPSHOT_RETENTION_INTERVAL_MS:-21600000}
       - DUEL_IDLE_WORKER_MS=${DUEL_IDLE_WORKER_MS:-300000}
       # Tag, 3-player and 4-player tables. Off by default: only 1v1 tables start. The web service needs the same value.
       - MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-1}
@@ -82,6 +88,12 @@ services:
       - DISCORD_DEFAULT_CHANNEL_ID=${DISCORD_DEFAULT_CHANNEL_ID:-}
       - DISCORD_REMINDER_CHANNEL_ID=${DISCORD_REMINDER_CHANNEL_ID:-}
       - CLERK_SECRET_KEY=${CLERK_SECRET_KEY:?CLERK_SECRET_KEY is required at runtime}
+      - CLERK_WEBHOOK_SIGNING_SECRET=${CLERK_WEBHOOK_SIGNING_SECRET:-}
+      - DISCORD_ADMIN_WEBHOOK_URL=${DISCORD_ADMIN_WEBHOOK_URL:-}
+      - DISCORD_JOIN_REQUEST_ALERTS_ENABLED=${DISCORD_JOIN_REQUEST_ALERTS_ENABLED:-1}
+      - DISCORD_SIGNUP_ALERTS_ENABLED=${DISCORD_SIGNUP_ALERTS_ENABLED:-0}
+      - DISCORD_ADMIN_SHOW_FULL_EMAIL=${DISCORD_ADMIN_SHOW_FULL_EMAIL:-0}
+      - DISCORD_ADMIN_DASHBOARD_URL=${DISCORD_ADMIN_DASHBOARD_URL:-}
       # Direct Discord proof recovers pre-cutover players while Clerk is in Waitlist mode.
       - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
       - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET:-}
@@ -115,6 +127,7 @@ services:
     stop_grace_period: 150s
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
+      - OWNER_USER_IDS=${OWNER_USER_IDS:-}
       - CARD_IMAGE_CACHE_DIR=/app/data/card-images
       - CARD_IMAGE_CACHE_MAX_BYTES=${CARD_IMAGE_CACHE_MAX_BYTES:-16106127360}
       - WORKER_HEALTH_PATH=/tmp/yugidraft-worker-health.json

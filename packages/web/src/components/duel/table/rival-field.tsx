@@ -7,6 +7,7 @@ import { boardWidth, crumbleCards } from "./crumble-model";
 import { textScale } from "./seat-angle";
 import { SeatCrumble } from "./seat-crumble";
 import type { DuelSeatView } from "@yugidraft/shared/duels";
+import { crackSeed, useFieldCracksScope } from "../field-cracks/context";
 import type { SeatFieldProps, SeatFieldRenderer, SeatPose, SeatTone } from "./types";
 import styles from "./rival-field.module.css";
 
@@ -16,7 +17,7 @@ export interface RivalFieldProps {
   field: Omit<SeatFieldProps, "angleDeg" | "scale">;
   /** SeatField from field.tsx. A render prop, so this file does not import the duel field. */
   render: SeatFieldRenderer;
-  /** Extra turn of the whole world (the fly-in view), added to the angle the field reads for upright text. */
+  /** Extra turn of the whole world (the fly-in view), added to the angle of the field. */
   angleOffsetDeg?: number;
   /**
    * A fixed place in the parent's px (the grid table): the box sits at `left`/`top` and turns with the CSS `rotate`
@@ -49,8 +50,8 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
 
 /**
  * One seat of the table at its pose. The wrapper owns the place, tilt, turn and scale; the seat field inside
- * draws the board at a fixed card size (`--sf-z`) and counter-rotates its own text when upright is on.
- * It serves the viewer's own seat too: that pose is simply upright at full size.
+ * draws the board at a fixed card size (`--sf-z`) and turns with it: cards and text face the seat's owner.
+ * It serves the viewer's own seat too: that pose is simply level at full size.
  */
 /** What a double click keeps for itself: a card, a zone, a pile, a hand, a control. Only the rest of the field (felt, name, plate) enlarges it. */
 const OWN_DOUBLE_CLICK = "[data-uid], [data-zones], [data-hand-seat], [data-pile], button, a, input, select, textarea, [role='button'], [data-legal='true'], [data-holo]";
@@ -117,7 +118,7 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement,
 }
 
 /** Card unit the crumble is drawn in (the board is 5.83 of them wide at this size). */
-const CRUMBLE_UNIT = 112;
+export const CRUMBLE_UNIT = 112;
 /** Height of a seat field in card units (see `.seatField` in field.module.css). */
 const FIELD_H = 3.393;
 
@@ -149,6 +150,7 @@ export interface ExitingSeatProps {
  * like one, so it lines up with the pad under it. Under reduced motion it only fades down.
  */
 export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOffsetDeg = 0, reducedMotion, clipTop, onDone }: ExitingSeatProps) {
+  const scope = useFieldCracksScope();
   const width = pose.width ?? boardWidth(masterRule);
   const cards = useMemo(() => crumbleCards(view, { faceUpHand, width }), [view, faceUpHand, width]);
   const done = useRef(onDone);
@@ -209,6 +211,7 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
           scale={pose.scale}
           width={width}
           seed={1234 + pose.seat * 13}
+          crackSeed={scope ? crackSeed(scope.duelKey, pose.seat) : null}
           reducedMotion={reducedMotion}
           held={held}
           onDone={() => done.current()}

@@ -120,9 +120,9 @@
   align-items: center;
 }
 
-/* In the finale your plate sits left of the board: it hugs the board's edge. */
-.lp[data-lp-side="left"] {
-  justify-content: flex-end;
+/* An out seat's plate adds its place and may be taller than its box in a small stage: it grows down, over its empty place, never up under the top bar. */
+.lp[data-out="true"] {
+  align-items: flex-start;
 }
 
 /* View control: all fields. */
@@ -177,11 +177,11 @@
 }
 
 /*
- * Every prompt sits in the middle of YOUR pair, as the 1v1 room puts it in the middle of the board (grid-stage.tsx sets
- * --pr-cx/--pr-cy, the middle of the pair, and --pr-w/--pr-h, its size, in board px; on the finale board they are the
- * middle of that board). Without them (a spectator who looks at all fields) the middle of the table. The "Activate its
- * effect?" bar, the effect and option lists, the card grid, positions, numbers, seat choices and the collapsed pill
- * may cover the middle of that pair; the pick bar places itself from `data-bar-room` (off every target) and the
+ * Every prompt sits in the middle of the screen (grid-stage.tsx sets --pr-cx/--pr-cy, the middle of the board across and of
+ * the fields' band down, --pr-w/--pr-h, the width of a pair and the height of the band, in board px, and --pr-dy, the step up or down
+ * off the phase chips). It is the same at home, in a focus and under a zoom, as the 1v1 room puts it in the middle of the
+ * board. The "Activate its effect?" bar, the effect and option lists, the card grid, positions, numbers, seat choices and the
+ * collapsed pill may cover the middle of the table; the pick bar places itself from `data-bar-room` (off every target) and the
  * tribute dock by your hand.
  */
 /*
@@ -190,28 +190,28 @@
  * unit; text stays 12px or more. The pick bar ([data-place]) keeps the room unit.
  */
 .slot[data-slot="prompt"][data-prompt-dense] :global([data-prompt-panel]) {
-  --duel-unit: var(--pr-unit, 1px);
-  --duel-t-xs: calc(max(12px, calc(11 * var(--duel-unit))) * var(--tt, 1));
-  --duel-t-sm: calc(max(12px, calc(12 * var(--duel-unit))) * var(--tt, 1));
-  --duel-t-body: calc(max(14px, calc(13 * var(--duel-unit))) * var(--tt, 1));
-  --duel-t-head: calc(max(15px, calc(15 * var(--duel-unit))) * var(--tt, 1));
-  --pc-title: calc(clamp(16px, calc(17 * var(--duel-unit)), 20px) * var(--tt, 1));
-  --pc-sub: calc(clamp(14px, calc(13.5 * var(--duel-unit)), 15px) * var(--tt, 1));
+  --duel-unit: clamp(max(1px, var(--pr-unit, 1px)), 0.0625vw, 1.4px);
+  --duel-t-xs: calc(max(13px, calc(12 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-sm: calc(max(14px, calc(13 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-body: calc(max(16px, calc(14 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-head: calc(max(17px, calc(16 * var(--duel-unit))) * var(--tt, 1));
+  --pc-title: calc(clamp(20px, calc(19 * var(--duel-unit)), 28px) * var(--tt, 1));
+  --pc-sub: calc(clamp(16px, calc(15 * var(--duel-unit)), 21px) * var(--tt, 1));
 }
 
 .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
-  translate: -50% -50%;
+  translate: -50% calc(-50% + var(--pr-dy, 0px));
   width: max-content;
   min-width: 0;
-  max-width: min(max(360px, calc(400 * var(--duel-unit))), calc(var(--pr-w, 100%) - 24px));
+  max-width: min(max(460px, calc(480 * var(--duel-unit))), calc(var(--pr-w, 100%) - 24px));
   gap: calc(10 * var(--duel-unit)) calc(12 * var(--duel-unit));
   padding: calc(8 * var(--duel-unit)) calc(12 * var(--duel-unit));
 }
 
 .slot[data-slot="prompt"] :global([data-prompt-panel]:not([data-precheck])) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
-  translate: -50% -50%;
+  translate: -50% calc(-50% + var(--pr-dy, 0px));
   margin: 0;
   width: min(calc(440 * var(--duel-unit)), calc(var(--pr-w, 100%) - 24px));
   max-height: min(calc(var(--pr-h, 100%) - 16px), calc(100% - 24px));
@@ -223,7 +223,7 @@
 
 .slot[data-slot="prompt"] :global([data-prompt-surface]:not([data-prompt-panel], [data-place])) {
   inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
-  translate: -50% -50%;
+  translate: -50% calc(-50% + var(--pr-dy, 0px));
   margin: 0;
 }
 
@@ -244,7 +244,7 @@
 
 /* Seat choices are narrow: the life plates (the targets) sit above and below the pairs, so the middle leaves them free. */
 .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
-  width: clamp(220px, 34%, 320px);
+  width: clamp(280px, 26%, 460px);
 }
 
 /* Expanded responses (the chain list) are narrower than a card grid. */
@@ -448,17 +448,6 @@
     inset 0 0 60px -30px rgb(217 141 82 / 0.2);
 }
 
-/* The finale: the frame of the pair that is not on the board fades with its fields. */
-.frame[data-gone="true"],
-.lp[data-gone="true"] {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.lp {
-  transition: opacity 0.6s;
-}
-
 /* The break of a pair: a crack of light on the edge where the field that went out was joined, then nothing. */
 .seam {
   position: absolute;
@@ -502,5 +491,22 @@
 
   .seam {
     display: none;
+  }
+}
+
+/* The face-off (grid-finale.ts): the plates sit at the left of the board, the pair frame that is not the board's fades. */
+.lp[data-lp-side="left"] {
+  justify-content: flex-end;
+}
+
+.frame[data-gone="true"],
+.lp[data-gone="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .lp {
+    transition: opacity 0.6s;
   }
 }

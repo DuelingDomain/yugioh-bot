@@ -26,7 +26,7 @@ import createCore, {
   type OcgResponse,
   type OcgOpCode,
 } from "ocgcore-wasm";
-import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
+import { deckSearchCodes, isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
 import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, directAttackSeat, filterPromptOptions, isOpponentPick, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
@@ -228,7 +228,7 @@ export const DIAGNOSTICS_LIMIT = 200;
 export interface EngineGame {
   view(seat: number | null): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
-  searchCards(query: string): DuelCardInfo[];
+  searchCards(query: string, seat?: number): DuelCardInfo[];
   /**
    * Surrender removes a duelist immediately through Debug.SurrenderDuelist, or flags the loss while the
    * current chain finishes. Leaving seats auto-pass; required choices use the deterministic fallback.
@@ -246,6 +246,8 @@ export interface EngineGame {
    * same points gives the same duel, so every call must be journaled by the caller.
    */
   setChainMode(seat: number, mode: DuelChainMode): boolean;
+  /** Fork control after its copied prefix. Required choices from pending-loss seats stay Manual. */
+  setManualLossAnswers?(enabled: boolean): void;
   /** The last entries (oldest first) of the triage ring buffer. For the host report only, never for a view. */
   diagnostics(): EngineDiagnostic[];
   /** Core identity (wasm sha and file) and the counters since the last prompt. For reports and triage only. */
@@ -377,7 +379,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     throw new Error(multi ? `Exactly ${seatCount} decks are required for a ${format} duel` : "Exactly two decks are required");
   }
   const start = engineStartConfig(options.settings);
-  const firstTurnDraw = options.firstTurnDraw ?? firstTurnDrawFor(options.mode, options.masterRule, format);
+  const firstTurnDraw = options.firstTurnDraw ?? firstTurnDrawFor(options.mode, options.masterRule, format, options.settings);
   const flags = (duelFlagsFor(options.masterRule) & ~OcgDuelMode.FIRST_TURN_DRAW)
     | (firstTurnDraw ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
   const seed = parseSeed(options.seed);
@@ -1169,6 +1171,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
 
   /** Bound automatic answers while the current chain or cut-short turn finishes. */
   const LEAVING_ANSWER_LIMIT = 200;
+  let manualLossAnswers = false;
 
   const mustCloseResponseWindow = () => pending?.seat === closedResponseSeat
     && (pending?.message.type === OcgMessageType.SELECT_EFFECTYN
@@ -1182,6 +1185,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const answerForLeavingSeats = () => {
     for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow()); step += 1) {
       const current = pending;
+      // A fork's creator must answer required choices while the core finishes the loss.
+      // The core's signal to close an optional response window still needs to be consumed.
+      if (manualLossAnswers && !eliminated.has(current.seat) && !mustCloseResponseWindow()) break;
       closedResponseSeat = null;
       if (step >= LEAVING_ANSWER_LIMIT) {
         throw new Error(`Seat ${current.seat} is still in the duel after ${LEAVING_ANSWER_LIMIT} automatic answers (open prompt ${current.id}, ${current.prompt.kind})`);
@@ -1211,6 +1217,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   }
 
   const game: EngineGame = {
+    setManualLossAnswers(enabled) { manualLossAnswers = enabled; },
     view(seat) {
       if (closed) throw new Error("Engine is closed");
       if (seat != null && !(Number.isInteger(seat) && seat >= 0 && seat < seatCount)) throw new Error("Invalid seat");
@@ -1434,11 +1441,16 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     coreInfo() {
       return { wasmSha: loaded.sha, wasmFile: loaded.file, callsSinceLastPrompt, messagesSinceLastPrompt };
     },
-    searchCards(query) {
+    searchCards(query, seat) {
       if (closed) throw new Error("Engine is closed");
+      if (seat !== undefined && (!Number.isInteger(seat) || seat < 0 || seat >= options.decks.length
+        || pending?.message.type !== OcgMessageType.ANNOUNCE_CARD || pending.seat !== seat)) {
+        throw new EngineAnswerError("No card announcement is waiting for this seat");
+      }
       if (pending?.message.type === OcgMessageType.ANNOUNCE_CARD) {
         const opcodes = pending.message.opcodes as OcgOpCode[];
-        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes));
+        const ownDeck = seat === undefined ? undefined : deckSearchCodes(cards, options.decks[seat]!);
+        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes), ownDeck);
       }
       return cards.search(query);
     },

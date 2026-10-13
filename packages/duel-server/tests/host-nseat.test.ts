@@ -740,6 +740,17 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
     process.env.DUEL_REPORT_DIR = dir;
     const { t, slug, stuck } = await blockedDuel();
     try {
+      const row = t.db.prepare("select setup_json from duels where web_slug = ?").get(slug) as { setup_json: string };
+      const savedSetup = JSON.parse(row.setup_json);
+      t.db.prepare("update duels set setup_json = ? where web_slug = ?").run(JSON.stringify({ ...savedSetup, replayFork: {
+        ownerUserId: 101, control: "all-manual", origin: {
+          sourceSlug: "private-partial-source", sourceVersion: "source-v1", frameId: "frame-2", step: 2,
+          prefixCount: 7, prefixHash: "a".repeat(64), sourceSeats: [{ seat: 0, displayName: null }, { seat: 1, displayName: null }],
+        },
+      } }), slug);
+      const denied = await post(t.host, { op: "report", slug, note: "Forged fork metadata", ...t.who });
+      expect(denied.status).toBe(404);
+      t.db.prepare("update duels set setup_json = ? where web_slug = ?").run(JSON.stringify(savedSetup), slug);
       const began = Date.now();
       const reported = await post(t.host, { op: "report", slug, note: "Hung.", ...t.who });
       expect(Date.now() - began).toBeLessThan(2000);
@@ -750,6 +761,9 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
       expect(existsSync(join(folder, "journal.jsonl"))).toBe(true);
       expect(existsSync(join(folder, "views", "seat-0.json"))).toBe(true);
       expect(existsSync(join(folder, "room-setup.json"))).toBe(true);
+      const roomSetupText = readFileSync(join(folder, "room-setup.json"), "utf8");
+      expect(JSON.parse(roomSetupText).setup).toEqual(savedSetup);
+      // host-report-replay.test.ts proves redaction with real fork metadata in the report input.
       expect(existsSync(join(folder, "engine-diagnostics.json"))).toBe(true);
       expect(JSON.parse(readFileSync(join(folder, "debug-trace.json"), "utf8")).worker.busy).toBe(true);
       expect(JSON.parse(readFileSync(join(folder, "partial.json"), "utf8"))).toMatchObject({ partial: true, slug });
@@ -934,7 +948,7 @@ describe("the engine version a duel pins", () => {
 
   async function activated(format: DuelFormat, humans: number, version: string) {
     const t = await table(format, humans, []);
-    t.duels.activate(t.slug, "g1", t.players[0]!, ["seed"], version, null, { firstTurnDraw: false });
+    t.duels.activate(t.slug, "g1", t.players[0]!, ["1", "2", "3", "4"], version, null, { firstTurnDraw: false });
     return t;
   }
   const view = (t: Awaited<ReturnType<typeof table>>) => post(t.host, { op: "view", ...t.organizer });

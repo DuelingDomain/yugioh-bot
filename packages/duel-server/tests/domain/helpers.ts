@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import { afterEach } from "vitest";
 import type { DuelAnswer, DuelFormat, DuelPrompt } from "@yugidraft/shared/duels";
 import { createEngineGame, type EngineGame } from "../../src/engine.js";
+import { createLegacyEngineGame } from "../../src/legacy/index.js";
 import { compileBoard, type BoardSpec } from "../../src/presets/board.js";
 import { engineDataDirectory } from "../engine-data-dir.js";
 
@@ -29,7 +30,7 @@ export async function gameFor(variant: Variant, board: BoardSpec, fixtures: Fixt
   copyFileSync(join(engineDataDirectory, "cards.cdb"), join(root, "cards.cdb"));
   symlinkSync(join(engineDataDirectory, "strings.conf"), join(root, "strings.conf"));
   const wasm = variant.format === "1v1" ? variant.legacy ? "ocgcore.domain.legacy.wasm" : "ocgcore.domain.wasm" : "ocgcore.multi-domain.wasm";
-  symlinkSync(join(engineDataDirectory, wasm), join(root, variant.format === "1v1" ? "ocgcore.domain.wasm" : wasm));
+  symlinkSync(join(engineDataDirectory, wasm), join(root, variant.legacy ? wasm : variant.format === "1v1" ? "ocgcore.domain.wasm" : wasm));
   mkdirSync(join(root, "card-scripts"));
   const db = new Database(join(root, "cards.cdb"));
   for (const fixture of fixtures) {
@@ -60,7 +61,8 @@ export async function gameFor(variant: Variant, board: BoardSpec, fixtures: Fixt
   }
   const options = compiled.options;
   options.startupScripts![0]!.content += "\n" + startup;
-  const game = await createEngineGame({ ...options, seed: ["1", "2", "3", "4"], dataDirectory: root,
+  const createGame = variant.legacy ? createLegacyEngineGame : createEngineGame;
+  const game = await createGame({ ...options, seed: ["1", "2", "3", "4"], dataDirectory: root,
     multiScriptsDirectory: join(engineDataDirectory, "multi-scripts") });
   games.push(game);
   settle(game);

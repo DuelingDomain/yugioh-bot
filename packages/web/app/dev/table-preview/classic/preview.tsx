@@ -9,6 +9,7 @@ import { DeckSurrenderContext } from "@/components/duel/deck-surrender";
 import { isBattlePhase } from "@/components/duel/constants";
 import { ChainFx } from "@/components/duel/chain-fx";
 import { DuelField } from "@/components/duel/field";
+import { FieldCracksScope } from "@/components/duel/field-cracks/context";
 import { duelFontClasses } from "@/components/duel/fonts";
 import { seatNamer } from "@/components/duel/multi-seat";
 import { PhaseHub } from "@/components/duel/phase-hub";
@@ -41,7 +42,7 @@ export function classicStateId(raw: string | null | undefined): SolidStateId {
  * The classic 1v1 room on fixture data: the room's own layout (header, board column, station track) with the real
  * DuelField, PhaseHub and StationTrack, and none of the room's network. Phase moves are logged, not sent.
  */
-export function ClassicPreview({ stateId, chain: chainParam, reduced, attack }: { stateId: string | null; chain: string | null; reduced: boolean; attack?: string | null }) {
+export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp, lpAfter }: { stateId: string | null; chain: string | null; reduced: boolean; attack?: string | null; lp?: string | null; lpAfter?: string | null }) {
   const id = classicStateId(stateId);
   const { room: base } = useMemo(() => solidFixture(id), [id]);
   // `?attack=<seat>:<seq>><target>[:<seq>]` declares a late attack, as the multiplayer previews do.
@@ -51,13 +52,27 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack }: 
     const timer = setTimeout(() => setLate(true), 1200);
     return () => clearTimeout(timer);
   }, [attack]);
+  // `?lp=<mine>,<rival's>` sets the life points (one value sets both); `&lpafter=<ms>` waits first, to watch the field cracks spread.
+  const lpDelay = lpAfter != null && /^\d+$/.test(lpAfter) ? Number(lpAfter) : 0;
+  const [lpLate, setLpLate] = useState(lpDelay <= 0);
+  useEffect(() => {
+    if (lpDelay <= 0) return;
+    const timer = setTimeout(() => setLpLate(true), lpDelay);
+    return () => clearTimeout(timer);
+  }, [lpDelay]);
   const room = useMemo(() => {
     const event = parseAttackParam(attack ?? null);
-    if (!event || !late || !base.engine) return base;
-    const events = base.engine.events;
+    let next = base;
+    const values = (lp ?? "").split(",").map(Number).filter((value) => Number.isFinite(value));
+    if (values.length > 0 && lpLate && base.engine) {
+      const seats = base.engine.seats.map((seat) => ({ ...seat, lp: values[seat.seat % values.length] }));
+      next = { ...base, engine: { ...base.engine, seats } };
+    }
+    if (!event || !late || !next.engine) return next;
+    const events = next.engine.events;
     const eventId = Math.max(0, ...events.map((entry) => entry.id)) + 1;
-    return { ...base, engine: { ...base.engine, battleStep: "battle" as const, events: [...events, { ...event, id: eventId }] } };
-  }, [base, attack, late]);
+    return { ...next, engine: { ...next.engine, battleStep: "battle" as const, events: [...events, { ...event, id: eventId }] } };
+  }, [base, attack, late, lp, lpLate]);
   const engine = room.engine!;
   useDuelAnimationSpeed(reduced);
   const [chain, setChain] = useState<DuelChainMode>(isDuelChainMode(chainParam) ? chainParam : "auto");
@@ -77,6 +92,7 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack }: 
 
   return (
     <DeckSurrenderContext.Provider value={DECK_SURRENDER}>
+      <FieldCracksScope duelKey={`classic-preview-${id}`} startLp={8000}>
       <div
         className={`${roomStyles.shell} ${duelFontClasses}`}
         data-table-preview="classic" data-state={id} data-duel-fx-speed-root data-fit="true"
@@ -135,6 +151,7 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack }: 
           />
         </div>
       </div>
+      </FieldCracksScope>
     </DeckSurrenderContext.Provider>
   );
 }

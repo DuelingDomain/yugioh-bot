@@ -2,7 +2,7 @@ import { reportDuelClientError } from "./client-error";
 import type { SceneCueName } from "./fx3d/scene-plan";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import type { BattleSoundPlan } from "./attack-audio";
-import { screenPose } from "./attack-fx";
+import { screenPose, screenSize } from "./attack-fx";
 import { BANNER_TIMING, CHAIN_TIMING, PHASE_TIMING } from "./duel-timing";
 import {
   isDefenseAt,
@@ -217,6 +217,40 @@ export function findZoneElement(zone: DuelZoneRef | undefined | null): HTMLEleme
 }
 
 /**
+ * The zone frame of a field zone: the box that is the card's own size and draws the zone outline. Null for a zone
+ * without one (a seat cell whose button holds the card directly), whose card then fills the zone itself.
+ */
+export function zoneFrameOf(zone: HTMLElement): HTMLElement | null {
+  const marked = zone.querySelector<HTMLElement>("[data-card-frame]");
+  if (marked) return marked;
+  const frame = zone.querySelector<HTMLElement>("[data-card-art]")?.parentElement?.parentElement;
+  return frame && frame !== zone && zone.contains(frame) ? frame : null;
+}
+
+/**
+ * The box of the card itself in a field zone: the layer that holds its art (inside the zone frame, so inside its outline
+ * and, for a Field Spell, at the size of its own smaller frame), else the frame, else null (measure the zone then).
+ */
+export function zoneCardBox(zone: HTMLElement): HTMLElement | null {
+  const wrap = zone.querySelector<HTMLElement>("[data-card-art]")?.parentElement;
+  return wrap && wrap !== zone && zone.contains(wrap) ? wrap : zoneFrameOf(zone);
+}
+
+/**
+ * What shows the card of a field zone: its art, stat plate and markers, which sit inside the zone frame. The frame
+ * itself is the zone outline and a label of the zone (the Pendulum "P") belongs to the zone, so an effect that hides the
+ * real card hides these and leaves both drawn. A zone whose card is not framed (no art, or an art without a frame)
+ * gives the art alone, or nothing.
+ */
+export function zoneCardParts(zone: HTMLElement): HTMLElement[] {
+  const art = zone.querySelector<HTMLElement>("[data-card-art]");
+  if (!art) return [];
+  const frame = zoneFrameOf(zone);
+  if (!frame) return [art];
+  return Array.from(frame.children).filter((child): child is HTMLElement => child instanceof HTMLElement && !child.hasAttribute("data-zone-label"));
+}
+
+/**
  * The zone element a card moves to or from. Same as findZoneElement, except that the Deck and the Extra
  * Deck, which are one pile each, resolve to the pile when the exact key is missing. The engine numbers the
  * cards of a Deck (a card put on the top, or shuffled in, arrives at the new Deck size minus 1; a card milled
@@ -293,18 +327,45 @@ export function moveDestinationRect(dest: HTMLElement): { left: number; top: num
   return { left: rect.left - x, top: rect.top - (y ?? 0), width: rect.width, height: rect.height };
 }
 
+/**
+ * Where a zone is scaled and turned as a whole: a seat field (the Tag Rooftop, a grid table) and the band of Extra Monster
+ * Zones the Tag facing seats share. Every FX that reads a zone's on-screen size or turn asks for this one selector.
+ */
+export const SCALED_FIELD = "[data-seat-field],[data-shared-band]";
+
+/**
+ * The size a flying card must have to land on `dest` as large as the zone looks: `layout` (the zone's own box) on a 1v1
+ * table, where layout and screen agree and no probe is made. Every destination inside a seat field or the shared band of
+ * the Tag Rooftop (a hand card of a seat field too) is scaled as a whole (camera zoom, field scale, tilt), so there the
+ * layout size is far smaller than the zone on screen. Then the zone's own offset size is scaled by one factor, the
+ * larger of the two screen/offset ratios: a tilted view shortens the height on screen but not the card, so the width
+ * ratio decides and the card keeps its shape. Falls back to `layout` when the on-screen size is unreadable.
+ */
+export function destinationCardSize(
+  dest: HTMLElement | null,
+  layout: { width: number; height: number },
+): { width: number; height: number } {
+  if (!dest?.closest(SCALED_FIELD)) return layout;
+  const shown = screenSize(dest);
+  if (!shown) return layout;
+  const { offsetWidth: width, offsetHeight: height } = dest;
+  if (!(width > 0 && height > 0)) return { width: shown.w, height: shown.h };
+  const scale = Math.max(shown.w / width, shown.h / height);
+  return { width: width * scale, height: height * scale };
+}
+
 /** Brings `angle` to the equal angle nearest to `near` (a flight must turn the short way, never through upright). */
 export function nearestTurn(angle: number, near: number): number {
   return angle + Math.round((near - angle) / 360) * 360;
 }
 
 /**
- * The live screen turn of the seat field around `dest` (0 outside a seat field and for a hand card). Only a seat field
- * of a multiplayer table is turned as a whole; the DOM probe behind it is skipped everywhere else, so a 1v1 flight
+ * The live screen turn of the seat field (or shared band) around `dest` (0 outside both and for a hand card). Only a seat
+ * field of a multiplayer table is turned as a whole; the DOM probe behind it is skipped everywhere else, so a 1v1 flight
  * adds no layout read.
  */
 export function seatFieldTurn(dest: HTMLElement): number {
-  if (dest.closest("[data-hand-card]") || !dest.closest("[data-seat-field]")) return 0;
+  if (dest.closest("[data-hand-card]") || !dest.closest(SCALED_FIELD)) return 0;
   return screenPose(dest)?.turn ?? 0;
 }
 
@@ -315,7 +376,7 @@ export function seatFieldTurn(dest: HTMLElement): number {
  * its own side/Defense turn, so `sideTurn` is that turn without the seat.
  */
 export function departureTurn(from: DuelZoneRef | undefined | null, sideTurn: number): number | null {
-  if (!from || typeof document === "undefined" || !document.querySelector("[data-seat-field]")) return null;
+  if (!from || typeof document === "undefined" || !document.querySelector(SCALED_FIELD)) return null;
   if (from.location === LOCATION_HAND) {
     const rail = document.querySelector<HTMLElement>(`[data-hand-seat="${from.controller}"]`);
     return rail && rail.dataset.side === "opp" ? screenPose(rail)?.turn ?? null : null;

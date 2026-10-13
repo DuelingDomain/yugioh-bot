@@ -18,13 +18,14 @@ import { HistoryStrip } from "../table/history-strip";
 import { HudLayer, type HudPaneState } from "../table/hud-layer";
 import { hudPreview } from "../table/hud-preview";
 import { hudMasterProps } from "../table/hud-shared";
-import { tableLayout } from "../table/geometry";
+import { controllerLayout } from "../table/geometry";
 import { TablePhonePanes } from "../table/table-phone-panes";
 import { TableSettings } from "../table/table-settings";
 import { toneBySeat } from "../table/seat-state";
 import { SEAT_TONE_HEX, type InspectTarget, type TableController } from "../table/types";
 import type { TableUi } from "../table/use-table-ui";
 import type { TableShellProps } from "../table/table-shell";
+import { useForkLabels } from "../table/fork-labels";
 import { pileSideForSeat } from "./live-tag";
 import { firstInspectCard } from "./tag-logic";
 import styles from "./tag-side.module.css";
@@ -36,12 +37,12 @@ const tagTeamOf = (seat: number) => teamOfSeat("tag", seat);
 
 /** Seat tones of the Rooftop (the layout's tone per seat), shared by the strip, the log and the pile viewer. */
 function useSeatTones(controller: TableController) {
-  const { engine, viewerSeat } = controller;
+  const { engine, viewerSeat, cameraSeat } = controller;
   const layout = useMemo(
-    () => tableLayout("tag", engine, viewerSeat),
+    () => controllerLayout("tag", engine, { viewerSeat, cameraSeat }),
     // The layout depends on who sits where, never on a card: the seat list is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [engine.seats.length, viewerSeat],
+    [engine.seats.length, viewerSeat, cameraSeat],
   );
   return useMemo(() => {
     const tones = toneBySeat(layout);
@@ -83,6 +84,8 @@ export type TagSideProps = Pick<TableShellProps, "connection" | "settingsTools">
   mastersClassName?: string;
   /** The floating HUD (wide screens only). Leave out for the columns and the phone panes. */
   hud?: TagSideHud;
+  /** Replay mode: the Settings tab leaves out the replay link of the duel it is showing. */
+  replay?: boolean;
 };
 
 /**
@@ -103,8 +106,10 @@ export function TagSide({
   leftClassName,
   mastersClassName,
   hud,
+  replay = false,
 }: TagSideProps) {
   const { engine, room, viewerSeat, nameOf, prompt } = controller;
+  const forkLabels = useForkLabels();
   const session = room.session;
   const domain = session.mode === "domain";
   const narrow = useIsNarrow();
@@ -157,7 +162,7 @@ export function TagSide({
       </details>
     </div>
   );
-  const settingsPanel = <TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} />;
+  const settingsPanel = <TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} replay={replay} />;
 
   // Deck Masters: your own, with your partner's above it (read-only). A spectator sees the anchor seat's master.
   const partner = viewerSeat == null ? undefined : seatsOfTeam("tag", tagTeamOf(viewerSeat)).find((seat) => seat !== viewerSeat);
@@ -174,7 +179,8 @@ export function TagSide({
       onHoverCard={controller.onHoverCard}
       onInspect={controller.onInspect}
       rivals={partner == null ? [] : [{ seat: partner, title: `${nameOf(partner)}'s Master` }]}
-      selfTitle={viewerSeat == null ? `${nameOf(0)}'s Master` : undefined}
+      selfTitle={viewerSeat == null ? `${nameOf(0)}'s Master` : forkLabels ? `${nameOf(viewerSeat)}'s Master` : undefined}
+      showInUse
     />
   ) : null;
 
@@ -214,13 +220,15 @@ export function TagSide({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          master={domain ? hudMasterProps(source, engine.seats.find((view) => view.seat === seat), viewerSeat != null, viewerSeat == null ? `${nameOf(seat)}'s Master` : "Your Master") : null}
-          otherMaster={domain && partner != null ? hudMasterProps(source, engine.seats.find((view) => view.seat === partner), false, `${nameOf(partner)}'s Master`) : null}
+          master={domain ? hudMasterProps(source, engine.seats.find((view) => view.seat === seat), viewerSeat != null && !replay, viewerSeat == null || replay || forkLabels ? `${nameOf(seat)}'s Master` : "Your Master", true) : null}
+          otherMaster={domain && partner != null ? hudMasterProps(source, engine.seats.find((view) => view.seat === partner), false, `${nameOf(partner)}'s Master`, true) : null}
           onInspect={ui.setInspect}
           preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hud.state.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
+          hoverAnchor={hud.hover?.anchor ?? null}
+          ownSeats={partner == null ? [seat] : [seat, partner]}
         />
       </>
     );

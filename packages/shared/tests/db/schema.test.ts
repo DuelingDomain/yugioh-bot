@@ -13,6 +13,23 @@ function getTableInfo(db: Database.Database, tableName: string) {
 }
 
 describe("shared database schema", () => {
+  it("adds an indexed receipt expiry lookup to an existing database without losing receipts", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec(`create table clerk_webhook_receipts (svix_id text primary key not null, received_at text not null);
+        insert into clerk_webhook_receipts values ('msg_placeholder', '2020-01-01T00:00:00.000Z');`);
+      migrate(db);
+      migrate(db);
+      expect(db.prepare("select * from clerk_webhook_receipts").all()).toEqual([
+        { svix_id: "msg_placeholder", received_at: "2020-01-01T00:00:00.000Z" },
+      ]);
+      const plan = db.prepare(`explain query plan select svix_id from clerk_webhook_receipts
+        where received_at < ? order by received_at limit 100`).all("2026-01-01T00:00:00.000Z") as Array<{ detail: string }>;
+      expect(plan.map(row => row.detail)).toContainEqual(expect.stringMatching(/SEARCH clerk_webhook_receipts USING COVERING INDEX clerk_webhook_receipts_received_idx/));
+      expect(plan.some(row => /TEMP B-TREE/.test(row.detail))).toBe(false);
+    } finally { db.close(); }
+  });
+
   it("adds a reusable expression index used by the held-copy artwork join", () => {
     const db = new Database(":memory:");
     try {

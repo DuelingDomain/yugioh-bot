@@ -7,12 +7,12 @@ import { cardArtUrl } from "./constants";
 import { cx, SheetButton } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./deck-editor.module.css";
-import { applyDomainMaster, parseDeckText, selectDomainMaster, serializeYdk, type DeckMasterSelection } from "./ydk";
+import { applyDomainMaster, selectDomainMaster, serializeYdk, type DeckMasterSelection } from "./ydk";
 import { DeckValidationSkippedError, validateDuelDeck } from "./api";
 import { DeckMasterPicker } from "./deck-master-picker";
 import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE, useDeckCardMeta, type DeckCardMeta } from "./deck-card-types";
 import { SavedDeckPicker, useSavedDecks } from "./saved-deck-picker";
-import { createSavedDeck, listSavedDecks } from "../decks/api";
+import { createSavedDeck, listSavedDecks, prepareDeckTextImport } from "../decks/api";
 import { deckNameFromFile } from "../decks/import";
 import { modeLabel } from "../decks/model";
 import { findSavedDuplicate, pastedDeckName, prepareImportSave, uniqueDeckName } from "./import-save";
@@ -127,6 +127,10 @@ export function DeckEditor({
   const { main, extra, side, deckMaster: masterCode } = deck;
   const [paste, setPaste] = useState(initial ? serializeYdk(initial) : "");
   const [parseError, setParseError] = useState<string | null>(null);
+  const [importReport, setImportReport] = useState("");
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const importRequest = useRef(0);
+  useEffect(() => () => { importRequest.current += 1; }, []);
   const [edited, setEdited] = useState(false);
   // The deck as it came from the room or a saved deck. Replacing it asks for no confirmation.
   const [pristineDeck, setPristineDeck] = useState<DuelDeck>(deck);
@@ -204,6 +208,8 @@ export function DeckEditor({
   }, [slug, deck, retry, locked]);
 
   function commitSelection(next: DeckMasterSelection) {
+    importRequest.current += 1;
+    setImportReport("");
     setSelection(next);
     setPaste(serializeYdk(next.deck));
     setEdited(true);
@@ -247,7 +253,7 @@ export function DeckEditor({
     saveQueue.current = saveQueue.current.then(() => saveImported(raw, baseName, seq)).catch(() => undefined);
   }
 
-  function applyImported(raw: DuelDeck, baseName: string) {
+  function applyImported(raw: DuelDeck, baseName: string, messages: string[] = []) {
     setSaveNote(null);
     queueSave(raw, baseName);
     const imported = mode === "domain"
@@ -256,6 +262,7 @@ export function DeckEditor({
     const extractedSideMaster = imported.deckMaster !== undefined && raw.deckMaster === undefined
       && raw.side.length === 1 && imported.side.length === 0;
     commitSelection({ deck: imported, masterOrigin: extractedSideMaster ? { section: "side", index: 0 } : null });
+    setImportReport(messages.join(" "));
   }
 
   function chooseMaster(code?: number) {
@@ -273,23 +280,32 @@ export function DeckEditor({
   }
 
   function onFile(file: File) {
+    const generation = ++importRequest.current;
     setFileName(file.name);
-    file
-      .text()
-      .then((text) => applyImported(parseDeckText(text), deckNameFromFile(file.name)))
-      .catch((error: unknown) => setParseError(error instanceof Error ? error.message : "Could not read that file."));
+    void file.text().then((text) => prepareDeckTextImport(text, mode)).then((prepared) => {
+      if (generation === importRequest.current) applyImported(prepared.deck, deckNameFromFile(file.name), prepared.messages);
+    }).catch((error: unknown) => {
+      if (generation === importRequest.current) setParseError(error instanceof Error ? error.message : "Could not read that file.");
+    });
   }
 
-  function onPasteApply() {
+  async function onPasteApply() {
+    const generation = ++importRequest.current;
+    setPasteBusy(true);
     try {
-      const deck = parseDeckText(paste);
+      const prepared = await prepareDeckTextImport(paste, mode);
+      if (generation !== importRequest.current) return;
+      const deck = prepared.deck;
       if (deck.main.length === 0 && deck.extra.length === 0 && deck.side.length === 0 && deck.deckMaster === undefined) {
         setParseError("No cards found. Paste a YDK deck or a ydke:// link.");
         return;
       }
-      applyImported(deck, pastedDeckName(new Date()));
+      applyImported(deck, pastedDeckName(new Date()), prepared.messages);
     } catch (error) {
-      setParseError(error instanceof Error ? error.message : "Could not parse that deck.");
+      if (generation === importRequest.current) setParseError(error instanceof Error ? error.message : "Could not parse that deck.");
+    } finally {
+      // The button state belongs to this click, not to the deck generation: a later edit must not leave it busy.
+      setPasteBusy(false);
     }
   }
 
@@ -428,7 +444,7 @@ export function DeckEditor({
               placeholder={"#main\n46986414\n#extra\n!side"}
             />
           </label>
-          <SheetButton size="sm" onClick={onPasteApply}>Load paste</SheetButton>
+          <SheetButton size="sm" loading={pasteBusy} onClick={onPasteApply}>{pasteBusy ? "Importing…" : "Load paste"}</SheetButton>
         </div>
       </div>
       {saveNote ? (
@@ -444,6 +460,7 @@ export function DeckEditor({
 
       <CardAddField mode={mode} slug={slug} settings={settings} sideAllowed={sideAllowed} onAdd={addCard} onError={setParseError} />
 
+      {importReport ? <p role="status" className={styles.importReport}>{importReport}</p> : null}
       {parseError ? <p role="alert" className={ui.alert}>{parseError}</p> : null}
 
       <Section title="Main" section="main" codes={main} problems={problems} target={mainTarget}

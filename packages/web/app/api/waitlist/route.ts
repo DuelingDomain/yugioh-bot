@@ -1,6 +1,7 @@
 import { clientIpKey, createRateLimiter } from "@/lib/rate-limit";
 import { createWaitlistService } from "@yugidraft/shared/services";
 import { createClerkBackend } from "@yugidraft/shared/clerk";
+import { normalizeEmailDomain } from "@yugidraft/shared/util/email-domain";
 import { getDb } from "@/lib/db";
 
 const MAX_BODY_BYTES = 2048;
@@ -73,8 +74,17 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (typeof data.company === "string" && data.company.length > 0) return respond("joined");
-  const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : "";
-  if (email.length > 254 || !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)) return respond("invalid");
+  const rawEmail = typeof data.email === "string" ? data.email : "";
+  // Check before trimming, which would remove a leading U+FEFF format character.
+  if (/\p{Cf}/u.test(rawEmail.slice(0, rawEmail.lastIndexOf("@")))) return respond("invalid");
+  const submittedEmail = rawEmail.trim().toLowerCase();
+  if (submittedEmail.length > 254) return respond("invalid");
+  // Storage, notification claims and Clerk all use the same ASCII domain.
+  const email = normalizeEmailDomain(submittedEmail);
+  if (!email || email.length > 254) return respond("invalid");
+  const domain = email.slice(email.lastIndexOf("@") + 1);
+  const hostLabel = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+  if (!new RegExp(`^${hostLabel}(?:\\.${hostLabel})+$`).test(domain)) return respond("invalid");
 
   try {
     createWaitlistService(getDb()).join(email, {

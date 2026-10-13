@@ -7,9 +7,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
-import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
+import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom, type DuelSeatView } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
@@ -33,24 +33,34 @@ import {
   removePracticeBot,
   archiveDuel,
   cancelDuel,
+  cancelReplayFork,
   duelRoomKey,
   getDuelRoom,
+  isDuelAccessError,
   takeDuelSeat,
   leaveDuel,
   markDuelReady,
   markDuelUnready,
   sendDuelAction,
   setDuelDeck,
+  restartReplayFork,
   startDuel,
   setChainResponseMode,
   surrenderDuel,
+  type ForkViewControl,
 } from "./api";
+import { ReplayForkBar, ReplayForkResult, sourceReplayHref } from "./replay-fork-bar";
+import { ForkSearchContext, followSeat, forkRoomState, forkViewSettled, livingSeats, useForkViewState } from "./replay-fork-control";
 import { RoomLobby } from "./room-lobby";
 import { ReportButton } from "./report-button";
 import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
 import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
+import { FieldCracksScope } from "./field-cracks/context";
 import { TableShell, type TableShellProps } from "./table/table-shell";
+import type { ReplayCarry } from "./table/replay-mode";
+import { ForkLabelsContext } from "./table/fork-labels";
+import { MasterSeatsContext } from "./master-place";
 import { TagShell } from "./tag/tag-shell";
 import { fieldWaitsForReveal } from "./field-gate";
 import { defaultTeamNames } from "./tag/live-tag";
@@ -58,7 +68,7 @@ import { useLiveTableController } from "./table/use-live-table-controller";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { duelActionErrorText } from "@/lib/duel/action-errors";
 import { MultiSeatStage } from "./multi-seat-stage";
-import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, isOpponentPick, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds, seatPickFor, seatNamer } from "./multi-seat";
+import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, isOpponentPick, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds, seatPickFor, seatNamer, winnerLabel } from "./multi-seat";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import hudStyles from "./table/grid-hud.module.css";
@@ -95,6 +105,7 @@ import { isBattlePhase, phaseTitle, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { closeDuelWindow, duelWindowName, duelWindowPath, exitDuelWindow, isDuelWindow, liveDuelWindow, openDuelWindow, renameDuelWindow } from "./duel-window";
 import { ownWindowGateVisible } from "./start-flow";
+import { neutralStartBlocked, withoutNeutralStartBlocked } from "./start-blocked";
 import { SeriesBanner, SeriesGameLabel } from "./series-banner";
 import { BetweenGamesScreen, isStartingNextGame, NextGameStarting } from "./between-games";
 import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from "./series-model";
@@ -124,6 +135,7 @@ import { PileViewer } from "./pile-viewer";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "./pile-focus";
 import { MatchSheetLog } from "./text-log";
 import { withDestroyCards } from "./destroy-cards";
+import { usePreviousSeats, withMasterSummonMoves } from "./master-summon-moves";
 import {
   CardTabEmpty, DEFAULT_SIDE_PANE, DESKTOP_PANES, desktopPane, mobilePanes, SidePanel, SideTabs, useIsNarrow, type SidePane,
 } from "./side-panel";
@@ -137,6 +149,7 @@ const SolidRoom = dynamic<SolidRoomProps>(() => import("./solid/solid-room").the
 });
 
 /** Slack after the crumble ends before an eliminated viewer switches to spectating. */
+const NO_SEATS: readonly DuelSeatView[] = [];
 const SPECTATE_AFTER_CRUMBLE_MS = 200;
 /** The Card/Log/Settings sheet in 3D mode is a solid panel (the tokens come from the 3D mode root, which holds the sheet). */
 const SOLID_SHEET_CLASS = "bg-[color:var(--ink-1)] border-t border-[color:var(--gold-b)] rounded-t-[16px] md:rounded-t-none";
@@ -156,8 +169,30 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const textSize = useCardTextSize();
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
-  const { data, error, isLoading, mutate } = useSWR(
-    slug ? duelRoomKey(slug, spectate) : null,
+  // Replay forks only: Follow prompt, Reveal hands and the seat the creator picked. Ordinary tables never leave the defaults,
+  // and the room key then stays the plain one.
+  const { mutate: purgeCache } = useSWRConfig();
+  // Each fork view (seat and Reveal choice) has its own cache key. All of them go together, so a key used earlier
+  // never shows its old room when it is asked for again.
+  // A purge with `revalidate` on also drops the shared in-flight request of a key, so a view asked for again while its first
+  // request is still running starts a new one (that request began before the purge stamp and SWR would discard it). The key on
+  // screen is the one mounted hook: it is left out, or it would send a second request.
+  const forkViewNow = useRef<ForkViewControl | null>(null);
+  const purgeForkViews = useCallback(() => {
+    const own = `/api/duels/${slug}`;
+    const shown = duelRoomKey(slug, spectate, forkViewNow.current);
+    return purgeCache((key) => typeof key === "string" && (key === own || key.startsWith(`${own}?`)), undefined,
+      { revalidate: (_data: unknown, key: unknown) => key !== shown });
+  }, [purgeCache, slug, spectate]);
+  const forkView = useForkViewState(() => { void purgeForkViews(); });
+  forkViewNow.current = forkView.view;
+  const forkSeenFor = useRef<string | null>(null);
+  const [forkSheetOpen, setForkSheetOpen] = useState(false);
+  // Set while a fork view is refused (access lost). It holds until a room that arrived after the refusal is on screen, so a
+  // cached or laggy view never comes back by itself.
+  const [accessLostAt, setAccessLostAt] = useState<{ slug: string; at: number } | null>(null);
+  const { data: rawData, error, isLoading, mutate } = useSWR(
+    slug ? duelRoomKey(slug, spectate, forkView.view) : null,
     async () => {
       let admitError: unknown = null;
       if (inviteCode && (admitted.current?.slug !== slug || admitted.current.inviteCode !== inviteCode)) {
@@ -174,17 +209,60 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         }
       }
       try {
-        return await getDuelRoom(slug, spectate);
+        return await getDuelRoom(slug, spectate, forkView.view);
       } catch (err) {
         throw admitError ?? err;
       }
     },
-    { revalidateOnFocus: false, revalidateOnReconnect: false },
+    // A fork changes its key when the creator picks a seat; the old view stays up until the new one arrives (and answers wait for it).
+    // Never after access was lost: SWR would hand the private view of the old key back.
+    { revalidateOnFocus: false, revalidateOnReconnect: false,
+      keepPreviousData: forkSeenFor.current === slug && !(accessLostAt != null && accessLostAt.slug === slug),
+      // A fork view is asked for with a new key, and the purge above stamps a newer mutation time on it: SWR throws away a
+      // request that started before that stamp. A finished request that is still shared (the default is 2 s) would be reused
+      // for the same view asked for again and then discarded, and the table would stay on "catching up". So in a fork a finished
+      // request is never reused (one still in flight is). This is also the only request a view change makes. Ordinary rooms
+      // keep the default.
+      dedupingInterval: forkSeenFor.current === slug ? 0 : undefined },
   );
   const refreshRoom = useCallback(
-    () => mutate(() => getDuelRoom(slug, spectate), { revalidate: false }),
-    [mutate, slug, spectate],
+    () => mutate(() => getDuelRoom(slug, spectate, forkView.view), { revalidate: false }),
+    [mutate, slug, spectate, forkView.view],
   );
+  // A replay fork keeps the creator's identity at seat 0 (the websocket, the token) and plays every seat. The table below
+  // reads `data.mySeat` as the seat that acts, so it gets the acting seat; only the websocket keeps the stored one.
+  const forkRefused = isDuelAccessError(error) && (rawData?.session.kind === "replay-fork" || forkSeenFor.current === slug);
+  const forkAccessLost = forkRefused
+    || (accessLostAt != null && accessLostAt.slug === slug && !(rawData != null && rawData.receivedAt > accessLostAt.at));
+  const visibleRoom = forkAccessLost ? undefined : rawData;
+  useEffect(() => {
+    if (!forkRefused) return;
+    setAccessLostAt((current) => (current?.slug === slug ? current : { slug, at: performance.now() }));
+    // Every cached view of this table goes (each seat and Reveal choice has its own key), not only the one on screen.
+    void purgeForkViews();
+    void mutate(undefined, { revalidate: false });
+  }, [forkRefused, slug, purgeForkViews, mutate]);
+  // Access is back: a room that arrived after the refusal is on screen, so a later view change must not flash the
+  // "no access" screen again while the next room loads.
+  useEffect(() => {
+    if (accessLostAt == null || forkRefused || rawData == null || rawData.receivedAt <= accessLostAt.at) return;
+    setAccessLostAt(null);
+  }, [accessLostAt, forkRefused, rawData]);
+  const roomState = forkRoomState(visibleRoom);
+  const forkControl = roomState.kind === "fork" ? roomState.control : null;
+  const forkMode = forkControl != null;
+  if (forkMode) forkSeenFor.current = slug;
+  // The seat the board is drawn from. A fork keeps it at the stored seat whoever acts: the camera never moves by itself,
+  // so a seat switch (by hand or by Follow prompt) changes who answers, not which way the board faces.
+  const cameraSeat = forkControl ? forkControl.identitySeat : null;
+  // What a remounted shell starts from, so a new fork view keeps the camera and the open panel.
+  const forkCarry = useRef<ReplayCarry>({});
+  const data = useMemo(
+    () => (visibleRoom && forkControl ? { ...visibleRoom, mySeat: forkControl.actingSeat } : visibleRoom),
+    [visibleRoom, forkControl],
+  );
+  const forkSettled = roomState.kind !== "unusable" && (forkControl == null
+    || forkViewSettled(forkControl, forkView.view, { receivedAt: rawData?.receivedAt, changedAt: forkView.changedAt() }));
   // The duel host answers with the last view it built when its queue is blocked (stale). Ask again until it is fresh.
   const roomStale = data?.stale === true;
   useEffect(() => {
@@ -194,23 +272,29 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }, [roomStale, refreshRoom]);
   // The change notice that an answer of this player causes is not a reason to shut the prompts (see duel-echo-window.ts).
   const echo = useMemo(() => createEchoWindow(), []);
-  const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom, spectate, echo.quiet);
+  const realtime = useDuelWebsocket(slug, visibleRoom?.mySeat, refreshRoom, spectate, echo.quiet);
   // Only a recovering connection holds the buttons. A routine re-read (a change notice that is not the player's echo,
   // a window focus, a clock tick) does not: it shut the button between the press and the release, and the click was lost.
   // The server still refuses a stale answer by prompt id and revision.
   const syncing = realtime.recovering;
   const liveFormat = engineFormat(data?.engine);
+  // The seat views one update back: a Deck Master summon flies out of its plate only when the view shows it leaving.
+  const previousSeats = usePreviousSeats(data?.engine?.seats);
   // Live tables: FFA mounts TableShell, Tag 2v2 mounts the Rooftop (TagShell). ?stage=legacy keeps MultiSeatStage for both.
   const liveTagTable = isMultiSeat(data?.engine) && liveFormat === "tag" && !legacyStage;
   const liveTable = (isMultiSeat(data?.engine) && (liveFormat === "ffa3" || liveFormat === "ffa4") && !legacyStage) || liveTagTable;
-  const playerName = seatNamer(data?.session.seats ?? []);
+  // A fork names its seats after the source duel's players, so the creator knows whose turn each seat plays (the fork's own seats are the creator and bots).
+  const playerName = seatNamer((data?.session.seats ?? []).map((entry) => ({
+    ...entry, displayName: forkControl?.origin.sourceSeats.find((source) => source.seat === entry.seat)?.displayName ?? entry.displayName,
+  })));
   useDuelLeaveGuard({
     slug,
-    active: data?.session.status === "active" && !data.engine?.result &&
+    active: !forkMode && data?.session.status === "active" && !data.engine?.result &&
       (!isMultiSeat(data?.engine) || !data.engine?.seats.some((seat) => seat.seat === data.mySeat && (seat.eliminated || seat.pendingElimination))),
     role: data?.mySeat == null ? "spectator" : "player",
   });
   const [busy, setBusy] = useState(false);
+  const [forkChainBusy, setForkChainBusy] = useState(false);
   const inFlight = useRef(false);
   // Counts every request that changes the room (an action or a chain response switch change). A reply is put on the board
   // only if no later request was sent after it: a slow reply must not bring back an older room over a newer one.
@@ -299,7 +383,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     if (view.mode === "3d") void import("./solid/solid-room");
   }, [view.mode]);
   const viewerOut = isMultiSeat(data?.engine) && data?.engine?.seats.some((seat) =>
-    seat.seat === data.mySeat && (seat.eliminated === true || seat.pendingElimination === true)) === true;
+    seat.seat === data.mySeat && (seat.eliminated === true || (!forkMode && seat.pendingElimination === true))) === true;
   // The server flips to active before it answers Start duel; the pop-up already has the duel then.
   const ownWindowGate = data && !viewerOut ? ownWindowGateVisible({
     status: data.session.status, mySeat: data.mySeat, inDuelWindow, playHere,
@@ -327,10 +411,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     }),
     soundEnabled: preferences.soundEnabled,
   });
-  const catchingUp = syncing || startBeats.active;
+  const catchingUp = syncing || startBeats.active || !forkSettled || forkChainBusy;
   // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
   const prompt = data?.engine?.result ? null : (data?.engine?.prompt ?? null);
-  const draft = usePromptDraft(prompt);
+  const forkDraftKey = forkControl
+    ? `${forkControl.actingSeat}:${forkControl.revealHands}:${forkView.seat ?? "follow"}:${forkView.reveal}`
+    : undefined;
+  const draft = usePromptDraft(prompt, forkDraftKey);
   const legalKeys = useMemo(() => promptLegalKeys(prompt), [prompt]);
   const selectedKeys = useMemo(() => promptSelectedKeys(prompt, draft.selected), [draft.selected, prompt]);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -353,7 +440,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const viewerLeaving = viewerOut && viewerSeat?.eliminated !== true && viewerSeat?.pendingElimination === true;
   // Auto-spectate only watches the REMAINING duel; once it is over the eliminated seat keeps its own result screen.
   const duelOver = data?.session.status !== "active" || data?.engine?.result != null;
-  const viewerEliminated = (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true && !duelOver;
+  // A fork plays every seat: one that is out is not a viewer who goes to spectate.
+  const viewerEliminated = !forkMode && (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true && !duelOver;
   // The own crumble plays on the table first: the spectate switch re-keys the room and would unmount it at once.
   // A seat that was already out on load (a reload) has no crumble to wait for, and neither has the legacy stage.
   const sawViewerIn = useRef(false);
@@ -399,6 +487,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const hud = !narrow && data?.engine != null && !isMultiSeat(data.engine) && !liveTable && view.mode !== "3d";
   const hudState = useHudPane();
   const closeHud = hudState.close;
+  const closePrivateHud = hudState.closePrivate;
   useHudEscape(hudState, hud, Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen);
   usePinSync(hudState, data?.engine?.seats);
   // A new prompt for this seat lets the pinned peek go: it must not cover the cards the prompt asks for.
@@ -510,7 +599,22 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // The role stays "player" after a result (a draw, a Tag surrender), so a finished duel never clears the screen here.
   const watchingOnly = data != null && (data.role === "spectator" || data.mySeat == null);
   useEffect(() => {
-    if (!watchingOnly) return;
+    if (!watchingOnly && !forkAccessLost) return;
+    setInspect(null);
+    closePrivateHud();
+    setPile(null);
+    setMobileInspect(false);
+    setMenu(null);
+    setHover(null);
+    setPinnedFocus(null);
+    setAimLock(null);
+    setPickHint(null);
+    setActionError(null);
+  }, [watchingOnly, forkAccessLost, closeHud]);
+
+  // A requested or received fork view has its own selections, piles, inspector and attack state.
+  useEffect(() => {
+    if (forkDraftKey === undefined) return;
     setInspect(null);
     closeHud();
     setPile(null);
@@ -520,9 +624,21 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     setPinnedFocus(null);
     setAimLock(null);
     setPickHint(null);
-    setActionError(null);
-  }, [watchingOnly, closeHud]);
+    setPendingAttack(null);
+    setActionPreview(null);
+    setAimHoverKey(null);
+  }, [forkDraftKey, closePrivateHud]);
 
+  // A fork reply is projected for the seat that acted, with every hand shown. When the creator chose another seat or
+  // hid the hands, the reply is not the view on screen: it is dropped and the current view is read again. It never
+  // reaches the board and the table is never left waiting for it.
+  const applyReply = useCallback(async (result: Parameters<typeof applyAnswerResult>[1]) => {
+    if (result && "engine" in result && result.fork && !forkViewSettled(result.fork, forkViewNow.current)) {
+      await mutate();
+      return;
+    }
+    await applyAnswerResult(mutate, result);
+  }, [mutate]);
   const run = useCallback(
     async (work: () => Promise<DuelRoom | { session: unknown } | void>, kind?: "seat-pick") => {
       // A coin toss is playing: nothing is sent, and the open menu stays as it is.
@@ -538,7 +654,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setActionError(null);
       try {
         const result = await work();
-        if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
+        // The neutral line comes from the room (`startBlockedByOther`), not from this answer. The string is
+        // dropped before the room is cached; it stood in place of this player's own blocker object, so a full
+        // room is read again. Any other answer already makes a room read in `applyAnswerResult`.
+        const neutral = neutralStartBlocked(result);
+        // A full room with the neutral string is a Start that another seat's deck blocked: show the line at once.
+        const answer: typeof result = neutral && result && "engine" in result
+          ? { ...withoutNeutralStartBlocked(result), startBlockedByOther: true as const }
+          : withoutNeutralStartBlocked(result);
+        if (seq === mutationSeq.current) await applyReply(answer);
+        if (neutral && result && "engine" in result && seq === mutationSeq.current) await mutate();
       } catch (err) {
         setActionError(duelActionErrorText(err, { seatPick: kind === "seat-pick" }));
         await mutate();
@@ -548,7 +673,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         setBusy(false);
       }
     },
-    [mutate, echo],
+    [mutate, echo, applyReply],
   );
 
   // A series moves on to its next game by itself: follow it, keeping the duel window. Players always
@@ -608,14 +733,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // A refused answer (a stale choice, a rejected move) is no cause for a follow-up: forget it, so the next prompt keeps its beat.
       void run(async () => {
         try {
-          return await sendDuelAction(slug, command);
+          return await (forkControl ? sendDuelAction(slug, command, forkControl.actingSeat) : sendDuelAction(slug, command));
         } catch (err) {
           pick.clearAnswer();
           throw err;
         }
       }, isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
     },
-    [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, pick.clearAnswer, viewerOut],
+    [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, pick.clearAnswer, viewerOut, forkControl?.actingSeat],
   );
 
   /** A prompt tile or response row under the pointer: show the card in the inspector, as board cards do. */
@@ -757,33 +882,165 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }
 
   const liveController = useLiveTableController({
-    room: data, nameOf: playerName, prompt, canAct: promptMine, busy, error, catchingUp, revealed,
+    room: data, cameraSeat, nameOf: playerName, prompt, canAct: promptMine, busy, error, catchingUp, revealed,
     draft, legalKeys, selectedKeys, aim: null, reducedMotion: preferences.reducedMotion,
     onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onInspect: showInspector,
   });
 
   // The chain response switch. The server reports a mode only in the seated player's own view of a live duel; a spectator,
   // a replay or a scenario table gets none, and then there is nothing to draw.
+  // The send callback of the chain switch is made once; a fork binds each call to the seat, revision and prompt on screen.
+  const latestRoom = useRef(data);
+  latestRoom.current = data;
   const chainMode = useChainModeControl({
     slug,
+    // A fork keeps each seat's own mode in the journal (and shows it from the room): a browser-wide memory would apply one
+    // seat's choice to every seat the creator plays.
+    remember: !forkMode,
     serverMode: data?.engine?.chainMode,
-    enabled: data?.mySeat != null && !spectate && !viewerOut && !ownWindowGate && data.session.status === "active" && !data.engine?.result,
-    suspended: confirmSurrender || confirmCancel || deckMenuOpen,
+    enabled: data?.mySeat != null && !spectate && !viewerOut && !ownWindowGate && data.session.status === "active" && !data.engine?.result && forkSettled,
+    suspended: confirmSurrender || confirmCancel || deckMenuOpen || (forkMode && (busy || catchingUp || Boolean(error))),
     send: async (mode) => {
+      const now = latestRoom.current;
+      // Only a room that is a fork by its stored kind and its seat control sends a seat: a stray field on an ordinary room never does.
+      const fork = now && forkRoomState(now).kind === "fork" ? now.fork : undefined;
+      if (fork && (busy || catchingUp || error || !forkViewSettled(fork, forkView.view, { receivedAt: (now as { receivedAt?: number }).receivedAt, changedAt: forkView.changedAt() }))) return;
       const seq = ++mutationSeq.current;
+      if (fork) setForkChainBusy(true);
       try {
-        const result = await setChainResponseMode(slug, mode);
-        if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
+        const binding = fork && now?.engine
+          ? { as: fork.actingSeat, revision: now.engine.revision, ...(now.engine.prompt ? { promptId: now.engine.prompt.id } : {}) }
+          : undefined;
+        const result = await (binding ? setChainResponseMode(slug, mode, binding) : setChainResponseMode(slug, mode));
+        if (seq === mutationSeq.current) await applyReply(result);
       } catch (err) {
         // An answer that was sent meanwhile may have had its reply dropped for this request: read the room again.
         void mutate().catch(() => {});
         throw err;
+      } finally {
+        if (fork) setForkChainBusy(false);
       }
     },
     onError: setActionError,
   });
 
-  useBugReportRoom(data ?? null);
+  // ---- Replay fork: the seat on screen, Follow prompt, ask-all and the two destructive actions ----
+  const forkEngine = data?.engine ?? null;
+  const forkLiving = useMemo(() => (forkControl ? livingSeats(forkEngine, forkControl.manualSeats) : []), [forkControl, forkEngine]);
+  // On primitives, so a new reading of the same prompt keeps the same binding and does not restart the card search.
+  const forkActingSeat = forkControl?.actingSeat ?? null;
+  const forkPromptId = forkEngine?.prompt?.id ?? null;
+  const forkRevision = forkEngine?.revision ?? null;
+  const forkSearch = useMemo(
+    () => (forkActingSeat != null && forkPromptId != null && forkRevision != null
+      ? { as: forkActingSeat, promptId: forkPromptId, revision: forkRevision } : null),
+    [forkActingSeat, forkPromptId, forkRevision],
+  );
+  // Follow prompt: an answer can hand the prompt to another seat; the host picks that seat when the view names none.
+  const followGuard = useRef<string | null>(null);
+  const forkEngineRevision = forkEngine?.revision ?? null;
+  useEffect(() => {
+    if (!forkControl || !forkEngine || !forkView.follow || busy || forkChainBusy || !forkSettled) return;
+    // A seat picked by hand holds only until the engine moves on.
+    if (forkView.seat != null) return;
+    const next = followSeat(forkEngine, forkControl.actingSeat);
+    if (next == null) { followGuard.current = null; return; }
+    const key = `${forkEngine.revision}:${next}:${forkControl.actingSeat}`;
+    if (followGuard.current === key) return;
+    followGuard.current = key;
+    // A reply that is still on its way belongs to the seat that is being left.
+    mutationSeq.current += 1;
+    void refreshRoom();
+  }, [forkControl, forkEngine, forkView.follow, forkView.seat, busy, forkChainBusy, forkSettled, refreshRoom]);
+  const heldRevision = useRef<number | null>(null);
+  useEffect(() => {
+    if (forkView.seat == null) { heldRevision.current = null; return; }
+    if (forkEngineRevision == null) return;
+    if (heldRevision.current == null) { heldRevision.current = forkEngineRevision; return; }
+    if (heldRevision.current !== forkEngineRevision && forkView.follow) {
+      heldRevision.current = null;
+      forkView.pickSeat(null);
+    }
+  }, [forkView, forkEngineRevision]);
+  const pickForkSeat = (seat: number) => {
+    // A reply that is still on its way belongs to the old seat.
+    mutationSeq.current += 1;
+    forkView.pickSeat(seat);
+  };
+  const askAllForks = () => {
+    void run(async () => {
+      const now = latestRoom.current;
+      const fork = now && forkRoomState(now).kind === "fork" ? now.fork : undefined;
+      if (!fork || !now?.engine) return;
+      const acting = fork.actingSeat;
+      // The acting seat goes last, so the reply that is put on the board is the view on screen. A seat that is out is left
+      // out: the host would refuse it after the other seats had changed.
+      const alive = livingSeats(now.engine, fork.manualSeats);
+      const order = [...alive.filter((seat) => seat !== acting), ...(alive.includes(acting) ? [acting] : [])];
+      let revision = now.engine.revision;
+      let promptId: string | undefined = now.engine.prompt?.id;
+      let last: DuelRoom | null = null;
+      for (const seat of order) {
+        const reply = await setChainResponseMode(slug, "always", {
+          as: seat, revision, ...(seat === acting && promptId !== undefined ? { promptId } : {}),
+        });
+        // A mode change can pass a window; the next call must name the revision that is current now.
+        if (reply.engine && reply.engine.revision !== revision) promptId = undefined;
+        if (reply.engine) revision = reply.engine.revision;
+        last = reply;
+      }
+      // The last reply belongs to the acting seat only when that seat took part. With the acting seat out, it is
+      // another seat's view: it never goes on screen, and the room is read again instead.
+      return last && last.fork?.actingSeat === acting ? last : undefined;
+    });
+  };
+  const restartFork = () => {
+    // With Follow prompt on, the host picks the seat again. With it off, the seat the restart opens on is kept as a hold,
+    // so the toggle stays true to what it says.
+    const hold = !forkView.follow;
+    if (!hold) forkView.pickSeat(null);
+    setHideResult(false);
+    void run(async () => {
+      const reply = await restartReplayFork(slug);
+      if (hold && reply.fork) forkView.pickSeat(reply.fork.actingSeat);
+      return reply;
+    });
+  };
+  // The creator follows a link to the source replay: an open fork is closed on the way (best effort), so forks that
+  // were left behind do not fill the limit of open forks.
+  // It runs only after the creator confirms, and never for a click that opens a new tab (see `ForkSourceLink`).
+  const leaveFork = () => {
+    if (!forkControl || latestRoom.current?.session.status !== "active") return;
+    leavingRoom.current = true;
+    void cancelReplayFork(slug).catch(() => {});
+  };
+  const endFork = () => {
+    if (!forkControl || inFlight.current) return;
+    const target = sourceReplayHref(forkControl.origin);
+    // A finished fork has nothing to cancel (the host refuses it): go back to the replay.
+    if (latestRoom.current?.session.status !== "active") { leavingRoom.current = true; router.replace(target); return; }
+    inFlight.current = true;
+    mutationSeq.current += 1;
+    setBusy(true);
+    setActionError(null);
+    // The room is not read again: a closed fork has no room to read.
+    cancelReplayFork(slug)
+      .then(() => { leavingRoom.current = true; router.replace(target); })
+      .catch((err: unknown) => setActionError(duelActionErrorText(err)))
+      .finally(() => { inFlight.current = false; setBusy(false); });
+  };
+
+  useBugReportRoom(forkMode ? null : data ?? null);
+  // Access to a fork was lost: nothing private stays on screen. The viewer may ask again (a newer room is the only way back).
+  if (forkAccessLost) {
+    return (
+      <div className="space-y-3 p-6" data-replay-fork-access-lost>
+        <p className="text-sm text-accent-cta">You can no longer open this replay fork.</p>
+        <Button type="button" size="sm" variant="secondary" onClick={() => void mutate()}>Retry</Button>
+        <Link href="/duels" className="ml-3 text-sm text-text-secondary">Back to tables</Link>
+      </div>
+    );
+  }
   if (isLoading && !data) return <div className="p-6 text-sm text-text-secondary">Loading table…</div>;
   if (error && !data) {
     const message = error instanceof Error ? error.message : "Could not load this table.";
@@ -796,6 +1053,15 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     );
   }
   if (!data) return null;
+  // A fork row without its control cannot be played safely (no acting seat): show nothing of the table.
+  if (roomState.kind === "unusable") {
+    return (
+      <div className="space-y-3 p-6" data-replay-fork-unusable>
+        <p className="text-sm text-accent-cta">This replay fork cannot be shown. Its seat control is missing.</p>
+        <Link href="/duels" className="text-sm text-text-secondary">Back to tables</Link>
+      </div>
+    );
+  }
   // The series already points at the next game and this room is about to follow: not the result of the game that is over.
   if (nextTarget && data.series) {
     return <NextGameStarting room={data} game={data.series.gameNumber} onShowTable={() => goToGame(nextTarget)} />;
@@ -820,15 +1086,21 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           if (inFlight.current) return;
           const opened = inDuelWindow ? null : openWindow();
           setStarting(true);
+          // Back to the lobby: the pop-up has nothing to show.
+          const backToLobby = () => {
+            setStarting(false);
+            setWindowOpened(false);
+            popup.current = null;
+            try { opened?.close(); } catch { /* the browser keeps it open */ }
+          };
           void run(async () => {
             try {
-              return await startDuel(slug);
+              const answer = await startDuel(slug);
+              // Another seat's deck blocked the start: the answer is not an error, but no duel is starting.
+              if (neutralStartBlocked(answer)) backToLobby();
+              return answer;
             } catch (err) {
-              // Back to the lobby with the error; the pop-up has nothing to show.
-              setStarting(false);
-              setWindowOpened(false);
-              popup.current = null;
-              try { opened?.close(); } catch { /* the browser keeps it open */ }
+              backToLobby();
               throw err;
             }
           });
@@ -850,7 +1122,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }
 
   const engine = data.engine;
-  const localSeat = data.mySeat ?? 0;
+  // The acting seat (`data.mySeat`) owns prompts and answers; the camera seat decides which side of the board is the bottom.
+  const localSeat = cameraSeat ?? data.mySeat ?? 0;
   const bottom = engine?.seats.find((seat) => seat.seat === localSeat);
   const multi = isMultiSeat(engine);
   const format = engineFormat(engine);
@@ -861,20 +1134,22 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const canAct = mine && !busy && !error && !catchingUp && data.session.status === "active" && !viewerOut;
   // An opponent pick also answers by tapping the offered seat on the table (after the same human beat as the panel).
   const seatPick = multi && canAct && revealed ? seatPickFor(prompt, engine, onSubmitAnswer) : null;
-  const canSurrender = data.session.status === "active" && data.mySeat != null && !engine?.result && !viewerOut;
+  const canSurrender = !forkMode && data.session.status === "active" && data.mySeat != null && !engine?.result && !viewerOut;
   const terminal = data.session.status !== "active";
   const isOrganizer = actorPlayerId === data.session.organizerPlayerId || data.session.seats.some((seat) =>
     seat.seat === data.mySeat && seat.playerId === data.session.organizerPlayerId);
-  const canCancel = !terminal && isOrganizer && !data.session.ranked && data.session.seriesId == null && data.series == null;
-  const canArchive = terminal && isOrganizer && !data.session.archivedAt;
+  const canCancel = !forkMode && !terminal && isOrganizer && !data.session.ranked && data.session.seriesId == null && data.series == null;
+  const canArchive = !forkMode && terminal && isOrganizer && !data.session.archivedAt;
   const series = data.series ?? null;
   const myIndex = series ? seriesPlayerIndex(data, series) : null;
   const hasResult = engine?.result != null || terminal;
   // A series player sees the side deck screen, not the result screen, once the last game has played out.
   const betweenGames = series != null && myIndex != null && isBetweenGames(data, slug);
-  const showBetweenGames = betweenGames && resultReady && hasResult;
-  const showResult = !hideResult && !showBetweenGames && resultReady && (engine?.result != null || terminal);
+  const showBetweenGames = !forkMode && betweenGames && resultReady && hasResult;
+  const showResult = !forkMode && !hideResult && !showBetweenGames && resultReady && (engine?.result != null || terminal);
   const exitDuel = () => {
+    // A fork is not left open behind the creator: leaving it closes it and goes back to the replay.
+    if (forkControl) { endFork(); return; }
     leavingRoom.current = true;
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
     else router.replace("/duels");
@@ -921,13 +1196,38 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const leavingNotice = viewerLeaving ? <p className={styles.leavingNotice} role="status" data-testid="self-leaving">
     Leaving — you leave the duel when the current chain finishes
   </p> : null;
-  const popOutControl = data.mySeat != null && !viewerOut && !inDuelWindow && data.session.status === "active" && !engine?.result ?
+  const popOutControl = !forkMode && data.mySeat != null && !viewerOut && !inDuelWindow && data.session.status === "active" && !engine?.result ?
     <>
       <button type="button" className={styles.tool} onClick={popOut}>Pop out</button>
       {popBlocked ? <span className={styles.tool} role="status">Your browser blocked the window.</span> : null}
     </> : null;
-  const leaveControl = data.mySeat == null || viewerOut ?
+  const leaveControl = !forkMode && (data.mySeat == null || viewerOut) ?
     <button type="button" className={styles.tool} onClick={exitDuel}>Leave room</button> : null;
+  const forkBusy = busy || catchingUp || Boolean(error);
+  // A fork has no clock: the host sends none, and the table draws none even if one were sent.
+  const shownClock = forkMode ? null : data.clock;
+  const forkBar = forkControl ? (
+    <ReplayForkBar
+      fork={forkControl} seatName={playerName} living={forkLiving} waitingSeat={engine?.prioritySeat ?? null}
+      follow={forkView.follow} reveal={forkView.reveal} disabled={forkBusy}
+      open={forkSheetOpen} onOpenChange={setForkSheetOpen}
+      onPickSeat={pickForkSeat}
+      onFollow={(next) => forkView.setFollow(next, forkControl.actingSeat)}
+      onReveal={forkView.setReveal}
+      onAskAll={askAllForks} onRestart={restartFork} onEnd={endFork}
+      ended={terminal} onLeave={leaveFork} held={forkView.seat != null}
+      onShowResult={liveTable && hasResult && hideResult ? () => setHideResult(false) : undefined}
+    />
+  ) : null;
+  const forkWinner = engine?.result ? winnerLabel(engine, playerName) : null;
+  const forkResult = forkControl && hasResult && resultReady && !hideResult ? (
+    <ReplayForkResult
+      headline={engine?.result ? (forkWinner ? `${forkWinner} won` : "The duel is a draw") : "The fork has ended"}
+      reason={engine?.result?.reason ?? data.session.resultReason ?? null}
+      sourceHref={sourceReplayHref(forkControl.origin)} disabled={forkBusy}
+      onRestart={restartFork} onClose={() => setHideResult(true)} onLeave={leaveFork} ended={terminal}
+    />
+  ) : null;
   if (ownWindowGate) {
     return (
       <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center gap-4 text-center"
@@ -951,6 +1251,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       </div>
     );
   }
+  // Every board of this duel (live tables, 3D, flat) cracks from the same scope: duel id for the seed, starting LP of one side.
+  const withCracks = (node: ReactNode) => (
+    <FieldCracksScope duelKey={slug} format={data.session.format} settings={data.session.settings} replay={forkMode}>{node}</FieldCracksScope>
+  );
   if (liveTable && liveController) {
     // One seam set for both live shells, so the room stays one code path.
     const shellProps: TableShellProps = {
@@ -961,9 +1265,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       initialOutOrder: eliminationOrder(liveController.engine),
       connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
       actions: { onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame },
+      ...(forkMode ? { noResultScreen: true, replayCarry: forkCarry, resetKey: forkDraftKey } : {}),
       headerTools: <>
-        <BugReportHeaderButton room={data} />
-        <ReportButton slug={slug} />
+        {forkBar}
+        {forkMode ? null : <BugReportHeaderButton room={data} />}
+        {forkMode ? null : <ReportButton slug={slug} />}
         {popOutControl}
         {leaveControl}
         {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
@@ -985,11 +1291,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {cancelModal}
       </>,
     };
-    // The shells keep their own pile viewer, inspector and menus. A new key on the change to spectator drops them with the room's.
-    const shellKey = watchingOnly ? `${slug}:watching` : slug;
-    return <DeckSurrenderContext.Provider value={deckSurrender}>
+    // The shells keep their own piles, inspector and menus. A spectator view remounts them. A fork never does: a seat
+    // switch, a Follow switch or a Reveal change clears them through `resetKey`, and the camera, the grid focus and the
+    // zoom stay where the creator put them.
+    const shellKey = forkMode ? `${slug}:fork` : watchingOnly ? `${slug}:watching` : slug;
+    return withCracks(<ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
+      <MasterSeatsContext.Provider value={data?.engine?.seats ?? NO_SEATS}>
       {liveTagTable ? <TagShell key={shellKey} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={shellKey} {...shellProps} />}
-    </DeckSurrenderContext.Provider>;
+      </MasterSeatsContext.Provider>
+      {forkResult}
+    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>);
   }
   const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
   const domain = data.session.mode === "domain";
@@ -1005,7 +1316,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const headerPhase = battle ? `Battle Phase${stepName ? ` · ${stepName}` : ""}` : shownPhase === null ? "Dealing hands" : phaseTitle(shownPhase);
   const turnSeat = engine?.turnSeat;
   const myTurn = !spectator && turnSeat === data.mySeat;
-  const turnText = turnSeat == null ? null : myTurn ? "Your turn" : `${playerName(turnSeat)}'s turn`;
+  const turnText = turnSeat == null ? null : myTurn && !forkMode ? "Your turn" : `${playerName(turnSeat)}'s turn`;
   const soundLabel = preferences.soundEnabled ? "On" : "Off";
 
   const isActionPrompt = prompt?.kind === "choice" && prompt.context?.type === "action";
@@ -1061,13 +1372,19 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     setMobileInspect(false);
     onSubmitAnswer({ choice: option.id });
   };
+  // A fork names the docks by seat: the dock is the acting seat's, and "Your"/"Opponent" would be wrong for the camera's seat.
+  const forkMasterTitles = data.mySeat != null ? {
+    selfTitle: `${playerName(data.mySeat)}'s Master`,
+    ...(multi ? {} : { rivals: [{ seat: 1 - data.mySeat, title: `${playerName(1 - data.mySeat)}'s Master` }] }),
+  } : {};
   const masterRail = domain && engine ? (
     <DeckMasterRail engine={engine} mySeat={data.mySeat} legalKeys={fieldLegalKeys}
       selectedKeys={selectedKeys} canAct={canAct}
       legalActionsFor={legalActionsFor}
       onChooseAction={onChooseAction}
       onActivate={onFieldActivate} topSeat={multi ? focusSeat : undefined}
-      onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
+      {...(forkMode ? forkMasterTitles : {})}
+      onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} showInUse />
   ) : null;
   // The Log list stays mounted behind the other tabs (SidePanel keepMounted), so it keeps the rows it has built.
   // Only the instance in the column counts unread rows; the narrow sheet gets its own, uncounted copy.
@@ -1089,8 +1406,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const mastersPanel = <div className={styles.mastersSheet}>{masterRail}</div>;
   const settingsPanel = (
     <div className={styles.options}>
-      <DuelSettingsSummary session={data.session} />
-      <RoomInvite room={data} slug={slug} />
+      {forkMode ? null : <DuelSettingsSummary session={data.session} />}
+      {forkMode ? null : <RoomInvite room={data} slug={slug} />}
       <h2>Presentation</h2>
       <DuelAnimationSpeedControl />
       <DuelCardTextSizeControl />
@@ -1157,14 +1474,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           ))}
         </div>
       ) : null}
-      <BugReportMenuButton room={data} />
+      {forkMode ? null : <BugReportMenuButton room={data} />}
       {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || tossLocked}
         onClick={askSurrender}>Surrender</Button> : null}
       {canCancel ? <Button type="button" variant="secondary" size="sm" disabled={busy || tossLocked}
         onClick={askCancel}>Cancel duel</Button> : null}
       {canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null}
-      {data.session.status === "completed" || data.session.status === "interrupted" ? (
+      {!forkMode && (data.session.status === "completed" || data.session.status === "interrupted") ? (
         <>
           <p>Finished. This duel is in Match history.</p>
           <Link href={`/duels/${slug}/replay`}>Watch replay</Link>
@@ -1194,7 +1511,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     (engine?.seats ?? []).map((seat) => [seat.seat, seat.seat === localSeat ? SEAT_TONE_HEX.ice : SEAT_TONE_HEX.rose]),
   );
   const hudMaster = (seatView: NonNullable<typeof engine>["seats"][number] | undefined, local: boolean, title: string) =>
-    hudMasterProps({ legalKeys: fieldLegalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title);
+    hudMasterProps({ legalKeys: fieldLegalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title, true);
 
   // The pieces of the flat page, built once so the classic page and the 3D mode page (SolidRoom) show the same nodes.
   const wordmark = <Link href="/duels" replace={inDuelWindow}>Dueling Domain</Link>;
@@ -1232,8 +1549,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   );
   const headerTools = (
     <>
-      <BugReportHeaderButton room={data} />
-      <ReportButton slug={slug} />
+      {forkBar}
+      {forkMode ? null : <BugReportHeaderButton room={data} />}
+      {forkMode ? null : <ReportButton slug={slug} />}
       {popOutControl}
       {leaveControl}
       {hasResult && hideResult ? (
@@ -1283,7 +1601,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
         draft={draft} onSubmit={onSubmitAnswer} menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen}
         active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
-        waitingName={multi && prompt ? playerName(prompt.seat) : null}
+        waitingName={(multi || forkMode) && prompt ? playerName(prompt.seat) : null}
         disabledIds={engine ? outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats)) : undefined} />
     </div>
   );
@@ -1308,28 +1626,29 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     />
   ) : null;
   const fieldProps = engine ? {
-    engine, mySeat: data.mySeat, masterRule: data.session.masterRule,
+    engine, mySeat: data.mySeat, bottomSeat: cameraSeat, masterRule: data.session.masterRule,
     reducedMotion: preferences.reducedMotion,
     priorityLive: !busy && !error && !realtime.recovering && !catchingUp &&
       (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed),
     legalKeys: fieldLegalKeys, selectedKeys, onActivate: onFieldActivate,
     onHoverCard, onInspect: (target: InspectTarget) => showInspector(target, true),
+    named: forkMode,
     bottomName: playerName(localSeat),
     topName: playerName(top?.seat ?? 1 - localSeat),
     hub: hubNode,
   } : null;
   // The board: the field (given by the caller), the FX layers as flat siblings of it, the prompt layer and the pile viewer.
   const renderBoard = (field: ReactNode): ReactNode => engine ? (
-    <MoveSourceBoundary events={engine.events} duelKey={slug} root={boardRef}>
+    <MoveSourceBoundary events={withMasterSummonMoves(engine.events, previousSeats, engine.seats)} duelKey={slug} root={boardRef}>
       {field}
       <FxBoundary>
       {fxUp ? <CoinTossFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion}
         replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
         soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
-      {fxUp ? <SummonFx events={withDestroyCards(engine.events)} duelKey={slug}
+      {fxUp ? <SummonFx seats={engine.seats} events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={slug}
         reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
-      {fxUp ? <MoveFx events={withDestroyCards(engine.events)} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
+      {fxUp ? <MoveFx events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
       {fxUp ? <ChainFx events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} seats={engine.seats} promptOpen={promptMine && ownPromptOpen(prompt, data.mySeat)} /> : null}
@@ -1414,12 +1733,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel}
           onSeriesChanged={() => void refreshRoom()} onNavigate={goToGame} />
       ) : null}
+      {forkResult}
     </>
   );
 
   if (solid) {
-    return (
-      <DeckSurrenderContext.Provider value={deckSurrender}>
+    return withCracks(
+      <ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
         <SolidRoom
           slug={slug}
           boardRef={boardRef}
@@ -1432,7 +1752,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           view={view}
           preferences={preferences}
           engine={engine ?? null}
-          mySeat={data.mySeat}
+          previousSeats={previousSeats}
+          mySeat={cameraSeat ?? data.mySeat}
           playerName={playerName}
           format={formatText}
           turnText={turnText}
@@ -1456,7 +1777,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           overlaysNode={overlaysNode}
           fieldProps={fieldProps}
           renderBoard={renderBoard}
-          renderClock={(seat) => data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} reducedMotion={preferences.reducedMotion} seats={[seat]} /> : null}
+          renderClock={(seat) => shownClock ? <DuelClockDisplay key={shownClock.serverNow} clock={shownClock} session={data.session} reducedMotion={preferences.reducedMotion} seats={[seat]} /> : null}
           inspect={inspect}
           pane={pane}
           setPane={setPane}
@@ -1464,12 +1785,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           boardQuiet={boardQuiet}
           onBeforeViewChange={beforeViewChange}
         />
-      </DeckSurrenderContext.Provider>
+      </DeckSurrenderContext.Provider></ForkSearchContext.Provider>,
     );
   }
 
-  return (
-    <DeckSurrenderContext.Provider value={deckSurrender}>
+  return withCracks(
+    <ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
       data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
       data-hud={hud ? "room" : undefined}
@@ -1478,7 +1799,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {hud ? (
         <header className={hudStyles.top} data-testid="hud-top">
           <div className={hudStyles.topLeft}>{headerIdentity}</div>
-          {hudClockBank(data.clock, data.session, preferences.reducedMotion)}
+          {hudClockBank(shownClock, data.session, preferences.reducedMotion)}
           <div className={hudStyles.topMid}>{headerTurn}</div>
           <div className={hudStyles.topRight}>
             <SeriesGameLabel room={data} />
@@ -1497,7 +1818,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           </div>
         </header>
       )}
-      {hud ? null : clockStrip(data.clock, data.session, preferences.reducedMotion)}
+      {hud ? null : clockStrip(shownClock, data.session, preferences.reducedMotion)}
       {seriesBanner}
       <div className={styles.layout}>
         {/* Notices float over the top of the layout. In flow they would take height from the board
@@ -1543,17 +1864,19 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           nameOf={playerName}
           seatTones={hudSeatTones}
           logUnread={logUnread}
-          master={domain ? hudMaster(engine.seats.find((seat) => seat.seat === localSeat), !spectator, spectator ? `${playerName(localSeat)}'s Master` : "Your Master") : null}
+          master={domain ? hudMaster(engine.seats.find((seat) => seat.seat === localSeat), !spectator, spectator || forkMode ? `${playerName(localSeat)}'s Master` : "Your Master") : null}
           otherMaster={domain && top ? hudMaster(top, false, `${playerName(top.seat)}'s Master`) : null}
           onInspect={setInspect}
           preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={pickHintShown || Boolean(pile?.open)}
           reducedMotion={preferences.reducedMotion}
+          hoverAnchor={hover?.anchor ?? null}
+          ownSeats={[localSeat]}
         />
       ) : null}
       {overlaysNode}
     </div>
-    </DeckSurrenderContext.Provider>
+    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>,
   );
 }

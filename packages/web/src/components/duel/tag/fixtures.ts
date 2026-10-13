@@ -1,6 +1,7 @@
+import { defaultDuelSettings } from "@yugidraft/shared/duels";
 import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { ev, MZ } from "../fx-lab/board";
-import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, zoneKey } from "../constants";
+import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../constants";
 import {
   cardAt,
   fixtureEngine,
@@ -318,6 +319,21 @@ const respondState = (count: number) =>
   });
 
 const extra: Record<string, TableFixtureState> = {
+  // Defense Position on all four fields (face-up and face-down) and in the shared Extra Monster Zones, next to Attack Position cards.
+  defense: make("defense", "Defense Position on every field", {
+    edit: (seats) => {
+      putMonster(seats[ASTER], 2, C.gaia, POS_FACEUP_DEFENSE);
+      putMonster(seats[ASTER], 3, C.envoy, POS_FACEDOWN_DEFENSE);
+      putMonster(seats[ASTER], 5, C.darkPaladin, POS_FACEUP_DEFENSE);
+      putMonster(seats[MIRELLE], 1, C.blueEyes, POS_FACEUP_DEFENSE);
+      putMonster(seats[MIRELLE], 3, C.celtic, POS_FACEDOWN_DEFENSE);
+      putMonster(seats[CORVIN], 1, C.summonedSkull, POS_FACEUP_DEFENSE);
+      putMonster(seats[CORVIN], 2, C.jinzo, POS_FACEDOWN_DEFENSE);
+      putMonster(seats[CORVIN], 6, C.celtic, POS_FACEUP_DEFENSE);
+      putMonster(seats[JUNIPER], 1, C.darkMagician, POS_FACEUP_DEFENSE);
+      putMonster(seats[JUNIPER], 3, C.redEyes, POS_FACEDOWN_DEFENSE);
+    },
+  }),
   // "You can respond" with 2, 5, 10 or 14 cards to activate: the card-choice panel of a chain response.
   "respond-2": respondState(2),
   "respond-5": respondState(5),
@@ -349,6 +365,25 @@ export function tagSearchVariant(set: TableFixtureSet): TableFixtureSet {
       const engine = state.room.engine;
       if (!engine || state.room.mySeat !== ASTER) return [id, state];
       return [id, { ...state, room: { ...state.room, engine: { ...engine, prompt: searchPrompt(ASTER) } } }];
+    }),
+  ) as unknown as TableFixtureSet["states"];
+  return { ...set, states };
+}
+
+const TAG_MASTERS = [C.envoy, C.blueEyes, C.redEyes, C.gaia] as const;
+
+/**
+ * The `?mode=domain` preview of the tag table: a Domain session whose four seats hold a Deck Master out of its zone, so the
+ * plates and docks read "in use". Your own and your partner's plates show; a rival's master has no panel on this table.
+ */
+export function tagDomainVariant(set: TableFixtureSet): TableFixtureSet {
+  const states = Object.fromEntries(
+    Object.entries(set.states).map(([id, state]) => {
+      const engine = state.room.engine;
+      if (!engine) return [id, state];
+      const seats = engine.seats.map((view) => ({ ...view, deckMaster: { card: { ...TAG_MASTERS[view.seat] }, inZone: false, returns: view.seat, nextCost: view.seat * 500 } }));
+      const session = { ...state.room.session, mode: "domain" as const, settings: defaultDuelSettings("domain") };
+      return [id, { ...state, room: { ...state.room, session, engine: { ...engine, seats } } }];
     }),
   ) as unknown as TableFixtureSet["states"];
   return { ...set, states };

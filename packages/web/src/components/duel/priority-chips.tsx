@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { ArrowRight } from "lucide-react";
 import type { DuelChainLink } from "@yugidraft/shared/duels";
 import styles from "./priority-chips.module.css";
+import { useForkLabels } from "./table/fork-labels";
 
 export type PrioritySlot = { seat: number; choosing: boolean };
 
@@ -52,6 +53,7 @@ export function PriorityChips({
   seatTones?: ReadonlyMap<number, { main: string; ink: string }>;
   compact?: boolean;
 }) {
+  const forkLabels = useForkLabels();
   if (order.length === 0) return null;
   return (
     <div className={styles.prio} data-testid="priority-chips" data-compact={compact ? "true" : undefined} aria-label="Who may respond, in order">
@@ -64,7 +66,7 @@ export function PriorityChips({
             {at > 0 ? <ArrowRight size={11} strokeWidth={1.75} aria-hidden /> : null}
             <span className={styles.chip} data-now={slot.choosing ? "true" : undefined} data-seat={slot.seat} style={style} title={slot.choosing ? `${nameOf(slot.seat)} is choosing` : undefined}>
               <i aria-hidden="true" />
-              {slot.seat === mySeat ? "You" : nameOf(slot.seat)}
+              {slot.seat === mySeat && !forkLabels ? "You" : nameOf(slot.seat)}
               {slot.choosing && !compact ? <em> · choosing</em> : null}
             </span>
           </span>

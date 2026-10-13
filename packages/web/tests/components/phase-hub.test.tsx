@@ -12,7 +12,7 @@ vi.mock("next/font/google", () => {
 
 import { PhaseHub, type PhaseHubProps } from "@/components/duel/phase-hub";
 import { phaseStations, STATIONS } from "@/components/duel/phase-hub-model";
-import { StationTrack } from "@/components/duel/station-track";
+import { StationTrack, type BattleStep } from "@/components/duel/station-track";
 
 afterEach(() => {
   cleanup();
@@ -131,9 +131,72 @@ describe("PhaseHub on your turn", () => {
     expect(container.textContent).toContain("Main 2");
   });
 
-  it("names the Battle Phase step on the lit phase", () => {
-    const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
-    expect(container.textContent).toContain("Battle, Damage step");
+  // [step id, visible caption, what a screen reader hears after "Battle Phase, "]
+  it.each([
+    ["start", "Start step", "Start step"],
+    ["battle", "Battle step", "Battle step"],
+    ["damage", "Damage step", "Damage step"],
+    ["damage-calculation", "Damage calc.", "Damage calculation"],
+    ["end", "End step", "End step"],
+  ] as const)("keeps the Battle pill short and puts the %s step in a caption above it", (battleStep, caption, heard) => {
+    const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep, actionOptions: [] })} />);
+    const pill = container.querySelector<HTMLElement>('[data-phase="BP"][title]')!;
+    expect(pill.querySelector("[aria-hidden='true']:not(svg)")?.textContent).toBe("Battle");
+    // The visible pill (code and name, not the screen reader text) never carries the step.
+    expect(pill.querySelector("[class*='name']")?.textContent).not.toMatch(/step|calc/i);
+    // The step is the caption, outside the pill and in the middle pair (above it in the layout).
+    const step = container.querySelector<HTMLElement>('[data-part="step"]')!;
+    expect(step.textContent).toBe(caption);
+    expect(step.getAttribute("aria-hidden")).toBe("true");
+    expect(pill.contains(step)).toBe(false);
+    expect(step.closest("[data-cell]")).toBe(pill.closest("[data-cell]"));
+    // A screen reader hears the phase and the full step on the pill, once.
+    expect(pill.textContent).toBe(`BPBattleBattle Phase, ${heard}, current phase`);
+  });
+
+  it("changes the caption as the battle step changes", () => {
+    const { container, rerender } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "start" })} />);
+    const caption = () => container.querySelector('[data-part="step"]')?.textContent;
+    expect(caption()).toBe("Start step");
+    rerender(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
+    expect(caption()).toBe("Damage step");
+    rerender(<PhaseHub {...hubProps({ phase: "main2" })} />);
+    expect(caption()).toBeUndefined();
+  });
+
+  it("puts the step in the caption line above the strip at a table, in place of the phase name", () => {
+    const { container } = render(<PhaseHub {...hubProps({ variant: "table", phase: "battle", battleStep: "damage-calculation" })} />);
+    const caption = container.querySelector<HTMLElement>('[data-part="owner"]')!;
+    expect(caption.querySelector('[data-part="step"]')?.textContent).toBe("Damage calc.");
+    expect(container.querySelector('[data-phase="BP"][title]')?.textContent).toContain("Battle");
+    expect(caption.textContent).not.toContain("Battle,");
+    // The phase name span is not drawn while the step shows, and comes back without one.
+    expect(caption.querySelector("[class*='captionLit']")).toBeNull();
+    cleanup();
+    const plain = render(<PhaseHub {...hubProps({ variant: "table", phase: "battle" })} />);
+    expect(plain.container.querySelector("[class*='captionLit']")?.textContent).toBe("Battle");
+  });
+
+  it("shows no step caption outside the Battle Phase or before the step is known", () => {
+    for (const phase of ["draw", "main1", "main2", "end"]) {
+      const { container, unmount } = render(<PhaseHub {...hubProps({ phase, battleStep: "damage" })} />);
+      expect(container.querySelector('[data-part="step"]')).toBeNull();
+      unmount();
+    }
+    const { container } = render(<PhaseHub {...hubProps({ phase: "battle" })} />);
+    expect(container.querySelector('[data-part="step"]')).toBeNull();
+    expect(container.querySelector('[data-phase="BP"][title]')?.textContent).toContain("Battle");
+  });
+
+  it("shows no caption for a step id it does not know, and still says the phase", () => {
+    const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "foo" as BattleStep, actionOptions: [] })} />);
+    expect(container.querySelector('[data-part="step"]')).toBeNull();
+    expect(container.querySelector('[data-phase="BP"][title]')?.textContent).toBe("BPBattleBattle, current phase");
+  });
+
+  it("keeps the step caption's width in the table caption, so the player name is cut first", () => {
+    const css = readFileSync(join(__dirname, "../../src/components/duel/phase-hub.module.css"), "utf8");
+    expect(css).toMatch(/\.captionStep \{[^}]*flex: none;/);
   });
 
   it("writes no middle dot anywhere in the hub", () => {
@@ -143,10 +206,25 @@ describe("PhaseHub on your turn", () => {
     expect(css).not.toMatch(/\\00b7|\u00b7/i);
   });
 
-  it("does not repeat the name when the battle step is called Battle", () => {
+  it("keeps the real step for the screen reader while a phase move is pending, and hides the caption", () => {
+    function Pending() {
+      const [busy, setBusy] = React.useState(false);
+      return <PhaseHub {...hubProps({ phase: "battle", battleStep: "damage", revision: 1, canAct: !busy, actionOptions: ALL_MOVES, onChoose: () => setBusy(true) })} />;
+    }
+    const { container } = render(<Pending />);
+    expect(container.querySelector('[data-part="step"]')?.textContent).toBe("Damage step");
+    fireEvent.click(screen.getByRole("button", { name: "Go to Main Phase 2" }));
+    expect(container.querySelector('[data-part="step"]')).toBeNull();
+    expect(container.querySelector('[data-phase="M2"][title]')?.getAttribute("data-pending")).toBe("true");
+    // The engine is still in the Damage Step: that is what is heard.
+    const bp = container.querySelector<HTMLElement>('[data-phase="BP"][title]')!;
+    expect(bp.textContent).toContain("Battle Phase, Damage step, current phase");
+  });
+
+  it("says Battle on the pill and Battle step above it when the step is called Battle", () => {
     const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "battle" })} />);
     expect(container.textContent).not.toContain("Battle, Battle");
-    expect(container.textContent).toContain("Battle step");
+    expect(container.querySelector('[data-part="step"]')?.textContent).toBe("Battle step");
   });
 });
 
@@ -342,7 +420,7 @@ describe("PhaseHub turn owner", () => {
     const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
     const lit = container.querySelector<HTMLElement>("[aria-current='step']")!;
     expect(lit.getAttribute("data-phase")).toBe("BP");
-    expect(lit.querySelector("[class*='name']")!.textContent).toBe("Battle, Damage step");
+    expect(lit.querySelector("[class*='name']")!.textContent).toBe("Battle");
     expect(container.querySelectorAll("[class*='name']")).toHaveLength(1);
     expect([...container.querySelectorAll("[data-state='done']")].map((chip) => chip.getAttribute("data-phase"))).toEqual(["DP", "SP", "M1"]);
   });
@@ -352,7 +430,7 @@ describe("PhaseHub turn owner", () => {
     const under = container.querySelectorAll<HTMLElement>("[class*='under']");
     // One label, in the pair of the lit chip (the centre one), decoration only.
     expect(under).toHaveLength(1);
-    expect(under[0].textContent).toBe("Battle, Damage step");
+    expect(under[0].textContent).toBe("Battle");
     expect(under[0].getAttribute("aria-hidden")).toBe("true");
     const lit = container.querySelector("[aria-current='step']")!;
     expect(under[0].parentElement).toBe(lit.parentElement);

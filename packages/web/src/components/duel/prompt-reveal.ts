@@ -34,7 +34,7 @@ export type RevealTiming = typeof REVEAL_TIMING;
 export type AnimationLike = {
   finished: Promise<unknown>;
   playState?: string;
-  effect?: { getTiming?: () => { iterations?: number } } | null;
+  effect?: { getTiming?: () => { iterations?: number }; target?: unknown } | null;
 };
 
 /** Anything with `getAnimations`: the board element, or a stub in tests. */
@@ -46,6 +46,12 @@ function isCssDriven(animation: AnimationLike): boolean {
   if (typeof CSSAnimation !== "undefined" && animation instanceof CSSAnimation) return true;
   if (typeof CSSTransition !== "undefined" && animation instanceof CSSTransition) return true;
   return false;
+}
+
+/** Ambient effects (the field cracks) mark their elements; no prompt waits for them. */
+function isAmbient(animation: AnimationLike): boolean {
+  const target = animation.effect?.target as { closest?: (selector: string) => unknown } | null | undefined;
+  return typeof target?.closest === "function" && target.closest("[data-crack-ambient]") != null;
 }
 
 /**
@@ -61,7 +67,7 @@ export function pendingBoardAnimations(source: AnimationSource | null | undefine
     return [];
   }
   return all.filter((animation) => {
-    if (isCssDriven(animation)) return false;
+    if (isCssDriven(animation) || isAmbient(animation)) return false;
     if (animation.playState === "finished" || animation.playState === "idle") return false;
     let iterations: number | undefined;
     try {

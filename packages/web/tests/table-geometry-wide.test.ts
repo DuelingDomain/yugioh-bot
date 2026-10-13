@@ -40,7 +40,7 @@ function engine(format: DuelFormat, count: number): DuelEngineView {
 }
 function camera(over: Partial<CameraState> = {}): CameraState {
   return {
-    mode: "home", focusSeat: null, lookSeat: null, upright: false, compact: "auto",
+    mode: "home", focusSeat: null, lookSeat: null, compact: "auto",
     fly: { yawDeg: 0, tiltDeg: 40, zoom: 1, targetSeat: null }, lock: null, ...over,
   };
 }

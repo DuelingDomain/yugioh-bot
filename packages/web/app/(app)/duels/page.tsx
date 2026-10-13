@@ -1,10 +1,11 @@
 import { DuelLobby } from "@/components/duel/lobby";
+import { requireWebAccess } from "@/lib/web-access";
 
-export default async function DuelsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ view?: string | string[] }>;
-}) {
-  const { view } = await searchParams;
-  return <DuelLobby initialView={view === "history" ? "history" : "live"} />;
+// The lobby reads its view, scope and filters from the page URL (useSearchParams), so Back from a replay restores them.
+export const dynamic = "force-dynamic";
+
+export default async function DuelsPage() {
+  // Only a label for the saved history search; the API routes check access themselves.
+  const access = await requireWebAccess();
+  return <DuelLobby viewerId={access.ok ? access.userId : undefined} />;
 }

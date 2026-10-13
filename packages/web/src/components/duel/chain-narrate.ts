@@ -91,7 +91,10 @@ export function chainHeroTargets(
 // ---------------------------------------------------------------------------------------------------------------
 
 export interface Who {
+  /** The seat that reads as "You" in the text. Null in a replay fork: every seat reads by name. */
   mySeat: number | null;
+  /** The seat whose links get the "mine" accent. Default: `mySeat`. */
+  markSeat?: number | null;
   playerName: (seat: number) => string;
   /** A table of 3 or 4: a rival reads by name. */
   named?: boolean;
@@ -444,7 +447,7 @@ export function buildPanelView(input: PanelInput): PanelView {
       effect: chainEffectText(link)?.text ?? null,
       status: link.status,
       negated: link.negated,
-      mine: who.mySeat != null && link.seat === who.mySeat,
+      mine: (who.markSeat === undefined ? who.mySeat : who.markSeat) != null && link.seat === (who.markSeat === undefined ? who.mySeat : who.markSeat),
       isHero: link.index === focus.index,
     }));
   const details = state.links.slice().sort((a, b) => b.index - a.index).map((link) => (link.index === focus.index ? hero : heroFor(link)));

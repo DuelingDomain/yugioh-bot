@@ -2,7 +2,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { NextResponse } from "next/server";
 import { createDuelSeriesService, findTournamentReadAccess } from "@yugidraft/shared/services";
 import { env } from "@/lib/env";
-import { duelUrl, announceDuelInvite } from "@/lib/announce-bot";
+import { assertDuelInviteUrl, duelUrl, announceDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
 import { mapDraftTournamentDecks } from "@/lib/draft-deck-codes";
 import { linkDraftDeck } from "@/lib/draft-decks";
@@ -61,6 +61,18 @@ export async function POST(
     }
 
     const playerIds = [slot.player_one_id, slot.player_two_id];
+    const seriesService = createDuelSeriesService(db);
+    const inviteRecipientIds = env.discordBotEnabled
+      ? playerIds.filter(playerId => playerId !== actor.playerId)
+          .map(playerId => playerIdentity(db, playerId)?.discordUserId)
+          .filter((discordUserId): discordUserId is string => !!discordUserId)
+      : [];
+    const assertPlannedInviteUrl = () => {
+      if (inviteRecipientIds.length > 0 && !seriesService.openForTournamentMatch(tournamentMatchId)) {
+        assertDuelInviteUrl(actor.guildId, request);
+      }
+    };
+    assertPlannedInviteUrl();
     // A player who joined from the Discord button and never opened the page has no deck on the
     // entry yet: register their draft deck first.
     for (const playerId of playerIds) linkDraftDeck(tournament.id, playerId, db);
@@ -73,7 +85,9 @@ export async function POST(
       });
     }
 
-    const { series, duel, created } = createDuelSeriesService(db).startTournamentMatch({
+    // The existing series may have been cancelled while the deck mapping was awaited.
+    assertPlannedInviteUrl();
+    const { series, duel, created } = seriesService.startTournamentMatch({
       guildId: actor.guildId,
       tournamentMatchId,
       actorPlayerId: actor.playerId,
@@ -83,17 +97,14 @@ export async function POST(
     void broadcaster.tournament({ kind: "match-updated", slug });
 
     // An open series returned as-is was announced when it started.
-    if (env.discordBotEnabled && created) {
+    if (env.discordBotEnabled && created && inviteRecipientIds.length > 0) {
       const challenger = playerIdentity(db, actor.playerId);
-      for (const playerId of series.playerIds) {
-        if (playerId === actor.playerId) continue;
-        const recipient = playerIdentity(db, playerId);
-        if (!recipient?.discordUserId) continue;
+      for (const opponentDiscordUserId of inviteRecipientIds) {
         announceDuelInvite(
           {
             slug: duel.slug,
             guildId: actor.guildId,
-            opponentDiscordUserId: recipient.discordUserId,
+            opponentDiscordUserId,
             challengerName: challenger?.displayName ?? "The organizer",
             duelName: duel.name,
             bestOf: series.bestOf,

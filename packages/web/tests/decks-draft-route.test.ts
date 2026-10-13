@@ -284,7 +284,7 @@ describe("draft decks through /api/decks", () => {
 
   describe("GET", () => {
     it.each(["unavailable", "invalid"])("returns the stored draft deck when the engine mapping is %s", async (failure) => {
-      const { draftId } = await seed({ picks: [...mainIds(39), 81480461] });
+      const { draftId } = await seed({ picks: [...mainIds(39), 81480461, 2001] });
       const { getDb } = await import("@/lib/db");
       const { createSavedDeckService } = await import("@yugidraft/shared/services");
       const db = getDb();
@@ -374,7 +374,7 @@ describe("draft decks through /api/decks", () => {
     });
 
     it("repairs an existing auto-save with the reported Barrel Dragon artwork id on load and save", async () => {
-      const { draftId } = await seed({ picks: [...mainIds(39), 81480461] });
+      const { draftId } = await seed({ picks: [...mainIds(39), 81480461, 2001] });
       const { getDb } = await import("@/lib/db");
       const db = getDb();
       seedFixtureUsers(db, FIXTURE_KEYS);
@@ -400,7 +400,7 @@ describe("draft decks through /api/decks", () => {
     });
 
     it("rejects excess copies when main and side use different artworks", async () => {
-      const { draftId } = await seed({ picks: [...mainIds(39), 81480461] });
+      const { draftId } = await seed({ picks: [...mainIds(39), 81480461, 2001] });
       const { getDb } = await import("@/lib/db");
       getDb().prepare("update card_catalog set type = 'Effect Monster', frame_type = 'effect' where ygoprodeck_id = 81480461").run();
       callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({

@@ -1,6 +1,6 @@
 import { MULTI_CORE_UNAVAILABLE_MESSAGE, multiplayerSeatsBlockReason, multiplayerTablesEnabled, seatCountFor, type DuelTableCapabilities } from "@yugidraft/shared/duels";
 import { NextResponse } from "next/server";
-import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { assertNormalDuelRequest, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
 
 export const runtime = "nodejs";
@@ -9,6 +9,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   const { slug } = await params;
+  try { assertNormalDuelRequest(request, actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false })); }
+  catch (error) { return duelErrorResponse(error); }
 
   let body: { seat?: unknown };
   try {
@@ -22,7 +24,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   }
 
   try {
-    const { session: { format } } = actor.duels.room(slug, actor.guildId, actor.playerId);
+    const { session: { format } } = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
     const blocked = multiplayerSeatsBlockReason(seatCountFor(format), multiplayerTablesEnabled());
     if (blocked) return NextResponse.json({ error: blocked }, { status: 403 });
     if (format !== "1v1") {
