@@ -71,7 +71,7 @@ import {
   type ChainPanelForm,
   type ChainState,
 } from "./chain-state";
-import { cardFrame, type CardFrame } from "./chain-frame";
+import { cardFrame, labelAnchor, type CardFrame } from "./chain-frame";
 import { buildPanelView, buildStripView, chainOutcomes, rememberTargetNames, type TargetMemory, type Who } from "./chain-narrate";
 import { ChainGlyph } from "./chain-glyph";
 import { ChainPanel, ChainStrip } from "./chain-panel";
@@ -445,6 +445,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       if (!overlay) return;
       // ---- Read phase: no style write may happen before the last read. ----
       const origin = overlay.getBoundingClientRect();
+      // Only the fields of a 3-way or 4-way table are turned; a 1v1 or Tag board reads the plain bounding rect.
+      const mayTurn = table === "ffa3" || table === "ffa4";
       const front = frontRef.current;
       const hostRect = front && host ? host.getBoundingClientRect() : null;
       // Open prompt surfaces and the activation banner, in board pixels: the callout tag and the target marks keep
@@ -476,7 +478,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         for (const target of link.targets) {
           const key = `${link.index}:${zoneKey(target.controller, target.location, target.sequence)}`;
           const zone = findZoneElement(target);
-          const frame = zone ? cardFrame(origin, zone) : null;
+          const frame = zone ? cardFrame(origin, zone, mayTurn) : null;
           const box = frame?.box ?? null;
           const mark = targetRefs.current.get(key);
           let covered = false;
@@ -485,7 +487,9 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             const tag = mark?.querySelector<HTMLElement>("[data-target-tag]");
             const w = tag?.offsetWidth || TAG_FALLBACK.width;
             const h = tag?.offsetHeight || TAG_FALLBACK.height;
-            const tagBox = { left: box.left - TARGET_OUTSET, top: box.top + box.height - (link.index - 1) * TARGET_STEP - h, width: w, height: h };
+            // The tag hangs from the bottom-left corner of the card as it is turned, and stands upright from there.
+            const hang = frame ? labelAnchor(frame, (link.index - 1) * TARGET_STEP) : { x: box.left, y: box.top + box.height };
+            const tagBox = { left: hang.x - TARGET_OUTSET, top: hang.y - h, width: w, height: h };
             covered = coveredFraction(box, panels) > TARGET_COVERED || coveredFraction(tagBox, panels) > TAG_COVERED;
           }
           marks.push({ link, mark, wire: targetWireRefs.current.get(key), frame, covered });
@@ -570,7 +574,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         if (!slot) continue;
         const anchor = chainAnchor(link);
         const zone = anchor ? resolveAnchor(anchor, piles) : null;
-        const frame = zone ? cardFrame(origin, zone) : null;
+        const frame = zone ? cardFrame(origin, zone, mayTurn) : null;
         if (!zone || !frame) {
           placed.push({ link, slot, frame: null, size: 0, shift: 0, half: "high", callout: null, covered: false, badge: null });
           continue;
