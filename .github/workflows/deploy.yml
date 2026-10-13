@@ -319,6 +319,7 @@ jobs:
           fi
 
       - name: Build and push runtime image
+        id: runtime-image
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -336,6 +337,25 @@ jobs:
             org.opencontainers.image.revision=${{ env.DEPLOY_COMMIT }}
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
           cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+
+      - name: Record runtime image digest
+        env:
+          SERVICE: ${{ matrix.service }}
+          IMAGE_DIGEST: ${{ steps.runtime-image.outputs.digest }}
+        run: |
+          printf '%s' "$IMAGE_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$' || exit 1
+          mkdir -p "$RUNNER_TEMP/image-digests"
+          printf '%s %s\n' "$SERVICE" "$IMAGE_DIGEST" > "$RUNNER_TEMP/image-digests/$SERVICE.digest"
+          printf '%s@%s\n' "$IMAGE" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload runtime image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-image-${{ matrix.service }}-${{ env.DEPLOY_COMMIT }}
+          path: ${{ runner.temp }}/image-digests/${{ matrix.service }}.digest
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
 
       - name: Save Next.js cache for the next source revision
         if: matrix.service == 'web'
@@ -393,12 +413,51 @@ jobs:
           name: production-deploy-${{ needs.prepare.outputs.commit }}
           path: ${{ runner.temp }}/release
 
+      - name: Download runtime image digests
+        if: needs.prepare.outputs.rollback != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: production-image-*-${{ needs.prepare.outputs.commit }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/image-digests
+
+      - name: Resolve retained rollback digests
+        if: needs.prepare.outputs.rollback == 'true'
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/image-digests"
+          for service in duel web worker ws; do
+            image="ghcr.io/duelingdomain/yugioh-bot-$service:$DEPLOY_COMMIT"
+            docker manifest inspect --verbose "$image" > "$RUNNER_TEMP/rollback-manifest.json"
+            digest=$(python3 - "$RUNNER_TEMP/rollback-manifest.json" <<'PY'
+          import json,sys
+          with open(sys.argv[1]) as source:
+              value=json.load(source)
+          entries=value if isinstance(value,list) else [value]
+          matching=[item for item in entries if item.get("Descriptor",{}).get("platform",{}).get("os")=="linux"
+                    and item["Descriptor"]["platform"].get("architecture")=="arm64"]
+          if len(matching)==1:
+              print(matching[0]["Descriptor"]["digest"])
+          elif len(entries)==1:
+              print(entries[0]["Descriptor"]["digest"])
+          else:
+              sys.exit("Rollback image must have exactly one linux/arm64 manifest.")
+          PY
+            )
+            printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' || exit 1
+            printf '%s %s\n' "$service" "$digest" > "$RUNNER_TEMP/image-digests/$service.digest"
+          done
+
       - name: Prepare deployment transfer
         run: |
           mkdir -p "$RUNNER_TEMP/deploy-bundle"
           tar -C "$RUNNER_TEMP/deploy-bundle" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
           cp "$RUNNER_TEMP/release/check-prod-activity.py" "$RUNNER_TEMP/check-prod-activity.py"
           cp "$RUNNER_TEMP/release/production-images.sh" "$RUNNER_TEMP/production-images.sh"
+          : > "$RUNNER_TEMP/release/image-digests"
+          for service in duel web worker ws; do
+            cat "$RUNNER_TEMP/image-digests/$service.digest" >> "$RUNNER_TEMP/release/image-digests"
+          done
 
       - name: Configure SSH key
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -436,6 +495,7 @@ jobs:
           remote_bundle=
           remote_guard=
           remote_images=
+          remote_refs=
           cleanup_transfer() {
             rm -f "$bundle_tar"
             if [ -n "$remote_bundle" ]; then
@@ -449,6 +509,10 @@ jobs:
             if [ -n "$remote_images" ]; then
               ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_images'" || true
+            fi
+            if [ -n "$remote_refs" ]; then
+              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_refs'" || true
             fi
           }
           trap cleanup_transfer EXIT
@@ -465,6 +529,11 @@ jobs:
           printf '%s' "$remote_images" | grep -Eq '^/tmp/yugidraft-images\.[A-Za-z0-9]{6}\.sh$' || exit 1
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$RUNNER_TEMP/production-images.sh" "$VM_USER@$VM_HOST:$remote_images"
+          remote_refs=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            'mktemp /tmp/yugidraft-image-digests.XXXXXX.txt')
+          printf '%s' "$remote_refs" | grep -Eq '^/tmp/yugidraft-image-digests\.[A-Za-z0-9]{6}\.txt$' || exit 1
+          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+            "$RUNNER_TEMP/release/image-digests" "$VM_USER@$VM_HOST:$remote_refs"
           tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$bundle_tar" \
@@ -472,14 +541,14 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_IMAGES='$remote_images' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_IMAGES='$remote_images' DEPLOY_IMAGE_REFS='$remote_refs' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
              runtime_compose=
              resolved_compose=
              cleanup() {
-               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "$DEPLOY_IMAGES"
+               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "$DEPLOY_IMAGES" "$DEPLOY_IMAGE_REFS"
                if [ -n "$installer" ]; then rm -f "$installer"; fi
                if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
                if [ -n "$runtime_compose" ]; then rm -f "$runtime_compose"; fi
@@ -529,9 +598,9 @@ jobs:
                exit 1
              fi
              rm -f "$installer"
-             # Pull all four release SHA tags before backups, retagging or stopping any service.
+             # Pull all four immutable release digests before backups, retagging or stopping any service.
              # Public GHCR packages need no VM login. A pull failure leaves live tags unchanged.
-             sh "$DEPLOY_IMAGES" pull "$DEPLOY_COMMIT"
+             sh "$DEPLOY_IMAGES" pull "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
              # Preserve matching rollback code/env and the actual container image IDs before checkout/promotion.
              # Record the previous service set, including its bot image for PR 1 rollback.
              umask 077
@@ -541,6 +610,8 @@ jobs:
              printf '%s\n' "$DEPLOY_COMMIT" > "$release_dir/deploy-commit"
              cp -p .env "$release_dir/runtime.env"
              chmod 0600 "$release_dir/runtime.env"
+             cp "$DEPLOY_IMAGE_REFS" "$release_dir/image-digests"
+             : > "$release_dir/previous-image-digests.jsonl"
              : > "$release_dir/images.jsonl"
              DEPLOY_CONFIRMED_COMMIT=
              if [ -f data/production-image-commit ]; then DEPLOY_CONFIRMED_COMMIT=$(cat data/production-image-commit); fi
@@ -550,6 +621,7 @@ jobs:
                case "$service" in duel|web|bot|ws|worker)
                  image_id=$(docker inspect -f '{{.Image}}' "$container")
                  image_ref=$(docker inspect -f '{{.Config.Image}}' "$container")
+                 docker image inspect --format '{{json .RepoDigests}}' "$image_id" >> "$release_dir/previous-image-digests.jsonl"
                  docker inspect -f '{"service":"{{index .Config.Labels "com.docker.compose.service"}}","imageId":"{{.Image}}","imageRef":"{{.Config.Image}}"}' "$container" >> "$release_dir/images.jsonl"
                  sh "$DEPLOY_IMAGES" preserve "$DEPLOY_COMMIT" "$image_id" "${image_ref%:*}:prev"
                  ;;
@@ -565,7 +637,7 @@ jobs:
              DUELING_BACKUP_DIR="$release_dir/online" python3 scripts/backup/dueling-backup
              git reset --hard "$DEPLOY_COMMIT"
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
-             sh "$DEPLOY_IMAGES" promote "$DEPLOY_COMMIT"
+             sh "$DEPLOY_IMAGES" promote "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
              # Remove build definitions even from an older rollback checkout. Compose run has no --no-build option.
              # config resolves bind paths against /opt/yugioh-bot; keep the private runtime values in a 0600 temp file.
              runtime_compose=$(mktemp /tmp/yugidraft-runtime-compose.XXXXXX.json)

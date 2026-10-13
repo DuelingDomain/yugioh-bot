@@ -7,11 +7,14 @@ import { test } from 'node:test';
 
 const script = new URL('../deployment/production-images.sh', import.meta.url).pathname;
 const sha = 'a'.repeat(40);
+const digest = `sha256:${'b'.repeat(64)}`;
 const registry = 'ghcr.io/duelingdomain/yugioh-bot';
 
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'production-images-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const refs = join(dir, 'image-digests');
+  writeFileSync(refs, ['duel', 'web', 'worker', 'ws'].map(service => `${service} ${digest}\n`).join(''));
   const log = join(dir, 'commands');
   writeFileSync(log, '');
   const df = join(dir, 'df');
@@ -39,10 +42,11 @@ esac
 `);
   chmodSync(docker, 0o755);
   return {
-    run: (mode, commit = sha, extra = {}, args = []) => spawnSync('sh', [script, mode, commit, ...args], {
+    run: (mode, commit = sha, extra = {}, args = []) => spawnSync('sh', [script, mode, commit, ...(['pull', 'promote'].includes(mode) ? [refs] : args)], {
       encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, TEST_LOG: log, ...extra },
     }),
     commands: () => readFileSync(log, 'utf8'),
+    references: content => writeFileSync(refs, content),
   };
 }
 
@@ -51,25 +55,25 @@ test('pull validates all four ARM64 images without changing live or previous tag
   const result = f.run('pull');
   assert.equal(result.status, 0, result.stderr);
   for (const service of ['duel', 'web', 'worker', 'ws']) {
-    assert.match(f.commands(), new RegExp(`pull --platform=linux/arm64 ${registry}-${service}:${sha}`));
+    assert.match(f.commands(), new RegExp(`pull --platform=linux/arm64 ${registry}-${service}@${digest}`));
   }
   assert.doesNotMatch(f.commands(), /tag|build|compose|prune/);
 });
 
 test('a failed pull, wrong architecture or wrong revision cannot promote any image', t => {
-  for (const extra of [{ TEST_FAIL_IMAGE: `${registry}-web:${sha}` }, { TEST_ARCH: 'amd64' }, { TEST_REVISION: 'b'.repeat(40) }]) {
+  for (const extra of [{ TEST_FAIL_IMAGE: `${registry}-web@${digest}` }, { TEST_ARCH: 'amd64' }, { TEST_REVISION: 'b'.repeat(40) }]) {
     const f = fixture(t);
     assert.notEqual(f.run('pull', sha, extra).status, 0);
     assert.doesNotMatch(f.commands(), /tag|build|compose/);
   }
 });
 
-test('promotion uses the exact SHA and does not overwrite the saved previous images', t => {
+test('promotion uses the exact build digest and does not overwrite the saved previous images', t => {
   const f = fixture(t);
   const result = f.run('promote');
   assert.equal(result.status, 0, result.stderr);
   for (const service of ['duel', 'web', 'worker', 'ws']) {
-    assert.match(f.commands(), new RegExp(`tag ${registry}-${service}:${sha} yugioh-bot-${service}:latest`));
+    assert.match(f.commands(), new RegExp(`tag ${registry}-${service}@${digest} yugioh-bot-${service}:latest`));
   }
   assert.doesNotMatch(f.commands(), /:prev|pull|build/);
 });
@@ -120,4 +124,18 @@ test('an unconfirmed GHCR release keeps the first-cutover rollback until health 
   assert.doesNotMatch(f.commands(), /tag unconfirmed-id/);
   assert.equal(f.run('preserve', sha, { TEST_CURRENT_REVISION: revision, DEPLOY_CONFIRMED_COMMIT: revision }, ['confirmed-id', previous]).status, 0);
   assert.match(f.commands(), /tag confirmed-id yugioh-bot-web:prev/);
+});
+
+
+test('all digests must be valid before any Docker call', t => {
+  for (const broken of [
+    `duel ${digest}\nweb ${digest}\nworker ${digest}\n`,
+    `duel ${digest}\nweb ${digest}\nworker ${digest}\nws latest\n`,
+    `duel ${digest}\nweb ${digest}\nworker ${digest}\nws ${digest}\nws ${digest}\n`,
+  ]) {
+    const f = fixture(t);
+    f.references(broken);
+    assert.notEqual(f.run('pull').status, 0);
+    assert.equal(f.commands(), '');
+  }
 });

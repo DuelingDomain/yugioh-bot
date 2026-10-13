@@ -17,7 +17,24 @@ case "$operation" in
     }
     ;;
   prune) ;;
-  *) echo 'Usage: production-images.sh pull|promote <sha> | preserve <sha> <image> <prev-tag> | prune' >&2; exit 1 ;;
+  *) echo 'Usage: production-images.sh pull|promote <sha> <digest-file> | preserve <sha> <image> <prev-tag> | prune' >&2; exit 1 ;;
+esac
+
+image_reference() {
+  digest=$(awk -v service="$1" '$1 == service { print $2 }' "$references")
+  if [ "${#digest}" -ne 71 ] || ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+    echo "Missing or invalid release digest for $1." >&2
+    exit 1
+  fi
+  printf '%s-%s@%s' "$registry" "$1" "$digest"
+}
+
+case "$operation" in
+  pull|promote)
+    references=${3:?Release digest file is required}
+    # Validate all four legs before any Docker operation, including disk inspection.
+    for service in $services; do image_reference "$service" >/dev/null; done
+    ;;
 esac
 
 verify_image() {
@@ -40,7 +57,7 @@ case "$operation" in
       exit 1
     }
     for service in $services; do
-      image="$registry-$service:$commit"
+      image=$(image_reference "$service")
       docker pull --platform=linux/arm64 "$image"
       verify_image "$image"
     done
@@ -62,9 +79,9 @@ case "$operation" in
     ;;
   promote)
     # A missing image must fail before any :latest tag changes.
-    for service in $services; do verify_image "$registry-$service:$commit"; done
+    for service in $services; do verify_image "$(image_reference "$service")"; done
     for service in $services; do
-      docker tag "$registry-$service:$commit" "yugioh-bot-$service:latest"
+      docker tag "$(image_reference "$service")" "yugioh-bot-$service:latest"
     done
     ;;
   prune)

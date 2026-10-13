@@ -478,3 +478,36 @@ test("runtime Compose comparison checks dollar values before any service stops",
   assert.match(refused.stderr, /runtime Compose configuration changed/);
   assert.doesNotMatch(refused.stderr + refused.stdout, /secret|private/);
 });
+
+
+test("build digests are recorded and transferred for immutable pull and promotion", () => {
+  const { build, deploy } = workflow("deploy.yml").jobs;
+  const push = build.steps.find(step => step.name === "Build and push runtime image");
+  assert.equal(push.id, "runtime-image");
+  const record = build.steps.find(step => step.name === "Record runtime image digest");
+  assert.equal(record.env.IMAGE_DIGEST, "${{ steps.runtime-image.outputs.digest }}");
+  assert.ok(build.steps.some(step => step.with?.name === "production-image-${{ matrix.service }}-${{ env.DEPLOY_COMMIT }}"));
+  const remote = deploy.steps.find(step => step.name === "Deploy over SSH").run;
+  assert.match(remote, /sh "\$DEPLOY_IMAGES" pull "\$DEPLOY_COMMIT" "\$DEPLOY_IMAGE_REFS"/);
+  assert.match(remote, /sh "\$DEPLOY_IMAGES" promote "\$DEPLOY_COMMIT" "\$DEPLOY_IMAGE_REFS"/);
+  assert.match(remote, /cp "\$DEPLOY_IMAGE_REFS" "\$release_dir\/image-digests"/);
+});
+
+
+test("rollback resolves the retained tag to one ARM64 digest before SSH", t => {
+  const resolve = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Resolve retained rollback digests");
+  const parser = resolve.run.match(/<<'PY'\n([\s\S]*?)\nPY/)[1];
+  const dir = mkdtempSync(join(tmpdir(), "rollback-manifest-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, "manifest.json");
+  const digest = `sha256:${'b'.repeat(64)}`;
+  const arm = { Descriptor: { digest, platform: { os: "linux", architecture: "arm64" } } };
+  for (const fixture of [arm, [arm, { Descriptor: { digest: "ignored", platform: { os: "unknown", architecture: "unknown" } } }]]) {
+    writeFileSync(file, JSON.stringify(fixture));
+    const result = spawnSync("python3", ["-", file], { input: parser, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), digest);
+  }
+  writeFileSync(file, JSON.stringify([arm, arm]));
+  assert.notEqual(spawnSync("python3", ["-", file], { input: parser }).status, 0);
+});
