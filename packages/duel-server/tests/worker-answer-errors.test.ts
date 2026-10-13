@@ -6,6 +6,7 @@ import { GameWorker } from "../src/worker-client.js";
 import { handleWorkerRequest } from "../src/worker.js";
 
 const { answer } = vi.hoisted(() => ({ answer: vi.fn() }));
+vi.mock("../src/cards.js", () => ({ loadCardDatabase: vi.fn() }));
 vi.mock("../src/engine.js", () => ({ createEngineGame: async () => ({ answer, close: vi.fn() }) }));
 vi.mock("../src/legacy/index.js", () => ({ createLegacyEngineGame: vi.fn() }));
 vi.mock("node:worker_threads", async () => {
