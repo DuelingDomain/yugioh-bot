@@ -69,6 +69,8 @@ describe("the 3-way face-off keeps the fixed pairs, whoever is left", () => {
     expect(container.querySelector(`[data-seat-slot='${out[0]}']`)).toBeNull();
     // Two separate fields, each with its own Extra Monster row; a link light only between the pair.
     expect(container.querySelectorAll("[data-seat-slot]").length).toBe(2);
+    // The pair badge sits on the two plates of the pair only.
+    expect(container.querySelectorAll("[data-pair-badge]")).toHaveLength(linked ? 2 : 0);
     if (linked) {
       expect(container.querySelector("[data-emz-pair]")?.getAttribute("data-emz-pair")).toBe("0-1");
       expect(linkIds(container).length).toBeGreaterThan(0);
@@ -77,6 +79,18 @@ describe("the 3-way face-off keeps the fixed pairs, whoever is left", () => {
       expect(container.querySelector("[data-emz-pair]")).toBeNull();
       expect(linkIds(container)).toEqual([]);
     }
+  });
+
+  it("keeps the taken ghost on the mirrored zone of the partner when the pair stands face to face", () => {
+    // The fixture holds Jinzo in zone 5 of seat 0; zone 5 of seat 0 is zone 6 of seat 1.
+    const state = variant([2]);
+    expect(state.room.engine!.seats[0].monsters[5]).toBeTruthy();
+    const { container } = render(<Shell state={state} />);
+    expect(container.querySelector('[data-testid="seat-field-0"] [data-link-seq="5"]')?.getAttribute("data-link")).toBe("shared");
+    expect(container.querySelector('[data-testid="seat-field-1"] [data-link-seq="6"]')?.getAttribute("data-link")).toBe("taken");
+    // Seats that are not a pair have no ghost: no link on either field.
+    const apart = render(<Shell state={variant([1])} />);
+    expect(apart.container.querySelector("[data-link]")).toBeNull();
   });
 
   it("glides the survivors of a live duel to the face-off, then lets the glide end", () => {

@@ -858,6 +858,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               onHover={(hover) => controller.onAim?.(hover ? { lpSeat: slot.seat } : null)}
               exiting={exit}
               placeLabel={placeLabels?.get(slot.seat) ?? null}
+              linkedWith={emzLinks?.get(slot.seat)?.otherName ?? null}
               glide={gliding && regroup && !exit}
               footer={!exit && anchor.me ? masterChip : null}
               footerTight={anchor.footerTight}
