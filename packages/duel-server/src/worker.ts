@@ -98,7 +98,7 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
       }
       case "search": {
         if (!game) return { id: request.id, ok: false, error: "No game" };
-        return { id: request.id, ok: true, value: game.searchCards(request.query) };
+        return { id: request.id, ok: true, value: game.searchCards(request.query, request.seat) };
       }
       case "eliminate": {
         if (!game) return { id: request.id, ok: false, error: "No game" };

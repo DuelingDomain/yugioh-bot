@@ -454,12 +454,24 @@
 }
 
 .result:hover:not(:disabled),
+.result[data-active="true"],
 .result[data-selected="true"] {
   background: var(--duel-pen-soft, rgb(155 126 255 / 0.13));
 }
 
 .result:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: -2px; }
 .result:disabled { cursor: not-allowed; opacity: 0.5; }
+
+.deckTag {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 5px;
+  border: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.17));
+  border-radius: 4px;
+  color: var(--duel-ink-2, #c3bba8);
+  font-size: var(--duel-t-xs, 11px);
+  white-space: nowrap;
+}
 
 .note {
   margin: 0;
