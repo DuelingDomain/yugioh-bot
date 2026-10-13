@@ -70,7 +70,10 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    that run's `head_sha`, never a later `main` tip. It ignores PR, scheduled and manually dispatched Test runs.
    The whole workflow uses `deploy-production` concurrency with `cancel-in-progress: false`
    and `queue: max`. Up to 100 pending runs are kept. A late older run cannot cancel a newer
-   pending deploy. An older SHA is refused before the activity wait.
+   pending deploy. Before preparation, an automatic run exits with a `Superseded` message
+   if a newer main commit passed push Test, or if main moved past the target and a newer
+   successful-Test deploy is queued. It skips preparation, builds and deployment. Manual
+   dispatch is unaffected. An older SHA is also refused before the VM activity wait.
    The prepare and deploy jobs use the `production` environment for its scoped secrets. The environment has no required
    reviewers or wait timer and retains the custom branch policy allowing only branch `main`.
    Manual retry/rollback remains Actions → **Deploy** → Run workflow, using the workflow from `main`.
@@ -103,8 +106,9 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    one-day Actions artifact. The image matrix and deploy job both use that artifact.
    The matrix builds `duel-bundled`, `web`, `worker` and `ws` for `linux/arm64` only, then pushes
    `ghcr.io/duelingdomain/yugioh-bot-<service>:<full commit SHA>`. The duel build uses the artifact as
-   the named `engine` context. Only the build job has `packages: write`; it has `contents: read` and
-   no VM secrets. The production public Clerk key is a repository variable/build arg. The Clerk secret
+   the named `engine` context. The build job has `packages: write` and `contents: read`, with
+   no VM secrets. A separate job retains healthy release tags with only `packages: write`.
+   The production public Clerk key is a repository variable/build arg. The Clerk secret
    stays in the VM runtime environment. Non-web targets no longer run the Next.js build.
    Each image has a separate `:buildcache` registry cache with `mode=max`. This keeps dependency and
    intermediate layers outside the Actions cache space used by engine files. Web also imports the
@@ -199,7 +203,9 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    image helper to remove only GHCR tags with 40 lowercase hexadecimal characters for the four services.
    GHCR SHA bookkeeping tags remain while their image IDs match local `:latest` or `:prev`. Older SHA
    tags are removed after those references move. All local tags remain, including owner safety tags. GHCR cache and owner tags
-   also remain. Removal uses no force. No global `docker image prune` runs.
+   also remain. Tag removal uses no force. The helper then prunes dangling images with
+   `--filter label=org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot`.
+   All tagged images remain protected, including `:latest`, `:prev` and owner tags.
    These deploys create no VM build cache. The owner removed the old cache on 2026-10-13.
 6. Caddy serves `https://<SITE_DOMAIN>` and 308-redirects `www.<SITE_DOMAIN>`
    and every plain-HTTP host (including old IP links), preserving path and query.
@@ -232,7 +238,17 @@ with Compose; the duel target needs the prepared named engine context described 
    It keeps the newest ten SHA versions per package, all `buildcache` and `nextcache` tags,
    and every other non-SHA tag. It removes untagged versions only after seven days.
    It protects child manifests referenced by retained indexes. If a retained manifest cannot be read,
-   it stops that package before deletion. Cleanup shares the production workflow queue to avoid build races.
+   it stops that package before deletion and continues with the next package. Cache layers and
+   config blobs are never read at the manifest endpoint. Cleanup shares the production workflow queue to avoid build races.
+   After all deploy health checks pass, a runner job uses the job token to copy the old
+   `production` manifest to `production-prev`, then tags the deployed digest as `production`.
+   The job copies the original manifest bytes through the registry API to keep each digest.
+   A retry of the same digest keeps `production-prev`. The first deploy has no previous GHCR tag.
+   Both non-SHA tags protect their versions beyond the ten-release and seven-day limits.
+   This job has no VM secrets. It requires deploy health checks from the current run attempt.
+   Retrying only an old failed retention job fails before any registry request. This prevents
+   an old retry from moving the tags after a newer deploy. If retention fails, check the registry
+   error and dispatch a new Deploy run for the intended current release before cleanup.
    Add a non-SHA recovery tag to any older registry version that must stay beyond ten releases.
    Cache tags become public with their packages. They contain intermediate build layers and `.next/cache`.
    The build has no secrets. Do not add build-time secrets or private data fetches to these public caches.
