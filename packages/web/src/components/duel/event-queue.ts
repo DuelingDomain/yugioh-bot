@@ -353,8 +353,8 @@ export function departureTurn(from: DuelZoneRef | undefined | null, sideTurn: nu
 
 /**
  * The card's turn on screen when it rests in `dest`: the zone's own half turn (far side), a quarter for Defense Position,
- * and the turn of the seat field around it. A seat of a multiplayer table is rotated as a whole, live (also while a
- * field crumbles and the rest stay), so the zone's side alone names the wrong way. A hand card adds its fan angle instead.
+ * and the turn of the seat field around it. A seat of a multiplayer table is rotated as a whole, live (also while the
+ * table regroups for a face-off), so the zone's side alone names the wrong way. A hand card adds its fan angle instead.
  * `near` picks the equal angle closest to it, so a flight that ends here never spins the long way round.
  * `seatTurn` is a seat turn read earlier (a flight reads it again only when the zone moves); omitted, it is read here.
  */
