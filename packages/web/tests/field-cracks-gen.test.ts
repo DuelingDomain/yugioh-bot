@@ -107,7 +107,7 @@ function clearanceOf(field: CrackField, layout: FieldLayout): { cracks: number; 
   return { cracks, chunks };
 }
 
-describe("field cracks generator", () => {
+describe("field cracks generator", { timeout: 30_000 }, () => {
   it("is deterministic for a seed and layout, and differs between seeds", () => {
     const a = genField(1234, DEMO);
     const b = genField(1234, DEMO);
@@ -179,7 +179,7 @@ describe("field cracks generator", () => {
       expect(chunks).toBeGreaterThanOrEqual(1.5);
       expect(f.segs.length).toBeGreaterThan(0);
     }
-  }, 30_000);
+  });
 
   it("draws the stage 4 connecting cracks only in free lanes", () => {
     const f = genField(5, DEMO);
