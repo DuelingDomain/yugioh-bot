@@ -257,11 +257,13 @@ export interface HudLayerProps {
   /** The pile viewer is open, or a pick hint is shown: the preview hides. An open card menu does not hide it. */
   previewHidden: boolean;
   reducedMotion: boolean;
+  /** The element of the hovered card (the preview shows it): the card peek never covers it. */
+  hoverAnchor?: HTMLElement | null;
   /** The seats of the viewer (and the partner in Tag): the card peek is as wide as the free room up to their field zones, so it never covers them. */
   ownSeats?: readonly number[];
 }
 
-export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, equipLinks, previewHidden, reducedMotion, ownSeats }: HudLayerProps) {
+export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats }: HudLayerProps) {
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   const extras = useMemo(() => (pinnedBoard ? cardExtraLines(pinnedBoard, equipLinks) : []), [pinnedBoard, equipLinks]);
   // The X button: the pin goes. With the keyboard, focus returns to the card that was clicked (a mouse click would only bring the hover peek back).
@@ -303,6 +305,7 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
         pinned={preview?.pinned === true}
         extras={extras}
         avoid={preview?.pinned === true ? hud.pinAnchor : null}
+        hoverAnchor={preview?.pinned === true ? null : hoverAnchor}
         ownSeats={ownSeats}
         onClose={closePin}
       />

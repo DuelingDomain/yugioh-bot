@@ -649,13 +649,14 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { tower.remove(); }
     });
 
-    it("never goes to the right: with a single band, a clicked card under the left panel does not move it", () => {
+    it("never goes to the right: a clicked card under the left panel gets the pin above it, still in the left column (it never covers the card it shows)", () => {
       layout({ left: 100, right: 180, top: 400, bottom: 560 });
       mount();
       pin();
       expect(peek().getAttribute("data-side")).toBe("left");
       expect(css("--pv-right")).toBe("");
-      expect(css("--pv-bottom")).toBe("8px");
+      // The band from the header pills (50) to the card (400 - 12): it ends 720 - 388 above the layer bottom.
+      expect(css("--pv-bottom")).toBe("332px");
     });
 
     it("shows the art again when the panel moves from a short place to a tall one (a squeeze in a passing place does not hide it for good)", () => {
@@ -670,6 +671,19 @@ describe("the pinned card peek of the 1v1 room", () => {
       mount();
       hover();
       expect(css("--pv-max-h")).toBe("662px");
+      expect(peek().getAttribute("data-squeezed")).toBeNull();
+    });
+
+    it("keeps the art when the text is cut: it shrinks to the small size and the rest of the text scrolls", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      // The text is cut (taller than its box) and the art is tall enough (160 px): the art stays, small.
+      spies.push(
+        vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) { return this.tagName === "IMG" ? 160 : this.tagName === "P" ? 100 : 0; }),
+        vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) { return this.tagName === "P" ? 400 : 0; }),
+      );
+      mountWithText();
+      hover();
+      expect(peek().getAttribute("data-art")).toBe("small");
       expect(peek().getAttribute("data-squeezed")).toBeNull();
     });
 
@@ -755,18 +769,18 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { plate.remove(); master.remove(); }
     });
 
-    it("is never narrower than the column minimum, with the board beside it: the same one on hover and pin", () => {
+    it("is never narrower than the floor width (300 px), with the board beside it: the same one on hover and pin", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
-      // The board starts at x 300: 300 - 12 (gap) - 72 (the left edge) = 216 px of room, under the 220 px minimum.
+      // The board starts at x 300: 300 - 12 (gap) - 72 (the left edge) = 216 px of room, under the 300 px floor.
       const board = part({ "data-zones": "1:4:0" }, { left: 300, right: 940, top: 100, bottom: 500 });
       try {
         mount();
         hover();
         expect(peek().getAttribute("data-side")).toBe("left");
-        expect(css("--pv-w")).toBe("220px");
+        expect(css("--pv-w")).toBe("300px");
         fireEvent.click(screen.getByTestId("field-pick"));
         expect(peek().getAttribute("data-side")).toBe("left");
-        expect(css("--pv-w")).toBe("220px");
+        expect(css("--pv-w")).toBe("300px");
       } finally { board.remove(); }
     });
 
@@ -779,7 +793,7 @@ describe("the pinned card peek of the 1v1 room", () => {
         pin();
         // The plate (500) less the 12 px gap ends the band; the board is 8 px right of the column, so the panel keeps its minimum width.
         expect(peek().getAttribute("data-side")).toBe("left");
-        expect(css("--pv-w")).toBe("220px");
+        expect(css("--pv-w")).toBe("300px");
         expect(css("--pv-max-h")).toBe("438px");
         expect(css("--pv-bottom")).toBe("232px");
       } finally { zones.remove(); plate.remove(); }

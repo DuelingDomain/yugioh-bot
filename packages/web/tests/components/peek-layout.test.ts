@@ -67,8 +67,8 @@ describe("the card peek column", () => {
   });
 
   it("keeps a gap to the board when the board is nearer than the column", () => {
-    const [first] = peekPlaces(layer(1920, 1080), { board: [box(330, 38, 1900, 1042)], keep: [] });
-    expect(first.width).toBe(330 - GAP_PX - EDGE_LEFT_PX);
+    const [first] = peekPlaces(layer(1920, 1080), { board: [box(400, 38, 1900, 1042)], keep: [] });
+    expect(first.width).toBe(400 - GAP_PX - EDGE_LEFT_PX);
   });
 
   it("never makes the panel narrower than the floor, even when the board is nearer", () => {
@@ -121,13 +121,38 @@ describe("what the peek stays clear of", () => {
     expect(measureObstacles().keep).toHaveLength(0);
   });
 
+  it("is at least 300 px wide in Tag, where the Extra Deck and Field piles stand at the left of the own board", () => {
+    const monster = box(520, 500, 580, 580);
+    const [first] = peekPlaces(layer(1366, 768), { board: [monster, box(309, 500, 369, 580)], keep: [], own: [monster] });
+    expect(first.width).toBeGreaterThanOrEqual(300);
+  });
+
+  it("stops short of the card it shows, and keeps clear of it in the bands when no room is left", () => {
+    const wide = peekPlaces(layer(1920, 1080), { board: [], keep: [], target: box(430, 400, 490, 480) });
+    expect(wide[0].width).toBe(430 - GAP_PX - EDGE_LEFT_PX);
+    const near = peekPlaces(layer(1920, 1080), { board: [], keep: [], target: box(200, 400, 260, 480) });
+    expect(near.every((place) => place.width >= FLOOR_WIDTH_PX)).toBe(true);
+    expect(near[0].top + near[0].maxH).toBeLessThanOrEqual(400 - GAP_PX);
+  });
+
+  it("computes the bands over the final width, not the requested one", () => {
+    const limit = box(400, 500, 1350, 740);
+    const blocker = box(430, 100, 520, 200);
+    const [first] = peekPlaces(layer(1920, 1080), { board: [limit], keep: [blocker], own: [limit] });
+    expect(first.width).toBe(400 - GAP_PX - EDGE_LEFT_PX);
+    expect(first.top).toBe(50);
+  });
+
   it("measures the field zones of the own seats only (a pile of two kinds counts for its seat)", () => {
     const zone = (key: string, rect: Box) => part("data-zones", rect, key);
     zone("0:4:0", box(400, 500, 460, 580));
     zone("1:4:0", box(300, 100, 360, 180));
+    zone("0:8:3", box(420, 700, 480, 780));
     zone("0:256:0 0:8:5", box(380, 700, 440, 780));
+    zone("0:64:0", box(300, 700, 360, 780));
     zone("", box(200, 300, 260, 360));
-    expect(measureObstacles(null, false, [0]).own).toEqual([box(400, 500, 460, 580), box(380, 700, 440, 780)]);
+    // Only Monster Zones and Spell/Trap Zones 0-4 limit the width: the piles (Field 0:8:5, Extra Deck 0:64:0, GY) may be covered.
+    expect(measureObstacles(null, false, [0]).own).toEqual([box(400, 500, 460, 580), box(420, 700, 480, 780)]);
     expect(measureObstacles(null, false, [1]).own).toEqual([box(300, 100, 360, 180)]);
     expect(measureObstacles().own).toBeUndefined();
   });
