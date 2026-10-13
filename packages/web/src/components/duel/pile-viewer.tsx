@@ -66,10 +66,10 @@ const NO_MARKS: readonly PileChainMark[] = [];
 function ChainMarkBadges({ marks, styles, size }: { marks: readonly PileChainMark[]; styles: Record<string, string>; size: "thumb" | "detail" }) {
   if (marks.length === 0) return null;
   return (
-    <span className={styles.chainMarks} data-size={size} data-chain-mark={size} aria-hidden={size === "detail" ? "true" : undefined}>
+    // Decorative: a button's children are presentational, so the card button's own label says "Chain link N" and the detail line says it too.
+    <span className={styles.chainMarks} data-size={size} data-chain-mark={size} aria-hidden="true">
       {[...marks].reverse().map((mark) => (
-        <span key={mark.index} className={styles.chainBadge} role={size === "thumb" ? "img" : undefined} aria-label={size === "thumb" ? mark.ariaLabel : undefined}
-          data-chain-link={mark.index} data-status={mark.status} data-negated={mark.negated ? "true" : "false"}>
+        <span key={mark.index} className={styles.chainBadge} data-chain-link={mark.index} data-status={mark.status} data-negated={mark.negated ? "true" : "false"}>
           <span className={styles.chainNum}>{mark.index}</span>
           <span className={styles.chainChip}><ChainGlyph /></span>
         </span>
@@ -132,11 +132,12 @@ function PileDetail({ entry, total, styles, reserveChain }: { entry: Entry; tota
       </div>
       <div className={styles.previewBody}>
         <span className={styles.previewPos}>{positionLine(entry.index, total)}</span>
-        {marks.length > 0 ? (
-          <span className={styles.previewChain} data-testid="pile-chain-line" data-phase={marks[0].phase}>{chainMarkLabel(marks)}</span>
-        ) : reserveChain ? (
-          // The pile holds a chain card: every card keeps this line's height, so the detail never changes height between cards.
-          <span className={styles.previewChain} aria-hidden="true" data-empty="true">&nbsp;</span>
+        {marks.length > 0 || reserveChain ? (
+          // While the pile holds a chain card, every card keeps this line (empty on the others): the detail never changes
+          // height between cards, and the live region stays mounted, so a change of phase is announced.
+          <span className={styles.previewChain} data-testid="pile-chain-line" data-phase={marks[0]?.phase} aria-live="polite" aria-atomic="true">
+            {marks.length > 0 ? chainMarkLabel(marks) : "\u00a0"}
+          </span>
         ) : null}
         <h3 className={styles.previewName}>{hidden ? "Face-down card" : card.name ?? `Card ${live.code}`}</h3>
         {details ? <p className={styles.previewDetails}>{details}</p> : null}
@@ -149,6 +150,17 @@ function PileDetail({ entry, total, styles, reserveChain }: { entry: Entry; tota
       </div>
     </div>
   );
+}
+
+/** Scrolls the grid itself (no ancestor scrolls) so the card is fully in view, with room above it for its chain badge. */
+function scrollGridTo(grid: HTMLElement, card: HTMLElement): void {
+  const gridBox = grid.getBoundingClientRect();
+  const cardBox = card.getBoundingClientRect();
+  const margin = 12;
+  const above = cardBox.top - gridBox.top - margin;
+  const below = cardBox.bottom - gridBox.bottom + margin;
+  if (above < 0) grid.scrollTop += above;
+  else if (below > 0) grid.scrollTop += Math.min(below, above);
 }
 
 /** Number of cards on the first row of the grid: how far an Up/Down arrow moves focus. */
@@ -232,13 +244,22 @@ export function PileViewer({
     return () => { live = false; };
   }, [open, entries]);
 
+  // Only the render that opens the viewer decides where it starts (entries are read through a ref, so a chain that starts
+  // while the player browses never moves the list). A chain card is the start: it is selected and focused, the grid scrolls
+  // to it (the grid only, never the board or the page), and the detail shows it. Without a chain card the top card stays the start.
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
   // Open: remember where focus was and move it inside. Close: give it back.
   useEffect(() => {
     if (!open) return;
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const panel = panelRef.current;
-    const first = panel?.querySelector<HTMLElement>("[data-pile-card]") ?? panel?.querySelector<HTMLElement>(FOCUSABLE);
+    const grid = gridRef.current;
+    const chainKey = entriesRef.current.find((entry) => entry.marks.length > 0)?.key ?? null;
+    const chainCard = chainKey == null ? null : [...(grid?.querySelectorAll<HTMLElement>("[data-pile-card]") ?? [])].find((el) => el.dataset.cardKey === chainKey) ?? null;
+    const first = chainCard ?? panel?.querySelector<HTMLElement>("[data-pile-card]") ?? panel?.querySelector<HTMLElement>(FOCUSABLE);
     first?.focus({ preventScroll: true });
+    if (chainCard && grid) scrollGridTo(grid, chainCard);
     return () => {
       const back = restoreRef.current;
       restoreRef.current = null;
@@ -246,17 +267,7 @@ export function PileViewer({
     };
   }, [open]);
 
-  // A chain card far down a long pile scrolls into view when the viewer opens (once per opening; the detail stays on the top card).
-  const scrolledRef = useRef(false);
   const firstChainKey = entries.find((entry) => entry.marks.length > 0)?.key ?? null;
-  useEffect(() => {
-    if (!open) { scrolledRef.current = false; return; }
-    if (scrolledRef.current || firstChainKey == null) return;
-    scrolledRef.current = true;
-    const grid = gridRef.current;
-    const target = [...(grid?.querySelectorAll<HTMLElement>("[data-pile-card]") ?? [])].find((el) => el.dataset.chainLink != null);
-    target?.scrollIntoView?.({ block: "nearest" });
-  }, [open, firstChainKey]);
 
   // Esc closes from anywhere (the trap keeps focus inside, but a stray focus must not strand the user).
   useEffect(() => {
@@ -378,6 +389,7 @@ export function PileViewer({
                   type="button"
                   className={styles.card}
                   data-pile-card
+                  data-card-key={key}
                   data-legal={legal ? "true" : "false"}
                   data-selected={selected ? "true" : "false"}
                   data-active={preview?.key === key ? "true" : "false"}
