@@ -59,6 +59,7 @@ import { ReportButton } from "./report-button";
 import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
 import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
+import { FieldCracksScope } from "./field-cracks/context";
 import { TableShell, type TableShellProps } from "./table/table-shell";
 import type { ReplayCarry } from "./table/replay-mode";
 import { ForkLabelsContext } from "./table/fork-labels";
@@ -1259,6 +1260,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       </div>
     );
   }
+  // Every board of this duel (live tables, 3D, flat) cracks from the same scope: duel id for the seed, starting LP of one side.
+  const withCracks = (node: ReactNode) => (
+    <FieldCracksScope duelKey={slug} format={data.session.format} settings={data.session.settings}>{node}</FieldCracksScope>
+  );
   if (liveTable && liveController) {
     // One seam set for both live shells, so the room stays one code path.
     const shellProps: TableShellProps = {
@@ -1300,12 +1305,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // switch, a Follow switch or a Reveal change clears them through `resetKey`, and the camera, the grid focus and the
     // zoom stay where the creator put them.
     const shellKey = forkMode ? `${slug}:fork` : watchingOnly ? `${slug}:watching` : slug;
-    return <ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
+    return withCracks(<ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
       <MasterSeatsContext.Provider value={data?.engine?.seats ?? NO_SEATS}>
         {liveTagTable ? <TagShell key={shellKey} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={shellKey} {...shellProps} />}
       </MasterSeatsContext.Provider>
       {forkResult}
-    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>;
+    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>);
   }
   const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
   const domain = data.session.mode === "domain";
@@ -1744,7 +1749,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   );
 
   if (solid) {
-    return (
+    return withCracks(
       <ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
         <SolidRoom
           slug={slug}
@@ -1791,11 +1796,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           boardQuiet={boardQuiet}
           onBeforeViewChange={beforeViewChange}
         />
-      </DeckSurrenderContext.Provider></ForkSearchContext.Provider>
+      </DeckSurrenderContext.Provider></ForkSearchContext.Provider>,
     );
   }
 
-  return (
+  return withCracks(
     <ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
       data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
@@ -1883,6 +1888,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       ) : null}
       {overlaysNode}
     </div>
-    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>
+    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>,
   );
 }

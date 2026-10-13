@@ -2155,6 +2155,27 @@
   pointer-events: none;
 }
 
+/* The band the 4-way grid cuts away or hands to the facing field's shared Extra Monster Zones: the cracks keep out of it.
+   It is only a measuring box. */
+.sfCrackAvoid {
+  display: none;
+}
+
+.seatField[data-emz="none"] .sfCrackAvoid {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: block;
+  height: calc(var(--z) * 1.196 + 6px);
+  pointer-events: none;
+}
+
+/* The Rooftop keeps that row as mat. */
+:global([data-roof-world]) .seatField[data-emz="none"] .sfCrackAvoid {
+  display: none;
+}
+
 .sfRule {
   position: absolute;
   top: 6px;
