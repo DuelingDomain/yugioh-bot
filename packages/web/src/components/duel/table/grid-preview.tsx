@@ -80,19 +80,24 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   const [open, setOpen] = useState(false);
   // The layout of the shown card: the panel keeps it while it slides out, so it does not narrow on the way.
   const [shownPinned, setShownPinned] = useState(false);
+  // The card the panel keeps clear of, frozen with the shown card too: the hover ends before the panel goes, and the place must not change on the way
+  // (a wider panel while it slides out, or a jump to the first band when the pointer moves onto the text).
+  const [shownAnchor, setShownAnchor] = useState<HTMLElement | null>(null);
+  const liveAnchor = pinned ? avoid : hoverAnchor;
   // The pointer is on the scrolling text: the panel stays while the viewer reads.
   const [held, setHeld] = useState(false);
   useEffect(() => {
     if (showable) {
       setShown(showable);
       setShownPinned(pinned);
+      setShownAnchor(liveAnchor);
       setOpen(true);
       return;
     }
     if (held) return;
     const timer = window.setTimeout(() => setOpen(false), PREVIEW_HIDE_MS);
     return () => window.clearTimeout(timer);
-  }, [showable, held, pinned]);
+  }, [showable, held, pinned, liveAnchor]);
   const current = showable ?? shown;
   // Does the effect text reach past its area? Then it scrolls and takes the pointer. Measured again when the panel resizes.
   const asideRef = useRef<HTMLElement>(null);
@@ -135,13 +140,11 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   // The place of the last hover panel: a click keeps it (the extra lines of the pin make the panel taller, and that must not pick another band).
   const hoverSpot = useRef<{ key: string; place: Place } | null>(null);
   // The card the panel never covers: the clicked one of a pin, the hovered one of a hover.
-  const anchorOf = useCallback((pinnedNow: boolean): HTMLElement | null => {
-    const anchor = pinnedNow ? avoid : hoverAnchor;
-    return anchor?.isConnected ? anchor : null;
-  }, [avoid, hoverAnchor]);
+  const anchor = showable ? liveAnchor : shownAnchor;
+  const anchorOf = useCallback((): HTMLElement | null => (anchor?.isConnected ? anchor : null), [anchor]);
   const watch = useCallback(() => {
-    const anchor = anchorOf(frozen);
-    const card = anchor ? anchor.getBoundingClientRect() : null;
+    const target = anchorOf();
+    const card = target ? target.getBoundingClientRect() : null;
     return `${card ? [card.left, card.top, card.width, card.height].map(Math.round).join(",") : ""}|${obstaclesKey(measureObstacles(asideRef.current, frozen, own))}`;
   }, [anchorOf, frozen, own]);
   const placing = open && current != null;
@@ -180,7 +183,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   useLayoutEffect(() => {
     const aside = asideRef.current;
     if (!aside || !placing) return;
-    const target = anchorOf(frozen)?.getBoundingClientRect() ?? null;
+    const target = anchorOf()?.getBoundingClientRect() ?? null;
     const hasTarget = target != null && target.width > 0 && target.height > 0;
     const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
     // The part of the layer inside the window (jsdom has no window width: the whole layer then).
