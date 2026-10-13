@@ -2,6 +2,7 @@
 import React from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parseDeckText } from "../../src/components/duel/ydk";
 import type { CardQuery, DeckCardInfo, SavedDeck } from "@yugidraft/shared/duels";
 import { SavedDeckEditor } from "../../src/components/decks/editor";
 
@@ -56,6 +57,10 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/decks/cards/facets") {
       return Response.json({ archetypes: [], banlists: { "tcg-2026-09": { [POT.code]: 0, [BLUE_EYES.code]: 2 } } });
+    }
+    if (url === "/api/decks/import") {
+      const { text, mode } = JSON.parse(String(init?.body));
+      return Response.json({ deck: parseDeckText(text), mode, moves: [], messages: [] });
     }
     if (url === "/api/decks/cards") {
       const query = JSON.parse(String(init?.body)) as CardQuery;
@@ -467,7 +472,7 @@ describe("SavedDeckEditor", () => {
     expect(popover.closest(".ms-flow")).not.toBeNull();
     fireEvent.change(within(popover).getByLabelText("Or paste YDK text or a ydke:// link"), { target: { value: `#main\n${POT.code}\n#extra\n!side` } });
     fireEvent.click(within(popover).getByRole("button", { name: "Load paste" }));
-    expect(mainCards()[0]).toHaveAccessibleName(/Pot of Greed/);
+    await waitFor(() => expect(mainCards()[0]).toHaveAccessibleName(/Pot of Greed/));
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(mainCards()).toHaveLength(1);
     expect(mainCards()[0]).toHaveAccessibleName(/Blue-Eyes White Dragon/);

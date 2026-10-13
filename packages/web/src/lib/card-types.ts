@@ -35,18 +35,8 @@ export function isNormalMonster(card: Pick<CardSummary, "type" | "frameType">): 
   return isMonster(card.type) && (frameType === "normal" || card.type.toLowerCase().includes("normal monster"));
 }
 
-// Fusion / Synchro / XYZ / Link monsters (incl. their Pendulum variants) live in
-// the Extra Deck. Mirrors the shared catalog's isExtraDeckFrame classification.
-const EXTRA_DECK_FRAMES = ["fusion", "synchro", "xyz", "link"];
-
-export function isExtraDeckMonster(card: Pick<CardSummary, "type" | "frameType">): boolean {
-  const frameType = card.frameType.trim().toLowerCase();
-  const type = card.type.toLowerCase();
-  return (
-    EXTRA_DECK_FRAMES.some((f) => frameType === f || frameType.startsWith(`${f}_`)) ||
-    (type.includes("monster") && /\b(fusion|synchro|xyz|link)\b/.test(type))
-  );
-}
+/** Compatibility name for the shared deck-building rule. */
+export { isExtraDeckCard as isExtraDeckMonster } from "@yugidraft/shared/duels";
 
 export function getTypeBadgeClass(type: string): string {
   return isMonster(type)
