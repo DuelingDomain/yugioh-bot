@@ -318,7 +318,7 @@ The multiplayer merge changes the Standard and Domain cores, so its first deploy
 
 Compose defaults Standard 1v1 to `DUEL_STANDARD_1V1_ENGINE=pinned`, with no production `.env` edit.
 Domain keeps `DUEL_1V1_ENGINE=legacy`. To roll back Standard, set `DUEL_STANDARD_1V1_ENGINE=legacy` in `.env`, then run
-`docker compose -f docker-compose.yml up -d --force-recreate duel`. An empty or missing Standard value means `pinned`
+`docker compose -f docker-compose.yml up -d --no-build --force-recreate duel`. An empty or missing Standard value means `pinned`
 in Compose. A Compose `restart` does not apply changed environment values. Each game of a series reads the switch
 at its start; active games keep their saved engine.
 
@@ -348,7 +348,7 @@ Set it up once:
    BUG_REPORT_GITHUB_REPO=DuelingDomain/yugioh-bot   # optional, this is the default
    ```
 
-3. Recreate only the web service so it reads the new values: `docker compose -f docker-compose.yml up -d web`.
+3. Recreate only the web service so it reads the new values: `docker compose -f docker-compose.yml up -d --no-build web`.
 
 Checks and limits:
 
@@ -393,7 +393,7 @@ docker compose -f docker-compose.yml stop web duel worker ws
 # Stop any separately run shelved bot too; take a final backup before apply.
 docker compose -f docker-compose.yml run --rm --no-deps worker node packages/worker/dist/ops/cli.js merge-users --source 123 --target 456 --apply
 # Review the report/FK result before starting traffic again.
-docker compose -f docker-compose.yml up -d ws duel web worker caddy
+docker compose -f docker-compose.yml up -d --no-build ws duel web worker caddy
 ```
 
 `--actor` must identify an existing `users.id`. Precreate selects verified-email Discord users without a Clerk ID, persists each success for resume, skips duplicate local emails, and never binds an existing account by email alone. Only precreate accepts `--skip-legal-checks`, for an owner-approved legacy import. Reconcile respects pending/invited/revoked/rejected entries and existing users; `--no-notify` suppresses notifications. Verify invitation delivery and locked email/username/consent flows before announcing the new URL.

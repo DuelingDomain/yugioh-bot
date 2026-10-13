@@ -51,7 +51,7 @@ fixes without Domain changes. It supports the triggering Scale and Link queries 
 - Domain keeps the global choice. Tag and 3+ seats keep the multi cores. Scenarios and presets keep pinned.
 - Production Compose passes `${DUEL_STANDARD_1V1_ENGINE:-pinned}` to `duel`. A missing or empty Compose value means `pinned`, not the global choice.
 - Deploy this code to apply the Compose default. After changing a value in `.env`, recreate the container with
-  `docker compose -f docker-compose.yml up -d --force-recreate duel`. A Compose `restart` does not apply a changed
+  `docker compose -f docker-compose.yml up -d --no-build --force-recreate duel`. A Compose `restart` does not apply a changed
   environment value. Each game of a series reads the switch at its start; card admission uses the same choice.
 - Recovery and replay use the saved `setup.engine`, even after the override changes. Records with no choice
   still use legacy. Old Standard duels retain the old core limits. Keep both cores in the bundle.
@@ -124,10 +124,10 @@ and legacy for Domain.
 ## How to roll back
 
 - To use the old engine for all new 1v1 games: set `DUEL_1V1_ENGINE=legacy` and `DUEL_STANDARD_1V1_ENGINE=legacy` in `.env`.
-  Recreate `duel` with `docker compose -f docker-compose.yml up -d --force-recreate duel`. An empty Standard value is
+  Recreate `duel` with `docker compose -f docker-compose.yml up -d --no-build --force-recreate duel`. An empty Standard value is
   not a rollback: Compose substitutes `pinned`.
 - To use pinned for all new 1v1 games: set `DUEL_1V1_ENGINE=pinned` and `DUEL_STANDARD_1V1_ENGINE=pinned`, then recreate `duel`.
-- To close the multi-seat tables: set `MULTIPLAYER_TABLES=0` in `/opt/yugioh-bot/.env` and recreate `duel` and `web` (`docker compose -f docker-compose.yml up -d duel web`).
+- To close the multi-seat tables: set `MULTIPLAYER_TABLES=0` in `/opt/yugioh-bot/.env` and recreate `duel` and `web` (`docker compose -f docker-compose.yml up -d --no-build duel web`).
 - To remove the whole merge: follow "Rollback" in `vm-runbook.md`.
 
 ## What is checked
