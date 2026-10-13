@@ -297,13 +297,17 @@ export function createMatchService(db: Database.Database) {
         }
       }
 
-      db.prepare(
+      // Only a still pending report can be approved: a cancel that denied it in the meantime wins.
+      const approved = db.prepare(
         `
         update matches
         set status = 'approved', approver_id = ?, resolved_at = current_timestamp
-        where id = ?
+        where id = ? and status = 'pending'
       `,
       ).run(approverId, matchId);
+      if (approved.changes !== 1) {
+        throw new Error("Match is not pending");
+      }
 
       const approvedMatch = findById(matchId);
       completeTournamentMatch(approvedMatch);
@@ -316,13 +320,16 @@ export function createMatchService(db: Database.Database) {
       const match = findById(matchId);
       ensureOpponentCanResolve(match, denierId);
 
-      db.prepare(
+      const denied = db.prepare(
         `
         update matches
         set status = 'denied', approver_id = ?, resolved_at = current_timestamp
-        where id = ?
+        where id = ? and status = 'pending'
       `,
       ).run(denierId, matchId);
+      if (denied.changes !== 1) {
+        throw new Error("Match is not pending");
+      }
 
       if (match.tournamentId !== null) {
         db.prepare(

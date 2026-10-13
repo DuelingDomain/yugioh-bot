@@ -38,6 +38,7 @@ describe("closing a tournament with a report nobody confirmed", () => {
   it.each([
     ["cancel", (s: ReturnType<typeof setup>) => s.tournaments.cancel(s.t.id)],
     ["end now", (s: ReturnType<typeof setup>) => s.tournaments.complete(s.t.id)],
+    ["deadline close", (s: ReturnType<typeof setup>) => s.tournaments.closeForDeadline(s.t.id)],
   ])("%s denies the report, frees the slot, and a later confirm is refused without Elo", (_name, close) => {
     const s = setup();
     const before = s.counts();
@@ -69,5 +70,43 @@ describe("closing a tournament with a report nobody confirmed", () => {
     expect(() => s.matches.approve(s.report.id, s.bob.playerId)).toThrow(/can no longer be confirmed/);
     expect(s.matchStatus()).toBe("pending");
     expect(s.counts()).toEqual(before);
+  });
+});
+
+describe("approve and deny against a cancel that lands in between", () => {
+  /** A match service whose db runs `hook` once, right before the statement that resolves the report. */
+  function racing(s: ReturnType<typeof setup>, resolving: "approved" | "denied", hook: () => void) {
+    let fired = false;
+    const db = new Proxy(s.db, {
+      get(target, key) {
+        const value = Reflect.get(target, key, target);
+        if (key !== "prepare") return typeof value === "function" ? value.bind(target) : value;
+        return (sql: string) => {
+          if (!fired && sql.includes(`set status = '${resolving}'`)) {
+            fired = true;
+            hook();
+          }
+          return target.prepare(sql);
+        };
+      },
+    });
+    return createMatchService(db);
+  }
+
+  it("approve refuses a report the cancel denied after it was read, and writes no Elo", () => {
+    const s = setup();
+    const before = s.counts();
+    const matches = racing(s, "approved", () => s.tournaments.cancel(s.t.id));
+    expect(() => matches.approve(s.report.id, s.bob.playerId)).toThrow(/not pending/);
+    expect(s.matchStatus()).toBe("denied");
+    expect(s.counts()).toEqual(before);
+  });
+
+  it("deny does not overwrite a report the cancel already denied, and leaves the slot as the cancel set it", () => {
+    const s = setup();
+    const matches = racing(s, "denied", () => s.tournaments.cancel(s.t.id));
+    expect(() => matches.deny(s.report.id, s.bob.playerId)).toThrow(/not pending/);
+    expect(s.matchStatus()).toBe("denied");
+    expect(s.slot()).toEqual({ status: "open", match_id: null });
   });
 });
