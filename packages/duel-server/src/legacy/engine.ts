@@ -28,7 +28,7 @@ import createCore, {
   type OcgResponse, // LEGACY-1V1: public chosen chain options
   type OcgOpCode,
 } from "ocgcore-wasm";
-import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "../cards.js";
+import { deckSearchCodes, isOptionalCardScript, loadCardDatabase, type CardDatabase } from "../cards.js"; // LEGACY-1V1: owner card announcement autocomplete
 import { EngineAnswerError, autoResponse, isWaitingMessage, mapPrompt, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
@@ -105,7 +105,7 @@ export interface EngineGame {
   diagnostics(): EngineDiagnostic[]; // LEGACY-1V1: private display error diagnostics
   view(seat: number | null): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
-  searchCards(query: string): DuelCardInfo[];
+  searchCards(query: string, seat?: number): DuelCardInfo[]; // LEGACY-1V1: seat-scoped card announcement search
   /** LEGACY-1V1: set a seat's chain response mode; true when it passed the open window. See ../engine.ts EngineGame.setChainMode. */
   setChainMode(seat: number, mode: DuelChainMode): boolean;
   close(): void;
@@ -831,11 +831,16 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     diagnostics() { // LEGACY-1V1: private display error diagnostics
       return diagnostics.map((entry) => ({ ...entry })); // LEGACY-1V1: private display error diagnostics
     }, // LEGACY-1V1: private display error diagnostics
-    searchCards(query) {
+    searchCards(query, seat) { // LEGACY-1V1: seat-scoped card announcement search
       if (closed) throw new Error("Engine is closed");
+      if (seat !== undefined && (!Number.isInteger(seat) || seat < 0 || seat >= options.decks.length // LEGACY-1V1: reject another seat's search
+        || pending?.message.type !== OcgMessageType.ANNOUNCE_CARD || pending.seat !== seat)) { // LEGACY-1V1: reject another seat's search
+        throw new EngineAnswerError("No card announcement is waiting for this seat"); // LEGACY-1V1: reject another seat's search
+      } // LEGACY-1V1: reject another seat's search
       if (pending?.message.type === OcgMessageType.ANNOUNCE_CARD) {
         const opcodes = pending.message.opcodes as OcgOpCode[];
-        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes));
+        const ownDeck = seat === undefined ? undefined : deckSearchCodes(cards, options.decks[seat]!); // LEGACY-1V1: own cards only
+        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes), ownDeck); // LEGACY-1V1: keep legal-name opcodes
       }
       return cards.search(query);
     },

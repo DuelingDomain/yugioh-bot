@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useId, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   DuelAnswer,
   DuelCard,
@@ -380,67 +380,104 @@ export function AnnounceSearch({
   onPick: (card: DuelCardInfo) => void;
 }) {
   const styles = useSkinStyles(baseStyles, "tray");
+  const inputId = useId();
+  const listId = `${inputId}-results`;
+  const list = useRef<HTMLUListElement>(null);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<DuelCardInfo[]>([]);
+  const [response, setResponse] = useState<{ query: string; slug: string; cards: DuelCardInfo[] } | null>(null);
+  const [highlight, setHighlight] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
+  const trimmed = query.trim();
+  const results = response?.query === trimmed && response.slug === slug ? response.cards : [];
 
   useEffect(() => {
-    const trimmed = query.trim();
-    if (trimmed.length < 2) {
-      setResults([]);
-      setError(null);
-      setSearching(false);
-      return;
-    }
     let cancelled = false;
-    const handle = window.setTimeout(() => {
-      setSearching(true);
+    setSearching(true);
+    setError(null);
+    const search = () => {
       searchDuelCards(trimmed, slug)
         .then((data) => {
           if (cancelled) return;
-          setResults(data.cards);
+          setResponse({ query: trimmed, slug, cards: data.cards });
+          setHighlight(0);
           setError(null);
         })
         .catch((err: unknown) => {
           if (cancelled) return;
+          setResponse(null);
           setError(err instanceof Error ? err.message : "Search failed");
         })
         .finally(() => {
           if (!cancelled) setSearching(false);
         });
-    }, 200);
+    };
+    // Fetch deck suggestions as soon as the prompt mounts; debounce typed searches.
+    const handle = trimmed ? window.setTimeout(search, 200) : undefined;
+    if (!trimmed) search();
     return () => {
       cancelled = true;
-      window.clearTimeout(handle);
+      if (handle !== undefined) window.clearTimeout(handle);
     };
-  }, [query, slug]);
+  }, [trimmed, slug]);
+
+  useEffect(() => {
+    list.current?.querySelector<HTMLElement>(`[data-active="true"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [highlight, response]);
 
   return (
     <div className={styles.search}>
-      <label htmlFor="announce-card">Search card name</label>
+      <label htmlFor={inputId}>Search card name</label>
       <input
-        id="announce-card"
+        id={inputId}
+        data-primary
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={results.length > 0}
+        aria-controls={listId}
+        aria-activedescendant={results[highlight] ? `${listId}-${results[highlight].code}` : undefined}
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => { setQuery(event.target.value); setHighlight(0); }}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+          if (!["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (busy || !results.length) return;
+          if (event.key === "Enter") {
+            if (!event.repeat && results[highlight]) onPick(results[highlight]);
+          } else {
+            const direction = event.key === "ArrowDown" ? 1 : -1;
+            setHighlight(index => (index + direction + results.length) % results.length);
+          }
+        }}
         autoComplete="off"
         spellCheck={false}
         disabled={busy}
       />
       {searching ? <p className={styles.note}>Searching…</p> : null}
       {error ? <p className={styles.error}>{error}</p> : null}
-      <ul className={styles.results}>
-        {results.map((card) => (
-          <li key={card.code}>
+      {!searching && !error && results.length === 0 ? <p className={styles.note}>
+        {trimmed.length < 2 ? "No matching cards in your deck. Type at least 2 characters to search all legal names." : "No matching legal card names."}
+      </p> : null}
+      <ul id={listId} ref={list} className={styles.results} role="listbox" aria-label="Card names">
+        {results.map((card, index) => (
+          <li key={card.code} role="none">
             <button
+              id={`${listId}-${card.code}`}
+              role="option"
+              aria-selected={highlight === index}
               type="button"
               disabled={busy}
               onClick={() => onPick(card)}
               data-selected={cardCode === card.code ? "true" : "false"}
+              data-active={highlight === index ? "true" : "false"}
+              onMouseEnter={() => setHighlight(index)}
               className={styles.result}
             >
               <img src={cardArtUrl(card.code, "small")} alt="" className={styles.art} />
               <span>{card.name}</span>
+              {card.inDeck ? <small className={styles.deckTag}>In your deck</small> : null}
             </button>
           </li>
         ))}
@@ -898,6 +935,7 @@ export function PromptTray({
       <div className={styles.tray} aria-live="polite">
         <PromptHeader prompt={prompt} />
         <AnnounceSearch
+          key={prompt.id}
           slug={slug}
           cardCode={draft.cardCode}
           busy={busy}

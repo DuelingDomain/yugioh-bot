@@ -2410,7 +2410,7 @@ export function createDuelHost(options: {
         const live = games.get(body.slug)?.game ?? game;
         const view = await live.view(room.mySeat);
         if (view.prompt?.kind !== "announce-card") throw new RequestError("No card announcement is waiting", 409);
-        return { cards: await live.search(body.query) };
+        return { cards: await live.search(body.query, room.mySeat) };
       }
       return { cards: options.searchCards(body.query) };
     }

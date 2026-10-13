@@ -848,6 +848,7 @@ function ResponseBody({
   if (prompt.kind === "announce-card") {
     return (
       <AnnounceSearch
+        key={prompt.id}
         slug={slug}
         cardCode={draft.cardCode}
         busy={busy}
