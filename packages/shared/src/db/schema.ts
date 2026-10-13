@@ -1073,12 +1073,18 @@ export function migrate(db: Database.Database) {
       fingerprint text not null,
       duel_id integer not null references duels(id) on delete cascade,
       changed_slugs_json text not null,
+      created_at text not null default (datetime('now')),
       primary key (guild_id, organizer_player_id, request_key)
     );
     create index if not exists duels_host_live_idx on duels(guild_id, organizer_player_id, id)
       where kind = 'play' and status in ('lobby', 'active');
     create index if not exists duels_waiting_idle_idx on duels(datetime(coalesce(last_activity_at, created_at)), id)
       where kind = 'play' and status = 'lobby' and started_at is null and opening_json is null;
+  `);
+  addColumnIfMissing(db, "duel_creation_requests", "created_at", "text");
+  db.exec(`
+    update duel_creation_requests set created_at = datetime('now') where created_at is null;
+    create index if not exists duel_creation_requests_age_idx on duel_creation_requests(created_at);
   `);
   // Between games the loser chooses to go first or second (index into the series players, and 'first' | 'second').
   addColumnIfMissing(db, "duel_series", "first_chooser", "integer");

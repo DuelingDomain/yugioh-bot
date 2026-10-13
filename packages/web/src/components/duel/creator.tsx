@@ -20,7 +20,7 @@ import {
   type DuelMode,
   type DuelSettings,
 } from "@yugidraft/shared/duels";
-import { createDuel, type DuelPlayerOption } from "./api";
+import { createDuel, DuelRequestError, type DuelPlayerOption } from "./api";
 import { OpponentPicker } from "./opponent-picker";
 import { HostedTableNotice } from "./hosted-table-notice";
 import { TURN_TIMER_CHOICES } from "./turn-timer";
@@ -93,6 +93,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   multiDomainCoreReady?: boolean;
 } = {}) {
   const router = useRouter();
+  const [noticeVersion, setNoticeVersion] = useState(0);
   const [name, setName] = useState("Table");
   const [mode, setMode] = useState<DuelMode>("normal");
   const [format, setFormat] = useState<DuelFormat>("1v1");
@@ -158,16 +159,29 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
       if (opponent) {
         // Stay on this page so the challenge note and the link can be used; the room is one click away.
         setSent({ slug: session.slug, opponent: opponent.displayName, shareUrl });
+        setNoticeVersion(version => version + 1);
         setCreating(false);
         return;
       }
       navigatedToRoom.current = true;
       router.push(`/duels/${session.slug}`);
     } catch (cause) {
+      if (cause instanceof DuelRequestError && cause.status === 409) {
+        setNoticeVersion(version => version + 1);
+        creationRequest.current = null;
+      }
       setError(cause instanceof Error ? cause.message : "Could not create the game.");
       inFlight.current = false;
       setCreating(false);
     }
+  }
+
+  function onTableCancelled(slug: string) {
+    if (sent?.slug !== slug) return;
+    setSent(null);
+    setCopied(false);
+    inFlight.current = false;
+    creationRequest.current = null;
   }
 
   async function copyLink() {
@@ -209,7 +223,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
           <p className={ui.lede}>Set the rules once. They lock when the table opens and stay in match history.</p>
         </header>
 
-        <HostedTableNotice disabled={creating} />
+        <HostedTableNotice disabled={creating} refreshVersion={noticeVersion} onCancelled={onTableCancelled} />
 
         <div className={styles.layout}>
           <fieldset disabled={creating || sent != null} className={styles.sections}>

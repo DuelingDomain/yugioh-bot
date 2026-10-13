@@ -18,7 +18,8 @@ beforeEach(() => {
   duels = createDuelService(db);
 });
 afterEach(() => db.close());
-const create = (extra = {}) => duels.create({ guildId: "g", organizerPlayerId: host, name: "Table", mode: "normal", ...extra });
+const rawCreate = (extra = {}) => duels.create({ guildId: "g", organizerPlayerId: host, name: "Table", mode: "normal", ...extra });
+const create = (extra = {}) => duels.createRequest({ guildId: "g", organizerPlayerId: host, fingerprint: JSON.stringify(extra) }, () => ({ session: rawCreate(extra) })).session;
 
 describe("hosted table creation", () => {
   it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("replaces an empty %s lobby without a result", (format) => {
@@ -51,7 +52,7 @@ describe("hosted table creation", () => {
     expect(db.prepare("select count(*) as n from duels").get()).toEqual({ n: 1 });
   });
 
-  it("protects an opening and an active practice game", () => {
+  it("protects an opening but lets an active practice game remain", () => {
     const old = create();
     duels.addPracticeBot(old.slug, "g", host, deck);
     duels.setDeck(old.slug, "g", host, deck);
@@ -59,7 +60,7 @@ describe("hosted table creation", () => {
     expect(() => create()).toThrow(/already started|starting/i);
     duels.abortOpening(old.slug, "g");
     duels.activate(old.slug, "g", host, ["seed"], "bundle", null);
-    expect(() => create()).toThrow(/already started/i);
+    expect(create().status).toBe("lobby");
     expect(duels.get(old.slug, "g").status).toBe("active");
   });
 
@@ -117,8 +118,8 @@ describe("hosted table creation", () => {
     expect(duels.waitingHostedTable("g", host)).toMatchObject({ slug: old.slug, canReplace: false });
   });
 
-  it("expires abandoned empty tables at the existing 15-minute idle limit", () => {
-    const old = create({ bestOf: 3 });
+  it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("expires an abandoned empty %s table at 15 minutes", format => {
+    const old = create({ format });
     duels.addPracticeBot(old.slug, "g", host, deck);
     db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where id = ?").run(old.id);
     expect(duels.expireWaitingTables(Date.now(), 10).map(table => table.slug)).toEqual([old.slug]);
@@ -142,4 +143,72 @@ describe("hosted table creation", () => {
     expect(duels.expireWaitingTables(Date.now(), 10)).toEqual([]);
     expect(duels.get(old.slug, "g").status).toBe("lobby");
   });
+});
+
+
+it("keeps a pending named challenge, allows a new game, and lets the host cancel explicitly", () => {
+  const series = createDuelSeriesService(db);
+  const challenge = series.createChallenge({ guildId: "g", challengerPlayerId: host, opponentPlayerId: guest, bestOf: 3, ranked: false, mode: "normal" });
+  expect(duels.waitingHostedTable("g", host)).toMatchObject({ slug: challenge.duel.slug, canReplace: false, canCancel: true, reason: "challenge", opponentName: "Guest" });
+  db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where id = ?").run(challenge.duel.id);
+  expect(duels.expireWaitingTables(Date.now(), 10)).toEqual([]);
+  const open = create();
+  expect(duels.get(challenge.duel.slug, "g").status).toBe("lobby");
+  const next = create();
+  expect(duels.get(open.slug, "g").status).toBe("cancelled");
+  expect(duels.get(next.slug, "g").status).toBe("lobby");
+  duels.cancelWaiting(challenge.duel.slug, "g", host);
+  expect(duels.room(challenge.duel.slug, "g", host).series?.status).toBe("cancelled");
+});
+
+it("protects a named challenge once its opening starts", () => {
+  const challenge = createDuelSeriesService(db).createChallenge({ guildId: "g", challengerPlayerId: host, opponentPlayerId: guest, bestOf: 1, ranked: false, mode: "normal" });
+  duels.setDeck(challenge.duel.slug, "g", host, deck);
+  duels.setDeck(challenge.duel.slug, "g", guest, deck);
+  duels.startOpening(challenge.duel.slug, "g", host, Date.now());
+  expect(() => create()).toThrow(/already started/);
+  expect(() => duels.cancelWaiting(challenge.duel.slug, "g", host)).toThrow(/no longer/);
+});
+
+it("does not apply web replacement to low-level scenario and sandbox starts", () => {
+  const open = create();
+  const scenario = rawCreate();
+  duels.addPracticeBot(scenario.slug, "g", host, deck);
+  duels.setDeck(scenario.slug, "g", host, deck);
+  duels.activate(scenario.slug, "g", host, ["seed"], "bundle", null, { presetId: "test-preset" });
+  const sandbox = rawCreate();
+  expect(duels.get(open.slug, "g").status).toBe("lobby");
+  expect(sandbox.status).toBe("lobby");
+  create();
+  expect(duels.get(scenario.slug, "g").status).toBe("active");
+});
+
+it("rejects a repeated creation key once its table is cancelled", () => {
+  const input = { guildId: "g", organizerPlayerId: host, requestKey: "cancelled-key", fingerprint: "same" };
+  const first = duels.createRequest(input, () => ({ session: rawCreate() }));
+  duels.cancelWaiting(first.session.slug, "g", host);
+  expect(() => duels.createRequest(input, () => ({ session: rawCreate() }))).toThrow(/closed|new request/i);
+});
+
+it("removes creation request keys older than one day in the archive sweep", () => {
+  const input = { guildId: "g", organizerPlayerId: host, fingerprint: "same" };
+  const old = duels.createRequest({ ...input, requestKey: "retention-old" }, () => ({ session: rawCreate() }));
+  duels.createRequest({ ...input, requestKey: "retention-new" }, () => ({ session: rawCreate() }));
+  db.prepare("update duel_creation_requests set created_at = datetime('now', '-25 hours') where duel_id = ?").run(old.session.id);
+  duels.archiveDue(10, 0);
+  expect(db.prepare("select request_key from duel_creation_requests").all()).toEqual([{ request_key: "retention-new" }]);
+});
+
+
+
+it("adds request retention timestamps to an existing request table without losing its keys", () => {
+  const input = { guildId: "g", organizerPlayerId: host, requestKey: "before-migration", fingerprint: "same" };
+  const first = duels.createRequest(input, () => ({ session: rawCreate() }));
+  db.exec("drop index duel_creation_requests_age_idx; alter table duel_creation_requests drop column created_at");
+  migrate(db);
+  expect(db.prepare("select created_at from duel_creation_requests").get()).toEqual({ created_at: expect.any(String) });
+  const second = duels.createRequest(input, () => { throw new Error("must replay the stored request"); });
+  expect(second.session.slug).toBe(first.session.slug);
+  duels.archiveDue(10, 0);
+  expect(db.prepare("select count(*) as n from duel_creation_requests").get()).toEqual({ n: 1 });
 });

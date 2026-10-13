@@ -7,8 +7,11 @@ import { SheetButton } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./creator.module.css";
 
-export function HostedTableNotice({ disabled }: { disabled: boolean }) {
+export function HostedTableNotice({ disabled, refreshVersion = 0, onCancelled }: {
+  disabled: boolean; refreshVersion?: number; onCancelled?: (slug: string) => void;
+}) {
   const [table, setTable] = useState<Awaited<ReturnType<typeof getHostedWaitingTable>>["table"]>(null);
+  const [cancelVersion, setCancelVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
@@ -32,10 +35,10 @@ export function HostedTableNotice({ disabled }: { disabled: boolean }) {
       window.removeEventListener("focus", refresh);
       window.removeEventListener("popstate", refresh);
     };
-  }, []);
+  }, [refreshVersion, cancelVersion]);
 
   async function cancel() {
-    if (!table || table.canReplace === false || inFlight.current || disabled) return;
+    if (!table || !table.canCancel || inFlight.current || disabled) return;
     inFlight.current = true;
     ++sequence.current;
     setBusy(true);
@@ -44,6 +47,8 @@ export function HostedTableNotice({ disabled }: { disabled: boolean }) {
       await cancelWaitingDuel(table.slug);
       ++sequence.current;
       setTable(null);
+      setCancelVersion(version => version + 1);
+      onCancelled?.(table.slug);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not cancel the table.");
     } finally {
@@ -53,10 +58,15 @@ export function HostedTableNotice({ disabled }: { disabled: boolean }) {
   }
   if (!table) return null;
   return <aside className={styles.openTable} aria-label="Your open table">
-    <p>You already have an open table: <Link href={`/duels/${table.slug}`}>{table.name}</Link>. {table.canReplace === false
-      ? "Another player has joined or the game has started. Return to this table before creating a new game."
-      : "Creating a new game will close it."}</p>
-    <SheetButton kind="quiet" size="sm" disabled={disabled || busy || table.canReplace === false} loading={busy} onClick={() => void cancel()}>Cancel</SheetButton>
+    <p>{table.reason === "challenge" ? <>
+      Your challenge to {table.opponentName ?? "your opponent"} is still open: <Link href={`/duels/${table.slug}`}>{table.name}</Link>.
+      {" Creating a new game will keep this challenge open."}
+    </> : <>
+      You already have an open table: <Link href={`/duels/${table.slug}`}>{table.name}</Link>. {table.canReplace === false
+        ? "Another player has joined or the game has started. Return to this table before creating a new game."
+        : "Creating a new game will close it."}
+    </>}</p>
+    <SheetButton kind="quiet" size="sm" disabled={disabled || busy || !table.canCancel} loading={busy} onClick={() => void cancel()}>Cancel table</SheetButton>
     {error ? <p role="alert" className={ui.alert}>{error}</p> : null}
   </aside>;
 }

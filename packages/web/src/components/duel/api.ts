@@ -277,7 +277,7 @@ export async function createDuel(
   );
 }
 
-export async function getHostedWaitingTable(): Promise<{ table: (Pick<DuelSession, "slug" | "name"> & { canReplace: boolean }) | null }> {
+export async function getHostedWaitingTable(): Promise<{ table: (Pick<DuelSession, "slug" | "name"> & { canReplace: boolean; canCancel: boolean; reason: "empty" | "challenge" | "protected"; opponentName?: string }) | null }> {
   return parseBody(await fetch("/api/duels?hostedWaiting=1", { cache: "no-store" }));
 }
 

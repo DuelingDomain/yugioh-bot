@@ -9,7 +9,7 @@ vi.mock("@/components/duel/api", async original => ({ ...await original<object>(
 import { DuelCreator } from "@/components/duel/creator";
 beforeEach(() => {
   vi.clearAllMocks();
-  api.getHostedWaitingTable.mockResolvedValue({ table: { slug: "old", name: "My waiting table" } });
+  api.getHostedWaitingTable.mockResolvedValue({ table: { slug: "old", name: "My waiting table", canReplace: true, canCancel: true, reason: "empty" } });
   api.cancelWaitingDuel.mockResolvedValue({});
 });
 afterEach(cleanup);
@@ -18,7 +18,8 @@ it("shows the existing table, the replacement notice, and a Cancel button", asyn
   render(<DuelCreator />);
   expect(await screen.findByText(/You already have an open table:/)).toHaveTextContent("Creating a new game will close it.");
   expect(screen.getByRole("link", { name: "My waiting table" })).toHaveAttribute("href", "/duels/old");
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  api.getHostedWaitingTable.mockResolvedValue({ table: null });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel table" }));
   await waitFor(() => expect(api.cancelWaitingDuel).toHaveBeenCalledWith("old"));
   await waitFor(() => expect(screen.queryByText(/You already have an open table:/)).toBeNull());
 });
@@ -32,10 +33,10 @@ it("refreshes the notice when browser Back restores the creator", async () => {
 });
 
 it("links a protected table and explains why it cannot be replaced", async () => {
-  api.getHostedWaitingTable.mockResolvedValue({ table: { slug: "old", name: "My waiting table", canReplace: false } });
+  api.getHostedWaitingTable.mockResolvedValue({ table: { slug: "old", name: "My waiting table", canReplace: false, canCancel: false, reason: "protected" } });
   render(<DuelCreator />);
   expect(await screen.findByRole("link", { name: "My waiting table" })).toHaveAttribute("href", "/duels/old");
-  expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Cancel table" })).toBeDisabled();
   expect(screen.getByText(/Another player has joined or the game has started/)).toBeInTheDocument();
 });
 
@@ -70,4 +71,39 @@ it("allows a new request after browser Back returns from the created room", asyn
   fireEvent.click(button);
   await waitFor(() => expect(api.createDuel).toHaveBeenCalledTimes(2));
   expect(api.createDuel.mock.calls[1][4].requestKey).not.toBe(firstKey);
+});
+
+
+it("shows a pending challenge with an enabled Cancel table button", async () => {
+  api.getHostedWaitingTable.mockResolvedValue({ table: { slug: "old", name: "Challenge", canReplace: false, canCancel: true, reason: "challenge", opponentName: "Guest" } });
+  render(<DuelCreator />);
+  expect(await screen.findByText(/Your challenge to Guest is still open/)).toBeInTheDocument();
+  const cancel = screen.getByRole("button", { name: "Cancel table" });
+  expect(cancel).toBeEnabled();
+  fireEvent.click(cancel);
+  await waitFor(() => expect(api.cancelWaitingDuel).toHaveBeenCalledWith("old"));
+});
+
+it("refreshes the notice after a rejected create and prevents a stale cancel", async () => {
+  const { DuelRequestError } = await import("@/components/duel/api");
+  api.createDuel.mockRejectedValueOnce(new DuelRequestError("Another player joined", 409));
+  api.getHostedWaitingTable.mockResolvedValueOnce({ table: { slug: "old", name: "My waiting table", canReplace: true, canCancel: true, reason: "empty" } })
+    .mockResolvedValue({ table: { slug: "old", name: "My waiting table", canReplace: false, canCancel: false, reason: "protected" } });
+  render(<DuelCreator />);
+  await screen.findByRole("link", { name: "My waiting table" });
+  fireEvent.click(screen.getByRole("button", { name: /Create game/ }));
+  await waitFor(() => expect(api.getHostedWaitingTable).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole("button", { name: "Cancel table" })).toBeDisabled();
+});
+
+
+
+
+it("shows the next retained challenge after the host cancels the first notice", async () => {
+  api.getHostedWaitingTable.mockResolvedValueOnce({ table: { slug: "first", name: "First challenge", canReplace: false, canCancel: true, reason: "challenge", opponentName: "Guest" } })
+    .mockResolvedValue({ table: { slug: "second", name: "Second challenge", canReplace: false, canCancel: true, reason: "challenge", opponentName: "Other guest" } });
+  render(<DuelCreator />);
+  await screen.findByRole("link", { name: "First challenge" });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel table" }));
+  expect(await screen.findByRole("link", { name: "Second challenge" })).toHaveAttribute("href", "/duels/second");
 });

@@ -1923,15 +1923,20 @@ export function createDuelHost(options: {
     }
     const copts = compiled.options;
     const seatCount = seatCountFor(preset.format);
-    const created = service.create({
-      guildId,
-      organizerPlayerId: actor,
-      name: preset.title,
-      mode: copts.mode ?? "normal",
-      masterRule: copts.masterRule,
-      settings: copts.settings,
-      format: preset.format,
-    });
+    // Mark a scenario before engine startup yields, so a web create cannot replace its temporary lobby.
+    const created = options.db.transaction(() => {
+      const session = service.create({
+        guildId,
+        organizerPlayerId: actor,
+        name: preset.title,
+        mode: copts.mode ?? "normal",
+        masterRule: copts.masterRule,
+        settings: copts.settings,
+        format: preset.format,
+      });
+      service.setSetup(session.slug, guildId, { presetId: preset.id, scenarioId: preset.id });
+      return session;
+    }).immediate();
     const slug = created.slug;
     let game: DuelGameWorker | undefined;
     try {

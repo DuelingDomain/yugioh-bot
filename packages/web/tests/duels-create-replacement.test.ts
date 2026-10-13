@@ -112,3 +112,27 @@ it("replaces an empty table with a challenge and deduplicates the challenge requ
   expect(duels.get(old.slug, "g").status).toBe("cancelled");
   expect(db.prepare("select count(*) as n from duel_series").get()).toEqual({ n: 1 });
 });
+
+
+it("returns 409 for a retry whose original table was replaced, then accepts a fresh key", async () => {
+  const first = await POST(request("first-tab-key"));
+  const { session: old } = await first.json();
+  expect((await POST(request("second-tab-key"))).status).toBe(201);
+  expect(duels.get(old.slug, "g")).toMatchObject({ status: "cancelled", resultReason: "This table was replaced by a new table from its host." });
+  const retry = await POST(request("first-tab-key"));
+  expect(retry.status).toBe(409);
+  expect((await retry.json()).error).toMatch(/closed table/);
+  expect((await POST(request("fresh-tab-key"))).status).toBe(201);
+});
+
+it("keeps a pending challenge when creating an open table and allows explicit notice cancellation", async () => {
+  const first = await POST(request("pending-challenge", { opponentPlayerId: guest, bestOf: 3 }));
+  const { session: challenge } = await first.json();
+  const notice = await GET(new NextRequest("http://localhost/api/duels?hostedWaiting=1"));
+  expect(await notice.json()).toMatchObject({ table: { slug: challenge.slug, reason: "challenge", canReplace: false, canCancel: true, opponentName: "Guest" } });
+  expect((await POST(request("open-after-challenge"))).status).toBe(201);
+  expect(duels.get(challenge.slug, "g").status).toBe("lobby");
+  const response = await cancelWaiting(new Request("http://localhost/cancel-waiting", { method: "POST" }), { params: Promise.resolve({ slug: challenge.slug }) });
+  expect(response.status).toBe(200);
+  expect(duels.room(challenge.slug, "g", host).series?.status).toBe("cancelled");
+});

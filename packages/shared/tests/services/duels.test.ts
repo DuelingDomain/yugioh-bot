@@ -349,7 +349,7 @@ describe("duel persistence invariants", () => {
       expect((error as DuelServiceError).status).toBe(409);
     }
 
-    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p2, name: "Open", mode: "normal" });
+    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Open", mode: "normal" });
     const spectatorLobby = app.duels.room(lobby.slug, "g1", app.p3);
     expect(spectatorLobby.role).toBe("spectator");
     expect(spectatorLobby.mySeat).toBeNull();
@@ -478,7 +478,6 @@ describe("practice bot seats", () => {
       expect((error as DuelServiceError).status).toBe(409);
     }
 
-    app.duels.cancel(session.slug, "g1", app.p1);
     const open = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Open", mode: "normal" });
     app.duels.addPracticeBot(open.slug, "g1", app.p1, validDeck(9000));
     try {
@@ -629,7 +628,7 @@ describe("duel snapshots archive and cancel", () => {
 
   it("keeps live listing separate from archived history and forbids active archive", () => {
     const app = setup();
-    const liveLobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p3, name: "Live", mode: "normal" });
+    const liveLobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Live", mode: "normal" });
     const finished = readyDuel(app);
     start(app, finished.slug);
     app.duels.complete(finished.slug, "g1", 0, "life points", {
@@ -644,7 +643,7 @@ describe("duel snapshots archive and cancel", () => {
     expect(app.duels.list("g1", app.p1, { archived: true }).map((row) => row.slug)).toEqual([finished.slug]);
 
     try {
-      app.duels.archive(liveLobby.slug, "g1", app.p3);
+      app.duels.archive(liveLobby.slug, "g1", app.p1);
       throw new Error("expected lobby archive to fail");
     } catch (error) {
       expect((error as DuelServiceError).status).toBe(409);
@@ -753,7 +752,6 @@ describe("duel snapshots archive and cancel", () => {
     app.db.prepare("update duels set ranked = 1 where id = ?").run(ranked.id);
     start(app, ranked.slug);
     expect(() => app.duels.cancel(ranked.slug, "g1", app.p1)).toThrow();
-    app.duels.complete(ranked.slug, "g1", 0, "Surrender");
     const finished = readyDuel(app);
     start(app, finished.slug);
     app.duels.complete(finished.slug, "g1", 0, "Surrender");
@@ -1047,7 +1045,7 @@ describe("duel lobby listing, history and leave", () => {
 
   it("shows accessible lobbies and hides idle duels but keeps own tables", () => {
     const app = setup();
-    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p2, name: "Lobby", mode: "normal" });
+    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
     const active = readyDuel(app);
     start(app, active.slug);
 
@@ -1061,7 +1059,7 @@ describe("duel lobby listing, history and leave", () => {
       .run(active.slug);
     expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toEqual([lobby.slug]);
     expect(app.duels.list("g1", app.p1).map((row) => row.slug)).toContain(active.slug);
-    expect(app.duels.list("g1", app.p2).map((row) => row.slug).sort()).toEqual([active.slug, lobby.slug].sort());
+    expect(app.duels.list("g1", app.p2).map((row) => row.slug)).toEqual([active.slug, lobby.slug]);
     expect(app.duels.list("g1", app.p3, { idleAfterMs: 20 * 60 * 1000 }).map((row) => row.slug).sort()).toEqual([active.slug, lobby.slug].sort());
     expect(DUEL_LIVE_IDLE_AFTER_MS).toBe(15 * 60 * 1000);
   });

@@ -116,7 +116,7 @@ describe("callDuelHost error messages", () => {
     const host = await loadHost();
     vi.spyOn(host, "requireDuelActor").mockResolvedValue({
       ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
-      duels: { room: () => ({ session: { status: "lobby" } }) } as never,
+      duels: { touchWaiting: vi.fn(), room: () => ({ session: { status: "lobby" } }) } as never,
     });
     const { NextRequest } = await import("next/server");
     const request = new NextRequest("http://web.test/api/duels/abc", { method: "POST", body: "{}" });
@@ -134,7 +134,7 @@ describe("callDuelHost error messages", () => {
     const host = await loadHost();
     vi.spyOn(host, "requireDuelActor").mockResolvedValue({
       ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
-      duels: { room: () => ({ session: payload.session, mySeat: 0,
+      duels: { touchWaiting: vi.fn(), room: () => ({ session: payload.session, mySeat: 0,
         series: state === "between_games" ? { status: "between_games" } : null }) } as never,
     });
     const { GET } = await import("../app/api/duels/[slug]/route");
@@ -152,7 +152,7 @@ describe("callDuelHost error messages", () => {
     const host = await loadHost();
     vi.spyOn(host, "requireDuelActor").mockResolvedValue({
       ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
-      duels: { room: () => ({ session: payload.session, mySeat: 1 }) } as never,
+      duels: { touchWaiting: vi.fn(), room: () => ({ session: payload.session, mySeat: 1 }) } as never,
     });
     const { GET } = await import("../app/api/duels/[slug]/route");
     const response = await GET(new Request("http://web.test/api/duels/next-game"), { params: Promise.resolve({ slug: "next-game" }) });
@@ -168,7 +168,7 @@ describe("callDuelHost error messages", () => {
     const host = await loadHost();
     vi.spyOn(host, "requireDuelActor").mockResolvedValue({
       ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
-      duels: { room: () => local } as never,
+      duels: { touchWaiting: vi.fn(), room: () => local } as never,
     });
     const { GET } = await import("../app/api/duels/[slug]/route");
     const response = await GET(new Request("http://web.test/api/duels/abc"), { params: Promise.resolve({ slug: call.slug }) });
@@ -286,7 +286,7 @@ describe("callDuelHost error messages", () => {
     const host = await loadHost();
     vi.spyOn(host, "requireDuelActor").mockResolvedValue({
       ok: true, guildId: call.guildId, playerId: call.playerId, userId: 7,
-      duels: { room: () => ({ session: { status: "active" } }) } as never,
+      duels: { touchWaiting: vi.fn(), room: () => ({ session: { status: "active" } }) } as never,
     });
     const context = { params: Promise.resolve({ slug: call.slug }) };
     let response: Response;
