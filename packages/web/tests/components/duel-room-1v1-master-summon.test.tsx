@@ -17,7 +17,7 @@ const { state, moveFx, summonFx } = vi.hoisted(() => ({
   state: { room: null as DuelRoom | null },
   moveFx: vi.fn(), summonFx: vi.fn(),
 }));
-vi.mock("swr", () => ({ default: () => ({ data: state.room, error: null, isLoading: false, mutate: vi.fn(async () => {}) }) }));
+vi.mock("swr", () => ({ useSWRConfig: () => ({ mutate: () => Promise.resolve() }), default: () => ({ data: state.room, error: null, isLoading: false, mutate: vi.fn(async () => {}) }) }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font, Barlow_Condensed: font, Barlow_Semi_Condensed: font };
