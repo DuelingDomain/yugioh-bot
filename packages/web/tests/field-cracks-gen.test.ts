@@ -39,8 +39,8 @@ const ONE_V_ONE: FieldLayout = (() => {
 /** Domain extra zones: the shared EMZ band sits across two facing halves (Tag). */
 const TAG: FieldLayout = grid(7, 4, 70, 98, 10, 10, [[10 + 2 * 80, 10 + 2 * 108 - 4, 10 + 2 * 80 + 70, 10 + 2 * 108 + 90]]);
 /** Pendulum zones: the two outer spell/trap slots double as pendulum slots, drawn as taller zones on the outer columns of a third row. */
-const PEND: { w: number; h: number; zones: Rect[] } = grid(5, 2, 76, 108, 12, 14, [[14, 14 + 2 * 120, 14 + 76, 14 + 2 * 120 + 100], [14 + 4 * 88, 14 + 2 * 120, 14 + 4 * 88 + 76, 14 + 2 * 120 + 100]]);
-PEND.h = 14 + 3 * 120 + 14;
+const PEND_BASE = grid(5, 2, 76, 108, 12, 14, [[14, 14 + 2 * 120, 14 + 76, 14 + 2 * 120 + 100], [14 + 4 * 88, 14 + 2 * 120, 14 + 4 * 88 + 76, 14 + 2 * 120 + 100]]);
+const PEND: FieldLayout = { ...PEND_BASE, h: 14 + 3 * 120 + 14 };
 
 const LAYOUTS: Record<string, FieldLayout> = {
   demo: DEMO,
