@@ -23,16 +23,25 @@ function ydke(main: number[], extra: number[], side: number[]) {
   return `ydke://${encode(main)}!${encode(extra)}!${encode(side)}!`;
 }
 describe("deck import type routing", () => {
-  it.each(["YDK", "name list", "passcode list"])("keeps all sections in a 70-card Domain %s import without catalog rows", async format => {
+  it.each(["YDK", "YDKE", "name list", "passcode list"])("keeps all sections in a 70-card Domain %s import without catalog rows", async format => {
     const fetch = vi.fn(async () => { throw new Error("Offline"); });
     const offline = createCardCatalogService(db, { fetch, identityCatalog: domainEngine });
-    const text = format === "YDK" ? domainYdk : format === "name list" ? domainList : domainYdk.replace("#main", "Main:").replace("#extra", "Extra:").replace("!side", "Side:");
+    const text = format === "YDK" ? domainYdk : format === "YDKE" ? ydke(domainDeck.main, domainDeck.extra, [domainDeck.deckMaster]) : format === "name list" ? domainList : domainYdk.replace("#main", "Main:").replace("#extra", "Extra:").replace("!side", "Side:");
     const result = await resolveDeckImport(offline, text, "domain", domainEngine);
     // Printed names resolve to the base artwork; the YDK keeps the selected artwork.
-    const expected = format === "name list" ? { ...domainDeck, extra: domainDeck.extra.map(code => domainEngine.get(code)!.alias || code) } : domainDeck;
+    const expected = format === "YDKE" ? { ...domainDeck, side: [domainDeck.deckMaster], deckMaster: undefined } : format === "name list" ? { ...domainDeck, extra: domainDeck.extra.map(code => domainEngine.get(code)!.alias || code) } : domainDeck;
     expect(result.deck).toEqual(expected);
     expect(result.moves).toEqual([]);
     expect(result.messages).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("resolves an engine-only printed name with a leading number offline", async () => {
+    const engine = new Map([[86188410, { name: "7 Colored Fish", type: 17 }]]);
+    const fetch = vi.fn(async () => { throw new Error("Offline"); });
+    const offline = createCardCatalogService(db, { fetch, identityCatalog: engine });
+    const result = await resolveDeckImport(offline, "Main:\n7 Colored Fish", "domain", engine);
+    expect(result.deck.main).toEqual([86188410]);
+    expect(result.moves).toEqual([]);
     expect(fetch).not.toHaveBeenCalled();
   });
   it("keeps a named card with unknown type in Extra on import", async () => {

@@ -44,12 +44,13 @@ export async function resolveImportedCardList(catalog: CardCatalogService, text:
     }
   }
   const engineName = (name: string) => engineNames.get(normalizeImportedCardName(name));
-  const cachedNames = [...new Set(parsed.filter(entry => typeof entry.query !== "string" || !engineName(entry.query)).flatMap((entry) => !entry.heading && typeof entry.query === "string"
-    ? [entry.query, ...(entry.fallbackName ? [entry.fallbackName] : [])] : []))];
+  const cachedNames = [...new Set(parsed.flatMap((entry) => !entry.heading && typeof entry.query === "string"
+    ? [entry.query, ...(entry.fallbackName ? [entry.fallbackName] : [])] : []).filter(name => !engineName(name)))];
   const cached = new Map((await catalog.resolveCardNames(cachedNames, { cacheOnly: true })).map((result) => [result.name, result]));
   // A cached printed name such as 7 Colored Fish must work even when the upstream is offline.
   const preferFullName = new Set(parsed.filter((entry) => typeof entry.query === "string" && entry.fallbackName
-    && !cached.get(entry.query)?.card && cached.get(entry.fallbackName)?.card));
+    && !engineName(entry.query) && !cached.get(entry.query)?.card
+    && (engineName(entry.fallbackName) || cached.get(entry.fallbackName)?.card)));
   // The lookup budget is shared, and a misspelt name costs extra probes. Counted lines come first so section
   // titles and prose in a pasted Doc cannot use up the budget before the real cards are looked up.
   const nameEntries = parsed.filter((entry) => !entry.heading && !preferFullName.has(entry) && typeof entry.query === "string" && !engineName(entry.query));
@@ -57,7 +58,7 @@ export async function resolveImportedCardList(catalog: CardCatalogService, text:
     .map((entry) => entry.query as string))];
   const resolutions = new Map((await catalog.resolveCardNames(names, { lookupBudget })).map((result) => [result.name, result]));
   const fallbackNames = [...new Set(parsed.flatMap((entry) => typeof entry.query === "string"
-    && !preferFullName.has(entry) && !resolutions.get(entry.query)?.card && entry.fallbackName ? [entry.fallbackName] : []))];
+    && !preferFullName.has(entry) && !engineName(entry.query) && !resolutions.get(entry.query)?.card && entry.fallbackName ? [entry.fallbackName] : []).filter(name => !engineName(name)))];
   const fallbacks = new Map((await catalog.resolveCardNames(fallbackNames, { lookupBudget })).map((result) => [result.name, result]));
   const codes = [...new Set(parsed.flatMap((entry) => typeof entry.query === "number" ? [entry.query] : []))];
   const catalogCodes = codes.filter(code => !engine?.has(code) && !find?.(code));
@@ -82,7 +83,8 @@ export async function resolveImportedCardList(catalog: CardCatalogService, text:
     // Fallback printed names must match exactly after normalization, never through typo correction.
     const fallback = entry.fallbackName
       ? (preferFullName.has(entry) ? cached.get(entry.fallbackName) : fallbacks.get(entry.fallbackName)) : undefined;
-    const fallbackCard = fallback && !fallback.corrected ? fallback.card : undefined;
+    const fallbackCard = (entry.fallbackName && engineName(entry.fallbackName))
+      || (fallback && !fallback.corrected ? fallback.card : undefined);
     const card = typeof entry.query === "number" ? byCode.get(entry.query) : engineName(entry.query) ?? resolution?.card ?? fallbackCard;
     if (!card) { unknown.add(entry.original); continue; }
     if (resolution?.corrected) corrected.set(resolution.corrected.from, resolution.corrected);

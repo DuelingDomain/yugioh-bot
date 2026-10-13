@@ -314,7 +314,7 @@ function loadCatalog(dataDirectory: string): Catalog {
   try {
     const rows = db
       .prepare(
-        "SELECT datas.id, datas.ot, datas.alias, datas.setcode, datas.type, datas.race, datas.attribute, texts.name, texts.desc FROM datas LEFT JOIN texts USING (id)",
+        "SELECT datas.id, datas.ot, datas.alias, datas.setcode, datas.type, datas.race, datas.attribute, texts.name, texts.desc FROM datas JOIN texts USING (id)",
       )
       .all() as Array<{
       id: bigint;

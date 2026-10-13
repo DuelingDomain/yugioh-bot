@@ -83,7 +83,7 @@ afterEach(() => {
 
 const region = (name: string) => screen.getByRole("region", { name: `${name} Deck` });
 const cardsIn = (name: string) => within(region(name)).queryAllByRole("button", { name: new RegExp(`${name} Deck card`) });
-const namesIn = (name: string) => cardsIn(name).map((button) => button.getAttribute("aria-label")!.split(",")[0]);
+const namesIn = (name: string) => cardsIn(name).map((button) => button.getAttribute("aria-label")!.split(/, (?:Main|Extra|Side) Deck card /)[0]);
 const notice = () => screen.getAllByRole("status").map((node) => node.textContent).join(" | ");
 const rightClick = (element: Element, init: { ctrlKey?: boolean } = {}) => {
   fireEvent.pointerDown(element, { pointerType: "mouse", button: 2, ...init });
@@ -146,7 +146,7 @@ describe("Extra Deck rule: drag from the card list", () => {
     expect(notice()).toContain(message);
   });
 
-  it.each([FUSION, SYNCHRO, XYZ, LINK])("takes $name in the Extra Deck", async (subject) => {
+  it.each([FUSION, SYNCHRO, XYZ, LINK, MAGIA, FAIRY, ALT_ART, PRE_RELEASE])("takes $name in the Extra Deck", async (subject) => {
     render(<SavedDeckEditor />);
     const held = drag(await tile(subject.name));
     expect(held.over(region("Extra"))).toBe(true);
@@ -247,6 +247,13 @@ describe("Extra Deck rule: drag inside the deck", () => {
 });
 
 describe("Extra Deck rule: add and move actions", () => {
+  it.each([MAGIA, ALT_ART, PRE_RELEASE])("moves engine card $name from Side to Extra", async subject => {
+    await renderStored({ side: [subject.code] });
+    fireEvent.click(cardsIn("Side")[0]!, { detail: 1, ctrlKey: true });
+    expect(namesIn("Side")).toEqual([]);
+    expect(namesIn("Extra")).toEqual([subject.name]);
+    expect(cardsIn("Main")).toHaveLength(0);
+  });
   it.each([MAGIA, ALT_ART, PRE_RELEASE])("keeps engine Extra card $name when Fairy Life Dragon is added and saved", async entry => {
     await renderStored({ extra: [entry.code] });
     fireEvent.doubleClick(await tile(FAIRY.name));
