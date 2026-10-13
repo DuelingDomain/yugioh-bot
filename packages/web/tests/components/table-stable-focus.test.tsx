@@ -162,17 +162,16 @@ describe("the focused field only changes when the viewer asks", () => {
     expect(chip(container)).toBe("Home");
   });
 
-  it("a 3-way with two seats left keeps the focus the viewer chose: the table never moves the camera itself", () => {
+  it("a 3-way with two seats left is a face-off, which has one view: the only change the table makes itself", () => {
     const focused = { mode: "focus", focusSeat: RYO } as const;
     const { container, rerender } = render(<Table state={variant(() => {})} camera={focused} />);
-    const before = chip(container);
     rerender(<Table state={variant((engine) => {
       const mika = engine.seats[MIKA];
       mika.lp = 0;
       mika.eliminated = true;
     })} camera={focused} />);
     advance(3000);
-    expect(chip(container)).toBe(before);
+    expect(chip(container)).toBe("Home");
   });
 });
 

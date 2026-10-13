@@ -29,10 +29,12 @@ export interface PlazaProps {
   hidden?: ReadonlySet<number>;
   /** Pads of seats that just left, on their way out. */
   exits?: readonly PlazaExit[];
+  /** The seats regroup after an elimination: the pads wait for the crumble and glide with the boards. */
+  glide?: boolean;
   reducedMotion?: boolean;
 }
 
-export function Plaza({ layout, poses, fly = false, hidden, exits = [], reducedMotion = false }: PlazaProps) {
+export function Plaza({ layout, poses, fly = false, hidden, exits = [], glide = false, reducedMotion = false }: PlazaProps) {
   const padStyle = (pose: SeatPose, tone: SeatTone): CSSProperties & Record<string, string | number> => ({
     left: pose.x,
     top: pose.y,
@@ -42,7 +44,7 @@ export function Plaza({ layout, poses, fly = false, hidden, exits = [], reducedM
     scale: pose.scale,
   });
   return (
-    <div className={styles.plaza} data-plaza data-fly={fly ? "true" : undefined} aria-hidden="true">
+    <div className={styles.plaza} data-plaza data-fly={fly ? "true" : undefined} data-glide={glide ? "true" : undefined} aria-hidden="true">
       <div className={styles.space}>
         {[-1, 1].map((side) => (
           <svg key={side} className={styles.skyline} data-wing viewBox="0 0 1100 170" preserveAspectRatio="none" aria-hidden="true" style={{ left: side * STAGE.width, scale: "-1 1" }}>
