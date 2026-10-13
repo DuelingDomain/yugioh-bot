@@ -40,7 +40,7 @@ import { PUT as updateDeck } from "../packages/web/app/api/decks/[id]/route";
 import { fixMisplaced, placementBlock, type CardCatalog } from "../packages/web/src/components/decks/model";
 
 type EngineCard = { id: number; alias: number; type: number; name: string; level: number; atk: number; def: number; attribute: number; race: number; desc: string };
-type Fixture = { name: string; mode: DuelMode; deck: DuelDeck; bad?: number; misplaced?: true };
+type Fixture = { name: string; mode: DuelMode; deck: DuelDeck; bad?: number; misplaced?: true; overflow?: true; unknown?: true };
 const dataDirectory = process.env.DUEL_DATA_DIR;
 const secret = "verify-deck-import-only";
 const paths = ["YDK", "YDKE", "names", "passcodes", "bulk preview", "bulk YDKE", "bulk save", "save", "PUT", "editor", "validateExtraDeckTypes", "Ready"] as const;
@@ -52,6 +52,8 @@ let directory: string;
 let serial = 0;
 let decks: ReturnType<typeof createSavedDeckService>;
 let engineHash: string;
+const fixtureCount = 10;
+const knownType = (type: number) => (type & (1 | 2 | 4 | 0x8000000)) !== 0;
 const sections = ["main", "extra", "side"] as const;
 // Independent numeric expectation. Do not derive expected sections from the lookup under test.
 const extraType = (type: number) => (type & 1) !== 0 && (type & (0x40 | 0x2000 | 0x800000 | 0x4000000)) !== 0;
@@ -91,13 +93,17 @@ beforeAll(() => {
     { name: "Spell in Extra", mode: "normal", bad: 55144522, deck: { main: blueMain, extra: [...blueExtra.slice(0, 14), 55144522], side: [] } },
     { name: "Ten scan cards", mode: "normal", deck: { main: blueMain, extra: scanExtra, side } },
     { name: "Misplaced cards", mode: "normal", misplaced: true, deck: misplaced },
+    { name: "Extra monsters in Main", mode: "normal", deck: { main: [...blueMain, ...mixedExtra], extra: [], side: [] } },
+    { name: "Extra overflow", mode: "normal", overflow: true, deck: { main: [...blueMain, 12381100], extra: mixedExtra, side: [] } },
+    { name: "Explicit Side Extra monsters", mode: "normal", deck: { main: blueMain, extra: mixedExtra.slice(0, 12), side: [12381100, 43321985, 1861629] } },
+    { name: "Unknown engine types", mode: "normal", unknown: true, deck: { main: [...blueMain, 9995767], extra: [...mixedExtra.slice(0, 14), 10000120], side: [10000110] } },
   ];
   for (const fixture of fixtures) {
     for (const code of [...fixture.deck.main, ...fixture.deck.extra, ...fixture.deck.side, ...(fixture.deck.deckMaster ? [fixture.deck.deckMaster] : [])]) {
       expect(engine.has(code), `Real engine card ${code}`).toBe(true);
     }
     expect(fixture.deck.main.length).toBeGreaterThanOrEqual(40);
-    expect(fixture.deck.main.length).toBeLessThanOrEqual(60);
+    expect(fixture.deck.main.length).toBeLessThanOrEqual(fixture.overflow ? 61 : 60);
     expect(fixture.deck.extra.length).toBeLessThanOrEqual(15);
   }
   expect(fixtures[0].deck.main.length + fixtures[0].deck.extra.length + fixtures[0].deck.side.length + 1).toBe(70);
@@ -142,13 +148,17 @@ function textFor(deck: DuelDeck, kind: "YDK" | "names" | "passcodes") {
   return [...(deck.deckMaster ? ["#deckmaster", label(deck.deckMaster)] : []), ...sections.flatMap(section => [marker(section), ...deck[section].map(label)])].join("\n");
 }
 function expected(fixture: Fixture, names = false, ydke = false, route = false): DuelDeck {
-  const map = (code: number) => names ? engine.get(code)!.alias || code : code;
+  const map = (code: number) => {
+    const card = engine.get(code)!;
+    return names && card.alias && engine.get(card.alias)?.name === card.name ? card.alias : code;
+  };
   const raw = fixture.deck;
   const deck: DuelDeck = { main: raw.main.map(map), extra: raw.extra.map(map), side: raw.side.map(map) };
   if (raw.deckMaster && !ydke) deck.deckMaster = map(raw.deckMaster);
   if (!route) return deck;
-  const ordered = [...deck.main, ...deck.extra];
-  return { ...deck, main: ordered.filter(code => !extraType(engine.get(code)!.type)), extra: ordered.filter(code => extraType(engine.get(code)!.type)) };
+  return { ...deck,
+    main: [...deck.main.filter(code => !knownType(engine.get(code)!.type) || !extraType(engine.get(code)!.type)), ...deck.extra.filter(code => knownType(engine.get(code)!.type) && !extraType(engine.get(code)!.type))],
+    extra: [...deck.main.filter(code => knownType(engine.get(code)!.type) && extraType(engine.get(code)!.type)), ...deck.extra.filter(code => !knownType(engine.get(code)!.type) || extraType(engine.get(code)!.type))] };
 }
 function assertDeck(actual: DuelDeck, wanted: DuelDeck) {
   for (const section of sections) expect(actual[section], section).toEqual(wanted[section]);
@@ -165,7 +175,7 @@ function seedStaleCatalog() {
 }
 
 describe.each(["empty", "stale"])("real engine deck imports: %s catalog", cache => {
-  for (let index = 0; index < 6; index++) {
+  for (let index = 0; index < fixtureCount; index++) {
     describe(`deck ${index + 1}`, () => {
       it.each(paths)("%s", async path => {
         const fixture = fixtures[index];
@@ -173,13 +183,21 @@ describe.each(["empty", "stale"])("real engine deck imports: %s catalog", cache 
         results.push(result);
         if (cache === "stale") seedStaleCatalog();
         const invalid = fixture.deck.extra.filter(code => !extraType(engine.get(code)!.type));
+        const moved = sections.slice(0, 2).flatMap(section => fixture.deck[section].filter(code => knownType(engine.get(code)!.type) && (extraType(engine.get(code)!.type) ? section === "main" : section === "extra")));
+        const assertMessages = (messages: unknown) => {
+          const text = JSON.stringify(messages);
+          for (const code of moved) expect(text).toContain(engine.get(code)!.name);
+          if (fixture.unknown) for (const code of [9995767, 10000120, 10000110]) expect(text).toContain(engine.get(code)!.name);
+          if (fixture.overflow) expect(text).toMatch(/Extra.*15/);
+        };
         if (path === "YDK" || path === "YDKE" || path === "names" || path === "passcodes") {
           const response = await importDeck(request({ mode: fixture.mode, text: path === "YDKE" ? encodeYdke(fixture.deck) : textFor(fixture.deck, path) }));
           expect(response.status).toBe(200);
           const body = await response.json();
           expect(body.mode).toBe(fixture.mode);
           assertDeck(body.deck, expected(fixture, path === "names", path === "YDKE", true));
-          expect(body.moves).toHaveLength(invalid.length + (fixture.misplaced ? 1 : 0));
+          expect(body.moves).toHaveLength(moved.length);
+          assertMessages(body.messages);
           for (const move of body.moves) expect(body.messages.join(" ")).toContain(engine.get(move.code)!.name);
         } else if (path === "bulk preview" || path === "bulk YDKE") {
           const isYdke = path === "bulk YDKE";
@@ -189,10 +207,16 @@ describe.each(["empty", "stale"])("real engine deck imports: %s catalog", cache 
           expect(row.errors).toEqual([]);
           const wanted = expected(fixture, false, isYdke, true);
           assertDeck(row.deck, wanted);
+          assertMessages(row.warnings);
           for (const code of invalid) expect(JSON.stringify(row.warnings)).toContain(engine.get(code)!.name);
           const saved = await bulk(request({ rows: [row] }));
-          expect(saved.status).toBe(200);
+          expect(saved.status).toBe(fixture.unknown ? 400 : 200);
           const body = await saved.json();
+          if (fixture.unknown) {
+            expect(body.error).toContain(engine.get(10000120)!.name);
+            result.result = "PASS";
+            return;
+          }
           expect(body.failed).toEqual([]);
           assertDeck(decks.get(body.created[0].id, boundary.guildId, boundary.actor.ownerUserId as number).deck, wanted);
         } else if (path === "bulk save" || path === "save" || path === "PUT") {
@@ -215,14 +239,15 @@ describe.each(["empty", "stale"])("real engine deck imports: %s catalog", cache 
             expect(response.status).toBe(path === "save" ? 201 : 200);
             if (path === "bulk save") {
               expect(body.failed).toEqual([]);
-              assertDeck(decks.get(body.created[0].id, boundary.guildId, boundary.actor.ownerUserId as number).deck, expected(fixture));
+              assertDeck(decks.get(body.created[0].id, boundary.guildId, boundary.actor.ownerUserId as number).deck, expected(fixture, false, false, true));
+              assertMessages(body.warnings);
             } else assertDeck(body.deck.deck, expected(fixture));
           }
         } else if (path === "editor") {
           const catalog = engine as unknown as CardCatalog;
           for (const section of sections) for (const code of fixture.deck[section]) {
             const card = engine.get(code)!;
-            const misplaced = section !== "side" && (extraType(card.type) ? section !== "extra" : section !== "main");
+            const misplaced = knownType(card.type) && section !== "side" && (extraType(card.type) ? section !== "extra" : section !== "main");
             const refusal = placementBlock(card, section, section);
             if (misplaced) expect(refusal).toContain(card.name);
             else expect(refusal).toBeNull();
@@ -292,5 +317,15 @@ describe("real import routes with a damaged remap file", () => {
     expect(updated.status).toBe(200);
     assertDeck((await updated.json()).deck.deck, fixture.deck);
     expect(boundary.db.prepare("select count(*) as n from card_catalog").get()).toEqual({ n: 0 });
+  });
+});
+
+// A list without Side markers cannot send any Extra monster to Side.
+describe.each(["names", "passcodes"] as const)("bare %s list", kind => {
+  it("puts every known Extra monster in Extra without a Side section", async () => {
+    const text = [...blueMain, ...mixedExtra].map(code => kind === "names" ? `${engine.get(code)!.name} x1` : String(code)).join("\n");
+    const response = await importDeck(request({ mode: "normal", text }));
+    expect(response.status).toBe(200);
+    assertDeck((await response.json()).deck, expected({ name: "bare", mode: "normal", deck: { main: [...blueMain, ...mixedExtra], extra: [], side: [] } }, kind === "names", false, true));
   });
 });

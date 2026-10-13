@@ -634,7 +634,9 @@ describe("preview", () => {
     const rows = await previewRows([source(`#main\n${"89631139\n".repeat(301)}`), source(`#main\n89631139\n#extra\n${"44508094\n".repeat(16)}!side\n${"14558127\n".repeat(16)}`, "f2")]);
     expect(rows[0].errors).toContainEqual(expect.objectContaining({ code: "invalid_deck" }));
     expect(rows[1].errors).toEqual([]);
-    expect(rows[1].warnings.map((w: { code: string }) => w.code)).toEqual(["unknown_card_type", "main_size", "extra_size", "side_size"]);
+    expect(rows[1].warnings.map((w: { code: string }) => w.code)).toEqual(["extra_size", "unknown_card_type", "unknown_card_type", "main_size", "side_size"]);
+    expect(rows[1].deck.extra).toHaveLength(16);
+    expect(rows[1].warnings[0].message).toContain("15");
   });
 
   it("reports rejected Domain masters using the ordinary save rule", async () => {
@@ -701,11 +703,13 @@ describe("bulk", () => {
     } });
     const response = await bulk(request({ rows: [row("Good"), row("Unknown Extra", { main: [], extra: [999], side: [] })] }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    const result = await response.json();
+    expect(result).toMatchObject({
       created: [{ id: expect.any(Number), name: "Good" }],
       failed: [{ index: 1, errors: [{ code: limited ? "lookup_limited" : "unknown_card",
         message: limited ? "lookup limit reached, try again" : "Unknown card 999", passcode: 999 }] }],
     });
+    expect(result.warnings).toContainEqual({ index: 0, warnings: [{ code: "unknown_card_type", message: expect.stringContaining("89631139") }] });
     expect(decks.list("g", 1).map(saved => saved.name)).toEqual(["Good"]);
   });
 
