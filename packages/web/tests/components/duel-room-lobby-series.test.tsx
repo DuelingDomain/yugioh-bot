@@ -60,7 +60,7 @@ describe("RoomLobby for a tournament game", () => {
     fireEvent.click(screen.getByRole("button", { name: "Not ready" }));
     expect(handlers.onMarkUnready).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: "Ready" })).toBeNull();
-    expect(screen.getByRole("status").textContent).toContain("Click Not ready if you need to step away.");
+    expect(screen.getByText(/Click Not ready if you need to step away\./)).toHaveAttribute("role", "status");
   });
 
   it.each([0, 1, null])("hides cancellation for tournament viewer in seat %s", (mySeat) => {

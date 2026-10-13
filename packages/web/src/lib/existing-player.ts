@@ -1,3 +1,6 @@
+import { createUserService } from "@yugidraft/shared/services";
+import { getDb } from "./db";
+import { clientIpKey, createRateLimiter } from "./rate-limit";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { clerkClient } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
@@ -83,26 +86,22 @@ export function sameOrigin(request: NextRequest): boolean {
 
 // Same bounded fixed-window pattern as /api/waitlist. Caddy replaces incoming
 // X-Forwarded-For; web must stay private. Cookie hashes split later NAT traffic.
-const clients = new Map<string, { count: number; expiresAt: number }>();
+const take = createRateLimiter(TTL * 1000);
 export function recoveryRateLimit(request: NextRequest, stage: string): NextResponse | null {
-  const now = Date.now();
-  for (const [client, entry] of clients) { if (entry.expiresAt > now) break; clients.delete(client); }
-  const ip = request.headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim().slice(0, 128) || "unknown";
+  const ip = clientIpKey(request);
   const purpose: Purpose | null = stage === "callback" ? "oauth" : stage === "complete" ? "identity" : stage === "ticket" ? "ticket" : null;
   const cookieName = purpose === "oauth" ? OAUTH_COOKIE : purpose === "identity" ? IDENTITY_COOKIE : purpose === "ticket" ? TICKET_COOKIE : null;
   const raw = cookieName ? request.cookies.get(cookieName)?.value : undefined;
   // Only a cookie we sealed gets its own bucket; forged values share the IP bucket and cannot fill the map.
   const cookie = purpose && raw && openCookie(purpose, raw) ? raw : undefined;
   const client = `${stage}:${ip}${cookie ? `:${createHash("sha256").update(cookie).digest("hex")}` : ""}`;
-  const entry = clients.get(client);
-  if ((!entry && clients.size >= 10_000) || (entry && entry.count >= (stage === "start" ? 30 : 10))) {
+  const retry = take([[client, stage === "start" ? 30 : 10]]);
+  if (retry !== null) {
     const response = request.method === "GET" ? recoveryRedirect("/sign-in?error=discord_recovery_busy")
       : recoveryError("Too many attempts. Try again in a few minutes.", 429);
-    response.headers.set("Retry-After", String(Math.max(1, Math.ceil(((entry ?? clients.values().next().value!).expiresAt - now) / 1000))));
+    response.headers.set("Retry-After", String(retry));
     return response;
   }
-  if (entry) entry.count++;
-  else clients.set(client, { count: 1, expiresAt: now + TTL * 1000 });
   return null;
 }
 export async function signInRecovery(request: NextRequest, clerkUserId: string, discordId: string): Promise<NextResponse> {
@@ -110,10 +109,13 @@ export async function signInRecovery(request: NextRequest, clerkUserId: string, 
   const refuse = () => clearTicketCookie(clearRecoveryCookies(request.method === "POST" && request.headers.get("accept") === "application/json"
     ? recoveryError("Your account needs help linking. Contact support@duelingdomain.com.", 409)
     : recoveryRedirect("/sign-in?error=discord_recovery_support")));
+  const linked = () => createUserService(getDb()).findByClerkId(clerkUserId)?.discordUserId === discordId;
+  if (!linked()) return refuse();
   let user;
   try { user = await client.users.getUser(clerkUserId); }
   catch (error) { if ((error as { status?: number } | null)?.status === 404) return refuse(); throw error; }
   if (!user || user.id !== clerkUserId || user.banned || user.locked || ("deleted" in user && user.deleted)) return refuse();
+  if (!linked()) return refuse();
   const discord = user.externalAccounts.filter(account => account.provider === "oauth_discord" && account.verification?.status === "verified");
   const metadataId = user.privateMetadata.existingPlayerDiscordId;
   const recoveryId = typeof metadataId === "string" && /^[0-9]{1,25}$/.test(metadataId) ? metadataId : null;
@@ -122,7 +124,9 @@ export async function signInRecovery(request: NextRequest, clerkUserId: string, 
   if (!discord.length && recoveryId === null) {
     await client.users.updateUserMetadata(clerkUserId, { privateMetadata: { existingPlayerDiscordId: discordId } });
   }
+  if (!linked()) return refuse();
   const { token } = await client.signInTokens.createSignInToken({ userId: clerkUserId, expiresInSeconds: 120 });
+  if (!linked()) return refuse();
   const path = "/sign-in?existing_player=1";
   const response = request.headers.get("accept") === "application/json"
     ? NextResponse.json({ redirectTo: path }, { headers: { "Cache-Control": "no-store" } }) : recoveryRedirect(path);

@@ -24,6 +24,7 @@ import {
   Check,
   ChevronDown,
   ChevronLeft,
+  Copy,
   Download,
   Hand,
   MoreHorizontal,
@@ -34,12 +35,12 @@ import {
   X,
 } from "lucide-react";
 import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE } from "@/components/duel/deck-card-types";
-import { parseDeckText, selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
+import { selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
 import { SheetRoot, StatusLine, SvButton, Zone, segmentSlide } from "@/components/sheet";
 import { useTabDirection } from "@/lib/tab-motion";
 import { cn } from "@/lib/utils";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
-import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
+import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, prepareDeckTextImport, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
 import { ArtworkPicker, artCountLabel } from "@/components/artwork/artwork-picker";
 import { ArtChip } from "./art-chip";
 import { ControlsLegend } from "./controls-legend";
@@ -51,6 +52,7 @@ import { CardBrowser, type BrowserCard } from "./card-browser";
 import { CardBottomSheet } from "./card-bottom-sheet";
 import { CardPreview } from "./card-preview";
 import { DeckSegmented, DeckSelect } from "./controls";
+import { useCopyYdke } from "./copy-ydke";
 import { DeckSummary, type DeckCheckProps } from "./deck-check";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { useEditorViewport } from "./editor-viewport";
@@ -74,6 +76,7 @@ import {
   altArtCount,
   chooseMaster,
   clearSection,
+  cardKind,
   cloneDeck,
   copyCounts,
   copyKey,
@@ -81,10 +84,13 @@ import {
   copyProblems,
   defaultAddSection,
   downloadYdkFile,
+  fixMisplaced,
   guidanceNotes,
   importForLibrary,
   isNewDeckDirty,
+  misplacedCards,
   placeCard, placeCardAt,
+  placementBlock,
   removeCard,
   shuffled,
   snapshotOf,
@@ -110,7 +116,7 @@ import {
   remainingCopies,
   type DraftDeckPool,
 } from "./pool-model";
-import { DeckSectionGrid, type HoveredCopy } from "./section-grid";
+import { DeckSectionGrid, type HoveredCopy, type SectionWarning } from "./section-grid";
 import styles from "./editor.module.css";
 
 const MODE_CHOICES = [
@@ -212,6 +218,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const { copyYdke, toast: copyToast } = useCopyYdke();
   const [fileName, setFileName] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<Map<number, DeckCardInfo>>(() => new Map());
@@ -228,6 +236,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [facetsError, setFacetsError] = useState(false);
   const [facetsRetry, setFacetsRetry] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  /** What the server moved while importing. Stays until it is dismissed, undone, the next import or a save. */
+  const [importMessages, setImportMessages] = useState<string[]>([]);
+  /** The server moved bad Extra cards to Main when it read this deck. Stays until dismissed or saved. */
+  const [repair, setRepair] = useState<SavedDeckView["extraDeckRepair"] | null>(null);
   const [hand, setHand] = useState<TestHand | null>(null);
   const [masterDropping, setMasterDropping] = useState(false);
   const [hover, setHover] = useState<HoverTarget | null>(null);
@@ -246,6 +258,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [artMenu, setArtMenu] = useState<ArtMenuTarget | null>(null);
   const press = useCardPress();
   const importGeneration = useRef(0);
+  /** The deck as it was just before the last import. Undoing back to it removes the import and its notes. */
+  const importBase = useRef<DeckMasterSelection | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const inspectScrollRef = useRef<HTMLDivElement>(null);
   const hoverTimer = useRef<number | undefined>(undefined);
@@ -424,6 +438,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     setSelection({ deck: cloneDeck(record.deck), masterOrigin: null });
     setHistory({ past: [], future: [] });
     setParseError(null);
+    setRepair(record.extraDeckRepair ?? null);
     setBaseline(snapshotOf(record.name, record.mode, record.deck));
   }
 
@@ -459,6 +474,11 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   function restore(step: Snapshot) {
     importGeneration.current += 1;
+    // The note describes an import: it goes when undo takes the import out, not for a later edit.
+    if (step.selection === importBase.current) {
+      importBase.current = null;
+      setImportMessages([]);
+    }
     repointPanel(step);
     setSelection(step.selection);
     setMode(step.mode);
@@ -491,6 +511,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const poolMap = useMemo(() => (pool ? poolCounts(pool.cards, catalog) : null), [pool, catalog]);
   const forcedMap = useMemo(() => forcedCounts(pool?.forcedCopies, catalog), [pool, catalog]);
   const usage = useMemo(() => deckUsage(deck, catalog), [deck, catalog]);
+  const misplaced = useMemo(() => misplacedCards(deck, catalog), [deck, catalog]);
   const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
   const archetypes = facets?.archetypes ?? [];
 
@@ -622,13 +643,6 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     hoverTimer.current = window.setTimeout(() => setHover(target), target ? HOVER_IN_MS : HOVER_OUT_MS);
   }
 
-  /** Main and Extra only take the cards that belong there; the Side Deck takes any card. */
-  function sectionFor(code: number, wanted: DeckSection): DeckSection {
-    const card = catalog.get(code);
-    if (!card || wanted === "side") return wanted;
-    return defaultAddSection(card);
-  }
-
   /** A draft deck holds at most 3 copies of a card, plus one per forced pick, and no more than the player drafted. */
   function poolRoomFor(code: number): boolean {
     code = poolCode(code);
@@ -669,29 +683,32 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   function addFromList(card: DeckCardInfo, wanted?: DeckSection) {
     rememberCatalog([card]);
     if (!roomFor(card)) return;
+    // An add goes to the section the card belongs in; Side is the only other choice.
     const to = wanted === "side" ? "side" : defaultAddSection(card);
     commit(placeCard(selection, { code: card.code, from: "list" }, to));
+    const why = wanted && wanted !== to ? placementBlock(card, wanted) : null;
+    if (why) setNotice(why);
   }
 
-  function dropCard(source: CardSource, wanted: DeckSection, at?: number) {
-    const to = sectionFor(source.code, wanted);
-    // A card dropped on the wrong section of its own home stays where it is.
-    if (to !== wanted && source.from === to) {
-      setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "extra" : "main"} deck.`);
+  /**
+   * A drop, or a move by key. Main takes the cards that belong there, Extra takes only Fusion, Synchro, Xyz and
+   * Link monsters, and Side takes any card. A card the section does not take stays where it is, with the reason.
+   */
+  function dropCard(source: CardSource, to: DeckSection, at?: number) {
+    const why = placementBlock(catalog.get(source.code), to, source.from);
+    if (why) {
+      setNotice(why);
       return;
     }
     if (source.from === "list") {
       const card = catalog.get(source.code);
       if (card ? !roomFor(card) : !poolRoomFor(source.code)) return;
     }
-    const placed = placeCardAt(selection, source, to, to === wanted ? at : undefined);
+    const placed = placeCardAt(selection, source, to, at);
     commit(placed.selection);
     // The placed copy is the selection, so the art picker swaps that copy.
     setSelected(placed.index >= 0 ? { section: to, code: source.code, index: placed.index } : { section: to, code: source.code });
     setInspectCode(source.code);
-    if (to !== wanted) {
-      setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "extra" : "main"} deck.`);
-    }
   }
 
   function removeCopy(source: CardSource) {
@@ -737,6 +754,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       return;
     }
     const card = catalog.get(source.code);
+    // A copy of a card that sits in a section that does not take it (an old save) would be one more in the wrong place.
+    const why = placementBlock(card, source.section, source.section);
+    if (why) {
+      setNotice(why);
+      return;
+    }
     if (card) {
       if (!roomFor(card)) return;
     } else if (poolMap) {
@@ -791,50 +814,67 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     requestAnimationFrame(() => { searchRef.current?.focus(); searchRef.current?.select(); });
   }
 
-  function applyImported(raw: DuelDeck) {
+  function applyImported(raw: DuelDeck, messages: string[] = []) {
     if (allCodes(raw).length === 0) {
       throw new Error("No cards found. Import a YDK deck or a ydke:// link.");
     }
     const nextMode = raw.deckMaster != null ? "domain" : mode;
+    importBase.current = selection;
     commit(importForLibrary(raw, nextMode), nextMode);
     setSelected(null);
     setImportOpen(false);
-    setNotice("Deck imported. Press Ctrl+Z to undo.");
+    setImportMessages(messages);
+    // The note itself is not a live region; the polite notice says that it is there.
+    setNotice(messages.length > 0
+      ? `Deck imported. ${messages.length === 1 ? "1 note" : `${messages.length} notes`} about moved cards above. Press Ctrl+Z to undo.`
+      : "Deck imported. Press Ctrl+Z to undo.");
   }
 
-  function onFile(file: File) {
-    if (busy) return;
+  /** Resolves when the file is read and answered, so the import button can show that it works. */
+  function onFile(file: File): Promise<void> {
+    if (busy) return Promise.resolve();
     if (file.size > MAX_IMPORT_FILE_BYTES) {
       setParseError("This file is too large to be a YDK deck.");
-      return;
+      return Promise.resolve();
     }
     const generation = ++importGeneration.current;
     setFileName(file.name);
-    void file.text().then(
-      (text) => {
+    return file.text().then(
+      async (text) => {
         if (generation !== importGeneration.current) return;
         try {
-          applyImported(parseDeckText(text));
+          const prepared = await prepareDeckTextImport(text, mode);
+          if (generation !== importGeneration.current) return;
+          applyImported(prepared.deck, prepared.messages);
           // A new deck that still has the default name takes the file's name.
           if (savedId == null && name.trim() === DEFAULT_NAME) setName(deckNameFromFile(file.name));
         } catch (reason: unknown) {
-          setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
+          if (generation === importGeneration.current) {
+            setImportMessages([]);
+            setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
+          }
         }
       },
       (reason: unknown) => {
         if (generation === importGeneration.current) {
+          setImportMessages([]);
           setParseError(reason instanceof Error ? reason.message : "Could not read that file.");
         }
       },
     );
   }
 
-  function onPaste(text: string) {
-    importGeneration.current += 1;
+  async function onPaste(text: string) {
+    const generation = ++importGeneration.current;
     try {
-      applyImported(parseDeckText(text));
+      const prepared = await prepareDeckTextImport(text, mode);
+      if (generation !== importGeneration.current) return;
+      applyImported(prepared.deck, prepared.messages);
     } catch (reason: unknown) {
-      setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
+      if (generation === importGeneration.current) {
+        setImportMessages([]);
+        setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
+      }
     }
   }
 
@@ -851,6 +891,11 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     const trimmed = name.trim();
     if (!trimmed) {
       setSaveError("Deck name is required.");
+      return;
+    }
+    // The server rejects a bad Extra card (INVALID_EXTRA_DECK_CARD); stop it here with a clearer way out.
+    if (misplaced.inExtra.length > 0) {
+      setSaveError("Some cards in the Extra Deck are not Extra Deck monsters. Use Move to Main Deck in the warning first.");
       return;
     }
     if (pool && deck.main.length < draftMainMinimum(pool.mainPoolCount)) {
@@ -877,12 +922,19 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
         setSelection({ deck: cloneDeck(record.deck), masterOrigin });
         setBaseline(snapshotOf(record.name, record.mode, record.deck));
         setSavedId(record.id);
+        setRepair(null);
+        setImportMessages([]);
         setSavedFlash(true);
       });
       // Keep selection provenance when a new deck acquires its permanent URL.
       if (savedId == null && !pool) window.history.replaceState(null, "", `/decks/${record.id}`);
     } catch (reason: unknown) {
-      setSaveError(reason instanceof Error ? reason.message : "Could not save this deck.");
+      // The server refuses a bad Extra card with INVALID_EXTRA_DECK_CARD and names the card in its message.
+      // The local check above normally stops that first; if the server still refuses, point at the way on.
+      const message = reason instanceof Error ? reason.message : "Could not save this deck.";
+      setSaveError(reason instanceof DeckRequestError && reason.code === "INVALID_EXTRA_DECK_CARD"
+        ? `${message} Then save again.`
+        : message);
     } finally {
       setSaveBusy(false);
     }
@@ -932,6 +984,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   }, []);
 
   const notes = pool ? draftDeckNotes(deck, pool.mainPoolCount) : guidanceNotes(mode, deck);
+  // The repair notice already says it, so the summary does not repeat it.
+  if (misplaced.inExtra.length > 0 && !repair) notes.unshift(`Extra holds ${misplaced.inExtra.length} ${misplaced.inExtra.length === 1 ? "card" : "cards"} that ${misplaced.inExtra.length === 1 ? "is" : "are"} not Extra Deck monsters. Use Move to Main Deck.`);
+  if (misplaced.inMain.length > 0) notes.unshift(`Main holds ${misplaced.inMain.length} Extra Deck ${misplaced.inMain.length === 1 ? "monster" : "monsters"}. Use Move to Extra Deck.`);
   const mainMinimum = pool ? draftMainMinimum(pool.mainPoolCount) : 40;
   const inspected = inspectCode == null ? undefined : catalog.get(inspectCode);
   const swapTarget: { section: "main" | "extra" | "side" | "deckMaster"; index: number } | null =
@@ -1019,6 +1074,38 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     onArtMenu: openArtMenu,
     artMenu,
   };
+  /** The warning or notice that held focus goes away; focus moves to the heading of the section it was about. */
+  function focusSection(section: "main" | "extra") {
+    document.querySelector<HTMLElement>(`[data-section="${section}"] h2`)?.focus();
+  }
+  /** One click moves the cards of this section that it does not take; one undo step. */
+  function fixSection(from: "main" | "extra") {
+    if (busy) return;
+    const moved = (from === "extra" ? misplaced.inExtra : misplaced.inMain).length;
+    commit(fixMisplaced(selection, catalog, from));
+    setSelected(null);
+    setSaveError(null);
+    focusSection(from);
+    setNotice(`Moved ${moved} ${moved === 1 ? "card" : "cards"} to the ${from === "extra" ? "Main" : "Extra"} Deck. Press Ctrl+Z to undo.`);
+  }
+  const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
+  const mainCap = pool ? DRAFT_MAIN_MAX : 60;
+  const repairText = repair
+    ? repair.applied
+      ? `We moved ${repair.moves.length} ${plural(repair.moves.length, "card", "cards")} from your Extra Deck to your Main Deck. Only Fusion, Synchro, Xyz and Link monsters go in the Extra Deck.${deck.main.length > mainCap ? ` Main now has ${deck.main.length} cards. Trim it to ${mainCap} or fewer. You can still edit and save.` : ""} This note stays until you save the deck.`
+      : repair.message
+    : null;
+  const extraWarning: SectionWarning | undefined = misplaced.inExtra.length > 0 ? {
+    message: `${misplaced.inExtra.length} ${plural(misplaced.inExtra.length, "card here is", "cards here are")} not ${plural(misplaced.inExtra.length, "an Extra Deck monster", "Extra Deck monsters")}. Only Fusion, Synchro, Xyz and Link monsters go in the Extra Deck.`,
+    // When the server could not move the cards (Main would pass the save limit), moving them here would not save either.
+    ...(repair && !repair.applied ? {} : { actionLabel: "Move to Main Deck", onAction: () => fixSection("extra"), disabled: busy }),
+  } : undefined;
+  const mainWarning: SectionWarning | undefined = misplaced.inMain.length > 0 ? {
+    message: `${misplaced.inMain.length} ${plural(misplaced.inMain.length, "card here is an Extra Deck monster", "cards here are Extra Deck monsters")}. Fusion, Synchro, Xyz and Link monsters cannot go in the Main Deck.`,
+    actionLabel: "Move to Extra Deck",
+    onAction: () => fixSection("main"),
+    disabled: busy,
+  } : undefined;
   const clearButton = (section: DeckSection, label: string) => (
     <SvButton
       variant="quiet"
@@ -1079,6 +1166,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   return (
     <SheetRoot className={styles.host} data-pool={pool ? "" : undefined} aria-hidden={isPhone && cardSheetOpen ? true : undefined}>
       {pool ? <OwnsPageBar room /> : null}
+      {copyToast}
       <div ref={editorRef} className={styles.de} data-tab={phoneTab} data-pane-dir={phoneDir}>
         <header className={styles["de-bar"]}>
           <Link href={backHref} className={styles["de-back"]} aria-label={pool ? "Back to the draft" : "Back to decks"}>
@@ -1106,7 +1194,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                   <b>Draft deck from {pool.draftName}</b>
                   <span>{draftRuleShort(pool.mainPoolCount)}</span>
                 </p>
-                {isPhone ? <SvButton variant="quiet" onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
+                {isPhone ? <><SvButton variant="quiet" onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton><SvButton variant="quiet" onClick={() => void copyYdke(deck)}><Copy className="ic sm" aria-hidden />Copy YDKE</SvButton></> : null}
               </>
             ) : (
               <>
@@ -1137,7 +1225,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onPaste={onPaste}
               />
             ) : null}
-            {!isPhone ? <SvButton variant="quiet" className={styles["de-export"]} onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
+            {!isPhone ? (
+              <Popover label="Export" dialogLabel="Export deck" icon={<Download className="ic sm" aria-hidden />} role="menu" open={exportOpen} onOpenChange={setExportOpen} className={styles["de-export"]}>
+                <SvButton variant="quiet" role="menuitem" onClick={() => { setExportOpen(false); downloadYdkFile(name, deck); }}>Download YDK</SvButton>
+                <SvButton variant="quiet" role="menuitem" onClick={() => { setExportOpen(false); void copyYdke(deck); }}>Copy as YDKE</SvButton>
+              </Popover>
+            ) : null}
             {!pool ? (
               <Popover
                 label="More deck actions"
@@ -1163,7 +1256,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                   </>
                 ) : (
                   <>
-                    {isPhone ? <><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); setParseError(null); setImportOpen(true); }}>Import</SvButton><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); downloadYdkFile(name, deck); }}>Export YDK</SvButton></> : null}
+                    {isPhone ? <><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); setParseError(null); setImportOpen(true); }}>Import</SvButton><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); downloadYdkFile(name, deck); }}>Export YDK</SvButton><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); void copyYdke(deck); }}>Copy YDKE</SvButton></> : null}
                     <SvButton variant="danger" role="menuitem" disabled={savedId == null || busy} onClick={() => { setMoreOpen(false); setDeleteOpen(true); setDeleteError(null); }}>
                       <Trash2 className="ic sm" aria-hidden />Delete
                     </SvButton>
@@ -1198,6 +1291,18 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 {lockedNote(registration) ? <StatusLine tone="warn">{lockedNote(registration)}</StatusLine> : null}
               </div>
             ) : null}
+            {repairText ? (
+              <div className={styles["de-alert"]} role="group" aria-label="Extra Deck repair" data-testid="extra-repair-notice">
+                <StatusLine tone="warn">{repairText}</StatusLine>
+                <SvButton variant="quiet" onClick={() => { setRepair(null); focusSection("main"); }}>Dismiss</SvButton>
+              </div>
+            ) : null}
+            {importMessages.length > 0 ? (
+              <div className={styles["de-alert"]} role="group" aria-label="Import changes" data-testid="import-messages">
+                {importMessages.map((message, index) => <StatusLine key={index} tone="warn">{message}</StatusLine>)}
+                <SvButton variant="quiet" onClick={() => { setImportMessages([]); focusSection("main"); }}>Dismiss</SvButton>
+              </div>
+            ) : null}
             {isPhone ? <details className={styles["de-pchk"]} data-s={tone}><summary>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span>{flag}</span><ChevronDown className="ic sm" aria-hidden /></summary><DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /></details> : null}
             <div className={styles["de-dbar"]}>
               {!isPhone && shownCode != null ? <button className={styles["de-flag"]} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}{flag}</button> : null}
@@ -1221,12 +1326,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onDragOver={(event) => { if (hasCardDrag(event)) { event.preventDefault(); setMasterDropping(true); } }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
                 onDrop={(event) => { setMasterDropping(false); const drag = readCardDrag(event); if (!drag || drag.from === "master") return; event.preventDefault(); makeMaster(drag.code, drag.from === "list" ? undefined : drag.from); }}>
-                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}${masterArts > 0 ? `, ${artCountLabel(masterArts)}` : ""}`} aria-keyshortcuts="ContextMenu Shift+F10" aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /><ArtChip otherArts={masterArts} corner open={artMenu?.section === "deckMaster"} onOpen={(anchor) => openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor })} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
+                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}${masterArts > 0 ? `, ${artCountLabel(masterArts)}` : ""}`} aria-keyshortcuts="ContextMenu Shift+F10" aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); const master = catalog.get(deck.deckMaster!); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }, master ? cardKind(master) : undefined); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /><ArtChip otherArts={masterArts} corner open={artMenu?.section === "deckMaster"} onOpen={(anchor) => openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor })} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
                 <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, or select one and press Use as Deck Master.</p>{masterIsSpellTrap ? <p role="alert" className={styles.errorText}>{SPELL_TRAP_MASTER_MESSAGE}</p> : null}{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Clear</SvButton> : null}</div>
               </section>
             ) : null}
-            <DeckSectionGrid {...sectionProps} title="Main" section="main" codes={deck.main} minimum={mainLow} maximum={DRAFT_MAIN_MAX} target={mode === "domain" ? "60" : `${mainLow}–${DRAFT_MAIN_MAX}`} emptyHint="Add cards from the list on the right." actions={clearButton("main", "Main")} />
-            <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} />
+            <DeckSectionGrid {...sectionProps} title="Main" section="main" codes={deck.main} minimum={mainLow} maximum={DRAFT_MAIN_MAX} target={mode === "domain" ? "60" : `${mainLow}–${DRAFT_MAIN_MAX}`} emptyHint="Add cards from the list on the right." actions={clearButton("main", "Main")} warning={mainWarning} />
+            <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} warning={extraWarning} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, Ctrl+click a deck card, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
           <CardBrowser mode={mode} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />

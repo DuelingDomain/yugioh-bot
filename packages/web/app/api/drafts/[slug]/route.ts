@@ -203,7 +203,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (!mergedConfig.setNames?.length && !mergedConfig.customCardIds?.length) {
         throw new DraftLobbyApiError("Select at least one set or paste custom card IDs", "INVALID_CONFIG");
       }
-      const cards = createCardCatalogService(db);
+      const cards = createCardCatalogService(db, { memberId: userId });
       const lookupBudget = createCardLookupBudget();
       await cards.syncDraftPool({
         setNames: mergedConfig.setNames ?? [], customCardIds: mergedConfig.customCardIds ?? [],

@@ -95,6 +95,7 @@ import { isBattlePhase, phaseTitle, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { closeDuelWindow, duelWindowName, duelWindowPath, exitDuelWindow, isDuelWindow, liveDuelWindow, openDuelWindow, renameDuelWindow } from "./duel-window";
 import { ownWindowGateVisible } from "./start-flow";
+import { neutralStartBlocked, withoutNeutralStartBlocked } from "./start-blocked";
 import { SeriesBanner, SeriesGameLabel } from "./series-banner";
 import { BetweenGamesScreen, isStartingNextGame, NextGameStarting } from "./between-games";
 import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from "./series-model";
@@ -538,7 +539,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setActionError(null);
       try {
         const result = await work();
-        if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
+        // The neutral line comes from the room (`startBlockedByOther`), not from this answer. The string is
+        // dropped before the room is cached; it stood in place of this player's own blocker object, so a full
+        // room is read again. Any other answer already makes a room read in `applyAnswerResult`.
+        const neutral = neutralStartBlocked(result);
+        // A full room with the neutral string is a Start that another seat's deck blocked: show the line at once.
+        const answer: typeof result = neutral && result && "engine" in result
+          ? { ...withoutNeutralStartBlocked(result), startBlockedByOther: true as const }
+          : withoutNeutralStartBlocked(result);
+        if (seq === mutationSeq.current) await applyAnswerResult(mutate, answer);
+        if (neutral && result && "engine" in result && seq === mutationSeq.current) await mutate();
       } catch (err) {
         setActionError(duelActionErrorText(err, { seatPick: kind === "seat-pick" }));
         await mutate();
@@ -820,15 +830,21 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           if (inFlight.current) return;
           const opened = inDuelWindow ? null : openWindow();
           setStarting(true);
+          // Back to the lobby: the pop-up has nothing to show.
+          const backToLobby = () => {
+            setStarting(false);
+            setWindowOpened(false);
+            popup.current = null;
+            try { opened?.close(); } catch { /* the browser keeps it open */ }
+          };
           void run(async () => {
             try {
-              return await startDuel(slug);
+              const answer = await startDuel(slug);
+              // Another seat's deck blocked the start: the answer is not an error, but no duel is starting.
+              if (neutralStartBlocked(answer)) backToLobby();
+              return answer;
             } catch (err) {
-              // Back to the lobby with the error; the pop-up has nothing to show.
-              setStarting(false);
-              setWindowOpened(false);
-              popup.current = null;
-              try { opened?.close(); } catch { /* the browser keeps it open */ }
+              backToLobby();
               throw err;
             }
           });

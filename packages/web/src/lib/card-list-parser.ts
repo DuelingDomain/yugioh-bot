@@ -9,6 +9,8 @@ export interface CardListEntry {
   query: string | number;
   copies: number;
   pool: "main" | "extra";
+  /** Deck imports preserve Side and the explicit Master; cube lists merge these into Main. */
+  section?: "main" | "extra" | "side" | "deckmaster";
   /** Trimmed input line, including count and notes, for not-found diagnostics. */
   original: string;
   /** A bare leading number can also be part of a printed name, e.g. 7 Colored Fish. */
@@ -25,7 +27,7 @@ export const LIST_LINE_MAX_CHARS = 300;
 export class CardListError extends Error {}
 
 /** Parse list syntax only. Unknown names and prose titles remain entries for resolution to report. */
-export function parseCardList(text: string): CardListEntry[] {
+export function parseCardList(text: string, { keepDeckSections = false } = {}): CardListEntry[] {
   if (typeof text !== "string" || !text.trim()) throw new CardListError("Add a card list file or paste a list.");
   if (text.length > LIST_MAX_CHARS) throw new CardListError("That list text is too large. The limit is 64 Ki characters.");
   const clean = text.replace(/^\uFEFF/, "");
@@ -35,17 +37,19 @@ export function parseCardList(text: string): CardListEntry[] {
   const isYdk = lines.some((line) => /^#(?:main|extra|deckmaster)|^!side/i.test(line))
     && lines.every((line) => /^(?:#|\/\/|!)/.test(line) || /^\d{1,10}$/.test(line));
   const isYdke = /^ydke:\/\//i.test(clean.trim());
-  if (isYdke || isYdk || lines.some((line) => /^#deckmaster/i.test(line))) {
+  if (isYdke || isYdk) {
     let deck: DuelDeck;
     try { deck = parseDeckText(isYdke ? clean : `#main\n${clean.replace(/^\s*#side\s*$/gim, "!side")}`); }
     catch (error) { throw new CardListError(error instanceof Error ? error.message : "Invalid deck list."); }
     entries = [
-      ...deck.main.map((query): CardListEntry => ({ query, copies: 1, pool: "main", original: String(query) })),
-      ...deck.extra.map((query): CardListEntry => ({ query, copies: 1, pool: "extra", original: String(query) })),
-      ...[...deck.side, ...(deck.deckMaster == null ? [] : [deck.deckMaster])]
-        .map((query): CardListEntry => ({ query, copies: 1, pool: "main", original: String(query) })),
+      ...deck.main.map((query): CardListEntry => ({ query, copies: 1, pool: "main", original: String(query), ...(keepDeckSections ? { section: "main" as const } : {}) })),
+      ...deck.extra.map((query): CardListEntry => ({ query, copies: 1, pool: "extra", original: String(query), ...(keepDeckSections ? { section: "extra" as const } : {}) })),
+      ...deck.side.map((query): CardListEntry => ({ query, copies: 1, pool: "main", original: String(query),
+        ...(keepDeckSections ? { section: "side" as const } : {}) })),
+      ...(deck.deckMaster == null ? [] : [{ query: deck.deckMaster, copies: 1, pool: "main" as const, original: String(deck.deckMaster),
+        ...(keepDeckSections ? { section: "deckmaster" as const } : {}) }]),
     ];
-    if (!isYdke) {
+    if (!isYdke && !keepDeckSections) {
       // The deck parser groups sections. Restore each ID's first appearance in the source file.
       const firstLine = new Map<number, number>();
       rawLines.forEach((line, index) => {
@@ -55,11 +59,18 @@ export function parseCardList(text: string): CardListEntry[] {
     }
   } else {
     let pool: "main" | "extra" = "main";
+    let section: NonNullable<CardListEntry["section"]> = "main";
+    let sawDeckMaster = false;
     const byLine = new Map<number, { entry: CardListEntry; counted: boolean }>();
     for (const [lineIndex, original] of rawLines.entries()) {
       if (!original) continue;
-      if (/^(?:#extra|extra(?: deck)?\s*:)$/i.test(original)) { pool = "extra"; continue; }
-      if (/^(?:#main|main(?: deck)?\s*:|!side|#side|side(?: deck)?\s*:)$/i.test(original)) { pool = "main"; continue; }
+      if (/^#deckmaster\b/i.test(original)) {
+        if (sawDeckMaster) throw new CardListError("YDK contains multiple #deckmaster sections.");
+        sawDeckMaster = true; pool = "main"; section = "deckmaster"; continue;
+      }
+      if (/^(?:#extra|extra(?: deck)?\s*:)$/i.test(original)) { pool = "extra"; section = "extra"; continue; }
+      if (/^(?:!side|#side|side(?: deck)?\s*:)$/i.test(original)) { pool = "main"; section = "side"; continue; }
+      if (/^(?:#main|main(?: deck)?\s*:)$/i.test(original)) { pool = "main"; section = "main"; continue; }
       if (/^(?:#|\/\/)/.test(original)) continue;
       if (original.length > LIST_LINE_MAX_CHARS) {
         // Reported as not found, without a lookup, and with a short copy of the text.
@@ -70,13 +81,17 @@ export function parseCardList(text: string): CardListEntry[] {
       // The last thing on a line may be a [Extra] / [Main] / [Side] marker (a pool hint for this line only) or a
       // (note). Peel both in any order, leaving (xN) for the count parser.
       let linePool = pool;
+      let lineSection = section;
       let sawMarker = false;
       for (;;) {
         // A marker is also allowed just before a trailing count: "Decode Talker [Extra] x2".
         const marker = /\s*\[(extra|main|side)(?: deck)?\](?=\s+(?:x[0-9]+|\(x[0-9]+\))\s*$|\s*$)/i.exec(query);
         if (marker) {
           // The marker nearest the end of the line wins.
-          if (!sawMarker) linePool = marker[1].toLowerCase() === "extra" ? "extra" : "main";
+          if (!sawMarker) {
+            lineSection = marker[1].toLowerCase() as "main" | "extra" | "side";
+            linePool = lineSection === "extra" ? "extra" : "main";
+          }
           sawMarker = true;
           query = (query.slice(0, marker.index) + query.slice(marker.index + marker[0].length)).trim();
         } else if (/\s*\([^()]*\)\s*$/.test(query) && !/\(x\d+\)\s*$/i.test(query)) {
@@ -95,7 +110,7 @@ export function parseCardList(text: string): CardListEntry[] {
       }
       if (!Number.isSafeInteger(copies) || copies <= 0) throw new CardListError(`Invalid copy count in "${original}".`);
       query = query.trim();
-      const entry: CardListEntry = { query: /^\d{1,10}$/.test(query) && Number(query) > 0 ? Number(query) : query, copies, pool: linePool, original,
+      const entry: CardListEntry = { query: /^\d{1,10}$/.test(query) && Number(query) > 0 ? Number(query) : query, copies, pool: linePool, original, ...(keepDeckSections ? { section: lineSection } : {}),
         ...(fallbackName ? { fallbackName } : {}), ...(prefix || suffix ? { counted: true } : {}) };
       entries.push(entry);
       byLine.set(lineIndex, { entry, counted: !!(prefix || suffix) });

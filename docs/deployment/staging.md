@@ -2,20 +2,24 @@
 
 Staging is a second copy of the web app, the websocket server, duel server and scheduling worker. It runs on the same VM as
 production. Its data, services and Clerk instance are separate. It shares VM memory, CPU, disk and the Docker build cache.
-People can test releases there before the owner deploys production in downtime.
+People can test trusted branches there before merging them for automatic production deployment.
 
-After owner setup and `STAGING_AUTO_DEPLOY=1`: merge to `main` → **Deploy Staging** runs → test the staging SHA → the owner runs **Deploy** (prod) in downtime.
-Push deploys stay disabled until the owner sets that repository variable. A merge does not deploy production.
+Production follows merge to `main` → all regular **Test** suites pass → **Deploy** uses that exact SHA,
+waiting only for live duels/openings and active drafts up to 60 minutes. Open rounds and series are logged without blocking.
+It requires no environment approval; the `production`
+environment keeps its main-only branch policy and scoped secrets. Manual retry/rollback remains available.
+Staging is optional and does not gate production. After owner setup and `STAGING_AUTO_DEPLOY=1`, main
+pushes also run **Deploy Staging** independently. Leave the variable unset or `0` to disable staging push deploys.
 Staging skips for live production duels, openings or active drafts, a failed activity guard, or a VM that is busy or short of resources.
 Open tournament rounds and series alone do not block staging. Manual dispatch can skip only the activity guard with `ignore_prod_activity=true`.
-Use the tested SHA as the production `ref`; `main` may have moved since the test.
+For manual production retry/rollback, use a SHA with a successful main push Test as `ref`; `main` may have moved.
 Dispatch both workflows from `main`; their jobs refuse dispatch from other branches. The selected `ref` can differ.
 Prod keeps its activity guard from the main workflow revision. Staging keeps its remote entry script and activity guard
 from that revision; other staging helpers come from the selected ref. Prod checks main ancestry on the runner
 before it runs selected code. The SSH private key is in the Configure SSH key step only in both workflows.
 This step placement does not isolate the key from staging ref code that runs earlier. That code can use `GITHUB_ENV`,
 `GITHUB_PATH` or `RUNNER_TEMP` to reach the later key step. Run only trusted staging refs.
-See the [runbook note on a required-reviewer environment](vm-runbook.md#staging-first-manual-production).
+See the [automatic production flow and environment settings](vm-runbook.md#automatic-production-and-optional-staging).
 
 ## Current state (2026-10-09)
 
@@ -119,7 +123,7 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
 ## One-time steps for the owner
 
 1. **Put this deploy-flow change on `main` after review.** The branch alone does not change live triggers.
-   Leave `STAGING_AUTO_DEPLOY` unset or `0` until setup and a manual staging test pass. Production uses manual **Deploy**.
+   Leave `STAGING_AUTO_DEPLOY` unset or `0` until setup and a manual staging test pass. Production deploys independently after successful main push Test runs.
 2. **Choose the staging HTTPS host and add DNS.** `SITE_DOMAIN` is `app.duelingdomain.com`, so
    `staging.<SITE_DOMAIN>` is `staging.app.duelingdomain.com`. `staging.duelingdomain.com` is also an option.
    Point an A record to the VM. Add AAAA only if that IPv6 address reaches it. Use a hostname separate from prod.
@@ -157,7 +161,8 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
    If the saved DB still has production Clerk bindings from the old stack, use `refresh_db=true` once.
    This replaces staging data; production stays unchanged. Verify `/sign-in`, invitations, Discord and email sign-in,
    username/consent, session isolation, Socket.IO, a duel, a draft, a tournament round and worker timers.
-   Record the staging SHA. In downtime, run **Deploy** from `main` with that SHA as `ref`, `force=false`, `rollback=false`.
+   Record the staging SHA. For a branch release, merge after testing: the main push Test gates automatic
+   production deployment. A manual production retry requires a SHA that passed Test, `force=false`, `rollback=false`.
 8. **Enable push deploys after setup and testing pass.** Set the repository Actions variable `STAGING_AUTO_DEPLOY` to `1`.
    Later pushes to `main` can deploy staging. Set it to `0` to disable push deploys; manual dispatch from `main` still works.
 

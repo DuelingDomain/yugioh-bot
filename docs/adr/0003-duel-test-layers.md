@@ -40,20 +40,20 @@ All core checks in the duel-server tests go through one helper: `packages/duel-s
 
 ## CI
 
-`.github/workflows/test.yml` selects the layers on every pull request and every push to main. Pull requests and pushes always run `unit`; they run `cores`, `engine`, `engine-legacy`, `native` and `rule-coverage` only when `engine=true`. Pull requests use the base-to-head merge-base diff; pushes diff `github.event.before` to `github.sha` (`scripts/ci/changed-layers.mjs`). The checkout has full history. A missing or all-zeros base, an unreadable diff, or a push base that is not an ancestor of the head sets `engine=true`. Manual runs set `engine=true` and run all jobs. The schedule runs only `cores` and `nduel-nightly`.
+`.github/workflows/test.yml` selects the layers on every pull request and every push to main. Main pushes run `unit`, `cores`, `engine`, `engine-legacy`, `native` and `rule-coverage` before automatic production deployment. Pull requests always run `unit` and select the other suites when changed paths set `engine=true`. Pull requests use the base-to-head merge-base diff; pushes diff `github.event.before` to `github.sha` (`scripts/ci/changed-layers.mjs`). The checkout has full history. A missing or all-zeros base, an unreadable diff, or a push base that is not an ancestor of the head sets `engine=true`. Manual runs set `engine=true` and run all jobs. The schedule runs only `cores` and `nduel-nightly`.
 
 The `changes` job sets `engine=true` for changes to `packages/duel-server`, `packages/e2e`, engine-related shared files, engine/deploy scripts, root `package.json`, `package-lock.json`, `patches/`, `turbo.json`, root TypeScript/Node configuration, the ADR-0002 rules and their coverage table, or the test workflow itself. The root package file stays in the rule because it defines the CI engine/native/prepare commands, workspaces and the install hook.
 
 Shared paths stay in the engine rule unless their independence has been checked against the host, engine tests and e2e helper imports. The retained paths include `src/duels/`, `src/db/` (the host uses the schema), `src/ws/`, the notification transport/broadcaster, scoring, tournament formats, types, slug generation, service entry points, duel/series services and their dependencies. These dependencies include card catalog imports, matches, tournament services, saved decks and seasons. Only the listed draft/cube and other independent services, the standalone ratings repair command, shared unit tests and the scripts README are excluded. Unknown shared files remain in the rule; check this list when engine imports change. Root draft seed and catalog snapshot scripts and `scripts/data/draft-catalog-legendary.json` are excluded; other scripts remain in the rule.
 
-Web-only changes (for example duel UI) do not set `engine`: they run only `unit`. The web tests that drive a real duel (they import the core helper) then run on the next change that sets `engine=true`, or by hand with a local bundle.
+Web-only pull requests (for example duel UI) run only `unit`. Every main push sets `engine=true`, including web-only releases, so web tests that drive real duels run before production deployment. Browser Playwright flows remain local-only; their helper unit tests run in CI.
 
 It has these jobs:
 
 | Job | What it runs |
 |---|---|
 | `cores` | Builds the standard, domain and multi cores, or restores them from the Actions cache. The key hashes the pins, the core patches, the build scripts and `package-lock.json`. The other core jobs use this bundle (`data/duel-engine-next`). |
-| `unit` | `npm ci`, build shared, `npm run typecheck`, then the tests that need no core: shared, bot, web, duel-server `test:unit`, e2e `test:unit`. |
+| `unit` | `npm ci`, build shared, `npm run typecheck`, then the tests that need no core: shared, bot, worker, WS, web, duel-server `test:unit`, e2e `test:unit`. |
 | `changes` | Computes the `engine` flag from changed paths, with the fallbacks above. |
 | `engine` | When `engine=true`: `DUEL_REQUIRE_CORES=1 npm run test:engine`, the web tests with real duels and the engine smoke scripts. A missing core fails any selected test. |
 | `engine-legacy` | When `engine=true`: the engine suite with `DUEL_1V1_ENGINE=legacy`, including the legacy main tests. |

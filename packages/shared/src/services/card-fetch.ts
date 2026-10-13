@@ -7,6 +7,8 @@ function positiveIntegerSetting(name: string, fallback: number): number {
 // Leave room under the upstream budget for the bot, web and duel processes.
 const START_INTERVAL_MS = Math.ceil(1000 / positiveIntegerSetting("CARD_FETCH_REQUESTS_PER_SECOND", 5));
 const QUEUE_LIMIT = positiveIntegerSetting("CARD_FETCH_QUEUE_LIMIT", 1024);
+const MEMBER_QUEUE_LIMIT = positiveIntegerSetting("CARD_FETCH_MEMBER_QUEUE_LIMIT", 20);
+const pendingByMember = new Map<number, number>();
 const queue: Array<() => void> = [];
 const backoff = new Map<string, number>();
 let active = 0;
@@ -17,6 +19,14 @@ export class CardFetchError extends Error {
   constructor(public readonly retryAfter = 1, public readonly status?: number) {
     super("Could not reach the card database. Try again shortly.");
     this.name = "CardFetchError";
+  }
+}
+
+export class CardFetchLimitError extends CardFetchError {
+  constructor() {
+    super(1, 429);
+    this.name = "CardFetchLimitError";
+    this.message = "You have too many pending card requests. Wait for them to finish and try again.";
   }
 }
 
@@ -49,11 +59,22 @@ function drain(): void {
   drain();
 }
 
-function schedule<T>(work: () => Promise<T>): Promise<T> {
+function schedule<T>(work: () => Promise<T>, memberId?: number): Promise<T> {
+  if (memberId !== undefined && (pendingByMember.get(memberId) ?? 0) >= MEMBER_QUEUE_LIMIT) return Promise.reject(new CardFetchLimitError());
   if (queue.length >= QUEUE_LIMIT) return Promise.reject(new CardFetchError());
+  if (memberId !== undefined) pendingByMember.set(memberId, (pendingByMember.get(memberId) ?? 0) + 1);
+  const release = () => {
+    if (memberId !== undefined) {
+      const remaining = pendingByMember.get(memberId)! - 1;
+      if (remaining) pendingByMember.set(memberId, remaining);
+      else pendingByMember.delete(memberId);
+    }
+    active--;
+    drain();
+  };
   return new Promise((resolve, reject) => {
     queue.push(() => {
-      void work().then(resolve, reject).finally(() => { active--; drain(); });
+      void work().then(value => { release(); resolve(value); }, error => { release(); reject(error); });
     });
     drain();
   });
@@ -67,6 +88,7 @@ export function fetchCardResource<R extends ResponseStatus, T>(
   fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<R>,
   read: (response: R) => Promise<T>,
   allowedStatuses: number[] = [],
+  memberId?: number,
 ): Promise<T> {
   const origin = new URL(input).origin;
   const checkBackoff = () => {
@@ -108,7 +130,7 @@ export function fetchCardResource<R extends ResponseStatus, T>(
       // socket before releasing the request slot, even when no body was read.
       controller.abort();
     }
-  });
+  }, memberId);
 }
 
 /** API image metadata must not send a server request to another host or follow redirects. */
@@ -135,13 +157,14 @@ export async function fetchCardImageResource<R extends ResponseStatus, T>(
   fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<R>,
   read: (response: R) => Promise<T>,
   allowIgnis = true,
+  memberId?: number,
 ): Promise<CardImageResource<T>> {
   if (!Number.isSafeInteger(passcode) || passcode <= 0) return { image: null, source: "ygoprodeck" };
   const readImage = (response: R) => response.status === 404 ? Promise.resolve(null) : read(response);
-  const image = await fetchCardResource(input, fetchImpl, readImage, [404]);
+  const image = await fetchCardResource(input, fetchImpl, readImage, [404], memberId);
   if (image !== null || !allowIgnis) return { image, source: "ygoprodeck" };
   try {
-    return { image: await fetchCardResource(`${PROJECT_IGNIS_IMAGE_URL}/${passcode}.jpg`, fetchImpl, readImage, [404]), source: "ignis" };
+    return { image: await fetchCardResource(`${PROJECT_IGNIS_IMAGE_URL}/${passcode}.jpg`, fetchImpl, readImage, [404], memberId), source: "ignis" };
   } catch (fallbackError) {
     return { image: null, source: "ignis", fallbackError };
   }
