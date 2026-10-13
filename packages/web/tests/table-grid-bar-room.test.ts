@@ -1,5 +1,5 @@
 import { centeredPromptBox } from "../src/components/duel/table/prompt-box";
-import { dodgeShift } from "../src/components/duel/table/prompt-dodge";
+import { dodgeShift, dodgeUnit } from "../src/components/duel/table/prompt-dodge";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -219,5 +219,23 @@ describe("dodgeShift: a centred prompt steps up or down off the phase chips, nev
 
   it("stays in the middle and covers the hub when the panel is too tall to clear it", () => {
     expect(dodgeShift({ ...panel, y: 300, height: 300 }, chips, box)).toBe(0);
+  });
+
+  it("at 1440p the bigger panel (133 px) may go further than 96 px, so it clears the chips instead of covering the hub", () => {
+    const big = { x: 1000, y: 640, width: 560, height: 133 };
+    const hub = [{ x: 1200, y: 660, width: 40, height: 90 }];
+    const bigBox = { width: 2200, height: 1300 };
+    expect(dodgeUnit(2560)).toBe(1.4);
+    expect(dodgeUnit(1920)).toBeCloseTo(1.2);
+    expect(dodgeUnit(1280)).toBe(1);
+    // At unit 1 the shift (122 or 125 px) is out of reach: the panel stays and covers the hub.
+    expect(dodgeShift(big, hub, bigBox)).toBe(0);
+    const shift = dodgeShift(big, hub, bigBox, 12, dodgeUnit(2560));
+    expect(shift).not.toBe(0);
+    expect(Math.abs(shift)).toBeLessThanOrEqual(96 * 1.4);
+    const moved = { ...big, y: big.y + shift };
+    expect(moved.y < hub[0].y + hub[0].height && hub[0].y < moved.y + moved.height).toBe(false);
+    // A small screen keeps the old limit.
+    expect(dodgeShift({ ...panel, y: 300, height: 300 }, chips, box, 12, dodgeUnit(1366))).toBe(0);
   });
 });
