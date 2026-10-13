@@ -385,7 +385,7 @@ test("production pulls before backup and keeps the drain, migration and health-c
     previous = position;
   }
   assert.match(remote, /flock -w 900 9/);
-  assert.match(remote, /sh "\$DEPLOY_IMAGES" preserve "\$DEPLOY_COMMIT" "\$image_id" "\$\{image_ref%:\*\}:prev"/);
+  assert.match(remote, /preserve_previous_image "\$service" "\$image_id" "yugioh-bot-\$service:prev"/);
 });
 
 test("deploy accepts an intentional skipped rollback build but rejects failed or cancelled builds", () => {
@@ -510,4 +510,17 @@ test("rollback resolves the retained tag to one ARM64 digest before SSH", t => {
   }
   writeFileSync(file, JSON.stringify([arm, arm]));
   assert.notEqual(spawnSync("python3", ["-", file], { input: parser }).status, 0);
+});
+
+
+test("deployment actions use commit pins and image builds disable attestations", () => {
+  for (const name of ["deploy.yml", "ghcr-cleanup.yml"]) {
+    for (const job of Object.values(workflow(name).jobs)) for (const step of job.steps) {
+      if (step.uses) assert.match(step.uses, /@[0-9a-f]{40}$/);
+      if (step.name === "Build and push runtime image" || step.name === "Save Next.js cache for the next source revision") {
+        assert.equal(step.with.provenance, false);
+        assert.equal(step.with.sbom, false);
+      }
+    }
+  }
 });
