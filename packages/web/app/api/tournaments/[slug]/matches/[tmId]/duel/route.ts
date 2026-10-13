@@ -68,7 +68,7 @@ export async function POST(
     // codes before the series copies and locks them. If that cannot be done, nothing is started.
     const mapped = await mapDraftTournamentDecks(db, { tournamentId: tournament.id, guildId: actor.guildId, playerIds });
     if (!mapped.ok) {
-      return NextResponse.json(mapped.report ? { error: mapped.error, report: mapped.report } : { error: mapped.error }, {
+      return NextResponse.json(mapped.report ? { error: mapped.error, report: mapped.playerId === actor.playerId ? mapped.report : { ok: false } } : { error: mapped.error }, {
         status: mapped.status,
       });
     }

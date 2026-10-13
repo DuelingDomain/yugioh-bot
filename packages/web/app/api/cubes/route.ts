@@ -117,7 +117,7 @@ export async function POST(request: Request) {
   }
 
   const db = getDb();
-  const catalog = createCardCatalogService(db);
+  const catalog = createCardCatalogService(db, { memberId: actor.userId });
   const cubes = createCubeService(db, catalog);
   const guildId = env.discordGuildId;
   const isListImport = body.importText !== undefined || body.kind === "list";
