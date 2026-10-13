@@ -72,7 +72,7 @@ function fieldFor(seed: number, layout: FieldLayout, sides: EdgeSides): CrackFie
 interface Geo {
   field: CrackField;
   /** Chunks per stage, in the order they break. */
-  chunks: readonly [readonly CrackChunk[], readonly CrackChunk[], readonly CrackChunk[]];
+  chunks: readonly [readonly CrackChunk[], readonly CrackChunk[], readonly CrackChunk[], readonly CrackChunk[]];
   /** The field's box on the mat, in layout px. */
   ox: number;
   oy: number;
@@ -104,7 +104,7 @@ function deriveGeo(seed: number, part: CrackPart, m: Measured, angle: number): G
   const ky = rh / field.ch;
   return {
     field,
-    chunks: [byStage(1), byStage(2), byStage(3)],
+    chunks: [byStage(1), byStage(2), byStage(3), byStage(4)],
     ox: 0,
     oy: top,
     w: m.w,
@@ -117,8 +117,8 @@ function deriveGeo(seed: number, part: CrackPart, m: Measured, angle: number): G
   };
 }
 
-type Broken = readonly [number, number, number];
-const brokenFor = (stage: CrackStage): Broken => [stage >= 1 ? Infinity : 0, stage >= 2 ? Infinity : 0, stage >= 3 ? Infinity : 0];
+type Broken = readonly [number, number, number, number];
+const brokenFor = (stage: CrackStage): Broken => [stage >= 1 ? Infinity : 0, stage >= 2 ? Infinity : 0, stage >= 3 ? Infinity : 0, stage >= 4 ? Infinity : 0];
 
 export function prefersReducedMotion(from: Element | null): boolean {
   if (from?.closest('[data-reduced-motion="true"]')) return true;
@@ -206,16 +206,19 @@ export function CrackLayer({ seed, stage, regainMode = "keep", replay = false, m
     }
     from.current = prev;
     setShown(target);
-    for (let s = prev + 1; s <= (crumble ? Math.min(target, 3) : 0); s += 1) {
+    for (let s = prev + 1; s <= (crumble ? target : 0); s += 1) {
       const list = g.chunks[s - 1];
       const delay = (s - prev - 1) * STAGE_GAP_MS;
-      const span = SPREAD_MS[s as 1 | 2 | 3];
+      const span = SPREAD_MS[s as 1 | 2 | 3 | 4];
       list.forEach((chunk, index) => {
-        const at = delay + span * (0.18 + 0.63 * (index / Math.max(1, list.length - 1)));
+        // The shatter of 0 LP follows the connecting cracks (they take SPREAD_MS[4]); the others break as their stage spreads.
+        const at = s === 4
+          ? delay + SPREAD_MS[4] + 60 + index * 70
+          : delay + span * (0.18 + 0.63 * (index / Math.max(1, list.length - 1)));
         timers.current.push(
           duelFxClock.setTimeout(() => {
             setBroken((b) => {
-              const n = [...b] as unknown as [number, number, number];
+              const n = [...b] as unknown as [number, number, number, number];
               n[s - 1] = Math.max(n[s - 1], index + 1);
               return n;
             });
