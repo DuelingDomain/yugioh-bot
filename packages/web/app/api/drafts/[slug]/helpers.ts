@@ -669,7 +669,7 @@ export async function handleDraftStart(request: Request, params: Promise<{ slug:
     const denied = cubeReferenceAccess(context.db, draft.config.allowedCubeIds, { allowMissing: true });
     if (denied) return denied;
     assertStartCubeGuilds(context);
-    const cards = createCardCatalogService(context.db);
+    const cards = createCardCatalogService(context.db, { memberId: context.userId });
     const lookupBudget = createCardLookupBudget();
     if (!draft.config.cubeCardIds?.length && !draft.config.poolCardIds?.length) {
       await cards.syncDraftPool({

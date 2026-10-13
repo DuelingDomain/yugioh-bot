@@ -52,8 +52,8 @@ npx vitest run packages/web/tests/cards-resolve-route.test.ts -c packages/web/vi
 docker compose --env-file .env --env-file packages/web/.env.local up -d --build
 
 # Docker (production — start already built images without the override file)
-# Image updates: test staging, then manually run Deploy from main in downtime.
-# Use the tested staging SHA as ref; see docs/deployment/vm-runbook.md.
+# Image updates deploy automatically after the main push Test passes, using its exact SHA.
+# Manual retry/rollback: run Deploy from main with a SHA that passed Test; see the VM runbook.
 docker compose -f docker-compose.yml up -d
 
 # Seed test data and restart services
@@ -77,12 +77,18 @@ This is an npm workspaces + Turborepo monorepo with seven packages (see `docs/ar
 
 ### Deployment flow
 
-After owner setup and repository variable `STAGING_AUTO_DEPLOY=1`, each merge to `main` can deploy **staging**,
-subject to production activity, the shared VM lock and resource checks. Both workflows require dispatch from `main`.
-Test the staging SHA, then the owner runs **Deploy** (prod) manually from `main` in downtime with that SHA as `ref`.
-Production has no push trigger. Its read-only SQLite guard refuses active duels, drafts, tournament rounds and
-active/between-game series and RPS/dice openings, before changes and again before service stops. `force` skips only this activity guard;
-the engine bundle preflight, build lock and backups still apply. Prod stops staging and leaves it off.
+Every push to `main` runs all regular **Test** suites; a successful push run triggers **Deploy** for that
+run's exact `head_sha`. PR, scheduled and manual Test runs never trigger production. Deploy jobs queue
+without cancelling the running job; a newer eligible job can replace an older pending job. The `production`
+environment retains its main-only branch policy and environment secrets, with no required reviewers.
+Automatic deploys wait only for live duels (including RPS/dice openings) and active drafts every 120 seconds,
+sharing one 60-minute budget across the checks before VM changes and immediately before service stops.
+Open tournament rounds and active/between-game series are logged without blocking. Busy timeout or unreadable activity fails closed.
+Manual Deploy from `main` retains `ref`, `force` and `rollback`; the selected SHA must have passed a main push Test.
+Its read-only SQLite guard covers duels, drafts, tournament rounds, active/between-game series and RPS/dice
+openings. Manual `force` skips only this activity guard; engine preflight, build lock and backups still apply.
+Prod stops staging and leaves it off. Staging remains optional and independent: owner setup plus
+`STAGING_AUTO_DEPLOY=1` enables its push workflow; staging completion does not gate production.
 The runner checks the prod target's main ancestry before running its code. SSH key env is limited to the key setup step.
 The VM refuses an older or diverged prod SHA unless `rollback=true`. Staging skips active prod games, guard failures,
 busy or low-resource runs with a warning and step-summary line; check for `staging is running`, then test the site.
@@ -153,7 +159,7 @@ Drafts are started from the web dashboard; the shelved bot retains its command i
 
 ### Card catalog
 
-Card data is fetched from ygoprodeck.com and cached in `card_catalog`. The worker syncs set metadata at `SETS_SYNC_CRON` (default `0 6 * * *`, `SETS_SYNC_TIMEZONE=UTC`). Bot images, the web card-image route and the worker share the same absolute `CARD_IMAGE_CACHE_DIR` (Compose: `/app/data/card-images`). Worker startup and cron cleanup evict oldest files over `CARD_IMAGE_CACHE_MAX_BYTES` (default `16106127360`, 15 GiB) on `IMAGE_CLEANUP_CRON` (default `0 4 * * *`, `IMAGE_CLEANUP_TIMEZONE=UTC`). Next image optimization is off (`packages/web/next.config.ts`).
+Card data is fetched from ygoprodeck.com and cached in `card_catalog`. Web catalog and image requests share a per-member budget of 20 unfinished fetches (`CARD_FETCH_MEMBER_QUEUE_LIMIT` overrides the service default); a full budget returns 429. Manual `POST /api/sets` sync is limited to one attempt per member every ten minutes. The worker syncs set metadata at `SETS_SYNC_CRON` (default `0 6 * * *`, `SETS_SYNC_TIMEZONE=UTC`). Bot images, the web card-image route and the worker share the same absolute `CARD_IMAGE_CACHE_DIR` (Compose: `/app/data/card-images`). Worker startup and cron cleanup evict oldest files over `CARD_IMAGE_CACHE_MAX_BYTES` (default `16106127360`, 15 GiB) on `IMAGE_CLEANUP_CRON` (default `0 4 * * *`, `IMAGE_CLEANUP_TIMEZONE=UTC`). Next image optimization is off (`packages/web/next.config.ts`).
 
 ## Design context (`.impeccable.md`)
 

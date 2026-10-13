@@ -2,7 +2,7 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
-import { createDraftService, createCardCatalogService, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
+import { CardFetchLimitError, createDraftService, createCardCatalogService, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { CardListError } from "@/lib/card-list-parser";
@@ -39,7 +39,7 @@ function toCardSummary(c: {
 }
 
 function isUnreachable(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith("Could not reach the card database");
+  return error instanceof CardFetchLimitError || (error instanceof Error && error.message.startsWith("Could not reach the card database"));
 }
 
 async function handlePOST(request: Request) {
@@ -64,7 +64,7 @@ async function handlePOST(request: Request) {
   const archetype = typeof body.archetype === "string" ? body.archetype.trim() : "";
 
   const db = getDb();
-  const catalog = createCardCatalogService(db);
+  const catalog = createCardCatalogService(db, { memberId: actor.userId });
 
   if (body.listText !== undefined) {
     if ([body.setNames, body.customCardIds, body.cardName, body.fuzzyName, body.archetype, body.includeExtra]

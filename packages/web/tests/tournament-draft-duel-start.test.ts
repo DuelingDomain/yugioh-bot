@@ -121,6 +121,24 @@ describe("starting a draft tournament series", () => {
     expect(locked(s.db)).toBe(0);
   });
 
+  it.each(["opponent", "organizer"])("returns only a summary of an invalid %s deck", async (viewer) => {
+    const s = seed();
+    const report = { issues: [{ code: "unknown-card", message: "Private card name", cardName: "Private card name" }] };
+    callDuelHost.mockResolvedValueOnce({ ok: true, data: { deck: MAPPED, report: { issues: [] } } });
+    callDuelHost.mockResolvedValueOnce({ ok: true, data: { deck: MAPPED, report } });
+    if (viewer === "organizer") {
+      auth.mockResolvedValue({ user: { id: String(fixtureUserId("u-org")), discordUserId: fixtureDiscordId("u-org"), name: "Organizer" } });
+    }
+    const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
+    const res = await POST(post(), ctx(s.tmId));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.report).toEqual({ ok: false });
+    expect(JSON.stringify(body)).not.toContain("Private card name");
+    expect(count(s.db, "duel_series")).toBe(0);
+    expect(locked(s.db)).toBe(0);
+  });
+
   it("checks who may start before it links or maps any deck", async () => {
     const s = seed();
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");

@@ -20,10 +20,10 @@ describe("tournament invite fixed windows", () => {
     expect(tournamentInviteRateLimit(request("1.2.3.4, spoofed"),999)?.status).toBe(429);
     expect(tournamentInviteRateLimit(request("other"),999)).toBeNull();
   });
-  it("bounds memory by refusing new buckets instead of evicting active windows", async () => {
+  it("evicts the oldest buckets so new clients can continue", async () => {
     const { tournamentInviteRateLimit } = await import("../src/lib/tournament-invite-rate-limit");
     for (let i=0;i<5000;i++) expect(tournamentInviteRateLimit(request(`ip-${i}`),i+1)).toBeNull();
-    expect(tournamentInviteRateLimit(request("overflow"),99999)?.status).toBe(429);
+    expect(tournamentInviteRateLimit(request("overflow"),99999)).toBeNull();
     vi.advanceTimersByTime(60_000);
     expect(tournamentInviteRateLimit(request("overflow"),99999)).toBeNull();
   });
