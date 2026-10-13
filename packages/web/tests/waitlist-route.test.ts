@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import { migrate } from "@yugidraft/shared/db";
 import { ClerkBackendError } from "@yugidraft/shared/clerk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -54,6 +55,8 @@ beforeEach(async () => {
   vi.resetModules();
   vi.resetAllMocks();
   vi.stubEnv("CLERK_SECRET_KEY", "test-secret");
+  vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", undefined);
+  vi.stubEnv("DISCORD_JOIN_REQUEST_ALERTS_ENABLED", "1");
   state.events = [];
   state.createBackend.mockReturnValue({ createWaitlistEntry: state.createWaitlistEntry });
   state.createWaitlistEntry.mockImplementation(async ({ emailAddress }: { emailAddress: string }) => {
@@ -70,9 +73,48 @@ afterEach(() => {
   if (state.db?.open) state.db.close();
   vi.useRealTimers();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("POST /api/waitlist", () => {
+  it("alerts once for duplicate marketing or app requests", async () => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    expect((await post(json({ email: "player@example.test", source: "hero" }))).status).toBe(201);
+    expect((await post(json({ email: " PLAYER@EXAMPLE.TEST ", source: "app-not-invited" }))).status).toBe(200);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(state.createWaitlistEntry).toHaveBeenCalledTimes(2);
+  });
+
+  it("succeeds with Discord still pending and after Discord fails", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, options) => new Promise((_resolve, reject) => {
+      options!.signal!.addEventListener("abort", () => reject(new Error("private webhook data")));
+    }));
+    vi.stubGlobal("fetch", fetcher);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect((await post(json())).status).toBe(201);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0][1]!.signal!.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetcher.mock.calls[0][1]!.signal!.aborted).toBe(true);
+    expect((await post(json())).status).toBe(200);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("alerts a saved request even when Clerk needs a retry, without a duplicate on recovery", async () => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    state.createWaitlistEntry.mockRejectedValueOnce(new Error("Clerk unavailable"));
+    expect((await post(json())).status).toBe(503);
+    expect((await post(json())).status).toBe(200);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("joins anonymously and never echoes the email", async () => {
     const response = await post(json({ email: " Player@Example.COM ", source: "hero" }));
     expect(response.status).toBe(201);
@@ -111,6 +153,95 @@ describe("POST /api/waitlist", () => {
 
   it("accepts the 254-character boundary", async () => {
     expect((await post(json({ email: "a".repeat(248) + "@b.com" }))).status).toBe(201);
+  });
+
+  it.each([
+    ["zero-width space", "player\u200b"],
+    ["zero-width non-joiner", "player\u200c"],
+    ["zero-width joiner", "player\u200d"],
+    ["right-to-left override", "player\u202e"],
+    ["word joiner", "player\u2060"],
+    ["byte-order mark", "player\ufeff"],
+    ["leading byte-order mark", "\ufeffplayer"],
+    ["supplementary language tag", "player\u{e0001}"],
+  ])("rejects a local-part %s before any effects", async (_name, localPart) => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetcher);
+    const email = `${localPart}@example.test`;
+    const response = await post(json({ email }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_email" });
+    redirect(await post(form(new URLSearchParams({ email }).toString())), "invalid");
+    expect(rows()).toEqual([]);
+    expect(state.db!.prepare("select * from join_request_notifications").all()).toEqual([]);
+    expect(state.join).not.toHaveBeenCalled();
+    expect(state.createBackend).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "x@https://evil.example.test/claim",
+    "x@example.test/path",
+    "x@example.test\\path",
+    "x@example%2etest",
+    "x@example.test:443",
+    "x@example.test?claim",
+    "x@example.test#claim",
+    "x@example_test.test",
+    "x@-example.test",
+    "x@example-.test",
+    "x@" + "a".repeat(64) + ".test",
+  ])("rejects a non-host email domain in %s before any effects", async email => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetcher);
+    expect((await post(json({ email }))).status).toBe(400);
+    expect(rows()).toEqual([]);
+    expect(state.join).not.toHaveBeenCalled();
+    expect(state.createBackend).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each(["player@sub.example.test", "player@xn--bcher-kva.test", "player@host-1.test"])
+    ("accepts host labels in %s", async email => {
+      expect((await post(json({ email }))).status).toBe(201);
+    });
+
+  it("uses the ASCII email for storage and Clerk when submitted a Unicode domain", async () => {
+    const email = "player@xn--bcher-kva.test";
+    expect((await post(json({ email: "player@bücher.test" }))).status).toBe(201);
+    expect(rows()).toEqual([expect.objectContaining({ email })]);
+    expect(state.createWaitlistEntry).toHaveBeenCalledExactlyOnceWith({ emailAddress: email, notify: true });
+  });
+
+  it.each([
+    [" Player@ｅｘａｍｐｌｅ．ｔｅｓｔ ", "player@example.test"],
+    ["Player@example。test", "player@example.test"],
+    ["Player@example.test\u200b", "player@example.test"],
+    ["Player@BÜCHER.test", "player@xn--bcher-kva.test"],
+  ])("deduplicates %s with its ASCII form across rows, claims and Clerk", async (submitted, email) => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    expect((await post(json({ email: submitted }))).status).toBe(201);
+    redirect(await post(form(new URLSearchParams({ email }).toString())), "exists");
+    expect(rows()).toEqual([expect.objectContaining({ email })]);
+    expect(state.db!.prepare("select kind, subject_hash from join_request_notifications").all()).toEqual([
+      { kind: "join", subject_hash: createHash("sha256").update(`email:${email}`).digest("hex") },
+    ]);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(state.join.mock.calls.map(([value]) => value)).toEqual([email, email]);
+    expect(state.createWaitlistEntry.mock.calls.map(([value]) => value)).toEqual([
+      { emailAddress: email, notify: true }, { emailAddress: email, notify: true },
+    ]);
+  });
+
+  it("rejects an email whose ASCII form exceeds the length limit before any effects", async () => {
+    expect((await post(json({ email: "a".repeat(240) + "@bücher.test" }))).status).toBe(400);
+    expect(rows()).toEqual([]);
+    expect(state.join).not.toHaveBeenCalled();
+    expect(state.createBackend).not.toHaveBeenCalled();
   });
 
   it.each([{ body: null }, { body: [] }, { body: "string" }])("rejects a non-object JSON body $body", async ({ body }) => {
