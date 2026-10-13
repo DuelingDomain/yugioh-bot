@@ -1138,7 +1138,7 @@ export const SeatField = memo(function SeatField({
         style={vars}
       >
         <div className={styles.sfMat}>
-          <FieldCracks seat={seat} lp={view?.lp} chunks={pair?.framed !== true} avoidSelector="[data-crack-avoid]" />
+          <FieldCracks seat={seat} lp={view?.lp} chunks={pair?.framed !== true} avoidSelector="[data-crack-avoid]" layoutToken={emz} />
           {emz === "none" ? <span className={styles.sfCrackAvoid} data-crack-avoid="" aria-hidden="true" /> : null}
           <span className={styles.sfRule} aria-hidden="true" />
           <div className={styles.sfGrid}>

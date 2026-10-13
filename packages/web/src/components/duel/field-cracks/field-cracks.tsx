@@ -42,19 +42,50 @@ const STAGE_GAP_MS = 380;
    cracks again, and "keep cracks" holds even when the LP went back up while the field was not mounted. */
 const highWater = new Map<string, CrackStage>();
 const HIGH_WATER_MAX = 200;
+/* The same, kept for the tab (sessionStorage): a reload after the LP went back up still shows the cracks. */
+const STORE_PREFIX = "field-cracks:";
+
+function storage(): Storage | null {
+  try {
+    return typeof window === "undefined" ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function recalled(key: string | undefined): CrackStage {
+  if (!key) return 0;
+  const known = highWater.get(key);
+  if (known != null) return known;
+  const raw = Number(storage()?.getItem(STORE_PREFIX + key));
+  const stage = (raw >= 1 && raw <= 4 ? Math.floor(raw) : 0) as CrackStage;
+  if (stage) highWater.set(key, stage);
+  return stage;
+}
 
 function remember(key: string | undefined, stage: CrackStage) {
   if (!key) return;
-  if ((highWater.get(key) ?? 0) >= stage) return;
+  if (recalled(key) >= stage) return;
   highWater.delete(key);
   highWater.set(key, stage);
   if (highWater.size > HIGH_WATER_MAX) highWater.delete(highWater.keys().next().value as string);
+  try {
+    storage()?.setItem(STORE_PREFIX + key, String(stage));
+  } catch {
+    // A full or blocked store only costs the reload memory.
+  }
 }
 
 /** Forget what the page remembers (tests). */
 export function resetCrackMemory() {
   highWater.clear();
   fieldCache.clear();
+  const store = storage();
+  if (!store) return;
+  for (let i = store.length - 1; i >= 0; i -= 1) {
+    const name = store.key(i);
+    if (name?.startsWith(STORE_PREFIX)) store.removeItem(name);
+  }
 }
 
 const fieldCache = new Map<string, CrackField>();
@@ -142,14 +173,16 @@ export interface CrackLayerProps {
   avoidSelector?: string;
   /** CSS selector of the element whose middle splits a shared mat into two fields. */
   splitSelector?: string;
+  /** Changes when the zones of the mat change without a resize (the shared Extra Monster row appears): the mat is measured again. */
+  layoutToken?: string;
 }
 
-export function CrackLayer({ seed, stage, regainMode = "keep", replay = false, memoKey, part = "all", chunks: crumble = true, avoidSelector, splitSelector }: CrackLayerProps) {
+export function CrackLayer({ seed, stage, regainMode = "keep", replay = false, memoKey, part = "all", chunks: crumble = true, avoidSelector, splitSelector, layoutToken }: CrackLayerProps) {
   const id = useId();
   const layerRef = useRef<HTMLDivElement>(null);
   const mend = replay || regainMode === "mend";
   const first = useRef<CrackStage | null>(null);
-  if (first.current === null) first.current = mend ? stage : nextStage(memoKey ? highWater.get(memoKey) ?? 0 : 0, stage, "keep");
+  if (first.current === null) first.current = mend ? stage : nextStage(recalled(memoKey), stage, "keep");
   const [shown, setShown] = useState<CrackStage>(first.current);
   const shownRef = useRef<CrackStage>(first.current);
   const [broken, setBroken] = useState<Broken>(() => brokenFor(first.current as CrackStage));
@@ -188,7 +221,7 @@ export function CrackLayer({ seed, stage, regainMode = "keep", replay = false, m
       window.removeEventListener("resize", run);
       document.removeEventListener("transitionend", onTransitionEnd, true);
     };
-  }, [seed, part, avoidSelector, splitSelector]);
+  }, [seed, part, avoidSelector, splitSelector, layoutToken]);
 
   /* ---- the LP moved: spread the new stage (or just show it) */
   useEffect(() => {
@@ -215,8 +248,9 @@ export function CrackLayer({ seed, stage, regainMode = "keep", replay = false, m
         const at = s === 4
           ? delay + SPREAD_MS[4] + 60 + index * 70
           : delay + span * (0.18 + 0.63 * (index / Math.max(1, list.length - 1)));
-        timers.current.push(
-          duelFxClock.setTimeout(() => {
+        const handle: number = duelFxClock.setTimeout(() => {
+            const at = timers.current.indexOf(handle);
+            if (at >= 0) timers.current.splice(at, 1);
             setBroken((b) => {
               const n = [...b] as unknown as [number, number, number, number];
               n[s - 1] = Math.max(n[s - 1], index + 1);
@@ -224,8 +258,8 @@ export function CrackLayer({ seed, stage, regainMode = "keep", replay = false, m
             });
             const placed = placementOf(layerRef.current, geoRef.current);
             if (placed) dropChunk(chunk, placed);
-          }, at),
-        );
+          }, at);
+        timers.current.push(handle);
       });
     }
   }, [stage, mend, replay, memoKey, crumble]);
@@ -338,6 +372,7 @@ function placementOf(layer: HTMLElement | null, geo: Geo | null) {
 }
 
 export interface FieldCracksProps {
+  layoutToken?: string;
   /** The seat the field belongs to (part of the seed). */
   seat: number;
   chunks?: boolean;
@@ -349,11 +384,13 @@ export interface FieldCracksProps {
 }
 
 /** The cracks of a seat's field, driven by its LP and the duel scope. Renders nothing without a scope. */
-export function FieldCracks({ seat, lp, part = "all", chunks, avoidSelector, splitSelector }: FieldCracksProps) {
+export function FieldCracks({ seat, lp, part = "all", chunks, avoidSelector, splitSelector, layoutToken }: FieldCracksProps) {
   const scope = useFieldCracksScope();
   if (!scope) return null;
   return (
     <CrackLayer
+      // A layer that is handed another seat (the flat view follows the focus seat) starts over: it must not keep the cracks of the seat before.
+      key={`${scope.duelKey}:${seat}`}
       seed={crackSeed(scope.duelKey, seat)}
       stage={crackStage(lp, scope.startLp)}
       regainMode={scope.regain}
@@ -363,6 +400,7 @@ export function FieldCracks({ seat, lp, part = "all", chunks, avoidSelector, spl
       chunks={chunks}
       avoidSelector={avoidSelector}
       splitSelector={splitSelector}
+      layoutToken={layoutToken}
     />
   );
 }
