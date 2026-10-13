@@ -106,11 +106,11 @@
 }
 
 /* A face-up card: the art is a small card beside the name and stats, and the effect text runs the full width under both, so a long text
-   keeps most of the pane. (The column is 104px at 1x, never more than about a third of the pane.) The pane scrolls when the text still does
+   keeps most of the pane. (The column grows with the pane: 44% of it, up to 170px at 1x.) The pane scrolls when the text still does
    not fit: inspector.tsx fades the last rows then. */
 .root[data-header="side"] {
   display: grid;
-  grid-template-columns: minmax(0, min(calc(104 * var(--duel-unit, 1px)), 36%)) minmax(0, 1fr);
+  grid-template-columns: minmax(0, min(calc(170 * var(--duel-unit, 1px)), 44%)) minmax(0, 1fr);
   /* The art spans the first two rows: the facts row (1fr) takes any extra height, so the name never drifts from the stats. */
   grid-template-rows: auto 1fr auto;
   align-content: start;
