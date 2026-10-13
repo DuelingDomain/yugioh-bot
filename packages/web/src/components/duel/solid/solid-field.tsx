@@ -24,6 +24,7 @@ import { useDuelFieldModel, type DuelFieldModel, type DuelFieldProps } from "../
 import type { BattleAim } from "../battle-fx";
 import { MONSTER_ROW_ATTR } from "../direct-target";
 import { Emblem, Notches } from "./emblem";
+import { FieldCracks } from "../field-cracks/field-cracks";
 import { PlaneSvg } from "./plane-svg";
 import { DmChip } from "./dm-chip";
 import rails from "./rails.module.css";
@@ -256,6 +257,9 @@ export function SolidField(props: SolidFieldProps) {
       {rail("opp")}
       <div className={table.fieldwrap}>
         <div className={table.plane} data-sv-plane="" data-light={activity.turnSeat === bottomIndex ? "you" : "opp"}>
+          {/* The plane is one mat for both players: each half cracks from its own LP, split at the clock row. */}
+          <FieldCracks seat={topIndex} lp={top?.lp} part="top" avoidSelector="[data-sv-clock]" splitSelector='[data-sv-clock="opp"]' />
+          <FieldCracks seat={bottomIndex} lp={bottom?.lp} part="bottom" avoidSelector="[data-sv-clock]" splitSelector='[data-sv-clock="opp"]' />
           <Emblem />
           <Notches />
           <Half view={top} seatIndex={topIndex} opponent ownerLabel={topLabel} masterRule={masterRule} callbacks={callbacks} activity={activity} />

@@ -29,6 +29,7 @@ import type { DuelPreferences } from "../../preferences";
 import { buildAttackPreview } from "../attack-preview";
 import { TABLE_CARDS } from "../../table/fixtures/common";
 import { SolidRoom } from "../solid-room";
+import { FieldCracksScope } from "../../field-cracks/context";
 import { PositionFx } from "../../position-fx";
 import { SummonFx } from "../../summon-fx";
 import { SOLID_CARDS } from "./cards";
@@ -50,7 +51,7 @@ type ConfirmState = { anchor: HTMLElement; name: string; prefer: "above" | "belo
  * The 3D mode board on fixture data (spec section 4, W8). It builds the same slot nodes `DuelRoomView` builds, with the
  * real components and none of the room's network, and hands them to the real `SolidRoom`. Nothing is sent anywhere.
  */
-export function SolidPreviewRoom({ stateId, flat, reduced, card, activate }: { stateId: SolidStateId; flat: boolean; reduced: boolean; card?: string | null; activate?: boolean }) {
+export function SolidPreviewRoom({ stateId, flat, reduced, card, activate, lp, lpAfter }: { stateId: SolidStateId; flat: boolean; reduced: boolean; card?: string | null; activate?: boolean; lp?: string | null; lpAfter?: string | null }) {
   const fixture = useMemo(() => solidFixture(stateId), [stateId]);
   const { room, history, ui } = fixture;
   // `?act=1`: a moment after the board is up, the Set card in your Spell/Trap zone 2 turns face-up and activates (the activation copy on the plane).
@@ -60,8 +61,18 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card, activate }: { s
     const timer = window.setTimeout(() => setActing(true), 2000);
     return () => window.clearTimeout(timer);
   }, [activate]);
+  // `?lp=<mine>,<rival's>` sets the life points (one value sets both); `&lpafter=<ms>` waits first, to watch the field cracks spread.
+  const lpDelay = lpAfter != null && /^\d+$/.test(lpAfter) ? Number(lpAfter) : 0;
+  const [lpLate, setLpLate] = useState(lpDelay <= 0);
+  useEffect(() => {
+    if (lpDelay <= 0) return undefined;
+    const timer = window.setTimeout(() => setLpLate(true), lpDelay);
+    return () => window.clearTimeout(timer);
+  }, [lpDelay]);
   const engine = useMemo<DuelEngineView>(() => {
-    const base = room.engine!;
+    let base = room.engine!;
+    const values = (lp ?? "").split(",").map(Number).filter((value) => Number.isFinite(value));
+    if (values.length > 0 && lpLate) base = { ...base, seats: base.seats.map((seat) => ({ ...seat, lp: values[seat.seat % values.length] })) };
     const set = base.seats[0].spells[1];
     if (!acting || !set) return base;
     const zone = { controller: 0, location: LOCATION_SZONE, sequence: 1 };
@@ -71,7 +82,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card, activate }: { s
     ] as DuelEvent[];
     const seats = base.seats.map((seat, index) => (index === 0 ? { ...seat, spells: seat.spells.map((spell, slot) => (slot === 1 && spell ? { ...spell, position: 0x05 } : spell)) } : seat));
     return { ...base, revision: base.revision + 1, seats, events };
-  }, [room.engine, acting]);
+  }, [room.engine, acting, lp, lpLate]);
   const slug = `solid-preview-${stateId}`;
   const boardRef = useRef<HTMLDivElement>(null);
   const [tilt, setTilt] = useState<BoardTilt>(flat ? "flat" : "tilt");
@@ -194,6 +205,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card, activate }: { s
 
   return (
     <DeckSurrenderContext.Provider value={DECK_SURRENDER}>
+      <FieldCracksScope duelKey={slug} startLp={8000}>
       <SolidRoom
         slug={slug}
         boardRef={boardRef}
@@ -284,6 +296,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card, activate }: { s
         boardQuiet={() => true}
         onBeforeViewChange={() => { setMenu(null); setConfirm(null); }}
       />
+      </FieldCracksScope>
     </DeckSurrenderContext.Provider>
   );
 }
