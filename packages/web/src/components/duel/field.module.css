@@ -350,6 +350,17 @@
   text-overflow: ellipsis;
 }
 
+.tActing {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid rgb(138 108 255 / 0.4);
+  border-radius: 3px;
+  color: var(--ink);
+  background: rgb(138 108 255 / 0.12);
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
+  line-height: 1.25;
+}
+
 .tTurn {
   display: inline-flex;
   flex: none;

@@ -14,7 +14,8 @@ function beforeAuth(request: NextRequest): Response | null {
   return null;
 }
 function unauthorized(request: NextRequest) {
-  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401,
+    headers: { "cache-control": "private, no-store" } });
   const url = new URL("/sign-in", request.url);
   url.searchParams.set("redirect_url", request.nextUrl.pathname + request.nextUrl.search);
   return NextResponse.redirect(url);

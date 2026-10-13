@@ -1,5 +1,12 @@
 import type { DuelClock, DuelFormat, DuelSettings } from "./settings.js";
 import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
+import type { DuelKind } from "./duel-kind.js";
+import type { ReplayForkControl } from "./replay-fork.js";
+
+export * from "./duel-kind.js";
+export * from "./replay.js";
+export * from "./replay-fork.js";
+export { isUnknownEngineChoice, sourceEngineChoice } from "./source-engine-choice.js";
 
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";
@@ -566,6 +573,8 @@ export interface DuelSeat {
 export interface DuelSession {
   id: number;
   slug: string;
+  /** Server-owned immutable kind. Rows from before fork storage are play. */
+  kind: DuelKind;
   name: string;
   guildId: string;
   organizerPlayerId: number;
@@ -614,10 +623,22 @@ export interface DuelRoom {
   stale?: boolean;
   /** Rock-paper-scissors or FFA dice rolls before the game starts; null when there is none. */
   opening?: DuelOpeningView | null;
+  /** Only for the authorized replay-fork creator. mySeat remains the stored identity seat. */
+  fork?: ReplayForkControl;
 }
 
 /** A table row in the lobby list or match history, as seen by one viewer. */
-export interface DuelListItem extends DuelSession {
+export interface DuelListItem extends Omit<DuelSession, "createdAt" | "seats"> {
+  /** UTC ISO timestamp, or null when the saved date cannot be read. */
+  createdAt: string | null;
+  startedAt: string | null;
+  durationMs: number | null;
+  turnCount: number | null;
+  /** Recorded core family, with the historical engine fallback for started games. */
+  engine: "legacy" | "pinned" | "multi" | null;
+  seats: Array<DuelSeat & { team: number | null; result: "win" | "loss" | "draw" | null }>;
+  /** Whether this ordinary table is invite-only. */
+  private: boolean;
   /** The viewer's seat, or null when the viewer is not seated. */
   mySeat: number | null;
   /** Last start or accepted input; falls back to creation time. */
@@ -628,6 +649,25 @@ export interface DuelListItem extends DuelSession {
 
 /** `mine` lists only duels the viewer played; `all` lists every duel the viewer may open. */
 export type DuelHistoryScope = "mine" | "all";
+export type DuelHistoryStatus = "any" | "completed" | "interrupted" | "cancelled";
+
+export interface DuelHistoryOptions {
+  scope?: DuelHistoryScope;
+  from?: string;
+  to?: string;
+  format?: DuelFormat;
+  status?: DuelHistoryStatus;
+  q?: string;
+  card?: string;
+  cursor?: string | null;
+  limit?: number;
+}
+
+export interface DuelHistoryPage {
+  duels: DuelListItem[];
+  nextCursor: string | null;
+  canSeeAll: boolean;
+}
 
 export interface DuelReplayFrame {
   /** 0 is the opening board; n is the board after the nth accepted input. */
@@ -642,6 +682,7 @@ export interface DuelReplayFrame {
 }
 
 export interface DuelReplay {
+  verification: import("./replay.js").ReplayVerification;
   session: DuelSession;
   role: DuelActorRole;
   mySeat: number | null;

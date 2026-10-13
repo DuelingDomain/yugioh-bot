@@ -7,9 +7,16 @@ import type {
   DuelFirstChoice,
   DuelDeckValidation,
   DuelFormat,
+  DuelHistoryPage,
   DuelHistoryScope,
   DuelListItem,
   DuelReplay,
+  DuelReplayV2,
+  ReplayErrorResponse,
+  ReplayForkRequest,
+  ReplayForkResult,
+  ReplayUnverifiedReason,
+  ReplayVisibility,
   DuelMasterRule,
   DuelMode,
   DuelRoom,
@@ -18,17 +25,35 @@ import type {
   DuelSession,
   DuelSettings,
 } from "@yugidraft/shared/duels";
+import { EMPTY_HISTORY_FILTERS, historyQuery, type HistoryFilters } from "./history-filters";
+
+/** The extra fields of a REPLAY_UNVERIFIED (409) answer. Both are optional: an older server sends neither. */
+export type ReplayErrorDetail = Pick<ReplayErrorResponse, "canOpenUnchecked" | "reason">;
 
 export class DuelRequestError extends Error {
   readonly status: number;
   readonly code?: string;
+  /** Replay errors only: whether the saved final board can still be opened. Absent on older servers. */
+  readonly finalBoard?: "available" | "none";
+  /** Replay errors only: why the replay could not be checked, and whether the owner may open it anyway. */
+  readonly detail?: ReplayErrorDetail;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, finalBoard?: "available" | "none", detail?: ReplayErrorDetail) {
     super(message);
     this.name = "DuelRequestError";
     this.status = status;
     this.code = code;
+    this.finalBoard = finalBoard;
+    this.detail = detail;
   }
+}
+
+const UNVERIFIED_REASONS: readonly string[] = ["board_mismatch", "command_mismatch", "no_saved_board"];
+
+/** Access failures invalidate cached private views, including expired sessions without an error code. */
+export function isDuelAccessError(error: unknown): error is DuelRequestError {
+  return error instanceof DuelRequestError && (error.code === "ACCESS_DENIED" || error.code === "ACCESS_UNAVAILABLE"
+    || error.status === 401 || error.status === 403 || error.status === 404);
 }
 
 /** The room left the lobby while a deck check was pending. Refresh the room; no report applies. */
@@ -46,12 +71,23 @@ function errorMessage(body: unknown, status: number): string {
   return `Request failed (${status})`;
 }
 
+function replayErrorDetail(body: unknown): ReplayErrorDetail | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const raw = body as Record<string, unknown>;
+  const detail: ReplayErrorDetail = {};
+  if (typeof raw.canOpenUnchecked === "boolean") detail.canOpenUnchecked = raw.canOpenUnchecked;
+  if (typeof raw.reason === "string" && UNVERIFIED_REASONS.includes(raw.reason)) detail.reason = raw.reason as ReplayUnverifiedReason;
+  return Object.keys(detail).length > 0 ? detail : undefined;
+}
+
 async function parseBody<T>(res: Response): Promise<T> {
   if (res.redirected) throw new DuelRequestError("Your session expired. Sign in again to return to this table.", 401);
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     const code = body && typeof body === "object" && "code" in body && typeof body.code === "string" ? body.code : undefined;
-    throw new DuelRequestError(errorMessage(body, res.status), res.status, code);
+    const finalBoard = body && typeof body === "object" && "finalBoard" in body
+      && (body.finalBoard === "available" || body.finalBoard === "none") ? body.finalBoard : undefined;
+    throw new DuelRequestError(errorMessage(body, res.status), res.status, code, finalBoard, replayErrorDetail(body));
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new DuelRequestError("The server returned an invalid response. Your last game state is unchanged.", 502);
@@ -61,15 +97,48 @@ async function parseBody<T>(res: Response): Promise<T> {
 
 export const DUEL_LIST_KEY = "/api/duels";
 
-export function duelRoomKey(slug: string, spectate = false): string {
-  return `/api/duels/${slug}${spectate ? "?spectate=1" : ""}`;
+/**
+ * Replay fork views only. `as` is the seat the fork shows and answers for; the websocket identity stays at seat 0.
+ * An ordinary table rejects both flags, so they are sent only after the room says it is a fork.
+ */
+export interface ForkViewControl {
+  /** Null follows the seat the engine waits on; the host picks it on every read. */
+  as: number | null;
+  /** Reveal hands is on at the host unless a view asks for off. */
+  reveal: boolean;
+}
+
+export function duelRoomKey(slug: string, spectate = false, fork: ForkViewControl | null = null): string {
+  const query = new URLSearchParams();
+  if (spectate) query.set("spectate", "1");
+  if (fork) {
+    if (fork.as != null) query.set("as", String(fork.as));
+    if (!fork.reveal) query.set("reveal", "0");
+  }
+  const text = query.toString();
+  return `/api/duels/${slug}${text ? `?${text}` : ""}`;
+}
+
+/** Live lists answer `{ duels }` only; history pages add the cursor and the admin flag. */
+export interface DuelListPage extends Partial<Omit<DuelHistoryPage, "duels">> {
+  duels: DuelListItem[];
+}
+
+export function duelHistoryKey(
+  scope: DuelHistoryScope = "mine",
+  filters: HistoryFilters = EMPTY_HISTORY_FILTERS,
+  cursor?: string | null,
+): string {
+  return `${DUEL_LIST_KEY}?${historyQuery(scope, filters, cursor)}`;
 }
 
 export async function listDuels(
   archived = false,
   scope: DuelHistoryScope = "mine",
-): Promise<{ duels: DuelListItem[] }> {
-  const url = archived ? `${DUEL_LIST_KEY}?archived=1&scope=${scope}` : DUEL_LIST_KEY;
+  filters: HistoryFilters = EMPTY_HISTORY_FILTERS,
+  cursor?: string | null,
+): Promise<DuelListPage> {
+  const url = archived ? duelHistoryKey(scope, filters, cursor) : DUEL_LIST_KEY;
   return parseBody(await fetch(url, { cache: "no-store" }));
 }
 
@@ -79,6 +148,99 @@ export function duelReplayKey(slug: string): string {
 
 export async function getDuelReplay(slug: string): Promise<DuelReplay> {
   return parseBody(await fetch(duelReplayKey(slug), { cache: "no-store" }));
+}
+
+/**
+ * The ordinary viewer asks only for the contract version and the card visibility. Camera position, seat
+ * overrides and reveal flags never travel: the server rejects them for ordinary viewers. A server that
+ * does not know version 2 yet answers with the v1 shape, which the replay controller converts.
+ */
+export function duelReplayUrl(slug: string, visibility: ReplayVisibility, unchecked = false): string {
+  return `${duelReplayKey(slug)}?version=2&visibility=${visibility}${unchecked ? "&unchecked=1" : ""}`;
+}
+
+/** `unchecked` asks the server to open a replay it could not check. It is the owner's choice; the server refuses anyone else. */
+export async function getDuelReplayFrames(
+  slug: string,
+  visibility: ReplayVisibility,
+  signal?: AbortSignal,
+  unchecked = false,
+): Promise<DuelReplay | DuelReplayV2> {
+  return parseBody(await fetch(duelReplayUrl(slug, visibility, unchecked), { cache: "no-store", signal }));
+}
+
+/** The private views an owner may ask for. `seat` shows that seat's cards; `reveal` fills every hand. */
+export interface OwnerReplayView {
+  visibility: ReplayVisibility;
+  seat?: number | null;
+  reveal?: boolean;
+  /** Open the replay without the check against the saved final board. */
+  unchecked?: boolean;
+}
+
+export function ownerReplayUrl(slug: string, view: OwnerReplayView): string {
+  const query = new URLSearchParams({ version: "2", visibility: view.visibility });
+  if (view.seat != null) query.set("seat", String(view.seat));
+  if (view.reveal) query.set("reveal", "1");
+  if (view.unchecked) query.set("unchecked", "1");
+  return `/api/admin/duels/${encodeURIComponent(slug)}/replay?${query.toString()}`;
+}
+
+/** Owner only. The server checks the owner list again; a private source needs no seat or grant. */
+export async function getOwnerReplayFrames(
+  slug: string,
+  view: OwnerReplayView,
+  signal?: AbortSignal,
+): Promise<DuelReplayV2> {
+  return parseBody(await fetch(ownerReplayUrl(slug, view), { cache: "no-store", signal }));
+}
+
+/** Owner only. The retry key in `request` makes a repeated click or a network retry one fork. */
+export async function postReplayFork(slug: string, request: ReplayForkRequest): Promise<ReplayForkResult> {
+  return parseBody(await fetch(`/api/admin/duels/${encodeURIComponent(slug)}/replay/fork`, {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  }));
+}
+
+/** Fork creator only: run the copied prefix again and drop what was played after it. */
+export async function restartReplayFork(slug: string): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/fork/restart`, { method: "POST", cache: "no-store" }),
+  ));
+}
+
+/** Fork creator only: end the fork. The source duel never changes. The host answers with the session only. */
+export async function cancelReplayFork(slug: string): Promise<{ session: DuelSession }> {
+  return parseBody<{ session: DuelSession }>(
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/fork/cancel`, { method: "POST", cache: "no-store" }),
+  );
+}
+
+/** One open replay fork of the owner, as the list route answers it. The times are UTC, "YYYY-MM-DD HH:MM:SS". */
+export interface OpenReplayFork {
+  slug: string;
+  sourceSlug: string;
+  format: DuelFormat;
+  createdAt: string;
+  lastActivityAt: string;
+}
+
+export interface OpenReplayForkList {
+  forks: OpenReplayFork[];
+  /** How many forks an owner may keep open. */
+  limit: number;
+}
+
+/** Owner only. The server checks the owner list; any other user gets an access error. */
+export async function getOpenReplayForks(signal?: AbortSignal): Promise<OpenReplayForkList> {
+  const body = await parseBody<Partial<OpenReplayForkList>>(await fetch("/api/admin/duels/forks", { cache: "no-store", signal }));
+  if (!Array.isArray(body.forks) || typeof body.limit !== "number") {
+    throw new DuelRequestError("The server returned an invalid list of forks.", 502);
+  }
+  return { forks: body.forks, limit: body.limit };
 }
 
 export interface CreateDuelOptions {
@@ -130,8 +292,8 @@ export function withRoomReceivedAt(room: DuelRoom & { receivedAt?: number }): Re
   return { ...room, receivedAt: room.receivedAt ?? performance.now() };
 }
 
-export async function getDuelRoom(slug: string, spectate = false): Promise<ReceivedDuelRoom> {
-  return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(duelRoomKey(slug, spectate), { cache: "no-store" })));
+export async function getDuelRoom(slug: string, spectate = false, fork: ForkViewControl | null = null): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(duelRoomKey(slug, spectate, fork), { cache: "no-store" })));
 }
 
 export async function acceptDuelInvite(slug: string, inviteCode: string): Promise<ReceivedDuelRoom> {
@@ -277,12 +439,14 @@ export async function startDuel(slug: string): Promise<ReceivedDuelRoom> {
   ));
 }
 
+/** `as` names the acting seat of a replay fork; leave it out at every ordinary table. */
 export async function sendDuelAction(
   slug: string,
   command: DuelCommand,
+  as?: number,
 ): Promise<ReceivedDuelRoom> {
   return withRoomReceivedAt(await parseBody<DuelRoom>(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/actions`, {
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/actions${as === undefined ? "" : `?as=${as}`}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(command),
@@ -290,13 +454,22 @@ export async function sendDuelAction(
   ));
 }
 
+/** Replay forks bind a response change to one seat, one revision and, when the seat has one, one prompt. */
+export interface ForkChainBinding {
+  as: number;
+  revision: number;
+  promptId?: string;
+}
+
 /** Set your own chain response switch. The answer is your room view, like an action. */
-export async function setChainResponseMode(slug: string, mode: DuelChainMode): Promise<ReceivedDuelRoom> {
+export async function setChainResponseMode(slug: string, mode: DuelChainMode, fork?: ForkChainBinding): Promise<ReceivedDuelRoom> {
   return withRoomReceivedAt(await parseBody<DuelRoom>(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/chain-mode`, {
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/chain-mode${fork ? `?as=${fork.as}` : ""}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify(fork
+        ? { mode, revision: fork.revision, ...(fork.promptId !== undefined ? { promptId: fork.promptId } : {}) }
+        : { mode }),
     }),
   ));
 }
@@ -319,12 +492,25 @@ export async function cancelDuel(slug: string): Promise<ReceivedDuelRoom> {
   return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(`/api/duels/${encodeURIComponent(slug)}/cancel`, { method: "POST" })));
 }
 
+/** A replay fork searches for one prompt of one acting seat; the server checks all three. */
+export interface ForkSearchBinding {
+  as: number;
+  promptId: string;
+  revision: number;
+}
+
 export async function searchDuelCards(
   q: string,
   slug?: string,
+  fork?: ForkSearchBinding | null,
 ): Promise<{ cards: DuelCardInfo[] }> {
   const params = new URLSearchParams({ q });
   if (slug) params.set("slug", slug);
+  if (slug && fork) {
+    params.set("as", String(fork.as));
+    params.set("promptId", fork.promptId);
+    params.set("revision", String(fork.revision));
+  }
   return parseBody(await fetch(`/api/duels/cards?${params.toString()}`, { cache: "no-store" }));
 }
 

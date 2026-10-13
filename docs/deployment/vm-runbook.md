@@ -100,6 +100,9 @@ Deploy jobs run in the `production` / `staging` GitHub Environments and require 
    The VM also requires `git merge-base --is-ancestor HEAD "$DEPLOY_COMMIT"` before any checkout or image change.
    An older or diverged target is refused unless the owner explicitly sets `rollback=true`. The target must still be on main.
    Rollback does not restore the matching database or env; use the restore procedure when those are needed.
+   After retention has run, roll back only to a release that has the codec. Older images show no final board and no history turn count for compressed rows; the old eliminated-spectator reader also throws on gzip BLOBs, returning HTTP 500 for that room request. Roll forward to restore reads; the stored boards are preserved.
+   This release defaults retention off in code and Compose. Keep it off through one stable codec release;
+   then enable it and recreate the duel container. Turn-count backfill runs while retention is off unless `DUEL_TURN_BACKFILL_ENABLED=0`. Set both maintenance switches to `0` and recreate the duel container to stop both phases.
    It waits only 15 minutes for the shared VM build lock; missing `flock` fails closed. A cold staging build can take longer.
    If prod reaches the lock timeout, let staging finish, then run Deploy again.
    Before checkout changes, backups or stopping staging, it runs `scripts/deployment/check-prod-activity.py`
@@ -282,6 +285,16 @@ sqlite3 -readonly /opt/yugioh-bot/data/bot.sqlite "select guild_id, name, count(
 Resolve these duplicates, or restore the matched DB backup using the restore procedure below, before starting older code; preserve new activity for reconciliation.
 
 Check the [backup retention policy](#backups) before choosing a release. Database rollback further than **14 days** is not possible from release directories: the daily timer removes their database copies even when no deployments occur. After that window, only the newest release retains checkout/deploy commits, image IDs and protected runtime env for code-only rollback against a compatible current database. Older release directories are deleted; the retained metadata is not a database restore point.
+
+### Replay-fork rollback
+
+After retention has run, roll back only to a release that has the codec. Older images show no final board and no history turn count for compressed rows; the old eliminated-spectator reader also throws on gzip BLOBs, returning HTTP 500 for that room request. Roll forward to restore reads; the stored boards are preserved.
+
+Before rollback to code that predates `duels.kind`, block new fork creation and cancel every
+active `replay-fork` through the current host. Stop all writers and WS, then verify on the
+drained DB that `select count(*) from duels where kind = 'replay-fork' and status = 'active'`
+returns `0`. Save a WAL-safe backup before starting older images. Older code has no kind
+filter and can recover an active fork as an ordinary duel with bot seats and live timers.
 
 ### PR 1 migration rollback (historical)
 
@@ -637,3 +650,77 @@ systemctl start "$unit.timer"
 - [ ] [Deployment verification passes](#verify)
 - [ ] [Clerk instance, callback, DNS/email and production keys configured](#clerk-configuration)
 - [ ] `duel` container logs show the private server listening
+
+## Manual duel storage VACUUM
+
+Snapshot retention only makes SQLite pages reusable. It never runs VACUUM. Schedule a drain window after compaction. The host logs pass counts, busy deferrals, and `backlogDone`, including turn-backfill progress while retention is off. `backlogDone` covers the enabled phases; unreadable turns stay null and are retried on the next cursor scan. After a scan wraps to the start, the host waits at least one hour before a new full turn scan. Compaction and fork cleanup continue during this delay.
+
+As root, first set `DUEL_DB_FILE` to the existing database, `DUEL_DB_BACKUP` to a new backup file outside application cleanup, and `DUEL_SQLITE_TMPDIR` to a writable temporary directory on the database volume. Use operator-selected paths. The backup directory must already exist. Never overwrite a backup. Check the remaining eligible rows with the same configured age (30 days below); queued or failing forks leave the backlog unfinished:
+
+```bash
+: "${DUEL_DB_FILE:?Set DUEL_DB_FILE to the existing database path}"
+sqlite3 -readonly "$DUEL_DB_FILE" "select count(*) as turns_pending from duels where turn_count is null and status in ('completed','interrupted','cancelled') and (clock_json is not null or snapshot_public_json is not null or snapshot_seat0_json is not null or snapshot_seat1_json is not null or snapshot_seats_json is not null); select count(*) as boards_pending from duels where snapshot_compacted_at is null and status in ('completed','interrupted','cancelled') and julianday(ended_at)<julianday('now','-30 days'); select count(*) as forks_pending from duels where status='cancelled' and kind='replay-fork' and series_id is null and julianday(ended_at)<julianday('now','-7 days');"
+```
+
+`turns_pending` is an upper bound. It includes rows whose stored values have no readable turn. These rows stay null after a scan completes.
+
+1. Stop new duel admissions, let active duels finish, and verify the count is zero with the [active-duel drain check](#before-a-deploy-that-changes-the-engine-bundle). Pause `dueling-backup.timer`, wait for any running `dueling-backup.service` to finish, then stop web, bot (if separately running), worker, ws, and duel. Keep all database readers and writers stopped through verification.
+2. Run the guarded subshell below. It verifies the live DB and backup, requires at least **2x the database file size in free space after backup**, and places SQLite's temporary copy on that same volume via `SQLITE_TMPDIR`. This accounts for the temporary database and WAL copy-back; leave additional room for filesystem overhead. If using a different temp volume instead, independently reserve 2x the file size there and on the database volume and change the same-volume guard only after checking both.
+3. Every failed prerequisite check exits the subshell before VACUUM. The SSH shell stays open. The exit trap repairs ownership and permissions of any `-wal` and `-shm` files left by the root CLI, including on failure.
+
+```bash
+# Set the three variables and stop all readers/writers before this block.
+(
+  fail() { printf '%s\n' "$*" >&2; exit 1; }
+  test -n "${DUEL_DB_FILE:-}" || fail 'Set DUEL_DB_FILE'
+  test -n "${DUEL_DB_BACKUP:-}" || fail 'Set DUEL_DB_BACKUP'
+  test -n "${DUEL_SQLITE_TMPDIR:-}" || fail 'Set DUEL_SQLITE_TMPDIR'
+  test -f "$DUEL_DB_FILE" || fail 'Database does not exist'
+  test ! -e "$DUEL_DB_BACKUP" || fail 'Backup already exists'
+  test -d "$(dirname "$DUEL_DB_BACKUP")" || fail 'Backup directory does not exist'
+  test -d "$DUEL_SQLITE_TMPDIR" || fail 'SQLite temp directory does not exist'
+  test -w "$DUEL_SQLITE_TMPDIR" || fail 'SQLite temp directory is not writable'
+  # The CLI .backup argument uses single quotes; refuse paths it cannot quote safely.
+  case "$DUEL_DB_BACKUP" in *"'"*|*$'\n'*) fail 'Unsupported backup path';; esac
+  fix_sidecars() {
+    for sidecar in "$DUEL_DB_FILE-wal" "$DUEL_DB_FILE-shm"; do
+      if test -e "$sidecar"; then
+        chown --reference="$DUEL_DB_FILE" "$sidecar" || return 1
+        chmod --reference="$DUEL_DB_FILE" "$sidecar" || return 1
+      fi
+    done
+  }
+  trap 'fix_sidecars || { printf "%s\n" "Sidecar ownership repair failed; keep services stopped" >&2; exit 1; }' EXIT
+  source_check=$(sqlite3 -readonly "$DUEL_DB_FILE" 'PRAGMA integrity_check;') || fail 'Live DB check failed'
+  test "$source_check" = ok || fail 'Live DB integrity check is not ok'
+  sqlite3 "$DUEL_DB_FILE" ".backup '$DUEL_DB_BACKUP'" || fail 'Backup failed'
+  chown --reference="$DUEL_DB_FILE" "$DUEL_DB_BACKUP" || fail 'Backup owner fix failed'
+  chmod 600 "$DUEL_DB_BACKUP" || fail 'Backup permission fix failed'
+  backup_check=$(sqlite3 -readonly "$DUEL_DB_BACKUP" 'PRAGMA integrity_check;') || fail 'Backup check failed'
+  test "$backup_check" = ok || fail 'Backup integrity check is not ok'
+  db_device=$(stat -c %d "$DUEL_DB_FILE") || fail 'Database volume check failed'
+  tmp_device=$(stat -c %d "$DUEL_SQLITE_TMPDIR") || fail 'Temp volume check failed'
+  test "$db_device" = "$tmp_device" || fail 'SQLite temp directory must be on the data volume'
+  # Checkpoint before sizing: committed WAL pages may enlarge the database file.
+  checkpoint=$(sqlite3 "$DUEL_DB_FILE" 'PRAGMA wal_checkpoint(TRUNCATE);') || fail 'Checkpoint failed'
+  case "$checkpoint" in '0|0|0'|'0|-1|-1') ;; *) fail 'Checkpoint is busy or incomplete';; esac
+  db_bytes=$(stat -c %s "$DUEL_DB_FILE") || fail 'Database size check failed'
+  available=$(df --output=avail -B1 "$DUEL_DB_FILE") || fail 'Free-space check failed'
+  available=${available##*$'\n'}
+  available=${available//[[:space:]]/}
+  case "$available" in ''|*[!0-9]*) fail 'Invalid free-space result';; esac
+  test "$available" -ge "$((2 * db_bytes))" || fail 'Need at least 2x DB file size free after backup'
+  export SQLITE_TMPDIR="$DUEL_SQLITE_TMPDIR"
+  sqlite3 "$DUEL_DB_FILE" 'VACUUM;' || fail 'VACUUM failed'
+  integrity=$(sqlite3 -readonly "$DUEL_DB_FILE" 'PRAGMA integrity_check;') || fail 'Post-VACUUM check failed'
+  test "$integrity" = ok || fail 'Post-VACUUM integrity check is not ok'
+  foreign_keys=$(sqlite3 -readonly "$DUEL_DB_FILE" 'PRAGMA foreign_key_check;') || fail 'Foreign-key check failed'
+  test -z "$foreign_keys" || fail 'Foreign-key violations remain'
+  fix_sidecars || fail 'Sidecar ownership repair failed'
+  ls -ln "$DUEL_DB_FILE" "$DUEL_DB_BACKUP" || fail 'File inspection failed'
+)
+```
+
+Pause the timer with `systemctl stop dueling-backup.timer`. Check `systemctl is-active dueling-backup.service` and wait until it is inactive before stopping the application services. If the subshell fails, keep services and the timer stopped and investigate with the preserved backup. On success, inspect numeric owners with `ls -ln` in the data directory, including any `-wal`/`-shm` files, compare file sizes, then restart the application services and `systemctl start dueling-backup.timer`. Check a finished room, history count, and public/own-seat replay. Keep the backup under the operator's backup policy. Do not add VACUUM to startup or periodic jobs.
+
+This release defaults `DUEL_SNAPSHOT_RETENTION_ENABLED=0`. Keep it off until all board readers use the codec and one stable codec release is available for rollback. Then enable it and recreate the duel container. Turn-only backfill still runs while compression and fork cleanup are off. When enabled, the policy compresses final boards after 30 days and deletes only cancelled replay forks after 7 days. See [stored duel boards](../architecture.md#stored-duel-boards) for limits and settings.

@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
@@ -14,11 +15,13 @@ import type { DuelHost } from "../src/host.js";
 import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { GameWorker } from "../src/worker-client.js";
+import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
 import { loadSource, replaySource } from "../scripts/lib/replay-source.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
 const SECRET = "first-draw-pin-test";
+const replayJournalCli = fileURLToPath(new URL("../scripts/replay-journal.ts", import.meta.url));
 const seed = ["1", "2", "3", "4"];
 const resources: Array<{ host: DuelHost; db: Database.Database }> = [];
 const dirs: string[] = [];
@@ -49,17 +52,17 @@ async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterR
     onChange: (slug, guildId) => { changes.push({ slug, guildId, status: duels.privateState(slug, guildId).session.status }); },
     pollIntervalMs: 60_000, createWorker: () => { const worker = new GameWorker(); workers.push(worker); return worker; } });
   resources.push({ host, db });
-  const post = async (op: string, seat = 0, extra: Record<string, unknown> = {}): Promise<{ status: number; data: DuelRoom & DuelReplay & { error?: string } }> => {
+  const post = async (op: string, seat = 0, extra: Record<string, unknown> = {}): Promise<{ status: number; data: DuelRoom & DuelReplay & { error?: string; code?: string } }> => {
     const raw = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId: players[seat], ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
       headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
     return finishTestDiceOpening(host, { op, slug: session.slug },
-      { status: response.status, data: await response.json() as DuelRoom & DuelReplay & { error?: string } }, () => post("view", seat, extra));
+      { status: response.status, data: await response.json() as DuelRoom & DuelReplay & { error?: string; code?: string } }, () => post("view", seat, extra));
   };
   const bundle = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")).bundleVersion as string;
   const pin = pinnedEngineVersion(bundle, count, count > 2 ? activeMultiScriptsHash(DATA) : null);
   const options = { mode, format, masterRule: session.masterRule, settings: session.settings, decks, seed, dataDirectory: DATA };
-  return { db, duels, session, decks, options, count, players, post, pin, workers, changes };
+  return { db, duels, session, decks, options, count, players, post, pin, bundle, workers, changes };
 }
 
 function checkDraws(view: DuelEngineView, firstTurnDraw: boolean, actor: number) {
@@ -105,9 +108,16 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     // is the same FIRST_TURN_DRAW bit used before d4338a2 for Standard FFA and Domain 1v1/Tag.
     const game: EngineGame = await createEngineGame({ ...t.options, ...{ firstTurnDraw } });
     const history: DuelEngineView[][] = [];
+    let finalPublic: DuelEngineView;
     const commands: Array<{ seat: number; command: { promptId: string; revision: number; answer: { choice: string } } }> = [];
     try {
-      t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, { ...(saved ? { firstTurnDraw } : {}), ...mergedEngine(format) });
+      if (saved) {
+        t.duels.activateRecorded(t.session.slug, "g", t.players[0]!, seed, t.pin, null,
+          { firstTurnDraw, scriptErrorMode: "tolerant", ...mergedEngine(format) },
+          getCurrentEngineResources(DATA, { mode, format, engine: "pinned" }).identity);
+      } else {
+        t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, mergedEngine(format));
+      }
       if (saved) expect(t.duels.privateState(t.session.slug, "g").setup).toMatchObject({ firstTurnDraw });
       else expect(t.duels.privateState(t.session.slug, "g").setup?.firstTurnDraw).toBeUndefined();
       for (let actor = 0; actor < t.count; actor++) {
@@ -123,6 +133,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
         commands.push({ seat: actor, command });
       }
       history.push(Array.from({ length: t.count }, (_, viewer) => game.view(viewer)));
+      finalPublic = game.view(null);
     } finally { game.close(); }
     // Recovery creates a fresh real worker. A second recovery follows a stopped worker.
     for (let recovery = 0; recovery < 2; recovery++) {
@@ -133,13 +144,14 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       }
       await t.workers.at(-1)!.close();
     }
-    t.duels.interrupt(t.session.slug, "g", "Test finished");
+    t.duels.interrupt(t.session.slug, "g", "Test finished", { public: finalPublic!, seats: history.at(-1)! });
     for (let viewer = 0; viewer < t.count; viewer++) {
       const response = await t.post("replay", viewer);
       expect(response.status, response.data.error).toBe(200);
+      const frames = response.data.frames.map(frame => frame.view);
       for (let step = 0; step <= commands.length; step++) {
         const expected = history[step]![viewer]!;
-        expect(response.data.frames[step]!.view).toMatchObject({ turn: expected.turn, turnSeat: expected.turnSeat,
+        expect(frames[step]).toMatchObject({ turn: expected.turn, turnSeat: expected.turnSeat,
           revision: expected.revision, seats: JSON.parse(JSON.stringify(expected.seats)) });
       }
     }
@@ -151,7 +163,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       bundleVersion: t.pin, ...(saved ? { setup: { firstTurnDraw } } : {}), commands }));
     const replayed = await replaySource(loadSource(file), DATA, commands.length);
     expect(replayed.seats).toEqual(history.at(-1));
-    const output = execFileSync("npx", ["tsx", "scripts/replay-journal.ts", file, "--data", DATA, "--json", "--views"],
+    const output = execFileSync("npx", ["tsx", replayJournalCli, file, "--data", DATA, "--json", "--views"],
       { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     const cli = JSON.parse(output);
     expect(cli).toMatchObject({ ok: true, replayed: commands.length, total: commands.length, seatCount: t.count });
@@ -203,6 +215,12 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       expect(recovered.status, recovered.data.error).toBe(200);
       expect(recovered.data.engine).toEqual(views[viewer]);
     }
+    t.duels.interrupt(t.session.slug, "g", "Test finished");
+    for (let viewer = 0; viewer < t.count; viewer++) {
+      const replay = await t.post("replay", viewer);
+      expect(replay.status, replay.data.error).toBe(200);
+      expect(replay.data.frames[0]!.view.seats).toEqual(views[viewer]!.seats);
+    }
   }, 60_000);
 
   it.each(stableCases)("$mode MR$masterRule $format: an old record can infer the historical stock draw rule", async ({ mode, format, masterRule }) => {
@@ -211,6 +229,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     const game = await createEngineGame({ ...t.options, firstTurnDraw });
     let initial: DuelEngineView[];
     let expected: DuelEngineView[];
+    let finalPublic: DuelEngineView;
     try {
       initial = Array.from({ length: t.count }, (_, viewer) => game.view(viewer));
       for (const view of initial) checkDraws(view, firstTurnDraw, 0);
@@ -221,18 +240,20 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       game.answer(0, command.promptId, command.answer);
       t.duels.recordCommand(t.session.slug, "g", 0, command, null);
       expected = Array.from({ length: t.count }, (_, viewer) => game.view(viewer));
+      finalPublic = game.view(null);
     } finally { game.close(); }
     for (let viewer = 0; viewer < t.count; viewer++) {
       const recovered = await t.post("view", viewer);
       expect(recovered.status, recovered.data.error).toBe(200);
       expect(recovered.data.engine).toEqual(expected[viewer]);
     }
-    t.duels.interrupt(t.session.slug, "g", "Test finished");
+    t.duels.interrupt(t.session.slug, "g", "Test finished", { public: finalPublic!, seats: expected! });
     for (let viewer = 0; viewer < t.count; viewer++) {
       const replay = await t.post("replay", viewer);
       expect(replay.status, replay.data.error).toBe(200);
-      expect(replay.data.frames[0]!.view.seats).toEqual(initial[viewer]!.seats);
-      expect(replay.data.frames[1]!.view.seats).toEqual(expected[viewer]!.seats);
+      const frames = replay.data.frames.map(frame => frame.view);
+      expect(frames[0]!.seats).toEqual(initial[viewer]!.seats);
+      expect(frames[1]!.seats).toEqual(expected[viewer]!.seats);
     }
   }, 60_000);
 
@@ -248,7 +269,15 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     expect(t.changes).toEqual([{ slug: t.session.slug, guildId: "g", status: "interrupted" }]);
     const replay = await t.post("replay");
     expect(replay.status).toBe(409);
-    expect(replay.data.error).toContain("first-turn draw rule was not saved");
+    expect(replay.data).toMatchObject({ code: "REPLAY_UNVERIFIED", reason: "no_saved_board" });
+    // The owner can bypass the missing-board check, but cannot bypass missing rules.
+    const { userId } = t.db.prepare("select user_id as userId from players where id=?").get(t.players[0]!) as { userId: number };
+    vi.stubEnv("OWNER_USER_IDS", String(userId));
+    const unchecked = await t.post("owner-replay", 0, { userId, unchecked: true });
+    expect(unchecked.status).toBe(409);
+    expect(unchecked.data.code).toBe("ENGINE_UNAVAILABLE_FOR_SOURCE");
+    expect(unchecked.data.error).toContain("first-turn draw rule was not saved");
+    expect(t.workers).toHaveLength(0);
     const dir = mkdtempSync(join(tmpdir(), "first-draw-missing-"));
     dirs.push(dir);
     const file = join(dir, "missing-rule.json");
@@ -256,7 +285,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
       masterRule: t.session.masterRule, seed, decks: t.decks, commands: [] }));
     expect(() => loadSource(file)).toThrow("first-turn draw rule was not saved");
     try {
-      execFileSync("npx", ["tsx", "scripts/replay-journal.ts", file, "--data", DATA],
+      execFileSync("npx", ["tsx", replayJournalCli, file, "--data", DATA],
         { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
       expect.fail("The CLI must refuse an ambiguous journal");
     } catch (error) {

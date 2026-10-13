@@ -234,6 +234,10 @@ describe("passSummary", () => {
     const window = { team: 1, members: [{ seat: 1, state: "passed" as const }, { seat: 3, state: "choosing" as const }], otherPassed: true, passedSeats: [0, 2], bothPassed: false };
     expect(passSummary(window, nameOf, 0)).toBe("Rival team: Mirelle passed, Juniper is choosing. The other team passed.");
   });
+  it("reads a team by its name in a replay fork, where nobody is on your team", () => {
+    const window = { team: 1, members: [{ seat: 1, state: "passed" as const }, { seat: 3, state: "choosing" as const }], otherPassed: false, passedSeats: [0, 2], bothPassed: false };
+    expect(passSummary(window, nameOf, null, ["Team A", "Team B"])).toBe("Team B: Mirelle passed, Juniper is choosing.");
+  });
 });
 
 describe("lastTeamDamage", () => {

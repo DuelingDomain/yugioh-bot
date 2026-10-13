@@ -8,7 +8,8 @@ import fixture from "../../duel-server/tests/support/fixtures/red-eyes-exceed-ca
 const { requireDuelActor, callDuelHost, room, getDb } = vi.hoisted(() => ({
   requireDuelActor: vi.fn(), callDuelHost: vi.fn(), room: vi.fn(), getDb: vi.fn(),
 }));
-vi.mock("@/lib/duel-host", () => ({
+vi.mock("@/lib/duel-host", async original => ({
+  ...await original<typeof import("../src/lib/duel-host")>(),
   requireDuelActor, callDuelHost,
   duelErrorResponse: () => NextResponse.json({ error: "Not found" }, { status: 404 }),
 }));
@@ -167,7 +168,7 @@ it("checks room access with the actor's guild before slug-bound lookups", async 
   room.mockImplementation(() => { throw new Error("Room belongs to another guild"); });
   const { GET } = await import("../app/api/duels/cards/route");
   expect((await GET(search("17242022", "other"))).status).toBe(404);
-  expect(room).toHaveBeenCalledWith("other", "guild-1", 7);
+  expect(room).toHaveBeenCalledWith("other", "guild-1", 7, { includeStoredBoard: false });
   expect(callDuelHost).not.toHaveBeenCalled();
   expect(getDb).not.toHaveBeenCalled();
 });

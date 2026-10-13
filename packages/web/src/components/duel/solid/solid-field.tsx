@@ -188,13 +188,13 @@ function Half({ view, seatIndex, opponent, ownerLabel, masterRule, callbacks, ac
  * `data-sv-clock="you"` in column 6); 4 your Monster row; 5 your Spell/Trap row.
  */
 export function SolidField(props: SolidFieldProps) {
-  const { engine, mySeat, masterRule, reducedMotion, legalKeys, selectedKeys, onActivate, onHoverCard, bottomName, topName,
+  const { engine, masterRule, reducedMotion, legalKeys, selectedKeys, onActivate, onHoverCard, bottomName, topName,
     showExtraZones = true, renderClock, onOpenMasters, battleAim = null } = props;
   const boardRef = useRef<HTMLElement | null>(null);
   const model = useDuelFieldModel({ ...props, boardRef });
   const { bottomIndex, topIndex, bottom, top, callbacks, topLabel, bottomLabel, battle, activity, priorityLabel,
     leftEmz, rightEmz, leftEmzKeys, rightEmzKeys, emzOff, equipLinks } = model;
-  const spectator = mySeat == null;
+  const spectator = model.spectator;
   const showEmz = showExtraZones && masterRule >= 4;
 
   const rail = (side: "opp" | "you") => {
@@ -213,6 +213,7 @@ export function SolidField(props: SolidFieldProps) {
             seatKey={view?.seat}
             active={activity.turnSeat === index}
             priorityLabel={priorityLabel(index, name)}
+            acting={model.actingSeat === index}
             spectator={spectator}
             reducedMotion={reducedMotion}
           />

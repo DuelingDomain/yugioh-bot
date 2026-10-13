@@ -701,7 +701,8 @@ describe("series advance", () => {
     expect(after.status).toBe("active");
     expect(after.gameNumber).toBe(2);
     expect(after.currentDuelSlug).not.toBe(duel.slug);
-    expect(workers).toHaveLength(2);
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
+    await vi.waitFor(() => expect(app.duels.get(after.currentDuelSlug!, GUILD).status).toBe("active"));
     const game2 = app.duels.get(after.currentDuelSlug!, GUILD);
     expect(game2.status).toBe("active");
     expect(seatPlayer(app, game2.slug, 0)).toBe(loser);
@@ -807,7 +808,7 @@ describe("series advance", () => {
     expect(workers).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
     await settle();
-    expect(workers).toHaveLength(2);
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
     const nextSlug = app.series.get(series.id, GUILD).currentDuelSlug!;
     expect(seatPlayer(app, nextSlug, 1)).toBe(loser);
     expect(app.duels.privateState(nextSlug, GUILD).decks[1]).toEqual(sided);
@@ -1157,7 +1158,7 @@ describe("series advance", () => {
       app.duels.setDeck(slug, GUILD, app.p1, deckWithSide());
       await vi.advanceTimersByTimeAsync(15 * 60_000);
       await settle();
-      expect(app.duels.get(slug, GUILD).status).toBe("active");
+      await vi.waitFor(() => expect(app.duels.get(slug, GUILD).status).toBe("active"));
       expect(workers).toHaveLength(1);
       expect(attempts()).toBe(5);
     } finally {
@@ -1189,14 +1190,14 @@ describe("series advance", () => {
 
     const { workers } = openHost(app, { pollIntervalMs: 30_000 });
     await settle();
-    expect(workers).toHaveLength(1);
+    await vi.waitFor(() => expect(workers).toHaveLength(1));
     expect(app.duels.get(waiting.slug, GUILD).status).toBe("active");
     expect(app.series.get(first.series.id, GUILD).gameNumber).toBe(1);
 
     await vi.advanceTimersByTimeAsync(61_000);
     await settle();
     expect(app.series.get(first.series.id, GUILD).gameNumber).toBe(2);
-    expect(workers).toHaveLength(2);
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
   });
 
   it("times a between-games series that is not due yet when the host boots, instead of waiting for the next sweep", async () => {
@@ -1218,7 +1219,7 @@ describe("series advance", () => {
     await vi.advanceTimersByTimeAsync(9_000);
     await settle();
     expect(app.series.get(first.series.id, GUILD).gameNumber).toBe(2);
-    expect(workers).toHaveLength(1);
+    await vi.waitFor(() => expect(workers).toHaveLength(1));
   });
 
   it("does not advance after the host closes", async () => {
@@ -1261,7 +1262,7 @@ describe("Best of 3 against the practice bot", () => {
     expect(workers).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
     await settle();
-    expect(workers).toHaveLength(2);
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
     const series = app.series.forDuel(table.id)!;
     expect(humanSeat(app, series.currentDuelSlug!)).toBe(choice === "first" ? 0 : 1);
   });
@@ -1335,6 +1336,7 @@ describe("Best of 3 against the practice bot", () => {
     await settle();
     const after = app.series.get(between.data.series.id, GUILD);
     expect(after).toMatchObject({ status: "active", gameNumber: 2 });
+    await vi.waitFor(() => expect(app.duels.get(after.currentDuelSlug!, GUILD).status).toBe("active"));
     const game2 = app.duels.get(after.currentDuelSlug!, GUILD);
     expect(game2.status).toBe("active");
     expect(game2.seats.find((seat) => seat.seat === 0)!.isBot).toBe(true);

@@ -10,7 +10,7 @@ interface FixtureCard {
   alias?: number;
 }
 
-/** Host admission/recovery tests inject workers, so they need metadata but no engine bundle. */
+/** Host tests inject engine workers but the resource identity reader still checks every selected file. */
 export function createHostDataFixture(cards: FixtureCard[]) {
   const directory = mkdtempSync(join(tmpdir(), "host-data-fixture-"));
   try {
@@ -18,8 +18,12 @@ export function createHostDataFixture(cards: FixtureCard[]) {
     writeFileSync(join(directory, "strings.conf"), "");
     mkdirSync(join(directory, "card-scripts"));
     // Satisfy installed-file guards. These placeholders must never be loaded as cores.
-    for (const file of ["ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"]) {
+    for (const file of ["ocgcore.standard.wasm", "ocgcore.domain.wasm", "ocgcore.domain.legacy.wasm",
+      "ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"]) {
       writeFileSync(join(directory, file), "fixture");
+    }
+    for (const file of ["domain.lua", "domain.legacy.lua"]) {
+      writeFileSync(join(directory, "card-scripts", file), "-- fixture Domain script\n");
     }
     const db = new Database(join(directory, "cards.cdb"));
     try {

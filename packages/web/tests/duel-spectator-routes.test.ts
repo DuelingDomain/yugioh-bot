@@ -5,9 +5,12 @@ import { getDuelRoom, duelRoomKey } from "../src/components/duel/api";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 
 const mocks = vi.hoisted(() => ({ actor: vi.fn(), host: vi.fn(), room: vi.fn() }));
-vi.mock("@/lib/duel-host", () => ({ requireDuelActor: mocks.actor, callDuelHost: mocks.host,
+vi.mock("@/lib/duel-host", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/lib/duel-host")>(),
+  requireDuelActor: mocks.actor, callDuelHost: mocks.host,
   redactDuelResult: (data: unknown) => data,
-  duelErrorResponse: () => NextResponse.json({ error: "Forbidden" }, { status: 403 }) }));
+}));
+vi.mock("@/lib/replay-fork-access", () => ({ assertDuelForkAccess: () => ({ kind: "play" }) }));
 vi.mock("@/lib/env", () => ({ env: { wsInternalSecret: "spectator-token-test" } }));
 import { GET as roomGet } from "../app/api/duels/[slug]/route";
 import { GET as connectionGet } from "../app/api/duels/[slug]/connection/route";
@@ -89,6 +92,15 @@ it("preserves the terminal room shortcut when spectate is absent", async () => {
   const room = { session: { status: "completed" }, mySeat: 0 };
   mocks.room.mockReturnValue(room);
   expect(await (await roomGet(request(false), context)).json()).toEqual(room);
+  expect(mocks.host).not.toHaveBeenCalled();
+});
+it.each(["active", "completed"])("rejects replay control overrides on a %s play room", async (status) => {
+  mocks.room.mockReturnValue({ session: { kind: "play", status }, mySeat: 0 });
+  for (const query of ["as=1", "reveal=1"]) {
+    const response = await roomGet(new Request(`http://localhost/api/duels/abc?${query}`), context);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Control overrides are only available on replay fork controls" });
+  }
   expect(mocks.host).not.toHaveBeenCalled();
 });
 it("keeps public and seated views in separate fetch/cache keys", async () => {

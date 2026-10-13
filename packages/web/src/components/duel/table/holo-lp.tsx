@@ -10,6 +10,7 @@ import { LifePoints } from "../life-points";
 import { hexToRgbTriplet } from "./seat-angle";
 import { FOLLOW_ATTR, followTransform } from "./view-zoom";
 import { SEAT_TONE_HEX, type SeatStatus, type SeatTone } from "./types";
+import { useForkLabels } from "./fork-labels";
 import styles from "./holo-lp.module.css";
 
 export interface HoloLpProps {
@@ -27,6 +28,10 @@ export interface HoloLpProps {
   status: SeatStatus;
   /** True for the viewer's own panel: a little larger, no projector beam. */
   me: boolean;
+  /** In a fork: the seat that answers (default: `me`). The camera seat keeps `me` for its size and place, but is not "you". */
+  acting?: boolean;
+  /** A replay has no player: the name stands alone, without "(you)". */
+  replay?: boolean;
   /** Top-left of the panel in stage px. */
   x: number;
   y: number;
@@ -124,6 +129,8 @@ export function HoloLp({
   clock: duelClock = null,
   status,
   me,
+  acting,
+  replay = false,
   x,
   y,
   width,
@@ -148,6 +155,7 @@ export function HoloLp({
   reducedMotion,
   follow = false,
 }: HoloLpProps) {
+  const forkLabels = useForkLabels();
   const hex = SEAT_TONE_HEX[tone];
   const stateLabel = STATE_LABEL[status];
   const turn = status === "turn";
@@ -170,7 +178,7 @@ export function HoloLp({
     <>
       <div className={styles.top} data-holo-text="true">
         <i aria-hidden="true" />
-        <b>{me ? `${name} (you)` : name}</b>
+        <b>{forkLabels ? ((acting ?? me) ? `${name} (acting)` : name) : me && !replay ? `${name} (you)` : name}</b>
         {linkedWith ? (
           <span className={styles.linked} title={`Shares Extra Monster Zones and columns with ${linkedWith}`} aria-label={`Shares Extra Monster Zones and columns with ${linkedWith}`} role="img" data-pair-badge="">
             <Link2 size={12} strokeWidth={2.2} aria-hidden="true" />

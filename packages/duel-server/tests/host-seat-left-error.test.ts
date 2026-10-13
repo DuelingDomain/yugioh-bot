@@ -11,14 +11,9 @@ import { opponentSeatsOf, seatCountFor, type DuelEngineView, type DuelFormat } f
 import { createDuelService } from "@yugidraft/shared/services";
 import type { CardDatabase } from "../src/cards.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
-import { pinnedEngineVersion } from "../src/multi-scripts.js";
+import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { mapPrompt, resolveAnswer } from "../src/prompts.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
-
-vi.mock("../src/multi-scripts.js", async (importOriginal) => ({
-  ...await importOriginal<typeof import("../src/multi-scripts.js")>(),
-  activeMultiScriptsHash: () => null,
-}));
 
 const SECRET = "seat-left-error-test";
 const cards = { get: () => undefined, resolveLabel: () => "", system: () => undefined } as unknown as CardDatabase;
@@ -41,7 +36,8 @@ function fixture(format: DuelFormat, state: "eliminated" | "pendingElimination" 
     settings: { validateDeck: false, turnSeconds: 0 } });
   for (const player of players.slice(1)) service.takeSeat(session.slug, "g1", player);
   for (const player of players) service.setDeck(session.slug, "g1", player, { main: Array(40).fill(1), extra: [], side: [] });
-  service.activate(session.slug, "g1", players[0]!, ["1", "2", "3", "4"], pinnedEngineVersion("fixture", count, null),
+  service.activate(session.slug, "g1", players[0]!, ["1", "2", "3", "4"],
+    pinnedEngineVersion("fixture", count, activeMultiScriptsHash(dataDirectory)),
     null, { firstTurnDraw: false });
   const opponents = opponentSeatsOf(format, 0);
   const left = opponents[0]!;

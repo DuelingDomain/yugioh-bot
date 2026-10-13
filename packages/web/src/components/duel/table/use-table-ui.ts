@@ -41,6 +41,8 @@ export interface TableUi {
   attackerKey: string | null;
   /** Opens a card in the Card tab (a history row, a pile card, a chain link). */
   inspectCard: (target: InspectTarget) => void;
+  /** Drops the menu, hover, pile, inspector and declared attack. The pane and the drawer stay as the viewer left them. */
+  reset: () => void;
 }
 
 export interface TableUiOptions {
@@ -149,6 +151,15 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
   }, [promptId]);
 
   const closeMenu = useCallback(() => setMenu(null), []);
+  const reset = useCallback(() => {
+    setMenu(null);
+    setHover(null);
+    setPile(null);
+    setInspect(null);
+    setPendingAttack(null);
+    setAimFirst(null);
+    setQueued(null);
+  }, []);
   const closePile = useCallback(() => setPile((current) => (current ? { ...current, open: false } : null)), []);
 
   const showInspector = useCallback(
@@ -329,6 +340,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
     suspended: activeMenu != null || pile?.open === true,
     attackerKey,
     inspectCard,
+    reset,
   };
 }
 

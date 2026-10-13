@@ -16,6 +16,14 @@ it("opens only POST to the exact waitlist route", async () => {
     const res = await proxy(request(path), {} as never); expect(res?.status).toBe(401); expect(await res?.json()).toEqual({ error: "unauthorized" });
   }
 });
+it.each(["Clerk", "E2E"])("keeps all anonymous API proxy rejections private and uncached in %s mode", async mode => {
+  if (mode === "E2E") { vi.stubEnv("E2E_AUTH", "1"); vi.stubEnv("E2E_AUTH_SECRET", "x".repeat(32)); }
+  for (const path of ["/api/admin/duels/forks", "/api/drafts", "/api/duels/game-1/replay", "/api/admin/status"]) {
+    const response = await proxy(request(path), {} as never);
+    expect(response?.status).toBe(401); expect(await response?.json()).toEqual({ error: "unauthorized" });
+    expect(response?.headers.get("cache-control")).toBe("private, no-store");
+  }
+});
 it.each(["0", "1"])("opens only the exact Clerk webhook POST in E2E_AUTH=%s", async mode => {
   vi.stubEnv("E2E_AUTH", mode);
   vi.stubEnv("E2E_AUTH_SECRET", "x".repeat(32));

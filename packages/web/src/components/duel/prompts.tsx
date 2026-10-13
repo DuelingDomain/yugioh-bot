@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useContext, useEffect, useId, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   DuelAnswer,
   DuelCard,
@@ -11,6 +11,7 @@ import type {
 } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { searchDuelCards } from "./api";
+import { ForkSearchContext } from "./replay-fork-control";
 import { cardArtUrl, LOCATION_HAND, LOCATION_MZONE, zoneKey } from "./constants";
 import { stripCardsPerRow } from "./card-strip";
 import { nextEnabledIndex, rowStep } from "./multi-seat";
@@ -214,7 +215,7 @@ function waitingCopy(prompt: DuelPrompt | null, mySeat: number | null, seatName?
   return "Waiting for a response.";
 }
 
-export function usePromptDraft(prompt: DuelPrompt | null): PromptDraft {
+export function usePromptDraft(prompt: DuelPrompt | null, resetKey?: string): PromptDraft {
   const [selected, setSelected] = useState<string[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [value, setValue] = useState(0);
@@ -227,7 +228,7 @@ export function usePromptDraft(prompt: DuelPrompt | null): PromptDraft {
     setValue(prompt?.min ?? 0);
     setCardCode(null);
     setHighlight(0);
-  }, [prompt?.id]);
+  }, [prompt?.id, resetKey]);
 
   return {
     selected,
@@ -380,17 +381,23 @@ export function AnnounceSearch({
   onPick: (card: DuelCardInfo) => void;
 }) {
   const styles = useSkinStyles(baseStyles, "tray");
+  const fork = useContext(ForkSearchContext);
+  // The search is tied to a seat, a prompt and a revision. A new reading of the same prompt must not restart it, and
+  // results found for another binding must not stay pickable.
+  const forkKey = fork ? `${fork.as}:${fork.promptId}:${fork.revision}` : "";
+  const forkNow = useRef(fork);
+  forkNow.current = fork;
   const inputId = useId();
   const listId = `${inputId}-results`;
   const list = useRef<HTMLUListElement>(null);
   const [query, setQuery] = useState("");
-  const [response, setResponse] = useState<{ query: string; slug: string; cards: DuelCardInfo[] } | null>(null);
+  const [response, setResponse] = useState<{ query: string; slug: string; forkKey: string; cards: DuelCardInfo[] } | null>(null);
   const [highlight, setHighlight] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const trimmed = query.trim();
-  const results = response?.slug === slug ? response.cards : [];
-  const stale = response?.query !== trimmed || response?.slug !== slug;
+  const results = response?.slug === slug && response.forkKey === forkKey ? response.cards : [];
+  const stale = response?.query !== trimmed || response?.slug !== slug || response?.forkKey !== forkKey;
   const pending = searching || (!error && stale);
 
   useEffect(() => {
@@ -398,10 +405,13 @@ export function AnnounceSearch({
     setSearching(true);
     setError(null);
     const search = () => {
-      searchDuelCards(trimmed, slug)
+      const request = forkNow.current
+        ? searchDuelCards(trimmed, slug, forkNow.current)
+        : searchDuelCards(trimmed, slug);
+      request
         .then((data) => {
           if (cancelled) return;
-          setResponse({ query: trimmed, slug, cards: data.cards });
+          setResponse({ query: trimmed, slug, forkKey, cards: data.cards });
           setHighlight(0);
           setError(null);
         })
@@ -421,7 +431,7 @@ export function AnnounceSearch({
       cancelled = true;
       if (handle !== undefined) window.clearTimeout(handle);
     };
-  }, [trimmed, slug]);
+  }, [trimmed, slug, forkKey]);
 
   useEffect(() => {
     list.current?.querySelector<HTMLElement>(`[data-active="true"]`)?.scrollIntoView?.({ block: "nearest" });

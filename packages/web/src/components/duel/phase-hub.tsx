@@ -8,6 +8,7 @@ import { duelFontClasses } from "./fonts";
 import { useIsNarrow } from "./side-panel";
 import { battleStepInfo, resolveBattleStep, type BattleStep } from "./station-track";
 import styles from "./phase-hub.module.css";
+import { useForkLabels } from "./table/fork-labels";
 
 export type PhaseHubProps = {
   /**
@@ -141,6 +142,9 @@ export function PhaseHub({
   }));
   const spectator = mySeat == null;
   const myTurn = !spectator && turnSeat === mySeat;
+  // A fork names the seat that plays; "You" would fall on a different seat than the camera's.
+  const forkLabels = useForkLabels();
+  const youTurn = myTurn && !forkLabels;
   const noTurn = turnSeat == null;
   const owner = turnSeat != null ? playerName(turnSeat) : "";
   const litStation = stations[current]?.station;
@@ -156,14 +160,14 @@ export function PhaseHub({
   const style = (tone ? { "--seat": tone.main, "--seat-ink": tone.ink } : undefined) as CSSProperties | undefined;
   const summary = noTurn
     ? "No active turn"
-    : `Turn ${turn ?? "—"}, ${myTurn ? "your turn" : `${owner}'s turn`}${realStation ? `, ${realStep?.name ?? realStation.name}` : ""}`;
+    : `Turn ${turn ?? "—"}, ${youTurn ? "your turn" : `${owner}'s turn`}${realStation ? `, ${realStep?.name ?? realStation.name}` : ""}`;
 
   if (narrow) return null;
 
   const who = (
     <span className={styles.who} title={noTurn ? undefined : owner} data-me={myTurn ? "true" : undefined}>
       <i className={styles.dot} aria-hidden="true" />
-      <span className={styles.whoName}>{noTurn ? "No turn" : myTurn ? "You" : owner}</span>
+      <span className={styles.whoName}>{noTurn ? "No turn" : youTurn ? "You" : owner}</span>
       <span className={styles.turn}>{`Turn ${turn ?? "—"}`}</span>
     </span>
   );

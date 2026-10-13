@@ -904,6 +904,7 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "winner_seat", "integer");
   addColumnIfMissing(db, "duels", "archived_at", "text");
   addColumnIfMissing(db, "duels", "last_activity_at", "text");
+  addColumnIfMissing(db, "duels", "started_at", "text");
   addColumnIfMissing(db, "duels", "snapshot_public_json", "text");
   addColumnIfMissing(db, "duels", "snapshot_seat0_json", "text");
   addColumnIfMissing(db, "duels", "snapshot_seat1_json", "text");
@@ -913,7 +914,44 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "invite_code", "text");
   addColumnIfMissing(db, "duels", "format", "text not null default '1v1'");
   addColumnIfMissing(db, "duels", "snapshot_seats_json", "text");
+  addColumnIfMissing(db, "duels", "turn_count", "integer");
+  addColumnIfMissing(db, "duels", "snapshot_compacted_at", "text");
   addColumnIfMissing(db, "duels", "setup_json", "text");
+  addColumnIfMissing(db, "duels", "kind", "text not null default 'play' check (kind in ('play', 'replay-fork'))");
+  db.exec(`
+    create trigger if not exists duels_kind_immutable
+    before update of kind on duels
+    when new.kind is not old.kind
+    begin
+      select raise(abort, 'Duel kind is immutable');
+    end;
+    create index if not exists duels_snapshot_retention_idx on duels (julianday(ended_at), id)
+      where snapshot_compacted_at is null and status in ('completed','interrupted','cancelled');
+    create table if not exists replay_fork_requests (
+      owner_user_id integer not null references users(id) on delete cascade,
+      request_id text not null,
+      source_slug text not null,
+      source_version text not null,
+      cursor_digest text not null,
+      fork_duel_id integer not null references duels(id) on delete cascade,
+      created_at text not null default current_timestamp,
+      primary key (owner_user_id, request_id)
+    );
+    create index if not exists replay_fork_requests_duel_idx on replay_fork_requests (fork_duel_id);
+    create table if not exists duel_replay_verifications (
+      duel_id integer not null references duels(id) on delete cascade,
+      bundle_version text not null,
+      source_version text not null,
+      resource_stamp text not null,
+      board_stamp text not null,
+      result text not null check (result in ('verified','unverified')),
+      reason text check (reason in ('board_mismatch','command_mismatch','no_saved_board')),
+      checked_at text not null default current_timestamp,
+      primary key (duel_id,bundle_version),
+      check ((result='verified' and reason is null) or (result='unverified' and reason is not null))
+    );
+  `);
+  addColumnIfMissing(db, "duel_replay_verifications", "core_family", "text check (core_family in ('legacy','pinned','multi'))");
 
   db.transaction(() => {
     const seatInfo = db.prepare<[], { name: string; notnull: number }>("pragma table_info(duel_seats)").all();
@@ -942,6 +980,9 @@ export function migrate(db: Database.Database) {
 
   db.exec(`
     create index if not exists duels_guild_archived_created_idx on duels (guild_id, archived_at, created_at);
+    create index if not exists duels_play_history_idx
+      on duels (guild_id, julianday(coalesce(ended_at, created_at)) desc, id desc)
+      where kind = 'play';
     create index if not exists duels_archive_due_idx on duels (ended_at) where archived_at is null;
     create table if not exists duel_invite_grants (
       duel_id integer not null references duels(id) on delete cascade,
@@ -1019,6 +1060,8 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "best_of", "integer not null default 1");
   addColumnIfMissing(db, "duels", "ranked", "integer not null default 0");
   db.exec("create index if not exists duels_series_idx on duels (series_id, game_number) where series_id is not null");
+  db.exec(`create index if not exists duels_cancelled_fork_retention_idx on duels (julianday(ended_at), id)
+    where status='cancelled' and kind='replay-fork' and series_id is null`);
   // Rock-paper-scissors before game 1: the opening state (JSON) while it runs, null otherwise.
   addColumnIfMissing(db, "duels", "opening_json", "text");
   // Between games the loser chooses to go first or second (index into the series players, and 'first' | 'second').

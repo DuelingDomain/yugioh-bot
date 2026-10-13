@@ -2,6 +2,7 @@ import type { CSSProperties, KeyboardEvent } from "react";
 import type { DuelCardInfo, DuelClock } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
+import { useForkLabels } from "../table/fork-labels";
 import { formatClock } from "../table/holo-lp";
 import { isLowClock } from "../clock-beep";
 import { useLiveClockMs } from "../use-live-clock";
@@ -99,6 +100,7 @@ function MasterThumb({ member, master, onInspect }: { member: PlateMember; maste
 }
 
 function Chip({ member, onPick, onInspectMaster }: { member: PlateMember; onPick?: (seat: number) => void; onInspectMaster?: (card: DuelCardInfo) => void }) {
+  const forkLabels = useForkLabels();
   const style = { ["--seat" as string]: member.rgb, ["--seat-ink" as string]: member.ink } as CSSProperties;
   const liveMs = useLiveClockMs(member.clock, member.seat);
   const shownMs = member.clock ? liveMs : member.clockMs;
@@ -137,7 +139,7 @@ function Chip({ member, onPick, onInspectMaster }: { member: PlateMember; onPick
           <span className={styles.code}>{member.code}</span>
           <b title={member.name} aria-hidden="true">{member.name.split(" ")[0]}</b>
           <span className={styles.srOnly}>{member.name}</span>
-          {member.you ? <span className={styles.you}>YOU</span> : null}
+          {member.you ? <span className={styles.you}>{forkLabels ? "ACTING" : "YOU"}</span> : null}
           {member.response ? (
             <span className={styles.st2} data-k={member.response} title={member.response}>
               {RESPONSE_TEXT[member.response]}

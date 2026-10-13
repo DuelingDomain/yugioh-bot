@@ -1,8 +1,8 @@
 import { isDuelFormat, MULTI_CORE_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled, type DuelTableCapabilities } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
-import { createDuelSeriesService } from "@yugidraft/shared/services";
+import { createDuelSeriesService, DuelServiceError } from "@yugidraft/shared/services";
 import { env } from "@/lib/env";
-import { duelUrl, sendDuelInvite } from "@/lib/announce-bot";
+import { assertDuelInviteUrl, duelUrl, sendDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
@@ -18,11 +18,29 @@ export async function GET(request: NextRequest) {
     if (!archived) {
       return NextResponse.json({ duels: actor.duels.list(actor.guildId, actor.playerId) });
     }
-    const scope = request.nextUrl.searchParams.get("scope") ?? "mine";
+    const param = (key: string) => {
+      const values = request.nextUrl.searchParams.getAll(key);
+      if (values.length > 1) throw new DuelServiceError(`Duplicate ${key} parameter`, 400);
+      return values[0];
+    };
+    const scope = param("scope") ?? "mine";
     if (scope !== "mine" && scope !== "all") {
       return NextResponse.json({ error: "Scope must be mine or all" }, { status: 400 });
     }
-    return NextResponse.json({ duels: actor.duels.list(actor.guildId, actor.playerId, { archived: true, scope }) });
+    const format = param("format");
+    if (format !== undefined && !isDuelFormat(format)) {
+      throw new DuelServiceError("Duel format must be 1v1, tag, ffa3, or ffa4", 400);
+    }
+    const limit = param("limit");
+    if (limit !== undefined && !/^[1-9]\d*$/.test(limit)) throw new DuelServiceError("Limit must be a positive integer", 400);
+    const status = param("status");
+    if (status !== undefined && status !== "any" && status !== "completed" && status !== "interrupted" && status !== "cancelled") {
+      throw new DuelServiceError("Status must be any, completed, interrupted, or cancelled", 400);
+    }
+    return NextResponse.json(actor.duels.listHistory(actor.guildId, actor.playerId, {
+      scope, from: param("from"), to: param("to"), format, status,
+      q: param("q"), card: param("card"), cursor: param("cursor"), limit: limit === undefined ? undefined : Number(limit),
+    }), { headers: { "cache-control": "private, no-store" } });
   } catch (error) {
     return duelErrorResponse(error);
   }
@@ -96,7 +114,11 @@ export async function POST(request: NextRequest) {
 
   try {
     if (opponentPlayerId !== null) {
-      const { series, duel } = createDuelSeriesService(getDb()).createChallenge({
+      const db = getDb();
+      const opponentDiscordUserId = env.discordBotEnabled
+        ? playerIdentity(db, opponentPlayerId as number)?.discordUserId : null;
+      if (opponentDiscordUserId) assertDuelInviteUrl(actor.guildId, request);
+      const { series, duel } = createDuelSeriesService(db).createChallenge({
         guildId: actor.guildId,
         challengerPlayerId: actor.playerId,
         opponentPlayerId: opponentPlayerId as number,
@@ -108,26 +130,22 @@ export async function POST(request: NextRequest) {
         name: name || undefined,
       });
       await notifyDuelChange(duel.slug, actor.guildId).catch(() => undefined);
-      if (env.discordBotEnabled) {
+      if (env.discordBotEnabled && opponentDiscordUserId) {
         try {
-          const db = getDb();
-          const opponent = playerIdentity(db, opponentPlayerId as number);
           const challenger = playerIdentity(db, actor.playerId);
-          if (opponent?.discordUserId) {
-            await sendDuelInvite(
-              {
-                slug: duel.slug,
-                guildId: actor.guildId,
-                opponentDiscordUserId: opponent.discordUserId,
-                challengerName: challenger?.displayName ?? "A player",
-                duelName: duel.name,
-                bestOf: series.bestOf,
-                ranked: series.ranked,
-                tournamentName: null,
-              },
-              request,
-            );
-          }
+          await sendDuelInvite(
+            {
+              slug: duel.slug,
+              guildId: actor.guildId,
+              opponentDiscordUserId,
+              challengerName: challenger?.displayName ?? "A player",
+              duelName: duel.name,
+              bestOf: series.bestOf,
+              ranked: series.ranked,
+              tournamentName: null,
+            },
+            request,
+          );
         } catch (error) {
           console.warn("[api/duels] duel invite failed", error);
         }

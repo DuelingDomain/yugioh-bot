@@ -66,9 +66,10 @@ When a duel starts, the host saves `engine` in `setup_json` (`setup.engine`, `le
 and replay use the saved engine, not the current switch. So you can change the switch at any time without risk to
 active duels.
 
-- A duel with no record (made by main before this merge) is treated as `legacy`.
-- A scenario or preset duel (with startup scripts) is `pinned`. The legacy engine has no startup scripts.
-- A dev or staging duel made on the merged branch before the record existed is also read as `legacy`. Do not carry such duels over.
+- A 1v1 duel with no saved choice or identity starts checked replay verification on `legacy`. With complete saved public and own-seat boards, a failed journal or board check permits one attempt on installed `pinned` resources. A worker crash or process loop limit also permits that attempt; a full queue or timeout still returns `ENGINE_BUSY`.
+- A scenario or preset row with startup scripts and no saved choice or identity uses `pinned` only. Startup scripts already select pinned under the historical source rule, so such rows have a known candidate and receive no legacy fallback.
+- Dev or staging rows made before engine recording follow the same checked fallback. The first passing family is saved as `duel_replay_verifications.core_family` for later checked views and forks; the original row keeps its version and setup. Saved choices and recorded identities never permit a different family.
+- If both families fail, a family whose commands ran can supply an owner-only unchecked view and fork. Its reason and `core_family` are saved with the failed check. A matching verified family remains authoritative for checked views and forks. See [replay compatibility](engine-data-updates.md#unknown-source-engine-family).
 
 ### Bundle changes and the switch
 

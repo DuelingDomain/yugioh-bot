@@ -289,3 +289,41 @@
 .shell.shell [data-wide="true"][data-glide="none"] {
   --glide: 0s;
 }
+
+/* ---------- replay mode: the transport slot (ReplayShellMode) ---------- */
+/*
+ * Wide screen with the floating HUD: the transport is a slim strip along the bottom, right of the dock column, and the
+ * board keeps its room above it (the bottom inset below). It is not in the corner: the corner of turn controls is the size
+ * the stage keeps clear of every field, and the transport is wider and taller than that. The strip lays itself out
+ * by its own width (a container query in replay-ffa.module.css); this reserve follows the window width to match it.
+ */
+.shell.shell[data-hud="true"][data-replay="true"] {
+  --replay-strip-h: 112px;
+  --hud-bottom: calc(var(--replay-strip-h) + 10px);
+}
+/* One row of controls (replay-ffa.module.css, strip 660px and wider) is about 80px tall. */
+@media (min-width: 1000px) {
+  .shell.shell[data-hud="true"][data-replay="true"] { --replay-strip-h: 82px; }
+}
+.replayStrip {
+  position: absolute;
+  left: var(--hud-left);
+  right: var(--hud-right, 14px);
+  bottom: 5px;
+  z-index: calc(var(--duel-z-prompt, 40) + 13);
+  min-width: 0;
+  container-type: inline-size;
+  pointer-events: auto;
+}
+/* The plaza keeps its Deck Master plate at the bottom left: the strip starts right of it. */
+.shell.shell[data-plaza-hud="true"] .replayStrip {
+  left: calc(14px + var(--hud-master-w) + 12px);
+}
+/* Every other layout: a full-width row between the board and the station track. */
+.replayBar {
+  position: relative;
+  z-index: var(--duel-z-prompt);
+  flex: none;
+  min-width: 0;
+  padding: 4px 8px 0;
+}

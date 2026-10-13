@@ -9,6 +9,7 @@ import { masterActionParts, masterActionText, masterInUse, masterNextCost, moveK
 import { anyLegal, anySelected, type DuelHoverHandler } from "../field-keys";
 import type { InspectTarget } from "../inspector";
 import type { DuelActivateHandler } from "./types";
+import { useForkLabels } from "./fork-labels";
 import styles from "./grid-hud.module.css";
 
 /**
@@ -186,6 +187,7 @@ export function GridMasterToken({
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
 }) {
+  const forkLabels = useForkLabels();
   const master = view?.deckMaster;
   const wrapRef = useRef<HTMLDivElement>(null);
   const artRef = useRef<HTMLSpanElement>(null);
@@ -279,7 +281,7 @@ export function GridMasterToken({
               ) : null}
             </span>
             <span className={styles.masterId}>
-              <small>{local ? "Your Master" : "Deck Master"}</small>
+              <small>{local ? (forkLabels ? "Acting Master" : "Your Master") : "Deck Master"}</small>
               <b title={master.card.name}>{master.card.name}</b>
               {inUse && !wide ? <span className={styles.masterUse} data-testid={id("hud-master-use")}>In use · {status}</span> : null}
               {summonLine && !wide ? <span className={styles.masterSummon} data-testid={id("hud-master-summon")}>{summonLine}</span> : null}

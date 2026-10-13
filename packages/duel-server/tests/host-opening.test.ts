@@ -58,14 +58,30 @@ function setup() {
 }
 type App = ReturnType<typeof setup>;
 
+/** Await timer-driven activation without polling the room or advancing the fake opening clock. */
+function startNotice(app: App) {
+  let resolveStarted!: () => void;
+  const started = new Promise<void>(resolve => { resolveStarted = resolve; });
+  return { started, onChange: (slug: string, guildId: string) => {
+    if (app.duels.get(slug, guildId).status === "active") resolveStarted();
+  } };
+}
+
 function openHost(app: App, random: () => number = Math.random, onChange?: (slug: string, guildId: string) => void, pollIntervalMs: number | null = 60 * 60 * 1000) {
   const workers: FakeWorker[] = [];
-  const control = { failCreate: false, createGate: undefined as Promise<void> | undefined };
+  let resolveCreating!: () => void;
+  const creating = new Promise<void>(resolve => { resolveCreating = resolve; });
+  const control = { failCreate: false, createGate: undefined as Promise<void> | undefined, creating };
   const host = createDuelHost({
     db: app.db, dataDirectory: DATA, secret: SECRET, searchCards: () => [],
     archiveAfterMs: 60 * 60 * 1000, idleWorkerMs: 60 * 60 * 1000, pollIntervalMs: pollIntervalMs ?? undefined,
     openingRps: true, random, onChange,
-    createWorker: () => { const worker = new FakeWorker(control.failCreate, control.createGate); workers.push(worker); return worker; },
+    createWorker: () => {
+      const worker = new FakeWorker(control.failCreate, control.createGate);
+      workers.push(worker);
+      resolveCreating();
+      return worker;
+    },
   });
   hosts.push(host);
   return { host, workers, control };
@@ -224,8 +240,9 @@ describe("rock-paper-scissors opening", () => {
   it("makes a missing pick at random after about 30 seconds, and a winner who does not choose goes first", async () => {
     vi.useFakeTimers();
     const app = setup();
+    const notice = startNotice(app);
     const randoms = [0.5];
-    const { host, workers } = openHost(app, () => randoms.shift() ?? 0);
+    const { host, workers } = openHost(app, () => randoms.shift() ?? 0, notice.onChange);
     const slug = openTable(app);
     await post(host, { op: "start", slug, playerId: app.p1 });
     await post(host, { op: "opening-pick", slug, playerId: app.p1, move: "rock" });
@@ -242,6 +259,7 @@ describe("rock-paper-scissors opening", () => {
 
     await vi.advanceTimersByTimeAsync(34_000);
     await settle();
+    await notice.started;
     expect(app.duels.get(slug, GUILD).status).toBe("active");
     expect(workers).toHaveLength(1);
     expect(seatPlayer(app, slug, 0)).toBe(app.p2);
@@ -261,9 +279,10 @@ describe("rock-paper-scissors opening", () => {
   it("chooses for the winning practice bot within 1.5 seconds without a room read or sweep", async () => {
     vi.useFakeTimers();
     const app = setup();
+    const notice = startNotice(app);
     // The bot's random pick: index 1 is paper.
     const randoms = [0.5];
-    const { host, workers } = openHost(app, () => randoms.shift() ?? 0);
+    const { host, workers } = openHost(app, () => randoms.shift() ?? 0, notice.onChange);
     const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Bot", mode: "normal" });
     app.duels.setDeck(table.slug, GUILD, app.p1, deckFor());
     app.duels.markReady(table.slug, GUILD, app.p1);
@@ -290,6 +309,7 @@ describe("rock-paper-scissors opening", () => {
     // The bot's short pause ends, long before the one-hour sweep or the human choice timeout.
     await vi.advanceTimersByTimeAsync(300);
     await settle();
+    await notice.started;
     expect(app.duels.get(table.slug, GUILD).status).toBe("active");
     expect(app.duels.get(table.slug, GUILD).seats.find((seat) => seat.seat === 0)?.isBot).toBe(true);
     expect(workers).toHaveLength(1);
@@ -298,10 +318,12 @@ describe("rock-paper-scissors opening", () => {
   it("invalidates at the bot's choice and again when the first active view is ready", async () => {
     vi.useFakeTimers();
     const app = setup();
-    const changed = vi.fn((slug: string, guildId: string) => ({
-      slug, guildId, phase: app.duels.openingState(slug, guildId)?.phase ?? null,
-      status: app.duels.get(slug, guildId).status,
-    }));
+    const notice = startNotice(app);
+    const changed = vi.fn((slug: string, guildId: string) => {
+      notice.onChange(slug, guildId);
+      return { slug, guildId, phase: app.duels.openingState(slug, guildId)?.phase ?? null,
+        status: app.duels.get(slug, guildId).status };
+    });
     const { host, workers, control } = openHost(app, () => 0.5, changed);
     let release!: () => void;
     control.createGate = new Promise<void>((resolve) => { release = resolve; });
@@ -314,13 +336,14 @@ describe("rock-paper-scissors opening", () => {
     changed.mockClear();
     try {
       await vi.advanceTimersByTimeAsync(1_050);
+      await control.creating;
       expect(changed.mock.results.map((result) => result.value)).toEqual([
         { slug: table.slug, guildId: GUILD, phase: "start", status: "lobby" },
       ]);
       expect(workers).toHaveLength(1);
       expect(workers[0]!.createdOptions).toBeNull();
       release();
-      await settle();
+      await notice.started;
       expect(changed.mock.results.map((result) => result.value)).toEqual([
         { slug: table.slug, guildId: GUILD, phase: "start", status: "lobby" },
         { slug: table.slug, guildId: GUILD, phase: null, status: "active" },
@@ -375,6 +398,7 @@ describe("rock-paper-scissors opening", () => {
     }
     try {
       await vi.advanceTimersByTimeAsync(1_050);
+      await control.creating;
       expect(workers).toHaveLength(1);
       expect(workers[0]!.createdOptions).toBeNull();
       let room: Awaited<ReturnType<typeof post>> | undefined;
@@ -438,9 +462,11 @@ describe("rock-paper-scissors opening", () => {
     await post(host, { op: "opening-pick", slug: table.slug, playerId: app.p1, move: "rock" });
     await host.close();
     vi.setSystemTime(Date.now() + gap);
-    const restarted = openHost(app, () => 0.5, undefined, null);
+    const notice = startNotice(app);
+    const restarted = openHost(app, () => 0.5, notice.onChange, null);
     // The recovery scan must arm an immediate timer, rather than wait for the human deadline.
     await settle();
+    await notice.started;
     expect(app.duels.get(table.slug, GUILD).status).toBe("active");
     expect(restarted.workers).toHaveLength(1);
   });
