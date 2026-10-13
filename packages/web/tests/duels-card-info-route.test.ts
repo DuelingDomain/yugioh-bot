@@ -36,6 +36,14 @@ const post = (codes: unknown) => new Request("http://localhost/api/duels/cards",
 const search = (query: string, slug?: string) => new NextRequest(
   `http://localhost/api/duels/cards?${new URLSearchParams({ q: query, ...(slug ? { slug } : {}) })}`,
 );
+
+it.each(["", "b"])("forwards short announcement query %j with actor identity and preserves deck markers", async query => {
+  const matches = [{ ...cards[0], inDeck: true }];
+  callDuelHost.mockResolvedValue({ ok: true, data: { cards: matches } });
+  const { GET } = await import("../app/api/duels/cards/route");
+  expect(await (await GET(search(query, "room"))).json()).toEqual({ cards: matches });
+  expect(callDuelHost).toHaveBeenCalledWith({ op: "cards", slug: "room", guildId: "guild-1", playerId: 7, query });
+});
 function cacheCard(code = cards[0].code, name = "Catalog name", text = "Catalog full text") {
   db.prepare(`insert into card_catalog
     (ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
