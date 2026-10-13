@@ -422,3 +422,21 @@ describe("atomic replay fork storage", () => {
     }
   }, 15_000);
 });
+
+
+it("keeps a replay fork separate from web creation, waiting cancellation, renewal and expiry", () => {
+  const app = fixture();
+  const input = { guildId: app.actor.guildId, organizerPlayerId: app.actor.playerId, name: "Web wait", mode: "normal" as const };
+  const open = app.duels.create(input);
+  const fork = app.forks.create(app.input).session;
+  expect(app.duels.get(open.slug, app.actor.guildId).status).toBe("lobby");
+  expect(app.duels.waitingHostedTable(app.actor.guildId, app.actor.playerId)?.slug).toBe(open.slug);
+  const next = app.duels.createRequest({ ...input, fingerprint: "web" }, () => ({ session: app.duels.create(input) }));
+  expect(next.changedSlugs).toEqual([open.slug, next.session.slug]);
+  app.db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where id = ?").run(fork.id);
+  const before = app.forks.privateState(fork.slug, app.actor);
+  app.duels.touchWaiting(fork.slug, app.actor.guildId, app.actor.playerId);
+  expect(() => app.duels.cancelWaiting(fork.slug, app.actor.guildId, app.actor.playerId)).toThrow();
+  expect(app.duels.expireWaitingTables(Date.now(), 10)).toEqual([]);
+  expect(app.forks.privateState(fork.slug, app.actor)).toEqual(before);
+});

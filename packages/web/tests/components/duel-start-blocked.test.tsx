@@ -10,6 +10,7 @@ vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 vi.mock("../../src/components/duel/deck-editor", () => ({ DeckEditor: () => <div>Deck editor</div> }));
 const api = vi.hoisted(() => ({

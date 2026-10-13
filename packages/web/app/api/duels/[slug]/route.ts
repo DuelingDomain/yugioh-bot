@@ -1,3 +1,4 @@
+import { renewWaitingTable } from "@/lib/duel-waiting";
 import { NextResponse } from "next/server";
 import { callDuelHost, duelErrorResponse, readDuelControl, requireDuelActor } from "@/lib/duel-host";
 import { requireSandboxActor, sandboxErrorResponse, sandboxQueryOptions } from "@/lib/sandbox-access";
@@ -17,6 +18,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
       if (!allowed.ok) return allowed.response;
     }
     const control = room.session.sandbox ? sandboxQueryOptions(request) : readDuelControl(request, room, "view");
+    renewWaitingTable(actor, room);
     const fork = room.session.kind === "replay-fork";
     const pending = !room.session.sandbox && !fork
       && (room.session.status === "lobby" || room.series?.status === "between_games");

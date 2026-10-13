@@ -1,4 +1,5 @@
 import { requireSandboxActor } from "@/lib/sandbox-access";
+import { renewWaitingTable } from "@/lib/duel-waiting";
 import { NextResponse } from "next/server";
 import { createDuelConnectionToken, DUEL_CONNECTION_TTL_MS } from "@yugidraft/shared/ws";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
@@ -39,6 +40,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     if (!env.wsInternalSecret) {
       return NextResponse.json({ error: "Realtime is unavailable" }, { status: 503, headers: { "cache-control": "private, no-store" } });
     }
+    renewWaitingTable(actor, room);
     const expiresAt = Date.now() + DUEL_CONNECTION_TTL_MS;
     const token = createDuelConnectionToken(
       {

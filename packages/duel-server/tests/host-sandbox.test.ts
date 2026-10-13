@@ -288,3 +288,16 @@ describeWithCores("sandbox real engine", [needs.standard(DATA), needs.cards(DATA
     expect(t.duels.get(slug, "g").status).toBe("cancelled");
   }, 30_000);
 });
+
+
+it("starts dev sandboxes without changing the host's web table, and web creation keeps the sandboxes", async () => {
+  const t = setup();
+  const input = { guildId: "g", organizerPlayerId: t.owner, name: "Web wait", mode: "normal" as const };
+  const open = t.duels.create(input);
+  const first = await t.start();
+  const second = await t.start();
+  expect(t.duels.get(open.slug, "g").status).toBe("lobby");
+  const next = t.duels.createRequest({ ...input, fingerprint: "web" }, () => ({ session: t.duels.create(input) }));
+  expect(next.changedSlugs).toEqual([open.slug, next.session.slug]);
+  for (const slug of [first, second]) expect(t.duels.get(slug, "g")).toMatchObject({ sandbox: true, status: "active" });
+});

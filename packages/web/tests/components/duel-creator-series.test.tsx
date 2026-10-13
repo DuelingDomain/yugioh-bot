@@ -15,7 +15,7 @@ vi.mock("next/link", () => ({
 const push = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }) }));
 
-const api = vi.hoisted(() => ({ createDuel: vi.fn(), searchPlayers: vi.fn() }));
+const api = vi.hoisted(() => ({ createDuel: vi.fn(), searchPlayers: vi.fn(), cancelWaitingDuel: vi.fn(), getHostedWaitingTable: vi.fn<typeof import("../../src/components/duel/api").getHostedWaitingTable>() }));
 vi.mock("../../src/components/duel/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/components/duel/api")>()),
   ...api,
@@ -25,6 +25,8 @@ import { DuelCreator } from "../../src/components/duel/creator";
 
 beforeEach(() => {
   push.mockReset();
+  api.getHostedWaitingTable.mockReset().mockResolvedValue({ table: null });
+  api.cancelWaitingDuel.mockReset().mockResolvedValue({} as never);
   api.createDuel.mockReset().mockResolvedValue({ session: { slug: "table-1" }, notified: true });
   api.searchPlayers.mockReset().mockResolvedValue({ players: [{ id: 9, displayName: "Imran" }, { id: 12, displayName: "Imra" }] });
 });
@@ -39,7 +41,7 @@ describe("DuelCreator match options", () => {
     expect((screen.getByRole("checkbox", { name: /Ranked/ }) as HTMLInputElement).checked).toBe(false);
     create();
     await waitFor(() => expect(push).toHaveBeenCalledWith("/duels/table-1"));
-    expect(api.createDuel.mock.calls[0][4]).toEqual({ opponentPlayerId: null, bestOf: 1, ranked: false });
+    expect(api.createDuel.mock.calls[0][4]).toMatchObject({ opponentPlayerId: null, bestOf: 1, ranked: false });
   });
 
   it("sends Best of 3 and Ranked for an open table", async () => {
@@ -48,7 +50,7 @@ describe("DuelCreator match options", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /Ranked/ }));
     create();
     await waitFor(() => expect(push).toHaveBeenCalled());
-    expect(api.createDuel.mock.calls[0][4]).toEqual({ opponentPlayerId: null, bestOf: 3, ranked: true });
+    expect(api.createDuel.mock.calls[0][4]).toMatchObject({ opponentPlayerId: null, bestOf: 3, ranked: true });
   });
 
   it("waits for a pause in typing, then searches once", async () => {
@@ -70,6 +72,7 @@ describe("DuelCreator match options", () => {
   });
 
   it("challenges the picked player, shows the DM note and a copy link, and waits for the click into the room", async () => {
+    api.getHostedWaitingTable.mockResolvedValueOnce({ table: null }).mockResolvedValue({ table: { slug: "table-1", name: "Challenge", reason: "challenge", canReplace: false, canCancel: true, opponentName: "Imran" } });
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     render(<DuelCreator multiplayerTables multiCoreReady />);
@@ -78,7 +81,9 @@ describe("DuelCreator match options", () => {
     expect(screen.getByTestId("opponent-chip").textContent).toBe("Imran");
     create();
     expect(await screen.findByText("Challenge sent — the bot sent Imran a DM")).toBeTruthy();
-    expect(api.createDuel.mock.calls[0][4]).toEqual({ opponentPlayerId: 9, bestOf: 1, ranked: false });
+    expect(await screen.findByText(/Your challenge to Imran is still open/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel table" })).toBeEnabled();
+    expect(api.createDuel.mock.calls[0][4]).toMatchObject({ opponentPlayerId: 9, bestOf: 1, ranked: false });
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/duels/table-1`));
     expect(screen.getByRole("link", { name: /Open the table/ }).getAttribute("href")).toBe("/duels/table-1");
@@ -154,4 +159,22 @@ describe("DuelCreator match options", () => {
     render(<DuelCreator focusOpponent />);
     expect(document.activeElement).toBe(screen.getByRole("searchbox"));
   });
+});
+
+
+it("clears a cancelled challenge and permits a fresh challenge request", async () => {
+  api.getHostedWaitingTable.mockResolvedValueOnce({ table: null }).mockResolvedValue({ table: { slug: "table-1", name: "Challenge", reason: "challenge", canReplace: false, canCancel: true, opponentName: "Imran" } });
+  render(<DuelCreator />);
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "imr" } });
+  fireEvent.click(await screen.findByRole("button", { name: "Imran" }));
+  create();
+  await screen.findByText(/Your challenge to Imran is still open/);
+  const firstKey = api.createDuel.mock.calls[0][4].requestKey;
+  api.getHostedWaitingTable.mockResolvedValue({ table: null });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel table" }));
+  await waitFor(() => expect(screen.queryByText("Challenge sent — the bot sent Imran a DM")).toBeNull());
+  expect(screen.getByRole("button", { name: "Send challenge" })).toBeEnabled();
+  create();
+  await waitFor(() => expect(api.createDuel).toHaveBeenCalledTimes(2));
+  expect(api.createDuel.mock.calls[1][4].requestKey).not.toBe(firstKey);
 });

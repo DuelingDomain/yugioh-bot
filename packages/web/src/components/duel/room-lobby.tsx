@@ -2,6 +2,9 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Modal } from "@/components/ui/modal";
+import { cancelWaitingDuel } from "./api";
 import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, X, type LucideIcon } from "lucide-react";
 import { isCustomDomain, type DuelDeck, type DuelRoom, type DuelSeat } from "@yugidraft/shared/duels";
 import type { DuelPresencePayload } from "@yugidraft/shared/ws";
@@ -135,6 +138,11 @@ export function RoomLobby({
   onLeave: () => void;
 }) {
   const session = room.session;
+  const router = useRouter();
+  const [leaving, setLeaving] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
+  const closeInFlight = useRef(false);
   const mySeat = room.mySeat;
   const [previewCode, setPreviewCode] = useState<number | null>(null);
   const deckPanel = useRef<HTMLElement>(null);
@@ -167,6 +175,24 @@ export function RoomLobby({
     ? <p className={ui.hint} data-testid="practice-bot-note">{practiceBotNote(session.bestOf === 3 ? 3 : 1)}</p>
     : null;
   const canStart = !autoStart && isOrganizer && occupied === seatCount && readyCount === seatCount && session.status === "lobby";
+  const emptyWaiting = !("sandbox" in session && session.sandbox === true) && session.kind !== "replay-fork" && isOrganizer && session.status === "lobby" && !starting && room.opening == null
+    && session.seats.every(seat => seat.isBot || seat.playerId === session.organizerPlayerId)
+    && !tournamentGame && (session.gameNumber ?? 1) <= 1;
+
+  async function cancelAndLeave() {
+    if (closeInFlight.current || busy) return;
+    closeInFlight.current = true;
+    setClosing(true);
+    setLeaveError(null);
+    try {
+      await cancelWaitingDuel(slug);
+      router.push("/duels");
+    } catch (cause) {
+      setLeaveError(cause instanceof Error ? cause.message : "Could not cancel the table.");
+      closeInFlight.current = false;
+      setClosing(false);
+    }
+  }
 
   return (
     <div className={cx(sheetPage, styles.page)}>
@@ -187,9 +213,22 @@ export function RoomLobby({
           </div>
           <div className={styles.headActions}>
             <RoomInvite room={room} slug={slug} />
-            <Link href="/duels" className={sheetButtonClass("quiet", "sm")}>All tables</Link>
+            <Link href="/duels" className={sheetButtonClass("quiet", "sm")} onClick={event => {
+              if (!emptyWaiting || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              if (!busy && !closing) { setLeaveError(null); setLeaving(true); }
+            }}>All tables</Link>
           </div>
         </header>
+
+        <Modal open={leaving} onClose={() => { if (!closing) setLeaving(false); }} title="Leave waiting table">
+          <p>Cancel this table before you leave, or keep it open so you can return. No result is recorded.</p>
+          {leaveError ? <p role="alert" className={ui.alert}>{leaveError}</p> : null}
+          <div className={styles.headActions}>
+            <SheetButton disabled={busy || closing} loading={closing} onClick={() => void cancelAndLeave()}>Cancel table</SheetButton>
+            <SheetButton kind="quiet" disabled={closing} onClick={() => router.push("/duels")}>Keep table open</SheetButton>
+          </div>
+        </Modal>
 
         <div className={cx(styles.layout, showPreview && styles.layoutPreview)}>
           {showPreview ? (
