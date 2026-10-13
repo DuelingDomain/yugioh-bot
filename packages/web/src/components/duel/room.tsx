@@ -50,6 +50,7 @@ import { ReportButton } from "./report-button";
 import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
 import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
+import { FieldCracksScope } from "./field-cracks/context";
 import { TableShell, type TableShellProps } from "./table/table-shell";
 import { MasterSeatsContext } from "./master-place";
 import { TagShell } from "./tag/tag-shell";
@@ -972,6 +973,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       </div>
     );
   }
+  // Every board of this duel (live tables, 3D, flat) cracks from the same scope: duel id for the seed, starting LP of one side.
+  const withCracks = (node: ReactNode) => (
+    <FieldCracksScope duelKey={slug} format={data.session.format} settings={data.session.settings}>{node}</FieldCracksScope>
+  );
   if (liveTable && liveController) {
     // One seam set for both live shells, so the room stays one code path.
     const shellProps: TableShellProps = {
@@ -1008,11 +1013,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     };
     // The shells keep their own pile viewer, inspector and menus. A new key on the change to spectator drops them with the room's.
     const shellKey = watchingOnly ? `${slug}:watching` : slug;
-    return <DeckSurrenderContext.Provider value={deckSurrender}>
+    return withCracks(<DeckSurrenderContext.Provider value={deckSurrender}>
       <MasterSeatsContext.Provider value={data?.engine?.seats ?? NO_SEATS}>
         {liveTagTable ? <TagShell key={shellKey} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={shellKey} {...shellProps} />}
       </MasterSeatsContext.Provider>
-    </DeckSurrenderContext.Provider>;
+    </DeckSurrenderContext.Provider>);
   }
   const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
   const domain = data.session.mode === "domain";
@@ -1441,7 +1446,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   );
 
   if (solid) {
-    return (
+    return withCracks(
       <DeckSurrenderContext.Provider value={deckSurrender}>
         <SolidRoom
           slug={slug}
@@ -1488,11 +1493,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           boardQuiet={boardQuiet}
           onBeforeViewChange={beforeViewChange}
         />
-      </DeckSurrenderContext.Provider>
+      </DeckSurrenderContext.Provider>,
     );
   }
 
-  return (
+  return withCracks(
     <DeckSurrenderContext.Provider value={deckSurrender}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
       data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
@@ -1580,6 +1585,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       ) : null}
       {overlaysNode}
     </div>
-    </DeckSurrenderContext.Provider>
+    </DeckSurrenderContext.Provider>,
   );
 }

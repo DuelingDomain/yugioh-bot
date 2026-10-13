@@ -7,6 +7,7 @@ import { boardWidth, crumbleCards } from "./crumble-model";
 import { textScale } from "./seat-angle";
 import { SeatCrumble } from "./seat-crumble";
 import type { DuelSeatView } from "@yugidraft/shared/duels";
+import { crackSeed, useFieldCracksScope } from "../field-cracks/context";
 import type { SeatFieldProps, SeatFieldRenderer, SeatPose, SeatTone } from "./types";
 import styles from "./rival-field.module.css";
 
@@ -149,6 +150,7 @@ export interface ExitingSeatProps {
  * like one, so it lines up with the pad under it. Under reduced motion it only fades down.
  */
 export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOffsetDeg = 0, reducedMotion, clipTop, onDone }: ExitingSeatProps) {
+  const scope = useFieldCracksScope();
   const width = pose.width ?? boardWidth(masterRule);
   const cards = useMemo(() => crumbleCards(view, { faceUpHand, width }), [view, faceUpHand, width]);
   const done = useRef(onDone);
@@ -209,6 +211,7 @@ export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOff
           scale={pose.scale}
           width={width}
           seed={1234 + pose.seat * 13}
+          crackSeed={scope ? crackSeed(scope.duelKey, pose.seat) : null}
           reducedMotion={reducedMotion}
           held={held}
           onDone={() => done.current()}

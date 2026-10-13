@@ -42,6 +42,7 @@ import {
 import { disabledZones } from "./multi-seat";
 import { findMasterCard, masterActionText, masterInUse, masterPlace, masterNextCost, masterSummonLine, surchargeText, useMasterSeats, type MasterPlace } from "./master-place";
 import type { InspectTarget } from "./inspector";
+import { FieldCracks } from "./field-cracks/field-cracks";
 import { RivalHand } from "./table/rival-hand";
 import { hexToRgbTriplet, normalizeDeg, textScale } from "./table/seat-angle";
 import { SEAT_TONE_HEX, type SeatFieldProps } from "./table/types";
@@ -912,6 +913,9 @@ export function DuelField(props: DuelFieldProps) {
       <TurnGlow side="bottom" turn={activity.turnSeat === bottomIndex} priority={activity.prioritySeat === bottomIndex} />
       <div className={styles.playmat} data-hub={props.hub ? "true" : undefined}>
         <span className={styles.marginRule} aria-hidden="true" />
+        {/* One mat, two fields: each half cracks from its own LP and keeps off the hand strips. */}
+        <FieldCracks seat={topIndex} lp={top?.lp} part="top" avoidSelector={`.${styles.strip}`} splitSelector={`.${styles.emzBand}`} />
+        <FieldCracks seat={bottomIndex} lp={bottom?.lp} part="bottom" avoidSelector={`.${styles.strip}`} splitSelector={`.${styles.emzBand}`} />
         <div className={`${styles.strip} ${styles.stripTop}`}>
           <Tally
             side="opp"
@@ -1134,6 +1138,8 @@ export const SeatField = memo(function SeatField({
         style={vars}
       >
         <div className={styles.sfMat}>
+          <FieldCracks seat={seat} lp={view?.lp} chunks={pair?.framed !== true} avoidSelector="[data-crack-avoid]" layoutToken={emz} />
+          {emz === "none" ? <span className={styles.sfCrackAvoid} data-crack-avoid="" aria-hidden="true" /> : null}
           <span className={styles.sfRule} aria-hidden="true" />
           <div className={styles.sfGrid}>
             <PileColumn view={view} opponent={false} flip={false} side="left" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
