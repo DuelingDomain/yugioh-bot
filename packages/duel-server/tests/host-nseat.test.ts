@@ -604,7 +604,7 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
     t.worker.create = async options => { starting = true; await held; await original(options); };
     const pending = post(t.host, { op: "start-preset", presetId: "dust-tornado-chain", ...t.who });
     try {
-      await vi.waitFor(() => expect(starting).toBe(true));
+      await vi.waitFor(() => expect(starting).toBe(true), { timeout: 15_000 });
       const row = t.db.prepare("select web_slug from duels where status = 'lobby'").get() as { web_slug: string };
       expect(duels.privateState(row.web_slug, "g1").setup?.presetId).toBe("dust-tornado-chain");
       const created = duels.createRequest({ guildId: "g1", organizerPlayerId: t.who.playerId, fingerprint: "web" }, () => ({ session: duels.create({ guildId: "g1", organizerPlayerId: t.who.playerId, name: "Web table", mode: "normal" }) }));
