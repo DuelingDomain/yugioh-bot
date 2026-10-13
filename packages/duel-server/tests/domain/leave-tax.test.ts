@@ -56,7 +56,9 @@ for (const variant of variants) describe(`Deck Master leave tax (${variant.name}
       let lp = baseLp;
       for (let returns = 0; returns < 3; returns++) {
         publicState(game, returns, true, actor);
-        expect(waiting(game).options.find(option => option.card?.code === AXE && option.id.startsWith("summon:"))?.label).toContain(`costs ${returns * 500} LP`);
+        const label = waiting(game).options.find(option => option.card?.code === AXE && option.id.startsWith("summon:"))?.label;
+        if (returns > 0) expect(label).toContain(`costs ${returns * 500} LP`);
+        else expect(label).not.toContain("costs");
         act(game, AXE, "summon:");
         lp -= returns * 500;
         expect(game.view(null).seats[actor].lp).toBe(lp);
@@ -163,7 +165,8 @@ for (const variant of variants) describe(`Deck Master leave tax (${variant.name}
       expect(options.map(option => option.id.split(":")[0])).toEqual(expect.arrayContaining(["summon", "mset", "spsummon"]));
       for (const option of options) {
         expect(option.location).toBe(LOCATION_DECKMASTER);
-        expect(option.label).toContain(`costs ${returns * 500} LP`);
+        if (returns > 0) expect(option.label).toContain(`costs ${returns * 500} LP`);
+        else expect(option.label).not.toContain("costs");
       }
       act(game, JESTER, "spsummon:");
       if (returns < 2) recall(game);

@@ -35,7 +35,8 @@ public DMZ card before the player chooses an action. Show this cost when
 cost. Each Tag seat has its own counter; payment uses the team's LP pool.
 
 `SELECT_IDLECMD` options for DMZ normal summons, special summons, monster sets,
-and pendulum activations include `(costs N LP)` in `label`. Their `location`
+and pendulum activations include `(costs N LP)` in `label` only when `nextCost`
+is greater than zero. The first, free action has no cost suffix. Their `location`
 is `0x4000`. The server restores this location because the core message uses a
 one-byte location field. Option IDs and response indices stay the same.
 The displayed amount is the DMZ cost. Other card costs can also apply.
@@ -54,7 +55,8 @@ cannot pay it. Spell Economics does not waive this action cost. The view is
 information for the client; the client must not deduct LP itself.
 
 The rule source is the Deck Master section of Domain Format Rulebook v1.4,
-commit `adc1594fc`, including “Cost to summon”. No UI change is included here.
+commit `adc1594fc`, including “Cost to summon”. Web action menus preserve the
+server's cost labels; recall text names summon, set and activation costs.
 
 ## Core and bundle impact
 

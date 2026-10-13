@@ -21,12 +21,13 @@ function message(player = 0): Extract<OcgMessage, { type: OcgMessageType.SELECT_
 }
 for (const [name, map, answer] of [["pinned and multi", mapPrompt, resolveAnswer], ["legacy", legacyMapPrompt, legacyResolveAnswer]] as const) {
   describe(`Deck Master action cost copy (${name})`, () => {
-    it.each([0, 500, 1000])("shows %i LP on each DMZ action and keeps native response indices", cost => {
+    it.each([0, 500, 1000])("labels a %i LP DMZ action only when paid and keeps native response indices", cost => {
       const native = message();
       const pending = map(native, cards, "idle", undefined, { domain: [{ code: CODE, inZone: true, returns: cost / 500, nextCost: cost }] });
       for (const [prefix, action] of [["summon", 0], ["spsummon", 1], ["mset", 3], ["activate", 5]] as const) {
         const option = pending.prompt.options.find(option => option.id === `${prefix}:0`)!;
-        expect(option.label).toContain(`costs ${cost} LP`);
+        if (cost > 0) expect(option.label).toContain(`costs ${cost} LP`);
+        else expect(option.label).not.toContain("costs");
         expect(option.location).toBe(LOCATION_DECKMASTER);
         expect(answer(pending, 0, "idle", { choice: option.id }, cards)).toMatchObject({ action, index: 0 });
       }

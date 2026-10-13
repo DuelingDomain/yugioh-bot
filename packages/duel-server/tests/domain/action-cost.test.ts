@@ -21,7 +21,7 @@ for (const variant of variants) describe(`Domain action cost (${variant.name})`,
   const baseLp = variant.format === "tag" ? 16000 : 8000;
   it("Spell Economics keeps the cumulative 500/1000 LP cost of activating a returned Pendulum DM", async () => {
     const game = await gameFor(variant, { p0: { deckMaster: PENDULUM, spells: [ECONOMICS, RECALL] } }, [recall]);
-    expect(waiting(game).options.find(option => option.card?.code === PENDULUM && option.id.startsWith("activate:"))?.label).toContain("costs 0 LP");
+    expect(waiting(game).options.find(option => option.card?.code === PENDULUM && option.id.startsWith("activate:"))?.label).not.toContain("costs");
     act(game, PENDULUM);
     expect(game.view(0).seats[0].lp).toBe(baseLp);
     for (let returns = 1; returns <= 2; returns++) {

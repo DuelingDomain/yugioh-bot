@@ -42,7 +42,7 @@ function annotateDeckMasterActions(options: DuelPromptOption[], domain?: readonl
     const master = option.controller == null ? undefined : domain[option.controller];
     if (!master?.inZone || option.card?.code !== master.code || option.sequence !== 0) continue;
     if (option.location === 0) option.location = LOCATION_DECKMASTER;
-    if (option.location === LOCATION_DECKMASTER && /^(summon|spsummon|mset|activate):/.test(option.id)) {
+    if (master.nextCost > 0 && option.location === LOCATION_DECKMASTER && /^(summon|spsummon|mset|activate):/.test(option.id)) {
       option.label += ` (costs ${master.nextCost} LP)`;
     }
   }

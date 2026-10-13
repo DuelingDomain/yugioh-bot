@@ -858,9 +858,9 @@ export function PromptTray({
               <br />
               Returns: <span className={styles.cost}>{recall.returns}</span>
               <br />
-              Next summon cost after this recall: <span className={styles.cost}>{recall.nextCost} LP</span>
+              Next summon, set or activation cost after this recall: <span className={styles.cost}>{recall.nextCost} LP</span>
               <br />
-              Each return adds 500 LP to the next summon.
+              Each return adds 500 LP to the next summon, set or activation from the Deck Master Zone.
             </p>
           </div>
         </div>
