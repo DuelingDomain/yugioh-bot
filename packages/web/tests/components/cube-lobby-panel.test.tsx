@@ -16,6 +16,15 @@ const renderPanel = (errors: string[], warnings: string[]) => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("theme lobby preflight", () => {
+  it("offers Edit only for an attached cube the viewer can edit", () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ errors: [], warnings: [] })));
+    render(<CubeLobbyPanel slug="s" allowedCubes={cubes.map((cube, i) => ({ ...cube, canEdit: i === 0 }))} themeSelection="random"
+      hostTools={{ busy: false, onDetach: vi.fn(), onDelete: vi.fn() }} />);
+    expect(screen.getByRole("link", { name: "Edit cube Gaia knights" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Edit cube Toon" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Edit cube Mind: Control" })).not.toBeInTheDocument();
+  });
+
   it("refreshes the same themes when the copy limit changes", async () => {
     const issue = "Gaia knights: A player can take at most 3 copies of a card.";
     const response = (limited: boolean) => ({ ok: true, json: async () => ({ errors: limited ? [issue] : [], warnings: limited ? [] : [issue] }) });

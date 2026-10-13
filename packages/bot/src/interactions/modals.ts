@@ -75,7 +75,8 @@ export async function handleModal(
     let config: { setNames: string[]; includeNames: string[]; excludeNames: string[]; copyLimit?: boolean };
 
     if (templateName) {
-      const template = deps.templates.findByName(guildId, templateName);
+      const actorUserId = deps.players.ensureUser(interaction.user.id, interaction.user.displayName ?? interaction.user.username).id;
+      const template = deps.templates.findByName(guildId, templateName, actorUserId);
 
       if (!template) {
         await interaction.reply({ content: `Template not found: ${templateName}.`, ephemeral: true });
