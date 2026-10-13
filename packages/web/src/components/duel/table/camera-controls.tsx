@@ -2,6 +2,7 @@
 
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Eye, Focus, House, Lock, Orbit, Video } from "lucide-react";
+import { isFaceOff } from "./camera-model";
 import { useForkLabels } from "./fork-labels";
 import type { TargetHint } from "./use-camera";
 import { hexToRgbTriplet } from "./seat-angle";
@@ -102,12 +103,15 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
   const [ownOpen, setOpen] = useState(false);
   const open = view ? view.open : ownOpen;
   const rivals = layout.slots.filter((slot) => slot.seat !== layout.anchorSeat && !out.includes(slot.seat));
+  // A 3-way table with two seats left is a face-off: it has one view, so Overview, Focus, Look and the fly-in do nothing.
+  const faceOff = isFaceOff(layout, out);
   const flyOn = camera.mode === "fly";
   const flyReady = camera.flyIn !== false;
   const label = cameraLabel(camera, nameOf, layout.anchorSeat, replay || named);
-  const plaza = layout.format === "ffa3";
+  const plaza = layout.format === "ffa3" && !faceOff;
+  // In a face-off the one view that can be on is your own field enlarged (an elimination does not end it).
   const enlarged = layout.format === "ffa3" && camera.mode === "focus";
-  const keysHint = flyOn ? "Drag · wheel · 1-3 · Esc" : enlarged ? "Esc or Back to leave" : plaza ? "E zoom my field · P look · 0 overview" : "[ ] focus · P look · 0 overview";
+  const keysHint = faceOff && !enlarged ? "" : flyOn ? "Drag · wheel · 1-3 · Esc" : enlarged ? "Esc or Back to leave" : plaza ? "E zoom my field · P look · 0 overview" : "[ ] focus · P look · 0 overview";
 
   const showPanel = variant !== "stage";
   const showStage = variant !== "panel";
@@ -136,7 +140,8 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
         </button>}
         <div id="camera-view-grid" className={styles.grid} role="group" aria-label="Camera" hidden={!open}>
             <ViewButton action="home" label="Home" icon={<House size={13} aria-hidden="true" />} hotkey="H" pressed={camera.mode === "home"} disabled={locked} onClick={() => dispatch({ type: "home" })} />
-            <>
+            {faceOff ? null : (
+              <>
                 <ViewButton
                   action="overview"
                   label="Overview"
@@ -175,7 +180,8 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
                   />
                 ))}
               </>
-            {flyOn ? (
+            )}
+            {flyOn && !faceOff ? (
               <>
                 <div className={styles.sec}>
                   Fly into a seat <Key>1-{layout.slots.length}</Key>
@@ -196,7 +202,7 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
                 </div>
               </>
             ) : null}
-            <ViewButton action="fly" label={`Fly-in overview ${flyReady ? "on" : "off"}`} icon={<Orbit size={13} aria-hidden="true" />} hotkey="F" pressed={flyReady} disabled={locked} wide onClick={() => dispatch({ type: "toggleFly" })} />
+            {faceOff ? null : <ViewButton action="fly" label={`Fly-in overview ${flyReady ? "on" : "off"}`} icon={<Orbit size={13} aria-hidden="true" />} hotkey="F" pressed={flyReady} disabled={locked} wide onClick={() => dispatch({ type: "toggleFly" })} />}
         </div>
       </div>
       ) : null}
@@ -228,7 +234,7 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
           <House size={12} aria-hidden="true" />
           Home
         </button>
-        {rivals.map((slot) => (
+        {(faceOff ? [] : rivals).map((slot) => (
           <button
             key={`switch-${slot.seat}`}
             type="button"
@@ -243,10 +249,12 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
             {nameOf(slot.seat).split(" ")[0]}
           </button>
         ))}
-        <button type="button" data-seat-switch="overview" aria-pressed={camera.mode === "overview"} disabled={locked} onClick={() => dispatch({ type: "overview" })}>
-          <Orbit size={12} aria-hidden="true" />
-          All
-        </button>
+        {faceOff ? null : (
+          <button type="button" data-seat-switch="overview" aria-pressed={camera.mode === "overview"} disabled={locked} onClick={() => dispatch({ type: "overview" })}>
+            <Orbit size={12} aria-hidden="true" />
+            All
+          </button>
+        )}
       </div>
 
       {hint ? (

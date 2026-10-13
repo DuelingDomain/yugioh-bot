@@ -48,6 +48,7 @@ import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import type { ChainModeControl } from "../use-chain-mode";
 import roomStyles from "../room.module.css";
 import { CameraControls } from "./camera-controls";
+import { isFaceOff } from "./camera-model";
 import { controllerLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
 import { CAPTION_TEXT, useFinalDuelCaption } from "./final-duel-caption";
@@ -316,7 +317,8 @@ function TableShellBody({
   useEffect(() => {
     if (replayCarry && grid) replayCarry.current.gridFocus = gridFocus.focus;
   }, [replayCarry, grid, gridFocus.focus]);
-  // The last two seats of a 3-way or 4-way table are named in a caption (FINAL DUEL). No field moves: the place of a seat that is out stays empty.
+  // The last two seats of a 3-way or 4-way table are named in a caption (FINAL DUEL). The 3-way plaza regroups them face to face
+  // (geometry.ts aliveLayout); a 4-way grid keeps its places.
   const caption = useFinalDuelCaption({ seats: engine.seats, viewerSeat, reducedMotion: controller.reducedMotion });
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
@@ -585,7 +587,7 @@ function TableShellBody({
   const seatStripNode = (
     <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
       focusSeat={grid ? gridFocus.focus.seat : camera.state.focusSeat} focusAny={grid}
-      onFocusSeat={grid ? gridFocus.focusSeat : (seat) => camera.dispatch({ type: "focus", seat })}
+      onFocusSeat={grid ? gridFocus.focusSeat : isFaceOff(layout, camera.out) ? undefined : (seat) => camera.dispatch({ type: "focus", seat })}
       pick={canAct && controller.revealed ? controller.seatPick : null} compact={!narrow} replay={replay != null} />
   );
 
