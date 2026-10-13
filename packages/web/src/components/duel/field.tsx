@@ -914,6 +914,9 @@ export function DuelField(props: DuelFieldProps) {
       <TurnGlow side="bottom" turn={activity.turnSeat === bottomIndex} priority={activity.prioritySeat === bottomIndex} />
       <div className={styles.playmat} data-hub={props.hub ? "true" : undefined}>
         <span className={styles.marginRule} aria-hidden="true" />
+        {/* One mat, two fields: each half cracks from its own LP and keeps off the hand strips. */}
+        <FieldCracks seat={topIndex} lp={top?.lp} part="top" avoidSelector={`.${styles.strip}`} splitSelector={`.${styles.emzBand}`} />
+        <FieldCracks seat={bottomIndex} lp={bottom?.lp} part="bottom" avoidSelector={`.${styles.strip}`} splitSelector={`.${styles.emzBand}`} />
         <div className={`${styles.strip} ${styles.stripTop}`}>
           <Tally
             side="opp"
