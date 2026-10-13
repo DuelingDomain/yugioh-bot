@@ -148,14 +148,19 @@ describe("sandbox seat control", () => {
   it.each([1, 2, 3])("searches announce-card choices as Manual seat %i", async (seat) => {
     const t = setup(); t.control.promptSeat = seat; t.control.announce = true;
     const slug = await t.start({ board: { format: "ffa4" }, run: { bots: { "1": "manual", "2": "manual", "3": "manual" } } });
+    const search = vi.spyOn(t.workers[0], "search");
+    expect((await t.post("cards", { slug, as: seat, query: "", reveal: true })).status).toBe(200);
+    expect(search).toHaveBeenCalledExactlyOnceWith("", seat);
     const result = await t.post("cards", { slug, as: seat, query: "Mystical" });
     expect(result.status, result.data.error).toBe(200);
     expect(result.data.cards[0].code).toBe(15025844);
+    expect(search).toHaveBeenLastCalledWith("Mystical", seat);
     expect((await t.post("cards", { slug, query: "Mystical" })).status).toBe(409);
     expect((await t.post("cards", { slug, as: seat, query: "Mystical", playerId: t.other })).status).toBe(403);
     expect((await t.post("cards", { slug, as: 4, query: "Mystical" })).status).toBe(400);
     const regular = t.duels.create({ guildId: "g", organizerPlayerId: t.owner, name: "Normal", mode: "normal" });
     expect((await t.post("cards", { slug: regular.slug, as: seat, query: "Mystical" })).status).toBe(409);
+    expect(search).toHaveBeenCalledTimes(2);
   });
   it("surrenders the acting seat", async () => {
     const t = setup(), slug = await t.start({ run: manualRun });

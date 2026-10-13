@@ -25,7 +25,7 @@ import createCore, {
   type OcgResponse,
   type OcgOpCode,
 } from "ocgcore-wasm";
-import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
+import { deckSearchCodes, isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
 import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, directAttackSeat, filterPromptOptions, isOpponentPick, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
@@ -217,7 +217,7 @@ export interface EngineGame {
   sandboxSnapshot?(): SandboxEngineSnapshot;
   view(seat: number | null): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
-  searchCards(query: string): DuelCardInfo[];
+  searchCards(query: string, seat?: number): DuelCardInfo[];
   /**
    * Surrender removes a duelist immediately through Debug.SurrenderDuelist, or flags the loss while the
    * current chain finishes. Leaving seats auto-pass; required choices use the deterministic fallback.
@@ -1367,11 +1367,16 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     coreInfo() {
       return { wasmSha: loaded.sha, wasmFile: loaded.file, callsSinceLastPrompt, messagesSinceLastPrompt };
     },
-    searchCards(query) {
+    searchCards(query, seat) {
       if (closed) throw new Error("Engine is closed");
+      if (seat !== undefined && (!Number.isInteger(seat) || seat < 0 || seat >= options.decks.length
+        || pending?.message.type !== OcgMessageType.ANNOUNCE_CARD || pending.seat !== seat)) {
+        throw new EngineAnswerError("No card announcement is waiting for this seat");
+      }
       if (pending?.message.type === OcgMessageType.ANNOUNCE_CARD) {
         const opcodes = pending.message.opcodes as OcgOpCode[];
-        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes));
+        const ownDeck = seat === undefined ? undefined : deckSearchCodes(cards, options.decks[seat]!);
+        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes), ownDeck);
       }
       return cards.search(query);
     },

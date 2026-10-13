@@ -3069,7 +3069,7 @@ export function createDuelHost(options: {
           throw new RequestError("That search is stale. Refresh the current duel state.", 409);
         }
         if (view.prompt?.kind !== "announce-card") throw new RequestError("No card announcement is waiting", 409);
-        const cards = await live.search(body.query);
+        const cards = await live.search(body.query, seat);
         assertDuelForkAccess(options.db, body.slug, accessActor);
         return { cards };
       }

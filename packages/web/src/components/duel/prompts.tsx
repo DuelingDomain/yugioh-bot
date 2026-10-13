@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useContext, useEffect, useId, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   DuelAnswer,
   DuelCard,
@@ -389,69 +389,113 @@ export function AnnounceSearch({
   const forkKey = fork ? `${fork.as}:${fork.promptId}:${fork.revision}` : "";
   const forkNow = useRef(fork);
   forkNow.current = fork;
+  const bindingKey = fork ? `fork:${forkKey}` : `sandbox:${sandbox?.as ?? ""}:${sandbox?.reveal ?? ""}`;
+  const inputId = useId();
+  const listId = `${inputId}-results`;
+  const list = useRef<HTMLUListElement>(null);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<DuelCardInfo[]>([]);
+  const [response, setResponse] = useState<{ query: string; slug: string; bindingKey: string; cards: DuelCardInfo[] } | null>(null);
+  const [highlight, setHighlight] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
-
-  useEffect(() => { setResults([]); }, [forkKey]);
+  const trimmed = query.trim();
+  const results = response?.slug === slug && response.bindingKey === bindingKey ? response.cards : [];
+  const stale = response?.query !== trimmed || response?.slug !== slug || response?.bindingKey !== bindingKey;
+  const pending = searching || (!error && stale);
 
   useEffect(() => {
-    const trimmed = query.trim();
-    if (trimmed.length < 2) {
-      setResults([]);
-      setError(null);
-      setSearching(false);
-      return;
-    }
     let cancelled = false;
-    const handle = window.setTimeout(() => {
-      setSearching(true);
-      searchDuelCards(trimmed, slug, forkNow.current ?? sandbox)
+    setSearching(true);
+    setError(null);
+    const search = () => {
+      const control = forkNow.current ?? sandbox;
+      const request = control ? searchDuelCards(trimmed, slug, control) : searchDuelCards(trimmed, slug);
+      request
         .then((data) => {
           if (cancelled) return;
-          setResults(data.cards);
+          setResponse({ query: trimmed, slug, bindingKey, cards: data.cards });
+          setHighlight(0);
           setError(null);
         })
         .catch((err: unknown) => {
           if (cancelled) return;
+          setResponse(null);
           setError(err instanceof Error ? err.message : "Search failed");
         })
         .finally(() => {
           if (!cancelled) setSearching(false);
         });
-    }, 200);
+    };
+    // Fetch deck suggestions as soon as the prompt mounts; debounce typed searches.
+    const handle = trimmed ? window.setTimeout(search, 200) : undefined;
+    if (!trimmed) search();
     return () => {
       cancelled = true;
-      window.clearTimeout(handle);
+      if (handle !== undefined) window.clearTimeout(handle);
     };
-  }, [query, slug, forkKey, sandbox?.as, sandbox?.reveal]);
+  }, [trimmed, slug, bindingKey]);
+
+  useEffect(() => {
+    list.current?.querySelector<HTMLElement>(`[data-active="true"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [highlight, response]);
 
   return (
     <div className={styles.search}>
-      <label htmlFor="announce-card">Search card name</label>
+      <label htmlFor={inputId}>Search card name</label>
       <input
-        id="announce-card"
+        id={inputId}
+        data-primary
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={results.length > 0}
+        aria-controls={listId}
+        aria-activedescendant={!pending && results[highlight] ? `${listId}-${results[highlight].code}` : undefined}
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => { setQuery(event.target.value); setHighlight(0); }}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+          if (!["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (busy || pending || !results.length) return;
+          if (event.key === "Enter") {
+            if (!event.repeat && results[highlight]) onPick(results[highlight]);
+          } else {
+            const direction = event.key === "ArrowDown" ? 1 : -1;
+            setHighlight(index => (index + direction + results.length) % results.length);
+          }
+        }}
         autoComplete="off"
         spellCheck={false}
         disabled={busy}
       />
-      {searching ? <p className={styles.note}>Searching…</p> : null}
+      <p className={styles.note} role="status" aria-live="polite" aria-atomic="true">
+        {pending ? "Searching…" : error ? "Search failed" : `${results.length} ${results.length === 1 ? "result" : "results"}`}
+      </p>
       {error ? <p className={styles.error}>{error}</p> : null}
-      <ul className={styles.results}>
-        {results.map((card) => (
-          <li key={card.code}>
+      {!pending && !error && results.length === 0 ? <p className={styles.note}>
+        {trimmed.length < 2 ? "No matching cards in your deck. Type at least 2 characters to search all legal names." : "No matching legal card names."}
+      </p> : null}
+      <ul id={listId} ref={list} className={styles.results} role="listbox" aria-label="Card names"
+        aria-live="off" aria-busy={pending} data-stale={stale ? "true" : "false"}>
+        {results.map((card, index) => (
+          <li key={card.code} role="none">
             <button
+              id={`${listId}-${card.code}`}
+              role="option"
+              aria-selected={highlight === index}
               type="button"
-              disabled={busy}
+              tabIndex={-1}
+              disabled={busy || pending}
               onClick={() => onPick(card)}
               data-selected={cardCode === card.code ? "true" : "false"}
+              data-active={highlight === index ? "true" : "false"}
+              onMouseEnter={() => setHighlight(index)}
               className={styles.result}
             >
               <img src={cardArtUrl(card.code, "small")} alt="" className={styles.art} />
               <span>{card.name}</span>
+              {card.inDeck ? <small className={styles.deckTag}>In your deck</small> : null}
             </button>
           </li>
         ))}
@@ -908,9 +952,10 @@ export function PromptTray({
 
   if (prompt.kind === "announce-card") {
     return (
-      <div className={styles.tray} aria-live="polite">
+      <div className={styles.tray}>
         <PromptHeader prompt={prompt} />
         <AnnounceSearch
+          key={prompt.id}
           slug={slug}
           sandbox={sandbox}
           cardCode={draft.cardCode}

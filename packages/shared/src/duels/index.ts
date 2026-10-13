@@ -195,6 +195,8 @@ export interface DuelDeckValidation {
 }
 
 export interface DuelCardInfo {
+  /** Search result belongs to the requesting seat's own main, extra or Deck Master cards. */
+  inDeck?: boolean;
   /** Preview data from BabelCDB; available to search and card-info consumers. */
   prerelease?: boolean;
   code: number;

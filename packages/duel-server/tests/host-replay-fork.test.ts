@@ -10,6 +10,7 @@ import { seatCountFor, type DuelEngineView, type DuelFormat, type ReplaySource }
 import { EngineResourceCache } from "../src/engine-resource-cache.js";
 import { EngineResourceUnavailableError } from "../src/engine-resource-resolver.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelGameWorker } from "../src/worker-client.js";
 import { createReplayCursorCodec, replayFrameId, replayPrefixHash, replaySourceVersion } from "../src/replay-cursor.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { seedIdentity } from "./helpers/identity.js";
@@ -373,10 +374,15 @@ it.each([0, 1, 2, 3])("binds views, answers and announcement search to acting se
   expect(view.body).toMatchObject({ mySeat: 0, fork: { actingSeat: seat, revealHands: false }, engine: { prompt: { seat, kind: "announce-card" } } });
   expect(view.body.engine.seats.filter((s: any) => s.hand[0].code !== undefined).map((s: any) => s.seat)).toEqual([seat]);
   const binding = { slug: forkSlug, as: seat, promptId: "p2", revision: 2 };
+  const search = vi.spyOn(worker as DuelGameWorker, "search");
+  expect((await post({ op: "cards", query: "", ...binding })).response.status).toBe(200);
+  expect(search).toHaveBeenCalledExactlyOnceWith("", seat);
   expect((await post({ op: "cards", query: "Card", ...binding })).response.status).toBe(200);
+  expect(search).toHaveBeenLastCalledWith("Card", seat);
   for (const bad of [{ as: (seat + 1) % 4 }, { promptId: "old" }, { revision: 1 }, { as: 4 }, { playerId: 63, userId: "103" }]) {
     expect((await post({ op: "cards", query: "Card", ...binding, ...bad })).response.status).toBeGreaterThanOrEqual(400);
   }
+  expect(search).toHaveBeenCalledTimes(2);
   expect((await post({ op: "respond", slug: forkSlug, as: seat, command: { promptId: "old", revision: 2, answer: {} } })).response.status).toBe(409);
   expect((await post({ op: "respond", slug: forkSlug, as: seat, command: { promptId: "p2", revision: 2, answer: { card: 100 } } })).response.status).toBe(200);
   expect(worker.revision).toBe(3);
