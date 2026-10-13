@@ -320,6 +320,14 @@ jobs:
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
       IMAGE: ghcr.io/duelingdomain/yugioh-bot-${{ matrix.service }}
     steps:
+      - name: Validate prepare commit output
+        shell: bash
+        run: |
+          if [[ ! "$DEPLOY_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::prepare commit output missing or invalid (maybe masked as a secret); dispatch a new Deploy" >&2
+            exit 1
+          fi
+
       - name: Checkout verified deploy commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -453,6 +461,14 @@ jobs:
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
     steps:
+      - name: Validate prepare commit output
+        shell: bash
+        run: |
+          if [[ ! "$DEPLOY_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::prepare commit output missing or invalid (maybe masked as a secret); dispatch a new Deploy" >&2
+            exit 1
+          fi
+
       - name: Checkout verified deploy commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:

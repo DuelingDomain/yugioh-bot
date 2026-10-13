@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -62,6 +63,7 @@ async function run({ old = previous, refs = references, failure = () => 0, deplo
 
 test('only the successful deploy enables retention with the job package token', () => {
   const { deploy, retain } = load().jobs;
+  assert.equal(deploy.env.DEPLOY_COMMIT, '${{ needs.prepare.outputs.commit }}');
   assert.ok(retain);
   assert.deepEqual(retain.needs, ['prepare', 'deploy']);
   assert.match(retain.if, /!cancelled\(\).*needs.deploy.result == 'success'/);
@@ -86,11 +88,33 @@ test('only the successful deploy enables retention with the job package token', 
   assert.equal(upload.with.name, 'production-deployed-${{ env.DEPLOY_COMMIT }}-${{ github.run_attempt }}');
   assert.equal(upload.with.path, '${{ runner.temp }}/release/image-digests\n${{ runner.temp }}/release/confirmed-attempt\n');
   assert.equal(upload.with['if-no-files-found'], 'error');
+  assert.equal(upload.with['retention-days'], 1);
+  assert.equal(Object.hasOwn(upload.with, 'overwrite'), false);
   const download = retain.steps[0];
   assert.equal(download.uses, 'actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093');
   assert.equal(download.with.name, 'production-deployed-${{ needs.prepare.outputs.commit }}-${{ github.run_attempt }}');
   assert.equal(download.with.path, '${{ runner.temp }}/deployed-release');
   assert.ok(retain.steps.every(step => !step.run?.includes('ssh')));
+});
+
+test('build and deploy reject missing or invalid prepare commits before checkout or downloads', () => {
+  const jobs = load().jobs;
+  for (const name of ['build', 'deploy']) {
+    const job = jobs[name];
+    assert.equal(job.env.DEPLOY_COMMIT, '${{ needs.prepare.outputs.commit }}');
+    const guard = job.steps[0];
+    assert.equal(guard.name, 'Validate prepare commit output');
+    assert.equal(guard.if, undefined, 'validate every build and deploy, including rollbacks');
+    for (const commit of ['0123456789abcdef0123456789abcdef01234567', '0'.repeat(40),
+      '', 'main', 'a'.repeat(39), 'a'.repeat(41), 'A'.repeat(40), 'g'.repeat(40), `${'a'.repeat(40)}\n`]) {
+      const valid = /^[0-9a-f]{40}$/.test(commit);
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', guard.run], {
+        encoding: 'utf8', env: { ...process.env, DEPLOY_COMMIT: commit },
+      });
+      assert.equal(result.status, valid ? 0 : 1, `${name}: ${JSON.stringify(commit)}: ${result.stderr}`);
+      if (!valid) assert.match(result.stderr, /prepare commit output missing or invalid \(maybe masked as a secret\); dispatch a new Deploy/);
+    }
+  }
 });
 
 test('all manifests are read before rotation, and tags keep the exact deployed and previous digests', async () => {
