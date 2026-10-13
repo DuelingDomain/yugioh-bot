@@ -30,6 +30,7 @@ jobs:
               "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"
             ]);
             const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            let errors = 0;
             for (const service of ["duel", "web", "worker", "ws"]) {
               const package_name = `yugioh-bot-${service}`;
               try {
@@ -84,7 +85,11 @@ jobs:
                 }
               } catch (error) {
                 if (error.status === 404) core.info(`${package_name}: package not created yet`);
-                else core.warning(`${package_name}: ${error.message}`);
+                else {
+                  errors++;
+                  core.warning(`${package_name}: ${error.message}`);
+                }
                 continue;
               }
             }
+            if (errors) core.setFailed(`GHCR cleanup failed for ${errors} package(s). See the warnings above.`);

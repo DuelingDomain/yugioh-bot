@@ -9,11 +9,13 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const age = days => new Date(Date.now() - days * 86400000).toISOString();
 const version = (id, tags, days = 20) => ({ id, name: `sha256:${String(id).padStart(64, '0')}`, created_at: age(days), metadata: { container: { tags } } });
 
-async function run(versions, manifests = {}, fail = false, messages = [], fetches = []) {
+async function run(versions, manifests = {}, fail = false, messages = [], fetches = [], failures = []) {
   const deleted = [];
+  const attempted = [];
   const github = {
     paginate: async (route, options) => {
       assert.equal(options.per_page, 100);
+      attempted.push(options.package_name);
       return typeof versions === 'function' ? versions(options.package_name) : versions;
     },
     request: async (route, options) => {
@@ -30,6 +32,10 @@ async function run(versions, manifests = {}, fail = false, messages = [], fetche
   const script = Object.values(workflow.jobs)[0].steps[0].with.script;
   await new AsyncFunction('github', 'context', 'core', 'fetch', script)(github, { repo: { owner: 'DuelingDomain' } }, {
     info: message => messages.push(message), warning: message => messages.push(message),
+    setFailed: message => {
+      assert.deepEqual(attempted, ['duel', 'web', 'worker', 'ws'].map(service => `yugioh-bot-${service}`));
+      failures.push(message);
+    },
   }, fetch);
   return deleted;
 }
@@ -91,9 +97,34 @@ test('a package API error does not stop cleanup of other packages', async () => 
   assert.ok(messages.some(message => /yugioh-bot-duel:.*package API failed/.test(message)));
 });
 
+test('cleanup fails once with the error count after it tries all packages', async () => {
+  const failures = [];
+  const deleted = await run(name => {
+    if (['yugioh-bot-duel', 'yugioh-bot-worker'].includes(name)) throw new Error('package API failed');
+    return [version(2, [])];
+  }, {}, false, [], [], failures);
+  assert.deepEqual(deleted.map(([name]) => name), ['yugioh-bot-web', 'yugioh-bot-ws']);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /2 package/);
+});
+
+test('packages not created yet do not fail cleanup', async () => {
+  const failures = [];
+  const messages = [];
+  const deleted = await run(name => {
+    if (name === 'yugioh-bot-duel') throw Object.assign(new Error('not found'), { status: 404 });
+    return [version(2, [])];
+  }, {}, false, messages, [], failures);
+  assert.deepEqual(deleted.map(([name]) => name), ['yugioh-bot-web', 'yugioh-bot-worker', 'yugioh-bot-ws']);
+  assert.deepEqual(failures, []);
+  assert.ok(messages.includes('yugioh-bot-duel: package not created yet'));
+});
+
 test('cleanup reports packages with no candidates', async () => {
   const messages = [];
-  await run([version(1, ['buildcache'])], {}, false, messages);
+  const failures = [];
+  await run([version(1, ['buildcache'])], {}, false, messages, [], failures);
+  assert.deepEqual(failures, []);
   for (const service of ['duel', 'web', 'worker', 'ws']) {
     assert.ok(messages.includes(`yugioh-bot-${service}: no candidates`));
   }
