@@ -1,5 +1,8 @@
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { migrate } from "@yugidraft/shared/db";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
@@ -9,7 +12,9 @@ vi.mock("@/lib/session-identity", async () => {
   return sessionFixture(auth);
 });
 vi.mock("@/lib/db", () => ({ getDb }));
+
 let db: Database.Database;
+let engineDirectory: string;
 let upstream: Mock<typeof globalThis.fetch>;
 const json = (body: unknown) => new Request("http://x", { method: "POST", body: JSON.stringify(body) });
 const create = async (body: object) => (await import("../app/api/cubes/route")).POST(json(body));
@@ -18,6 +23,9 @@ const rows = () => db.prepare("select catalog_card_id id, pool, max_copies copie
 
 beforeEach(() => {
   vi.resetModules();
+  // An empty temporary directory makes the default engine map deterministic.
+  engineDirectory = mkdtempSync(join(tmpdir(), "list-import-empty-engine-"));
+  vi.stubEnv("DUEL_DATA_DIR", engineDirectory);
   vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
   auth.mockResolvedValue({ user: { id: String(fixtureUserId("owner")), discordUserId: fixtureDiscordId("owner"), name: "Owner" } });
   upstream = vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 }));
@@ -30,7 +38,7 @@ beforeEach(() => {
   insert.run(3, "Artifact Moralltach", "Effect Monster", "effect");
   db.prepare("insert into cubes (guild_id,name,created_by_user_id) values ('guild-1','Existing',?)").run(fixtureUserId("owner"));
 });
-afterEach(() => { db.close(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+afterEach(() => { db.close(); rmSync(engineDirectory, { recursive: true, force: true }); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("cube editor list import", () => {
   it("accepts digit-leading printed names as one copy when the counted interpretation does not resolve", async () => {

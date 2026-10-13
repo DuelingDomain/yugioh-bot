@@ -68,3 +68,5 @@ export * from "./tournament-access.js";
 export * from "./paged-lists.js";
 
 export { createTournamentVisibilityService, TournamentVisibilityServiceError, isTournamentVisibility } from "./tournament-visibility.js";
+export { createDeckTypeLookup } from "./deck-sections.js";
+export { createDeckCopyRepairService } from "./deck-copy-repair.js";

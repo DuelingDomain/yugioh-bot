@@ -14,7 +14,10 @@ function setup() {
   databases.push(db);
   migrate(db);
   migrate(db);
-  return { db, decks: createSavedDeckService(db) };
+  for (const id of [2, 23995328]) {
+    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?, 'Test Fusion', 'Fusion Monster', 'fusion', '', '', '[]', 'test')").run(id);
+  }
+  return { db, decks: createSavedDeckService(db, new Map()) };
 }
 
 const emptyDeck = { main: [] as number[], extra: [] as number[], side: [] as number[] };
@@ -194,4 +197,3 @@ describe("saved decks built from a draft pool", () => {
     expect(decks.update(made.id, "g", seedUser(db, "u").userId, { name: "D", mode: "normal", deck: emptyDeck, draftId: null }).draftId).toBeNull();
   });
 });
-
