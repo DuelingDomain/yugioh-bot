@@ -1953,7 +1953,7 @@ export function PromptCenter(props: PromptCenterProps) {
         data-reduced={dataReduced}
         role="group"
         aria-label={title}
-        aria-live="polite"
+        aria-live={prompt.kind === "announce-card" ? undefined : "polite"}
       >
         <header className={styles.head} data-source={source ? "true" : "false"}>
           {source ? (

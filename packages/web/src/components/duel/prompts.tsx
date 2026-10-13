@@ -389,7 +389,9 @@ export function AnnounceSearch({
   const [error, setError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const trimmed = query.trim();
-  const results = response?.query === trimmed && response.slug === slug ? response.cards : [];
+  const results = response?.slug === slug ? response.cards : [];
+  const stale = response?.query !== trimmed || response?.slug !== slug;
+  const pending = searching || (!error && stale);
 
   useEffect(() => {
     let cancelled = false;
@@ -435,7 +437,7 @@ export function AnnounceSearch({
         aria-autocomplete="list"
         aria-expanded={results.length > 0}
         aria-controls={listId}
-        aria-activedescendant={results[highlight] ? `${listId}-${results[highlight].code}` : undefined}
+        aria-activedescendant={!pending && results[highlight] ? `${listId}-${results[highlight].code}` : undefined}
         value={query}
         onChange={(event) => { setQuery(event.target.value); setHighlight(0); }}
         onKeyDown={(event) => {
@@ -443,7 +445,7 @@ export function AnnounceSearch({
           if (!["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) return;
           event.preventDefault();
           event.stopPropagation();
-          if (busy || !results.length) return;
+          if (busy || pending || !results.length) return;
           if (event.key === "Enter") {
             if (!event.repeat && results[highlight]) onPick(results[highlight]);
           } else {
@@ -455,12 +457,15 @@ export function AnnounceSearch({
         spellCheck={false}
         disabled={busy}
       />
-      {searching ? <p className={styles.note}>Searching…</p> : null}
+      <p className={styles.note} role="status" aria-live="polite" aria-atomic="true">
+        {pending ? "Searching…" : error ? "Search failed" : `${results.length} ${results.length === 1 ? "result" : "results"}`}
+      </p>
       {error ? <p className={styles.error}>{error}</p> : null}
-      {!searching && !error && results.length === 0 ? <p className={styles.note}>
+      {!pending && !error && results.length === 0 ? <p className={styles.note}>
         {trimmed.length < 2 ? "No matching cards in your deck. Type at least 2 characters to search all legal names." : "No matching legal card names."}
       </p> : null}
-      <ul id={listId} ref={list} className={styles.results} role="listbox" aria-label="Card names">
+      <ul id={listId} ref={list} className={styles.results} role="listbox" aria-label="Card names"
+        aria-live="off" aria-busy={pending} data-stale={stale ? "true" : "false"}>
         {results.map((card, index) => (
           <li key={card.code} role="none">
             <button
@@ -468,7 +473,8 @@ export function AnnounceSearch({
               role="option"
               aria-selected={highlight === index}
               type="button"
-              disabled={busy}
+              tabIndex={-1}
+              disabled={busy || pending}
               onClick={() => onPick(card)}
               data-selected={cardCode === card.code ? "true" : "false"}
               data-active={highlight === index ? "true" : "false"}
@@ -932,7 +938,7 @@ export function PromptTray({
 
   if (prompt.kind === "announce-card") {
     return (
-      <div className={styles.tray} aria-live="polite">
+      <div className={styles.tray}>
         <PromptHeader prompt={prompt} />
         <AnnounceSearch
           key={prompt.id}

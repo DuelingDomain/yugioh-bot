@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { defaultDuelSettings, seatCountFor, type DuelDeck, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
+import { defaultDuelSettings, partnerSeatOf, seatCountFor, type DuelDeck, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
+import { cardMatchesOpcode, OcgOpCode, OcgType } from "ocgcore-wasm";
+import { loadCardDatabase } from "../src/cards.js";
 import { createEngineGame } from "../src/engine.js";
 import { createLegacyEngineGame } from "../src/legacy/index.js";
 import { GameWorker } from "../src/worker-client.js";
@@ -10,13 +12,15 @@ const layouts: Array<["pinned" | "legacy", DuelFormat]> = [
 ];
 for (const mode of ["normal", "domain"] as DuelMode[]) {
   describe.each(layouts)(`${mode} %s %s announcement search`, (engine, format) => {
-    it("suggests only the announcing seat's legal main, extra, and side cards", async () => {
+    it("suggests only the announcing seat's legal main, extra, and Deck Master cards", async () => {
       const seatCount = seatCountFor(format);
       const seat = seatCount - 1;
+      const partner = partnerSeatOf(format, seat);
       const decks: DuelDeck[] = Array.from({ length: seatCount }, (_, index) => ({
-        main: Array(40).fill(index === seat ? 89631139 : 46986414), extra: index === seat ? [23995346] : [],
-        side: index === seat ? [15025844, 55144522] : [70781052],
-        ...(mode === "domain" ? { deckMaster: index === seat ? 89631139 : 46986414 } : {}),
+        main: Array(40).fill(index === seat ? 89631139 : index === partner ? 70781052 : 46986414),
+        extra: index === seat ? [23995346] : [],
+        side: index === seat ? [77585513, 55144522] : [],
+        ...(mode === "domain" ? { deckMaster: index === seat ? 15025844 : index === partner ? 70781052 : 46986414 } : {}),
       }));
       const game = await (engine === "legacy" ? createLegacyEngineGame : createEngineGame)({
         mode, format, dataDirectory, decks, seed: ["1", "2", "3", "4"],
@@ -35,12 +39,21 @@ for (const mode of ["normal", "domain"] as DuelMode[]) {
       try {
         expect(game.view(seat).prompt?.kind).toBe("announce-card");
         const suggestions = game.searchCards("", seat);
-        expect(suggestions.map(card => card.code).sort((a, b) => a - b)).toEqual([15025844, 23995346, 89631139]);
+        expect(suggestions.map(card => card.code).sort((a, b) => a - b)).toEqual(
+          mode === "domain" ? [15025844, 23995346, 89631139] : [23995346, 89631139]);
         expect(suggestions.every(card => card.inDeck)).toBe(true);
         expect(game.searchCards("b", seat).every(card => card.inDeck)).toBe(true);
         expect(game.searchCards("eyes blue", seat)[0]).toMatchObject({ code: 89631139, inDeck: true });
         // An opponent name remains publicly searchable, but gets no deck membership marker or priority.
         expect(game.searchCards("dark magician", seat)[0].inDeck).not.toBe(true);
+        if (partner !== null) {
+          expect(decks[partner].main[0]).not.toBe(decks[0].main[0]);
+          expect(game.searchCards("summoned skull", seat)[0]).toMatchObject({ code: 70781052 });
+          expect(game.searchCards("summoned skull", seat)[0].inDeck).not.toBe(true);
+        }
+        expect(game.searchCards("77585513", seat)[0]).toMatchObject({ code: 77585513 });
+        expect(game.searchCards("77585513", seat)[0].inDeck).not.toBe(true);
+        if (mode === "domain") expect(game.searchCards("15025844", seat)[0]).toMatchObject({ code: 15025844, inDeck: true });
         const potMatches = game.searchCards("pot of greed", seat);
         expect(potMatches.map(card => card.code)).not.toContain(55144522);
         expect(potMatches.every(card => (card.type & 1) !== 0)).toBe(true);
@@ -50,6 +63,13 @@ for (const mode of ["normal", "domain"] as DuelMode[]) {
         expect(() => game.searchCards("", seatCount)).toThrow(/announcement|announcing/i);
         // Internal bot searches without a seat still get the public legal catalog.
         expect(game.searchCards("").length).toBeGreaterThan(3);
+        const catalog = loadCardDatabase(dataDirectory);
+        const firstLegal = [...catalog.all()].find(card => {
+          const data = catalog.cardData(card.code);
+          return data && cardMatchesOpcode(data, [BigInt(OcgType.MONSTER), OcgOpCode.ISTYPE]);
+        });
+        expect(firstLegal).toBeDefined();
+        expect(game.searchCards("")[0].code).toBe(firstLegal!.code);
       } finally { game.close(); }
     });
   });

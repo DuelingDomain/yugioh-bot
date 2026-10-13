@@ -318,9 +318,9 @@ export function cardInfoLabel(cards: CardDatabase, code: number): string {
   return cards.get(code)?.name ?? `Card ${code}`;
 }
 
-/** Only this seat's submitted cards; include a legal main passcode for alternate artworks. */
+/** Only this seat's duel cards; include the Deck Master and legal main passcodes for alternate artworks. */
 export function deckSearchCodes(cards: Pick<CardDatabase, "get">, deck: DuelDeck): ReadonlySet<number> {
-  const codes = new Set([...deck.main, ...deck.extra, ...deck.side]);
+  const codes = new Set([...deck.main, ...deck.extra, ...(deck.deckMaster == null ? [] : [deck.deckMaster])]);
   for (const code of codes) codes.add(cards.get(code)?.canonicalPasscode ?? code);
   return codes;
 }
