@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
-import { isCardFetchError } from "@yugidraft/shared/services";
+import { CardFetchLimitError, isCardFetchError } from "@yugidraft/shared/services";
 
 export function cardFetchErrorResponse(error: unknown): Response | undefined {
   if (!isCardFetchError(error)) return;
+  if (error instanceof CardFetchLimitError) {
+    return NextResponse.json({ error: error.message }, { status: 429, headers: { "Retry-After": String(error.retryAfter) } });
+  }
   if (error.status != null && error.status !== 429 && (error.status < 500 || error.status >= 600)) {
     return NextResponse.json({ error: "Unknown set" }, { status: 400 });
   }

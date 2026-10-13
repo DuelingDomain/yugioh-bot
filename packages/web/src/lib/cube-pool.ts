@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { createCardLookupBudget, type CardLookupBudget, type CardCatalogService } from "@yugidraft/shared/services";
+import { CardFetchLimitError, createCardLookupBudget, type CardLookupBudget, type CardCatalogService } from "@yugidraft/shared/services";
 import { IMPORT_MAX_DISTINCT, tooManyDistinct } from "./ydk-file";
 
 const MAX_COPIES = 99;
@@ -40,7 +40,7 @@ export async function ensureCatalogCards(
       await catalog.syncCardById(id, { lookupBudget });
     } catch (error) {
       // A lost connection is a real failure; ordinary unrecognized passcodes remain unknown.
-      if (error instanceof Error && error.message.startsWith("Could not reach the card database")) throw error;
+      if (error instanceof CardFetchLimitError || (error instanceof Error && error.message.startsWith("Could not reach the card database"))) throw error;
     }
   }
   return missing.filter((id) => !catalog.hasCatalogRow(id));
