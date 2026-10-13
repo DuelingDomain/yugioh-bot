@@ -2,7 +2,7 @@
 
 import type { DuelSeatView } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
-import { masterInUse, useMasterSeats } from "../master-place";
+import { masterInUse, masterNextCost, useMasterSeats } from "../master-place";
 import styles from "./master-chip.module.css";
 
 /**
@@ -21,7 +21,7 @@ export function MasterChip({ view, label, onOpen }: { view: DuelSeatView; label:
       className={styles.chip}
       data-testid="master-chip"
       data-in-use={inUse ? "true" : undefined}
-      aria-label={`${label}: ${master.card.name}${inUse ? " (in use)" : ""}. Returns ${master.returns}, next ${master.nextCost} LP. Open the Master tab`}
+      aria-label={`${label}: ${master.card.name}${inUse ? " (in use)" : ""}. Returns ${master.returns}, next ${masterNextCost(master)} LP. Open the Master tab`}
       onClick={onOpen}
     >
       {inUse ? (
@@ -32,7 +32,7 @@ export function MasterChip({ view, label, onOpen }: { view: DuelSeatView; label:
       )}
       <span className={styles.text}>
         <b>{master.card.name}</b>
-        <small>{inUse ? "In use · " : ""}Master · Returns {master.returns} · Next <em>{master.nextCost.toLocaleString("en-US")} LP</em></small>
+        <small>{inUse ? "In use · " : ""}Master · Returns {master.returns} · Next <em>{masterNextCost(master).toLocaleString("en-US")} LP</em></small>
       </span>
     </button>
   );

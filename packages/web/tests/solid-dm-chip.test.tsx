@@ -32,3 +32,16 @@ describe("DmChip action", () => {
     expect(onChoose).toHaveBeenCalledWith(option);
   });
 });
+
+describe("DmChip next cost", () => {
+  const base = solidEngine({ domain: true }).seats[0];
+  const chipOf = (inZone: boolean) => ({ ...base, deckMaster: { ...base.deckMaster!, inZone, returns: 0, nextCost: 0 } });
+
+  it("names the surcharge in the zone and the cost after the recall out of it", () => {
+    render(<DmChip seat={0} view={chipOf(true)} mine onOpen={() => {}} />);
+    expect(screen.getByRole("button", { name: /Next surcharge 0 LP/ })).toBeTruthy();
+    cleanup();
+    render(<DmChip seat={0} view={chipOf(false)} mine onOpen={() => {}} />);
+    expect(screen.getByRole("button", { name: /Next surcharge 500 LP/ })).toBeTruthy();
+  });
+});

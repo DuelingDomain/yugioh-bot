@@ -65,13 +65,22 @@ export function masterInUse(view: DuelSeatView | undefined, seats: readonly Duel
 }
 
 /**
+ * What the next summon from the Deck Master Zone costs (LP). In the zone it is the server's `nextCost` (returns * 500: the first
+ * summon is free). Out of the zone (on the field, in the Graveyard, banished) `nextCost` is the price of leaving the zone NOW;
+ * the next summon happens only after a recall, which adds one return, so it is (returns + 1) * 500, as the recall prompt says.
+ */
+export function masterNextCost(master: NonNullable<DuelSeatView["deckMaster"]>): number {
+  return master.inZone ? master.nextCost : (master.returns + 1) * 500;
+}
+
+/**
  * The line a Deck Master panel always shows, in every state (in its zone, on the field, in the Graveyard, banished): what the
- * next summon from the zone costs, from `deckMaster.nextCost`. The first one is free, each return adds 500 LP (Rulebook v1.4).
+ * next summon from the zone costs (`masterNextCost`). The first one is free, each return adds 500 LP (Rulebook v1.4).
  */
 export function masterSummonLine(view: DuelSeatView | undefined): string | null {
   const master = view?.deckMaster;
   if (!master) return null;
-  return `Next summon: ${costText(master.nextCost)}`;
+  return `Next summon: ${costText(masterNextCost(master))}`;
 }
 
 /**

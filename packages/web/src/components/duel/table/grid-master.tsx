@@ -5,7 +5,7 @@ import { Search, X } from "lucide-react";
 import type { DuelCard, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { cardArtUrl, cardStatsText, LOCATION_DMZONE, zoneKey } from "../constants";
 import { masterCard, masterDetailLines, masterStatus, withExact } from "../field";
-import { masterActionParts, masterActionText, masterInUse, moveKind, masterSummonLine, surchargeText, useMasterSeats } from "../master-place";
+import { masterActionParts, masterActionText, masterInUse, masterNextCost, moveKind, masterSummonLine, surchargeText, useMasterSeats } from "../master-place";
 import { anyLegal, anySelected, type DuelHoverHandler } from "../field-keys";
 import type { InspectTarget } from "../inspector";
 import type { DuelActivateHandler } from "./types";
@@ -233,7 +233,7 @@ export function GridMasterToken({
       <dl>
         <div><dt>Status</dt><dd data-testid={id("hud-master-status")}>{status}</dd></div>
         <div><dt>Returns</dt><dd data-testid={id("hud-master-returns")}>{master.returns}</dd></div>
-        <div><dt>Next surcharge</dt><dd data-testid={id("hud-master-cost")}>{surchargeText(master.nextCost)}</dd></div>
+        <div><dt>Next surcharge</dt><dd data-testid={id("hud-master-cost")}>{surchargeText(masterNextCost(master))}</dd></div>
       </dl>
       <button type="button" className={styles.masterFlyCard} data-testid={id("hud-master-card")} onClick={openCard}>Card view</button>
     </aside>
