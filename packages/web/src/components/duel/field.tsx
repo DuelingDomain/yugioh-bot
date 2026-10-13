@@ -42,6 +42,7 @@ import {
 import { disabledZones } from "./multi-seat";
 import { findMasterCard, masterActionText, masterInUse, masterPlace, masterNextCost, masterSummonLine, surchargeText, useMasterSeats, type MasterPlace } from "./master-place";
 import type { InspectTarget } from "./inspector";
+import { FieldCracks } from "./field-cracks/field-cracks";
 import { RivalHand } from "./table/rival-hand";
 import { hexToRgbTriplet, normalizeDeg, textScale } from "./table/seat-angle";
 import { SEAT_TONE_HEX, type SeatFieldProps } from "./table/types";
@@ -1134,6 +1135,8 @@ export const SeatField = memo(function SeatField({
         style={vars}
       >
         <div className={styles.sfMat}>
+          <FieldCracks seat={seat} lp={view?.lp} chunks={pair?.framed !== true} avoidSelector="[data-crack-avoid]" />
+          {emz === "none" ? <span className={styles.sfCrackAvoid} data-crack-avoid="" aria-hidden="true" /> : null}
           <span className={styles.sfRule} aria-hidden="true" />
           <div className={styles.sfGrid}>
             <PileColumn view={view} opponent={false} flip={false} side="left" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
