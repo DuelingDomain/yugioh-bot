@@ -11,7 +11,7 @@ vi.mock("next/font/google", () => {
 
 import { LOCATION_DMZONE, LOCATION_MZONE } from "@/components/duel/constants";
 import { MasterDock, masterStatus } from "@/components/duel/field";
-import { COST_SUFFIX, findMasterCard, masterActionParts, masterActionText, masterInUse, masterPlace, masterSummonLine } from "@/components/duel/master-place";
+import { COST_SUFFIX, findMasterCard, masterActionParts, masterActionText, masterInUse, masterNextCost, masterPlace, masterSummonLine } from "@/components/duel/master-place";
 import { detectMasterReturns } from "@/components/duel/master-return";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
@@ -166,16 +166,27 @@ describe("the Summon cost line", () => {
     expect(masterSummonLine(withCost(0))).toBe("Next summon: Free");
   });
 
-  it("is the same in every state of the master, and absent only without a master", () => {
-    expect(masterSummonLine(withCost(500, false))).toBe("Next summon: 500 LP");
+  it("is shown in every state of the master, and absent only without a master", () => {
+    expect(masterSummonLine(withCost(500, false))).not.toBeNull();
     expect(masterSummonLine(seatView({ deckMaster: undefined }))).toBeNull();
+  });
+
+  it("out of the zone says the cost after the recall, one return more: the first summon was free, the next costs 500 LP", () => {
+    // returns 0, nextCost 0 (the engine's price of leaving the zone now), the master is on the field.
+    expect(masterSummonLine(withCost(0, false))).toBe("Next summon: 500 LP");
+    expect(masterSummonLine(withCost(500, false))).toBe("Next summon: 1,000 LP");
+    expect(masterSummonLine(withCost(1500, false))).toBe("Next summon: 2,000 LP");
+    // In the zone the server's number stands.
+    expect(masterSummonLine(withCost(0, true))).toBe("Next summon: Free");
+    expect(masterNextCost(withCost(0, false).deckMaster!)).toBe(500);
+    expect(masterNextCost(withCost(1000, true).deckMaster!)).toBe(1000);
   });
 
   it("shows on the plate (compact and wide) in the zone, on the field, and out of play, on a multi-seat table only", () => {
     for (const wide of [false, true]) {
-      for (const inZone of [true, false]) {
+      for (const [inZone, text] of [[true, "Next summon: 500 LP"], [false, "Next summon: 1,000 LP"]] as const) {
         plate(withCost(500, inZone), { showInUse: true, wide });
-        expect(screen.getByTestId("hud-master-summon").textContent).toBe("Next summon: 500 LP");
+        expect(screen.getByTestId("hud-master-summon").textContent).toBe(text);
         cleanup();
       }
       plate(withCost(0), { showInUse: true, wide });
@@ -185,14 +196,27 @@ describe("the Summon cost line", () => {
     plate(withCost(500));
     expect(screen.queryByTestId("hud-master-summon")).toBeNull();
     cleanup();
-    for (const inZone of [true, false]) {
+    for (const [inZone, text] of [[true, "Next summon: Free"], [false, "Next summon: 500 LP"]] as const) {
       render(
         <MasterDock title="Your Master" view={withCost(0, inZone)} local legalKeys={new Set()} selectedKeys={new Set()} canAct legalActionsFor={() => []}
           onActivate={noop} onChooseAction={noop} onInspect={noop} showInUse />,
       );
-      expect(screen.getByTestId("master-dock-summon").textContent).toBe("Next summon: Free");
+      expect(screen.getByTestId("master-dock-summon").textContent).toBe(text);
       cleanup();
     }
+  });
+});
+
+describe("the next cost in the chips", () => {
+  const chipView = (inZone: boolean) => seatView({ inZone, deckMaster: { card: info, inZone, returns: 0, nextCost: 0 } });
+
+  it("the table chip says Free in the zone and the cost after the recall (500 LP) out of it", () => {
+    render(<MasterChip view={chipView(true)} label="Your Master" onOpen={noop} />);
+    expect(screen.getByTestId("master-chip").getAttribute("aria-label")).toContain("next 0 LP");
+    cleanup();
+    render(<MasterChip view={chipView(false)} label="Your Master" onOpen={noop} />);
+    expect(screen.getByTestId("master-chip").getAttribute("aria-label")).toContain("next 500 LP");
+    expect(screen.getByTestId("master-chip").textContent).toContain("500 LP");
   });
 });
 

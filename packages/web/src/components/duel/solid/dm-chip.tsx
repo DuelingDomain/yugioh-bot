@@ -3,7 +3,7 @@
 import { createContext, useContext } from "react";
 import type { DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
-import { masterPlace, useMasterSeats } from "../master-place";
+import { masterNextCost, masterPlace, useMasterSeats } from "../master-place";
 import { useIsNarrow } from "../side-panel";
 import docks from "./docks.module.css";
 import { SvIcon } from "./icons";
@@ -51,7 +51,7 @@ export function DmChip({ seat, view, mine, onOpen }: { seat: number; view: DuelS
   return (
     <div className={docks.dmChip} data-away={away ? "true" : "false"} data-can-act={action ? "true" : "false"} data-side={mine ? "you" : "opp"}>
       <button type="button" className={docks.chipMain} data-sv-dm-chip={seat} onClick={onOpen}
-        aria-label={`${mine ? "Your" : "Opponent"} Master, ${master.card.name}, ${STATUS_LONG[status]}, Returns ${master.returns}, Next surcharge ${master.nextCost} LP. Open details`}>
+        aria-label={`${mine ? "Your" : "Opponent"} Master, ${master.card.name}, ${STATUS_LONG[status]}, Returns ${master.returns}, Next surcharge ${masterNextCost(master)} LP. Open details`}>
         <span className={docks.chipArt} data-master-dock={narrow ? seat : undefined} data-away={status === "away" ? "true" : "false"}>
           <img src={cardArtUrl(master.card.code)} alt="" draggable={false} />
         </span>
