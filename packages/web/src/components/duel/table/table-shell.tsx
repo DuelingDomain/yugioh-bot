@@ -854,6 +854,8 @@ function TableShellBody({
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
+          hoverAnchor={ui.hover?.anchor ?? null}
+          ownSeats={[viewerSeat ?? layout.anchorSeat]}
         />
       ) : null}
       {narrow ? <TablePhonePanes domain={domain} pane={ui.pane} open={sheetOpen} unread={logUnread}
