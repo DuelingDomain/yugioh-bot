@@ -74,7 +74,7 @@ export class PlayerEvidence {
   }
 
   private noteSlug(url: string): void {
-    const match = /\/(?:api\/)?duels\/([^/?#]+)/.exec(new URL(url, "http://x").pathname);
+    const match = /^\/(?:api\/)?duels\/([^/?#]+)/.exec(new URL(url, "http://x").pathname);
     const slug = match?.[1];
     if (slug && !["new", "cards", "client-error"].includes(slug) && !this.slugs.includes(slug)) this.slugs.push(slug);
   }
