@@ -35,9 +35,9 @@ afterEach(() => {
 /* Two rows of five zones, like a seat field: the gutters between them are where the cracks may run. */
 const ZONES = [0, 1, 2, 3, 4].flatMap((col) => [[40 + col * 115, 40], [40 + col * 115, 200]] as const);
 
-const mat = (stage: 0 | 1 | 2 | 3 | 4, extra: Partial<React.ComponentProps<typeof CrackLayer>> = {}, reduced = false) => (
+const mat = (stage: 0 | 1 | 2 | 3 | 4, extra: Partial<React.ComponentProps<typeof CrackLayer>> = {}, reduced = false, faceStyle?: React.CSSProperties) => (
   <div data-reduced-motion={reduced ? "true" : undefined}>
-    <div data-testid="face">
+    <div data-testid="face" style={faceStyle}>
       <CrackLayer seed={77} stage={stage} memoKey="duel:0" {...extra} />
       {ZONES.map(([x, y]) => <div key={`${x}:${y}`} data-zones="" data-kind="monster" data-box={`${x},${y},77,112`} />)}
     </div>
@@ -121,6 +121,44 @@ describe("field cracks component", () => {
   it("marks its layer ambient so the result gate never waits for it", () => {
     const { container } = render(mat(1));
     expect(layer(container).hasAttribute("data-crack-ambient")).toBe(true);
+  });
+});
+
+describe("field cracks memory and placement", () => {
+  it("restarts when the layer is handed another seat", () => {
+    const view = (seat: number, lp: number) => (
+      <FieldCracksScope duelKey="d2" startLp={8000}>
+        <div data-testid="face">
+          <FieldCracks seat={seat} lp={lp} />
+          {ZONES.map(([x, y]) => <div key={`${x}:${y}`} data-zones="" data-kind="monster" data-box={`${x},${y},77,112`} />)}
+        </div>
+      </FieldCracksScope>
+    );
+    const { container, rerender } = render(view(0, 700));
+    expect(layer(container).getAttribute("data-stage")).toBe("3");
+    rerender(view(1, 8000));
+    expect(layer(container).getAttribute("data-stage")).toBe("0");
+    rerender(view(0, 700));
+    expect(layer(container).getAttribute("data-stage")).toBe("3");
+  });
+
+  it("keeps the cracks over a reload (the tab remembers the stage)", () => {
+    const first = render(mat(0));
+    first.rerender(mat(2));
+    flush(3000);
+    first.unmount();
+    expect(window.sessionStorage.getItem("field-cracks:duel:0")).toBe("2");
+    const { container } = render(mat(0));
+    expect(layer(container).getAttribute("data-stage")).toBe("2");
+  });
+
+  it("drops the chunks from the tilted box of a tilted mat", () => {
+    const { rerender } = render(mat(0, {}, false, { transform: "rotateX(20deg)", transformOrigin: "50% 80%" }));
+    rerender(mat(1, {}, false, { transform: "rotateX(20deg)", transformOrigin: "50% 80%" }));
+    flush(1500);
+    const box = debris() as HTMLElement | null;
+    expect(box).not.toBeNull();
+    expect(box!.style.transform).toContain("rotateX(20deg)");
   });
 });
 
