@@ -16,15 +16,16 @@ export function movedToMainLine(n: number): string {
  * What a list import left over: names it corrected, lines it skipped (section titles land here), cards the server
  * did not look up, and cards it moved to Main. `collapsed` keeps the two lists closed.
  */
-export function ListImportReport({ unknown, corrected, lookupLimited, movedToMain, collapsed = false }: Partial<ListDiagnostics> & { collapsed?: boolean }) {
+export function ListImportReport({ unknown, corrected, lookupLimited, movedToMain, messages = [], collapsed = false }: Partial<ListDiagnostics> & { collapsed?: boolean }) {
   const skipped = unknown ?? [];
   const fixed = corrected ?? [];
   const moved = movedToMain ?? 0;
-  if (skipped.length === 0 && fixed.length === 0 && !lookupLimited && moved <= 0) return null;
+  if (skipped.length === 0 && fixed.length === 0 && !lookupLimited && moved <= 0 && messages.length === 0) return null;
   return (
     <div className={styles.report} data-testid="list-import-report">
       {lookupLimited && <p className={styles.note}>{LOOKUP_LIMITED_LINE}</p>}
-      {moved > 0 && <p className={styles.note}>{movedToMainLine(moved)}</p>}
+      {messages.map((message, index) => <p className={styles.note} key={index}>{message}</p>)}
+      {messages.length === 0 && moved > 0 && <p className={styles.note}>{movedToMainLine(moved)}</p>}
       {fixed.length > 0 && (
         <details className={styles.block} open={!collapsed && fixed.length <= 5}>
           <summary>{correctedHeading(fixed.length)}</summary>

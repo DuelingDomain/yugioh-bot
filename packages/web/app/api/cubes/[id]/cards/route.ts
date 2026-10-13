@@ -94,9 +94,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result, ...(lookupBudget.lookupLimited ? { lookupLimited: true } : {}) });
       }
       case "importList": {
-        const { entries, unknown, corrected, lookupLimited } = await prepareCubeListImport(catalog, body.text);
+        const { entries, unknown, corrected, lookupLimited, moves, messages } = await prepareCubeListImport(catalog, body.text);
         const result = cubes.importResolvedCards(cubeId, entries);
-        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result, unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) });
+        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result, unknown, corrected, ...(moves ? { moves, messages } : {}), ...(lookupLimited ? { lookupLimited } : {}) });
       }
       case "importYdk": {
         if (typeof body.text !== "string" || body.text.trim() === "") {

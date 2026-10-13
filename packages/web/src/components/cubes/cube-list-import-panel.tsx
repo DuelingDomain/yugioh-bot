@@ -79,6 +79,7 @@ export function CubeListImportPanel({
         corrected: data.corrected ?? [],
         ...(data.lookupLimited ? { lookupLimited: true as const } : {}),
         ...(data.movedToMain ? { movedToMain: data.movedToMain } : {}),
+        ...(data.messages?.length ? { messages: data.messages } : {}),
       });
     } catch {
       setError("Couldn't create the cube. Check your connection and try again.");

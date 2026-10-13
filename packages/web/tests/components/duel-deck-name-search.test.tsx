@@ -161,14 +161,57 @@ describe("deck editor add card by name", () => {
     expect(cardsIn("Side")).toHaveLength(1);
   });
 
-  it("keeps a chosen Section for an Extra Deck monster", async () => {
+  it("does not offer Main for an Extra Deck monster, and cannot be made to choose it", async () => {
     queryDeckCards.mockResolvedValue(answer([BLUE_EYES_ULTIMATE]));
     renderEditor();
-    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "main" } });
     await search("ultimate");
+    expect(within(screen.getByRole("combobox", { name: "Section" })).getByRole("option", { name: "Main" })).toBeDisabled();
+    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "main" } });
     fireEvent.keyDown(field(), { key: "Enter" });
-    expect(cardsIn("Main")).toHaveLength(1);
+    expect(cardsIn("Main")).toHaveLength(0);
+    expect(cardsIn("Extra")).toHaveLength(1);
+  });
+
+  it("falls back to the card's own section when the chosen one does not fit it", async () => {
+    queryDeckCards.mockImplementation(async (request: CardQuery) =>
+      answer(request.text === "pot" ? [POT] : [BLUE_EYES_ULTIMATE]));
+    renderEditor();
+    await search("ultimate");
+    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "extra" } });
+    // The choice stays when the text changes, so Extra is now chosen for a Spell.
+    await search("pot");
+    const select = screen.getByRole("combobox", { name: "Section" });
+    expect(within(select).getByRole("option", { name: "Extra" })).toBeDisabled();
+    // The select shows the section the card goes to, not the refused one.
+    expect(select).toHaveValue("main");
+    fireEvent.keyDown(field(), { key: "Enter" });
     expect(cardsIn("Extra")).toHaveLength(0);
+    expect(cardsIn("Main")).toHaveLength(1);
+    // The row says why the card did not go where it was chosen.
+    // (once in the polite status for screen readers, once in view)
+    expect(screen.getAllByText(/went to main, not extra\. Spell and Trap cards cannot go in the Extra Deck\./)).toHaveLength(2);
+    // The note goes with the next search.
+    type("x");
+    expect(screen.queryByText(/went to main, not extra/)).toBeNull();
+  });
+
+  it("puts a typed passcode of a Spell in Main when Extra was chosen, and adds an unknown passcode where chosen", async () => {
+    queryDeckCards.mockImplementation(async (request: CardQuery) =>
+      answer(request.text === "55144522" ? [POT] : request.text === "ultimate" ? [BLUE_EYES_ULTIMATE] : []));
+    renderEditor();
+    await search("ultimate");
+    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "extra" } });
+    type("55144522");
+    await flush(PAUSE);
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(cardsIn("Extra")).toHaveLength(0);
+    expect(cardsIn("Main")).toHaveLength(1);
+
+    type("99999999");
+    await flush(PAUSE);
+    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "extra" } });
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(cardsIn("Extra")).toHaveLength(1);
   });
 
   it("closes the dropdown on Escape and reopens it when typing", async () => {

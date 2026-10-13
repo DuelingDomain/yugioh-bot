@@ -43,6 +43,21 @@ afterEach(() => {
 });
 
 describe("SavedDeckLibrary", () => {
+  it("marks a deck the server repaired, or could not repair, and no other", async () => {
+    const base: Omit<SavedDeck, "id" | "name"> = { mode: "normal", deck: { main: [89631139], extra: [], side: [] }, createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00" };
+    const decks: SavedDeck[] = [
+      { ...base, id: 1, name: "Fixed", extraDeckRepair: { applied: true, mainCount: 1, message: "x", moves: [{ code: 5318639, name: "Mystical Space Typhoon", from: "extra", to: "main" }] } },
+      { ...base, id: 2, name: "Clean" },
+      { ...base, id: 3, name: "Stuck", extraDeckRepair: { applied: false, mainCount: 301, message: "x", moves: [{ code: 5318639, name: "Mystical Space Typhoon", from: "extra", to: "main" }] } },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "Fixed" });
+    // The server keeps the note until the deck is saved, and the row says so.
+    expect(screen.getAllByText("1 card moved from Extra to Main. Open and save to clear.")).toHaveLength(1);
+    expect(screen.getAllByText("Some Extra Deck cards do not belong there. Open to fix.")).toHaveLength(1);
+  });
+
   it("lists each row's counts as plain items with no dots and omits an absent Master", async () => {
     const decks: SavedDeck[] = [
       {
@@ -187,13 +202,45 @@ describe("SavedDeckLibrary", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("with no decks: one primary, Import YDK files opens the import panel, bar buttons are secondary", async () => {
+  it("shows the moved-card report and saves the server-routed deck", async () => {
+    const routed = { main: [901, 902], extra: [903], side: [] };
+    const message = "2 cards moved from Extra Deck to Main Deck: Test Spell, Test Trap.";
+    const writes: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/decks/import/preview") {
+        const body = JSON.parse(String(init?.body));
+        const sourceId = body.sources[0].id;
+        return Response.json({ maxDecks: 50, rows: [{
+          rowId: `${sourceId}#0`, sourceId, name: "Test", mode: "standard",
+          deck: { ...routed, deckMaster: null }, counts: { main: 2, extra: 1, side: 0 },
+          errors: [], warnings: [{ code: "section_moved", message }],
+        }] });
+      }
+      if (url === "/api/decks/import/bulk") {
+        const body = JSON.parse(String(init?.body)); writes.push(body.rows[0].deck);
+        return Response.json({ created: [{ id: 91, name: "Test" }], failed: [] });
+      }
+      if (url === "/api/duels/cards") return Response.json({ cards: [], missing: [] });
+      return Response.json({ decks: [] });
+    }));
+    render(<SavedDeckLibrary />);
+    await screen.findByText("No saved decks yet");
+    fireEvent.click(screen.getByRole("button", { name: "Import decks" }));
+    fireEvent.change(screen.getByLabelText("Deck files"), { target: { files: [ydkFile("Test.ydk", "#extra\n901\n902\n903")] } });
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(writes).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Import 1 deck" }));
+    await waitFor(() => expect(writes).toEqual([{ ...routed, deckMaster: null }]));
+  });
+
+  it("with no decks: one primary import action, bar buttons are secondary", async () => {
     stubApi();
     const { container } = render(<SavedDeckLibrary />);
     await screen.findByText("No saved decks yet");
     expect(container.querySelectorAll(".sv-btn.primary")).toHaveLength(1);
     const primary = screen.getByRole("button", { name: "Import YDK files" });
     expect(primary).toHaveClass("primary");
+    expect(screen.getByRole("button", { name: "Import decks" })).not.toHaveClass("primary");
     expect(screen.getByRole("link", { name: "Create a deck" })).toHaveAttribute("href", "/decks/new");
     expect(screen.getAllByRole("link", { name: /^New deck$/ })[0]).not.toHaveClass("primary");
     expect(container.querySelector("[aria-hidden='true']")).not.toBeNull();

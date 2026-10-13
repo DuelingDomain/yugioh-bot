@@ -160,7 +160,7 @@ export interface PoolEditor {
    * Puts a resolved list into the pool, each card in the pool the server chose, and keeps what was added so
    * `removeImport` can take exactly that out again.
    */
-  importList: (entries: ListEntry[], details: { fileName?: string | null } & Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain">) => ImportRecord;
+  importList: (entries: ListEntry[], details: { fileName?: string | null } & Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain" | "messages">) => ImportRecord;
   removeImport: (key: number) => void;
   /** One more copy of one card, in the Extra pool for an Extra Deck monster. `changed` is false at the 99 cap. */
   addCopy: (card: CardSummary) => { changed: boolean; lane: Lane };
@@ -383,7 +383,7 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
   );
 
   const importList = React.useCallback(
-    (entries: ListEntry[], details: { fileName?: string | null } & Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain">): ImportRecord => {
+    (entries: ListEntry[], details: { fileName?: string | null } & Pick<ImportRecord, "corrected" | "unknown" | "lookupLimited" | "movedToMain" | "messages">): ImportRecord => {
       const current = latest.current.slot;
       const out = applyListEntries(current.pool, current.extra, entries);
       const fileName = details.fileName?.trim();

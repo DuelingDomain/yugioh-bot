@@ -2,18 +2,20 @@
 
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { artCountLabel } from "@/components/artwork/artwork-picker";
-import { Zone } from "@/components/sheet";
+import { StatusLine, SvButton, Zone } from "@/components/sheet";
 import { cn } from "@/lib/utils";
 import { ArtChip } from "./art-chip";
 import { CardArt } from "./card-art";
 import { useCardPress } from "./card-press";
-import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
+import { dragCardKind, hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { LimitBadge } from "./limit-badge";
 import {
   altArtCount,
+  cardKind,
   cardLabel,
   copyKey,
   copyLimit,
+  placementBlockForKind,
   type BanlistLimits,
   type CardCatalog,
   type CardSource,
@@ -22,6 +24,15 @@ import {
 } from "./model";
 import styles from "./editor.module.css";
 import { DeckSizeMeter, sizeState } from "./size-meter";
+
+/** A section that holds cards it does not take (old saves, imports): a message and a one-click fix. */
+export interface SectionWarning {
+  message: string;
+  /** No label, no button: the message is all there is to say. */
+  actionLabel?: string;
+  onAction?: () => void;
+  disabled?: boolean;
+}
 
 export type CountTone = "ok" | "warn" | "bad";
 /** One deck copy under the pointer. */
@@ -41,6 +52,7 @@ export function DeckSectionGrid({
   over,
   selected,
   actions,
+  warning,
   emptyHint,
   children,
   onSelect,
@@ -68,6 +80,7 @@ export function DeckSectionGrid({
   over: ReadonlySet<string>;
   selected: SelectedStack | null;
   actions?: ReactNode;
+  warning?: SectionWarning;
   emptyHint: string;
   children?: ReactNode;
   onSelect: (stack: SelectedStack, openSheet?: boolean) => void;
@@ -88,6 +101,8 @@ export function DeckSectionGrid({
 }) {
   const [dropping, setDropping] = useState(false);
   const [insertAt, setInsertAt] = useState<number | null>(null);
+  // Why the card being dragged over this section is refused; the section shows it until the drag leaves.
+  const [refusal, setRefusal] = useState<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const press = useCardPress();
   const state = sizeState(codes.length, minimum, maximum);
@@ -109,12 +124,22 @@ export function DeckSectionGrid({
 
   function allowDrop(event: DragEvent): boolean {
     if (!hasCardDrag(event)) return false;
+    const kind = dragCardKind(event);
+    const block = kind ? placementBlockForKind(kind, section) : null;
+    if (block) {
+      // No preventDefault: the browser shows "not allowed" and never sends the drop.
+      event.dataTransfer.dropEffect = "none";
+      setRefusal(block);
+      return false;
+    }
+    setRefusal(null);
     event.preventDefault();
     event.dataTransfer.dropEffect = event.dataTransfer.effectAllowed === "copy" ? "copy" : "move";
     return true;
   }
 
   function finishDrop(event: DragEvent, at?: number) {
+    setRefusal(null);
     setDropping(false);
     setInsertAt(null);
     const drag = readCardDrag(event);
@@ -128,23 +153,35 @@ export function DeckSectionGrid({
     <section
       className={styles["de-sec-b"]}
       aria-label={`${title} Deck`}
+      data-section={section}
       data-dropping={dropping ? "true" : undefined}
+      data-refused={refusal ? "true" : undefined}
       onDragOver={(event) => { if (allowDrop(event)) setDropping(true); }}
       onDragLeave={(event) => {
         if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setRefusal(null);
         setDropping(false);
         setInsertAt(null);
       }}
       onDrop={(event) => finishDrop(event)}
     >
       <header className={styles["de-sh"]} data-off={unused ? "" : undefined}>
-        <h2 className={styles["de-st"]}>{title}</h2>
+        <h2 className={styles["de-st"]} tabIndex={-1}>{title}</h2>
         <span className={cn("num", styles["de-n"])} data-s={state} data-zero={codes.length === 0 ? "" : undefined}>{codes.length}</span>
         {unused ? null : <DeckSizeMeter title={title} count={codes.length} minimum={minimum} maximum={maximum} />}
         <span className={styles["de-tg"]}>{target}</span>
         {state !== "ok" ? <span className={styles["de-off"]} data-s={state}>{difference} {state === "under" ? "short" : "over"}</span> : null}
         {actions ? <div className={styles["de-clear"]}>{actions}</div> : null}
       </header>
+
+      {refusal ? <p className={styles["de-refuse"]} aria-hidden="true">{refusal}</p> : null}
+
+      {warning ? (
+        <div className={styles["de-alert"]} role="status">
+          <StatusLine tone="warn">{warning.message}</StatusLine>
+          {warning.actionLabel && warning.onAction ? <SvButton variant="quiet" disabled={warning.disabled} onClick={warning.onAction}>{warning.actionLabel}</SvButton> : null}
+        </div>
+      ) : null}
 
       {children}
 
@@ -196,7 +233,8 @@ export function DeckSectionGrid({
                   onDragStart={(event) => {
                     gesture.onDragStart();
                     onSelect({ section, code, index }, false);
-                    writeCardDrag(event, { code, from: section, index });
+                    const card = catalog.get(code);
+                    writeCardDrag(event, { code, from: section, index }, card ? cardKind(card) : undefined);
                   }}
                   onKeyDown={(event) => {
                     gesture.onKeyDown(event);
