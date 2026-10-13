@@ -83,7 +83,7 @@ describe("POST /api/waitlist", () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetcher);
     expect((await post(json({ email: "player@example.test", source: "hero" }))).status).toBe(201);
-    expect((await post(json({ email: " PLAYER@EXAMPLE.TEST ", source: "app-not-invited" }))).status).toBe(200);
+    expect((await post(json({ email: " PLAYER@EXAMPLE.TEST ", source: "app-not-invited" }))).status).toBe(201);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(state.createWaitlistEntry).toHaveBeenCalledTimes(2);
   });
@@ -101,7 +101,7 @@ describe("POST /api/waitlist", () => {
     expect(fetcher.mock.calls[0][1]!.signal!.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(2000);
     expect(fetcher.mock.calls[0][1]!.signal!.aborted).toBe(true);
-    expect((await post(json())).status).toBe(200);
+    expect((await post(json())).status).toBe(201);
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
@@ -111,7 +111,7 @@ describe("POST /api/waitlist", () => {
     vi.stubGlobal("fetch", fetcher);
     state.createWaitlistEntry.mockRejectedValueOnce(new Error("Clerk unavailable"));
     expect((await post(json())).status).toBe(503);
-    expect((await post(json())).status).toBe(200);
+    expect((await post(json())).status).toBe(201);
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
@@ -225,7 +225,7 @@ describe("POST /api/waitlist", () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetcher);
     expect((await post(json({ email: submitted }))).status).toBe(201);
-    redirect(await post(form(new URLSearchParams({ email }).toString())), "exists");
+    redirect(await post(form(new URLSearchParams({ email }).toString())), "joined");
     expect(rows()).toEqual([expect.objectContaining({ email })]);
     expect(state.db!.prepare("select kind, subject_hash from join_request_notifications").all()).toEqual([
       { kind: "join", subject_hash: createHash("sha256").update(`email:${email}`).digest("hex") },

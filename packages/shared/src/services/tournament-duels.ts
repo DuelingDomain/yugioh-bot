@@ -3,6 +3,8 @@ import type { DuelBestOf, DuelDeck, DuelMasterRule, DuelMode, DuelSettings } fro
 import { DuelSettingsError, NO_BANLIST_ID, normalizeDuelSettings } from "../duels/settings.js";
 import { createDuelSeriesService } from "./duel-series.js";
 import { createMatchService } from "./matches.js";
+import type { DeckTypeEngineSource } from "./deck-sections.js";
+import { createDeckCopyRepairService } from "./deck-copy-repair.js";
 
 export class TournamentDuelError extends Error {
   readonly status: number;
@@ -193,7 +195,9 @@ function copyDeck(deck: DuelDeck): DuelDeck {
   return copy;
 }
 
-export function createTournamentDuelService(db: Database.Database): TournamentDuelService {
+export function createTournamentDuelService(db: Database.Database, engine?: DeckTypeEngineSource): TournamentDuelService {
+  let deckCopies: ReturnType<typeof createDeckCopyRepairService> | undefined;
+  const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(db, engine);
   const selectRules = db.prepare<[number], TournamentRulesRow>(`
     select t.best_of, t.duel_rules_json,
       (select d.id from drafts d where d.tournament_id = t.id order by d.id limit 1) as draft_id
@@ -443,6 +447,7 @@ export function createTournamentDuelService(db: Database.Database): TournamentDu
     },
 
     registration(tournamentId, playerId) {
+      repairDeckCopies().registration(tournamentId, playerId);
       const row = selectRegistration.get(tournamentId, playerId);
       if (!row || row.deck_json === null || row.deck_registered_at === null) return null;
       return {

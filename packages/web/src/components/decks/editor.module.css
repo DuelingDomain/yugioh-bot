@@ -26,7 +26,7 @@
 .de-hist { display: inline-flex; gap: 2px; padding-right: 8px; border-right: 1px solid var(--rule-lo); }
 .de-ib { display: inline-grid; place-items: center; flex: none; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--ink-3); cursor: pointer; }
 .de-ib:hover { color: var(--ink); background: rgb(239 231 213 / 0.05); }
-.de-ib:disabled { opacity: 0.35; cursor: default; background: none; }
+.de-ib:disabled, .de-ib[aria-disabled="true"] { opacity: 0.35; cursor: default; background: none; }
 
 
 /* three panes */
@@ -196,6 +196,10 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-sh { flex-wrap: wrap; gap: 8px 12px; }
 .de-sec-b { border-radius: 8px; }
 .de-sec-b[data-dropping="true"] { box-shadow: 0 0 0 2px var(--pen-ink); }
+/* a card that does not belong in the section: the section says why and covers itself while the drag is over it */
+.de-sec-b { position: relative; }
+.de-sec-b[data-refused="true"] { box-shadow: 0 0 0 2px var(--loss); cursor: not-allowed; }
+.de-refuse { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; margin: 0; padding: 8px 14px; border-radius: 8px; background: rgb(7 11 21 / 0.9); color: var(--loss-ink); font-size: 14.5px; font-weight: 500; line-height: 1.35; text-align: center; text-wrap: balance; pointer-events: none; }
 .de-grid > li { position: relative; min-width: 0; }
 .de-grid > li[data-insert="true"]::before { content: ""; position: absolute; inset: 0 auto 0 -4px; width: 3px; border-radius: 2px; background: var(--pen); }
 .de-c:active { cursor: grabbing; }
