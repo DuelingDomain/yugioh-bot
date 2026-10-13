@@ -607,15 +607,17 @@ function measureAim(aim: BattleAim | null | undefined): AimGeom | null {
   const from = zoneQuad(aim.from);
   if (!from) return null;
   const targets: Quad[] = [];
+  // A field that is attacked directly takes the arrow only: no outline around its row of zones.
+  const aimed: Quad[] = [];
   if (aim.to.lpSeat != null) {
     const quad = directQuad(aim.to.lpSeat);
-    if (quad) targets.push(quad);
+    if (quad) aimed.push(quad);
   }
   for (const key of aim.to.zones ?? []) {
     const quad = zoneQuad(key);
-    if (quad) targets.push(quad);
+    if (quad) { targets.push(quad); aimed.push(quad); }
   }
-  const arrows = targets.map((target) => arrowBetween(from, target)).filter((arrow): arrow is Arrow => arrow != null);
+  const arrows = aimed.map((target) => arrowBetween(from, target)).filter((arrow): arrow is Arrow => arrow != null);
   if (arrows.length === 0) return null;
   return { mode: aim.mode, from, arrows, rings: aim.mode === "preview" ? [] : targets, caption: aim.caption ? captionSpot(aim.caption, arrows[0]) : null };
 }

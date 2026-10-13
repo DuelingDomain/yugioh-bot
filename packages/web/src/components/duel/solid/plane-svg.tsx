@@ -80,7 +80,7 @@ function measure(plane: HTMLElement, aim: BattleAim | null): PlaneGeom | null {
     const row = plane.querySelector<HTMLElement>(`[${MONSTER_ROW_ATTR}="${aim.to.lpSeat}"]`);
     const box = row ? boxInPlane(row, plane) : null;
     if (box) {
-      targets.push(box);
+      // The arrow only: no ring around the row of a field that is attacked directly.
       paths.push(pathTo(box));
     } else {
       // No field in the plane: point past its far edge.
