@@ -1,6 +1,6 @@
 # VM Deployment Runbook
 
-This runbook covers deploying Dueling Domain web/WS/duel/worker to a VM. The stack runs via Docker Compose with Caddy as a reverse proxy. A successful **Test** workflow on a push to `main` automatically deploys that exact SHA to production after gameplay is idle. Staging is optional and independent, enabled by owner setup and `STAGING_AUTO_DEPLOY=1`.
+This runbook covers deploying Dueling Domain web/WS/duel/worker to a VM. The stack runs via Docker Compose with Caddy as a reverse proxy. A successful **Test** workflow on a push to `main` automatically deploys that exact SHA to production after gameplay is idle. GitHub Actions builds the ARM64 images and pushes them to GHCR. The VM only pulls images. Staging was removed from this VM; leave `STAGING_AUTO_DEPLOY` unset or `0`.
 
 ## Current Repository State
 
@@ -70,12 +70,15 @@ Deploy jobs run in the `production` / `staging` GitHub Environments and require 
    that run's `head_sha`, never a later `main` tip. It ignores PR, scheduled and manually dispatched Test runs.
    Production jobs share `deploy-production` concurrency: the running job is retained, and a newer eligible
    job may replace an older pending job. Failed Test runs cannot displace queued successful deployments.
-   The job stays on the `production` environment for its scoped secrets. The environment has no required
+   The prepare and deploy jobs use the `production` environment for its scoped secrets. The environment has no required
    reviewers or wait timer and retains the custom branch policy allowing only branch `main`.
    Manual retry/rollback remains Actions → **Deploy** → Run workflow, using the workflow from `main`.
    Set `ref` to a SHA with a successful main push Test and leave `force=false`, `rollback=false` normally.
-   A manual ref is checked against successful push Test runs before building. The job runs on
-   `ubuntu-latest` (amd64), with a 180-minute limit to include build, lock and gameplay waiting.
+   A manual ref is checked against successful push Test runs before building. Prepare runs on
+   `ubuntu-latest` (amd64), keeping the existing engine tools and caches. The image matrix runs on
+   native `ubuntu-24.04-arm` runners with a 90-minute limit. Deploy runs on `ubuntu-latest` with
+   a 180-minute limit for the lock, activity wait and service checks. Build completion order can differ
+   from commit order; the VM ancestry check still refuses an older automatic release.
    The target ref must resolve to a commit on `main`.
    Right after target checkout, the runner runs `git fetch origin main && git merge-base --is-ancestor HEAD FETCH_HEAD`.
    This check runs before `npm rebuild`, `duel:prepare`, `tsx` or other code from that ref.
@@ -95,6 +98,20 @@ Deploy jobs run in the `production` / `staging` GitHub Environments and require 
    so cache hits retain the original builder while recording the current deploy checkout.
    The cores and individual checksum/provenance sidecars are added to the deploy tarball, keeping the
    cached base bundle independent. See [staging's engine build details](staging.md#engine-files-and-image-build).
+   Prepare uploads this exact verified tarball and the workflow revision's guard/image helper as a
+   one-day Actions artifact. The image matrix and deploy job both use that artifact.
+   The matrix builds `duel-bundled`, `web`, `worker` and `ws` for `linux/arm64` only, then pushes
+   `ghcr.io/duelingdomain/yugioh-bot-<service>:<full commit SHA>`. The duel build uses the artifact as
+   the named `engine` context. Only the build job has `packages: write`; it has `contents: read` and
+   no VM secrets. The production public Clerk key is a repository variable/build arg. The Clerk secret
+   stays in the VM runtime environment. Non-web targets no longer run the Next.js build.
+   Each image has a separate `:buildcache` registry cache with `mode=max`. This keeps dependency and
+   intermediate layers outside the Actions cache space used by engine files. Web also imports the
+   rolling `:nextcache` image as a named context and exports only `.next/cache` after its build.
+   A missing Next cache starts with an empty directory. Local Compose builds use the empty fallback
+   stage and still work. npm uses the existing manifest/lockfile dependency layer; no cache mount was
+   added because the Dockerfile has no syntax directive and cache mounts are not exported automatically.
+   Manual `rollback=true` skips the image matrix and pulls the selected SHA already in GHCR.
 4. The workflow SSHes into the VM and fetches the exact commit checked out on the runner. It also
    fetches `origin main` and checks that the deploy commit is an ancestor of `FETCH_HEAD` before preflight.
    The VM also requires `git merge-base --is-ancestor HEAD "$DEPLOY_COMMIT"` before any checkout or image change.
@@ -118,16 +135,23 @@ Deploy jobs run in the `production` / `staging` GitHub Environments and require 
    For a new multi core under an identical base bundle, only an active Tag/FFA duel refuses. On refusal, the old
    checkout, images and containers stay as they were. The transfer tarball and preflight files use
    `mktemp` paths and are removed on refusal or any other exit.
-   After preflight, the workflow saves matching checkout/deploy commits, actual container image IDs
+   After preflight, the VM pulls all four SHA tags with `--platform=linux/arm64`, then checks each image's
+   platform and revision label. Packages must be public; there is no GHCR login on the VM.
+   A failed pull leaves the checkout, local `:latest`/`:prev` tags and running services unchanged.
+   The workflow then stops any old staging containers and saves matching checkout/deploy commits, actual container image IDs
    for duel/web/bot/WS/worker, protected env and a WAL-safe online backup under
    `/var/backups/yugioh-bot/pr2-<UTC timestamp>` (directory 0700, env 0600). It tags those image IDs
-   as `:prev` before resetting the checkout or rebuilding, then prepares the ignored `.deploy-duel-engine`
-   context and builds web/WS/duel/worker images. The repository variable
-   `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` supplies the production public key as a build arg;
-   the secret is read only by web at runtime from the protected VM `.env`.
+   as `:prev` before updating the checkout. For a service with no container, its existing local `:latest`
+   image is saved as `:prev` if present. The VM then updates the checkout, ensures the duel secret, and
+   retags the pulled images as `yugioh-bot-<service>:latest`. Compose uses these explicit local names.
+   No image is built on the VM. A private 0600 temporary Compose JSON file has all `build` fields
+   removed, including fields from an older rollback checkout. The four local image names are assigned
+   explicitly in this file, so build-only older Compose files can use the pulled images. Bind paths are resolved against the
+   production checkout. Migration uses this file with `--pull never`; startup uses it with `--no-build`.
+   The temporary file contains runtime values and is deleted on every exit. Never print or publish it.
    Compose fixes `DISCORD_BOT_ENABLED=0` for web and worker. The old bot image is recorded only for rollback;
    any previous bot container is stopped by its project/service labels before migration.
-   After the image build, it checks gameplay again immediately before any prod service stop, waiting within
+   After image pulls and promotion, it checks gameplay again immediately before any prod service stop, waiting within
    the remaining automatic idle budget if a new game started.
    A refusal there leaves prod containers running, but the checkout/images may already be updated and staging stopped.
    The job prints: **Do not run compose up. Run Deploy again.** Wait for downtime, then run the full workflow again.
@@ -136,7 +160,7 @@ Deploy jobs run in the `production` / `staging` GitHub Environments and require 
    and runs one migration with the new worker image before starting consumers. FK and integrity
    failures abort. The EXIT trap only cleans temporary files; after the coordinated stop, failure
    leaves traffic stopped and backups intact. Never restart old binaries against the migrated schema.
-   The install script rechecks active duels: a table may have started during the build. Drain those
+   The install script rechecks active duels: a table may have started during the image pulls. Drain those
    games under the existing procedure before retrying; engine data is never replaced before preflight.
    Bundle rollback does not reverse completed passcode migrations. Saved decks/cubes may already use official
    codes absent from the older bundle: retain a bundle containing all remap targets or use a matched DB
@@ -155,18 +179,77 @@ Deploy jobs run in the `production` / `staging` GitHub Environments and require 
    do not replace, re-download or recompile the bundle.
    After the duel startup check (`running restarts=0`), WS/worker health checks (`running 0 healthy`),
    and anonymous web auth checks (`/sign-in` 200 and `/api/auth/session` 200 with `null`), the workflow runs
-   `docker image prune -f` to remove dangling images. The `:prev` tags retain the rollback images.
+   the image helper to remove downloaded GHCR tags and old local service tags, then runs
+   `docker image prune -f` to remove dangling images. Only local `:latest` and `:prev` remain for each
+   of the four services. Removal uses no force, so an image still used by a container is retained.
+   Caddy and historical bot tags are not selected for tag removal. Old recorded image IDs can disappear
+   after `:prev` is replaced and pruning runs; keep the release SHA in GHCR if longer image recovery is needed.
+   These deploys create no VM build cache. Existing cache from earlier deployments remains until the
+   owner removes it during a separate maintenance window.
 6. Caddy serves `https://<SITE_DOMAIN>` and 308-redirects `www.<SITE_DOMAIN>`
    and every plain-HTTP host (including old IP links), preserving path and query.
    Keep `caddy_data` and `caddy_config` volumes so certificates survive deploys.
    Port 4003 stays on the Docker network only — do not publish it.
 
-Image updates should use the workflow: it transfers the pinned bundle, runs active-duel preflight,
-prepares `.deploy-duel-engine` for the `duel-bundled` image target, builds and verifies the image, then
-installs the volume bundle before recreating containers. It removes the temporary build context afterward.
-A later bare `docker compose ... --build` has no such context and fails. Starting already built images
-with `docker compose -f docker-compose.yml up -d` needs no build context. For an isolated manual build,
-use the complete preparation commands in [the staging runbook](staging.md#local-verification-without-starting-services).
+Image updates must use the workflow. It builds and verifies the images in Actions, transfers the
+matching engine bundle, runs VM preflight, pulls the images and installs the volume bundle before
+recreating containers. Start existing local images with `docker compose -f docker-compose.yml up -d --no-build`.
+Do not run `docker build` or `docker compose build` on production. Local development can still build
+with Compose; the duel target needs the prepared named engine context described in
+[the staging runbook](staging.md#local-verification-without-starting-services).
+
+### GHCR owner setup and retention
+
+1. Allow GitHub Actions to create packages in the DuelingDomain organization. The build job uses
+   `GITHUB_TOKEN` with `packages: write`. If a package already exists, give this repository write access
+   under the package's **Manage Actions access** settings.
+2. After the first image push, open each organization package: `yugioh-bot-duel`, `yugioh-bot-web`,
+   `yugioh-bot-worker` and `yugioh-bot-ws`. Under **Package settings → Change visibility**, select
+   **Public**. Public repository visibility does not make new GHCR packages public by itself.
+   The source label links each package to this repository. Public container packages allow anonymous
+   pulls. See [GitHub package visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
+3. If the first deploy fails at `docker pull` before visibility is set, make all four packages public,
+   then rerun **Deploy** for the same tested SHA. No read token or login is needed on the VM.
+   Keep `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` set to the production `pk_live_...` repository variable.
+4. Once each week, keep the newest **10 full-SHA release tags per service**, plus the currently deployed
+   SHA and the rollback SHA if outside those ten. Keep only the current `buildcache` tag in each package
+   and the current web `nextcache` tag. Delete older release versions and superseded untagged cache
+   versions. Before deleting an untagged version, check that no retained image index references its
+   digest (including ARM64 manifests and attestations). Do not delete a digest needed by a kept SHA.
+   This is an owner retention procedure, not an automatic cleanup workflow. After deletion, that SHA
+   cannot be used for pull-based rollback; a compatible local `:prev` may still be available.
+5. Leave `STAGING_AUTO_DEPLOY` unset or `0` and do not dispatch staging `action=deploy` on this VM.
+   The staging workflow is unchanged and still builds there with a separate Clerk key. A future staging
+   image build needs its own Actions job and key; production web images cannot use the staging instance.
+
+### Image rollback
+
+For a compatible release already in GHCR, dispatch **Deploy** from `main`, set `ref` to its full SHA,
+set `rollback=true`, and normally keep `force=false`. The selected SHA must be on main and have a
+successful main push Test. Prepare restores or builds its matching engine bundle; the image matrix
+is skipped. The VM pulls the old SHA, saves the current running image IDs as `:prev`, and performs the
+same guard, lock, preflight, backup, stop, migration and health checks. A missing SHA tag fails before
+any local tag or service change. Do not use this for incompatible schema or auth changes without
+first restoring the matching database and protected runtime environment under the procedures below.
+
+For immediate local image recovery, first drain gameplay and acquire the shared build lock. Choose
+the matching release metadata, preserve current data, and restore compatible checkout/env/engine data
+before starting services. Stop the old bot if present, then stop `web duel worker ws`. Confirm all four
+`:prev` images exist before replacing any tag:
+
+```sh
+for service in duel web worker ws; do
+  docker image inspect "yugioh-bot-$service:prev" >/dev/null || exit 1
+done
+for service in duel web worker ws; do
+  docker tag "yugioh-bot-$service:prev" "yugioh-bot-$service:latest" || exit 1
+done
+docker compose -f docker-compose.yml up -d --no-build ws duel web worker caddy
+```
+
+Repeat the deploy health checks. Image rollback does not reverse database migrations, Clerk changes,
+engine/passcode changes or new writes. For the first release after this change, the previous images
+can be VM-built images with no GHCR SHA tag; use `:prev` and the matching release backup for those.
 
 ### Before a deploy that changes the engine bundle
 
@@ -176,7 +259,7 @@ The multiplayer merge changes the Standard and Domain cores, so its first deploy
    `sqlite3 -readonly /opt/yugioh-bot/data/bot.sqlite "select count(*) from duels where status = 'active'"`
    (or let the preflight do it: it prints the count and stops the deploy).
 2. Do not start new tables until the deploy has finished. Tell the players first. A table that starts after the
-   preflight is caught by the second check, but then the deploy stops after the images were built.
+   preflight is caught by the second check, but then the deploy stops after the images were pulled.
 3. After the deploy, the duel container must be `running restarts=0` (the workflow checks this).
 4. Watch memory for the first days (`docker stats --no-stream`). The duel service has `mem_limit` 1g
    (`DUEL_MEM_LIMIT`). The first game loads the card database and scripts (about 114 MB). Each game adds about 2.4 to
@@ -426,14 +509,14 @@ and active games can finish when the flag is off. Summary and deck export remain
 
 Protect `.env` as 0600. Web has an explicit environment list; no `NEXTAUTH_*`, obsolete `AUTH_*`, Discord bot token, bot announce vars or E2E gate are forwarded. Web receives `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET` at runtime for existing-player recovery; retain the original Discord OAuth application's credentials in the protected runtime configuration. The Clerk secret is runtime-only and only web receives it; owner CLI runs use explicit `-e CLERK_SECRET_KEY`. Dev keys never reach staging/production. Staging uses a separate instance and source. `WEB_URL` is required; missing it fails Compose config instead of changing WS CORS to localhost.
 
-After runtime edits, recreate affected containers with `docker compose -f docker-compose.yml up -d`; `restart` does not reload `.env`. Changing the public key requires a web rebuild through the Deploy workflow. Preserve protected PR 1 credentials/env for the rollback window; current Compose has no bot service. Worker timers keep running without Discord delivery.
+After runtime edits, recreate affected containers with `docker compose -f docker-compose.yml up -d --no-build`; `restart` does not reload `.env`. Changing the public key requires a web rebuild through the Deploy workflow. Preserve protected PR 1 credentials/env for the rollback window; current Compose has no bot service. Worker timers keep running without Discord delivery.
 
 The ARM VM does not compile Domain wasm. First production start must use the manual **Deploy** workflow so GitHub Actions can install `/opt/yugioh-bot/data/duel-engine`.
-The workflow also prepares the temporary image build context. Start already built images with the
-command below; use the workflow for rebuilds.
+The workflow prepares the engine context and builds the images on Actions runners. The VM pulls them.
+Start already pulled images with the command below; use the workflow for image updates.
 
 ```bash
-docker compose -f docker-compose.yml up -d
+docker compose -f docker-compose.yml up -d --no-build
 ```
 
 Image builds take several minutes. The resource bundle is not rebuilt on container restart.
@@ -468,7 +551,7 @@ Go to your GitHub repo → Settings → Secrets and variables → Actions, and a
 | `VM_SSH_PRIVATE_KEY` | Full contents of your SSH private key |
 | `VM_PORT` | `22` |
 
-Also set repository **variable** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` to the production `pk_live_...` value. The runtime `CLERK_SECRET_KEY` stays on the VM. Production automatically deploys successful main push Test SHAs. Complete staging's [one-time setup and tests](staging.md#one-time-steps-for-the-owner), then set repository variable `STAGING_AUTO_DEPLOY=1` only if staging push deploys are wanted.
+Also set repository **variable** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` to the production `pk_live_...` value. The runtime `CLERK_SECRET_KEY` stays on the VM. Production automatically deploys successful main push Test SHAs. Complete the [GHCR owner setup](#ghcr-owner-setup-and-retention) before the first image deploy. Keep `STAGING_AUTO_DEPLOY` unset or `0` on this VM.
 
 ## Automatic Production and Optional Staging
 
@@ -476,28 +559,29 @@ Also set repository **variable** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` to the prod
 from `main` for retry and rollback. The `production` environment's required reviewers were removed at
 owner request; its custom branch policy still allows only `main`, and its environment secrets stay scoped.
 `.github/workflows/deploy-staging.yml` remains unchanged: pushes to `main` only with `STAGING_AUTO_DEPLOY=1`,
-and manual dispatch from `main`. Both use the shared VM build lock. Staging success is not a production gate.
+and manual dispatch from `main`. Both use the shared VM build lock. Staging success is not a production gate. Staging was removed from this VM. Keep its workflow disabled
+here: it still builds on the server and can use all available memory.
 
 Normal flow:
 
 1. Work on a branch and open a pull request.
 2. Wait for PR CI, then merge into `main`.
 3. The merge's push **Test** runs all regular release suites. Failure prevents automatic production deployment.
-4. **Deploy** pins the successful run's SHA, waits for live duels/openings and active drafts to finish, builds and rechecks activity,
-   then deploys with engine preflight, backups and health checks. It reports `Production deployed SHA` in logs and summary.
+4. **Deploy** pins the successful run's SHA, builds ARM64 images in Actions, waits for live duels/openings and active drafts,
+   runs VM engine preflight, pulls images, saves backups, rechecks activity and completes deployment with health checks. It reports `Production deployed SHA` in logs and summary.
 5. Verify the Deploy result and `GET https://app.duelingdomain.com/sign-in` returns 200.
 
-Optional staging can run on the same push after setup. Its green run can mean a skip; inspect warnings,
+On a separate staging host, optional staging can run on the same push after setup. Its green run can mean a skip; inspect warnings,
 the summary and the site. To test a branch before release, dispatch staging before merging that branch.
 The SSH key step alone does not isolate credentials from selected staging code; run only trusted refs.
 
-For a manual staging test of a branch or SHA, dispatch **Deploy Staging** from `main`, set that target as `ref`, and use
+On that separate host, for a manual staging test of a branch or SHA, dispatch **Deploy Staging** from `main`, set that target as `ref`, and use
 `action=deploy`, `refresh_db=false`, `ignore_prod_activity=false`. Set `ignore_prod_activity=true` to build during production play.
 This input skips only the activity guard. It keeps the shared lock and all resource checks. Push deploys cannot enable it.
 Staging checks only live duels, openings and active drafts, before clone, fetch or checkout reset.
 Manual production deploys keep the full activity guard, including open tournament rounds and active/between-game series.
 Automatic production deploys log those counts without blocking on them.
-Prod stops staging before its build; staging stays down until its workflow runs again.
+Prod stops any old staging containers after preflight and successful pulls; staging stays down.
 Prod waits only 15 minutes for the lock. A cold staging build can take longer and cause a prod lock timeout.
 
 Local safety checks (no VM access):
@@ -506,9 +590,9 @@ Local safety checks (no VM access):
 python3 -B -m unittest discover -s scripts/deployment -p test_deploy_safety.py -v
 node --test scripts/ci/deploy-flow.test.mjs
 npx vitest run scripts/staging/deploy.test.ts
-npx --yes @action-validator/cli@0.6.0 .github/workflows/deploy.yml
-npx --yes @action-validator/cli@0.6.0 .github/workflows/deploy-staging.yml
-npx --yes @action-validator/cli@0.6.0 .github/workflows/test.yml
+node --test scripts/ci/production-images.test.mjs
+actionlint .github/workflows/deploy.yml .github/workflows/deploy-staging.yml
+shellcheck scripts/deployment/production-images.sh
 sh -n scripts/staging/remote-deploy.sh
 ```
 
@@ -530,8 +614,8 @@ docker compose -f docker-compose.yml logs -f
 docker compose -f docker-compose.yml restart web
 
 # Image update: run the Deploy workflow (it pins the application and bundle to one CI commit).
-# Start already built images, without a rebuild:
-docker compose -f docker-compose.yml up -d
+# Start already pulled local images:
+docker compose -f docker-compose.yml up -d --no-build
 
 # Stop all
 docker compose -f docker-compose.yml down
@@ -631,9 +715,11 @@ systemctl start "$unit.timer"
 - [ ] Docker and Docker Compose installed
 - [ ] Repo cloned to `/opt/yugioh-bot`
 - [ ] [Production environment configured](#create-env)
-- [ ] GitHub Actions secrets configured
+- [ ] GitHub Actions secrets and production public Clerk variable configured
+- [ ] Four GHCR packages are public; repository has package write access
+- [ ] Weekly GHCR retention procedure assigned to the owner
 - [ ] **Deploy** installs `data/duel-engine` and starts production services after a successful main push Test
-- [ ] [Staging DNS, HTTPS and separate Clerk instance configured](staging.md#one-time-steps-for-the-owner)
+- [ ] Staging workflow remains disabled on the production VM
 - [ ] [Deployment verification passes](#verify)
 - [ ] [Clerk instance, callback, DNS/email and production keys configured](#clerk-configuration)
 - [ ] `duel` container logs show the private server listening

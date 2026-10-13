@@ -54,7 +54,7 @@ docker compose --env-file .env --env-file packages/web/.env.local up -d --build
 # Docker (production — start already built images without the override file)
 # Image updates deploy automatically after the main push Test passes, using its exact SHA.
 # Manual retry/rollback: run Deploy from main with a SHA that passed Test; see the VM runbook.
-docker compose -f docker-compose.yml up -d
+docker compose -f docker-compose.yml up -d --no-build
 
 # Seed test data and restart services
 npm run reset:test-data
@@ -89,7 +89,14 @@ Its read-only SQLite guard covers duels, drafts, tournament rounds, active/betwe
 openings. Manual `force` skips only this activity guard; engine preflight, build lock and backups still apply.
 Prod stops staging and leaves it off. Staging remains optional and independent: owner setup plus
 `STAGING_AUTO_DEPLOY=1` enables its push workflow; staging completion does not gate production.
-The runner checks the prod target's main ancestry before running its code. SSH key env is limited to the key setup step.
+The runner checks the prod target's main ancestry before running its code. Production prepares the
+verified engine bundle, builds four ARM64 images on `ubuntu-24.04-arm`, and pushes full-SHA tags to
+public GHCR packages. The VM only pulls and retags them as local `:latest`, preserving `:prev`; its
+runtime Compose file has no build definitions and startup uses `--no-build`. Per-service registry
+`:buildcache` tags use `mode=max`; web also reuses a rolling `:nextcache` image. Manual rollback pulls
+the selected existing SHA without rebuilding. Staging was removed from this VM; keep its auto deploy
+variable disabled because the unchanged staging workflow still builds on the VM. See the VM runbook
+for GHCR visibility and weekly retention steps. SSH key env is limited to the key setup step.
 The VM refuses an older or diverged prod SHA unless `rollback=true`. Staging skips active prod games, guard failures,
 busy or low-resource runs with a warning and step-summary line; check for `staging is running`, then test the site.
 Staging stop waits for the lock or fails. Prod waits only 15 minutes; a cold staging build can take longer.
@@ -102,7 +109,8 @@ a second staging VM is advised for the alpha. See `docs/deployment/staging.md` a
 - `MULTIPLAYER_TABLES` gates Tag/FFA tables. The code default is off, but Compose defaults it to on (`1`); set it on both `duel` and `web`, and `0` closes new multi tables.
 - The multi cores and the legacy Domain core are separate builds (`build-domain-core.ts multi|multi-domain|legacy-domain`), not part of `duel:prepare` or the package TypeScript build.
 - `duel:prepare` downloads pinned card data, strings, and Lua scripts into `DUEL_DATA_DIR` (default root `data/duel-engine`). `scripts/build-domain-core.ts` in `packages/duel-server` separately builds the patched Domain Format WASM bundle with the pinned Emscripten Docker image; `DOMAIN_CORE_BUILD=local` uses a local `em++` toolchain. Neither step is part of the package's TypeScript build.
-- `Dockerfile` has `bot`, `ws`, `duel`, `web`, `worker`, and `web-dev` runtime targets. Compose mounts `./data` into web/duel/worker/ws; duel startup runs `packages/duel-server/scripts/install-engine-bundle.sh` to validate the prepared bundle. The deploy workflow prepares/caches that bundle separately (`.github/workflows/deploy.yml`).
+- `Dockerfile` has `bot`, `ws`, `duel`, `web`, `worker`, and `web-dev` runtime targets. Compose mounts `./data` into web/duel/worker/ws; duel startup runs `packages/duel-server/scripts/install-engine-bundle.sh` to validate the prepared bundle. The deploy workflow prepares/caches that bundle separately (`.github/workflows/deploy.yml`) and supplies
+  it to the `duel-bundled` image build in Actions and to the VM installer as the same artifact.
 - Compose binds duel to `0.0.0.0:4003` inside the Docker network and sets web's `DUEL_INTERNAL_URL=http://duel:4003`. On `SITE_DOMAIN` (the app), Caddy routes `/socket.io/*` to `ws:3001` and other HTTP to `web:3000`. Optional `MARKETING_DOMAIN` serves `site/public` read-only, proxies only `POST /api/waitlist`, and redirects `/login` to the app; `LEGACY_DOMAIN` redirects old paths to the app with 308. Empty extra domains use reserved `.localhost` defaults. Deploy recreates Caddy, refreshing its Caddyfile bind mount. See `docs/deployment/domains.md` for routing. Internal ports 4001/4002/4003 are not published. The dev override adds a shared TypeScript watcher and exposes web/ws on 3000/3001.
 
 ### Database
