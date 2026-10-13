@@ -37,7 +37,7 @@ channel webhook. It does not need a Discord bot. `DISCORD_BOT_ENABLED=0` can sta
    From the VM checkout, recreate web so it reads the new environment values:
 
    ```sh
-   docker compose -f docker-compose.yml up -d --no-deps --force-recreate web
+   docker compose -f docker-compose.yml up -d --no-build --no-deps --force-recreate web
    ```
 
    Web is the only service that needs these new variables. Its normal database
@@ -45,7 +45,7 @@ channel webhook. It does not need a Discord bot. `DISCORD_BOT_ENABLED=0` can sta
    WS, duel or Caddy for these settings. A plain `restart` does not load changed
    Compose environment values. For staging, use a separate Clerk instance,
    signing secret, channel webhook and protected staging environment file.
-   Recreate staging web with `scripts/staging/compose.sh up -d --no-deps --force-recreate web`.
+   Staging is removed for now; it returns later on a separate server.
 5. Submit a new test join request with an email that you control. Check for one
    masked alert in the private channel. Submit the same email again; there must
    be no second alert. In Clerk, inspect the endpoint delivery status. It must

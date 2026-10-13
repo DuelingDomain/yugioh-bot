@@ -517,7 +517,7 @@ jobs:
         run: npm run build --workspace=packages/web
 
       - name: Deployment script tests
-        run: npx vitest run scripts/staging/deploy.test.ts
+        run: npx vitest run scripts/deployment/deploy.test.ts
 
       - name: Typecheck
         run: npm run typecheck

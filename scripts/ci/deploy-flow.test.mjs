@@ -7,8 +7,24 @@ import { test } from "node:test";
 import { parse } from "yaml";
 
 const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8"));
-const value = (expression, inputs, github, vars = {}) => Function("inputs", "github", "vars", `return (${expression
-  .replace(/^\$\{\{\s*|\s*\}\}$/g, "")});`)(inputs, github, vars);
+const value = (expression, inputs, github, vars = {}, needs = {}, cancelled = () => false) =>
+  Function("inputs", "github", "vars", "needs", "cancelled", `return (${expression
+    .replace(/^\$\{\{\s*|\s*\}\}$/g, "")});`)(inputs, github, vars, needs, cancelled);
+
+test("staging deployment is removed while production guard and smoke tests remain", () => {
+  for (const file of [".github/workflows/deploy-staging.yml", "docker-compose.staging.yml", "Caddyfile.staging", "scripts/staging"]) {
+    assert.equal(existsSync(new URL(`../../${file}`, import.meta.url)), false, `${file} must be removed`);
+  }
+  const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
+  assert.doesNotMatch(remote, /staging/i);
+  assert.match(remote, /flock -w 900 9/);
+  const shared = readFileSync(new URL("../deployment/deploy.test.ts", import.meta.url), "utf8");
+  assert.match(shared, /production activity guard with the application schema/);
+  assert.match(shared, /anonymous auth health checks/);
+  assert.doesNotMatch(shared, /staging/i);
+  const ci = workflow("test.yml").jobs["unit-packages"].steps;
+  assert.equal(ci.find(step => step.name === "Deployment script tests").run, "npx vitest run scripts/deployment/deploy.test.ts");
+});
 
 function git(cwd, ...args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" } });
@@ -40,18 +56,18 @@ function history(t) {
 test("production follows successful main push tests and retains manual rollback safety", () => {
   const prod = workflow("deploy.yml");
   assert.deepEqual(prod.on.workflow_run, { workflows: ["Test"], types: ["completed"], branches: ["main"] });
-  assert.deepEqual(prod.jobs.deploy.concurrency, { group: "deploy-production", "cancel-in-progress": false });
-  assert.equal(prod.concurrency, undefined, "ineligible workflow runs must not displace a queued successful deploy");
+  assert.deepEqual(prod.concurrency, { group: "deploy-production", "cancel-in-progress": false, queue: "max" });
+  for (const job of Object.values(prod.jobs)) assert.equal(job.concurrency, undefined);
   assert.equal(prod.jobs.deploy.environment, "production");
   assert.equal(prod.on.workflow_dispatch.inputs.ref.default, "main");
   assert.equal(prod.on.workflow_dispatch.inputs.force.default, false);
   assert.equal(prod.on.workflow_dispatch.inputs.rollback.default, false);
-  const steps = prod.jobs.deploy.steps;
+  const steps = prod.jobs.prepare.steps;
   const save = steps.findIndex(step => step.name === "Save deployment activity guard");
   const target = steps.findIndex(step => step.name === "Checkout deploy ref");
   assert.ok(save >= 0 && save < target, "preserve the guard before target checkout replaces the source files");
   assert.match(steps[save].run, /cp scripts\/deployment\/check-prod-activity.py "\$RUNNER_TEMP\/check-prod-activity.py"/);
-  const remote = steps.find(step => step.name === "Deploy over SSH").run;
+  const remote = prod.jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
   assert.match(remote, /"\$RUNNER_TEMP\/check-prod-activity.py" "\$VM_USER@\$VM_HOST:\$remote_guard"/);
   assert.match(remote, /--wait-seconds "\$remaining"/);
   assert.match(remote, /DEPLOY_LIVE_ONLY='\$DEPLOY_LIVE_ONLY'/);
@@ -62,7 +78,7 @@ test("production follows successful main push tests and retains manual rollback 
 });
 
 test("automatic production deploys accept only a successful Test push on main and pin its SHA", () => {
-  const job = workflow("deploy.yml").jobs.deploy;
+  const job = workflow("deploy.yml").jobs.prepare;
   const sha = "a".repeat(40);
   const automatic = { event_name: "workflow_run", ref: "refs/heads/main", sha: "b".repeat(40),
     event: { workflow_run: { event: "push", conclusion: "success", head_branch: "main", head_sha: sha } } };
@@ -90,7 +106,7 @@ test("automatic production deploys accept only a successful Test push on main an
 });
 
 test("manual production refs require a successful push Test for that exact commit", t => {
-  const job = workflow("deploy.yml").jobs.deploy;
+  const job = workflow("deploy.yml").jobs.prepare;
   assert.equal(workflow("deploy.yml").permissions.actions, "read");
   const steps = job.steps;
   const verify = steps.find(step => step.name === "Verify manual deploy commit passed Test");
@@ -115,77 +131,21 @@ test("manual production refs require a successful push Test for that exact commi
   }
 });
 
-test("staging push uses the exact pushed SHA with safe dispatch defaults", () => {
-  const staging = workflow("deploy-staging.yml");
-  assert.deepEqual(staging.on.push.branches, ["main"]);
-  assert.equal(staging.jobs.staging.if, "github.ref == 'refs/heads/main' && (github.event_name != 'push' || vars.STAGING_AUTO_DEPLOY == '1')");
-  for (const [event, ref, enabled, expected] of [
-    ["push", "main", undefined, false], ["push", "main", "0", false], ["push", "main", "1", true],
-    ["push", "feature", "1", false], ["workflow_dispatch", "main", undefined, true],
-    ["workflow_dispatch", "feature", "1", false],
-  ]) {
-    assert.equal(value(staging.jobs.staging.if, {}, { event_name: event, ref: `refs/heads/${ref}` }, { STAGING_AUTO_DEPLOY: enabled }), expected);
-  }
-  const env = staging.jobs.staging.env;
-  const pushed = { sha: "a".repeat(40) };
-  assert.equal(value(env.INPUT_REF, {}, pushed), pushed.sha);
-  assert.equal(value(env.INPUT_ACTION, {}, pushed), "deploy");
-  assert.equal(value(env.INPUT_REFRESH_DB, {}, pushed), "false");
-  const manual = { ref: "reviewed-branch", action: "stop", refresh_db: true };
-  assert.equal(value(env.INPUT_REF, manual, pushed), manual.ref);
-  assert.equal(value(env.INPUT_ACTION, manual, pushed), "stop");
-  assert.equal(value(env.INPUT_REFRESH_DB, manual, pushed), "true");
-});
-
-test("manual staging refs cannot replace the workflow revision's remote safety entry script", () => {
-  const job = workflow("deploy-staging.yml").jobs.staging;
-  assert.equal(job.env.VM_SSH_PRIVATE_KEY, undefined);
-  const steps = job.steps;
-  assert.deepEqual(steps.filter(step => step.env?.VM_SSH_PRIVATE_KEY).map(step => step.name), ["Configure SSH key"]);
-  const save = steps.findIndex(step => step.name === "Save staging deployment controls");
-  const target = steps.findIndex(step => step.with?.ref === "${{ env.INPUT_REF }}");
-  assert.ok(save >= 0 && save < target, "preserve staging controls before target checkout");
-  assert.match(steps[save].run, /cp scripts\/staging\/remote-deploy.sh "\$RUNNER_TEMP\/staging-remote-deploy.sh"/);
-  assert.match(steps[save].run, /cp scripts\/deployment\/check-prod-activity.py "\$RUNNER_TEMP\/staging-activity-guard.py"/);
-  const transfer = steps.find(step => step.name === "Run on the VM").run;
-  assert.match(transfer, /< "\$RUNNER_TEMP\/staging-remote-deploy.sh"/);
-  assert.match(transfer, /STAGING_GUARD='\$remote_guard'/);
-});
-
-test("only manual staging dispatch can ignore production activity", () => {
-  const staging = workflow("deploy-staging.yml");
-  const input = staging.on.workflow_dispatch.inputs.ignore_prod_activity;
-  assert.ok(input, "manual staging dispatch must provide ignore_prod_activity");
-  assert.equal(input.type, "boolean");
-  assert.equal(input.default, false);
-  const expression = staging.jobs.staging.env.INPUT_IGNORE_PROD_ACTIVITY;
-  for (const [event, enabled, expected] of [
-    ["push", undefined, "false"], ["push", true, "false"],
-    ["workflow_dispatch", undefined, "false"], ["workflow_dispatch", false, "false"],
-    ["workflow_dispatch", true, "true"],
-  ]) {
-    assert.equal(value(expression, { ignore_prod_activity: enabled }, { event_name: event }), expected);
-  }
-  const steps = staging.jobs.staging.steps;
-  assert.match(steps.find(step => step.name === "Check inputs and secrets").run,
-    /check "ignore_prod_activity" "\$INPUT_IGNORE_PROD_ACTIVITY" '\^\(true\|false\)\$'/);
-  assert.match(steps.find(step => step.name === "Run on the VM").run,
-    /STAGING_IGNORE_PROD_ACTIVITY='\$INPUT_IGNORE_PROD_ACTIVITY'/);
-});
 
 test("selected production code runs only after its main ancestry check, without the SSH key", t => {
   const prod = workflow("deploy.yml");
   assert.equal(prod.jobs.deploy.env.VM_SSH_PRIVATE_KEY, undefined);
-  const steps = prod.jobs.deploy.steps;
+  const steps = prod.jobs.prepare.steps;
   const checkout = steps.findIndex(step => step.name === "Checkout deploy ref");
   assert.equal(steps[checkout].with["fetch-depth"], 0);
   const verify = steps[checkout + 1];
   assert.equal(verify.name, "Verify deploy ref is on main");
   assert.match(verify.run, /git fetch origin main && git merge-base --is-ancestor HEAD FETCH_HEAD/);
   const install = steps.find(step => step.name === "Install duel-engine build dependencies");
-  const keyStep = steps.findIndex(step => step.name === "Configure SSH key");
-  assert.ok(steps.indexOf(install) > checkout + 1 && keyStep > steps.indexOf(install));
-  assert.deepEqual(steps.filter(step => step.env?.VM_SSH_PRIVATE_KEY).map(step => step.name), ["Configure SSH key"]);
+  assert.ok(steps.indexOf(install) > checkout + 1);
+  assert.deepEqual(steps.filter(step => step.env?.VM_SSH_PRIVATE_KEY), []);
+  assert.deepEqual(prod.jobs.deploy.steps.filter(step => step.env?.VM_SSH_PRIVATE_KEY).map(step => step.name), ["Configure SSH key"]);
+  assert.deepEqual(prod.jobs.deploy.needs, ["prepare", "build"]);
 
   const { dir, runner, base, unreviewed, release } = history(t);
   const bin = join(dir, "bin");
@@ -215,8 +175,10 @@ test("selected production code runs only after its main ancestry check, without 
 test("VM refuses older or diverged production commits unless rollback is explicit", t => {
   const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
   const start = remote.indexOf('git fetch origin "$DEPLOY_COMMIT"');
-  const end = remote.indexOf("# Preflight, before anything on the VM changes", start);
+  const end = remote.indexOf("# Ancestry checks are complete", start);
   assert.ok(start > 0 && end > start);
+  assert.ok(remote.indexOf('git merge-base --is-ancestor HEAD') < remote.search(/^\s*check_prod_activity$/m),
+    "refuse older commits before waiting for activity");
   const { runner, base, unreviewed, release } = history(t);
   const run = (current, target, rollback) => {
     git(runner, "checkout", current);
@@ -259,7 +221,7 @@ test("both production checks block automatic deploys only on live games and keep
   const job = workflow("deploy.yml").jobs.deploy;
   const remote = job.steps.find(step => step.name === "Deploy over SSH").run;
   const start = remote.indexOf("idle_deadline=$((");
-  const end = remote.indexOf("cd /opt/yugioh-bot", start);
+  const end = remote.indexOf("# Preflight, before anything on the VM changes", start);
   const second = remote.indexOf("if ! check_prod_activity");
   const stop = remote.indexOf("# Retire the bot container", second);
   assert.ok(start > 0 && end > start && second > end && stop > second);
@@ -324,18 +286,175 @@ PY
   }
 });
 
-test("staging warnings reach the step summary even when the VM step fails", t => {
-  const steps = workflow("deploy-staging.yml").jobs.staging.steps;
-  const transfer = steps.find(step => step.name === "Run on the VM");
-  assert.match(transfer.run, /set -euo pipefail/);
-  assert.match(transfer.run, /tee "\$RUNNER_TEMP\/staging-deploy.log"/);
-  const report = steps.find(step => step.name === "Report staging result");
-  assert.equal(report.if, "${{ always() }}");
-  const dir = mkdtempSync(join(tmpdir(), "staging-summary-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const summary = join(dir, "summary.md");
-  writeFileSync(join(dir, "staging-deploy.log"), "ordinary log\n::warning title=Staging skipped::skipping staging; production is active.\n");
-  const result = spawnSync("bash", ["-e", "-c", report.run], { encoding: "utf8", env: { ...process.env, RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: summary } });
+
+test("release images build on native ARM64 with separate registry caches before SSH deployment", () => {
+  const { prepare, build, deploy } = workflow("deploy.yml").jobs;
+  assert.equal(build.needs, "prepare");
+  assert.equal(build["runs-on"], "ubuntu-24.04-arm");
+  assert.deepEqual(build.permissions, { contents: "read", packages: "write" });
+  assert.deepEqual(build.strategy.matrix.include, [
+    { service: "duel", target: "duel-bundled" }, { service: "web", target: "web" },
+    { service: "worker", target: "worker" }, { service: "ws", target: "ws" },
+  ]);
+  const push = build.steps.find(step => step.name === "Build and push runtime image");
+  assert.equal(push.with.platforms, "linux/arm64");
+  assert.equal(push.with.push, true);
+  assert.equal(push.with.tags, "${{ env.IMAGE }}:${{ env.DEPLOY_COMMIT }}");
+  assert.match(push.with["cache-to"], /type=registry,.*:buildcache,mode=max/);
+  assert.match(push.with["build-contexts"], /engine=/);
+  assert.match(build.steps.find(step => step.name === "Save Next.js cache for the next source revision").with.tags, /:nextcache$/);
+  assert.ok(prepare.steps.every(step => !step.run?.includes("ssh ")));
+  assert.equal(deploy.env.DEPLOY_COMMIT, "${{ needs.prepare.outputs.commit }}");
+  for (const [rollback, expected] of [["false", true], ["true", false]]) {
+    assert.equal(value(build.if, {}, {}, {}, { prepare: { outputs: { rollback, superseded: "false" } } }), expected);
+  }
+  assert.match(deploy.if, /needs.prepare.outputs.rollback == 'true'.*needs.build.result == 'skipped'/s);
+});
+
+test("production pulls before backup and keeps the drain, migration and health-check sequence without builds", () => {
+  const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
+  assert.doesNotMatch(remote, /docker (?:build|buildx build)|docker compose[^\n]* (?:build|--build)\b/);
+  const ordered = [
+    'DUEL_PREFLIGHT=1', 'sh "$DEPLOY_IMAGES" pull',
+    '"$release_dir/images.jsonl"', '"$release_dir/online"', 'sh "$DEPLOY_IMAGES" promote',
+    'service.pop("build", None)', 'if ! check_prod_activity', '# Retire the bot container', 'stop web duel worker ws',
+    '"$release_dir/drained"', 'if ! DUEL_BUNDLE_SRC=', 'run --rm --no-deps --pull never worker',
+    'down --remove-orphans', 'up -d --no-build ws duel web worker caddy',
+    'running restarts=0', 'running 0 healthy', '/api/auth/session', 'sh "$DEPLOY_IMAGES" prune',
+  ];
+  let previous = -1;
+  for (const marker of ordered) {
+    const position = remote.indexOf(marker);
+    assert.ok(position > previous, `${marker} must follow the previous safety step`);
+    previous = position;
+  }
+  assert.match(remote, /flock -w 900 9/);
+  assert.match(remote, /preserve_previous_image "\$service" "\$image_id" "yugioh-bot-\$service:prev"/);
+});
+
+test("deploy accepts an intentional skipped rollback build but rejects failed or cancelled builds", () => {
+  const expression = workflow("deploy.yml").jobs.deploy.if;
+  const github = { event_name: "workflow_dispatch", ref: "refs/heads/main" };
+  for (const [prepareResult, buildResult, rollback, cancelled, expected] of [
+    ["success", "success", "false", false, true], ["success", "skipped", "true", false, true],
+    ["success", "skipped", "false", false, false], ["success", "failure", "true", false, false],
+    ["failure", "skipped", "true", false, false], ["success", "success", "false", true, false],
+  ]) {
+    const needs = { prepare: { result: prepareResult, outputs: { rollback } }, build: { result: buildResult } };
+    assert.equal(value(expression, {}, github, {}, needs, () => cancelled), expected);
+  }
+});
+
+test("runtime Compose uses pulled local images even for an older build-only checkout", () => {
+  const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
+  const transform = remote.match(/config --format json \| python3 -c '([\s\S]*?)' > "\$runtime_compose"/)[1];
+  const config = { name: "yugioh-bot", services: { caddy: { image: "caddy:2-alpine" } } };
+  for (const service of ["duel", "web", "worker", "ws"]) {
+    config.services[service] = { build: { context: "/opt/yugioh-bot", target: service },
+      volumes: [{ source: "/opt/yugioh-bot/data", target: "/app/data", type: "bind" }] };
+  }
+  const result = spawnSync("python3", ["-c", transform], { input: JSON.stringify(config), encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(readFileSync(summary, "utf8"), /Staging skipped.*production is active/);
+  const runtime = JSON.parse(result.stdout);
+  assert.equal(runtime.name, config.name);
+  assert.equal(runtime.services.caddy.image, "caddy:2-alpine");
+  for (const service of ["duel", "web", "worker", "ws"]) {
+    assert.equal(runtime.services[service].build, undefined);
+    assert.equal(runtime.services[service].image, `yugioh-bot-${service}:latest`);
+    assert.deepEqual(runtime.services[service].volumes, config.services[service].volumes);
+  }
+});
+
+
+test("runtime Compose comparison checks dollar values before any service stops", t => {
+  const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
+  const comparison = remote.match(/python3 - "\$runtime_compose" "\$resolved_compose" <<'PY'\n([\s\S]*?)\n\s*PY/);
+  assert.ok(comparison, "compare resolved Compose models before stopping services");
+  assert.ok(remote.indexOf(comparison[0]) < remote.indexOf('docker stop'));
+  for (const line of remote.split('\n').filter(line => line.includes('docker compose -f "$runtime_compose"'))) {
+    assert.match(line, /--project-directory \/opt\/yugioh-bot/);
+  }
+  const dir = mkdtempSync(join(tmpdir(), "compose-roundtrip-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const fixture = { name: "review-fixture", services: { web: {
+    image: "example:latest", environment: { VALUE: "${REVIEW_VALUE}" },
+    command: ["sh", "-c", "echo $$VALUE"], healthcheck: { test: ["CMD-SHELL", "echo $$VALUE"] },
+  } } };
+  const source = join(dir, "source.json");
+  const runtime = join(dir, "runtime.json");
+  const resolved = join(dir, "resolved.json");
+  const values = join(dir, "runtime-values.conf");
+  // Synthetic dotenv input only. No repository or owner .env file is opened.
+  writeFileSync(values, "REVIEW_VALUE='secret$UNSET-value$$literal'\n");
+  fixture.services.web.build = { context: dir, target: "web" };
+  writeFileSync(source, JSON.stringify(fixture));
+  const env = { ...process.env, DOCKER_HOST: "unix:///nonexistent-review-daemon" };
+  delete env.REVIEW_VALUE;
+  const compose = file => spawnSync('docker',
+    ['compose', '--env-file', values, '--project-directory', dir, '-f', file, 'config', '--format', 'json'],
+    { cwd: dir, env, encoding: 'utf8' });
+  const before = compose(source);
+  assert.equal(before.status, 0, "daemon-free Compose config must succeed");
+  const transform = remote.match(/config --format json \| python3 -c '([\s\S]*?)' > "\$runtime_compose"/)[1];
+  const transformed = spawnSync('python3', ['-c', transform], { input: before.stdout, encoding: 'utf8' });
+  assert.equal(transformed.status, 0, "runtime transform must succeed");
+  writeFileSync(runtime, transformed.stdout);
+  const after = compose(runtime);
+  assert.equal(after.status, 0, "Compose re-read must succeed");
+  writeFileSync(resolved, after.stdout);
+  const compare = () => spawnSync('python3', ['-', runtime, resolved], { input: comparison[1], encoding: 'utf8' });
+  assert.equal(compare().status, 0, 'dollar values must survive the local Compose parser');
+  const changed = JSON.parse(after.stdout);
+  changed.services.web.environment.VALUE = 'changed$private';
+  writeFileSync(resolved, JSON.stringify(changed));
+  const refused = compare();
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /runtime Compose configuration changed/);
+  assert.doesNotMatch(refused.stderr + refused.stdout, /secret|private/);
+});
+
+
+test("build digests are recorded and transferred for immutable pull and promotion", () => {
+  const { build, deploy } = workflow("deploy.yml").jobs;
+  const push = build.steps.find(step => step.name === "Build and push runtime image");
+  assert.equal(push.id, "runtime-image");
+  const record = build.steps.find(step => step.name === "Record runtime image digest");
+  assert.equal(record.env.IMAGE_DIGEST, "${{ steps.runtime-image.outputs.digest }}");
+  assert.ok(build.steps.some(step => step.with?.name === "production-image-${{ matrix.service }}-${{ env.DEPLOY_COMMIT }}"));
+  const remote = deploy.steps.find(step => step.name === "Deploy over SSH").run;
+  assert.match(remote, /sh "\$DEPLOY_IMAGES" pull "\$DEPLOY_COMMIT" "\$DEPLOY_IMAGE_REFS"/);
+  assert.match(remote, /sh "\$DEPLOY_IMAGES" promote "\$DEPLOY_COMMIT" "\$DEPLOY_IMAGE_REFS"/);
+  assert.match(remote, /cp "\$DEPLOY_IMAGE_REFS" "\$release_dir\/image-digests"/);
+});
+
+
+test("rollback resolves the retained tag to one ARM64 digest before SSH", t => {
+  const resolve = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Resolve retained rollback digests");
+  const parser = resolve.run.match(/<<'PY'\n([\s\S]*?)\nPY/)[1];
+  const dir = mkdtempSync(join(tmpdir(), "rollback-manifest-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, "manifest.json");
+  const digest = `sha256:${'b'.repeat(64)}`;
+  const arm = { Descriptor: { digest, platform: { os: "linux", architecture: "arm64" } } };
+  for (const fixture of [arm, [arm, { Descriptor: { digest: "ignored", platform: { os: "unknown", architecture: "unknown" } } }]]) {
+    writeFileSync(file, JSON.stringify(fixture));
+    const result = spawnSync("python3", ["-", file], { input: parser, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), digest);
+  }
+  writeFileSync(file, JSON.stringify([arm, arm]));
+  assert.notEqual(spawnSync("python3", ["-", file], { input: parser }).status, 0);
+});
+
+
+test("deployment actions use commit pins and image builds disable attestations", () => {
+  for (const name of ["deploy.yml", "ghcr-cleanup.yml"]) {
+    for (const job of Object.values(workflow(name).jobs)) for (const step of job.steps) {
+      if (step.uses) assert.match(step.uses, /@[0-9a-f]{40}$/);
+      if (step.name === "Build and push runtime image" || step.name === "Save Next.js cache for the next source revision") {
+        assert.equal(step.with.provenance, false);
+        assert.equal(step.with.sbom, false);
+      }
+    }
+  }
 });

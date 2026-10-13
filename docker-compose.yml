@@ -2,6 +2,7 @@ x-user: &user "${UID:-0}:${GID:-0}"  # Host UID/GID in dev; root by default.
 
 services:
   ws:
+    image: yugioh-bot-ws:latest
     build:
       context: .
       target: ws
@@ -26,6 +27,7 @@ services:
       start_period: 20s
 
   duel:
+    image: yugioh-bot-duel:latest
     build:
       context: .
       target: duel-bundled
@@ -67,6 +69,7 @@ services:
       - ./data:/app/data
 
   web:
+    image: yugioh-bot-web:latest
     build:
       context: .
       target: web
@@ -115,6 +118,7 @@ services:
       - duel
 
   worker:
+    image: yugioh-bot-worker:latest
     build:
       context: .
       target: worker

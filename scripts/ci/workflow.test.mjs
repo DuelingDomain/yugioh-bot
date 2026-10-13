@@ -22,8 +22,7 @@ test("the required unit job runs WS tests alongside shared, bot and worker suite
 
 for (const [file, jobId, cacheJobId] of [
   ["test.yml", "cores", "core-cache"],
-  ["deploy.yml", "deploy", "deploy"],
-  ["deploy-staging.yml", "staging", "staging"],
+  ["deploy.yml", "prepare", "prepare"],
   ["engine-data-update.yml", "prepare"],
 ]) {
   const data = parse(readFileSync(new URL(`../../.github/workflows/${file}`, import.meta.url), "utf8"));

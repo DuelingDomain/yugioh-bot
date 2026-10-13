@@ -1,5 +1,7 @@
 # Engine data updates
 
+Staging is removed; it returns later on a separate server.
+
 The admin `GET /api/admin/card-data-status` endpoint reports the installed bundle and
 each pinned source's GitHub committer date as **data as of** (`engine.sources.*.pinnedCommitDate`).
 Preparation time is unknown (`preparedAt: null`, `preparedAtSource: "unknown"`); manifest
@@ -133,7 +135,7 @@ Deck import, code normalization, legality/pool counting and numeric scenario-car
 
 The web image route tries YGOPRODeck first and, after a 404 for full/small images, retries `https://pics.projectignis.org:2096/pics/{passcode}.jpg`. The duel UI and 3D art use those full/small routes, so temporary passcodes receive the existing Ignis fallback. Cropped images have no Ignis fallback and may return 404. No image/UI changes are needed for this feature.
 
-The scheduled workflow uses this same merge for names and candidate validation. It reports added, removed and graduated previews (including old-to-official codes), every deduplication drop, and added/removed release filenames. Loaded release and prerelease scripts participate in the advisory initialization probe and multiplayer scan even when those scripts did not change. Tree discovery receives `GITHUB_TOKEN` in CI, deployment, staging and candidate preparation. Tree/database downloads retry HTTP 403, 429 and 5xx three times, using `Retry-After` (seconds or HTTP date); `x-ratelimit-reset` also applies only when `x-ratelimit-remaining` is `0`. Exponential delays apply when no future server deadline is available. Each delay is capped at 60 seconds; exhausted retries fail the command so an operator can rerun it. Publication still accepts only the three existing pin files; no preview registry or release list is generated or committed. Bundle cache keys in CI, deployment and staging include both merge and prerelease-history helpers. Core-only checksums remain unchanged; `expected-sha256.txt` files contain WASM/Domain Lua hashes, not card-data hashes.
+The scheduled workflow uses this same merge for names and candidate validation. It reports added, removed and graduated previews (including old-to-official codes), every deduplication drop, and added/removed release filenames. Loaded release and prerelease scripts participate in the advisory initialization probe and multiplayer scan even when those scripts did not change. Tree discovery receives `GITHUB_TOKEN` in CI, deployment and candidate preparation. Tree/database downloads retry HTTP 403, 429 and 5xx three times, using `Retry-After` (seconds or HTTP date); `x-ratelimit-reset` also applies only when `x-ratelimit-remaining` is `0`. Exponential delays apply when no future server deadline is available. Each delay is capped at 60 seconds; exhausted retries fail the command so an operator can rerun it. Publication still accepts only the three existing pin files; no preview registry or release list is generated or committed. Bundle cache keys in CI and deployment include both merge and prerelease-history helpers. Core-only checksums remain unchanged; `expected-sha256.txt` files contain WASM/Domain Lua hashes, not card-data hashes.
 
 The C6 geometry audit scans every Lua directory in the prepared `card-scripts/` corpus and requires an exact match with `packages/duel-server/tests/fixtures/c6-geometry-audit.json`, including a reviewed reason for every expression. Prerelease support restores four expressions in `pre-release/c100458010.lua`, `c101402090.lua` and `c101403030.lua`, bringing the stock audit from 169 to 173 expressions. The fixture documents their masks/mirroring and limits; passing it does not prove effect gameplay. Castellan `101402090` has an unresolved FFA4 side-opponent geometry case, and opponent-field zone masks in Tag need a gameplay proof. Retained-script initial-effect smoke checks cover legacy/pinned 1v1, FFA3/FFA4 and Tag in normal/Domain modes, but do not exercise those callbacks. These require separate multiplayer rules/tests before claiming complete effect compatibility. Retained scripts excluded only because their passcode lacks a database row keep their `requiresAbsentCode` guard; the scan never skips `pre-release/`.
 
@@ -167,7 +169,7 @@ hash ordering, including bundles with optional built-core metadata.
 records and participates in `bundleVersion`. `scripts` still identifies the upstream
 archive; `domainLua`, `domainLegacyLua`, `multiScripts`, core pins and WASM bytes do not
 change. Deployment must re-prepare the bundle and ship its patched script **and manifest**.
-Existing cores can be reused; no WASM rebuild is necessary. CI/production/staging bundle
+Existing cores can be reused; no WASM rebuild is necessary. CI/production bundle
 cache keys include the patch recipe and suffix files. Drain active duels first; the new
 bundle version has the same recovery/replay consequences described below. Native golden
 metadata now also records `card-script-patches-sha256` using the folder-hash algorithm;
@@ -443,7 +445,7 @@ Tag, FFA3 and FFA4. `DUEL_SCRIPT_ERRORS=tolerant` is the default; use
 Strict mode also ignores card-script errors in view queries so live play, recovery
 and replays remain deterministic.
 Unknown values fail configuration. Production Compose passes `DUEL_SCRIPT_ERRORS`;
-staging passes `STAGING_DUEL_SCRIPT_ERRORS` to the same container setting. Recreate
+The removed staging setting can be restored from git when staging returns. Recreate
 the duel container after changing it. The resolved policy is saved in the duel's
 private setup/journal; recovery and replay keep that policy even after the server
 setting changes. Older journals without this field recover in tolerant mode.
