@@ -124,7 +124,11 @@ function lanesOf(intervals: [number, number][], total: number): number[] {
   return out;
 }
 
-export function genField(seed: number, input: FieldLayout): CrackField {
+/** Which mat edges may crumble: top, right, bottom, left. A half of a shared mat (1v1) keeps its inner edge whole. */
+export type EdgeSides = readonly [boolean, boolean, boolean, boolean];
+const ALL_SIDES: EdgeSides = [true, true, true, true];
+
+export function genField(seed: number, input: FieldLayout, sides: EdgeSides = ALL_SIDES): CrackField {
   const lay = toRefLayout(input);
   const CW = lay.w;
   const CH = lay.h;
@@ -452,8 +456,12 @@ export function genField(seed: number, input: FieldLayout): CrackField {
     pts.unshift([-3, -3]);
     return pts.map(([x, y]): Pt => (corner === 0 ? [x, y] : corner === 1 ? [CW - x, y] : corner === 2 ? [CW - x, CH - y] : [x, CH - y]));
   }
+  const openSides = [0, 1, 2, 3].filter((k) => sides[k]);
+  /** Corner k (0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left) crumbles when both its edges may. */
+  const cornerOpen = (k: number) => sides[k] && sides[(k + 3) % 4];
   interface ChunkKind { corner?: number; a?: [number, number]; b?: [number, number]; side?: number; L?: [number, number]; D?: [number, number] }
   function tryChunk(stage: 1 | 2 | 3, kind: ChunkKind) {
+    if (!openSides.length) return;
     for (let attempt = 0; attempt < 18; attempt++) {
       let shrink = 1;
       for (let t = 0; t < 9; t++) {
@@ -463,7 +471,7 @@ export function genField(seed: number, input: FieldLayout): CrackField {
           const b = rr(kind.b![0], kind.b![1]) * shrink;
           poly = cornerChunk(kind.corner, a, b);
         } else {
-          const side = kind.side != null ? kind.side : Math.floor(r() * 4);
+          const side = kind.side != null ? kind.side : openSides[Math.floor(r() * openSides.length)];
           const L = rr(kind.L![0], kind.L![1]) * shrink;
           const u0 = rr(14, Math.max(15, sideLen(side) - 14 - L));
           /* shallow where the edge is near the zones */
@@ -504,15 +512,20 @@ export function genField(seed: number, input: FieldLayout): CrackField {
     }
   }
   /* stage 1: a few small notches and corner chips (4). Stage 2: bigger bites (5). Stage 3: ragged nicks all round (8). */
-  const cOrder = [0, 1, 2, 3].sort(() => r() - 0.5);
-  tryChunk(1, { corner: cOrder[0], a: [10, 20], b: [8, 18] });
+  const cOrder = [0, 1, 2, 3].filter(cornerOpen).sort(() => r() - 0.5);
+  /** A corner bite where the mat has the corner; a wide notch on an open edge where it has not (a half of a shared mat). */
+  const corner = (stage: 1 | 2 | 3, k: number | null, a: [number, number], b: [number, number]) => {
+    const which = k == null ? (cOrder[0] != null && cornerOpen((cOrder[0] + 2) % 4) ? (cOrder[0] + 2) % 4 : undefined) : cOrder[k];
+    tryChunk(stage, which != null ? { corner: which, a, b } : { L: [a[0] * 1.6, a[1] * 1.6], D: [b[0] * 0.5, b[1] * 0.5] });
+  };
+  corner(1, 0, [10, 20], [8, 18]);
   for (let n = 0; n < 3; n++) tryChunk(1, { L: [16, 34], D: [4, 8] });
-  tryChunk(2, { corner: cOrder[1], a: [34, 66], b: [30, 70] });
-  tryChunk(2, { corner: cOrder[2], a: [22, 44], b: [20, 40] });
+  corner(2, 1, [34, 66], [30, 70]);
+  corner(2, 2, [22, 44], [20, 40]);
   for (let n = 0; n < 3; n++) tryChunk(2, { L: [36, 84], D: [10, 34] });
-  tryChunk(3, { corner: cOrder[3], a: [26, 54], b: [22, 54] });
-  tryChunk(3, { corner: cOrder[0] === 0 ? 2 : 0, a: [8, 16], b: [8, 16] });
-  for (let n = 0; n < 7; n++) tryChunk(3, { L: [12, 40], D: [3, 16] });
+  corner(3, 3, [26, 54], [22, 54]);
+  corner(3, null, [8, 16], [8, 16]);
+  for (let n = 0; n < 7 && chunks.filter((c) => c.stage === 3).length < 8; n++) tryChunk(3, { L: [12, 40], D: [3, 16] });
 
   return { seed, cw: CW, ch: CH, segs, chunks, origin };
 }

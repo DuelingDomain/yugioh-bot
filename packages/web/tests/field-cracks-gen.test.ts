@@ -116,6 +116,17 @@ describe("field cracks generator", () => {
     }
   });
 
+  it("never crumbles a closed side (a half of a shared mat keeps its inner edge)", () => {
+    const ref = toRefLayout(DEMO);
+    for (const seed of [1, 2, 3, 4, 5, 99, 1000]) {
+      const f = genField(seed, DEMO, [true, true, false, true]);
+      const n = (s: number) => f.chunks.filter((c) => c.stage === s).length;
+      expect([n(1), n(2), n(3)]).toEqual([4, 5, 8]);
+      for (const c of f.chunks) for (const [, y] of c.poly) expect(y).toBeLessThanOrEqual(ref.h + 0.01);
+      expect(clearanceOf(f, DEMO).chunks).toBeGreaterThanOrEqual(1.5);
+    }
+  });
+
   for (const [name, layout] of Object.entries(LAYOUTS)) {
     it(`keeps every crack and chunk at least 1.5 px from a zone: ${name}`, () => {
       let worstCrack = Infinity;
