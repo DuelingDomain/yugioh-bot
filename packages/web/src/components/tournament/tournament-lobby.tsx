@@ -10,6 +10,7 @@ import styles from "./tournament-lobby.module.css";
 import { MyDeckPanel } from "./my-deck-panel";
 import { DeckMarker } from "./deck-marker";
 import { RulesPanel } from "./sheet/rules-panel";
+import { CancelTournamentDialog } from "./cancel-tournament-dialog";
 import { formatLabel, rulesSummary } from "./sheet-rules";
 import rail from "./sheet/rail.module.css";
 import { UNRATED_ELO, type PlayerRatings } from "./sheet-contracts";
@@ -52,7 +53,7 @@ export function firstRoundNote(players: number) {
 export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChanged, ratings, discordEnabled = false }: TournamentLobbyProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [announced, setAnnounced] = useState(false);
 
   const isParticipant = tournament.isParticipant;
@@ -228,21 +229,17 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
         <RulesPanel tournament={tournament} tournamentSlug={tournamentSlug} isHost={isCreator} onChanged={onChanged} />
         {isCreator && (
           <section className={rail.sec} aria-label="Cancel">
-            {confirmCancel ? (
-              <div className={rail.confirmBox}>
-                <StatusLine tone="warn"><strong>Cancel this tournament?</strong> It is removed for the {count} {count === 1 ? "player" : "players"} who joined. Nothing has been played yet.</StatusLine>
-                <div className={rail.endActs}>
-                  <SvButton variant="quiet" onClick={() => setConfirmCancel(false)}>Go back</SvButton>
-                  <SvButton variant="danger" disabled={busy === "cancel"} onClick={() => call("cancel", base, { method: "DELETE" }, "Failed to cancel", () => setConfirmCancel(false))}>Yes, cancel</SvButton>
-                </div>
-              </div>
-            ) : (
-              <div className={rail.endRow}>
-                <p className={rail.endT}>Cancel the tournament</p>
-                <p className={rail.endN}>Cancelling removes the tournament for everyone. Nothing has been played yet.</p>
-                <div className={rail.endActs}><SvButton variant="danger" onClick={() => setConfirmCancel(true)}>Cancel the tournament</SvButton></div>
-              </div>
-            )}
+            <div className={rail.endRow}>
+              <p className={rail.endT}>Cancel tournament</p>
+              <p className={rail.endN}>Cancelling removes the tournament for everyone. Nothing has been played yet.</p>
+              <div className={rail.endActs}><SvButton variant="danger" onClick={() => setCancelOpen(true)}>Cancel tournament</SvButton></div>
+            </div>
+            <CancelTournamentDialog
+              open={cancelOpen}
+              target={{ name: tournament.name, status: tournament.status, participantCount: count, slug: tournamentSlug }}
+              onClose={() => setCancelOpen(false)}
+              onCancelled={onChanged}
+            />
           </section>
         )}
       </aside>

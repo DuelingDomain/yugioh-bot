@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fixtureUserId } from "../fixtures/identity";
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -78,7 +78,7 @@ describe("TournamentLobby", () => {
   it("hides Start and the danger zone from players", () => {
     show(three);
     expect(screen.queryByRole("button", { name: "Start the tournament" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Cancel the tournament" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel tournament" })).toBeNull();
   });
 
   it("shows deck state beside players for the organizer only", () => {
@@ -106,14 +106,30 @@ describe("TournamentLobby", () => {
     expect(screen.queryByRole("button", { name: /add a bot/i })).toBeNull();
   });
 
-  it("asks before cancelling, then deletes", async () => {
+  it("asks in a dialog before cancelling, then deletes", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ success: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const onChanged = vi.fn();
+    show(three, true, fixtureUserId("host"), onChanged);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel tournament" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog", { name: "Cancel Friday?" });
+    expect(dialog).toHaveTextContent("3 players who joined");
+    expect(dialog).toHaveTextContent("Nothing has been played yet");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Yes, cancel" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/slug1", { method: "DELETE" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it("keeps the tournament when the dialog is dismissed", async () => {
     const fetchMock = vi.fn(async () => Response.json({ success: true }));
     vi.stubGlobal("fetch", fetchMock);
     show(three, true, fixtureUserId("host"));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel the tournament" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel tournament" }));
+    const dialog = await screen.findByRole("dialog", { name: "Cancel Friday?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep tournament" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(fetchMock).not.toHaveBeenCalled();
-    fireEvent.click(await screen.findByRole("button", { name: /Yes, cancel/ }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/slug1", { method: "DELETE" }));
   });
 });
 

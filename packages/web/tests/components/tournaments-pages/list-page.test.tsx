@@ -137,8 +137,36 @@ describe("TournamentsPage", () => {
     expect(within(region).getAllByRole("link")).toHaveLength(7);
     expect(screen.queryByRole("button", { name: /show all/i })).toBeNull();
   });
+  it("shows Cancel tournament on the viewer's own running and open rows only, never on finished ones", async () => {
+    add("Mine running", "active", "2026-02-05 00:00:00", "mine-run");
+    add("Mine open", "pending", "2026-02-01 00:00:00", "mine-open");
+    add("Mine finished", "completed", "2026-01-01 00:00:00", "mine-fin");
+    render(await TournamentsPage());
+    expect(screen.getByRole("button", { name: "Cancel Mine running" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel Mine open" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel Mine finished" })).toBeNull();
+  });
+
+  it("shows no Cancel tournament control on another organizer's rows", async () => {
+    add("Mine open", "pending", "2026-02-01 00:00:00", "mine-open");
+    db.prepare("update tournaments set visibility = 'open'").run();
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("u2")), discordUserId: fixtureDiscordId("u2") } });
+    render(await TournamentsPage());
+    expect(screen.getByText("Mine open")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Cancel/ })).toBeNull();
+  });
+
+  it("drops a row from the list once its cancel went through", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: 1, status: "cancelled" })));
+    add("Mine open", "pending", "2026-02-01 00:00:00", "mine-open");
+    render(await TournamentsPage());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel Mine open" }));
+    const dialog = await screen.findByRole("dialog", { name: "Cancel Mine open?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Yes, cancel" }));
+    await waitFor(() => expect(screen.queryByText("Mine open")).toBeNull());
+  });
 });
 
-const FIXTURE_KEYS = ["u1"] as const;
+const FIXTURE_KEYS = ["u1", "u2"] as const;
 
 // Session resolution is mocked; authorization still runs through the real web boundary.

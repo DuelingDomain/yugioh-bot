@@ -1,7 +1,9 @@
+import { useState } from "react";
 import Link from "next/link";
 import { FloorRow, LiveDot, LocatorStrip, Mono, ringColour } from "@/components/sheet";
 import type { TournamentRounds } from "@/components/dashboard/tournament-rounds";
 import type { Participant } from "./types";
+import { CancelTournamentDialog } from "./cancel-tournament-dialog";
 import { TournamentRowAction } from "./tournament-row-actions";
 import {
   buildRoundStrip,
@@ -35,6 +37,10 @@ export interface TournamentRowProps {
   you?: boolean;
   /** Leads the row with the viewer's own ring (the dashboard does; the tournaments list does not). */
   showYou?: boolean;
+  /** Shows the organizer's Cancel control. The caller decides: only the creator gets it. */
+  canCancel?: boolean;
+  /** Runs after the server cancelled the tournament, so the list can drop the row. */
+  onCancelled?: (tournament: TournamentListItem) => void;
   className?: string;
 }
 
@@ -43,7 +49,8 @@ export interface TournamentRowProps {
  * a live round label, a strip of round slots, and the one duel action the viewer has.
  * Render inside a `SheetRoot`.
  */
-export function TournamentRow({ tournament, variant, rounds, viewerId = null, you: youProp, showYou = false, className }: TournamentRowProps) {
+export function TournamentRow({ tournament, variant, rounds, viewerId = null, you: youProp, showYou = false, canCancel = false, onCancelled, className }: TournamentRowProps) {
+  const [cancelOpen, setCancelOpen] = useState(false);
   const href = tournamentHref(tournament);
   const input = rounds ? { format: tournament.format, status: tournament.status, participants: rounds.participants, matches: rounds.matches } : null;
   const you = youProp ?? (viewerId !== null && !!rounds?.participants.some((p) => p.playerId === viewerId));
@@ -89,6 +96,19 @@ export function TournamentRow({ tournament, variant, rounds, viewerId = null, yo
           <span>{running ? playersLabel(tournament.participantCount) : `${tournament.participantCount} joined`}</span>
           {liveCount > 0 && <span>{liveCount === 1 ? "1 duel live" : `${liveCount} duels live`}</span>}
         </p>
+        {canCancel && tournament.webSlug && (
+          <button type="button" className={styles.cancelLink} aria-label={`Cancel ${tournament.name}`} aria-haspopup="dialog" onClick={() => setCancelOpen(true)}>
+            Cancel tournament
+          </button>
+        )}
+        {canCancel && tournament.webSlug && (
+          <CancelTournamentDialog
+            open={cancelOpen}
+            target={{ name: tournament.name, status: tournament.status, participantCount: tournament.participantCount, slug: tournament.webSlug }}
+            onClose={() => setCancelOpen(false)}
+            onCancelled={() => onCancelled?.(tournament)}
+          />
+        )}
       </div>
       {strip && strip.slots.length > 0 && (
         <div className={styles.strip}>

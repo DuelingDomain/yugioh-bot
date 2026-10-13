@@ -82,7 +82,7 @@ describe("TournamentDetailPage one sheet", () => {
     expect(within(decks).getByText("No deck yet")).toBeInTheDocument();
     expect(within(decks).getByText("You")).toBeInTheDocument();
     for (const player of sheetTournament.participants) expect(within(decks).getByRole("link", { name: player.displayName })).toHaveAttribute("href", `/player/${player.playerId}`);
-    expect(within(tools).getByText("End the tournament early")).toBeInTheDocument();
+    expect(within(tools).getByText("End now (keep results)")).toBeInTheDocument();
   });
 
   it("gives another viewer no host tools and no deck state", async () => {
@@ -90,7 +90,7 @@ describe("TournamentDetailPage one sheet", () => {
     render(<TournamentDetailPage />);
     await ready();
     expect(screen.queryByRole("button", { name: "Host tools" })).toBeNull();
-    expect(screen.queryByText("End the tournament early")).toBeNull();
+    expect(screen.queryByText("End now (keep results)")).toBeNull();
     expect(screen.queryByTestId("player-deck-marker-3")).toBeNull();
   });
 
@@ -129,19 +129,72 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.getByRole("region", { name: "Standings" })).toBeInTheDocument();
   });
 
-  it("cancels only after confirmation, then returns to the tournament list", async () => {
+  it("labels End now (keep results) and Cancel (no results) as two different actions", async () => {
+    setup();
+    render(<TournamentDetailPage />);
+    await ready();
+    const tools = await openHostTools();
+    expect(within(tools).getByText("End now (keep results)")).toBeInTheDocument();
+    expect(within(tools).getByText("Cancel (no results)")).toBeInTheDocument();
+  });
+
+  it("cancels only after the dialog is confirmed, then returns to the tournament list", async () => {
     const fetchMock = setup();
     render(<TournamentDetailPage />);
     await ready();
     const tools = await openHostTools();
-    fireEvent.click(within(tools).getByRole("button", { name: "Cancel the tournament" }));
+    fireEvent.click(within(tools).getByRole("button", { name: "Cancel tournament" }));
+    // The drawer closes and the cancel dialog opens on its own, outside the drawer.
+    const dialog = await screen.findByRole("dialog", { name: `Cancel ${sheetTournament.name}?` });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Host tools" })).toBeNull());
+    expect(dialog).toHaveTextContent("Live games in progress keep running, but their results do not count for the tournament.");
+    expect(dialog).toHaveTextContent("Results already confirmed stay");
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Yes, cancel" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Yes, cancel" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(SLUG, { method: "DELETE" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/tournaments"));
   });
 
-  it("going back from a confirm changes nothing", async () => {
+  it("shows a failed cancel in the dialog and stays on the page", async () => {
+    const fetchMock = setup();
+    fetchMock.mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url) === "/api/auth/session") return Response.json({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host") } });
+      if (String(url) === "/api/leaderboard?scope=all") return Response.json({ rows: sheetRatings });
+      if (init?.method === "DELETE") return Response.json({ error: "Tournament is already completed" }, { status: 409 });
+      if (String(url) === SLUG) return Response.json(sheetTournament);
+      return Response.json({});
+    });
+    render(<TournamentDetailPage />);
+    await ready();
+    const tools = await openHostTools();
+    fireEvent.click(within(tools).getByRole("button", { name: "Cancel tournament" }));
+    const dialog = await screen.findByRole("dialog", { name: `Cancel ${sheetTournament.name}?` });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Yes, cancel" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Tournament is already completed");
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("closes the cancel dialog with Escape without cancelling", async () => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    await ready();
+    const tools = await openHostTools();
+    fireEvent.click(within(tools).getByRole("button", { name: "Cancel tournament" }));
+    await screen.findByRole("dialog", { name: `Cancel ${sheetTournament.name}?` });
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(0);
+  });
+
+  it("gives another viewer no cancel button or dialog", async () => {
+    setup({ ...sheetTournament, createdByUserId: fixtureUserId("somebody-else") }, "spectator");
+    render(<TournamentDetailPage />);
+    await ready();
+    expect(screen.queryByRole("button", { name: /Cancel/ })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("going back from the end-now confirm changes nothing", async () => {
     const fetchMock = setup();
     render(<TournamentDetailPage />);
     await ready();
@@ -192,7 +245,7 @@ describe("TournamentDetailPage one sheet", () => {
     render(<TournamentDetailPage />);
     const tools = await openHostTools();
     expect(within(tools).getAllByRole("button", { name: /Reopen/ }).length).toBeGreaterThan(0);
-    expect(within(tools).queryByText("End the tournament early")).toBeNull();
+    expect(within(tools).queryByText("End now (keep results)")).toBeNull();
     expect(within(tools).queryByRole("region", { name: "Ending early" })).toBeNull();
   });
 
