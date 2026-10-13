@@ -314,7 +314,7 @@ function loadCatalog(dataDirectory: string): Catalog {
   try {
     const rows = db
       .prepare(
-        "SELECT datas.id, datas.ot, datas.alias, datas.setcode, datas.type, datas.race, datas.attribute, texts.name, texts.desc FROM datas JOIN texts USING (id)",
+        "SELECT datas.id, datas.ot, datas.alias, datas.setcode, datas.type, datas.race, datas.attribute, texts.name, texts.desc FROM datas LEFT JOIN texts USING (id)",
       )
       .all() as Array<{
       id: bigint;
@@ -464,7 +464,13 @@ export function validateExtraDeckTypes(deck: DuelDeck, dataDirectory: string, fa
     fail("Extra Deck must be a list of valid card codes");
   }
   try {
-    assertExtraDeckCards(deck, code => readCard(catalog, remaps.get(code) ?? code) ?? fallback?.(code));
+    assertExtraDeckCards(deck, code => {
+      const resolved = remaps.get(code) ?? code;
+      const card = readCard(catalog, resolved);
+      if (card?.name.trim()) return card;
+      const known = fallback?.(resolved) ?? fallback?.(code);
+      return card ? { ...card, name: known?.name } : known;
+    });
   } catch (error) {
     if (error instanceof SharedExtraDeckCardError) throw new ExtraDeckCardError(error);
     throw error;

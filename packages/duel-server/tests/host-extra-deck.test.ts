@@ -23,6 +23,12 @@ beforeAll(() => {
     { code: 903, name: "Test Fusion", type: 0x41 }, { code: 904, name: "Test Pendulum", type: 0x1000021 },
     { code: 905, name: "Test Ritual", type: 0xa1 }, { code: 906, name: "Test Token", type: 0x4001 },
     { code: 907, name: "Test Main", type: 0x11 }, { code: 908, name: "Test Skill", type: 0x8000000 },
+    { code: 777, name: "", type: 0x2 },
+    { code: 12381100, name: "Dragon Master Magia", type: 97 },
+    { code: 43321985, name: "Ancient Fairy Life Dragon", type: 8225 },
+    { code: 1546123, name: "Cyber End Dragon", type: 97 },
+    { code: 1546124, name: "Cyber End Dragon", type: 97, alias: 1546123 },
+    { code: 100459004, name: "Blue-Eyes Ultimate Dragon, the God-Surpassing Servant", type: 97 },
   ]);
 });
 afterAll(() => rmSync(dataDirectory, { recursive: true, force: true }));
@@ -62,6 +68,26 @@ async function blockedRoom(owner: number) {
   return session;
 }
 describe("duel Extra Deck safety with competitive checks off", () => {
+  it("uses the catalog name for an engine card that has no text on Start", async () => {
+    db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (777,'Known Spell','Fusion Monster','fusion','','','[]','test')");
+    const session = room();
+    const opponent = seedIdentity(db, { name: "Fixture opponent" }).playerId;
+    duels.takeSeat(session.slug, "g", opponent);
+    duels.setDeck(session.slug, "g", opponent, deck(903));
+    duels.setDeck(session.slug, "g", playerId, deck(777));
+    const response = await post({ op: "start", slug: session.slug });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Known Spell") });
+  });
+  it.each([12381100, 1546124, 100459004])("accepts engine-only Fusion/artwork/pre-release card %s on submit and Ready", async code => {
+    const session = room();
+    const selected = { ...deck(code), extra: [code, 43321985] };
+    expect(() => validateExtraDeckTypes(selected, dataDirectory)).not.toThrow();
+    expect((await post({ op: "deck", slug: session.slug, deck: selected })).status).toBe(200);
+    expect((await post({ op: "ready", slug: session.slug })).status).toBe(200);
+    expect(duels.room(session.slug, "g", playerId).myDeck?.extra).toEqual(selected.extra);
+    expect(db.prepare("select name from card_catalog where ygoprodeck_id=?").get(code)).toBeUndefined();
+  });
   it("expires a casual deck block in the sweep without another room read", async () => {
     await sweepHost();
     const owner = seedIdentity(db, { name: "Fixture deck owner" }).playerId;

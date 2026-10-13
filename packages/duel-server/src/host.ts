@@ -12,7 +12,7 @@ import type Database from "better-sqlite3";
 import { assertDuelForkAccess, assertOwnerReplaySourceAccess, assertReplayForkAccess, resolveOwnerPlayer, ReplayAccessError } from "@yugidraft/shared/access/owner-access";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
 import { createGithubCardDataStatus } from "./github-card-data-status.js";
-import { CARD_LOOKUP_LIMIT, createCardLookupBudget, loadArtworkIdentityCatalog, createDeckCopyRepairService, findDuelEventTarget, createDuelSeriesService, createDuelService, createReplayForkService, createTournamentDuelService, ReplayForkStorageError, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots, type DuelPrivateState } from "@yugidraft/shared/services";
+import { CARD_LOOKUP_LIMIT, createCardLookupBudget, loadArtworkIdentityCatalog, createDeckCopyRepairService, findDuelEventTarget, createDuelSeriesService, createDeckTypeLookup, createDuelService, createReplayForkService, createTournamentDuelService, ReplayForkStorageError, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots, type DuelPrivateState } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCommand,
@@ -478,9 +478,11 @@ export function createDuelHost(options: {
     return admissionEntries(body.mode === "domain" ? "domain" : "normal", body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1");
   }
 
+  const findDeckType = createDeckTypeLookup(options.db, () => loadArtworkIdentityCatalog(options.dataDirectory));
+
   async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
     const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format, cardBlocks: admissionEntries(mode, format) };
-    validateExtraDeckTypes(deck, options.dataDirectory);
+    validateExtraDeckTypes(deck, options.dataDirectory, findDeckType);
     validateDeck(mode, deck, options.dataDirectory, settings, checks);
   }
 
@@ -3057,7 +3059,7 @@ export function createDuelHost(options: {
         return { series: cleared.series, nextSlug: null };
       }
       const sideDeck = series.sideState(seriesId, guildId, actor).currentDeck;
-      validateExtraDeckTypes(sideDeck, options.dataDirectory);
+      validateExtraDeckTypes(sideDeck, options.dataDirectory, findDeckType);
       if (room.session.mode === "domain") {
         await validateDeckMasterWrite(room.session.mode, sideDeck);
       }
@@ -3078,7 +3080,7 @@ export function createDuelHost(options: {
     if (op === "ready") {
       if (room.session.status !== "lobby") throw new RequestError("Decks are locked after the duel starts", 409);
       if (room.myDeck) {
-        validateExtraDeckTypes(room.myDeck, options.dataDirectory);
+        validateExtraDeckTypes(room.myDeck, options.dataDirectory, findDeckType);
         await validateDeckMasterWrite(room.session.mode, room.myDeck);
       }
       const session = service.markReady(slug, guildId, actor);
