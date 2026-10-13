@@ -14,7 +14,7 @@ import { GET as start } from "../app/api/auth/existing-player/start/route";
 import { GET as callback } from "../app/api/auth/callback/discord/route";
 import { POST as complete } from "../app/api/auth/existing-player/complete/route";
 import { POST as ticket } from "../app/api/auth/existing-player/ticket/route";
-import { IDENTITY_COOKIE, OAUTH_COOKIE, TICKET_COOKIE, readIdentity, sealCookie, openCookie } from "../src/lib/existing-player";
+import { IDENTITY_COOKIE, OAUTH_COOKIE, TICKET_COOKIE, readIdentity, sealCookie, openCookie, signInRecovery } from "../src/lib/existing-player";
 import { syncClerkUser } from "../src/lib/clerk-sync";
 
 const ORIGIN = "https://app.test";
@@ -234,6 +234,27 @@ describe("Discord recovery callback", () => {
     expect(mock.token).not.toHaveBeenCalled();
     expect(await res.text()).not.toContain("private provider failure"); expectCleared(res);
   });
+  it.each([null, "900000000000000999"])("refuses recovery after the linked Discord ID changes to %s", async current => {
+    createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
+    mock.get.mockImplementation(async (id: string) => {
+      mock.db.prepare("update users set discord_user_id=? where id=?").run(current, player.id);
+      return clerkUser(id);
+    });
+    const res = await verifiedCallback();
+    expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_support`);
+    expect(mock.token).not.toHaveBeenCalled();
+    expect(mock.metadata).not.toHaveBeenCalled();
+  });
+
+  it("refuses a ticket for a Clerk row without a currently linked Discord ID", async () => {
+    createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
+    mock.db.prepare("update users set discord_user_id=null where id=?").run(player.id);
+    const res = await signInRecovery(request("/api/auth/callback/discord"), "user_stored", discordId);
+    expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_support`);
+    expect(mock.token).not.toHaveBeenCalled();
+    expect(mock.metadata).not.toHaveBeenCalled();
+  });
+
   it("handles Discord provider failure without exposing upstream credentials", async () => {
     const p = await proof(); fetcher.mockRejectedValue(new Error("sensitive provider error"));
     const res = await callback(request(`/api/auth/callback/discord?state=${p.state}&code=x`, { cookie: p.cookie }));
@@ -282,6 +303,16 @@ describe("recovery completion", () => {
     res = await complete(request("/api/auth/existing-player/complete", { method: "POST", cookie, body: { consent: true } }));
     expect(res.status).toBe(409); expect(mock.create).not.toHaveBeenCalled();
   });
+  it("refuses completion proof for a different currently linked Discord ID", async () => {
+    const cookie = completionCookie();
+    mock.db.prepare("update users set discord_user_id='900000000000000999' where id=?").run(player.id);
+    const res = await complete(request("/api/auth/existing-player/complete", { method: "POST", cookie, body: { consent: true } }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain("support@duelingdomain.com");
+    expect(mock.create).not.toHaveBeenCalled();
+    expect(mock.token).not.toHaveBeenCalled();
+  });
+
   it("refuses an email-only Clerk match with a support error", async () => {
     mock.list.mockResolvedValue({ data: [{ id: "user_other" }], totalCount: 1 });
     const res = await complete(request("/api/auth/existing-player/complete", { method: "POST", cookie: completionCookie(), body: { consent: true } }));

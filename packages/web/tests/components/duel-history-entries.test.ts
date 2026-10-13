@@ -11,6 +11,7 @@ import {
 } from "../../src/components/duel/history-entries";
 
 const MZONE = 0x04;
+const SZONE = 0x08;
 const HAND = 0x02;
 const GRAVE = 0x10;
 const REMOVED = 0x20;
@@ -94,6 +95,16 @@ describe("history entries: icon kinds and cards", () => {
       { label: "Negated", tone: "loss" },
     ]);
     expect(first?.sentence).toContain("Chain link 1 of 2");
+  });
+
+  it("credits the activator of another player's card in history", () => {
+    const [entry] = entries([
+      { id: 1, kind: "activate", seat: 0, card: info(80921533, "Mausoleum of the Emperor"),
+        chainIndex: 1, zone: zone(1, SZONE, 5), text: "Mausoleum of the Emperor is activating" },
+    ]);
+    expect(entry.side).toBe("you");
+    expect(entry.sentence).toContain("You activated Mausoleum of the Emperor.");
+    expect(entry.sentence).not.toContain("Rival activated");
   });
 
   it("maps a lone activation, destroy, damage and cost rows", () => {

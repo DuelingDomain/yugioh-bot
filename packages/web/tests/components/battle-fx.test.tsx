@@ -652,9 +652,10 @@ describe("BattleFx", () => {
   });
 
   it("does not replay events that were already in the first snapshot", () => {
-    render(<BattleFx events={[phase, attack]} reducedMotion={false} />);
+    render(<BattleFx events={[phase, attack, hurt]} reducedMotion={false} />);
     act(() => undefined);
     expect(layerPaths()).toHaveLength(0);
+    expect(playLayer()).toBeNull();
   });
 
   const cutRoles = () => Array.from(document.body.querySelectorAll("[data-role]")).map((el) => el.getAttribute("data-role"));
@@ -871,13 +872,14 @@ describe("BattleFx resolution", () => {
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       const zone = this.closest("[data-zones]")?.getAttribute("data-zones");
       const lp = this.closest("[data-lp-seat]")?.getAttribute("data-lp-seat");
-      const box = zone ? boxes[zone] : lp ? boxes[`lp${lp}`] : undefined;
+      const box = zone ? boxes[zone] : lp ? boxes[`lp${lp}`] : this.closest("[data-prompt-panel], [data-seat-switcher]") ? boxes.obstacle : undefined;
       return (box ?? { left: 0, top: 0, width: 0, height: 0 }) as DOMRect;
     });
   });
   afterEach(() => {
     vi.restoreAllMocks();
     board.remove();
+    delete boxes.obstacle;
   });
 
   const phase: DuelEvent = { id: 1, kind: "phase", text: "battle" };
@@ -948,6 +950,71 @@ describe("BattleFx resolution", () => {
       boxes["1:4:0"] = original;
       setSharedFx3d(null);
     }
+  });
+
+  it("rebuilds the marker of an attack that is still open when the page opens, with no animation", () => {
+    render(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
+    act(() => undefined);
+    expect(markerOf()?.getAttribute("data-aim")).toBe("locked");
+    expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Player 1 attacks Player 2");
+    expect(playLayer()).toBeNull();
+    expect(takeLpHold(1)).toBe(0);
+    expect(battleDestroyAt({ controller: 1, location: 4, sequence: 0 })).toBe(0);
+  });
+
+  it("keeps the marker through a response window and drops it when the attack ends", () => {
+    const { rerender } = render(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
+    rerender(<BattleFx events={[phase, attack, activate]} reducedMotion={false} seats={seats()} />);
+    expect(markerOf()?.getAttribute("data-aim")).toBe("locked");
+    const negated: DuelEvent = { id: 4, kind: "attack-negated", text: "" };
+    rerender(<BattleFx events={[phase, attack, activate, negated]} reducedMotion={false} seats={seats()} />);
+    expect(markerOf()).toBeNull();
+  });
+
+  it("recovers an unresolved marker when the layer resumes after consuming events while inactive", () => {
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats()} active={false} />);
+    rerender(<BattleFx events={[phase, attack, activate]} reducedMotion={false} seats={seats()} active={false} />);
+    expect(markerOf()).toBeNull();
+    rerender(<BattleFx events={[phase, attack, activate]} reducedMotion={false} seats={seats()} />);
+    expect(markerOf()?.getAttribute("data-aim")).toBe("locked");
+    expect(document.querySelector("[data-attack-caption]")?.textContent).toBe("Player 1 attacks Player 2");
+    expect(playLayer()).toBeNull();
+    expect(takeLpHold(1)).toBe(0);
+  });
+
+  it("shows no marker for an attack that resolved before the page opened", () => {
+    render(<BattleFx events={[phase, attack, damage(3, 1, 800)]} reducedMotion={false} seats={seats()} />);
+    act(() => undefined);
+    expect(markerOf()).toBeNull();
+  });
+
+  it("shows no marker for an attack frozen by a terminal result (surrender or timeout in a response window)", () => {
+    render(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} result={{ winnerSeat: 1, reason: "surrender" }} />);
+    act(() => undefined);
+    expect(markerOf()).toBeNull();
+  });
+
+  it.each(["data-prompt-panel", "data-seat-switcher"])("moves the caption off %s that mounts after the marker", async (attribute) => {
+    render(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
+    const frame = () => act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
+    await frame();
+    const caption = () => document.querySelector<HTMLElement>("[data-attack-caption]")!;
+    const spot = { left: Number.parseFloat(caption().style.left), top: Number.parseFloat(caption().style.top) };
+    // A HUD surface appears later, right on the caption.
+    boxes.obstacle = { left: spot.left - 200, top: spot.top - 60, width: 400, height: 120 } as DOMRect;
+    const panel = document.createElement("div");
+    panel.setAttribute(attribute, "");
+    board.appendChild(panel);
+    await frame();
+    await frame();
+    const moved = { left: Number.parseFloat(caption().style.left), top: Number.parseFloat(caption().style.top) };
+    expect(moved).not.toEqual(spot);
+  });
+
+  it("shows no marker while the layer is off", () => {
+    render(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} active={false} />);
+    act(() => undefined);
+    expect(markerOf()).toBeNull();
   });
 
   it("plays the whole animation when the battle resolves in a later snapshot, then drops the marker", () => {

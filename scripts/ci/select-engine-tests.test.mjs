@@ -104,8 +104,8 @@ test("only PRs confined to tests get a narrow selection; source/patch/script cha
   for (const event of ["pull_request", "push"]) assert.deepEqual(changedLayers(null, event), { engine: true, golden: true, tests_only: false });
   assert.deepEqual(changedLayers([prefix + "one.test.ts"], "push"), { engine: true, golden: false, tests_only: false });
   for (const event of ["pull_request", "push"]) {
-    assert.deepEqual(changedLayers(["docs/readme.md"], event), { engine: false, golden: false, tests_only: false });
-    assert.deepEqual(changedLayers(["packages/web/tests/duel.test.ts"], event), { engine: false, golden: false, tests_only: false });
+    assert.deepEqual(changedLayers(["docs/readme.md"], event), { engine: event === "push", golden: false, tests_only: false });
+    assert.deepEqual(changedLayers(["packages/web/tests/duel.test.ts"], event), { engine: event === "push", golden: false, tests_only: false });
     for (const file of ["packages/e2e/src/run.ts", "patches/ocgcore-wasm+0.1.2.patch", "package-lock.json", "docs/adr/0002-multiplayer-duel-rules.md"]) {
       assert.equal(changedLayers(["packages/web/src/app/page.tsx", file], event).engine, true, file);
     }
@@ -122,7 +122,7 @@ test("PR selection retains main's reviewed non-engine paths; web-only changes sk
   }
   assert.equal(changedLayers(["packages/shared/src/services/duels.ts"], "pull_request").engine, true);
   assert.equal(changedLayers(["packages/shared/src/services/unknown.ts"], "pull_request").engine, true);
-  assert.equal(changedLayers(["packages/shared/src/services/cubes.ts"], "push").engine, false);
+  assert.equal(changedLayers(["packages/shared/src/services/cubes.ts"], "push").engine, true);
   assert.equal(changedLayers(["packages/shared/src/services/duels.ts"], "push").engine, true);
 });
 

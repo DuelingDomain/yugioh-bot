@@ -4,7 +4,7 @@ import type { Card } from "../types/index.js";
 import { foldCardText } from "../duels/card-query.js";
 import { canonicalCardCode, type CardIdentityCatalog } from "../duels/pool.js";
 import { loadArtworkIdentityCatalog, mainArtworkId, type CardArtwork } from "./card-artworks.js";
-import { CardDataError, CardFetchError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
+import { CardDataError, CardFetchError, CardFetchLimitError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
 import { createCardLookupBudget, takeCardLookup, type CardLookupBudget } from "./card-lookup-budget.js";
 import { createImportedCardNameMatcher, normalizeImportedCardName, straightenCardQuotes } from "./card-name-match.js";
 
@@ -83,7 +83,7 @@ function normalizeName(name: string) {
 }
 
 function isTransientFetchFailure(error: unknown): error is CardFetchError {
-  return isCardFetchError(error) && (error.status == null || error.status === 429 || (error.status >= 500 && error.status < 600));
+  return isCardFetchError(error) && !(error instanceof CardFetchLimitError) && (error.status == null || error.status === 429 || (error.status >= 500 && error.status < 600));
 }
 
 /**
@@ -138,7 +138,7 @@ function mapCard(row: any): CardCatalogCard {
 
 export function createCardCatalogService(
   db: Database.Database,
-  options: { fetch?: FetchLike; identityCatalog?: CardIdentityCatalog } = {},
+  options: { fetch?: FetchLike; identityCatalog?: CardIdentityCatalog; memberId?: number } = {},
 ) {
   const fetchImpl = options.fetch ?? globalThis.fetch;
   let identity = options.identityCatalog;
@@ -192,7 +192,7 @@ export function createCardCatalogService(
         throw new CardDataError();
       }
       return payload.data;
-    }, [400]);
+    }, [400], options.memberId);
   };
 
   const fetchCards = (searchParam: "cardset" | "id" | "name" | "fname", value: string, lookupBudget?: CardLookupBudget) =>
@@ -225,9 +225,9 @@ export function createCardCatalogService(
     }
     return enriched;
   };
-  const fetchArtworkFamily = async (id: number, lookupBudget?: CardLookupBudget) => {
+  const fetchArtworkFamily = async (id: number, lookupBudget?: CardLookupBudget, enrichArtwork = true) => {
     const cards = await fetchCardsWith({ id: String(id) }, lookupBudget);
-    if (cards.length > 0) return enrichArtworkFamilies(cards);
+    if (cards.length > 0) return enrichArtwork ? enrichArtworkFamilies(cards) : cards;
     // Engine-only IDs can have images but no API ID result. Use their validated
     // original's printed name only after the ID endpoint reports no match.
     const engine = engineIdentity();
@@ -537,14 +537,14 @@ export function createCardCatalogService(
       };
     },
 
-    async syncCardById(id: number, options: { lookupBudget?: CardLookupBudget } = {}): Promise<CardCatalogCard | undefined> {
+    async syncCardById(id: number, options: { lookupBudget?: CardLookupBudget; enrichArtwork?: boolean } = {}): Promise<CardCatalogCard | undefined> {
       ensureLegacyEngineArtwork(id);
       if (hasCatalogRow(id)) {
         ensureEngineArtwork(id);
         return findByIds([id])[0];
       }
       let cards: YgoprodeckCard[];
-      try { cards = await fetchArtworkFamily(id, options.lookupBudget); }
+      try { cards = await fetchArtworkFamily(id, options.lookupBudget, options.enrichArtwork); }
       catch (error) {
         // A card with invalid data is unknown, not a lost connection: the caller reports it and goes on.
         if (error instanceof CardDataError) return findByIds([id])[0];
@@ -578,6 +578,7 @@ export function createCardCatalogService(
         let cards: YgoprodeckCard[];
         try { cards = await fetchCardsWith({ id: missing.slice(offset, offset + 20).join(",") }, options.lookupBudget); }
         catch (error) {
+          if (error instanceof CardFetchLimitError) throw error;
           // Stop on a rate limit, a server error or no network. A bad card in one batch must not stop the rest.
           if (isTransientFetchFailure(error) && !(error instanceof CardDataError)) return;
           continue;
@@ -745,7 +746,7 @@ export function createCardCatalogService(
           const data = await response.json() as YgoprodeckSetInfo[];
           if (!Array.isArray(data) || data.some((set) => typeof set.set_name !== "string" || typeof set.set_code !== "string" || !Number.isFinite(set.num_of_cards))) throw new Error("Invalid sets");
           return data;
-        });
+        }, [], options.memberId);
       } catch (error) {
         if (!isTransientFetchFailure(error)) throw error;
         const rows = db.prepare("select set_name from card_sets order by set_name").all() as Array<{ set_name: string }>;
@@ -782,7 +783,7 @@ export function createCardCatalogService(
           const data = await response.json() as Array<{ archetype_name: string }>;
           if (!Array.isArray(data) || data.some((item) => typeof item.archetype_name !== "string")) throw new Error("Invalid archetypes");
           return data;
-        });
+        }, [], options.memberId);
         const syncedAt = new Date().toISOString();
         const insert = db.prepare(
           "insert or replace into archetypes (name, synced_at) values (?, ?)",

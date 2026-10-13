@@ -661,24 +661,36 @@ describe("Extra Deck rule: the server refuses a bad Extra card", () => {
 describe("Extra Deck rule: the import panel messages", () => {
   function importer(messages: string[]): DeckImporter {
     return {
-      mode: "normal",
+      tab: "files",
+      setTab: vi.fn(),
+      mode: "standard",
       setMode: vi.fn(),
-      importFiles: vi.fn(),
-      clearFinished: vi.fn(),
-      rows: [{ key: 1, fileName: "goat.ydk", state: "saved", messages, deck: { ...savedDeck({ main: [POT.code] }), id: 9, name: "goat" } }],
+      view: { phase: "preview", maxDecks: 50, outcome: null, items: [{
+        name: "goat", selected: true, mode: "standard", failure: null,
+        row: {
+          rowId: "goat#0", sourceId: "goat", name: "goat", mode: "standard",
+          deck: { main: [POT.code], extra: [], side: [], deckMaster: null },
+          counts: { main: 1, extra: 0, side: 0 }, errors: [],
+          warnings: messages.map(message => ({ code: "section_moved", message })),
+        },
+      }] },
+      error: null, notes: [], heldCount: 0, cards: new Map([[POT.code, POT]]),
+      previewFiles: vi.fn(), previewPaste: vi.fn(), retryHeld: vi.fn(), dropHeld: vi.fn(),
+      recheck: vi.fn(), rename: vi.fn(), toggle: vi.fn(), toggleAll: vi.fn(), importSelected: vi.fn(), reset: vi.fn(),
     };
   }
 
-  it("shows each server move message once under the saved deck", () => {
+  it("shows each server move message once in the import preview", () => {
     const messages = ["2 cards moved from Extra Deck to Main Deck: A, B.", "1 card moved from Main Deck to Extra Deck: C."];
     render(<DeckImportPanel importer={importer(messages)} dragging={false} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "2 warnings" }));
     for (const message of messages) expect(screen.getAllByText(message)).toHaveLength(1);
-    expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/decks/9");
+    expect(screen.getByRole("button", { name: "Import 1 deck" })).toBeEnabled();
   });
 
   it("shows no message when nothing moved", () => {
     render(<DeckImportPanel importer={importer([])} dragging={false} onClose={vi.fn()} />);
-    expect(screen.getByText(/Saved as goat/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Deck name for goat" })).toHaveValue("goat");
     expect(screen.queryByText(/moved from/)).toBeNull();
   });
 });
