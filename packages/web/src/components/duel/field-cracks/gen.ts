@@ -537,7 +537,7 @@ export function chunkPath(chunks: readonly CrackChunk[], stage: number): string 
 
 /** A CSS mask-image url that is opaque everywhere except the chunks of stages <= stage. The svg viewBox is the
     element box (0..1) with 1.5 units of slack on each side, so shadows and glows outside the mat keep drawing
-    (pair it with mask-size 400% and mask-position 33.333%, see field-cracks.module.css). */
+    (pair it with mask-size 400% and mask-position 50%, see mask.ts). */
 export function maskImageUrl(field: CrackField, stage: number): string | undefined {
   const holes = chunkPath(field.chunks, stage);
   if (!holes) return undefined;
@@ -546,5 +546,28 @@ export function maskImageUrl(field: CrackField, stage: number): string | undefin
     `<svg xmlns='http://www.w3.org/2000/svg' viewBox='-1.5 -1.5 4 4' preserveAspectRatio='none'>` +
     `<g transform='scale(${(1 / cw).toFixed(6)} ${(1 / ch).toFixed(6)})'>` +
     `<path fill='black' fill-rule='evenodd' d='M${-1.5 * cw} ${-1.5 * ch}H${2.5 * cw}V${2.5 * ch}H${-1.5 * cw}Z ${holes}'/></g></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
+/** Chunks of one generated field, placed on a larger element: a ref point (x, y) lands at (ox + x * k, oy + y * k). */
+export interface MaskPart {
+  chunks: readonly CrackChunk[];
+  ox: number;
+  oy: number;
+  k: number;
+  /** Vertical scale when it differs from k (default k). */
+  ky?: number;
+}
+
+/** Like maskImageUrl, for an element of w x h px that holds one or more fields (1v1 has two halves on one mat). */
+export function maskImageOf(w: number, h: number, parts: readonly MaskPart[]): string | undefined {
+  const holes = parts
+    .flatMap((part) => part.chunks.map((c) => "M" + c.poly.map((p) => `${f1(part.ox + p[0] * part.k)} ${f1(part.oy + p[1] * (part.ky ?? part.k))}`).join("L") + "Z"))
+    .join(" ");
+  if (!holes || !(w > 0) || !(h > 0)) return undefined;
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='-1.5 -1.5 4 4' preserveAspectRatio='none'>` +
+    `<g transform='scale(${(1 / w).toFixed(6)} ${(1 / h).toFixed(6)})'>` +
+    `<path fill='black' fill-rule='evenodd' d='M${-1.5 * w} ${-1.5 * h}H${2.5 * w}V${2.5 * h}H${-1.5 * w}Z ${holes}'/></g></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
