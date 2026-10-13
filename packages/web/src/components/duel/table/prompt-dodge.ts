@@ -5,23 +5,31 @@ import { hits, type Rect } from "./rect-util";
 
 /** The air kept between a prompt and the HUD it steps aside from (px). */
 const DODGE_AIR = 12;
-/** The furthest a prompt leaves the middle row for the HUD (px): a panel that needs more stays in the middle and covers it. */
+/** The furthest a prompt leaves the middle row for the HUD (px) at unit 1: a panel that needs more stays in the middle and covers it. */
 export const DODGE_MAX = 96;
+
+/**
+ * The size unit of the prompt panel on this screen, as the dense CSS states it: clamp(1px, 0.0625vw, 1.4px) (the board's own unit is never
+ * below 1, and the panel grows with the screen, so a 1440p panel is about 1.4 times the 1080p one).
+ */
+export function dodgeUnit(viewportWidth: number): number {
+  return Math.min(1.4, Math.max(1, viewportWidth * 0.000625));
+}
 
 /**
  * How far (px, positive = down) a prompt that is centred on the screen moves up or down to clear the HUD it would cover (the chips of the
  * phase hub). `panel` is the prompt at no shift. It never moves sideways: the prompt stays centred across the table. The shift is the
- * shortest one that clears every block it touches, keeps the panel inside the box and is at most DODGE_MAX; 0 when it touches none, or
+ * shortest one that clears every block it touches, keeps the panel inside the box and is at most DODGE_MAX times `unit` (the panel is bigger on a big screen, so it may go further); 0 when it touches none, or
  * when no such shift exists (the prompt then stays in the middle and covers the hub, which takes no click during a prompt).
  */
-export function dodgeShift(panel: Rect, blocks: readonly Rect[], box: { width: number; height: number }, edge: number = DODGE_AIR): number {
+export function dodgeShift(panel: Rect, blocks: readonly Rect[], box: { width: number; height: number }, edge: number = DODGE_AIR, unit: number = 1): number {
   const touched = blocks.filter((block) => block.width > 1 && block.height > 1 && hits(panel, block));
   if (touched.length === 0) return 0;
   const inside = (shift: number) => panel.y + shift >= edge && panel.y + shift + panel.height <= box.height - edge;
   const clear = (shift: number) => blocks.every((block) => !hits({ ...panel, y: panel.y + shift }, block));
   const candidates = touched
     .flatMap((block) => [block.y + block.height + DODGE_AIR - panel.y, block.y - DODGE_AIR - panel.height - panel.y])
-    .filter((shift) => Math.abs(shift) <= DODGE_MAX && inside(shift) && clear(shift))
+    .filter((shift) => Math.abs(shift) <= DODGE_MAX * unit && inside(shift) && clear(shift))
     .sort((a, b) => Math.abs(a) - Math.abs(b));
   return candidates.length > 0 ? Math.round(candidates[0]) : 0;
 }
@@ -60,7 +68,7 @@ export function usePromptDodge(rootRef: RefObject<HTMLElement | null>, slotRef: 
         .map((node) => node.getBoundingClientRect())
         .filter((r) => r.width > 1 && r.height > 1)
         .map((r) => ({ x: r.left - board.left, y: r.top - board.top, width: r.width, height: r.height }));
-      const next = dodgeShift(rect, blocks, { width: board.width, height: board.height });
+      const next = dodgeShift(rect, blocks, { width: board.width, height: board.height }, DODGE_AIR, dodgeUnit(window.innerWidth));
       if (next === applied.current) return;
       applied.current = next;
       setShift(next);

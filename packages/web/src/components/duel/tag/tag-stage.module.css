@@ -1416,6 +1416,21 @@ button.bpill[data-targets="true"] { border-color: rgb(240 192 96 / 0.85); }
 }
 
 /*
+ * Every prompt panel but the card strip (it has its own measured room, below) grows with the screen, as in the 3-way and 4-way tables: the unit is
+ * 1px on a laptop and up to 1.4px on a 1440p screen, so the type and the card art are larger (the card art is about 90 px high at 1080p). The
+ * viewport is fixed to the screen, so a camera move never scales it. The width of the panel keeps its own rule.
+ */
+.viewport :global([data-prompt-panel]:not([data-strip="true"])) {
+  --duel-unit: clamp(1px, 0.0625vw, 1.4px);
+  --duel-t-xs: calc(max(13px, calc(12 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-sm: calc(max(14px, calc(13 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-body: calc(max(15px, calc(14 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-head: calc(max(16px, calc(16 * var(--duel-unit))) * var(--tt, 1));
+  --pc-title: calc(clamp(19px, calc(19 * var(--duel-unit)), 28px) * var(--tt, 1));
+  --pc-sub: calc(clamp(15px, calc(15 * var(--duel-unit)), 21px) * var(--tt, 1));
+}
+
+/*
  * A chain response whose options are all cards ("You can respond") has a room of its own (strip-room.ts, published as --sr-*): large cards,
  * wholly inside the viewport, off the plates and the hub. It scrolls inside the panel when the cards do not fit. The tripled attribute outranks
  * the panel's own rules. The room is measured at rest (use-strip-room.ts): the panel waits, hidden, so it never shows at the wrong place first.

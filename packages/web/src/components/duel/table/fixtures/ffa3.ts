@@ -1,4 +1,4 @@
-import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
+import type { DuelCardInfo, DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { ev, MZ, SZ } from "../../fx-lab/board";
 import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
 import {
@@ -306,6 +306,18 @@ const extra = {
   "respond-10": respondState(10),
   "respond-14": respondState(14),
   "respond-long-5": respondState(5, true),
+  // The Deck Master recall question: a long title, the Optional badge, the card art, the recall text and Yes / No.
+  "recall-yesno": make("recall-yesno" as TableStateId, "Deck Master recall: yes or no", {
+    prompt: () => ({
+      id: "recall-yesno",
+      seat: REN,
+      kind: "choice",
+      title: "Return Sage with Eyes of Blue to the Deck Master zone?",
+      context: { type: "deck-master-recall", card: C.blueEyes as unknown as DuelCardInfo, returns: 1, nextCost: 1000 },
+      cancelable: true,
+      options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }],
+    }),
+  }),
   // A field-select bar over cards in your hand and on your field (the Banish cost of a summon).
   "banish-pick": make("banish-pick" as TableStateId, "Banish: select a card", { prompt: banishPrompt("banish-pick") }),
   // The same pick while a chain is open: the chain tower stands at the side of the board.
