@@ -80,7 +80,9 @@ describe("grid prompt placement", () => {
 
   it("centres on the whole board, not on the home pair, and never on the zoomed part of it", () => {
     const source = readFileSync(join(__dirname, "../src/components/duel/table/grid-stage.tsx"), "utf8");
-    expect(source).toMatch(/centeredPromptBox\(box, frames\)/);
+    // The frames of both pairs; on the face-off (the last two seats) the one frame round both fields.
+    expect(source).toMatch(/centeredPromptBox\(box, promptFrames\)/);
+    expect(source).toMatch(/promptFrames = finale && promptColumn != null \? \[frames\[promptColumn\]\] : frames/);
     expect(source).not.toMatch(/visibleRect\(zoom\.view, pairFrame/);
     expect(source).toMatch(/fixed: promptPair/);
   });

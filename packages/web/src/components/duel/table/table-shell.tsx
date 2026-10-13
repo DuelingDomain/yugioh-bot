@@ -51,12 +51,13 @@ import { CameraControls } from "./camera-controls";
 import { isFaceOff } from "./camera-model";
 import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
-import { CAPTION_TEXT, useFinalDuelCaption } from "./final-duel-caption";
+import { CAPTION_TEXT, useFinalDuel } from "./final-duel-caption";
+import { finaleBoard } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { hudPreview } from "./hud-preview";
 import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./hud-shared";
-import { usesGridLayout } from "./grid-layout";
+import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
 import { MasterChip } from "./master-chip";
 import { OpponentBar } from "./opponent-bar";
@@ -249,8 +250,12 @@ function TableShellBody({
     escapeFree: gates.escapeFree,
   });
   // The last two seats of a 3-way or 4-way table are named in a caption (FINAL DUEL). The 3-way plaza regroups them face to face
-  // (geometry.ts aliveLayout); a 4-way grid keeps its places.
-  const caption = useFinalDuelCaption({ seats: engine.seats, viewerSeat, reducedMotion: controller.reducedMotion });
+  // (geometry.ts aliveLayout); the 4-way grid glides them to face each other (grid-finale.ts). Both are a visual change only: the
+  // facing pairs, columns and Extra Monster links stay as they were. A new duel or game starts the state again, with no animation.
+  const finalDuel = useFinalDuel({ seats: engine.seats, viewerSeat, reducedMotion: controller.reducedMotion, resetKey: `${room.session.slug}:${room.series?.gameNumber ?? 0}` });
+  const caption = finalDuel.caption;
+  const gridCellList = useMemo(() => (grid ? gridCells(layout) : []), [grid, layout]);
+  const gridFinale = useMemo(() => (grid && finalDuel.reached ? finaleBoard(finalDuel.reached, gridCellList) : null), [grid, finalDuel.reached, gridCellList]);
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
   // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
@@ -661,6 +666,7 @@ function TableShellBody({
                 placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
                 grid={grid ? gridFocus : undefined}
+                gridFinale={gridFinale}
                 hubPlace={hubPlace}
                 gridHub={grid && hubOn ? (place) => (
                   <PhaseHub

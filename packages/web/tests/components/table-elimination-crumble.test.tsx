@@ -517,6 +517,49 @@ describe("the crumble waits for the attack, the damage and the LP roll that put 
     return waited;
   };
 
+  const finaleOf = (container: HTMLElement) => container.querySelector("[data-grid-stage]")?.getAttribute("data-grid-finale") ?? null;
+
+  it("shows the 4-way face-off only a crumble and a beat after the crumble started, not after the elimination", () => {
+    const main = FFA4_FIXTURES.states.main;
+    const { container, rerender } = render(<Shell state={main} />);
+    rerender(<Shell state={withOut(main, [3])} />);
+    settle(AFTER_BATTLE);
+    expect(crumbles(container)).toBe(0);
+    battleRunning = true;
+    rerender(<Shell state={withOut(main, [3, 2])} />);
+    // The battle outlasts the crumble and the beat, and the face-off still waits.
+    settle(BEAT_AND_CRUMBLE + 1000);
+    expect(heldOf(container, 2)).toBe(true);
+    expect(finaleOf(container)).toBeNull();
+    battleRunning = false;
+    untilReleased(container, 2);
+    expect(heldOf(container, 2)).toBe(false);
+    settle(BEAT_AND_CRUMBLE - CRUMBLE_GATE_TICK_MS);
+    expect(finaleOf(container)).toBeNull();
+    settle(CRUMBLE_GATE_TICK_MS * 2);
+    expect(finaleOf(container)).toBe("same");
+  });
+
+  it("holds the face-off for two seats that go out together until both crumbles have started", () => {
+    const main = FFA4_FIXTURES.states.main;
+    const { container, rerender } = render(<Shell state={main} />);
+    battleRunning = true;
+    rerender(<Shell state={withOut(main, [2, 3])} />);
+    expect(crumbles(container)).toBe(2);
+    settle(BEAT_AND_CRUMBLE + 1000);
+    expect(heldOf(container, 2)).toBe(true);
+    expect(heldOf(container, 3)).toBe(true);
+    expect(finaleOf(container)).toBeNull();
+    battleRunning = false;
+    untilReleased(container, 2);
+    // They crumble together: the face-off is not held for one of them.
+    expect(heldOf(container, 3)).toBe(false);
+    settle(BEAT_AND_CRUMBLE - CRUMBLE_GATE_TICK_MS);
+    expect(finaleOf(container)).toBeNull();
+    settle(CRUMBLE_GATE_TICK_MS * 2);
+    expect(finaleOf(container)).toBe("same");
+  });
+
   it("does not wait for the board under reduced motion, only for the short pause, however long the battle", () => {
     const main = FFA3_FIXTURES.states.main;
     const { container, rerender } = render(<Shell state={main} reducedMotion />);

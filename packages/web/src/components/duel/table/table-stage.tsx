@@ -6,6 +6,7 @@ import { flushSync } from "react-dom";
 import { engineFormat, plazaFacingPair } from "../multi-seat";
 import { masterInUse } from "../master-place";
 import type { UseGridFocus } from "./grid-focus";
+import type { GridFinaleBoard } from "./grid-finale";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
@@ -120,6 +121,8 @@ export interface TableStageViewProps extends TableStageProps {
   grid?: UseGridFocus;
   /** Place of every seat that left, as text ("3rd"), for the chip on its panel while it fades. */
   placeLabels?: ReadonlyMap<number, string>;
+  /** 4-way grid: the face-off of the last two seats (visual only; see grid-finale.ts). The plaza stage ignores it. */
+  gridFinale?: GridFinaleBoard | null;
   /** 4-way grid: draws the phase hub for a place ("band" = the shared EMZ band, "center" = middle of the table). */
   gridHub?: (place: "band" | "center") => ReactNode;
   /** 4-way grid: where the hub sits. */
