@@ -1,4 +1,5 @@
 name: Deploy
+run-name: ${{ github.event_name == 'workflow_run' && format('Deploy {0} (Test {1})', github.event.workflow_run.head_sha, github.event.workflow_run.conclusion) || format('Deploy {0}', inputs.ref) }}
 
 on:
   workflow_run:
@@ -58,46 +59,89 @@ jobs:
     outputs:
       commit: ${{ steps.release.outputs.commit }}
       rollback: ${{ env.DEPLOY_ROLLBACK }}
+      superseded: ${{ steps.superseded.outputs.skip }}
 
     steps:
+      - name: Skip superseded automatic release
+        id: superseded
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            core.setOutput('skip', 'false');
+            if (context.eventName !== 'workflow_run') return;
+            const target = context.payload.workflow_run.head_sha;
+            const { owner, repo } = context.repo;
+            const { data: branch } = await github.request('GET /repos/{owner}/{repo}/branches/{branch}', {
+              owner, repo, branch: 'main'
+            });
+            const main = branch.commit.sha;
+            const newer = new Set();
+            for (let page = 1; ; page++) {
+              const { data } = await github.request('GET /repos/{owner}/{repo}/compare/{basehead}', {
+                owner, repo, basehead: `${target}...${main}`, per_page: 100, page
+              });
+              if (data.status !== 'ahead') return;
+              for (const commit of data.commits) newer.add(commit.sha);
+              if (newer.size >= data.total_commits) break;
+              if (!data.commits.length) throw new Error('Cannot read all newer main commits.');
+            }
+            const superseded = (sha, reason) => {
+              core.info(`Superseded: ${target}; newer main commit ${sha} ${reason}. Skipping prepare, build and deploy.`);
+              core.setOutput('skip', 'true');
+            };
+            const tests = await github.paginate('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs', {
+              owner, repo, workflow_id: 'test.yml', branch: 'main', event: 'push', status: 'success', per_page: 100
+            });
+            const passed = tests.find(run => newer.has(run.head_sha));
+            if (passed) { superseded(passed.head_sha, 'passed push Test'); return; }
+            const queued = await github.paginate('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs', {
+              owner, repo, workflow_id: 'deploy.yml', branch: 'main', event: 'workflow_run', per_page: 100
+            });
+            for (const run of queued) {
+              if (run.id === context.runId || !['queued', 'pending', 'waiting', 'requested'].includes(run.status)) continue;
+              // workflow_run head_sha can describe the workflow revision. Use the trigger SHA in run-name.
+              const match = /^Deploy ([0-9a-f]{40}) \(Test success\)$/.exec(run.display_title || '');
+              if (match && newer.has(match[1])) { superseded(match[1], 'has a newer deploy run queued'); return; }
+            }
+
       - name: Fail when VM secrets are not configured
-        if: ${{ env.VM_DEPLOY_ENABLED != 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED != 'true' }}
         run: |
           echo "VM deploy secrets are not configured; production was not deployed." >&2
           exit 1
 
       - name: Checkout
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Keep the activity guard from the workflow revision, even when deploying an older main SHA.
       - name: Save deployment activity guard
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         run: |
           cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/check-prod-activity.py"
           cp scripts/deployment/production-images.sh "$RUNNER_TEMP/production-images.sh"
 
       - name: Checkout deploy ref
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ env.DEPLOY_REF }}
           fetch-depth: 0
 
       - name: Verify deploy ref is on main
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         run: git fetch origin main && git merge-base --is-ancestor HEAD FETCH_HEAD
 
       - name: Record checked-out deploy commit
         id: release
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         run: |
           commit=$(git rev-parse HEAD)
           echo "DEPLOY_COMMIT=$commit" >> "$GITHUB_ENV"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Verify manual deploy commit passed Test
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' && github.event_name == 'workflow_dispatch' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && github.event_name == 'workflow_dispatch' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -109,11 +153,11 @@ jobs:
           fi
 
       - name: Compute bundle cache key
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/card-script-patches.ts', 'packages/duel-server/card-script-patches/**', 'packages/duel-server/scripts/released-card-data.ts', 'packages/duel-server/scripts/prerelease-history.ts', 'packages/duel-server/scripts/prerelease-graduations.ts', 'packages/duel-server/scripts/prerelease-script-smoke.ts', 'packages/duel-server/scripts/prerelease-script-exclusions.ts', 'packages/duel-server/card-remap-overrides.json', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'packages/duel-server/src/released-database-files.ts', 'packages/duel-server/src/cards.ts', 'packages/shared/src/duels/**', 'packages/shared/package.json', 'packages/shared/tsconfig*.json', 'tsconfig.json', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
 
       - name: Restore pinned duel-engine bundle
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         id: bundle
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -121,14 +165,14 @@ jobs:
           key: ${{ env.BUNDLE_CACHE_KEY }}
 
       - name: Setup Node.js
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
 
       - name: Install duel-engine build dependencies
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         run: |
           npm ci --ignore-scripts
           npx patch-package --error-on-fail
@@ -136,17 +180,17 @@ jobs:
           npm rebuild better-sqlite3
 
       - name: Build shared for card preparation
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         run: npm run build --workspace=packages/shared
 
       - name: Prepare card data and scripts
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: npm run duel:prepare
 
       - name: Build pinned duel-engine cores
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         run: |
           docker pull docker.io/emscripten/emsdk:4.0.9@sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811
           npx tsx packages/duel-server/scripts/build-domain-core.ts
@@ -155,7 +199,7 @@ jobs:
           npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
 
       - name: Save pinned duel-engine bundle
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: data/duel-engine
@@ -172,15 +216,15 @@ jobs:
       # Production cache inputs: pins, full series, build scripts and Domain sources.
       # The version prefix is a literal: raise it when the build step below changes (the hash cannot see it).
       - name: Compute multi core cache key
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         run: echo "MULTI_CACHE_KEY=duel-multi-cores-v2-${{ hashFiles('packages/duel-server/scripts/build-deploy-multi-cores.sh', 'packages/duel-server/scripts/package-deploy-multi-cores.mjs', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**') }}" >> "$GITHUB_ENV"
 
       - name: Read the emsdk image from pins.json
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
 
       - name: Restore multi cores
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         id: multi
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -194,11 +238,11 @@ jobs:
       # Both cores use the full patch series. Domain also uses APPLY_DOMAIN=1 DOMAIN_MULTI=1.
       # Production Lua randomness: no LUA_FIXED_SEED (test.yml keeps that flag for differential tests).
       - name: Build multi cores
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' && steps.multi.outputs.cache-hit != 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.multi.outputs.cache-hit != 'true' }}
         run: bash packages/duel-server/scripts/build-deploy-multi-cores.sh
 
       - name: Save multi cores
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' && steps.multi.outputs.cache-hit != 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.multi.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
@@ -209,7 +253,7 @@ jobs:
           key: ${{ env.MULTI_CACHE_KEY }}
 
       - name: Verify duel-engine bundle
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         run: |
           DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
           # The legacy 1v1 files must match the approved legacy pin (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
@@ -218,7 +262,7 @@ jobs:
       # The deploy tarball is made here, not from data/duel-engine: that folder stays the pinned bundle.
       # The check at the end runs the install script on this exact content, in a scratch folder of the runner.
       - name: Add both multi cores to the deploy bundle
-        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         run: |
           set -eu
           bundle="$RUNNER_TEMP/deploy-bundle"
@@ -236,6 +280,7 @@ jobs:
           tar -C "$bundle" -czf "$RUNNER_TEMP/deploy-bundle.tar.gz" .
 
       - name: Upload verified release controls and bundle
+        if: ${{ steps.superseded.outputs.skip != 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: production-deploy-${{ env.DEPLOY_COMMIT }}
@@ -251,7 +296,7 @@ jobs:
   build:
     name: Build ARM64 ${{ matrix.service }} image
     needs: prepare
-    if: needs.prepare.outputs.rollback != 'true'
+    if: needs.prepare.outputs.superseded != 'true' && needs.prepare.outputs.rollback != 'true'
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -382,6 +427,7 @@ jobs:
     needs: [prepare, build]
     if: >-
       !cancelled() && needs.prepare.result == 'success' &&
+      needs.prepare.outputs.superseded != 'true' &&
       (needs.build.result == 'success' ||
       (needs.prepare.outputs.rollback == 'true' && needs.build.result == 'skipped')) &&
       github.ref == 'refs/heads/main' &&

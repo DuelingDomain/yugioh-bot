@@ -305,7 +305,9 @@ test("release images build on native ARM64 with separate registry caches before 
   assert.match(build.steps.find(step => step.name === "Save Next.js cache for the next source revision").with.tags, /:nextcache$/);
   assert.ok(prepare.steps.every(step => !step.run?.includes("ssh ")));
   assert.equal(deploy.env.DEPLOY_COMMIT, "${{ needs.prepare.outputs.commit }}");
-  assert.equal(build.if, "needs.prepare.outputs.rollback != 'true'");
+  for (const [rollback, expected] of [["false", true], ["true", false]]) {
+    assert.equal(value(build.if, {}, {}, {}, { prepare: { outputs: { rollback, superseded: "false" } } }), expected);
+  }
   assert.match(deploy.if, /needs.prepare.outputs.rollback == 'true'.*needs.build.result == 'skipped'/s);
 });
 
