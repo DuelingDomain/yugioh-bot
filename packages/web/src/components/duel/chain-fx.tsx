@@ -71,6 +71,7 @@ import {
   type ChainPanelForm,
   type ChainState,
 } from "./chain-state";
+import { cardFrame, type CardFrame } from "./chain-frame";
 import { buildPanelView, buildStripView, chainOutcomes, rememberTargetNames, type TargetMemory, type Who } from "./chain-narrate";
 import { ChainPanel, ChainStrip } from "./chain-panel";
 import { CHAIN_PANEL_TIMING } from "./duel-timing";
@@ -266,20 +267,28 @@ const MIN_BADGE = 28;
 const MAX_BADGE = 46;
 
 type Box = { left: number; top: number; width: number; height: number };
+type Point = { x: number; y: number };
 /** One link as the read phase of a frame saw it; the write phase applies it. */
-type PlacedLink = { link: ChainLinkState; slot: HTMLElement; box: Box | null; size: number; shift: number; half: "high" | "low"; callout: CalloutPlace | null; covered: boolean };
-type PlacedMark = { link: ChainLinkState; mark: HTMLElement | undefined; wire: SVGPathElement | undefined; box: Box | null; covered: boolean };
+type PlacedLink = { link: ChainLinkState; slot: HTMLElement; frame: CardFrame | null; size: number; shift: number; half: "high" | "low"; callout: CalloutPlace | null; covered: boolean; badge: Point | null };
+type PlacedMark = { link: ChainLinkState; mark: HTMLElement | undefined; wire: SVGPathElement | undefined; frame: CardFrame | null; covered: boolean };
 
-/** The card's visible box: a Defense Position card is turned a quarter inside its portrait zone. */
-function cardBox(overlay: DOMRect, zone: HTMLElement): Box | null {
-  const rect = zone.getBoundingClientRect();
-  if (rect.width < 4 || rect.height < 4 || overlay.width < 4) return null;
-  const cx = rect.left - overlay.left + rect.width / 2;
-  const cy = rect.top - overlay.top + rect.height / 2;
-  const turned = zone.dataset.defense === "true" && rect.height > rect.width;
-  const width = turned ? rect.height : rect.width;
-  const height = turned ? rect.width : rect.height;
-  return { left: cx - width / 2, top: cy - height / 2, width, height };
+/**
+ * Sizes and turns a ring-like element (the card ring and glow, a target mark) to its card: the card's own box, turned
+ * by the angle of its field. A card that is not turned gets the straight box and no turn.
+ */
+function placeOnCard(el: HTMLElement, frame: CardFrame) {
+  const { ring, turn } = frame;
+  el.style.width = `${ring.width}px`;
+  el.style.height = `${ring.height}px`;
+  el.style.translate = `${ring.left}px ${ring.top}px`;
+  if (turn !== 0) {
+    el.style.rotate = `${turn}deg`;
+    el.style.setProperty("--turn", `${turn}deg`);
+  } else {
+    el.style.removeProperty("rotate");
+    el.style.removeProperty("--turn");
+  }
+  el.dataset.turned = turn !== 0 ? "true" : "false";
 }
 
 /**
@@ -478,7 +487,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         for (const target of link.targets) {
           const key = `${link.index}:${zoneKey(target.controller, target.location, target.sequence)}`;
           const zone = findZoneElement(target);
-          const box = zone ? cardBox(origin, zone) : null;
+          const frame = zone ? cardFrame(origin, zone) : null;
+          const box = frame?.box ?? null;
           const mark = targetRefs.current.get(key);
           let covered = false;
           if (box) {
@@ -489,7 +499,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             const tagBox = { left: box.left - TARGET_OUTSET, top: box.top + box.height - (link.index - 1) * TARGET_STEP - h, width: w, height: h };
             covered = coveredFraction(box, panels) > TARGET_COVERED || coveredFraction(tagBox, panels) > TAG_COVERED;
           }
-          marks.push({ link, mark, wire: targetWireRefs.current.get(key), box, covered });
+          marks.push({ link, mark, wire: targetWireRefs.current.get(key), frame, covered });
         }
       }
       // The panel is a column in the left gutter. A prompt surface that meets it turns it into the strip, which
@@ -511,7 +521,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       const stripEl = stripWrapRef.current;
       if (front && next === "strip" && previous === "strip" && stripEl) {
         const obstacles = panels.slice();
-        for (const { box } of marks) {
+        for (const { frame } of marks) {
+          const box = frame?.box;
           if (box) obstacles.push({ left: box.left - TARGET_OUTSET, top: box.top - TARGET_OUTSET, width: box.width + TARGET_OUTSET * 2, height: box.height + TARGET_OUTSET * 2 });
         }
         for (const plate of document.querySelectorAll<HTMLElement>("[data-lp-seat], [data-team-plate]")) {
@@ -563,23 +574,25 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       const stacked = new Map<HTMLElement, number>();
       const piles = new Map<string, HTMLElement | null>();
       const placed: PlacedLink[] = [];
-      const centers = new Map<number, { x: number; y: number }>();
+      const centers = new Map<number, Point>();
       let gap = MIN_BADGE;
       for (const link of linksRef.current) {
         const slot = slotRefs.current.get(link.index);
         if (!slot) continue;
         const anchor = chainAnchor(link);
         const zone = anchor ? resolveAnchor(anchor, piles) : null;
-        const box = zone ? cardBox(origin, zone) : null;
-        if (!zone || !box) {
-          placed.push({ link, slot, box: null, size: 0, shift: 0, half: "high", callout: null, covered: false });
+        const frame = zone ? cardFrame(origin, zone) : null;
+        if (!zone || !frame) {
+          placed.push({ link, slot, frame: null, size: 0, shift: 0, half: "high", callout: null, covered: false, badge: null });
           continue;
         }
+        const box = frame.box;
         const shift = stacked.get(zone) ?? 0;
         stacked.set(zone, shift + 1);
         const size = Math.round(Math.min(MAX_BADGE, Math.max(MIN_BADGE, box.width * 0.46)));
         gap = Math.max(gap, size);
-        const center = badgeCenter(box, size, shift);
+        // A turned card keeps its badge upright, on the corner of the card nearest the top right of the screen.
+        const center = badgeCenter(frame.corner ? { left: frame.corner.x, top: frame.corner.y, width: 0, height: 0 } : box, size, shift);
         centers.set(link.index, center);
         // A badge over an open prompt would hide its words: it steps back (the stack and the wire still say the link).
         const reach = (size * MAX_SCALE) / 2;
@@ -590,7 +603,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         const callout = tag
           ? placeCallout({ card: box, board: { width: origin.width, height: origin.height }, tag: { width: tag.offsetWidth, height: tag.offsetHeight }, half, panels })
           : null;
-        placed.push({ link, slot, box, size, shift, half, callout, covered });
+        placed.push({ link, slot, frame, size, shift, half, callout, covered, badge: frame.corner ? center : null });
       }
       // ---- Write phase. ----
       if (reportChainSize) {
@@ -657,21 +670,36 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           front.style.translate = `${x}px ${y}px`;
         }
       }
-      for (const { link, slot, box, size, shift, half, callout, covered } of placed) {
+      for (const { link, slot, frame, size, shift, half, callout, covered, badge } of placed) {
         const ring = ringRefs.current.get(link.index);
-        if (!box) {
+        if (!frame) {
           if (slot.dataset.placed !== "false") slot.dataset.placed = "false";
           if (ring && ring.dataset.placed !== "false") ring.dataset.placed = "false";
           continue;
         }
-        const geo = `${Math.round(box.left)},${Math.round(box.top)},${Math.round(box.width)},${Math.round(box.height)},${size},${shift},${half}`;
-        // The badge (front layer) and the card ring and glow (back layer) share one box.
+        const { box } = frame;
+        const geo = `${Math.round(box.left)},${Math.round(box.top)},${Math.round(box.width)},${Math.round(box.height)},${size},${shift},${half},${frame.turn.toFixed(2)},${Math.round(frame.ring.left)},${Math.round(frame.ring.top)},${Math.round(frame.ring.width)},${Math.round(frame.ring.height)},${badge ? `${Math.round(badge.x)},${Math.round(badge.y)}` : ""}`;
+        // The badge and callout (front layer) stand on the straight bounds of the card; the card ring and glow (back
+        // layer) are the card's own box, turned with its field. A card that is not turned has one box for both.
         for (const el of ring ? [slot, ring] : [slot]) {
           if (el.dataset.geo !== geo) {
             el.dataset.geo = geo;
-            el.style.width = `${box.width}px`;
-            el.style.height = `${box.height}px`;
-            el.style.translate = `${box.left}px ${box.top}px`;
+            if (el === ring) {
+              placeOnCard(el, frame);
+            } else {
+              el.style.width = `${box.width}px`;
+              el.style.height = `${box.height}px`;
+              el.style.translate = `${box.left}px ${box.top}px`;
+              // The badge of a turned card stands upright on its corner: its centre, in the slot's own pixels.
+              if (badge) {
+                el.style.setProperty("--bx", `${badge.x - box.left}px`);
+                el.style.setProperty("--by", `${badge.y - box.top}px`);
+              } else {
+                el.style.removeProperty("--bx");
+                el.style.removeProperty("--by");
+              }
+              el.dataset.turned = badge ? "true" : "false";
+            }
             el.style.setProperty("--b", `${size}px`);
             el.style.setProperty("--shift", String(shift));
             el.dataset.half = half;
@@ -702,17 +730,17 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           wire.setAttribute("d", d);
         }
       }
-      for (const { link, mark, wire, box, covered } of marks) {
+      for (const { link, mark, wire, frame, covered } of marks) {
+        const box = frame?.box ?? null;
         if (mark) {
-          mark.dataset.placed = box ? "true" : "false";
+          mark.dataset.placed = frame ? "true" : "false";
           mark.dataset.covered = covered ? "true" : "false";
-          if (box) {
-            const geo = `${box.left},${box.top},${box.width},${box.height}`;
+          if (frame) {
+            const { ring } = frame;
+            const geo = `${ring.left},${ring.top},${ring.width},${ring.height},${frame.turn}`;
             if (mark.dataset.geo !== geo) {
               mark.dataset.geo = geo;
-              mark.style.width = `${box.width}px`;
-              mark.style.height = `${box.height}px`;
-              mark.style.translate = `${box.left}px ${box.top}px`;
+              placeOnCard(mark, frame);
             }
           }
         }
