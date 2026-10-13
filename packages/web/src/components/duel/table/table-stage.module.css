@@ -316,20 +316,20 @@
  * `data-bar-room` (a clear place, never over a target). The doubled attribute outranks the lane rules above.
  */
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"][data-prompt-dense] :global([data-prompt-panel]) {
-  --duel-unit: var(--pr-unit, 1px);
-  --duel-t-xs: calc(max(12px, calc(11 * var(--duel-unit))) * var(--tt, 1));
-  --duel-t-sm: calc(max(12px, calc(12 * var(--duel-unit))) * var(--tt, 1));
-  --duel-t-body: calc(max(14px, calc(13 * var(--duel-unit))) * var(--tt, 1));
-  --duel-t-head: calc(max(15px, calc(15 * var(--duel-unit))) * var(--tt, 1));
-  --pc-title: calc(clamp(16px, calc(17 * var(--duel-unit)), 20px) * var(--tt, 1));
-  --pc-sub: calc(clamp(14px, calc(13.5 * var(--duel-unit)), 15px) * var(--tt, 1));
+  --duel-unit: clamp(max(1px, var(--pr-unit, 1px)), 0.0625vw, 1.4px);
+  --duel-t-xs: calc(max(13px, calc(12 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-sm: calc(max(14px, calc(13 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-body: calc(max(16px, calc(14 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-head: calc(max(17px, calc(16 * var(--duel-unit))) * var(--tt, 1));
+  --pc-title: calc(clamp(20px, calc(19 * var(--duel-unit)), 28px) * var(--tt, 1));
+  --pc-sub: calc(clamp(16px, calc(15 * var(--duel-unit)), 21px) * var(--tt, 1));
 }
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
   inset: var(--pr-cy) auto auto var(--pr-cx);
   translate: -50% -50%;
   width: max-content;
   min-width: 0;
-  max-width: min(max(360px, calc(400 * var(--duel-unit))), calc(var(--pr-w) - 24px));
+  max-width: min(max(460px, calc(480 * var(--duel-unit))), calc(var(--pr-w) - 24px));
   gap: calc(10 * var(--duel-unit)) calc(12 * var(--duel-unit));
   padding: calc(8 * var(--duel-unit)) calc(12 * var(--duel-unit));
 }
@@ -363,7 +363,7 @@
 }
 /* A seat choice is narrow: the rival plates (the targets) stay clear above it. */
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
-  width: clamp(220px, 34%, 320px);
+  width: clamp(280px, 26%, 460px);
   max-height: calc(var(--pr-h) - 16px);
 }
 .board[data-prompt-center][data-prompt-center] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
@@ -446,7 +446,8 @@
   width: calc(100% - 12px);
   min-width: 0;
   max-width: none;
-  max-height: min(180px, 35%);
+  /* Tall enough for a title of two lines, the card and Yes / No without a scroll (the fit takes the measured height off the board). */
+  max-height: min(300px, 55%);
   overflow-y: auto;
 }
 

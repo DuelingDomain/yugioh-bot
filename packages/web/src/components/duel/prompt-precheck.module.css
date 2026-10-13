@@ -136,3 +136,12 @@
 @media (pointer: coarse) {
   .btn { min-height: 40px; }
 }
+
+/* ---------- multi-seat hosts (the 3-way plaza, the 4-way grid): a larger bar, readable art, buttons easy to hit ----------
+   The host sets --duel-unit from the screen (stage css), so the bar grows with it: the card thumb is about 76 px high on a laptop
+   and 110 px on a 1080p screen, the title and buttons larger. The title may wrap; the bar's width is capped by the stage rule. */
+:global([data-prompt-dense]) .bar { gap: calc(14 * var(--duel-unit, 1px)) calc(18 * var(--duel-unit, 1px)); }
+:global([data-prompt-dense]) .thumbs { padding-left: calc(14 * var(--duel-unit, 1px)); }
+:global([data-prompt-dense]) .thumb { width: calc(54 * var(--duel-unit, 1px)); margin-left: calc(-14 * var(--duel-unit, 1px)); }
+:global([data-prompt-dense]) .btns { gap: calc(10 * var(--duel-unit, 1px)); }
+:global([data-prompt-dense]) .btn { min-width: calc(76 * var(--duel-unit, 1px)); min-height: max(40px, calc(40 * var(--duel-unit, 1px))); padding: 0 calc(18 * var(--duel-unit, 1px)); font-size: var(--duel-t-body, 16px); }
