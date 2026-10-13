@@ -34,6 +34,30 @@ Playwright `webServer` runs `stack/start.mjs`. It starts three processes on non-
 - The stack refuses to start on a live port (3000, 3001, 3002, 3100, 3110, 4001, 4002, 4003, 4010) or on a busy port.
 - Concurrent runs: set `E2E_SLOT=N` (one digit, 0 to 9). Ports become web `3301+10N`, ws `3303+10N`, ws internal `4304+10N`, duel `4305+10N`, and the state folder `.stack-N` replaces `.stack`. Each slot needs its own build. See `stack/MANUAL.md`.
 
+## RPS startup timing
+
+`duel-bot-opening-timing.spec.ts` measures a real 1v1 loss to the practice bot in
+its separate duel window. Set `E2E_RPS_OPENING=1`; otherwise this spec is skipped.
+Build the selected slot first, then run from the repo root:
+
+```bash
+E2E_SLOT=0 npm run stack:build --workspace=packages/e2e
+E2E_SLOT=0 E2E_WORKERS=1 E2E_RPS_OPENING=1 E2E_BOT_STEP_MS=900 \
+  npx playwright test duel-bot-opening-timing -c packages/e2e/playwright.config.ts --repeat-each=3
+```
+
+Set `E2E_DUEL_DATA_DIR` for a different read-only engine bundle. Use
+`E2E_OPENING_FULL_MOTION=1` for full motion, and `E2E_OPENING_BOARD_VIEW=3d` for
+the 3D board. Each browser loss prints `BOT_OPENING_TIMING` and attaches the JSON.
+Times use the browser's monotonic clock. They cover the loss message, socket
+invalidations, HTTP headers and body reads, field DOM observation, a double-RAF
+paint opportunity, and completion of the first field images. Paint timing is an
+approximation; image timing uses the stack's offline card-art fixture.
+
+The test keeps bot picks hidden and cancels human-win attempts. Each attempt has
+its own evidence recorder. After startup it closes the pages and keeps the
+authenticated context available for the final room read and the privacy scan.
+
 ## Test login
 
 `packages/web/src/lib/auth.ts` adds a NextAuth Credentials provider (`e2e`) only when `E2E_AUTH=1` and `E2E_AUTH_SECRET` has at least 32 characters. Without both, the provider does not exist and the login page is unchanged. The secret is compared in constant time. The session has the same `user.id` (Discord id) as a Discord login.

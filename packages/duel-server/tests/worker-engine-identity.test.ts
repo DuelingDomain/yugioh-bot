@@ -6,9 +6,11 @@ import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
 import { handleWorkerRequest } from "../src/worker.js";
 import { GameWorker } from "../src/worker-client.js";
 
-const { create, legacyCreate } = vi.hoisted(() => ({ create: vi.fn(), legacyCreate: vi.fn() }));
+const { create, legacyCreate, loadCards } = vi.hoisted(() => ({ create: vi.fn(), legacyCreate: vi.fn(), loadCards: vi.fn() }));
 vi.mock("../src/engine.js", () => ({ createEngineGame: create }));
 vi.mock("../src/legacy/index.js", () => ({ createLegacyEngineGame: legacyCreate }));
+// These fixtures test resource hashes with a placeholder card file, rather than a real catalog.
+vi.mock("../src/cards.js", () => ({ loadCardDatabase: loadCards }));
 vi.mock("node:worker_threads", async () => {
   const { EventEmitter } = await import("node:events");
   return { parentPort: null, Worker: class extends EventEmitter {
@@ -44,6 +46,7 @@ describe("worker resource identity gate", () => {
     writeFileSync(join(input.dataDirectory, "ocgcore.standard.wasm"), "changed");
     const result = await handleWorkerRequest({ id: 1, op: "create", options: input });
     expect(result).toMatchObject({ ok: false, code: "ENGINE_UNAVAILABLE_FOR_SOURCE" });
+    expect(loadCards).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
     expect(legacyCreate).not.toHaveBeenCalled();
   });
@@ -54,13 +57,17 @@ describe("worker resource identity gate", () => {
     const worker = new GameWorker();
     try {
       await expect(worker.create(input)).rejects.toMatchObject({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE", status: 409 });
+      expect(loadCards).not.toHaveBeenCalled();
     } finally { await worker.close(); }
   });
 
   it("accepts an exact identity and passes the saved rules to the engine", async () => {
     const input = options();
     create.mockResolvedValueOnce({ close: vi.fn() });
-    expect(await handleWorkerRequest({ id: 1, op: "create", options: { ...input, firstTurnDraw: false } })).toMatchObject({ ok: true });
+    expect(await handleWorkerRequest({ id: 1, op: "create", options: { ...input, firstTurnDraw: false } })).toMatchObject({
+      ok: true, createTimings: { cardDbLoadMs: expect.any(Number), engineCreateMs: expect.any(Number) },
+    });
+    expect(loadCards).toHaveBeenCalledWith(input.dataDirectory);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ engineIdentity: input.engineIdentity, firstTurnDraw: false }));
   });
 });
