@@ -8,11 +8,13 @@ interface ModalProps {
   open: boolean;
   onClose: () => void;
   title?: string;
+  /** Id of the element inside the dialog that describes it; screen readers read it after the title. */
+  describedBy?: string;
   children: React.ReactNode;
   className?: string;
 }
 
-export function Modal({ open, onClose, title, children, className }: ModalProps) {
+export function Modal({ open, onClose, title, describedBy, children, className }: ModalProps) {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const previousFocusRef = React.useRef<HTMLElement | null>(null);
@@ -76,6 +78,7 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? "modal-title" : undefined}
+      aria-describedby={describedBy}
       inert={!open}
     >
       {/* Overlay */}

@@ -34,11 +34,22 @@ export async function POST(
     }
 
     if (tournament.status !== "active") {
-      return NextResponse.json({ error: `Cannot end a ${tournament.status} tournament` }, { status: 400 });
+      return NextResponse.json({ error: `Cannot end a ${tournament.status} tournament` }, { status: 409 });
     }
 
-    const tournaments = createTournamentService(db);
-    const { tournament: completed, changedDuelSlugs } = tournaments.completeWithChanges(tournament.id);
+    // A change from another process (the bot, the deadline close) between the check and the
+    // transaction finds the status changed and gets the same 409.
+    let completed: { id: number; status: string };
+    let changedDuelSlugs: string[];
+    try {
+      ({ tournament: completed, changedDuelSlugs } = createTournamentService(db).completeWithChanges(tournament.id));
+    } catch (error) {
+      const now = db.prepare("select status from tournaments where id = ?").get(tournament.id) as { status: string } | undefined;
+      if (now && now.status !== "active") {
+        return NextResponse.json({ error: `Cannot end a ${now.status} tournament` }, { status: 409 });
+      }
+      throw error;
+    }
 
     const matches = createMatchService(db);
     if (matches.claimTournamentCompletionAnnouncement(completed.id)) {

@@ -188,7 +188,7 @@ describe("tournament match duel and result routes", () => {
     auth.mockResolvedValue({ user: { id: "u-org", name: "Organizer" } });
     expect((await del()).status).toBe(200);
     notifyDuelChange.mockClear();
-    expect((await del()).status).toBe(400);
+    expect((await del()).status).toBe(409);
     expect(notifyDuelChange).not.toHaveBeenCalled();
   });
 

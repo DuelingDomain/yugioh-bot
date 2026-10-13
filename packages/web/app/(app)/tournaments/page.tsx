@@ -2,12 +2,10 @@ import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { FloorList, SectionHead, SvButton } from "@/components/sheet";
+import { SvButton } from "@/components/sheet";
 import { PageFrame } from "@/components/dashboard/page-frame";
 import { loadTournamentRounds } from "@/components/dashboard/tournament-rounds";
-import styles from "./tournaments.module.css";
-import { TournamentRow } from "@/components/tournament/tournament-row";
-import { FinishedLedger } from "@/components/tournament/finished-ledger";
+import { TournamentsList } from "@/components/tournament/tournaments-list";
 import {
   groupTournaments,
   listSummaryParts,
@@ -37,6 +35,7 @@ export default async function TournamentsPage() {
       status: row.status,
       webSlug: row.web_slug ?? undefined,
       participantCount: row.participant_count,
+      createdByUserId: row.created_by_user_id,
     }));
 
   const groups = groupTournaments(tournaments);
@@ -59,47 +58,7 @@ export default async function TournamentsPage() {
         </SvButton>
       }
     >
-      {tournaments.length === 0 ? (
-        <section aria-labelledby="tl-none">
-          <SectionHead title="No tournaments yet" id="tl-none" />
-          <p className={styles.lede}>
-            Create one here, or run <code className="cmd">/event create</code> in Discord. Either way it shows up on this
-            page.
-          </p>
-          <SvButton as="a" href="/tournaments/new" variant="primary">
-            New tournament
-          </SvButton>
-        </section>
-      ) : (
-        <>
-          {groups.running.length > 0 && (
-            <section aria-labelledby="tl-run">
-              <SectionHead title="In progress" id="tl-run" />
-              <FloorList aria-labelledby="tl-run">
-                {groups.running.map((t) => (
-                  <TournamentRow key={t.id} tournament={t} variant="running" rounds={rounds.get(t.id)} viewerId={viewerId} />
-                ))}
-              </FloorList>
-            </section>
-          )}
-          {groups.open.length > 0 && (
-            <section aria-labelledby="tl-open">
-              <SectionHead title="Open to join" id="tl-open" note="Nothing starts until the organizer presses Start." />
-              <FloorList aria-labelledby="tl-open">
-                {groups.open.map((t) => (
-                  <TournamentRow key={t.id} tournament={t} variant="open" rounds={rounds.get(t.id)} viewerId={viewerId} />
-                ))}
-              </FloorList>
-            </section>
-          )}
-          {groups.finished.length > 0 && (
-            <section aria-labelledby="tl-fin">
-              <SectionHead title="Finished" id="tl-fin" note="Newest first" />
-              <FinishedLedger items={groups.finished} />
-            </section>
-          )}
-        </>
-      )}
+      <TournamentsList initialItems={tournaments} rounds={rounds} viewerId={viewerId} viewerUserId={session.user.id} />
     </PageFrame>
   );
 }

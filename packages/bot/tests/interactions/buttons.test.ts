@@ -750,6 +750,31 @@ describe("button interactions", () => {
     });
   });
 
+  it.each(["approve", "deny"])("refuses a Discord %s button after the tournament was cancelled without Elo", async (action) => {
+    const app = setup();
+    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    app.tournaments.join(tournament.id, yugi.id);
+    app.tournaments.join(tournament.id, kaiba.id);
+    app.tournaments.start(tournament.id);
+    const report = app.tournaments.report(tournament.id, yugi.id, kaiba.id, yugi.id);
+    const before = app.db.prepare("select * from player_ratings order by player_id").all();
+    app.tournaments.cancel(tournament.id);
+    const { interaction, replies } = fakeButton({
+      customId: `dashboard_${action}:${report.id}:user-2`,
+      user: { id: "user-2", username: "Kaiba" },
+    });
+
+    await handleButton(interaction, app);
+
+    expect(replies[0]).toMatchObject({ content: expect.stringMatching(/already been resolved/i), ephemeral: true });
+    expect(app.db.prepare("select status from matches where id = ?").get(report.id)).toEqual({ status: "denied" });
+    expect(app.db.prepare("select * from player_ratings order by player_id").all()).toEqual(before);
+    expect(app.db.prepare("select count(*) as n from point_awards where match_id = ?").get(report.id)).toEqual({ n: 0 });
+    expect(app.tournaments.findById(tournament.id).status).toBe("cancelled");
+  });
+
   it("approves a match via legacy id-only customId as the real opponent", async () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "user-1", "Yugi");

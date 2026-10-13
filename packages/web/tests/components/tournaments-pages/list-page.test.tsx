@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "../../../../shared/src/db/schema";
@@ -7,12 +7,14 @@ import { migrate } from "../../../../shared/src/db/schema";
 vi.mock("next/font/google", () => {
   const font = () => ({ className: "font-class", variable: "font-var", style: {} });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+
 });
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth }));
 vi.mock("@/lib/db", () => ({ getDb }));
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g1" } }));
-vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
+const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock("next/navigation", () => ({ redirect: vi.fn(), useRouter: () => ({ refresh, push: vi.fn() }) }));
 
 import TournamentsPage from "../../../app/(app)/tournaments/page";
 
@@ -28,6 +30,7 @@ describe("TournamentsPage", () => {
     cleanup();
     db.close();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   const add = (name: string, status: string, createdAt: string, slug: string | null = null, format = "round_robin", guild = "g1") =>
@@ -97,5 +100,45 @@ describe("TournamentsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show all 7" }));
     expect(within(region).getAllByRole("link")).toHaveLength(7);
     expect(screen.queryByRole("button", { name: /show all/i })).toBeNull();
+  });
+  it("shows Cancel tournament on the viewer's own running and open rows only, never on finished ones", async () => {
+    add("Mine running", "active", "2026-02-05 00:00:00", "mine-run");
+    add("Mine open", "pending", "2026-02-01 00:00:00", "mine-open");
+    add("Mine finished", "completed", "2026-01-01 00:00:00", "mine-fin");
+    render(await TournamentsPage());
+    expect(screen.getByRole("button", { name: "Cancel tournament Mine running" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel tournament Mine open" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel tournament Mine finished" })).toBeNull();
+  });
+
+  it("shows no Cancel tournament control on another organizer's rows", async () => {
+    add("Mine open", "pending", "2026-02-01 00:00:00", "mine-open");
+    auth.mockResolvedValue({ user: { id: "u2" } });
+    render(await TournamentsPage());
+    expect(screen.getByText("Mine open")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Cancel/ })).toBeNull();
+  });
+
+  it("drops a row from the list once its cancel went through", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: 1, status: "cancelled" })));
+    add("Mine open", "pending", "2026-02-01 00:00:00", "mine-open");
+    render(await TournamentsPage());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel tournament Mine open" }));
+    const dialog = await screen.findByRole("dialog", { name: "Cancel Mine open?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Yes, cancel" }));
+    await waitFor(() => expect(screen.queryByText("Mine open")).toBeNull());
+  });
+
+  it("after a cancel, focus moves to a status line and the header counts are refreshed", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: 1, status: "cancelled" })));
+    add("Mine open", "pending", "2026-02-01 00:00:00", "mine-open");
+    render(await TournamentsPage());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel tournament Mine open" }));
+    const dialog = await screen.findByRole("dialog", { name: "Cancel Mine open?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Yes, cancel" }));
+    const status = await screen.findByText("Cancelled Mine open.");
+    expect(status.getAttribute("role")).toBe("status");
+    await waitFor(() => expect(document.activeElement).toBe(status));
+    expect(refresh).toHaveBeenCalled();
   });
 });

@@ -160,8 +160,8 @@ describe("match service", () => {
     // Cancel the tournament before approval
     app.tournaments.cancel(t.id);
 
-    // Approve should NOT complete the tournament
-    app.matches.approve(reported.id, kaiba.id);
+    // The cancel denied the report, so a later confirm is refused and cannot complete the tournament
+    expect(() => app.matches.approve(reported.id, kaiba.id)).toThrow(/not pending/);
 
     const tournamentAfter = app.tournaments.findById(t.id);
     expect(tournamentAfter.status).toBe("cancelled");

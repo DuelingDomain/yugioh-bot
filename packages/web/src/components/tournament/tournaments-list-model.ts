@@ -12,6 +12,8 @@ export interface TournamentListItem {
   status: string;
   participantCount: number;
   webSlug?: string;
+  /** The creator's Discord ID as text. */
+  createdByUserId?: string;
 }
 
 export interface TournamentGroups {

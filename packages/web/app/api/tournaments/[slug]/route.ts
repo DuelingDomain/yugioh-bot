@@ -246,12 +246,22 @@ export async function DELETE(
       return NextResponse.json({ error: "Only the tournament creator can cancel it" }, { status: 403 });
     }
 
-    if (tournament.status === "completed" || tournament.status === "cancelled") {
-      return NextResponse.json({ error: `Tournament is already ${tournament.status}` }, { status: 400 });
+    if (tournament.status !== "pending" && tournament.status !== "active") {
+      return NextResponse.json({ error: `Tournament is already ${tournament.status}` }, { status: 409 });
     }
 
-    // Cancels the tournament and closes its open duel series in one transaction.
-    const { changedDuelSlugs } = createTournamentService(db).cancelWithChanges(tournament.id);
+    // Cancels the tournament and closes its open duel series in one transaction. A second
+    // cancel that races this one finds the status changed and gets the same 409.
+    let changedDuelSlugs: string[];
+    try {
+      ({ changedDuelSlugs } = createTournamentService(db).cancelWithChanges(tournament.id));
+    } catch (error) {
+      const now = resolveTournamentBySlug(db, slug);
+      if (now && now.status !== "pending" && now.status !== "active") {
+        return NextResponse.json({ error: `Tournament is already ${now.status}` }, { status: 409 });
+      }
+      throw error;
+    }
 
     void broadcaster.tournament(
       { kind: "cancelled", slug },

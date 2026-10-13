@@ -1,0 +1,5 @@
+.sections { display: grid; gap: clamp(28px, 4cqi, 44px); min-width: 0; }
+.sections > * { min-width: 0; }
+.notice { margin: 0 0 16px; font-size: 14px; color: var(--ink-3); outline: none; }
+.notice:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; border-radius: 3px; }
+.lede { margin: 14px 0 20px; max-width: 58ch; color: var(--ink-2); line-height: 1.55; }

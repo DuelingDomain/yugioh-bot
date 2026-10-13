@@ -67,7 +67,7 @@ describe("POST /api/tournaments/[slug]/complete", () => {
     expect(row.ended_at).not.toBeNull();
   });
 
-  it("returns 400 when the tournament is not active", async () => {
+  it("returns 409 when the tournament is not active", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "tourney-complete-"));
     const dbPath = join(tempDir, "t.sqlite");
     tempDirs.push(tempDir);
@@ -89,7 +89,7 @@ describe("POST /api/tournaments/[slug]/complete", () => {
       new Request("http://localhost/api/tournaments/slug-1/complete", { method: "POST" }),
       { params: Promise.resolve({ slug: "slug-1" }) },
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toMatch(/cannot end a pending/i);
   });
