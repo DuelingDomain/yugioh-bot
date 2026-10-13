@@ -134,7 +134,7 @@ export async function POST(request: Request) {
       if (db.prepare("select 1 from cubes where guild_id = ? and lower(name) = lower(?)").get(guildId, name)) {
         throw new CubeNameTakenError(name);
       }
-      const { entries, unknown, corrected, lookupLimited } = await prepareCubeListImport(catalog, body.importText);
+      const { entries, unknown, corrected, lookupLimited, moves, messages } = await prepareCubeListImport(catalog, body.importText);
       if (entries.length === 0) {
         return NextResponse.json({ error: "No cards found in that list.", added: 0, copies: 0, unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) }, { status: 400 });
       }
@@ -144,7 +144,7 @@ export async function POST(request: Request) {
         if (draftType) setCubeDraftType(db, created.id, draftType);
         return { cube: withDraftType(db, created.id, cubes.findCube(created.id)), ...result };
       })();
-      return NextResponse.json({ ...result, unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) }, { status: 201 });
+      return NextResponse.json({ ...result, unknown, corrected, ...(moves ? { moves, messages } : {}), ...(lookupLimited ? { lookupLimited } : {}) }, { status: 201 });
     }
     if (body.kind === "archetype") {
       const archetype = body.archetype?.trim();

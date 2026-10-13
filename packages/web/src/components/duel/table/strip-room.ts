@@ -12,8 +12,8 @@ export const STRIP_ROOM = {
   /** The gap between tiles, and the panel's side padding, the strip's own and 10 px of slack (a border or a scrollbar must not drop a column). */
   gap: 12,
   side: 66,
-  /** Everything in the panel that is not the strip (title, chain line, chips, footer, paddings). */
-  chrome: 232,
+  /** Everything in the panel that is not the scrolling strip itself (title, chain line, chips, the strip's own bar, footer, paddings). */
+  chrome: 254,
   /** One row of tiles: the art (59:86), the two-line name and the row gap. */
   rowExtra: 57,
   /** The strip fades its last 28 px when more rows wait below: a room that shows one row keeps that much more, so the names stay clear. */
@@ -101,6 +101,8 @@ export interface StripRoomInput {
   source?: readonly Rect[];
   /** The height of the panel besides its cards, measured (px). Defaults to STRIP_ROOM.chrome, an estimate. */
   chrome?: number;
+  /** The largest tile (px) the room may take: the tile of the room already shown for this prompt, so a chrome that grows never brings a larger tile (and a jump) back. */
+  maxCard?: number;
 }
 
 export interface StripRoom extends Rect {
@@ -177,15 +179,42 @@ function variantsOf(count: number, box: { width: number; height: number }, tiles
  * Pure: the camera is never read or moved.
  */
 export function planStripRoom(input: StripRoomInput): StripRoom | undefined {
-  let best = planFor(input, STRIP_ROOM.card);
-  // A room that shows fewer than STRIP_ROOM.minShown tiles at a time while more choices wait scrolls too much: smaller tiles (112, then 96 px) are taken where they show more at a time.
+  const cap = input.maxCard ?? Infinity;
+  const first = [STRIP_ROOM.card, ...STRIP_ROOM.smaller, ...EXTRA_TILES].find((tile) => tile <= cap) ?? EXTRA_TILES[EXTRA_TILES.length - 1];
+  let best = planFor(input, first);
+  // A room that shows fewer than STRIP_ROOM.minShown tiles at a time while more choices wait scrolls too much: smaller tiles (112, then 96 px) are taken where they show more.
   for (const tile of STRIP_ROOM.smaller) {
+    if (tile >= first) continue;
     if (!best || input.count <= tilesShown(best, input) || tilesShown(best, input) >= STRIP_ROOM.minShown) break;
     const next = planFor(input, tile);
     // Smaller tiles never buy their count with a worse cover: nothing more of your actions, your hand, the chain's cards or the HUD may be hidden.
     if (next && tilesShown(next, input) > tilesShown(best, input) && coverOf(next, input).every((n, i) => n <= coverOf(best!, input)[i])) best = next;
   }
+  // A box too low for one whole row of the chosen tiles plus the fade steps down to the first tile that fits, so the names stay above the fade.
+  // Where no tile fits, the smallest one that covers no more than the larger room is kept: a taller chrome never brings a larger tile back, so the panel does not jump between sizes.
+  if (best && best.height < leastHeight(best, input)) {
+    const wanted = best;
+    let smallest: StripRoom | undefined;
+    for (const tile of FIT_TILES) {
+      if (tile >= wanted.card) continue;
+      const next = planFor(input, tile);
+      if (!next || !coverOf(next, input).every((n, i) => n <= coverOf(wanted, input)[i])) continue;
+      smallest = next;
+      if (next.height >= leastHeight(next, input)) break;
+    }
+    if (smallest) best = smallest;
+  }
   return best;
+}
+
+/** The tiles a box too low for the larger ones falls back to, after STRIP_ROOM.smaller (the narrowest tile is 72 px). */
+const EXTRA_TILES = [80, 72];
+const FIT_TILES = [...STRIP_ROOM.smaller, ...EXTRA_TILES];
+
+/** The least height of a room that shows one whole row of its tiles (and the fade of the rows below it). */
+function leastHeight(room: StripRoom, input: Pick<StripRoomInput, "count" | "chrome">): number {
+  const rows = Math.ceil(input.count / room.cols);
+  return (input.chrome ?? STRIP_ROOM.chrome) + rowHeight(room.card) + (rows > 1 ? STRIP_ROOM.fade : 0);
 }
 
 /** What a room covers, as counts: your actions, the deep hand, the chain's cards, the key HUD, the soft HUD (a sliver does not count). */

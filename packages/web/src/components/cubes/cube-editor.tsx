@@ -225,6 +225,7 @@ export function CubeEditor({ cubeId, themeDraftsEnabled = false }: { cubeId: num
         corrected,
         ...(data.lookupLimited ? { lookupLimited: true as const } : {}),
         ...(data.movedToMain ? { movedToMain: data.movedToMain } : {}),
+        ...(data.messages?.length ? { messages: data.messages } : {}),
       };
       if (gains.length === 0) return { nothing: true as const, report };
       const label = fileName ?? pasteLabel(importsRef.current.map((entry) => entry.label));

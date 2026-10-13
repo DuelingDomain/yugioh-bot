@@ -45,7 +45,17 @@ export type PhaseHubProps = {
 /** `pending`: lit only because the player just clicked it. `realState`: what a screen reader hears, the engine's own phase. */
 type ChipView = StationView & { pending?: boolean; realState?: StationView["state"] };
 
-function Chip({ view, litName, onChoose }: { view: ChipView; litName: string; onChoose: (optionId: string) => void }) {
+/** The Battle Phase step as a screen reader hears it: "Battle step", "Start step", "Damage step", "Damage calculation", "End step". */
+function heardStepName(step: { name: string }): string {
+  return step.name.charAt(0) + step.name.slice(1).toLowerCase();
+}
+
+/** The same step as the small visible caption. "Damage calculation" is too long for the narrow cells, so it is "Damage calc." there. */
+function visibleStepName(step: { id: string; name: string }): string {
+  return step.id === "damage-calculation" ? "Damage calc." : heardStepName(step);
+}
+
+function Chip({ view, litName, heardStep, onChoose }: { view: ChipView; litName: string; heardStep: string; onChoose: (optionId: string) => void }) {
   const { station, state, option } = view;
   const heard = view.realState ?? state;
   const inner = (
@@ -75,7 +85,7 @@ function Chip({ view, litName, onChoose }: { view: ChipView; litName: string; on
     <span {...common}>
       {inner}
       <span className={styles.srOnly}>
-        {station.name}{heard === "done" ? ", done" : heard === "current" ? ", current phase" : ""}
+        {heard === "current" && heardStep ? `${station.name} Phase, ${heardStep}` : station.name}{heard === "done" ? ", done" : heard === "current" ? ", current phase" : ""}
       </span>
     </span>
   );
@@ -142,8 +152,11 @@ export function PhaseHub({
   // The screen reader hears the engine's phase, never the one that is only pending.
   const realStation = base.stations[base.current]?.station;
   const realStep = base.current === BATTLE ? battleStepInfo(resolveBattleStep(phase, battleStep)) : null;
-  // The opening step is itself called "Battle": say "Battle step" rather than "Battle, Battle".
-  const litName = litStation ? (step ? (step.short === litStation.name ? `${litStation.name} step` : `${litStation.name}, ${step.short} step`) : litStation.name) : "";
+  // The pill always carries the phase's own short name ("Battle", like "Main 2"). The Battle Phase's current step is a caption above it.
+  const litName = litStation?.name ?? "";
+  const stepCaption = step ? visibleStepName(step) : "";
+  // The screen reader hears "Battle Phase, Battle step" on the Battle chip (the real step, not a pending move).
+  const heardStep = realStep ? heardStepName(realStep) : "";
   const style = (tone ? { "--seat": tone.main, "--seat-ink": tone.ink } : undefined) as CSSProperties | undefined;
   const summary = noTurn
     ? "No active turn"
@@ -160,7 +173,7 @@ export function PhaseHub({
   );
   const track = (
     <div className={styles.track}>
-      {stations.map((view) => <Chip key={view.station.code} view={view} litName={litName} onChoose={(id) => choose(view.index, id)} />)}
+      {stations.map((view) => <Chip key={view.station.code} view={view} litName={litName} heardStep={heardStep} onChoose={(id) => choose(view.index, id)} />)}
     </div>
   );
 
@@ -182,7 +195,8 @@ export function PhaseHub({
             <div key={p} className={styles.cell} data-cell={p}>
               <div className={styles.pair}>
                 {p === 0 ? <div className={styles.owner} data-part="owner">{who}</div> : null}
-                {pair.map((i) => <Chip key={stations[i].station.code} view={stations[i]} litName={litName} onChoose={(id) => choose(i, id)} />)}
+                {pair.map((i) => <Chip key={stations[i].station.code} view={stations[i]} litName={litName} heardStep={heardStep} onChoose={(id) => choose(i, id)} />)}
+                {stepCaption && (pair as readonly number[]).includes(BATTLE) ? <span className={styles.stepAbove} data-part="step" aria-hidden="true">{stepCaption}</span> : null}
                 {litStation && (pair as readonly number[]).includes(current) ? <span className={styles.under} aria-hidden="true">{litName}</span> : null}
               </div>
             </div>
@@ -192,7 +206,8 @@ export function PhaseHub({
         <>
           <div className={styles.caption} data-part="owner" aria-hidden="true">
             {who}
-            <span className={styles.captionLit}>{litName}</span>
+            {stepCaption ? <span className={styles.captionStep} data-part="step">{stepCaption}</span> : null}
+            {stepCaption ? null : <span className={styles.captionLit}>{litName}</span>}
           </div>
           <div className={styles.plate}>{track}</div>
         </>

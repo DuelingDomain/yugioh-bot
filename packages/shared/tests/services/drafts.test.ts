@@ -62,7 +62,7 @@ describe("shared draft service", () => {
     try {
       seedCatalogCards(db, 62);
       db.prepare("update card_catalog set card_sets_json = '[]' where ygoprodeck_id > 60").run();
-      db.prepare("update card_catalog set frame_type = 'fusion' where ygoprodeck_id = 62").run();
+      db.prepare("update card_catalog set type = 'Fusion Monster', frame_type = 'fusion' where ygoprodeck_id = 62").run();
       const players = Array.from({ length: 3 }, (_, i) => insertPlayer(db, "guild-1", `u${i}`, `P${i}`));
       const baseIds = Array.from({ length: 60 }, (_, i) => i + 1);
       const pool = source === "set" ? { setNames: ["Metal Raiders"] } : { includeNames: baseIds.map((id) => `Card ${id}`) };

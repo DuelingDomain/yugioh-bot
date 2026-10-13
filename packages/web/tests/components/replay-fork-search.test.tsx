@@ -34,14 +34,15 @@ describe("announce card search of a replay fork", () => {
     const view = render(<Harness binding={{ as: 1, promptId: "p1", revision: 4 }} />);
     fireEvent.change(screen.getByLabelText("Search card name"), { target: { value: "dark" } });
     await settle();
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(String((fetch.mock.calls[0] as unknown[])[0])).toBe("/api/duels/cards?q=dark&slug=fork-1&as=1&promptId=p1&revision=4");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(String((fetch.mock.calls[0] as unknown[])[0])).toBe("/api/duels/cards?q=&slug=fork-1&as=1&promptId=p1&revision=4");
+    expect(String((fetch.mock.calls[1] as unknown[])[0])).toBe("/api/duels/cards?q=dark&slug=fork-1&as=1&promptId=p1&revision=4");
     expect(screen.getByText("Dark Magician")).toBeTruthy();
 
     // The same binding by value (a new object) does not search again.
     view.rerender(<Harness binding={{ as: 1, promptId: "p1", revision: 4 }} />);
     await settle();
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
     expect(screen.getByText("Dark Magician")).toBeTruthy();
 
     // A new prompt for the same seat: the old results go at once and the search asks again for the new binding.
@@ -50,8 +51,8 @@ describe("announce card search of a replay fork", () => {
     view.rerender(<Harness binding={{ as: 1, promptId: "p2", revision: 5 }} />);
     expect(screen.queryByText("Dark Magician")).toBeNull();
     await settle();
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(String((fetch.mock.calls[1] as unknown[])[0])).toBe("/api/duels/cards?q=dark&slug=fork-1&as=1&promptId=p2&revision=5");
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(String((fetch.mock.calls[2] as unknown[])[0])).toBe("/api/duels/cards?q=dark&slug=fork-1&as=1&promptId=p2&revision=5");
     await act(async () => { release(json({ cards: [card(2, "Dark Hole")] })); });
     expect(screen.getByText("Dark Hole")).toBeTruthy();
   });

@@ -52,7 +52,7 @@ export interface DuelGameWorker {
   create(options: GameOptions): Promise<void>;
   view(seat: number | null): Promise<DuelEngineView>;
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void>;
-  search(query: string): Promise<DuelCardInfo[]>;
+  search(query: string, seat?: number): Promise<DuelCardInfo[]>;
   /** Flag a core loss. `atTurnEnd` identifies retired journal commands, which the engine refuses. */
   eliminate?(seat: number, reason: number, atTurnEnd?: boolean): Promise<void>;
   /**
@@ -166,8 +166,8 @@ export class GameWorker implements DuelGameWorker {
     return this.request({ op: "answer", seat, promptId, answer });
   }
 
-  search(query: string): Promise<DuelCardInfo[]> {
-    return this.request({ op: "search", query });
+  search(query: string, seat?: number): Promise<DuelCardInfo[]> {
+    return this.request({ op: "search", query, seat });
   }
 
   eliminate(seat: number, reason: number, atTurnEnd = false): Promise<void> {

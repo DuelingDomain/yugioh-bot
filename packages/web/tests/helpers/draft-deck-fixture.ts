@@ -47,6 +47,8 @@ export async function seedDraftDeck(options: {
     for (const id of new Set(options.picks)) {
       const extra = id >= 2000;
       insertCard.run(id, `Card ${id}`, extra ? "Fusion Monster" : "Normal Monster", extra ? "fusion" : "normal", new Date().toISOString());
+      // The mock host maps to a separate passcode. Give the server the matching catalog type.
+      insertCard.run(passcodeOf(id), `Card ${id}`, extra ? "Fusion Monster" : "Normal Monster", extra ? "fusion" : "normal", new Date().toISOString());
     }
   })();
 

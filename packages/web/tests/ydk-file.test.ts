@@ -86,10 +86,12 @@ describe("importYdkIntoCube", () => {
     expect(pairs(pools.extra)).toEqual([[2, 1]]);
   });
 
-  it("sends a normal monster listed under #extra to the extra pool", async () => {
+  it("routes a normal monster listed under #extra to the main pool", async () => {
     const { cubes, cube } = setup();
     await importYdkIntoCube(cubes, cube.id, "#extra\n1\n");
-    expect(pairs(cubes.getCubePools(cube.id).extra)).toEqual([[1, 1]]);
+    const pools = cubes.getCubePools(cube.id);
+    expect(pairs(pools.main)).toEqual([[1, 1]]);
+    expect(pairs(pools.extra)).toEqual([]);
   });
 
   it("merges into the cube and stops at 99 copies", async () => {

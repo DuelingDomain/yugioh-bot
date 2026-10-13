@@ -70,6 +70,7 @@ describe("spectator entry", () => {
     }
     expect(duels.get(slug, "g").seats).toHaveLength(1);
     expect(duels.room(slug, "g", guest).mySeat).toBeNull();
+    expect(callDuelHost).not.toHaveBeenCalled();
     expect(notifyDuelChange).not.toHaveBeenCalled();
   });
 

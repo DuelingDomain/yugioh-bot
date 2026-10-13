@@ -110,6 +110,72 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "Decks are locked after the duel starts" });
   });
 
+  it.each(["deck", "ready"] as const)("preserves the neutral start block in the %s route response", async op => {
+    const payload = { session: { status: "lobby" }, startBlocked: "Start blocked: another player's deck needs attention." };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(payload)));
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
+      duels: { room: () => ({ session: { status: "lobby" } }) } as never,
+    });
+    const { NextRequest } = await import("next/server");
+    const request = new NextRequest("http://web.test/api/duels/abc", { method: "POST", body: "{}" });
+    const { POST } = op === "deck" ? await import("../app/api/duels/[slug]/deck/route") : await import("../app/api/duels/[slug]/ready/route");
+    const response = await POST(request, { params: Promise.resolve({ slug: call.slug }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(payload);
+  });
+
+  it.each(["lobby", "between_games"] as const)("gets the owner's blocked-start notice from the host in %s room reads", async state => {
+    const payload = { session: { status: state === "lobby" ? "lobby" : "completed" },
+      startBlocked: { reason: "Move Fixture Spell to Main.", cardNames: ["Fixture Spell"] } };
+    const fetch = vi.fn().mockResolvedValue(Response.json(payload));
+    vi.stubGlobal("fetch", fetch);
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
+      duels: { room: () => ({ session: payload.session, mySeat: 0,
+        series: state === "between_games" ? { status: "between_games" } : null }) } as never,
+    });
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    const response = await GET(new Request("http://web.test/api/duels/abc"), { params: Promise.resolve({ slug: call.slug }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(payload);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ op: "view", playerId: call.playerId });
+  });
+
+  it("preserves the neutral flag on the next lobby read after series advancement", async () => {
+    const payload = { session: { status: "lobby", slug: "next-game" }, role: "player", mySeat: 1,
+      startBlockedByOther: true };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(payload)));
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
+      duels: { room: () => ({ session: payload.session, mySeat: 1 }) } as never,
+    });
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    const response = await GET(new Request("http://web.test/api/duels/next-game"), { params: Promise.resolve({ slug: "next-game" }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(payload);
+  });
+
+  it.each(["lobby", "between_games"] as const)("returns the local %s room when the host is unavailable", async state => {
+    const local = { session: { status: state === "lobby" ? "lobby" : "completed" }, mySeat: 0,
+      role: "player", myDeck: { main: [901], extra: [], side: [] },
+      series: state === "between_games" ? { status: "between_games" } : null };
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
+      duels: { room: () => local } as never,
+    });
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    const response = await GET(new Request("http://web.test/api/duels/abc"), { params: Promise.resolve({ slug: call.slug }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(local);
+  });
+
   it("keeps the seat-left code and text for duel answers", async () => {
     const body = { code: "seat_left", error: "That player has left. Pick again." };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(body, { status: 400 })));

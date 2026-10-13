@@ -299,7 +299,8 @@ export function readReplayQuery(request: Request, privileged = false) {
 
 export function sessionFromHost(data: unknown) {
   if (data && typeof data === "object" && "session" in data) {
-    return { session: data.session };
+    return { session: data.session,
+      ...("startBlocked" in data && typeof data.startBlocked === "string" ? { startBlocked: data.startBlocked } : {}) };
   }
   return { session: data };
 }

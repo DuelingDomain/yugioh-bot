@@ -76,10 +76,29 @@ describeWithCores("live Domain card restriction at every multiplayer seat", need
       expect(creates).toBe(0);
       service.setDeck(room.slug, "g1", players[seat]!, invalid);
       const refused = await post(players[0]!, { op: "start" });
-      expect(refused.status).toBe(400);
-      expect(refused.body.error).toMatch(/outside the Deck Master's Domain/);
-      expect(creates).toBe(0);
-      expect(service.get(room.slug, "g1").status).toBe("lobby");
+      if (seat === 0) {
+        expect(refused.status).toBe(400);
+        expect(refused.body.error).toMatch(/outside the Deck Master's Domain/);
+      } else {
+        expect(refused.status).toBe(200);
+        expect(refused.body).toMatchObject({
+          startBlocked: "Start blocked: another player's deck needs attention.", startBlockedByOther: true,
+        });
+        expect(refused.body).not.toHaveProperty("error");
+      }
+      for (const actor of players) {
+        const view = await post(actor, { op: "view" });
+        expect(view.status).toBe(200);
+        if (actor === players[seat]) {
+          expect(view.body.startBlocked).toMatchObject({ reason: expect.stringMatching(/outside the Deck Master's Domain/) });
+          expect(view.body).not.toHaveProperty("startBlockedByOther");
+        } else {
+          expect(view.body.startBlockedByOther).toBe(true);
+          expect(view.body).not.toHaveProperty("startBlocked");
+        }
+        expect(creates).toBe(0);
+        expect(service.get(room.slug, "g1").status).toBe("lobby");
+      }
       expect((await post(players[seat]!, { op: "deck", deck: decks[seat] })).status).toBe(200);
       expect((await post(players[0]!, { op: "start" })).status).toBe(200);
       expect(creates).toBe(1);

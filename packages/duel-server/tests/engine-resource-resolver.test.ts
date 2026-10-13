@@ -105,8 +105,8 @@ describe("current engine identity", () => {
       hash.update(`shared/${name}\0`).update(fingerprintSource(readFileSync(new URL(`../../shared/src/duels/${name}.ts`, import.meta.url), "utf8")));
     }
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
-    // Version 3 records main's changed engine decoding and board projection, including the
-    // chain-activator and target-names dependencies. Historical baselines remain unchanged.
+    // Version 4 records main's Deck Master prompt costs and seat-bound card declaration
+    // suggestions, including both new runtime helpers. Historical baselines remain unchanged.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 

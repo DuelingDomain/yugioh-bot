@@ -58,7 +58,7 @@ export async function createLegacyEngineGame(options: EngineGameOptions): Promis
   return {
     view: (seat) => inner.view(seat),
     answer: (seat, promptId, answer) => inner.answer(seat, promptId, answer),
-    searchCards: (query) => inner.searchCards(query),
+    searchCards: (query, seat) => inner.searchCards(query, seat),
     setChainMode: (seat, mode) => inner.setChainMode(seat, mode),
     eliminate() {
       throw new Error("The legacy engine plays 1v1 tables only; nobody is eliminated");

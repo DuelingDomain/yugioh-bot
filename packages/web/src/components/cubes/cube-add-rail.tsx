@@ -32,6 +32,7 @@ export interface ImportOutcome {
   lookupLimited?: true;
   /** Saved-cube list import: main cards listed under Extra that went to Main. */
   movedToMain?: number;
+  messages?: string[];
 }
 
 export interface AddRailProps {

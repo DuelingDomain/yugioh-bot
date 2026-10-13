@@ -12,16 +12,22 @@ vi.mock("@/lib/session-identity", async () => {
 vi.mock("@/lib/duel-host", () => ({ callDuelHost }));
 const dirs: string[] = [];
 beforeEach(() => { vi.resetModules(); auth.mockResolvedValue({ user: { id: String(fixtureUserId("drafter")), discordUserId: fixtureDiscordId("drafter"), name: "Yugi" } }); });
-afterEach(() => { delete process.env.DATABASE_PATH; delete process.env.DISCORD_GUILD_ID; for (const dir of dirs.splice(0)) rmSync(dir, { force: true, recursive: true }); });
+afterEach(() => { vi.unstubAllEnvs(); delete process.env.DATABASE_PATH; delete process.env.DISCORD_GUILD_ID; for (const dir of dirs.splice(0)) rmSync(dir, { force: true, recursive: true }); });
 
-it.each([[10, 11], [11, 10], [11, 12]])("preserves chosen art %s → %s through draft save/read and export while checking canonical pool", async (drafted, chosen) => {
-  const { dir, draftId } = await seedDraftDeck({ picks: [drafted] }); dirs.push(dir);
+function seedEngineCards(dir: string) {
   const engine = join(dir, "engine"); mkdirSync(engine);
   const cdb = new Database(join(engine, "cards.cdb"));
   cdb.exec(`create table datas (id integer primary key, ot integer, alias integer, type integer);
     create table texts (id integer primary key, name text);
-    insert into datas values (10,3,0,17),(11,3,10,17),(12,3,11,17),(20,3,0,17);
-    insert into texts values (10,'Dragon'),(11,'Dragon'),(12,'Dragon'),(20,'Other');`); cdb.close();
+    insert into datas values (10,3,0,17),(11,3,10,17),(12,3,11,17),(20,3,0,17),(21,3,0,65);
+    insert into texts values (10,'Dragon'),(11,'Dragon'),(12,'Dragon'),(20,'Other'),(21,'Fixture Fusion');`); cdb.close();
+  vi.stubEnv("DUEL_DATA_DIR", engine);
+  return engine;
+}
+
+it.each([[10, 11], [11, 10], [11, 12]])("preserves chosen art %s → %s through draft save/read and export while checking canonical pool", async (drafted, chosen) => {
+  const { dir, draftId } = await seedDraftDeck({ picks: [drafted] }); dirs.push(dir);
+  const engine = seedEngineCards(dir);
   const { normalizeCardCodes } = await import("../../duel-server/src/deck-import");
   const db = new Database(process.env.DATABASE_PATH!);
   callDuelHost.mockImplementation(async (input: { codes: number[]; preserveArtwork?: boolean }) => ({
@@ -48,11 +54,13 @@ it.each([[10, 11], [11, 10], [11, 12]])("preserves chosen art %s → %s through 
 
 it("round-trips selected artwork in regular saved decks", async () => {
   const { dir } = await seedDraftDeck({ picks: [] }); dirs.push(dir);
+  seedEngineCards(dir);
   const deck = { main: [11,10], extra: [21], side: [12] };
   const { POST } = await import("../app/api/decks/route");
   const response = await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ name: "Art", mode: "normal", deck }) }));
   expect(response.status).toBe(201);
   const saved = (await response.json()).deck;
+  expect(saved.deck).toEqual(deck);
   const { GET } = await import("../app/api/decks/[id]/route");
   const read = await GET(new Request("http://localhost"), { params: Promise.resolve({ id: String(saved.id) }) });
   expect((await read.json()).deck.deck).toEqual(deck);
