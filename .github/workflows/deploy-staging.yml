@@ -1,6 +1,6 @@
 name: Deploy Staging
 
-# A separate staging stack on the production VM, for human tests of 3 and 4 player duels.
+# A separate staging stack on a dedicated staging host, for human tests of 3 and 4 player duels.
 # Main pushes after owner setup, and manual dispatches from main. It never runs docker compose on docker-compose.yml and never writes in /opt/yugioh-bot.
 # Runbook and owner steps: docs/deployment/staging.md
 
@@ -49,9 +49,10 @@ jobs:
     environment: staging
     timeout-minutes: 90
     env:
-      VM_HOST: ${{ secrets.VM_HOST }}
+      VM_HOST: ${{ vars.STAGING_HOST }}
+      PRODUCTION_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
-      VM_DEPLOY_ENABLED: ${{ secrets.VM_HOST != '' && secrets.VM_USER != '' && secrets.VM_SSH_PRIVATE_KEY != '' && 'true' || 'false' }}
+      VM_DEPLOY_ENABLED: ${{ secrets.VM_USER != '' && secrets.VM_SSH_PRIVATE_KEY != '' && 'true' || 'false' }}
       VM_PORT: ${{ secrets.VM_PORT || '22' }}
       # Inputs go through the environment, never straight into a shell line.
       INPUT_REF: ${{ inputs.ref || github.sha }}
@@ -61,7 +62,7 @@ jobs:
       DEPLOY_COMMIT: ""
       # Optional repository variables. They are read only when .env.staging does not exist on the VM yet.
       STAGING_DOMAIN: ${{ vars.STAGING_DOMAIN }}
-      STAGING_HOST: ${{ vars.STAGING_HOST || secrets.VM_HOST }}
+      STAGING_HOST: ${{ vars.STAGING_HOST }}
       STAGING_HTTP_PORT: ${{ vars.STAGING_HTTP_PORT }}
       # Path only; staging Clerk secrets never travel through Actions or SSH.
       STAGING_CLERK_ENV: ${{ vars.STAGING_CLERK_ENV || '/etc/yugidraft/staging-clerk.env' }}
@@ -70,9 +71,17 @@ jobs:
       - name: Check inputs and secrets
         run: |
           set -eu
+          if [ -z "$STAGING_HOST" ]; then
+            echo "STAGING_HOST is required. Configure a separate staging host; production must never build staging images." >&2
+            exit 1
+          fi
+          if [ "$(printf '%s' "$STAGING_HOST" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$PRODUCTION_HOST" | tr '[:upper:]' '[:lower:]')" ]; then
+            echo "STAGING_HOST must not be the production VM host." >&2
+            exit 1
+          fi
           printf '%s' "$STAGING_CLERK_ENV" | grep -Eq '^/[A-Za-z0-9_./-]+$' || { echo "Invalid STAGING_CLERK_ENV path" >&2; exit 1; }
           if [ "$VM_DEPLOY_ENABLED" != "true" ]; then
-            echo "The VM secrets (VM_HOST, VM_USER, VM_SSH_PRIVATE_KEY) are not set." >&2
+            echo "The staging SSH secrets (VM_USER, VM_SSH_PRIVATE_KEY) are not set." >&2
             exit 1
           fi
           check() {

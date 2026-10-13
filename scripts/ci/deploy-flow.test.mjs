@@ -41,8 +41,8 @@ function history(t) {
 test("production follows successful main push tests and retains manual rollback safety", () => {
   const prod = workflow("deploy.yml");
   assert.deepEqual(prod.on.workflow_run, { workflows: ["Test"], types: ["completed"], branches: ["main"] });
-  assert.deepEqual(prod.jobs.deploy.concurrency, { group: "deploy-production", "cancel-in-progress": false });
-  assert.equal(prod.concurrency, undefined, "ineligible workflow runs must not displace a queued successful deploy");
+  assert.deepEqual(prod.concurrency, { group: "deploy-production", "cancel-in-progress": false, queue: "max" });
+  for (const job of Object.values(prod.jobs)) assert.equal(job.concurrency, undefined);
   assert.equal(prod.jobs.deploy.environment, "production");
   assert.equal(prod.on.workflow_dispatch.inputs.ref.default, "main");
   assert.equal(prod.on.workflow_dispatch.inputs.force.default, false);
@@ -217,8 +217,10 @@ test("selected production code runs only after its main ancestry check, without 
 test("VM refuses older or diverged production commits unless rollback is explicit", t => {
   const remote = workflow("deploy.yml").jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
   const start = remote.indexOf('git fetch origin "$DEPLOY_COMMIT"');
-  const end = remote.indexOf("# Preflight, before anything on the VM changes", start);
+  const end = remote.indexOf("# Ancestry checks are complete", start);
   assert.ok(start > 0 && end > start);
+  assert.ok(remote.indexOf('git merge-base --is-ancestor HEAD') < remote.search(/^\s*check_prod_activity$/m),
+    "refuse older commits before waiting for activity");
   const { runner, base, unreviewed, release } = history(t);
   const run = (current, target, rollback) => {
     git(runner, "checkout", current);
@@ -261,7 +263,7 @@ test("both production checks block automatic deploys only on live games and keep
   const job = workflow("deploy.yml").jobs.deploy;
   const remote = job.steps.find(step => step.name === "Deploy over SSH").run;
   const start = remote.indexOf("idle_deadline=$((");
-  const end = remote.indexOf("cd /opt/yugioh-bot", start);
+  const end = remote.indexOf("# Preflight, before anything on the VM changes", start);
   const second = remote.indexOf("if ! check_prod_activity");
   const stop = remote.indexOf("# Retire the bot container", second);
   assert.ok(start > 0 && end > start && second > end && stop > second);
@@ -416,5 +418,23 @@ test("runtime Compose uses pulled local images even for an older build-only chec
     assert.equal(runtime.services[service].build, undefined);
     assert.equal(runtime.services[service].image, `yugioh-bot-${service}:latest`);
     assert.deepEqual(runtime.services[service].volumes, config.services[service].volumes);
+  }
+});
+
+
+test("staging requires a separate explicit host before any SSH or checkout", () => {
+  const job = workflow("deploy-staging.yml").jobs.staging;
+  assert.equal(job.env.STAGING_HOST, "${{ vars.STAGING_HOST }}");
+  assert.equal(job.env.VM_HOST, "${{ vars.STAGING_HOST }}");
+  const gate = job.steps[0].run;
+  for (const host of ["", "production.example"]) {
+    const result = spawnSync("sh", ["-e", "-c", gate], { encoding: "utf8", env: {
+      ...process.env, STAGING_HOST: host, PRODUCTION_HOST: "production.example",
+      VM_DEPLOY_ENABLED: "true", STAGING_CLERK_ENV: "/etc/staging-clerk.conf",
+      INPUT_REF: "main", INPUT_ACTION: "deploy", INPUT_REFRESH_DB: "false",
+      INPUT_IGNORE_PROD_ACTIVITY: "false", STAGING_DOMAIN: "", STAGING_HTTP_PORT: "",
+    } });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /STAGING_HOST.*(required|production)/);
   }
 });

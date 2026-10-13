@@ -23,6 +23,13 @@ on:
         default: false
         type: boolean
 
+# Serialize preparation, cache writes, builds and deploys. Keep every pending run:
+# late older runs must never replace a newer pending release.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+  queue: max
+
 permissions:
   contents: read
   actions: read
@@ -39,10 +46,7 @@ jobs:
     environment: production
     timeout-minutes: 180
     env:
-      VM_HOST: ${{ secrets.VM_HOST }}
-      VM_USER: ${{ secrets.VM_USER }}
       VM_DEPLOY_ENABLED: ${{ secrets.VM_HOST != '' && secrets.VM_USER != '' && secrets.VM_SSH_PRIVATE_KEY != '' && 'true' || 'false' }}
-      VM_PORT: ${{ secrets.VM_PORT || '22' }}
       DEPLOY_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref }}
       DEPLOY_FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force && 'true' || 'false' }}
       DEPLOY_ROLLBACK: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback && 'true' || 'false' }}
@@ -362,11 +366,6 @@ jobs:
       github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-latest
     environment: production
-    # Only eligible jobs join the queue: a failed Test must not displace a passing deploy.
-    # Keep the running deployment; GitHub replaces an older pending job with the newest one.
-    concurrency:
-      group: deploy-production
-      cancel-in-progress: false
     timeout-minutes: 180
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
@@ -496,6 +495,14 @@ jobs:
                echo "flock is required for the shared VM build lock. Install util-linux." >&2
                exit 1
              fi
+             cd /opt/yugioh-bot
+             git fetch origin "$DEPLOY_COMMIT"
+             git fetch origin main && git merge-base --is-ancestor "$DEPLOY_COMMIT" FETCH_HEAD || exit 1
+             if [ "$DEPLOY_ROLLBACK" != "true" ] && ! git merge-base --is-ancestor HEAD "$DEPLOY_COMMIT"; then
+               echo "Production deploy refused: target is older than or diverges from the VM checkout. Set rollback=true only for an intended rollback." >&2
+               exit 1
+             fi
+             # Ancestry checks are complete.
              # One total idle-wait budget, shared with the check immediately before service stops.
              idle_deadline=$(( $(date +%s) + DEPLOY_WAIT_SECONDS ))
              check_prod_activity() {
@@ -506,13 +513,6 @@ jobs:
                python3 "$DEPLOY_GUARD" /opt/yugioh-bot/data/bot.sqlite --force "$DEPLOY_FORCE" --wait-seconds "$remaining" "$@"
              }
              check_prod_activity
-             cd /opt/yugioh-bot
-             git fetch origin "$DEPLOY_COMMIT"
-             git fetch origin main && git merge-base --is-ancestor "$DEPLOY_COMMIT" FETCH_HEAD || exit 1
-             if [ "$DEPLOY_ROLLBACK" != "true" ] && ! git merge-base --is-ancestor HEAD "$DEPLOY_COMMIT"; then
-               echo "Production deploy refused: target is older than or diverges from the VM checkout. Set rollback=true only for an intended rollback." >&2
-               exit 1
-             fi
              # Preflight, before anything on the VM changes: the install script of the new commit, run in check-only
              # mode on the new bundle. It refuses while a duel is active and the bundle would be replaced (or, for a new
              # multi core under an identical bundle, while a Tag or free-for-all duel is active). A refusal here leaves
