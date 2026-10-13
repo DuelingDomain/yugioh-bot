@@ -166,6 +166,42 @@ describe("quadMatrix3d", () => {
   });
 });
 
+describe("a change of the board while nothing restarts", () => {
+  const set: DuelCard = { ...trap, ...zone, position: 0x0a };
+  const events: DuelEvent[] = [
+    { id: 1, kind: "activate", text: "activating", seat: 0, card: trap, zone, chainIndex: 1 },
+  ];
+
+  it("learns a Set card from the board before the batch, also when the view jumped without a restart", () => {
+    const result = render(<Board view={engine(null)} />);
+    result.rerender(<Board view={engine(set)} />);
+    result.rerender(<Board view={engine({ ...set, position: 0x05 }, events)} />);
+    expect(result.container.querySelector(`.${summonStyles.destroySleeve}`)).not.toBeNull();
+  });
+
+  it("turns no face-up card", () => {
+    const result = render(<Board view={engine({ ...set, position: 0x05 })} />);
+    result.rerender(<Board view={engine({ ...set, position: 0x05 }, events)} />);
+    expect(result.container.querySelector(`.${summonStyles.flipGhost}`)).not.toBeNull();
+    expect(result.container.querySelector(`.${summonStyles.destroySleeve}`)).toBeNull();
+  });
+
+  it("keeps a hand card's frame hidden whole, and a field frame drawn", () => {
+    document.body.innerHTML = '<div data-hand-seat="1"><div id="hand" data-card-frame></div></div><div data-zones="0:8:0"><div id="field" data-card-frame></div></div>';
+    const hand = document.getElementById("hand")!;
+    const field = document.getElementById("field")!;
+    const releaseHand = hideElement(hand);
+    const releaseField = hideElement(field);
+    expect(hand.style.visibility).toBe("hidden");
+    expect(hand.hasAttribute("data-card-hidden")).toBe(false);
+    expect(field.style.visibility).toBe("");
+    expect(field.hasAttribute("data-card-hidden")).toBe(true);
+    releaseHand();
+    releaseField();
+    expect(hand.style.visibility).toBe("");
+  });
+});
+
 describe("the activation copy on a tilted stage", () => {
   it("lies on the card box with the card's own size and tilt", () => {
     const set: DuelCard = { ...trap, ...zone, position: 0x0a };
@@ -182,5 +218,26 @@ describe("the activation copy on a tilted stage", () => {
     expect(anchor.style.height).toBe("90px");
     const corners = [[0, 0], [60, 0], [60, 90], [0, 90]].map(([x, y]) => project(anchor.style.transform, x, y));
     corners.forEach(([x, y], i) => { expect(x).toBeCloseTo(TILT[i].x, 2); expect(y).toBeCloseTo(TILT[i].y, 2); });
+  });
+
+  it("follows the card when the stage resizes or the camera moves during the hold", () => {
+    // Frames run at once, so a change places the copy again in the same turn.
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => { cb(0); return 0; });
+    const set: DuelCard = { ...trap, ...zone, position: 0x0a };
+    const events: DuelEvent[] = [
+      { id: 1, kind: "position", text: "flipped", card: trap, zone, fromPosition: 0x0a, toPosition: 0x05, flip: true },
+      { id: 2, kind: "activate", text: "activating", seat: 0, card: trap, zone, chainIndex: 1 },
+    ];
+    const result = render(<Board view={engine(set)} />);
+    result.rerender(<Board view={engine({ ...set, position: 0x05 }, events)} />);
+    const anchor = result.container.querySelector<HTMLElement>(`.${summonStyles.flipGhost}`)!.closest<HTMLElement>(`.${summonStyles.anchor}`)!;
+    const before = anchor.style.transform;
+    // The camera zooms out: the card box is smaller and nearer to the centre. The next frame places the copy again.
+    const moved: Quad = [{ x: 160, y: 120 }, { x: 190, y: 120 }, { x: 200, y: 165 }, { x: 150, y: 165 }];
+    moved.forEach((p, i) => { TILT[i] = p; });
+    window.dispatchEvent(new Event("resize"));
+    expect(anchor.style.transform).not.toBe(before);
+    const corners = [[0, 0], [60, 0], [60, 90], [0, 90]].map(([x, y]) => project(anchor.style.transform, x, y));
+    corners.forEach(([x, y], i) => { expect(x).toBeCloseTo(moved[i].x, 2); expect(y).toBeCloseTo(moved[i].y, 2); });
   });
 });

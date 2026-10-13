@@ -336,6 +336,47 @@ function placeOnCard(anchor: HTMLElement | null, overlay: HTMLElement, zone: HTM
   return geo;
 }
 
+/**
+ * Keeps the copy on the card while the table moves under it: a resize of the stage or of the card box, a change of a
+ * camera or seat transform (a style or class change on a parent of the zone), and for as long as an animation or a
+ * transition of a parent runs (the Tag camera glide, a seat field regrouping). Each trigger places the copy once per
+ * frame at most; nothing is read per frame while the table stands still.
+ */
+function followCard(track: Track, overlay: HTMLElement, zone: HTMLElement, place: () => void): void {
+  if (typeof window === "undefined" || typeof requestAnimationFrame !== "function") return;
+  let frame = 0;
+  const moving = () =>
+    typeof document.getAnimations === "function" &&
+    document.getAnimations().some((anim) => {
+      const target = (anim.effect as KeyframeEffect | null)?.target;
+      return anim.playState === "running" && target instanceof Element && target.contains(zone);
+    });
+  const run = () => {
+    frame = 0;
+    place();
+    if (moving()) frame = requestAnimationFrame(run);
+  };
+  const schedule = () => {
+    if (!frame) frame = requestAnimationFrame(run);
+  };
+  const resize = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
+  resize?.observe(overlay);
+  const box = zoneCardBox(zone);
+  if (box) resize?.observe(box);
+  const mutations = typeof MutationObserver === "function" ? new MutationObserver(schedule) : null;
+  for (let node: HTMLElement | null = zone; node && node !== document.documentElement; node = node.parentElement) {
+    mutations?.observe(node, { attributes: true, attributeFilter: ["style", "class"] });
+  }
+  window.addEventListener("resize", schedule);
+  track.onDispose(() => {
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+    resize?.disconnect();
+    mutations?.disconnect();
+    window.removeEventListener("resize", schedule);
+  });
+}
+
 /** Screen vector (dx, dy) as seen inside an element turned by `deg` and scaled by `scale` (the way CSS applies a turn, then a scale). */
 function localShift(dx: number, dy: number, deg: number, scale: number): Pt2 {
   const rad = (deg * Math.PI) / 180;
@@ -711,6 +752,7 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
   const chain = item.event.chainIndex != null;
   useEffectSetup(overlay, item, item.activationHoldMs == null && item.event.zone?.location === LOCATION_SZONE ? () => {} : done, ({ track, zone, geo: zoneGeo }) => {
     const geo = placeOnCard(anchor.current, overlay, zone, zoneGeo);
+    followCard(track, overlay, zone, () => placeOnCard(anchor.current, overlay, zone, zoneGeo));
     const art = artOf(zone);
     const flat = !geo.defense;
     // Rebuilding an extended hold keeps the original origin; a negative WAAPI delay resumes
@@ -2224,7 +2266,8 @@ export function trackSetZones(zones: Set<string>, event: DuelEvent, activated: S
 export function syncSetZones(zones: Set<string>, seats: readonly DuelSeatView[]): void {
   for (const seat of seats) {
     seat.spells.forEach((card, index) => {
-      const key = zoneKey(seat.seat, LOCATION_SZONE, card?.sequence ?? index);
+      // The same key the events use (their zone's controller).
+      const key = zoneKey(card?.controller ?? seat.seat, LOCATION_SZONE, card?.sequence ?? index);
       if (card && isFacedown(card.position)) zones.add(key);
       else zones.delete(key);
     });
@@ -2245,6 +2288,8 @@ export function SummonFx({ events, seats, duelKey, reducedMotion, shake }: Summo
   prefsRef.current = { reducedMotion, shake };
   const seatsRef = useRef(seats);
   seatsRef.current = seats;
+  // The board before the batch that is being read: events describe a change from it.
+  const priorSeatsRef = useRef(seats);
   // The WebGL layer loads while the room is idle; its ref is null until the canvas can draw.
   const fx3d = useFx3d(overlay, !reducedMotion);
   // The battle and scene layers draw into this canvas: publish it while it can draw.
@@ -2277,7 +2322,9 @@ export function SummonFx({ events, seats, duelKey, reducedMotion, shake }: Summo
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
     cursorRef.current = nextCursor;
     if (fresh.length === 0) return;
-    // Set zones follow every event, also those of a hidden tab, which plays no effects.
+    // Set zones follow every event, also those of a hidden tab, which plays no effects. What lay Set before the batch is
+    // known from the board then (a resync can change it without an event); the batch's events then move it on.
+    if (priorSeatsRef.current) syncSetZones(setZonesRef.current, priorSeatsRef.current);
     const setDown = new Set<number>();
     for (const event of fresh) trackSetZones(setZonesRef.current, event, setDown, fresh);
     if (typeof document !== "undefined" && document.hidden) return;
@@ -2376,6 +2423,11 @@ export function SummonFx({ events, seats, duelKey, reducedMotion, shake }: Summo
       return hold === item.activationHoldMs ? item : { ...item, activationHoldMs: hold };
     }).slice(-MAX_ITEMS - 4));
   }, [duelKey, events]);
+
+  // Declared after the batch reader above, so a batch reads the board as it was before it.
+  useLayoutEffect(() => {
+    priorSeatsRef.current = seats;
+  }, [seats]);
 
   const finish = (key: string) => setItems((current) => current.filter((item) => item.key !== key));
 
