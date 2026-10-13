@@ -33,7 +33,7 @@ import type {
 import {
   CardQueryError, duel1v1EngineForMode, isFirstChoice, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
   COIN_TIMING, COIN_CHAIN_BEAT_MAX_MS, MIN_DUEL_FX_SPEED, coinTossDurationMs,
-  CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_RPS_MOVES,
+  CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_OPENING_REVEAL_MS, DUEL_RPS_MOVES,
 } from "@yugidraft/shared/duels";
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, eliminationAtTurnEnd } from "./engine.js";
 import { EngineAnswerError } from "./prompts.js";
@@ -83,6 +83,8 @@ const START_BACKOFF_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
 const DECK_START_BLOCK_TTL_MS = 15 * 60 * 1000;
 const DECK_START_BLOCK_MAX = 256;
 const MAX_TIMER_MS = 2 ** 31 - 1;
+/** A short pause to show the bot's winning hands before it chooses the first turn. */
+const BOT_OPENING_CHOICE_MS = 1_000;
 /** Bound one live coin presentation pause, including any already queued grace. */
 const MAX_COIN_TOSS_GRACE_MS = 60_000;
 /**
@@ -384,6 +386,8 @@ export function createDuelHost(options: {
   const advanceTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** One timer per duel with a running opening: it fires at the phase deadline. */
   const openingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Engine starts remain queued; reads can show the saved choice while they run. */
+  const startingOpenings = new Set<string>();
   const random = options.random ?? Math.random;
   /** Series games whose last start failed: the tick sweep skips a slug until `retryAt`. */
   const startBackoff = new Map<string, {
@@ -1596,6 +1600,7 @@ export function createDuelHost(options: {
 
   /** Hand scenarios: make a table from a preset, fill the bot seats and start the duel. */
   async function startPreset(body: Record<string, unknown>, guildId: string, actor: number): Promise<unknown> {
+    const checksAt = performance.now();
     const preset = typeof body.presetId === "string" ? getPreset(body.presetId) : undefined;
     if (!preset) throw new RequestError("Unknown preset", 404);
     const presetBlock = multiplayerSeatsBlockReason(seatCountFor(preset.format), multiplayerTablesEnabled());
@@ -1646,16 +1651,21 @@ export function createDuelHost(options: {
       const engine = engineForNewTable(preset.format, copts.mode, true);
       const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, preset.format);
       const scriptErrorMode = scriptErrorModeFromEnv();
+      const bundleVersion = pinnedVersionFor(preset.format);
       const botPolicies: Record<string, string> = {};
       for (let seat = 1; seat < seatCount; seat += 1) botPolicies[String(seat)] = SCRIPTED_POLICY;
-      game = spawn(state.session.id);
+      let firstView: Awaited<ReturnType<typeof readClockView>>;
       try {
-        await game.create(workerCreateOptions(state.session.mode, state.decks, seed, state.session.masterRule, settings, preset.format, scripts, engine, firstTurnDraw, scriptErrorMode));
+        const started = await createStartingWorker(slug, state.session.id,
+          workerCreateOptions(state.session.mode, state.decks, seed, state.session.masterRule, settings, preset.format, scripts, engine, firstTurnDraw, scriptErrorMode),
+          seatCount, performance.now() - checksAt);
+        game = started.game;
+        firstView = started.firstView;
       } catch (error) {
         throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
       }
-      const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
-      service.activate(slug, guildId, actor, seed, pinnedVersionFor(preset.format), clock, {
+      const clock = startDecisionClock(firstView, settings.turnSeconds, now(), seatCount);
+      service.activate(slug, guildId, actor, seed, bundleVersion, clock, {
         firstTurnDraw,
         scriptErrorMode,
         scenarioId: preset.id,
@@ -2133,29 +2143,23 @@ export function createDuelHost(options: {
 
   /** Starts a lobby game. `organizer` null is a system start, which the duel service only allows for a series game. */
   async function startGame(slug: string, guildId: string, organizer: number | null): Promise<DuelGameWorker> {
+    const checksAt = performance.now();
     const { state, settings, seatCount } = await assertStartable(slug, guildId);
+    const bundleVersion = pinnedVersionFor(state.session.format);
+    const resourceChecksMs = performance.now() - checksAt;
     const bytes = randomBytes(32);
     const seed = [0, 8, 16, 24].map((offset) => bytes.readBigUInt64LE(offset).toString());
     const engine = engineForNewTable(state.session.format, state.session.mode);
     const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, state.session.format);
     const scriptErrorMode = scriptErrorModeFromEnv();
-    const game = spawn(state.session.id);
+    const { game, firstView } = await createStartingWorker(slug, state.session.id, workerCreateOptions(
+      state.session.mode, state.decks, seed, state.session.masterRule, settings, state.session.format,
+      undefined, engine, firstTurnDraw, scriptErrorMode,
+    ), seatCount, resourceChecksMs);
     try {
-      await game.create(workerCreateOptions(
-        state.session.mode,
-        state.decks,
-        seed,
-        state.session.masterRule,
-        settings,
-        state.session.format,
-        undefined,
-        engine,
-        firstTurnDraw,
-        scriptErrorMode,
-      ));
-      const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
+      const clock = startDecisionClock(firstView, settings.turnSeconds, now(), seatCount);
       // The engine is saved with the duel, so a recover and a replay use it even after DUEL_1V1_ENGINE changes.
-      service.activate(slug, guildId, organizer, seed, pinnedVersionFor(state.session.format), clock, {
+      service.activate(slug, guildId, organizer, seed, bundleVersion, clock, {
         ...(state.setup ?? {}), firstTurnDraw, scriptErrorMode, ...(engine ? { engine } : {}),
       });
       deckStartBlocks.delete(slug);
@@ -2171,6 +2175,40 @@ export function createDuelHost(options: {
     }
   }
 
+  /** One safe record for each engine start, shared by normal tables and scenarios. */
+  async function createStartingWorker(slug: string, duelId: number, workerOptions: GameOptions, seatCount: number, resourceChecksMs: number) {
+    const startedAt = performance.now();
+    const steps: Record<string, number | null> = { resourceChecksMs, workerSpawnMs: null, cardDbLoadMs: null, engineCreateMs: null, firstViewMs: null };
+    let game: DuelGameWorker | undefined;
+    let outcome = "failed";
+    try {
+      const spawnAt = performance.now();
+      game = spawn(duelId);
+      steps.workerSpawnMs = performance.now() - spawnAt;
+      const createAt = performance.now();
+      await game.create(workerOptions);
+      const createMs = performance.now() - createAt;
+      const workerTimes = game.startupTimings?.();
+      steps.workerSpawnMs = workerTimes?.workerSpawnMs ?? steps.workerSpawnMs;
+      steps.cardDbLoadMs = workerTimes?.cardDbLoadMs ?? null;
+      steps.engineCreateMs = workerTimes?.engineCreateMs ?? createMs;
+      const viewAt = performance.now();
+      const firstView = await readClockView(game, seatCount);
+      steps.firstViewMs = performance.now() - viewAt;
+      outcome = "ready";
+      return { game, firstView };
+    } catch (error) {
+      if (game) await safeClose(game);
+      throw error;
+    } finally {
+      const round = (ms: number) => Math.round(ms * 10) / 10;
+      console.info(JSON.stringify({ event: "duel_start", slug, outcome,
+        totalMs: round(resourceChecksMs + performance.now() - startedAt),
+        ...Object.fromEntries(Object.entries(steps).map(([step, ms]) => [step, ms === null ? null : round(ms)])),
+      }));
+    }
+  }
+
   function clearOpeningTimer(slug: string): void {
     const timer = openingTimers.get(slug);
     if (timer === undefined) return;
@@ -2179,12 +2217,12 @@ export function createDuelHost(options: {
   }
 
   /**
-   * The practice bot chooses first or second only after the reveal of the round it won, so the human sees both
-   * hands and the result before the duel starts.
+   * The practice bot gives the human one second to see the winning hands and result. The full reveal grace
+   * and choice window still apply to human winners.
    */
   function botChoiceAt(winnerSeat: 0 | 1 | null, deadline: number, seats: ReadonlyArray<{ seat: number; isBot: boolean }>): number | null {
     if (winnerSeat === null || !seats.some((seat) => seat.isBot && seat.seat === winnerSeat)) return null;
-    return deadline - DUEL_OPENING_PICK_MS;
+    return deadline - DUEL_OPENING_PICK_MS - DUEL_OPENING_REVEAL_MS + BOT_OPENING_CHOICE_MS;
   }
 
   /** Fires `driveOpening` at the phase deadline, or when the bot's choice is due. A running timer for the slug is replaced. */
@@ -2194,7 +2232,7 @@ export function createDuelHost(options: {
     let wakeAt = state.deadline;
     if (state.phase === "choose") {
       const botAt = botChoiceAt(state.winnerSeat, state.deadline, service.get(slug, guildId).seats);
-      if (botAt !== null && botAt > now()) wakeAt = botAt;
+      if (botAt !== null) wakeAt = Math.min(wakeAt, botAt);
     }
     const timer = setTimeout(() => {
       openingTimers.delete(slug);
@@ -2233,7 +2271,7 @@ export function createDuelHost(options: {
           state = service.submitOpeningPick(slug, guildId, seat, move, now());
           acted = true;
         } else if (state.phase === "choose" && state.winnerSeat === seat && now() >= (botChoiceAt(seat, state.deadline, [{ seat, isBot: true }]) ?? 0)) {
-          // The bot always takes the first turn, once the reveal of its win is over.
+          // The bot always takes the first turn after its short result pause.
           state = service.submitOpeningChoice(slug, guildId, seat, "first", now());
           acted = true;
         }
@@ -2250,9 +2288,10 @@ export function createDuelHost(options: {
     // After a failed start, a room view or a poll must not start the duel again before the backoff ends.
     if ((startBackoff.get(slug)?.retryAt ?? 0) > now()) return;
     clearOpeningTimer(slug);
-    await emitChange(slug, guildId);
-    // The seats are in their final order. A failed start of a series game is retried by the tick sweep.
+    startingOpenings.add(slug);
     try {
+      await emitChange(slug, guildId);
+      // The seats are in their final order. A failed start of a series game is retried by the tick sweep.
       await startGame(slug, guildId, state.startedBy);
       startBackoff.delete(slug);
     } catch (error) {
@@ -2269,7 +2308,23 @@ export function createDuelHost(options: {
       noteStartFailure(slug, error);
       await emitChange(slug, guildId);
       if (error instanceof DeckLegalityError || error instanceof RequestError) throw error;
+    } finally {
+      startingOpenings.delete(slug);
     }
+  }
+
+  /** A read of saved lobby state never asks the engine to work or changes the opening. */
+  function startingOpeningRoom(body: Record<string, unknown>): DuelRoom | null {
+    if (body.op !== "view") return null;
+    const { guildId, playerId, slug } = body;
+    if (typeof guildId !== "string" || !guildId || !Number.isSafeInteger(playerId) || (playerId as number) <= 0) {
+      throw new RequestError("Authenticated guild and player are required", 400);
+    }
+    if (typeof slug !== "string" || !slug || slug.length > 128) throw new RequestError("Duel slug is required", 400);
+    if (!startingOpenings.has(slug) || body.spectate === true) return null;
+    // service.room applies guild scoping and returns only this actor's own deck and pick.
+    const room = service.room(slug, guildId, playerId as number);
+    return room.session.status === "lobby" && room.opening?.phase === "start" ? stampRoomClock(room, now()) : null;
   }
 
   /**
@@ -2867,7 +2922,9 @@ export function createDuelHost(options: {
     if (stopped) return;
     try {
       // Timed-out openings, settled openings whose duel has not started yet, and a timer for those still running.
-      for (const due of service.dueOpenings(t + pollIntervalMs, SERIES_SWEEP_LIMIT)) {
+      // A bot choice is due before the human deadline, including just after a restart.
+      const openingHorizon = Math.max(pollIntervalMs, DUEL_OPENING_PICK_MS + DUEL_OPENING_REVEAL_MS);
+      for (const due of service.dueOpenings(t + openingHorizon, SERIES_SWEEP_LIMIT)) {
         if (stopped) return;
         const state = service.openingState(due.slug, due.guildId);
         if (!state) continue;
@@ -2972,6 +3029,8 @@ export function createDuelHost(options: {
         try { body = JSON.parse(raw); } catch { throw new RequestError("Invalid JSON", 400); }
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("Invalid request", 400);
         if (typeof body.op === "string" && DUEL_OPS.has(body.op)) requestOp = body.op;
+        const openingRoom = startingOpeningRoom(body);
+        if (openingRoom) return Response.json(openingRoom, { headers: { "cache-control": "no-store" } });
         const key = typeof body.slug === "string" ? body.slug : "catalog";
         // Diagnostics skip the queue; GitHub status reads must not block card editor requests.
         const ctl = { abandoned: false };
