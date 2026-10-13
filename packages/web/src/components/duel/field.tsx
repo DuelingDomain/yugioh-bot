@@ -40,7 +40,7 @@ import {
   zoneKey,
 } from "./constants";
 import { disabledZones } from "./multi-seat";
-import { findMasterCard, masterActionText, masterInUse, masterPlace, masterSummonLine, surchargeText, useMasterSeats, type MasterPlace } from "./master-place";
+import { findMasterCard, masterActionText, masterInUse, masterPlace, masterNextCost, masterSummonLine, surchargeText, useMasterSeats, type MasterPlace } from "./master-place";
 import type { InspectTarget } from "./inspector";
 import { RivalHand } from "./table/rival-hand";
 import { hexToRgbTriplet, normalizeDeg, textScale } from "./table/seat-angle";
@@ -1285,7 +1285,7 @@ export function MasterDock({
             {summonLine ? null : (
               <div>
                 <dt>Next surcharge</dt>
-                <dd>{surchargeText(master.nextCost)}</dd>
+                <dd>{surchargeText(masterNextCost(master))}</dd>
               </div>
             )}
           </dl>
