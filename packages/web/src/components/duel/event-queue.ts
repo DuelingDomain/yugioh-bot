@@ -217,6 +217,19 @@ export function findZoneElement(zone: DuelZoneRef | undefined | null): HTMLEleme
 }
 
 /**
+ * What shows the card of a field zone: its art, stat plate and markers, which sit inside the zone frame. The frame
+ * itself is the zone outline, so an effect that hides the real card hides these and leaves the outline drawn.
+ * A zone whose card is not framed (no art, or an art without a frame) gives the art alone, or nothing.
+ */
+export function zoneCardParts(zone: HTMLElement): HTMLElement[] {
+  const art = zone.querySelector<HTMLElement>("[data-card-art]");
+  if (!art) return [];
+  const frame = art.parentElement?.parentElement;
+  if (!frame || frame === zone || !zone.contains(frame)) return [art];
+  return Array.from(frame.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+}
+
+/**
  * The zone element a card moves to or from. Same as findZoneElement, except that the Deck and the Extra
  * Deck, which are one pile each, resolve to the pile when the exact key is missing. The engine numbers the
  * cards of a Deck (a card put on the top, or shuffled in, arrives at the new Deck size minus 1; a card milled
