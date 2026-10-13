@@ -701,7 +701,7 @@ function TableShellBody({
                   <FxBoundary>
                     {fxActive ? <CoinTossFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <SummonFx events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
+                    {fxActive ? <SummonFx seats={engine.seats} events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
                     {fxActive ? <MoveFx events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} promptOpen={promptMine && ownPromptOpen(prompt, viewerSeat)} /> : null}

@@ -1334,7 +1334,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
         soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
-      {fxUp ? <SummonFx events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={slug}
+      {fxUp ? <SummonFx seats={engine.seats} events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={slug}
         reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
       {fxUp ? <MoveFx events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}

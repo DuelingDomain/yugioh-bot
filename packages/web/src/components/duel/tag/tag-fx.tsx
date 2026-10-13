@@ -92,7 +92,7 @@ export function TagFx({ controller, preferences, fxActive = true, passedSeats = 
     <FxBoundary>
       <CoinTossFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <DuelFeedback events={events} duelKey={duelKey} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={reducedMotion} />
-      <SummonFx events={withMasterSummonMoves(withDestroyCards(events), previousSeats, engine.seats)} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
+      <SummonFx seats={engine.seats} events={withMasterSummonMoves(withDestroyCards(events), previousSeats, engine.seats)} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
       <MoveFx events={withMasterSummonMoves(withDestroyCards(events), previousSeats, engine.seats)} duelKey={duelKey} reducedMotion={reducedMotion} />
       <PositionFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <ChainFx events={withDestroyCards(events)} chain={engine.chain} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={room.session.status !== "active" || engine.result != null} table="tag" seats={engine.seats} promptOpen={ownPromptOpen(prompt, viewerSeat)} />

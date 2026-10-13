@@ -261,8 +261,8 @@ export function ZoneSlot({
         onBlur={() => onHoverCard?.(null, null)}
       >
         {!card && kind === "emz" ? <span className={styles.zoneName}>Extra Monster</span> : null}
-        <div className={styles.frame}>
-          {pendulum ? <span className={styles.pendulumMark}>P</span> : null}
+        <div className={styles.frame} data-card-frame>
+          {pendulum ? <span className={styles.pendulumMark} data-zone-label>P</span> : null}
           {card ? <CardFace card={card} sleeve={sleeve} /> : sleeve ? <CardFace card={null} sleeve={sleeve} /> : null}
           {atk ? (
             <span className={styles.plate}>
