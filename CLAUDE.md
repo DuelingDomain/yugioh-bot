@@ -78,8 +78,8 @@ This is an npm workspaces + Turborepo monorepo with seven packages (see `docs/ar
 ### Deployment flow
 
 Every push to `main` runs all regular **Test** suites; a successful push run triggers **Deploy** for that
-run's exact `head_sha`. PR, scheduled and manual Test runs never trigger production. Deploy jobs queue
-without cancelling the running job; a newer eligible job can replace an older pending job. The `production`
+run's exact `head_sha`. PR, scheduled and manual Test runs never trigger production. The whole Deploy workflow queues
+with `cancel-in-progress: false` and `queue: max`; an older run cannot cancel a newer pending deploy. The `production`
 environment retains its main-only branch policy and environment secrets, with no required reviewers.
 Automatic deploys wait only for live duels (including RPS/dice openings) and active drafts every 120 seconds,
 sharing one 60-minute budget across the checks before VM changes and immediately before service stops.
@@ -87,21 +87,18 @@ Open tournament rounds and active/between-game series are logged without blockin
 Manual Deploy from `main` retains `ref`, `force` and `rollback`; the selected SHA must have passed a main push Test.
 Its read-only SQLite guard covers duels, drafts, tournament rounds, active/between-game series and RPS/dice
 openings. Manual `force` skips only this activity guard; engine preflight, build lock and backups still apply.
-Prod stops staging and leaves it off. Staging remains optional and independent: owner setup plus
-`STAGING_AUTO_DEPLOY=1` enables its push workflow; staging completion does not gate production.
+Staging is removed; it returns later on a separate server.
 The runner checks the prod target's main ancestry before running its code. Production prepares the
 verified engine bundle, builds four ARM64 images on `ubuntu-24.04-arm`, and pushes full-SHA tags to
 public GHCR packages. The VM only pulls and retags them as local `:latest`, preserving `:prev`; its
 runtime Compose file has no build definitions and startup uses `--no-build`. Per-service registry
 `:buildcache` tags use `mode=max`; web also reuses a rolling `:nextcache` image. Manual rollback pulls
-the selected existing SHA without rebuilding. Staging was removed from this VM; keep its auto deploy
-variable disabled because the unchanged staging workflow still builds on the VM. See the VM runbook
-for GHCR visibility and weekly retention steps. SSH key env is limited to the key setup step.
-The VM refuses an older or diverged prod SHA unless `rollback=true`. Staging skips active prod games, guard failures,
-busy or low-resource runs with a warning and step-summary line; check for `staging is running`, then test the site.
-Staging stop waits for the lock or fails. Prod waits only 15 minutes; a cold staging build can take longer.
-Use a separate staging Clerk instance and HTTPS host. On the shared 4 GB VM, resource limits cannot guarantee prod uptime;
-a second staging VM is advised for the alpha. See `docs/deployment/staging.md` and `docs/deployment/vm-runbook.md`.
+the selected existing SHA without rebuilding. Each build records its output digest; production pulls
+that digest. The VM refuses an older or diverged SHA before the activity wait unless `rollback=true`.
+The lock still protects deploys and owner maintenance. Disk checks require 6 GiB free before pull.
+Retries keep the good `:prev`; only obsolete GHCR SHA tags are removed. Owner tags stay.
+See `docs/deployment/vm-runbook.md` for package visibility, weekly cleanup and recovery.
+Release artifacts expire after one day; dispatch a new run after expiry.
 
 ### Duel resources and Docker
 
@@ -143,13 +140,13 @@ The bot wraps all discord.js interactions into framework-agnostic `*Like` types 
 - Existing-player recovery also opens `/welcome-back`, exact `GET /api/auth/existing-player/start` and `GET /api/auth/callback/discord`, and exact `POST /api/auth/existing-player/complete` and `POST /api/auth/existing-player/ticket`. It proves Discord identity directly, requires a verified email and legal consent, and claims the existing `users` row without email-based account merging. Recovery cookies are encrypted with a key derived from the Clerk secret; the short-lived Clerk ticket never enters a URL. Runtime Discord OAuth client credentials reach only web.
 - There is no web/shared admin role or Discord membership gate. Creators manage drafts, tournaments and cubes; seat, participant, invite-grant and saved-deck ownership checks still apply. All reads remain scoped to `DISCORD_GUILD_ID`. Season writes use the VM owner CLI only.
 - `/settings` redirects to `/settings/account`, the sole `<UserProfile/>` page. Focus/return calls `/api/account/refresh` for forced sync. Two accounts with history are not automatically merged; the owner handles conflicts.
-- Isolated E2E uses a one-hour HMAC-signed `dd_e2e_session` HttpOnly/SameSite cookie for seeded `users.id`. Only literal `E2E_AUTH=1` plus `E2E_AUTH_SECRET` of at least 32 characters enables `/api/test-auth/session` and `/api/test-auth/sign-out`; both 404 when disabled. Test mode skips Clerk middleware/provider initialization and shows offline account controls. Production/staging Compose forward neither E2E gate nor secret.
+- Isolated E2E uses a one-hour HMAC-signed `dd_e2e_session` HttpOnly/SameSite cookie for seeded `users.id`. Only literal `E2E_AUTH=1` plus `E2E_AUTH_SECRET` of at least 32 characters enables `/api/test-auth/session` and `/api/test-auth/sign-out`; both 404 when disabled. Test mode skips Clerk middleware/provider initialization and shows offline account controls. Production Compose forwards neither E2E gate nor secret.
 - Legal links are `https://duelingdomain.com/privacy` and `https://duelingdomain.com/terms`; the app has no legal pages/public exceptions. Contact: `support@duelingdomain.com`.
 - `/dev/fx-lab`, `/dev/table-preview`, `/dev/solid-preview` and their card-image routes are public with `DUEL_FX_LAB=1` or in `next dev`; otherwise 404. Draft test bots require `DRAFT_TEST_BOTS=1` in production (allowed in non-production); APIs provide the UI capability.
 
 ### Env and owner operations
 
-`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is a web build arg (production repository variable). `CLERK_SECRET_KEY` is web runtime only; never supply it to a build. Dev keys live in ignored `packages/web/.env.local` and never reach staging/production. Staging has a separate instance/source. Web uses an explicit Compose environment list, never a broad env file. `WEB_URL` is required for WS CORS and app links; no NextAuth fallback exists. `MARKETING_URL` supplies external waitlist links.
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is a web build arg (production repository variable). `CLERK_SECRET_KEY` is web runtime only; never supply it to a build. Dev keys live in ignored `packages/web/.env.local` and never reach production. Future staging needs a separate instance/source. Web uses an explicit Compose environment list, never a broad env file. `WEB_URL` is required for WS CORS and app links; no NextAuth fallback exists. `MARKETING_URL` supplies external waitlist links.
 
 Owner tools ship in the worker image: `node packages/worker/dist/ops/cli.js season|merge-users|clerk-precreate-users|clerk-reconcile-waitlist`. Dry-run is default; `--apply` writes, `--report` chooses a private 0600 report. Pass Clerk secret explicitly for import/reconcile: `docker compose -f docker-compose.yml run --rm --no-deps -e CLERK_SECRET_KEY worker node packages/worker/dist/ops/cli.js ...`. Stop writers and revoke source Clerk sessions before merge apply. See the VM runbook for commands and rollback.
 
@@ -159,7 +156,7 @@ Drafts are started from the web dashboard; the shelved bot retains its command i
 
 ### Cubes and theme draft mode
 
-- New theme drafts require web runtime `THEME_DRAFTS=1|true|on` (default off in every build); production Compose defaults to `0`, staging uses `STAGING_THEME_DRAFTS=1`, and existing theme lobbies/games, summaries and deck exports remain available when off. `GET /api/drafts` and `GET /api/cubes` return `themeDraftsEnabled` for the browser.
+- New theme drafts require web runtime `THEME_DRAFTS=1|true|on` (default off in every build); production Compose defaults to `0`, and existing theme lobbies/games, summaries and deck exports remain available when off. `GET /api/drafts` and `GET /api/cubes` return `themeDraftsEnabled` for the browser.
 - Reusable pools/configs live in `cubes` / `cube_cards` (`main`/`extra` pools, per-card `max_copies`, draft config in `config_json`). `createCubeService` supports archetype seeding, passcode imports, and saved configs; `applyCubeToConfig` supplies shared booster-style drafts. The library/editor uses `/cubes`, `/cubes/[id]`, and `/api/cubes`; `/themes` and `/themes/[id]` redirect to the corresponding cube pages. Legacy theme and draft-template tables are dropped by migration.
 - `DraftConfig.mode === "theme"` deals each player privately from an assigned cube. `allowedCubeIds` controls available cubes; `draft_player_cube` stores assignments. `themeSelection` still supports `host_assigned`, `random`, and `player_pick`; `uniqueThemes` controls distinct assignments.
 - In `packages/shared/src/services/drafts.ts`, `startThemeDraft` assigns seats/cubes and checks main-pool sufficiency; `openThemeRound` deals up to `themePackSize` choices; `pickThemeCard` advances `current_wave_number` once everyone dealt a pack has picked. Main-deck rounds precede optional extra-deck rounds; `burnUnpicked` controls whether unpicked choices return to the pool.
