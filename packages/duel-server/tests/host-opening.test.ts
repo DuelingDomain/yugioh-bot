@@ -58,12 +58,12 @@ function setup() {
 }
 type App = ReturnType<typeof setup>;
 
-function openHost(app: App, random: () => number = Math.random, onChange?: (slug: string, guildId: string) => void) {
+function openHost(app: App, random: () => number = Math.random, onChange?: (slug: string, guildId: string) => void, pollIntervalMs: number | null = 60 * 60 * 1000) {
   const workers: FakeWorker[] = [];
   const control = { failCreate: false, createGate: undefined as Promise<void> | undefined };
   const host = createDuelHost({
     db: app.db, dataDirectory: DATA, secret: SECRET, searchCards: () => [],
-    archiveAfterMs: 60 * 60 * 1000, idleWorkerMs: 60 * 60 * 1000, pollIntervalMs: 60 * 60 * 1000,
+    archiveAfterMs: 60 * 60 * 1000, idleWorkerMs: 60 * 60 * 1000, pollIntervalMs: pollIntervalMs ?? undefined,
     openingRps: true, random, onChange,
     createWorker: () => { const worker = new FakeWorker(control.failCreate, control.createGate); workers.push(worker); return worker; },
   });
@@ -333,6 +333,81 @@ describe("rock-paper-scissors opening", () => {
     }
   });
 
+  it("keeps a room view at 750 ms in the bot result pause", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    const { host, workers } = openHost(app, () => 0.5);
+    const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Bot", mode: "normal" });
+    app.duels.setDeck(table.slug, GUILD, app.p1, deckFor());
+    app.duels.markReady(table.slug, GUILD, app.p1);
+    await post(host, { op: "add-bot", slug: table.slug, playerId: app.p1 });
+    await post(host, { op: "start", slug: table.slug, playerId: app.p1 });
+    await post(host, { op: "opening-pick", slug: table.slug, playerId: app.p1, move: "rock" });
+    await vi.advanceTimersByTimeAsync(750);
+    const view = await post(host, { op: "view", slug: table.slug, playerId: app.p1 });
+    expect(view.status).toBe(200);
+    expect(view.data.session.status).toBe("lobby");
+    expect(view.data.opening).toMatchObject({ phase: "choose", winnerSeat: 1, choice: null });
+    expect(view.data.engine).toBeNull();
+    expect(workers).toHaveLength(0);
+  });
+
+  it.each(["bot", "human"] as const)("serves the saved %s choice while engine creation waits, and keeps mutations queued", async (winner) => {
+    vi.useFakeTimers();
+    const app = setup();
+    const { host, workers, control } = openHost(app, () => 0.5);
+    let release!: () => void;
+    control.createGate = new Promise<void>((resolve) => { release = resolve; });
+    let slug: string;
+    if (winner === "bot") {
+      const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Bot", mode: "normal" });
+      slug = table.slug;
+      app.duels.setDeck(slug, GUILD, app.p1, deckFor());
+      app.duels.markReady(slug, GUILD, app.p1);
+      await post(host, { op: "add-bot", slug, playerId: app.p1 });
+    } else slug = openTable(app);
+    await post(host, { op: "start", slug, playerId: app.p1 });
+    await post(host, { op: "opening-pick", slug, playerId: app.p1, move: "rock" });
+    let chosen: ReturnType<typeof post> | undefined;
+    if (winner === "human") {
+      await post(host, { op: "opening-pick", slug, playerId: app.p2, move: "paper" });
+      chosen = post(host, { op: "opening-choose", slug, playerId: app.p2, choice: "second" });
+    }
+    try {
+      await vi.advanceTimersByTimeAsync(1_050);
+      expect(workers).toHaveLength(1);
+      expect(workers[0]!.createdOptions).toBeNull();
+      let room: Awaited<ReturnType<typeof post>> | undefined;
+      const reading = post(host, { op: "view", slug, playerId: app.p1 }).then((value) => { room = value; });
+      let mutationDone = false;
+      const mutating = post(host, { op: "opening-choose", slug, playerId: app.p1, choice: "first" }).then(() => { mutationDone = true; });
+      await settle();
+      expect(room?.status).toBe(200);
+      expect(room?.data.session.status).toBe("lobby");
+      expect(room?.data.opening).toMatchObject({ phase: "start", choice: winner === "bot" ? "first" : "second" });
+      expect(room?.data.engine).toBeNull();
+      expect(room?.data.myDeck).toEqual(deckFor());
+      expect(mutationDone).toBe(false);
+      expect(workers).toHaveLength(1);
+      // Authentication and guild scoping still apply to reads that skip the engine queue.
+      const invalid = await post(host, { op: "view", slug, playerId: 0 });
+      expect(invalid.status).toBe(400);
+      const wrongGuild = await post(host, { op: "view", slug, guildId: "other", playerId: app.p1 });
+      expect(wrongGuild.status).toBe(404);
+      release();
+      await settle();
+      await Promise.all([reading, mutating, chosen]);
+      expect(mutationDone).toBe(true);
+      const active = await post(host, { op: "view", slug, playerId: app.p1 });
+      expect(active.data.session.status).toBe("active");
+      expect(active.data.engine).not.toBeNull();
+      expect(workers).toHaveLength(1);
+    } finally {
+      release();
+      await chosen;
+    }
+  });
+
   it("starts the duel on a room read after the bot's short choice pause if the timer was lost", async () => {
     vi.useFakeTimers();
     const app = setup();
@@ -351,7 +426,7 @@ describe("rock-paper-scissors opening", () => {
     expect(workers).toHaveLength(1);
   });
 
-  it("immediately schedules an overdue bot choice after a host restart", async () => {
+  it.each([1_500, 2_000, 2_500])("schedules an overdue bot choice after a %i ms restart gap with the default poll", async (gap) => {
     vi.useFakeTimers();
     const app = setup();
     const { host } = openHost(app, () => 0.5);
@@ -362,8 +437,8 @@ describe("rock-paper-scissors opening", () => {
     await post(host, { op: "start", slug: table.slug, playerId: app.p1 });
     await post(host, { op: "opening-pick", slug: table.slug, playerId: app.p1, move: "rock" });
     await host.close();
-    vi.setSystemTime(Date.now() + 3_500);
-    const restarted = openHost(app, () => 0.5);
+    vi.setSystemTime(Date.now() + gap);
+    const restarted = openHost(app, () => 0.5, undefined, null);
     // The recovery scan must arm an immediate timer, rather than wait for the human deadline.
     await settle();
     expect(app.duels.get(table.slug, GUILD).status).toBe("active");
@@ -470,5 +545,29 @@ describe("rock-paper-scissors opening", () => {
     const slug = openTable(app);
     const start = await post(host, { op: "start", slug, playerId: app.p1 });
     expect(start.data.session.status).toBe("active");
+  });
+
+  it("logs one safe timing record per engine start", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const app = setup();
+    const { host } = openHost(app);
+    const slug = openTable(app);
+    try {
+      await post(host, { op: "start", slug, playerId: app.p1 });
+      expect(info).not.toHaveBeenCalled();
+      await post(host, { op: "opening-pick", slug, playerId: app.p1, move: "rock" });
+      await post(host, { op: "opening-pick", slug, playerId: app.p2, move: "paper" });
+      await post(host, { op: "opening-choose", slug, playerId: app.p2, choice: "first" });
+      await post(host, { op: "view", slug, playerId: app.p1 });
+      expect(info).toHaveBeenCalledTimes(1);
+      const log = JSON.parse(info.mock.calls[0]![0]);
+      expect(log).toEqual({
+        event: "duel_start", slug, outcome: "ready", totalMs: expect.any(Number),
+        resourceChecksMs: expect.any(Number), workerSpawnMs: expect.any(Number),
+        cardDbLoadMs: null, engineCreateMs: expect.any(Number), firstViewMs: expect.any(Number),
+      });
+      expect(JSON.stringify(log)).not.toContain(DATA);
+      expect(JSON.stringify(log)).not.toContain(SECRET);
+    } finally { info.mockRestore(); }
   });
 });

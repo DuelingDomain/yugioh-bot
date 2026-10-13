@@ -4,9 +4,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { relative } from "node:path";
 import { dbPath, duelDataDir, repoRoot, stackLogFile } from "../stack/env.mjs";
-import { playerName, type PlayerKey } from "./players";
-import { NumberCapture } from "./leaks";
-import { browserEntries, journalEntries, mergeTimeline, oneLine, renderTimelineMarkdown, stackEntry, type TimelineEntry } from "./timeline";
+import { playerName, type PlayerKey } from "./players.ts";
+import { NumberCapture } from "./leaks.ts";
+import { browserEntries, journalEntries, mergeTimeline, oneLine, renderTimelineMarkdown, stackEntry, type TimelineEntry } from "./timeline.ts";
 
 // Failure evidence. `PlayerEvidence` listens to every page of one player context for the whole test.
 // Nothing is written while the test passes (unless E2E_EVIDENCE=always). `attachFailureEvidence` runs once for a failed test and writes
@@ -29,7 +29,8 @@ const LOG_FLUSH_MS = 400;
 class Ring<T> {
   items: T[] = [];
   dropped = 0;
-  constructor(private readonly max: number) {}
+  private readonly max: number;
+  constructor(max: number) { this.max = max; }
   push(item: T): void {
     this.items.push(item);
     if (this.items.length > this.max) {
@@ -59,12 +60,18 @@ export class PlayerEvidence {
   lastSeat: number | null = null;
   private readonly pages: Page[] = [];
   private socketCount = 0;
+  readonly key: PlayerKey;
+  readonly context: BrowserContext;
+  readonly startedAt: number;
 
   constructor(
-    readonly key: PlayerKey,
-    readonly context: BrowserContext,
-    readonly startedAt: number,
+    key: PlayerKey,
+    context: BrowserContext,
+    startedAt: number,
   ) {
+    this.key = key;
+    this.context = context;
+    this.startedAt = startedAt;
     context.on("page", (page) => this.watch(page));
   }
 

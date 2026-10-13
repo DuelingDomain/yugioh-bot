@@ -2,7 +2,7 @@ import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
 import { Worker } from "node:worker_threads";
 import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
-import type { DuelWorkerResponse } from "./worker-protocol.js";
+import type { DuelWorkerResponse, WorkerCreateTimings } from "./worker-protocol.js";
 import { EngineAnswerError } from "./prompts.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
@@ -60,12 +60,16 @@ export interface DuelGameWorker {
   debugState?(): WorkerDebugState;
   /** Scenario-only snapshot of the last 5,000 prompts, oldest first, captured before any next answer. */
   promptLog?(): readonly PromptTraceEntry[];
+  /** Startup costs from this thread, without any game or actor data. */
+  startupTimings?(): (WorkerCreateTimings & { workerSpawnMs: number }) | null;
   close(): Promise<void>;
 }
 
 /** A worker owns exactly one core instance; no hidden state leaves via broadcasts. */
 export class GameWorker implements DuelGameWorker {
   private readonly worker: Worker;
+  private readonly spawnedAt = performance.now();
+  private createTimings: (WorkerCreateTimings & { workerSpawnMs: number }) | null = null;
   private sequence = 0;
   private stopped = false;
   private readonly pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
@@ -84,6 +88,11 @@ export class GameWorker implements DuelGameWorker {
       : new Worker(module);
     this.worker.on("message", (message: DuelWorkerResponse) => {
       if (this.stopped) return;
+      if (message.ok && message.createTimings) {
+        this.createTimings = { ...message.createTimings,
+          // Includes thread startup, module imports and transport overhead, before the first create reply.
+          workerSpawnMs: Math.max(0, performance.now() - this.spawnedAt - message.createTimings.cardDbLoadMs - message.createTimings.engineCreateMs) };
+      }
       for (const error of message.scriptErrors ?? []) onScriptError?.(error);
       for (const error of message.fatalScriptErrors ?? []) onFatalScriptError?.(error);
       if (message.ok && message.info) this.info = message.info;
@@ -117,6 +126,10 @@ export class GameWorker implements DuelGameWorker {
 
   get running(): boolean {
     return !this.stopped;
+  }
+
+  startupTimings(): (WorkerCreateTimings & { workerSpawnMs: number }) | null {
+    return this.createTimings ? { ...this.createTimings } : null;
   }
 
   promptLog(): readonly PromptTraceEntry[] {
