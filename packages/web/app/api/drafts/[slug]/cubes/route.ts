@@ -39,7 +39,7 @@ export async function POST(request: Request, { params }: Context) {
     }
     // Body parsing can yield too; avoid creating a cube for an already closed lobby.
     pendingThemeDraft(db, slug, guildId, userId, true);
-    const cubes = createCubeService(db, createCardCatalogService(db));
+    const cubes = createCubeService(db, createCardCatalogService(db, { memberId: actor.userId }));
     let seeded: Cube | undefined;
     if (kind === "archetype") {
       try {

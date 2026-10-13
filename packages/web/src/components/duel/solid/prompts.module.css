@@ -700,9 +700,11 @@
 }
 [data-look="solid"] .result { border-bottom-color: var(--hair); font-size: 14px; }
 [data-look="solid"] .result:hover:not(:disabled),
+[data-look="solid"] .result[data-active="true"],
 [data-look="solid"] .result[data-selected="true"] { background: var(--ink-3); }
 [data-look="solid"] .result:focus-visible { outline: 2px solid var(--pur-hi); }
 [data-look="solid"] .result:disabled { opacity: 1; color: var(--tx-3); }
+[data-look="solid"] .deckTag { border-color: var(--hair); color: var(--tx-2); }
 [data-look="solid"] .note { color: var(--tx-2); font-size: 13px; }
 [data-look="solid"] .error { color: var(--loss); font-size: 13px; }
 

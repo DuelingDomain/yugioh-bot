@@ -81,8 +81,9 @@ Every push to `main` runs all regular **Test** suites; a successful push run tri
 run's exact `head_sha`. PR, scheduled and manual Test runs never trigger production. Deploy jobs queue
 without cancelling the running job; a newer eligible job can replace an older pending job. The `production`
 environment retains its main-only branch policy and environment secrets, with no required reviewers.
-Automatic deploys wait for idle gameplay every 120 seconds, sharing one 60-minute budget across the checks
-before VM changes and immediately before service stops. Busy timeout or unreadable activity fails closed.
+Automatic deploys wait only for live duels (including RPS/dice openings) and active drafts every 120 seconds,
+sharing one 60-minute budget across the checks before VM changes and immediately before service stops.
+Open tournament rounds and active/between-game series are logged without blocking. Busy timeout or unreadable activity fails closed.
 Manual Deploy from `main` retains `ref`, `force` and `rollback`; the selected SHA must have passed a main push Test.
 Its read-only SQLite guard covers duels, drafts, tournament rounds, active/between-game series and RPS/dice
 openings. Manual `force` skips only this activity guard; engine preflight, build lock and backups still apply.
@@ -158,7 +159,7 @@ Drafts are started from the web dashboard; the shelved bot retains its command i
 
 ### Card catalog
 
-Card data is fetched from ygoprodeck.com and cached in `card_catalog`. The worker syncs set metadata at `SETS_SYNC_CRON` (default `0 6 * * *`, `SETS_SYNC_TIMEZONE=UTC`). Bot images, the web card-image route and the worker share the same absolute `CARD_IMAGE_CACHE_DIR` (Compose: `/app/data/card-images`). Worker startup and cron cleanup evict oldest files over `CARD_IMAGE_CACHE_MAX_BYTES` (default `16106127360`, 15 GiB) on `IMAGE_CLEANUP_CRON` (default `0 4 * * *`, `IMAGE_CLEANUP_TIMEZONE=UTC`). Next image optimization is off (`packages/web/next.config.ts`).
+Card data is fetched from ygoprodeck.com and cached in `card_catalog`. Web catalog and image requests share a per-member budget of 20 unfinished fetches (`CARD_FETCH_MEMBER_QUEUE_LIMIT` overrides the service default); a full budget returns 429. Manual `POST /api/sets` sync is limited to one attempt per member every ten minutes. The worker syncs set metadata at `SETS_SYNC_CRON` (default `0 6 * * *`, `SETS_SYNC_TIMEZONE=UTC`). Bot images, the web card-image route and the worker share the same absolute `CARD_IMAGE_CACHE_DIR` (Compose: `/app/data/card-images`). Worker startup and cron cleanup evict oldest files over `CARD_IMAGE_CACHE_MAX_BYTES` (default `16106127360`, 15 GiB) on `IMAGE_CLEANUP_CRON` (default `0 4 * * *`, `IMAGE_CLEANUP_TIMEZONE=UTC`). Next image optimization is off (`packages/web/next.config.ts`).
 
 ## Design context (`.impeccable.md`)
 

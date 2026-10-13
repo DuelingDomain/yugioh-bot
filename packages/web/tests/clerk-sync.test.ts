@@ -87,3 +87,15 @@ it("returns the committed outcome while external ID repair is still pending", as
   expect(createUserService(s.db!).findById(result!.user.id)?.clerkUserId).toBe("user_sync");
  } finally { finishRepair(json); await sync; }
 });
+
+it.each([null, "900000000000000999"])("does not restore stale recovery metadata over a local Discord link of %s", async current => {
+ const users = createUserService(s.db!);
+ const existing = users.ensureDiscord({ discordUserId: "900000000000000101", displayName: "Original" });
+ users.claimExistingDiscordUser(existing.id, existing.discordUserId!, "user_sync");
+ s.db!.prepare("insert into players(guild_id,user_id,discord_user_id,display_name) values('g',?,?,?)").run(existing.id, current, "Original");
+ s.db!.prepare("update users set discord_user_id=? where id=?").run(current, existing.id);
+ s.get.mockResolvedValue({ ...json, external_id: String(existing.id), private_metadata: { existingPlayerDiscordId: "900000000000000101" } });
+ expect((await syncClerkUser("user_sync")).user.discordUserId).toBeNull();
+ expect(s.db!.prepare("select discord_user_id from players").get()).toEqual({ discord_user_id: null });
+ expect(users.findByDiscordId("900000000000000101")).toBeUndefined();
+});

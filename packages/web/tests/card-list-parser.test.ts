@@ -62,7 +62,7 @@ describe("parseCardList", () => {
       [44095762, 1, "main"], [44095762, 1, "main"], [44508094, 1, "extra"], [53129443, 1, "main"], [89631139, 1, "main"],
     ]);
     expect(() => parseCardList("#deckmaster\n1\n#deckmaster\n2")).toThrow(/multiple/);
-    expect(() => parseCardList("#deckmaster\nnope")).toThrow(/Invalid Deck Master/);
+    expect(parseCardList("#deckmaster\nTest Master", { keepDeckSections: true })).toMatchObject([{ query: "Test Master", section: "deckmaster" }]);
   });
 
   it("treats #side as main consistently in passcode and name lists", () => {

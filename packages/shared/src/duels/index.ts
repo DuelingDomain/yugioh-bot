@@ -8,7 +8,7 @@ export type DuelMasterRule = 1 | 2 | 3 | 4 | 5;
 
 /** An opponent pick named a seat that is eliminated or leaving the duel. */
 export const DUEL_SEAT_LEFT_ERROR_CODE = "seat_left" as const;
-export type DuelErrorCode = typeof DUEL_SEAT_LEFT_ERROR_CODE;
+export type DuelErrorCode = typeof DUEL_SEAT_LEFT_ERROR_CODE | "INVALID_EXTRA_DECK_CARD";
 
 export type {
   DuelCardPool,
@@ -102,6 +102,14 @@ export interface SavedDeck {
   updatedAt: string;
   /** Set when the deck was built from the owner's pool in this draft. */
   draftId?: number | null;
+  /** Kept until the next successful save, or reported when the 300-card Main limit prevents repair. */
+  extraDeckRepair?: {
+    applied: boolean;
+    moves: import("./extra-deck.js").DeckSectionMove[];
+    /** Main count if all reported moves are applied. */
+    mainCount: number;
+    message: string;
+  };
 }
 
 export type DuelBestOf = 1 | 3;
@@ -176,6 +184,8 @@ export interface DuelDeckValidation {
 }
 
 export interface DuelCardInfo {
+  /** Search result belongs to the requesting seat's own main, extra or side deck. */
+  inDeck?: boolean;
   /** Preview data from BabelCDB; available to search and card-info consumers. */
   prerelease?: boolean;
   code: number;
@@ -330,6 +340,7 @@ export interface DuelSeatView {
   spells: Array<DuelCard | null>;
   graveyard: DuelCard[];
   banished: DuelCard[];
+  /** Public in Domain views, including spectators. nextCost is the LP cost of the next DMZ summon, set, or activation (returns * 500). */
   deckMaster?: { card: DuelCardInfo; inZone: boolean; returns: number; nextCost: number };
   /** Team of this seat (`teamOfSeat(format, seat)`). Absent in 1v1 views made before multi-player formats. */
   team?: number;
@@ -590,6 +601,10 @@ export interface DuelRoom {
   clock: DuelClock | null;
   metadataOnly: boolean;
   error?: string;
+  /** Only this viewer's own deck blocker, on lobby or between-game room reads. Absent for other viewers. */
+  startBlocked?: { reason: string; cardNames: string[] };
+  /** A recorded lobby start failed on another seat's deck. Seated viewers only; no private deck details. */
+  startBlockedByOther?: true;
   inviteCode?: string;
   /** The series of this game, or null. */
   series?: DuelSeriesSummary | null;
@@ -721,3 +736,6 @@ export type { CardArtworkFamily, SelectableCardArtwork, CardArtworksResponse, De
 
 export type { DuelDiceRound, DuelDiceOpeningState, DuelDiceOpeningView } from "./dice-opening.js";
 export { DUEL_DICE_REVEAL_MS, MAX_DICE_ROUNDS as DUEL_DICE_MAX_ROUNDS } from "./dice-opening.js";
+
+export { isExtraDeckCard, assertExtraDeckCards, routeDeckSections, ExtraDeckCardError, INVALID_EXTRA_DECK_CARD } from "./extra-deck.js";
+export type { DeckCardType, DeckSectionMove } from "./extra-deck.js";

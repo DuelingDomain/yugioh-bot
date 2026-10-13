@@ -54,6 +54,7 @@ test("production follows successful main push tests and retains manual rollback 
   const remote = steps.find(step => step.name === "Deploy over SSH").run;
   assert.match(remote, /"\$RUNNER_TEMP\/check-prod-activity.py" "\$VM_USER@\$VM_HOST:\$remote_guard"/);
   assert.match(remote, /--wait-seconds "\$remaining"/);
+  assert.match(remote, /DEPLOY_LIVE_ONLY='\$DEPLOY_LIVE_ONLY'/);
   assert.equal(remote.match(/check_prod_activity(?:\n|; then)/g).length, 2);
   assert.match(remote, /idle_deadline - \$\(date \+%s\)/);
   assert.match(remote, /git merge-base --is-ancestor HEAD "\$DEPLOY_COMMIT"/);
@@ -70,6 +71,7 @@ test("automatic production deploys accept only a successful Test push on main an
   assert.equal(value(job.env.DEPLOY_FORCE, { force: true }, automatic), "false");
   assert.equal(value(job.env.DEPLOY_ROLLBACK, { rollback: true }, automatic), "false");
   assert.equal(value(job.env.DEPLOY_WAIT_SECONDS, {}, automatic), "3600");
+  assert.equal(value(job.env.DEPLOY_LIVE_ONLY, {}, automatic), "true");
   for (const field of ["event", "conclusion", "head_branch"]) {
     for (const invalid of field === "conclusion" ? ["failure", "cancelled", "skipped", null] : ["pull_request", "schedule", "workflow_dispatch", "feature"]) {
       const github = { ...automatic, event: { workflow_run: { ...automatic.event.workflow_run, [field]: invalid } } };
@@ -82,6 +84,7 @@ test("automatic production deploys accept only a successful Test push on main an
   assert.equal(value(job.env.DEPLOY_FORCE, { force: true }, manual), "true");
   assert.equal(value(job.env.DEPLOY_ROLLBACK, { rollback: true }, manual), "true");
   assert.equal(value(job.env.DEPLOY_WAIT_SECONDS, {}, manual), "0");
+  assert.equal(value(job.env.DEPLOY_LIVE_ONLY, {}, manual), "false");
   assert.equal(value(job.if, {}, { ...manual, ref: "refs/heads/feature" }), false);
   assert.equal(job.steps.find(step => step.name === "Checkout deploy ref").with.ref, "${{ env.DEPLOY_REF }}");
 });
@@ -250,6 +253,75 @@ test("second production guard refusal stops the deploy and gives recovery instru
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Do not run compose up\. Run Deploy again\./);
   assert.doesNotMatch(result.stdout, /reached-service-stop/);
+});
+
+test("both production checks block automatic deploys only on live games and keep the full manual guard", t => {
+  const job = workflow("deploy.yml").jobs.deploy;
+  const remote = job.steps.find(step => step.name === "Deploy over SSH").run;
+  const start = remote.indexOf("idle_deadline=$((");
+  const end = remote.indexOf("cd /opt/yugioh-bot", start);
+  const second = remote.indexOf("if ! check_prod_activity");
+  const stop = remote.indexOf("# Retire the bot container", second);
+  assert.ok(start > 0 && end > start && second > end && stop > second);
+  const dir = mkdtempSync(join(tmpdir(), "live-only-guard-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const database = join(dir, "bot.sqlite");
+  const guard = new URL("../deployment/check-prod-activity.py", import.meta.url).pathname;
+  const fixture = `
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.executescript("""
+        create table duels (status text, opening_json text);
+        create table drafts (status text);
+        create table tournaments (id integer, status text);
+        create table tournament_matches (tournament_id integer, round_number integer, status text);
+        create table duel_series (status text);
+        insert into tournaments values (1, 'active');
+        insert into tournament_matches values (1, 1, 'open'), (1, 2, 'open'), (1, 3, 'open'), (1, 4, 'pending_approval');
+        insert into duel_series values ('between_games');
+    """)
+    if sys.argv[2]:
+        db.execute("insert into " + sys.argv[2] + " (status) values ('active')")
+`;
+  const firstCheck = remote.slice(start, end).replace("/opt/yugioh-bot/data/bot.sqlite", '"$TEST_DATABASE"');
+  for (const [event, liveTable, startsDuringBuild, expected] of [
+    ["workflow_run", "", false, 0],
+    ["workflow_dispatch", "", false, 1],
+    ["workflow_run", "duels", false, 1],
+    ["workflow_run", "drafts", false, 1],
+    ["workflow_run", "duels", true, 1],
+    ["workflow_run", "drafts", true, 1],
+  ]) {
+    rmSync(database, { force: true });
+    const setup = spawnSync("python3", ["-c", fixture, database, startsDuringBuild ? "" : liveTable], { encoding: "utf8" });
+    assert.equal(setup.status, 0, setup.stderr);
+    const beginGame = startsDuringBuild ? `python3 - "$TEST_DATABASE" "${liveTable}" <<'PY'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.execute("insert into " + sys.argv[2] + " (status) values ('active')")
+PY
+` : "";
+    const result = spawnSync("sh", ["-e", "-c", `${firstCheck}\necho reached-build\n${beginGame}\n${remote.slice(second, stop)}\necho reached-service-stop`], {
+      encoding: "utf8", env: {
+        ...process.env, TEST_DATABASE: database, DEPLOY_GUARD: guard, DEPLOY_FORCE: "false", DEPLOY_WAIT_SECONDS: "0",
+        DEPLOY_LIVE_ONLY: value(job.env.DEPLOY_LIVE_ONLY, {}, { event_name: event }),
+      },
+    });
+    const context = `${event} ${liveTable} startsDuringBuild=${startsDuringBuild}: ${result.stderr}`;
+    assert.equal(result.status, expected, context);
+    if (expected === 0) {
+      assert.match(result.stdout, /reached-service-stop/, context);
+      assert.equal(result.stdout.match(/not blocking: tournament_rounds=4 series=1/g)?.length, 2, context);
+    } else {
+      assert.doesNotMatch(result.stdout, /reached-service-stop/, context);
+      if (startsDuringBuild) {
+        assert.match(result.stdout, /reached-build/, context);
+        assert.match(result.stderr, /Do not run compose up\. Run Deploy again\./, context);
+      } else {
+        assert.doesNotMatch(result.stdout, /reached-build/, context);
+      }
+    }
+  }
 });
 
 test("staging warnings reach the step summary even when the VM step fails", t => {

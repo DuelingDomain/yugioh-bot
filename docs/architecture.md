@@ -44,6 +44,8 @@ All internal calls are HMAC-signed POSTs (`shared/src/notify/signed-post.ts`). P
 
 Compose runs web/WS/duel/worker/Caddy, fixes `DISCORD_BOT_ENABLED=0`, and injects only explicit web env variables. Disabled channel/announce routes return 404 `discord_disabled`; gameplay commits and WS updates continue. `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` goes only to the web build/dev process, `CLERK_SECRET_KEY` only to web runtime or explicitly authorized one-off owner CLI runs. Production/staging never use dev keys.
 
+Optional owner alerts use a private Discord channel webhook, independent of the disabled bot. The shared waitlist service starts an alert after a new local signup. Exact `POST /api/webhooks/clerk` bypasses session middleware and verifies the Svix signature with `CLERK_WEBHOOK_SIGNING_SECRET`. It handles `waitlistEntry.created` and optional `user.created` events, including entries from owner reconciliation. SQLite alert claims deduplicate normalized emails by alert type; Svix receipts deduplicate deliveries. Discord runs in the background with a two-second timeout per attempt and one 429 retry. See [owner setup and delivery limits](deployment/discord-join-alerts.md).
+
 ## 2. The duel engine
 
 ```mermaid

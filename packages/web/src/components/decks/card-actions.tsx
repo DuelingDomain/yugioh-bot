@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { DeckButton } from "./controls";
 import { cardArchetypes } from "./filter-model";
 import { limitName } from "./limit-badge";
-import { defaultAddSection, type DeckSection } from "./model";
+import { defaultAddSection, placementBlock, type DeckSection } from "./model";
 import styles from "./editor.module.css";
 
 const SECTION_LABELS: Record<DeckSection, string> = { main: "Main", extra: "Extra", side: "Side" };
@@ -87,6 +87,8 @@ export function CardActions({
         {sections.map((section) => {
           const count = deck[section].filter((code) => code === card.code).length;
           const label = SECTION_LABELS[section];
+          // A section that does not take this card (it shows only when an old save left a copy there) says why Add is off.
+          const refusal = placementBlock(card, section);
           return (
             <li key={section} className={styles["de-step"]}>
               <span>{label}</span>
@@ -103,9 +105,12 @@ export function CardActions({
               <button
                 type="button"
                 className={styles["de-ib"]}
-                aria-label={`Add one ${card.name} to ${label}`}
-                disabled={full || (section !== home && section !== "side")}
-                onClick={() => onAdd(section)}
+                aria-label={refusal ? `Add one ${card.name} to ${label}. Not allowed: ${refusal}` : `Add one ${card.name} to ${label}`}
+                disabled={full}
+                // Not `disabled`: a refused button keeps keyboard focus and reads its reason aloud.
+                aria-disabled={refusal != null || undefined}
+                title={refusal ?? undefined}
+                onClick={() => { if (refusal == null) onAdd(section); }}
               >
                 <Plus size={15} strokeWidth={1.8} aria-hidden />
               </button>

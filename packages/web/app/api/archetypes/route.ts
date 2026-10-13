@@ -16,7 +16,7 @@ async function handleGET(request: Request) {
   const query = url.searchParams.get("query") ?? undefined;
 
   const db = getDb();
-  const catalog = createCardCatalogService(db);
+  const catalog = createCardCatalogService(db, { memberId: Number(session.user.id) });
   const archetypes = await catalog.listArchetypes(query);
 
   return NextResponse.json({ archetypes });
