@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCardInfo, DuelChainLink, DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 
 import { ChainFx } from "@/components/duel/chain-fx";
-import { cardFrame, frameOfQuad } from "@/components/duel/chain-frame";
+import { cardFrame, frameOfQuad, labelAnchor } from "@/components/duel/chain-frame";
 import type { Quad } from "@/components/duel/quad";
 
 const SZONE = 0x08;
@@ -46,7 +46,10 @@ let TURN = 0;
 let zone: HTMLElement;
 /** Set when the zone holds a card frame: the zone is the square cell and the frame is the card. */
 let cell: boolean;
-const sizeOf = (el: HTMLElement) => (el.hasAttribute("data-card-frame") ? SIZE : el.dataset.zones ? (cell ? CELL : SIZE) : null);
+/** A hand container: wider than any one card in it. */
+const HAND = { w: 240, h: 80 };
+const sizeOf = (el: HTMLElement) =>
+  el.hasAttribute("data-card-frame") ? SIZE : el.hasAttribute("data-hand-seat") ? HAND : el.dataset.zones ? (cell ? CELL : SIZE) : null;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -226,5 +229,60 @@ describe("frameOfQuad", () => {
 
   it("gives nothing for a zone with no size", () => {
     expect(cardFrame({ left: 0, top: 0, width: 900 } as DOMRect, Object.assign(document.createElement("div"), {}))).toBeNull();
+  });
+
+  it("keeps the whole hand as the frame of a hand fallback, not its first card", () => {
+    const hand = document.createElement("div");
+    hand.dataset.handSeat = "1";
+    for (let i = 0; i < 2; i++) {
+      const card = document.createElement("div");
+      card.setAttribute("data-card-frame", "");
+      hand.appendChild(card);
+    }
+    document.body.appendChild(hand);
+    TURN = 150;
+    hand.style.transform = matrix(150);
+    const frame = cardFrame({ left: 0, top: 0, width: 900 } as DOMRect, hand)!;
+    hand.remove();
+    // The hand's own outline: its width and the angle of its seat, not the 60 x 80 of one card.
+    expect(frame.ring.width).toBeCloseTo(HAND.w, 3);
+    expect(frame.ring.height).toBeCloseTo(HAND.h, 3);
+    expect(frame.turn).toBeCloseTo(150, 3);
+  });
+
+  it("reads only the bounding rect when the board never turns", () => {
+    turnField(30);
+    const styles = vi.spyOn(window, "getComputedStyle");
+    const frame = cardFrame({ left: 0, top: 0, width: 900 } as DOMRect, zone, false)!;
+    expect(styles).not.toHaveBeenCalled();
+    expect(frame.turn).toBe(0);
+    expect(frame.corner).toBeNull();
+    expect(frame.box.width).toBeCloseTo(boundsOf(30).width, 3);
+  });
+
+  it("picks the same badge corner while a seat glides through -45 and 135 degrees", () => {
+    for (const mid of [-45, 135]) {
+      const corners = [-0.2, -0.0005, 0, 0.0004, 0.2].map((d) => frameOfQuad(cornersOf(mid + d), { left: 0, top: 0 }, false)!.corner!);
+      for (const c of corners) expect(c.x).toBeCloseTo(corners[0].x, 0);
+      // Of the two tied corners, the higher one on the screen.
+      const tied = cornersOf(mid).map((p) => p).sort((a, b) => b.x - b.y - (a.x - a.y)).slice(0, 2);
+      expect(corners[2].y).toBeCloseTo(Math.min(tied[0].y, tied[1].y), 3);
+    }
+  });
+});
+
+describe("labelAnchor", () => {
+  it("hangs from the bottom-left corner of the card as it is turned, and lifts along its left edge", () => {
+    for (const deg of [0, 40, 150, -90]) {
+      const frame = frameOfQuad(cornersOf(deg), { left: 0, top: 0 }, false)!;
+      const [p0, , , p3] = cornersOf(deg);
+      const base = labelAnchor(frame, 0);
+      expect(base.x).toBeCloseTo(p3.x, 2);
+      expect(base.y).toBeCloseTo(p3.y, 2);
+      const lifted = labelAnchor(frame, 16);
+      const up = { x: (p0.x - p3.x) / SIZE.h, y: (p0.y - p3.y) / SIZE.h };
+      expect(lifted.x).toBeCloseTo(p3.x + up.x * 16, 2);
+      expect(lifted.y).toBeCloseTo(p3.y + up.y * 16, 2);
+    }
   });
 });

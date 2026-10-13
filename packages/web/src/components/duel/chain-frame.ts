@@ -5,10 +5,11 @@
  * that card is the straight box around it, so a ring or glow drawn from it sits upright and off the card. The frame
  * keeps both: `box` is the straight bounds (what prompts, tags and wires are measured against) and `ring` is the
  * card's own box with the `turn` it needs, so the ring, glow and wash draw on the card, at the angle of its field.
- * A card whose edges run straight across the screen (a 1v1 or Tag field, a half turn) keeps the straight box.
+ * A card whose edges run straight across the screen (a 1v1 or Tag field, a half turn) keeps the straight box. A quarter
+ * turn is not straight: its edges run along the screen, but the card inside a square zone cell turns with it.
  */
 import { zoneFrameOf } from "./event-queue";
-import { centerOfQuad, elementQuad, isTurned, quadBox, type Pt, type Quad } from "./quad";
+import { centerOfQuad, elementQuad, isTurned, quadBox, rectQuad, type Pt, type Quad } from "./quad";
 
 export type FrameBox = { left: number; top: number; width: number; height: number };
 export type CardFrame = {
@@ -23,6 +24,7 @@ export type CardFrame = {
 };
 
 const rad = (deg: number) => (deg * Math.PI) / 180;
+const TIE = 1;
 
 /** The frame of an element's outline `quad` (screen pixels) on a layer whose top-left is `origin`. */
 export function frameOfQuad(quad: Quad, origin: { left: number; top: number }, defense: boolean): CardFrame | null {
@@ -34,8 +36,7 @@ export function frameOfQuad(quad: Quad, origin: { left: number; top: number }, d
   const cx = c.x - origin.left;
   const cy = c.y - origin.top;
   if (!isTurned(quad)) {
-    // A straight zone (a quarter turn too): its bounds are the card. A Defense Position card is turned a quarter
-    // inside its portrait zone.
+    // A straight zone: its bounds are the card. A Defense Position card is turned a quarter inside its portrait zone.
     const bounds = quadBox(quad);
     const flip = defense && bounds.height > bounds.width;
     const w = flip ? bounds.height : bounds.width;
@@ -58,7 +59,12 @@ export function frameOfQuad(quad: Quad, origin: { left: number; top: number }, d
   const ys = corners.map((p) => p.y);
   const left = Math.min(...xs);
   const top = Math.min(...ys);
-  const corner = corners.reduce((best, p) => (p.x - p.y > best.x - best.y ? p : best));
+  // Two corners tie at -45 and 135 degrees. Within a pixel the higher one wins, so the badge does not jump between
+  // them while a seat glides through that angle.
+  const corner = corners.reduce((best, p) => {
+    const gain = p.x - p.y - (best.x - best.y);
+    return gain > TIE || (Math.abs(gain) <= TIE && p.y < best.y) ? p : best;
+  });
   return {
     box: { left, top, width: Math.max(...xs) - left, height: Math.max(...ys) - top },
     ring: { left: cx - w / 2, top: cy - h / 2, width: w, height: h },
@@ -68,13 +74,35 @@ export function frameOfQuad(quad: Quad, origin: { left: number; top: number }, d
 }
 
 /**
+ * Where a label that hangs from the bottom-left corner of a card, `lift` pixels up the card's own left edge, stands on
+ * the screen. The label itself stays upright and grows up and to the right from this point.
+ */
+export function labelAnchor(frame: CardFrame, lift: number): Pt {
+  const { ring, turn } = frame;
+  const cos = Math.cos(rad(turn));
+  const sin = Math.sin(rad(turn));
+  const x = -ring.width / 2;
+  const y = ring.height / 2 - lift;
+  return {
+    x: ring.left + ring.width / 2 + x * cos - y * sin,
+    y: ring.top + ring.height / 2 + x * sin + y * cos,
+  };
+}
+
+/**
  * The frame of a zone element, read from the screen. A zone is a cell wider than its card (a Defense Position card
  * turns inside it), so the ring of a turned field is the card's own frame inside it: that is the box that is drawn
  * turned. A field whose edges run straight keeps the zone's box. Null when the zone has no size to speak of.
+ *
+ * Only a single zone (`data-zones`) has such a card frame. A hand or pile fallback is a wider element: it keeps its own
+ * outline. `mayTurn` false (a 1v1 or Tag board, whose fields never turn) skips the style reads and takes the bounding
+ * rect, as before.
  */
-export function cardFrame(overlay: DOMRect, zone: HTMLElement): CardFrame | null {
+export function cardFrame(overlay: DOMRect, zone: HTMLElement, mayTurn = true): CardFrame | null {
   if (overlay.width < 4) return null;
+  const defense = zone.dataset.defense === "true";
+  if (!mayTurn) return frameOfQuad(rectQuad(zone.getBoundingClientRect()), overlay, defense);
   const quad = elementQuad(zone);
-  const own = isTurned(quad) ? zoneFrameOf(zone) : null;
-  return frameOfQuad(own ? elementQuad(own) : quad, overlay, zone.dataset.defense === "true");
+  const own = zone.hasAttribute("data-zones") && isTurned(quad) ? zoneFrameOf(zone) : null;
+  return frameOfQuad(own ? elementQuad(own) : quad, overlay, defense);
 }
