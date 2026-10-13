@@ -1,4 +1,4 @@
-import { isExtraDeckCard, cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
+import { hasKnownDeckCardType, isExtraDeckCard, cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
 import {
   TYPE_FUSION,
   TYPE_LINK,
@@ -86,8 +86,8 @@ export function placementBlockForKind(kind: CardKind, section: DeckSection): str
  */
 export function placementBlock(card: Pick<DuelCardInfo, "type"> | undefined, section: DeckSection, from?: CardSource["from"]): string | null {
   if (section === "side") return null;
-  if (!card) return from === section ? null : CARD_DETAILS_PENDING_MESSAGE;
-  return placementBlockForKind(cardKind(card), section);
+  if (!hasKnownDeckCardType(card)) return from === section ? null : CARD_DETAILS_PENDING_MESSAGE;
+  return placementBlockForKind(cardKind(card!), section);
 }
 
 export interface MisplacedCards {
@@ -102,7 +102,7 @@ export function misplacedCards(deck: DuelDeck, catalog: CardCatalog): MisplacedC
   const pick = (codes: readonly number[], misplaced: (card: DuelCardInfo | DeckCardInfo) => boolean) =>
     codes.filter((code) => {
       const card = catalog.get(code);
-      return card != null && misplaced(card);
+      return card != null && hasKnownDeckCardType(card) && misplaced(card);
     });
   return {
     inExtra: pick(deck.extra, (card) => !isExtraDeckCard(card)),

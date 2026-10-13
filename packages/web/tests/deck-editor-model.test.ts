@@ -12,6 +12,9 @@ import {
 } from "../src/components/duel/constants";
 import {
   chooseMaster,
+  fixMisplaced,
+  placementBlock,
+  CARD_DETAILS_PENDING_MESSAGE,
   clearSection,
   copyProblems,
   deckYdkText,
@@ -234,5 +237,16 @@ describe("removeMaster", () => {
   it("changes nothing without a Deck Master", () => {
     const none: DeckMasterSelection = { deck: { main: [1], extra: [], side: [] }, masterOrigin: null };
     expect(removeMaster(none)).toEqual(none);
+  });
+});
+
+describe("cards with unknown engine types", () => {
+  it("keeps a named card in Extra when type data is absent", () => {
+    const source = selection([], [999]);
+    const unknown = card(999, "Named unknown", 0);
+    const incomplete: CardCatalog = new Map([[999, unknown]]);
+    expect(fixMisplaced(source, incomplete, "extra")).toBe(source);
+    expect(placementBlock(unknown, "extra", "extra")).toBeNull();
+    expect(placementBlock(unknown, "extra", "main")).toBe(CARD_DETAILS_PENDING_MESSAGE);
   });
 });

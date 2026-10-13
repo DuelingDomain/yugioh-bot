@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createCardCatalogService, isCardFetchError } from "@yugidraft/shared/services";
+import { createCardCatalogService, createDeckTypeLookup, deckEngineDataDirectory, isCardFetchError, loadArtworkIdentityCatalog } from "@yugidraft/shared/services";
 import { requireSavedDeckActor } from "@/lib/saved-decks";
 import { getDb } from "@/lib/db";
 import { resolveDeckImport } from "@/lib/deck-import";
@@ -14,7 +14,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new CardListError("Expected a deck import object.");
-    const result = await resolveDeckImport(createCardCatalogService(getDb()), body.text, body.mode);
+    const db = getDb();
+    const result = await resolveDeckImport(createCardCatalogService(db), body.text, body.mode,
+      loadArtworkIdentityCatalog(deckEngineDataDirectory(db.name)), createDeckTypeLookup(db).snapshot());
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof SyntaxError || error instanceof CardListError) {
