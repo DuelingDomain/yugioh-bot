@@ -1203,7 +1203,7 @@ export function createDuelSeriesService(db: Database.Database, engine?: DeckType
 
   return {
     createChallenge(input) {
-      return createChallengeTx(input);
+      return createChallengeTx.immediate(input);
     },
     startTournamentMatch(input) {
       return startTournamentMatchTx(input);

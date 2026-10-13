@@ -132,6 +132,8 @@ describe("server replay access guards", () => {
     db.exec("drop trigger duels_kind_immutable");
     db.exec("drop index if exists duels_play_history_idx");
     db.exec("drop index if exists duels_cancelled_fork_retention_idx");
+    db.exec("drop index if exists duels_host_live_idx");
+    db.exec("drop index if exists duels_waiting_idle_idx");
     db.exec("alter table duels drop column kind");
     expect(assertOwnerReplaySourceAccess(db, sourceSlug, owner).kind).toBe("play");
     denied(() => assertOwnerReplaySourceAccess(db, forkSlug, owner));

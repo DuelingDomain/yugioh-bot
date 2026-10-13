@@ -30,6 +30,8 @@ describe("replay fork schema", () => {
     db.exec("drop trigger if exists duels_kind_immutable");
     db.exec("drop index if exists duels_play_history_idx");
     db.exec("drop index if exists duels_cancelled_fork_retention_idx");
+    db.exec("drop index if exists duels_host_live_idx");
+    db.exec("drop index if exists duels_waiting_idle_idx");
     const columns = db.pragma("table_info(duels)") as Array<{ name: string }>;
     if (columns.some(column => column.name === "kind")) db.exec("alter table duels drop column kind");
     migrate(db);

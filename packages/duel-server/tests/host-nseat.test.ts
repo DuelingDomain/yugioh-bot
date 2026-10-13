@@ -594,6 +594,43 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
     expect(scripts?.map((script) => script.content)).toEqual(state.setup?.startupScripts);
   });
 
+  it("keeps a scenario out of web replacement while its engine starts", async () => {
+    process.env.DUEL_SCENARIOS = "1";
+    const t = scenarioHost();
+    const duels = createDuelService(t.db);
+    const original = t.worker.create.bind(t.worker);
+    let release!: () => void;
+    let starting = false;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    t.worker.create = async options => { starting = true; await held; await original(options); };
+    const pending = post(t.host, { op: "start-preset", presetId: "dust-tornado-chain", ...t.who });
+    try {
+      await vi.waitFor(() => expect(starting).toBe(true), { timeout: 15_000 });
+      const row = t.db.prepare("select web_slug from duels where status = 'lobby'").get() as { web_slug: string };
+      expect(duels.privateState(row.web_slug, "g1").setup?.presetId).toBe("dust-tornado-chain");
+      const created = duels.createRequest({ guildId: "g1", organizerPlayerId: t.who.playerId, fingerprint: "web" }, () => ({ session: duels.create({ guildId: "g1", organizerPlayerId: t.who.playerId, name: "Web table", mode: "normal" }) }));
+      expect(created.changedSlugs).toEqual([created.session.slug]);
+      expect(duels.get(row.web_slug, "g1").status).toBe("lobby");
+      release();
+      expect((await pending).status).toBe(200);
+    } finally { release(); await pending; }
+  });
+
+  it("starts two presets for the same host and keeps their existing waiting table", async () => {
+    process.env.DUEL_SCENARIOS = "1";
+    const t = scenarioHost();
+    const duels = createDuelService(t.db);
+    const open = duels.create({ guildId: "g1", organizerPlayerId: t.who.playerId, name: "Waiting for a friend", mode: "normal" });
+    const first = await post(t.host, { op: "start-preset", presetId: "dust-tornado-chain", ...t.who });
+    const second = await post(t.host, { op: "start-preset", presetId: "dust-tornado-chain", ...t.who });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.data.slug).not.toBe(first.data.slug);
+    expect(duels.get(open.slug, "g1").status).toBe("lobby");
+    expect(duels.get(first.data.slug, "g1").status).toBe("active");
+    expect(duels.get(second.data.slug, "g1").status).toBe("active");
+  });
+
   it("gives a scenario table no chain response switch", async () => {
     process.env.DUEL_SCENARIOS = "1";
     const t = scenarioHost();

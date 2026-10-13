@@ -17,6 +17,8 @@ vi.mock("@/components/duel/room-settings", () => ({
   RoomInvite: () => <div data-testid="invite" />,
 }));
 
+vi.mock("@/components/duel/api", async original => ({ ...await original<object>(), getHostedWaitingTable: vi.fn(async () => ({ table: null })) }));
+
 import { DuelCreator } from "@/components/duel/creator";
 import { RoomLobby } from "@/components/duel/room-lobby";
 import { addPracticeBot } from "@/components/duel/api";

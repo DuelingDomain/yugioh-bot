@@ -244,6 +244,8 @@ export async function getOpenReplayForks(signal?: AbortSignal): Promise<OpenRepl
 }
 
 export interface CreateDuelOptions {
+  /** Reuse this key when retrying the same creation request. */
+  requestKey?: string;
   /** A named opponent makes a private challenge; empty is an open table. */
   opponentPlayerId?: number | null;
   bestOf?: DuelBestOf;
@@ -259,11 +261,11 @@ export async function createDuel(
   settings: DuelSettings,
   options: CreateDuelOptions = {},
 ): Promise<{ session: DuelSession; series?: DuelSeriesSummary; shareUrl: string }> {
-  const { opponentPlayerId, bestOf, ranked, format } = options;
+  const { opponentPlayerId, bestOf, ranked, format, requestKey } = options;
   return parseBody(
     await fetch("/api/duels", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(requestKey ? { "Idempotency-Key": requestKey } : {}) },
       body: JSON.stringify({
         name, mode, masterRule, settings,
         ...(format != null ? { format } : {}),
@@ -273,6 +275,14 @@ export async function createDuel(
       }),
     }),
   );
+}
+
+export async function getHostedWaitingTable(): Promise<{ table: (Pick<DuelSession, "slug" | "name"> & { canReplace: boolean; canCancel: boolean; reason: "empty" | "challenge" | "protected"; opponentName?: string }) | null }> {
+  return parseBody(await fetch("/api/duels?hostedWaiting=1", { cache: "no-store" }));
+}
+
+export async function cancelWaitingDuel(slug: string): Promise<ReceivedDuelRoom> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/cancel-waiting`, { method: "POST" }));
 }
 
 export interface DuelPlayerOption {

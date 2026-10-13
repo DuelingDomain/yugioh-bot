@@ -1,3 +1,4 @@
+import { renewWaitingTable } from "@/lib/duel-waiting";
 import { NextResponse } from "next/server";
 import { readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor, redactDuelResult } from "@/lib/duel-host";
 
@@ -13,6 +14,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   try {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId);
     const control = readDuelControl(request, room, "view");
+    renewWaitingTable(actor, room);
     const fork = room.session.kind === "replay-fork";
     const pending = !fork && (room.session.status === "lobby" || room.series?.status === "between_games");
     const openingDue = room.session.status === "lobby" && room.opening != null
