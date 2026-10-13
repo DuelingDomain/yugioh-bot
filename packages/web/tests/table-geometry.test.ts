@@ -46,7 +46,7 @@ function engine(format: DuelFormat, count: number): DuelEngineView {
 }
 function camera(over: Partial<CameraState> = {}): CameraState {
   return {
-    mode: "home", focusSeat: null, lookSeat: null, upright: false, compact: "auto",
+    mode: "home", focusSeat: null, lookSeat: null, compact: "auto",
     fly: { yawDeg: 0, tiltDeg: 40, zoom: 1, targetSeat: null }, lock: null, ...over,
   };
 }
@@ -121,12 +121,6 @@ describe("seatPoses", () => {
     expect(poses.get(2)?.x).toBe(550);
     expect(poses.get(0)?.x).toBe(298);
     expect(poses.get(1)?.x).toBe(802);
-  });
-
-  it("keeps the same poses when upright is on (only text turns)", () => {
-    const home = seatPoses(layout, camera(), VIEW);
-    const up = seatPoses(layout, camera({ upright: true }), VIEW);
-    for (const seat of [0, 1, 2]) expect(up.get(seat)).toEqual(home.get(seat));
   });
 
   it("gives every pose of a 4-way table a place inside the stage", () => {

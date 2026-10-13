@@ -32,16 +32,20 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { duelFxClock } from "./fx-clock";
-import { screenPose } from "./attack-fx";
-import type { DuelCardInfo, DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
-import { cardArtUrl, isDefenseAt, LOCATION_GRAVE, LOCATION_PZONE, LOCATION_SZONE, TYPE_LINK, TYPE_XYZ, zoneKey } from "./constants";
+import { screenCorners, screenPose } from "./attack-fx";
+import { isPlainBox, quadMatrix3d, type Quad } from "./quad";
+import type { DuelCardInfo, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
+import { cardArtUrl, isDefenseAt, isFacedown, LOCATION_GRAVE, LOCATION_PZONE, LOCATION_SZONE, TYPE_LINK, TYPE_XYZ, zoneKey } from "./constants";
 import {
   auraTintOf,
   collectFreshEvents,
   DUEL_FX_CUE_EVENT,
   findZoneElement,
+  flipCoveredByActivation,
   isHeavySummon,
+  isPositionEvent,
   maxEventId,
+  positionChangeOf,
   slamCrackCount,
   slamStrengthOf,
   summonCoveredByFlip,
@@ -49,6 +53,8 @@ import {
   type DuelFxCue,
   type DuelFxCueDetail,
   type SummonStyle,
+  zoneCardBox,
+  zoneCardParts,
 } from "./event-queue";
 import { battleBreakIs3d, battleDestroyAt, battleTakeover, HELD_CRACK_MS } from "./battle-hold";
 import { chainEffectAt, flipStrikeHideMs } from "./chain-beats";
@@ -68,6 +74,8 @@ import { FIELD_PLACEMENT_SCALE, fieldPlacementMs } from "./placement-timing";
 import { CARD_FX } from "./duel-timing";
 
 export type SummonFxProps = {
+  /** The seat views on screen: where a Spell/Trap lies Set when the layer starts. Without them only the events say. */
+  seats?: readonly DuelSeatView[];
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
   events: DuelEvent[];
   /** Changes when the room changes; reset the cursor on change. */
@@ -267,14 +275,15 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function measure(overlay: HTMLElement, zone: HTMLElement): Geo | null {
+/** `box` is the part of `zone` to measure (default the zone): a card frame is the card's own size, a Field Spell zone cell is bigger. */
+function measure(overlay: HTMLElement, zone: HTMLElement, box: HTMLElement = zone): Geo | null {
   const o = overlay.getBoundingClientRect();
-  const z = zone.getBoundingClientRect();
+  const z = box.getBoundingClientRect();
   if (z.width < 4 || z.height < 4 || o.width < 4) return null;
   const h = z.height;
   const w = Math.min(z.width, h * CARD_ASPECT);
   const fit = Number.parseFloat(getComputedStyle(zone).getPropertyValue("--dfit"));
-  const pose = Number.isFinite(fit) && fit > 0 ? screenPose(zone) : null;
+  const pose = Number.isFinite(fit) && fit > 0 ? screenPose(box) : null;
   const cx = z.left - o.left + z.width / 2;
   const cy = z.top - o.top + z.height / 2;
   return {
@@ -298,6 +307,74 @@ function cardGeo(geo: Geo): Geo {
   const seat = geo.seat;
   if (!seat) return geo;
   return { ...geo, left: geo.cx - seat.w / 2, top: geo.cy - seat.h / 2, w: seat.w, h: seat.h, radius: Math.max(2, seat.w * 0.05) };
+}
+
+/**
+ * Puts the anchor on the card itself, the way the real card lies on screen: its own box (not the zone cell, which is
+ * bigger for a Field Spell) and, where the table turns or tilts it (a seat field, the Tag camera, the 3D table), the same
+ * turn and tilt, so the copy never differs in size or direction from the card it stands in for. Returns the geo for the effect.
+ */
+function placeOnCard(anchor: HTMLElement | null, overlay: HTMLElement, zone: HTMLElement, zoneGeo: Geo): Geo {
+  const box = zoneCardBox(zone);
+  const geo = (box && measure(overlay, zone, box)) || zoneGeo;
+  if (!anchor) return geo;
+  anchor.style.transform = "";
+  anchor.style.transformOrigin = "";
+  const corners = box ? screenCorners(box) : null;
+  const o = overlay.getBoundingClientRect();
+  const quad = corners?.map((p) => ({ x: p.x - o.left, y: p.y - o.top })) as Quad | undefined;
+  const w = box?.offsetWidth ?? 0;
+  const h = box?.offsetHeight ?? 0;
+  const matrix = quad && !isPlainBox(quad) ? quadMatrix3d(w, h, quad) : null;
+  if (!matrix) {
+    placeAnchor(anchor, geo);
+    return geo;
+  }
+  placeAnchor(anchor, { ...geo, left: 0, top: 0, w, h, radius: Math.max(2, w * 0.05) });
+  anchor.style.transformOrigin = "0 0";
+  anchor.style.transform = matrix;
+  return geo;
+}
+
+/**
+ * Keeps the copy on the card while the table moves under it: a resize of the stage or of the card box, a change of a
+ * camera or seat transform (a style or class change on a parent of the zone), and for as long as an animation or a
+ * transition of a parent runs (the Tag camera glide, a seat field regrouping). Each trigger places the copy once per
+ * frame at most; nothing is read per frame while the table stands still.
+ */
+function followCard(track: Track, overlay: HTMLElement, zone: HTMLElement, place: () => void): void {
+  if (typeof window === "undefined" || typeof requestAnimationFrame !== "function") return;
+  let frame = 0;
+  const moving = () =>
+    typeof document.getAnimations === "function" &&
+    document.getAnimations().some((anim) => {
+      const target = (anim.effect as KeyframeEffect | null)?.target;
+      return anim.playState === "running" && target instanceof Element && target.contains(zone);
+    });
+  const run = () => {
+    frame = 0;
+    place();
+    if (moving()) frame = requestAnimationFrame(run);
+  };
+  const schedule = () => {
+    if (!frame) frame = requestAnimationFrame(run);
+  };
+  const resize = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
+  resize?.observe(overlay);
+  const box = zoneCardBox(zone);
+  if (box) resize?.observe(box);
+  const mutations = typeof MutationObserver === "function" ? new MutationObserver(schedule) : null;
+  for (let node: HTMLElement | null = zone; node && node !== document.documentElement; node = node.parentElement) {
+    mutations?.observe(node, { attributes: true, attributeFilter: ["style", "class"] });
+  }
+  window.addEventListener("resize", schedule);
+  track.onDispose(() => {
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+    resize?.disconnect();
+    mutations?.disconnect();
+    window.removeEventListener("resize", schedule);
+  });
 }
 
 /** Screen vector (dx, dy) as seen inside an element turned by `deg` and scaled by `scale` (the way CSS applies a turn, then a scale). */
@@ -330,14 +407,6 @@ export function copyTurn(geo: Pick<Geo, "side" | "defense" | "seat">): number {
 
 function artOf(zone: HTMLElement): HTMLElement | null {
   return zone.querySelector<HTMLElement>("[data-card-art]");
-}
-
-/** The frame that holds the card art and its stat plate, so the whole card can be hidden at once. */
-function cardBodyOf(zone: HTMLElement): HTMLElement | null {
-  const art = artOf(zone);
-  if (!art) return null;
-  const body = art.parentElement?.parentElement;
-  return body && body !== zone && zone.contains(body) ? body : art;
 }
 
 function emitCue(cue: DuelFxCue, strength = 1): void {
@@ -415,8 +484,13 @@ export class Track {
  * animation, or disposing the track, shows the card at once.
  */
 function holdHidden(track: Track, zone: HTMLElement, ms: number): Animation | null {
-  const body = cardBodyOf(zone);
-  return track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: hiddenHoldMs(ms, 0), fill: "backwards" });
+  // Only what shows the card goes: the zone frame is the zone outline and stays drawn.
+  let first: Animation | null = null;
+  for (const part of zoneCardParts(zone)) {
+    const anim = track.play(part, [{ opacity: 0 }, { opacity: 0 }], { duration: hiddenHoldMs(ms, 0), fill: "backwards" });
+    first ??= anim;
+  }
+  return first;
 }
 
 function shakeFrames(amp: number, seed: number): Keyframe[] {
@@ -660,6 +734,15 @@ function SetFx({ item, overlay, done }: EffectProps) {
   );
 }
 
+/**
+ * Whether an activation turns its card over: only a card that lay Set, once, and only with motion on. A card that is
+ * already face-up (a Continuous Spell or a monster using its effect, or a Set card that a flip event turned before)
+ * never plays a turn, and a card that flew in from the hand showed its face the whole way.
+ */
+export function activationTurns(item: Pick<FxItem, "wasSet" | "plan" | "reduced">, flat: boolean): boolean {
+  return item.wasSet === true && flat && !item.plan && !item.reduced;
+}
+
 /** Activate: the card flips face-up and brightens; a chain link gets a gold edge, others a violet one. */
 function ActivateFx({ item, overlay, done }: EffectProps) {
   const anchor = useAnchor();
@@ -667,8 +750,9 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
   const ghost = useRef<HTMLDivElement>(null);
   const sleeve = useRef<HTMLSpanElement>(null);
   const chain = item.event.chainIndex != null;
-  useEffectSetup(overlay, item, item.activationHoldMs == null && item.event.zone?.location === LOCATION_SZONE ? () => {} : done, ({ track, zone, geo }) => {
-    if (anchor.current) placeAnchor(anchor.current, geo);
+  useEffectSetup(overlay, item, item.activationHoldMs == null && item.event.zone?.location === LOCATION_SZONE ? () => {} : done, ({ track, zone, geo: zoneGeo }) => {
+    const geo = placeOnCard(anchor.current, overlay, zone, zoneGeo);
+    followCard(track, overlay, zone, () => placeOnCard(anchor.current, overlay, zone, zoneGeo));
     const art = artOf(zone);
     const flat = !geo.defense;
     // Rebuilding an extended hold keeps the original origin; a negative WAAPI delay resumes
@@ -677,15 +761,14 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
     if (ghost.current) {
       const activationMs = item.reduced ? CARD_FX.reducedEffectMs : CARD_FX.activationMs;
       const total = Math.max(activationMs, item.activationHoldMs ?? 0);
-      const flips = flat && !item.plan && !item.reduced;
+      const flips = activationTurns(item, flat);
       // A card that flew in from the hand was showing its face the whole way: its copy is whole from the first frame and
       // the real card stays in its zone. Fading the copy in over a hidden card left the zone blank for a moment.
       const arrived = item.plan != null;
       // A Set card is already face-up on the board when its activation plays: its copy shows the sleeve first and turns it
       // over in place, over the hidden real card. Under reduced motion the face shows from the first frame.
       const sleeved = item.wasSet === true && !arrived && flips;
-      const initialTransform = flips && !sleeved ? "perspective(520px) rotateY(84deg)" : "none";
-      const finalTransform = flips ? "perspective(520px) rotateY(0deg)" : "none";
+      const finalTransform = "perspective(520px) rotateY(0deg)";
       // The face turns over fast, then stays up (CARD_FX.activationFaceMs) and fades in the last part of it.
       const flipAt = item.reduced ? 0.4 * activationMs / total : CARD_FX.activationFlipMs / total;
       const fadeAt = (activationMs - (item.reduced ? 0.25 * activationMs : CARD_FX.activationFadeMs)) / total;
@@ -695,7 +778,7 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
         { opacity: 1, transform: "perspective(520px) rotateY(84deg)", offset: turnAt },
         { opacity: 1, transform: "perspective(520px) rotateY(-84deg)", offset: turnAt },
         { opacity: 1, transform: finalTransform, offset: flipAt },
-      ] : [{ opacity: 1, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: flipAt }];
+      ] : [{ opacity: 1, transform: "none" }, { opacity: 1, transform: "none", offset: flipAt }];
       const frames: Keyframe[] = item.activationHoldMs ? [
         ...turned, { opacity: 1, offset: 0.9999 }, { opacity: 0 },
       ] : [...turned, { opacity: 1, offset: fadeAt }, { opacity: 0 }];
@@ -2149,9 +2232,11 @@ function planKind(event: DuelEvent, fresh: readonly DuelEvent[]): { kind: FxKind
 
 /**
  * Keeps `zones` as the Spell/Trap zones where a card lies Set. An activation of such a card is added to `activated`
- * (its zone stops being Set). A card that left the zone, or was put there to activate, is not Set.
+ * (its zone stops being Set). A card that left the zone, or was put there to activate, is not Set. A flip that turns
+ * the card face-up ends it too, unless an activation of that card in `fresh` turns it over instead (a card shows its
+ * sleeve turn only once).
  */
-function trackSetZones(zones: Set<string>, event: DuelEvent, activated: Set<number>): void {
+export function trackSetZones(zones: Set<string>, event: DuelEvent, activated: Set<number>, fresh: readonly DuelEvent[] = []): void {
   const key = (zone: DuelZoneRef | undefined) => (zone && zone.location === LOCATION_SZONE ? zoneKey(zone.controller, zone.location, zone.sequence) : null);
   const at = key(event.zone);
   if (event.kind === "set" && at) zones.add(at);
@@ -2165,9 +2250,31 @@ function trackSetZones(zones: Set<string>, event: DuelEvent, activated: Set<numb
       else zones.delete(at);
     }
   } else if (event.kind === "destroy" && at) zones.delete(at);
+  else if (isPositionEvent(event) && at) {
+    const change = positionChangeOf(event);
+    // A card an effect turns face-down in place lies Set again.
+    if (change.conceal) zones.add(at);
+    else if (change.reveal && !flipCoveredByActivation(fresh, event)) zones.delete(at);
+  }
 }
 
-export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProps) {
+/**
+ * Makes `zones` agree with the board on screen: every Spell/Trap zone whose card lies face-down is Set, every other is
+ * not. The events a client holds are not the whole story (a reconnect, a reload, a spectator or a replay seek starts
+ * with the last events only), so the view is the truth for what lay Set before the first event to play.
+ */
+export function syncSetZones(zones: Set<string>, seats: readonly DuelSeatView[]): void {
+  for (const seat of seats) {
+    seat.spells.forEach((card, index) => {
+      // The same key the events use (their zone's controller).
+      const key = zoneKey(card?.controller ?? seat.seat, LOCATION_SZONE, card?.sequence ?? index);
+      if (card && isFacedown(card.position)) zones.add(key);
+      else zones.delete(key);
+    });
+  }
+}
+
+export function SummonFx({ events, seats, duelKey, reducedMotion, shake }: SummonFxProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<FxItem[]>([]);
   const [overlay, setOverlay] = useState<HTMLDivElement | null>(null);
@@ -2179,6 +2286,10 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
   const setZonesRef = useRef(new Set<string>());
   const prefsRef = useRef({ reducedMotion, shake });
   prefsRef.current = { reducedMotion, shake };
+  const seatsRef = useRef(seats);
+  seatsRef.current = seats;
+  // The board before the batch that is being read: events describe a change from it.
+  const priorSeatsRef = useRef(seats);
   // The WebGL layer loads while the room is idle; its ref is null until the canvas can draw.
   const fx3d = useFx3d(overlay, !reducedMotion);
   // The battle and scene layers draw into this canvas: publish it while it can draw.
@@ -2202,16 +2313,20 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
     }
     if (cursorRef.current == null) {
       cursorRef.current = maxEventId(events) ?? 0;
-      // Cards Set before this page loaded are known from the history the room still holds.
-      for (const event of collectFreshEvents(events, 0).fresh) trackSetZones(setZonesRef.current, event, new Set());
+      // Cards Set before this layer started are known from the board on screen, and from the history for the rest.
+      const history = collectFreshEvents(events, 0).fresh;
+      for (const event of history) trackSetZones(setZonesRef.current, event, new Set(), history);
+      if (seatsRef.current) syncSetZones(setZonesRef.current, seatsRef.current);
       return;
     }
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
     cursorRef.current = nextCursor;
     if (fresh.length === 0) return;
-    // Set zones follow every event, also those of a hidden tab, which plays no effects.
+    // Set zones follow every event, also those of a hidden tab, which plays no effects. What lay Set before the batch is
+    // known from the board then (a resync can change it without an event); the batch's events then move it on.
+    if (priorSeatsRef.current) syncSetZones(setZonesRef.current, priorSeatsRef.current);
     const setDown = new Set<number>();
-    for (const event of fresh) trackSetZones(setZonesRef.current, event, setDown);
+    for (const event of fresh) trackSetZones(setZonesRef.current, event, setDown, fresh);
     if (typeof document !== "undefined" && document.hidden) return;
 
     const now = typeof performance !== "undefined" ? duelFxClock.now() : 0;
@@ -2308,6 +2423,11 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
       return hold === item.activationHoldMs ? item : { ...item, activationHoldMs: hold };
     }).slice(-MAX_ITEMS - 4));
   }, [duelKey, events]);
+
+  // Declared after the batch reader above, so a batch reads the board as it was before it.
+  useLayoutEffect(() => {
+    priorSeatsRef.current = seats;
+  }, [seats]);
 
   const finish = (key: string) => setItems((current) => current.filter((item) => item.key !== key));
 

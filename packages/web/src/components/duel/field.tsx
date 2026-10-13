@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
-import { Check, LayoutGrid, Search } from "lucide-react";
+import { Check, LayoutGrid, Link2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardFace, cardFieldStats } from "./card-face";
 import { CardActionMenu } from "./card-interactions";
@@ -40,9 +40,11 @@ import {
   zoneKey,
 } from "./constants";
 import { disabledZones } from "./multi-seat";
+import { findMasterCard, masterActionText, masterInUse, masterPlace, masterNextCost, masterSummonLine, surchargeText, useMasterSeats, type MasterPlace } from "./master-place";
 import type { InspectTarget } from "./inspector";
+import { FieldCracks } from "./field-cracks/field-cracks";
 import { RivalHand } from "./table/rival-hand";
-import { hexToRgbTriplet, isStraight, labelTurnDeg, normalizeDeg, textScale } from "./table/seat-angle";
+import { hexToRgbTriplet, normalizeDeg, textScale } from "./table/seat-angle";
 import { SEAT_TONE_HEX, type SeatFieldProps } from "./table/types";
 import { useDuelFieldModel, type DuelFieldProps } from "./field-model";
 import {
@@ -72,21 +74,6 @@ type CssVars = CSSProperties & Record<`--${string}`, string | number>;
 // DuelField, SeatField and the row components keep the base styles; the skinned primitives below read the skin.
 const styles = baseStyles;
 
-function findByCode(view: DuelSeatView, code: number): DuelCard | null {
-  const zones: Array<DuelCard | null | undefined> = [
-    ...view.monsters,
-    ...view.spells,
-    ...view.graveyard,
-    ...view.banished,
-    ...view.hand,
-    ...view.extra,
-  ];
-  for (const card of zones) {
-    if (card?.code === code) return card;
-  }
-  return null;
-}
-
 export function masterCard(view: DuelSeatView): DuelCard | null {
   const master = view.deckMaster;
   if (!master) return null;
@@ -107,18 +94,18 @@ export function masterCard(view: DuelSeatView): DuelCard | null {
       race: master.card.race,
     };
   }
-  return findByCode(view, master.card.code);
+  return findMasterCard(view, master.card.code);
 }
 
-export function masterStatus(view: DuelSeatView): string {
-  const master = view.deckMaster;
-  if (!master) return "No Deck Master";
-  if (master.inZone) return "In Deck Master Zone";
-  const card = findByCode(view, master.card.code);
-  if (card && (card.location === LOCATION_MZONE || card.location === LOCATION_SZONE || card.location === LOCATION_FZONE)) {
-    return "On field";
-  }
-  return "Elsewhere";
+const PLACE_STATUS: Record<MasterPlace, string> = {
+  none: "No Deck Master",
+  zone: "In Deck Master Zone",
+  field: "On field",
+  elsewhere: "Elsewhere",
+};
+
+export function masterStatus(view: DuelSeatView, seats: readonly DuelSeatView[] = []): string {
+  return PLACE_STATUS[masterPlace(view, seats)];
 }
 
 /** Two short lines for a dock: "DARK · Level 7" and "Spellcaster". */
@@ -201,12 +188,21 @@ export function ZoneSlot({
   pileCount,
   flip,
   offId,
+  link,
+  linkSeq,
+  linkId,
   onActivate,
   onHoverCard,
 }: {
   card: DuelCard | null;
   label: string;
   kind: string;
+  /** A shared Extra Monster Zone seen from one of its two seats (plaza): `shared` = linked, `taken` = the card is the facing seat's. */
+  link?: "shared" | "taken";
+  /** Sequence of the zone (5 or 6): the pair link joins zone 5 of one seat with zone 6 of the other. */
+  linkSeq?: number;
+  /** Names the pair of linked cells ("0-1-5": seats 0 and 1, the zone that is zone 5 of the lower seat). Both cells carry the same id, so one hover or focus rule can light both. */
+  linkId?: string;
   /** The core disabled this zone: test id suffix `{seat}-{m|s|f}-{sequence}`. Draws a dim zone with a cross. */
   offId?: string;
   keys: string[];
@@ -247,22 +243,27 @@ export function ZoneSlot({
       data-defense={defense ? "true" : "false"}
       data-side={flip ? "opp" : "you"}
       data-disabled={offId ? "true" : undefined}
+      data-link={link}
+      data-link-seq={link ? linkSeq : undefined}
+      data-link-id={link ? linkId : undefined}
     >
+      {link === "taken" ? <span className={styles.zoneLink} aria-hidden="true"><Link2 size={11} strokeWidth={2.4} /></span> : null}
       {offId ? <span className={styles.zoneOff} role="img" aria-label={`${label} (disabled)`} data-testid={`zone-disabled-${offId}`} /> : null}
       <button
         type="button"
         className={styles.zoneHit}
         aria-label={name}
         aria-pressed={selected}
-        onClick={(event) => onActivate(keys, card, event.currentTarget)}
+        // A ghost is the facing seat's card: a click on it acts on nothing (hover still previews it).
+        onClick={(event) => onActivate(keys, link === "taken" ? null : card, event.currentTarget)}
         onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
         onMouseLeave={() => onHoverCard?.(null, null)}
         onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
         onBlur={() => onHoverCard?.(null, null)}
       >
         {!card && kind === "emz" ? <span className={styles.zoneName}>Extra Monster</span> : null}
-        <div className={styles.frame}>
-          {pendulum ? <span className={styles.pendulumMark}>P</span> : null}
+        <div className={styles.frame} data-card-frame>
+          {pendulum ? <span className={styles.pendulumMark} data-zone-label>P</span> : null}
           {card ? <CardFace card={card} sleeve={sleeve} /> : sleeve ? <CardFace card={null} sleeve={sleeve} /> : null}
           {atk ? (
             <span className={styles.plate}>
@@ -282,6 +283,11 @@ export function ZoneSlot({
       </button>
     </div>
   );
+}
+
+/** The id both cells of one linked Extra Monster Zone carry: the lower seat first, then the zone that is its own zone 5 or 6 (the other seat sees it mirrored: 5 there is 6 here). */
+export function linkIdOf(seat: number, other: number, sequence: number): string {
+  return seat < other ? `${seat}-${other}-${sequence}` : `${other}-${seat}-${11 - sequence}`;
 }
 
 type FanEntry = { card: DuelCard | null; key: string };
@@ -713,7 +719,7 @@ function MonsterRow({
   const seat = view?.seat ?? 0;
   const order = reversed ? [4, 3, 2, 1, 0] : [0, 1, 2, 3, 4];
   return (
-    <div className={styles.zones}>
+    <div className={styles.zones} data-monster-row={seat}>
       {order.map((sequence) => (
         <ZoneSlot key={`${seat}-mz-${sequence}`} {...monsterZoneProps(view, sequence, { flip: flip ?? reversed, callbacks, owner })} />
       ))}
@@ -907,6 +913,9 @@ export function DuelField(props: DuelFieldProps) {
       <TurnGlow side="bottom" turn={activity.turnSeat === bottomIndex} priority={activity.prioritySeat === bottomIndex} />
       <div className={styles.playmat} data-hub={props.hub ? "true" : undefined}>
         <span className={styles.marginRule} aria-hidden="true" />
+        {/* One mat, two fields: each half cracks from its own LP and keeps off the hand strips. */}
+        <FieldCracks seat={topIndex} lp={top?.lp} part="top" avoidSelector={`.${styles.strip}`} splitSelector={`.${styles.emzBand}`} />
+        <FieldCracks seat={bottomIndex} lp={bottom?.lp} part="bottom" avoidSelector={`.${styles.strip}`} splitSelector={`.${styles.emzBand}`} />
         <div className={`${styles.strip} ${styles.stripTop}`}>
           <Tally
             side="opp"
@@ -1018,12 +1027,12 @@ export const SeatField = memo(function SeatField({
   side,
   dataSide,
   angleDeg,
-  upright,
   tone,
   density,
   hand,
   emz,
   pair,
+  emzLink,
   showTally,
   usable,
   legalKeys,
@@ -1038,7 +1047,6 @@ export const SeatField = memo(function SeatField({
   const view = engine.seats.find((entry) => entry.seat === seat);
   const callbacks: FieldCallbacks = { legalKeys, selectedKeys, onActivate, onInspect, onHoverCard };
   const angle = normalizeDeg(angleDeg);
-  const straight = isStraight(angle, upright);
   const label = name ?? `Player ${seat + 1}`;
   const owner = viewerSeat === seat ? "Your" : label;
   const battle = isBattlePhase(engine.phase);
@@ -1050,26 +1058,35 @@ export const SeatField = memo(function SeatField({
   const vars: CssVars = {
     "--t": hexToRgbTriplet(toneHex.main),
     "--tink": toneHex.ink,
-    "--lab": `${labelTurnDeg(angle, upright)}deg`,
     // Without a scale the wrapper owns the text scale (--sf-ts): the 4-way grid sizes its fields from outside, and a
     // size change must not draw the whole field again.
     ...(scale != null ? { "--ts": textScale(scale).toFixed(2) } : {}),
   };
   const emzSlot = (column: "left" | "right") => {
     const sequence = (column === "left") === (emz !== "shared-top") ? 5 : 6;
-    const card = slot(view?.monsters, sequence);
-    const keys = withExact(card, emz === "own" ? extraMonsterKeys(seat, seat, column, "own") : [zoneKey(seat, LOCATION_MZONE, sequence)]);
+    const own = slot(view?.monsters, sequence);
+    // The engine shares one row between this seat and `emzLink.other`: zone 5 here is zone 6 there. A card of the facing
+    // seat in the mirrored zone blocks this one, so it shows here as a taken ghost (nothing to target).
+    const across = emzLink && emz === "own" ? engine.seats.find((entry) => entry.seat === emzLink.other) : undefined;
+    const ghost = own == null ? slot(across?.monsters, 11 - sequence) : null;
+    const card = own ?? ghost;
+    const link = emzLink && emz === "own" ? (ghost ? "taken" : "shared") : undefined;
+    const keys = ghost ? [] : withExact(card, emz === "own" ? extraMonsterKeys(seat, seat, column, "own") : [zoneKey(seat, LOCATION_MZONE, sequence)]);
+    const base = `${owner} Extra monster zone, column ${column === "left" ? 2 : 4}`;
     return (
       <ZoneSlot
         card={card}
-        label={`${owner} Extra monster zone, column ${column === "left" ? 2 : 4}`}
+        label={ghost ? `${base}, shared with ${emzLink?.otherName}: taken by their ${ghost.name ?? "monster"}` : emzLink ? `${base}, shared with ${emzLink.otherName}` : base}
         kind="emz"
+        link={link}
+        linkSeq={sequence}
+        linkId={emzLink ? linkIdOf(seat, emzLink.other, sequence) : undefined}
         offId={off.monsters[sequence] ? `${seat}-m-${sequence}` : undefined}
         keys={keys}
         legalKeys={legalKeys}
         selectedKeys={selectedKeys}
         showStats
-        flip={straight}
+        flip={false}
         onActivate={onActivate}
         onHoverCard={onHoverCard}
       />
@@ -1090,7 +1107,7 @@ export const SeatField = memo(function SeatField({
           card,
           keys: withExact(card, extraMonsterKeys(seat, pair?.other ?? seat, column)),
           offId,
-          flip: card != null && (card.controller === seat ? straight : !straight),
+          flip: card != null && (card.controller !== seat),
           callbacks,
         })}
         label={`Shared Extra monster zone, ${column}`}
@@ -1109,9 +1126,6 @@ export const SeatField = memo(function SeatField({
         data-seat-angle={Math.round(angle)}
         data-tone={tone}
         data-density={density}
-        data-upright={upright ? "true" : "false"}
-        data-straight={straight ? "true" : "false"}
-        data-quarter={Math.abs(Math.abs(labelTurnDeg(angle, upright)) - 90) < 15 ? "true" : undefined}
         data-turn={turn ? "true" : undefined}
         data-elim={eliminated ? "true" : undefined}
         data-usable={usable ? "true" : "false"}
@@ -1124,9 +1138,11 @@ export const SeatField = memo(function SeatField({
         style={vars}
       >
         <div className={styles.sfMat}>
+          <FieldCracks seat={seat} lp={view?.lp} chunks={pair?.framed !== true} avoidSelector="[data-crack-avoid]" layoutToken={emz} />
+          {emz === "none" ? <span className={styles.sfCrackAvoid} data-crack-avoid="" aria-hidden="true" /> : null}
           <span className={styles.sfRule} aria-hidden="true" />
           <div className={styles.sfGrid}>
-            <PileColumn view={view} opponent={false} flip={straight} side="left" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
+            <PileColumn view={view} opponent={false} flip={false} side="left" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
             <div className={styles.sfEmz}>
               {masterRule >= 4 && emz === "pair" ? (
                 <div className={styles.emzPair} style={{ "--pl": pair?.left ?? 0, "--pr": pair?.right ?? 0, "--pg": pair?.gap ?? 0.06 } as CssVars}>
@@ -1144,10 +1160,10 @@ export const SeatField = memo(function SeatField({
               ) : null}
             </div>
             <div className={styles.sfRows}>
-              <MonsterRow view={view} reversed={false} flip={straight} owner={owner} callbacks={callbacks} />
-              <SpellRow view={view} reversed={false} flip={straight} owner={owner} callbacks={callbacks} masterRule={masterRule} />
+              <MonsterRow view={view} reversed={false} flip={false} owner={owner} callbacks={callbacks} />
+              <SpellRow view={view} reversed={false} flip={false} owner={owner} callbacks={callbacks} masterRule={masterRule} />
             </div>
-            <PileColumn view={view} opponent={false} flip={straight} side="right" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
+            <PileColumn view={view} opponent={false} flip={false} side="right" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
           </div>
         </div>
         {density !== "compact" ? <span className={styles.sfName} data-seat-name>{label}</span> : null}
@@ -1190,6 +1206,7 @@ export function MasterDock({
   onChooseAction,
   onInspect,
   onHoverCard,
+  showInUse = false,
 }: {
   title: string;
   view: DuelSeatView | undefined;
@@ -1202,15 +1219,21 @@ export function MasterDock({
   onChooseAction: (option: DuelPromptOption) => void;
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
+  /** Draw the zone empty ("In use") while the master is out of it, with the summon line; also the plate a summon flies out of. Every table passes it. */
+  showInUse?: boolean;
 }) {
   const styles = useSkinStyles(baseStyles, "field");
   const master = view?.deckMaster;
+  const seats = useMasterSeats();
+  const inUse = showInUse && masterInUse(view, seats);
   const card = view ? masterCard(view) : null;
   const keys = view ? withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]) : [];
   const legal = anyLegal(keys, legalKeys);
   const selected = anySelected(keys, selectedKeys);
   const actions = local && canAct ? legalActionsFor(card, keys) : [];
-  const status = view ? masterStatus(view) : "";
+  const status = view ? masterStatus(view, seats) : "";
+  // The rail says the cost once, in the summon line; without showInUse it keeps "Next surcharge".
+  const summonLine = showInUse ? masterSummonLine(view) : null;
   const stats = master ? cardStatsText(master.card) : null;
   const details = master ? masterDetailLines(master.card) : [];
 
@@ -1225,6 +1248,7 @@ export function MasterDock({
       data-local={local ? "true" : "false"}
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
+      data-in-use={inUse ? "true" : undefined}
     >
       <h2 className={styles.masterTitle}>{title}</h2>
       {master && view ? (
@@ -1232,7 +1256,7 @@ export function MasterDock({
           <button
             type="button"
             className={styles.masterHit}
-            aria-label={`${title}: ${master.card.name}`}
+            aria-label={`${title}: ${master.card.name}${inUse ? `, in use (${status})` : ""}`}
             aria-pressed={selected}
             onClick={(event) => {
               if (card) onActivate(keys, card, event.currentTarget);
@@ -1243,8 +1267,8 @@ export function MasterDock({
             onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
             onBlur={() => onHoverCard?.(null, null)}
           >
-            <div className={styles.masterArt} data-master-dock={view.seat} data-away={status === "Elsewhere" ? "true" : "false"}>
-              <img src={cardArtUrl(master.card.code, "full")} alt="" draggable={false} />
+            <div className={styles.masterArt} data-master-dock={view.seat} data-master-source={showInUse ? view.seat : undefined} data-in-use={inUse ? "true" : undefined} data-away={status === "Elsewhere" && !inUse ? "true" : "false"}>
+              {inUse ? <span className={styles.masterInUse} data-testid="master-dock-in-use">In use</span> : <img src={cardArtUrl(master.card.code, "full")} alt="" draggable={false} />}
               <ZoneMarks legal={legal} selected={selected} />
             </div>
             <div className={styles.masterId}>
@@ -1264,11 +1288,14 @@ export function MasterDock({
               <dt>Returns</dt>
               <dd>{master.returns}</dd>
             </div>
-            <div>
-              <dt>Next surcharge</dt>
-              <dd>{master.nextCost} LP</dd>
-            </div>
+            {summonLine ? null : (
+              <div>
+                <dt>Next surcharge</dt>
+                <dd>{surchargeText(masterNextCost(master))}</dd>
+              </div>
+            )}
           </dl>
+          {summonLine ? <p className={styles.masterSummon} data-testid="master-dock-summon">{summonLine}</p> : null}
           {local ? (
             <div className={styles.masterActions}>
               {actions.map((option, index) => (
@@ -1278,9 +1305,10 @@ export function MasterDock({
                   className={styles.masterAction}
                   data-primary={index === 0 ? "true" : "false"}
                   disabled={!canAct}
+                  title={showInUse ? option.label : undefined}
                   onClick={() => onChooseAction(option)}
                 >
-                  {option.label}
+                  {showInUse ? masterActionText(option, view, false) : option.label}
                 </button>
               ))}
               <button type="button" className={styles.masterInspect} onClick={inspect}>
@@ -1311,6 +1339,7 @@ export function DeckMasterRail({
   topSeat,
   rivals,
   selfTitle,
+  showInUse = false,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -1331,6 +1360,8 @@ export function DeckMasterRail({
   rivals?: ReadonlyArray<{ seat: number; title: string }>;
   /** The heading of the bottom dock, for example "Mika's Master" to a spectator of a table of 3. Default: "Your Master" / "Seat 1 Master". */
   selfTitle?: string;
+  /** 3 and 4 seat tables and Tag: the docks draw an empty "In use" zone while a master is out of it. */
+  showInUse?: boolean;
 }) {
   const styles = useSkinStyles(baseStyles, "field");
   const bottomIndex = mySeat ?? 0;
@@ -1357,6 +1388,7 @@ export function DeckMasterRail({
           onChooseAction={onChooseAction}
           onInspect={onInspect}
           onHoverCard={onHoverCard}
+          showInUse={showInUse}
         />
       ))}
       <MasterDock
@@ -1371,6 +1403,7 @@ export function DeckMasterRail({
         onChooseAction={onChooseAction}
         onInspect={onInspect}
         onHoverCard={onHoverCard}
+        showInUse={showInUse}
       />
     </div>
   );

@@ -392,7 +392,7 @@ function aux.MPGeometrySeat(tp)
  end
  return Duel.MPSeat(tp or 0)
 end
--- Shared FFA4 and Tag geometry compares real seats. Other formats keep stock tests.
+-- Shared FFA3, FFA4 and Tag geometry compares real seats. 1v1 keeps stock tests.
 function aux.MPGeometryShared()
  return Duel.MPSharedZones and Duel.MPSharedZones()
 end
@@ -467,7 +467,7 @@ end
 -- Official Link triggers share this previous-controller filter.
 aux.zptfilter=aux.MPGeometryPreviousFilter(aux.zptfilter)
 
--- Columns alone use the FFA3 house rule. Link helpers above keep across geometry.
+-- Column and Link helpers use the same fixed facing geometry.
 function aux.MPColumnGeometry()
 	return Duel.MPColumnGeometry and Duel.MPColumnGeometry() or aux.MPGeometryShared()
 end
@@ -483,34 +483,6 @@ function aux.MPColumnChainFilter(fn)
 			if seat~=own and seat~=aux.MPColumnPeerSeat(own) then return end
 		end
 		return fn(e,tp,eg,ep,ev,re,r,rp,...)
-	end
-end
-
--- Opt in only the named activated operations, only in FFA3. This also covers
--- operations that do not read a column until after a card or zone selection.
--- Keep continuous descendants unmarked; the last two living seats need no opt-in.
-function aux.MPColumnEffects(initial,operations)
-	return function(source,...)
-		local c=type(source)=="Effect" and source:GetHandler() or source
-		if not Duel.MPColumnGeometry or not Duel.MPColumnGeometry() or aux.MPGeometryShared() then return initial(source,...) end
-		local register=Card.RegisterEffect
-		Card.RegisterEffect=function(card,e,...)
-			if card==c and e:IsHasType(EFFECT_TYPE_ACTIONS) and not e:IsHasType(EFFECT_TYPE_CONTINUOUS) then
-				e:SetColumnPeer(false) -- a Clone can inherit another operation's opt-in
-				for _,operation in ipairs(operations) do
-					if e:GetOperation()==operation then
-						e:SetColumnPeer(true)
-						e:SetTarget(aux.MPTarget(e:GetTarget() or function() return true end))
-						break
-					end
-				end
-			end
-			return register(card,e,...)
-		end
-		local ok,result=pcall(initial,source,...)
-		Card.RegisterEffect=register
-		if not ok then error(result,0) end
-		return result
 	end
 end
 

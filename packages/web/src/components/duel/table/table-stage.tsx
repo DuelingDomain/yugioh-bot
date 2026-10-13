@@ -3,9 +3,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowUp } from "lucide-react";
 import { flushSync } from "react-dom";
-import { engineFormat } from "../multi-seat";
-import type { GridFinaleBoard } from "./grid-finale";
+import { engineFormat, plazaFacingPair } from "../multi-seat";
+import { masterInUse } from "../master-place";
 import type { UseGridFocus } from "./grid-focus";
+import type { GridFinaleBoard } from "./grid-finale";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
@@ -120,15 +121,15 @@ export interface TableStageViewProps extends TableStageProps {
   grid?: UseGridFocus;
   /** Place of every seat that left, as text ("3rd"), for the chip on its panel while it fades. */
   placeLabels?: ReadonlyMap<number, string>;
-  /** 4-way grid: the last two seats, laid out as one full board in the middle (the 1v1 composition), or null. */
+  /** 4-way grid: the face-off of the last two seats (visual only; see grid-finale.ts). The plaza stage ignores it. */
   gridFinale?: GridFinaleBoard | null;
   /** 4-way grid: draws the phase hub for a place ("band" = the shared EMZ band, "center" = middle of the table). */
   gridHub?: (place: "band" | "center") => ReactNode;
   /** 4-way grid: where the hub sits. */
   hubPlace?: "band" | "center";
   /**
-   * The floating HUD on a 3-way plaza: every prompt sits in the middle of the near field (yours, or the anchor's), as in
-   * the 4-way grid and the 1v1 room, at a size that follows that field, and the pick bar in a clear place on it.
+   * The floating HUD on a 3-way plaza: every prompt sits in the middle of the screen (across: the board; down: the band of the
+   * near field, yours or the anchor's), as in the 4-way grid and the 1v1 room, at a size that follows that field, and the pick bar in a clear place on it.
    */
   centerPrompts?: boolean;
 }
@@ -357,30 +358,30 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     return { panel: mapped.panel, bar: move(mapped.bar), chain: move(mapped.chain) };
   }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, plateAnchors, chainSize, chainInset, stageHeight, stageTop, portrait, ownZoom, ownHold, fitItems, fitted, hudRects, pinnedRect, handRect, targets]);
 
-  // The floating HUD: the prompts sit in the middle of the near field (the first seat of the table: you, or the anchor), in
-  // box px; --pr-* carry that box to the prompt CSS. The pick bar finds a clear place on that field (never over a target);
-  // when the field is full of targets, the free room off every board takes it.
-  // While the board is zoomed the prompts keep their dock (the HUD stays put), and the pick bar docks off the HUD.
+  // The floating HUD: every prompt sits in the middle of the screen, in box px; --pr-* carry that box to the prompt CSS. It is the same at
+  // home, in a rival's focus and in your own zoom (the prompt is not part of the zoomed world), whatever field an attack or a pick is about.
+  // The height of the box is the height of your field (the prompts keep to that band, off the plates above and below it); the pick bar finds
+  // a clear place near the middle (never over a target); when the field is full of targets, the free room off every board takes it.
   const floating = centerPrompts && !fly && !portrait && k > 0;
   // A declared attack on a card of the near field: the prompt leaves the middle of that field, as it does in the own-field
   // zoom, and takes the free room off every board, so the ring on the target and the end of the arrow stay in view.
   const nearSeat = play.slots[0]?.seat ?? -1;
   const attackTarget = useMemo(() => (engine.result == null ? openAttack(engine.events)?.target ?? null : null), [engine.events, engine.result]);
-  const near = floating && !zoom.zoomed && attackTarget?.controller !== nearSeat ? poses.get(nearSeat) : undefined;
+  const near = floating ? poses.get(nearSeat) : undefined;
   const nearBox = useMemo(() => {
     if (!near) return null;
     const b = boardBounds(near);
-    const dx = (box.width - STAGE.width * k) / 2;
-    const dy = stageTop + (stageHeight - canvasHeight * k) / 2;
-    return { x: Math.round(dx + b.l * k), y: Math.round(dy + b.t * k), width: Math.round((b.r - b.l) * k), height: Math.round((b.b - b.t) * k) };
-  }, [near, box.width, k, stageTop, stageHeight, canvasHeight]);
+    const height = Math.min(Math.round((b.b - b.t) * k), Math.max(0, box.height - 24));
+    const edge = Math.max(0, Math.round((box.height - height) / 2));
+    return { x: 0, y: edge, width: box.width, height };
+  }, [near, box.width, box.height, k]);
   const promptStyle = nearBox
     ? ({
         ["--pr-cx" as string]: `${Math.round(nearBox.x + nearBox.width / 2)}px`,
         ["--pr-cy" as string]: `${Math.round(nearBox.y + nearBox.height / 2)}px`,
         ["--pr-w" as string]: `${nearBox.width}px`,
         ["--pr-h" as string]: `${nearBox.height}px`,
-        ["--pr-unit" as string]: `${promptUnit(nearBox.height, false)}px`,
+        ["--pr-unit" as string]: `${promptUnit(nearBox.height)}px`,
       } as CSSProperties)
     : undefined;
   const [cards, setCards] = useState<readonly Rect[]>([]);
@@ -439,8 +440,8 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   }, [floating, zoom.zoomed, handRect, nearBox, targets, cards, hudRects, pinnedRect, box]);
 
   // The chain-response panel (every option a card): a wide room of its own, big enough for large cards, wholly inside the box, off the HUD,
-  // the chain's cards and your hand (it may cover the field). At home it starts from the middle of your field, in your own zoom from the middle
-  // of the box. It is measured and planned at rest, once (use-strip-room.ts); the camera never moves for it.
+  // the chain's cards and your hand (it may cover the field). It is fixed to the middle of the screen (`fixed`): the same room at home, in a focus and
+  // in your own zoom. It is measured and planned at rest, once (use-strip-room.ts); the camera never moves for it.
   const stripCount = controller.prompt && isChainStripPrompt(controller.prompt) ? controller.prompt.options.length : 0;
   const stripAnchor = useMemo(() => (nearBox ? { x: nearBox.x + nearBox.width / 2, y: nearBox.y + nearBox.height / 2 } : undefined), [nearBox]);
   // The chain's cards and the declared attack's target: the panel keeps off them while another place exists.
@@ -455,6 +456,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     count: stripCount,
     box,
     anchor: stripAnchor,
+    fixed: nearBox,
     keyHud: KEY_HUD,
     controlsHud: STRIP_CONTROLS_HUD,
     softHud: STRIP_SOFT_HUD,
@@ -514,6 +516,16 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   const flyYaw = fly ? world.yawDeg : 0;
 
   const plaza3 = layout.format === "ffa3" && layout.slots.length === 3;
+  const facingPair = plaza3 ? plazaFacingPair(engine) : null;
+  // One object per seat for as long as the pair and the names stay, so the memoized fields of the pair do not draw again each render.
+  const pairA = facingPair?.[0].seat ?? null;
+  const pairB = facingPair?.[1].seat ?? null;
+  const pairNameA = pairA != null ? nameOf(pairA) : "";
+  const pairNameB = pairB != null ? nameOf(pairB) : "";
+  const emzLinks = useMemo(
+    () => (pairA != null && pairB != null ? new Map([[pairA, { other: pairB, otherName: pairNameB }], [pairB, { other: pairA, otherName: pairNameA }]]) : null),
+    [pairA, pairB, pairNameA, pairNameB],
+  );
 
   // A click on a field never moves the camera, in any mode (a misclick would zoom or fly in): the seat buttons, the Zoom my field
   // button and the keys do, and Enter or a screen reader's click on a field box (see `reach`). A card keeps its own click.
@@ -699,13 +711,13 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-portrait={portrait ? "true" : undefined}
       data-prompt-scope
       data-table-stage={layout.format}
+      data-emz-pair={pairA != null && pairB != null ? `${pairA}-${pairB}` : undefined}
       data-format={format}
       data-camera-mode={viewCamera.mode}
       data-regroup={gliding && regroup ? "true" : undefined}
       data-camera-want={wantMode ?? viewCamera.mode}
       data-camera-lock={locked ? "true" : undefined}
       data-fly={fly ? "true" : "false"}
-      data-upright={camera.upright ? "true" : "false"}
       data-stage-scale={k.toFixed(3)}
       data-stage-spread={spread}
       data-ready={k > 0 ? "true" : "false"}
@@ -776,11 +788,11 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
                   viewerSeat,
                   masterRule,
                   side: you ? "you" : "opp",
-                  upright: camera.upright,
                   tone: slot.tone,
                   density: you ? "full" : "rival",
                   hand: self && !looking ? "face" : "backs",
                   emz: "own",
+                  ...(emzLinks?.has(slot.seat) ? { emzLink: emzLinks.get(slot.seat) } : {}),
                   showTally: false,
                   usable: !looking && (slot.relation === "self" || slot.relation === "opponent"),
                   name: nameOf(slot.seat),
@@ -829,6 +841,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               handCount={view.hand.length}
               deckCount={view.deckCount}
               clockMs={room.clock?.remainingMs[slot.seat] ?? null}
+              clock={room.clock}
               status={holoStatus(engine, slot.seat, promptSeat)}
               me={anchor.me}
               x={anchor.x}
@@ -836,6 +849,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               beam={fly ? "none" : threeWay ? anchor.beam : place === 0 ? "none" : "down"}
               floating={fly}
               master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
+              masterInUse={masterInUse(view, engine.seats)}
               onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
               lastDamage={lastSeatDamage(engine.events, slot.seat)}
               legal={pickable}
@@ -844,6 +858,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               onHover={(hover) => controller.onAim?.(hover ? { lpSeat: slot.seat } : null)}
               exiting={exit}
               placeLabel={placeLabels?.get(slot.seat) ?? null}
+              linkedWith={emzLinks?.get(slot.seat)?.otherName ?? null}
               glide={gliding && regroup && !exit}
               footer={!exit && anchor.me ? masterChip : null}
               footerTight={anchor.footerTight}

@@ -466,7 +466,7 @@ export function createDuelHost(options: {
     format: DuelFormat = "1v1",
     startupScripts?: string[],
     engine?: DuelEngineChoice,
-    firstTurnDraw = firstTurnDrawFor(mode, masterRule, format),
+    firstTurnDraw = firstTurnDrawFor(mode, masterRule, format, settings),
     scriptErrorMode: DuelScriptErrorMode = scriptErrorModeFromEnv(),
   ): GameOptions {
     const created: GameOptions = {
@@ -1649,7 +1649,7 @@ export function createDuelHost(options: {
       const settings = state.session.settings;
       const scripts = (copts.startupScripts ?? []).map((script) => script.content);
       const engine = engineForNewTable(preset.format, copts.mode, true);
-      const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, preset.format);
+      const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, preset.format, settings);
       const scriptErrorMode = scriptErrorModeFromEnv();
       const bundleVersion = pinnedVersionFor(preset.format);
       const botPolicies: Record<string, string> = {};
@@ -2150,7 +2150,7 @@ export function createDuelHost(options: {
     const bytes = randomBytes(32);
     const seed = [0, 8, 16, 24].map((offset) => bytes.readBigUInt64LE(offset).toString());
     const engine = engineForNewTable(state.session.format, state.session.mode);
-    const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, state.session.format);
+    const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, state.session.format, settings);
     const scriptErrorMode = scriptErrorModeFromEnv();
     const { game, firstView } = await createStartingWorker(slug, state.session.id, workerCreateOptions(
       state.session.mode, state.decks, seed, state.session.masterRule, settings, state.session.format,
@@ -2549,14 +2549,15 @@ export function createDuelHost(options: {
       if (body.masterRule !== undefined && ![1, 2, 3, 4, 5].includes(body.masterRule as number)) {
         throw new RequestError("Unknown master rule", 400);
       }
-      const settings = normalizeDuelSettings(mode, body.settings);
+      const format = body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1";
+      const settings = normalizeDuelSettings(mode, body.settings, format);
       const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
       let draftPool: InspectDeckOptions["draftPool"];
       if (body.draftId !== undefined && body.draftId !== null) {
         if (!Number.isSafeInteger(body.draftId) || (body.draftId as number) < 1 || mode !== "normal") throw new RequestError("Invalid draft deck context", 400);
         draftPool = await loadDraftDeckPool({ draftId: body.draftId as number, playerId: actor, guildId, dataDirectory: options.dataDirectory, db: options.db });
       }
-      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, { draftPool, cardBlocks: admissionEntries(mode, body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1") }) };
+      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, { draftPool, cardBlocks: admissionEntries(mode, format) }) };
     }
     if (op === "card-query") {
       try {

@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent } from "react";
 import { engineFormat } from "../multi-seat";
+import { masterInUse } from "../master-place";
 import { AttackLine } from "./attack-line";
 import { crumbleWaiting, onCrumbleStart } from "./crumble-gate";
 import { boxOf, cancelTracks, FLIP_EASING, FLIP_MS, playFlip, type FlipTrack } from "./grid-flip";
@@ -25,7 +26,7 @@ import {
 } from "./grid-layout";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
-import { ExitingSeat, RivalField } from "./rival-field";
+import { CRUMBLE_UNIT, ExitingSeat, RivalField } from "./rival-field";
 import { useSeatExits } from "./use-seat-exits";
 import { LOCATION_HAND } from "../constants";
 import { SEAT_Z } from "./geometry";
@@ -39,7 +40,9 @@ import { zoneKey } from "../constants";
 import { isChainStripPrompt } from "../prompt-center";
 import { ViewReset } from "./view-reset";
 import { sameRects } from "./rect-util";
-import { FOLLOW_ATTR, followShift, followTransform, visibleRect } from "./view-zoom";
+import { FOLLOW_ATTR, followShift, followTransform } from "./view-zoom";
+import { centeredPromptBox } from "./prompt-box";
+import { usePromptDodge } from "./prompt-dodge";
 import zoomStyles from "./view-zoom.module.css";
 import type { TableStageViewProps } from "./table-stage";
 import styles from "./grid-stage.module.css";
@@ -111,7 +114,9 @@ export function useCellHold(seats: readonly { seat: number; eliminated?: boolean
 /** Natural height of the contents of a life plate (px) and the width it needs for five numerals; a smaller box shrinks them. */
 const LP_NATURAL_HEIGHT = 90;
 const LP_NATURAL_WIDTH = 130;
-const lpFit = (rect: GridRect) => Math.min(1, rect.height / LP_NATURAL_HEIGHT, rect.width / LP_NATURAL_WIDTH);
+/** An out seat adds its place ("Eliminated, 4th"), which wraps to a second line in a narrow plate: a plate this tall would otherwise spill over the top of the stage. */
+const LP_OUT_HEIGHT = 108;
+const lpFit = (rect: GridRect, out = false) => Math.min(1, rect.height / (out ? LP_OUT_HEIGHT : LP_NATURAL_HEIGHT), rect.width / LP_NATURAL_WIDTH);
 
 /** A double click on these keeps its own meaning; every other double click on a field or life box focuses it. */
 const OWN_DOUBLE_CLICK = "button, a, input, select, textarea, [role='button'], [data-zones], [data-legal='true'], [data-uid], [data-pile], [data-hand-seat], [data-holo]";
@@ -154,14 +159,13 @@ const overlap = (a: GridRect, b: GridRect) =>
 /**
  * The size unit (px) of the modal prompts (option and effect lists, yes/no, card grid, positions, numbers, chain list)
  * in the 4-way grid: it follows the height of YOUR pair, so a prompt keeps to about one row band of the board on a small
- * screen. The finale board is larger than a pair, so it uses a larger divisor and its prompts do not grow with it. The
- * pick bar keeps the room unit (its look at 1920x1080 is the reference).
+ * screen. The pick bar keeps the room unit (its look at 1920x1080 is the reference).
  */
-export function promptUnit(height: number, finale: boolean): number {
-  const unit = height / (finale ? PROMPT_UNIT.finale : PROMPT_UNIT.pair);
+export function promptUnit(height: number): number {
+  const unit = height / PROMPT_UNIT.pair;
   return Math.round(Math.min(PROMPT_UNIT.max, Math.max(PROMPT_UNIT.min, unit)) * 100) / 100;
 }
-export const PROMPT_UNIT = { pair: 680, finale: 820, min: 0.72, max: 1.15 } as const;
+export const PROMPT_UNIT = { pair: 680, min: 0.72, max: 1.15 } as const;
 
 /**
  * The room of the pick bar while the board is zoomed: a strip at the bottom middle of the board box. A bar in the middle
@@ -180,7 +184,7 @@ export function dockBarRoom(box: { width: number; height: number }): string | un
 /**
  * The room of the pick bar (zone and card picks on the board) in YOUR pair, as "x,y,width,height" for `data-bar-room`:
  * as near the middle of the pair as it can be (the band between the two fields, as in the 1v1 room), and never over a
- * target. `pair` is the frame of your pair (or the finale board, or the pair a spectator looks at); `targets` are the
+ * target. `pair` is the frame of your pair (or the pair a spectator looks at); `targets` are the
  * boxes of every legal zone and card (board px). The bar is planned at its widest size, so a narrower bar is clear too.
  * When no place is clear (targets everywhere) the place that covers the least of them wins.
  */
@@ -286,8 +290,7 @@ function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: reado
 /**
  * The frame of a pair: ONE mat round the fields of a column that are still in (both halves and the shared Extra Monster
  * row between them), so the pair reads as one field. Its turn light and the light of the lifted pair are on it, never
- * on one half. A pair that loses a seat breaks: the frame shrinks to the field that is left. On the finale board the
- * frame of the bottom seat's column is the frame of the whole board; the other one fades.
+ * on one half. A pair that loses a seat breaks: the frame shrinks to the field that is left.
  */
 export function pairFrameRect(spots: readonly GridRect[]): GridRect | null {
   if (spots.length === 0) return null;
@@ -315,11 +318,15 @@ function moveFrame(el: HTMLElement, tracks: Map<string, FrameTrack>, key: string
   rest.anim = el.animate([px(from), px(next)], { duration, easing });
 }
 
-/** The pose of a seat that left, for its crumble: the centre of its box, upright size, turned like its field. */
-const exitPose = (seat: number, spot: GridCellRect, rotateDeg: 0 | 180): SeatPose => ({
+/**
+ * The pose of a seat that left, for its crumble: the centre of its box, upright size, turned like its field. The board has
+ * the width of the box the field had (a grid field is wider than a Master Rule 4 board), so it does not shrink before it shatters.
+ */
+export const exitPose = (seat: number, spot: GridCellRect, rotateDeg: 0 | 180): SeatPose => ({
   seat,
   x: spot.rect.x + spot.rect.width / 2,
   y: spot.rect.y + spot.rect.height / 2,
+  width: (spot.rect.width * CRUMBLE_UNIT) / spot.z,
   scale: 1,
   rotateDeg,
   z: spot.z,
@@ -386,7 +393,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const drawerSeats = ([0, 1] as const).map((column) => pairDrawer(cells, states, column));
   const drawerRow = ([0, 1] as const).map((column) => cells.find((cell) => cell.seat === drawerSeats[column])?.row ?? 1) as [0 | 1, 0 | 1];
   const drawerKey = drawerRow.join("");
-  // The finale board: the last two seats in the middle, as on the 1v1 table (see grid-finale.ts).
+  // The face-off: the last two seats sit in the middle, facing, as on the 1v1 table (visual only: see grid-finale.ts).
   const finaleBottom = gridFinale ? cells.find((cell) => cell.seat === gridFinale.bottom) ?? null : null;
   const finaleTop = gridFinale ? cells.find((cell) => cell.seat === gridFinale.top) ?? null : null;
   const finale = finaleBottom && finaleTop && gridFinale ? { kind: gridFinale.kind, bottom: finaleBottom, top: finaleTop } : null;
@@ -400,16 +407,16 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     return gridFocusLayout(world, box, focusCell, {
       homeColumn,
       drawerRow: drawerKey.split("").map(Number) as [0 | 1, 0 | 1],
-      finale: bottom && top ? { bottom, top, homeHand: bottom.home } : null,
       corner: hud ? HUD_CORNER : null,
+      finale: bottom && top ? { bottom, top, homeHand: bottom.home } : null,
     });
   }, [box, cells, drawerKey, finaleKey, focusCell, homeColumn, world, hud]);
   const placed = layoutBox;
 
-  // The pair frames (see `pairFrameRect`): the live fields of each column, or the whole finale board.
+  // The pair frames (see `pairFrameRect`): the live fields of each column, or on the face-off the frame round both fields
+  // (the column of the bottom seat); the other column's frame stays where it was while it fades.
   const frameOf = (column: 0 | 1): GridRect | null => {
     if (!placed) return null;
-    // On the finale board: the whole board; the other column's frame stays where it was while it fades.
     if (finale && placed.finale && finale.bottom.column === column) return placed.finale.frame;
     const spots = finale ? placed.regular : placed.cells;
     return pairFrameRect(cells.filter((cell) => cell.column === column && !gone(cell.seat)).map((cell) => spots[cellIndex(cell)].rect));
@@ -418,21 +425,21 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const frameKey = frames.map((r) => (r ? `${r.x},${r.y},${r.width},${r.height}` : "-")).join("|");
 
   const tracks = useRef(new Map<string, FlipTrack>());
-  // A field that turns on its way (the finale board) draws its labels and card faces for its old turn during the first
-  // half of the move, then for the new one: its text never shows upside down while the field spins.
-  const [lateTurns, setLateTurns] = useState<ReadonlyMap<number, 0 | 180> | null>(null);
-  const turnTimer = useRef<number | undefined>(undefined);
   const frameTracks = useRef(new Map<string, FrameTrack>());
   const lastBox = useRef({ width: 0, height: 0 });
+  // A field that turns on its way (a seat changing between the bottom and the top of the face-off) draws its labels and card
+  // faces for its old turn during the first half of the move, then for the new one: its text never shows upside down.
+  const [lateTurns, setLateTurns] = useState<ReadonlyMap<number, 0 | 180> | null>(null);
+  const turnTimer = useRef<number | undefined>(undefined);
   const lastFinale = useRef<string | null>(finaleKey);
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || !placed) return;
     const resized = lastBox.current.width !== box.width || lastBox.current.height !== box.height;
     lastBox.current = { width: box.width, height: box.height };
+    const animate = !resized && !reducedMotion;
     const toFinale = lastFinale.current !== finaleKey;
     lastFinale.current = finaleKey;
-    const animate = !resized && !reducedMotion;
     const seen = new Set<string>();
     const move = (key: string, el: HTMLElement | null, rect: GridRect, turn: 0 | 180, fadeText: boolean, finaleMove: boolean) => {
       if (!el) return null;
@@ -445,11 +452,10 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     const turned = new Map<number, 0 | 180>();
     for (const cell of cells) {
       const spot = placed.cells[cellIndex(cell)];
-      const glide = toFinale;
       const before = tracks.current.get(`f${cell.seat}`)?.turn;
-      const track = move(`f${cell.seat}`, root.querySelector<HTMLElement>(`[data-seat-slot="${cell.seat}"]`), spot.rect, spot.turn, false, glide);
+      const track = move(`f${cell.seat}`, root.querySelector<HTMLElement>(`[data-seat-slot="${cell.seat}"]`), spot.rect, spot.turn, false, toFinale);
       if (track?.anim && before != null && before !== spot.turn) turned.set(cell.seat, before);
-      move(`l${cell.seat}`, root.querySelector<HTMLElement>(`[data-grid-lp="${cell.seat}"]`), spot.plate, 0, true, glide);
+      move(`l${cell.seat}`, root.querySelector<HTMLElement>(`[data-grid-lp="${cell.seat}"]`), spot.plate, 0, true, toFinale);
     }
     const origin = root.getBoundingClientRect();
     for (const column of [0, 1] as const) {
@@ -468,8 +474,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       setLateTurns(turned);
       turnTimer.current = window.setTimeout(() => setLateTurns(null), (toFinale ? FINALE_GLIDE_MS : FLIP_MS) / 2);
     } else {
-      // Any other run (a resize, reduced motion, a new focus) ends a turn that was under way: the field stands at its
-      // new turn at once, so its faces turn with it.
+      // Any other run (a resize, reduced motion, a new focus) ends a turn that was under way: the field stands at its new turn at once.
       window.clearTimeout(turnTimer.current);
       setLateTurns(null);
     }
@@ -512,9 +517,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   for (const seat of [...lateOutline.current.keys()]) if (!outSeats.includes(seat)) lateOutline.current.delete(seat);
 
   // Zoom and pan of the board (view-zoom.ts): the fields zoom, the life plates, the hub and the prompts stay. A new
-  // focus or the final duel resets it. A seat that goes out does not: the camera never zooms by itself, and the clamps
+  // focus resets it. A seat that goes out does not: the camera never zooms by itself, and the clamps
   // of the view follow the box of the board, not the cells.
-  const zoom = useViewZoom({ rootRef, layerRef, enabled: placed != null, reducedMotion, resetKey: `${focus.seat ?? "all"}|${finaleKey ?? ""}` });
+  const zoom = useViewZoom({ rootRef, layerRef, enabled: placed != null, reducedMotion, resetKey: `${focus.seat ?? "all"}` });
 
   // A focused seat that goes out stays in focus while its field crumbles, then the focus goes home (grid-focus.ts).
   const crumbling = useMemo(() => exitState.exits.map((exit) => exit.seat), [exitState.exits]);
@@ -559,11 +564,11 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     if (Number.isInteger(seat)) focusOn(seat);
   };
 
-  // The phase hub: in the band of the pair that shares the Extra Monster row (yours, else the finale pair, else any
-  // that is still drawn), or in the middle of the table between the pairs.
+  // The phase hub: in the band of your column (else any that is still drawn), or in the middle of the table between the
+  // columns. On the face-off: in the Extra Monster row of the bottom seat's field.
   const hubColumn: 0 | 1 | null = finale?.bottom.column ?? (homeColumn != null && drawerSeats[homeColumn] != null ? homeColumn : drawerSeats[0] != null ? 0 : drawerSeats[1] != null ? 1 : null);
   // Its chips stay in the free cells beside the Extra Monster Zones (five columns, 0.075 z apart): a pair side by side
-  // where it fits, else stacked (see bandHubFit). On the finale board: the bottom seat's row of that board.
+  // where it fits, else stacked (see bandHubFit).
   const hubBand = placed && hubColumn != null ? placed.finale?.band ?? placed.bands[hubColumn] : null;
   const hubFit = hubBand ? bandHubFit(hubBand.z, (hubBand.rect.width - 4 * hubBand.z * 0.075) / 5) : null;
   const hubStyle = ((): CSSProperties | null => {
@@ -586,27 +591,32 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     return { ...fit, left: band.rect.x, top: band.rect.y, translate: followShift(band.rect.x, band.rect.y), scale: "var(--vz-s, 1)", transformOrigin: "0 0" };
   })();
 
-  // Every prompt sits in the middle of YOUR pair (the half of the table where your field is), as the 1v1 room puts it in
-  // the middle of the board: on the finale board the middle of that board; a spectator's, the pair in focus (else the
-  // middle of the table). The prompt slot carries that box as --pr-* (board px) for the panels and the yes/no bar.
+  // Every prompt sits in the middle of the screen: the middle of the board across, and the middle of the fields' band
+  // (both pairs, under the plates and over your hand) down, so no plate is under it. It is the same at home, in a focus
+  // and under a zoom (the prompt is not part of the zoomed world); only a new layout of the fields moves it. The pair that
+  // is yours (a spectator's, the pair in focus) only gives the size unit. The prompt slot carries the box as --pr-* (board px)
+  // for the panels and the yes/no bar.
+  // On the face-off: the one frame round both fields.
   const promptColumn: 0 | 1 | null = finale ? finale.bottom.column : viewerSeat != null ? homeColumn : focusCell?.column ?? null;
-  const pairFrame = promptColumn != null ? frames[promptColumn] : null;
-  // Under a zoom the prompts keep their size and sit in the part of that pair that is on the screen (the whole board
-  // when none of it is); the pick bar plans its room there too, from the targets as they show after the zoom.
-  const promptPair = pairFrame && zoom.zoomed ? visibleRect(zoom.view, pairFrame, box) ?? { x: 0, y: 0, width: box.width, height: box.height } : pairFrame;
+  const pairFrame = (promptColumn != null ? frames[promptColumn] : null) ?? frames[0] ?? frames[1];
+  const promptFrames = finale && promptColumn != null ? [frames[promptColumn]] : frames;
+  const promptPair = pairFrame ? centeredPromptBox(box, promptFrames) : null;
+  // The phase hub can stand in the middle band: a prompt that would cover its chips steps up or down off them (it stays centred across the table).
+  const slotRef = useRef<HTMLDivElement>(null);
+  const dodge = usePromptDodge(rootRef, slotRef, promptCenter != null && promptPair != null, `${controller.prompt?.id ?? ""}|${frameKey}|${box.width}x${box.height}|${zoom.zoomed ? `${Math.round(zoom.view.s * 100)},${Math.round(zoom.view.x)},${Math.round(zoom.view.y)}` : 0}|${hubPlace}`);
   const promptStyle = promptPair && pairFrame
     ? ({
+        ["--pr-dy" as string]: `${dodge}px`,
         ["--pr-cx" as string]: `${Math.round(promptPair.x + promptPair.width / 2)}px`,
         ["--pr-cy" as string]: `${Math.round(promptPair.y + promptPair.height / 2)}px`,
-        ["--pr-w" as string]: `${Math.round(promptPair.width)}px`,
+        ["--pr-w" as string]: `${Math.round(Math.min(promptPair.width, pairFrame.width))}px`,
         ["--pr-h" as string]: `${Math.round(promptPair.height)}px`,
-        ["--pr-unit" as string]: `${promptUnit(pairFrame.height, finale != null)}px`,
+        ["--pr-unit" as string]: `${promptUnit(pairFrame.height)}px`,
       } as CSSProperties)
     : undefined;
 
-  // The pick bar (zone and card picks) is in that pair too, near its middle, and never over a target: the boxes of the
-  // legal zones and cards are measured when the targets change and again once the fields stand still (a FLIP or the
-  // finale glide moves them). The prompt reads `data-bar-room` as "x,y,width,height" in board pixels and follows it.
+  // The pick bar (zone and card picks) is near that middle too, and never over a target: the boxes of the
+  // legal zones and cards are measured when the targets change and again once the fields stand still (a FLIP moves them). The prompt reads `data-bar-room` as "x,y,width,height" in board pixels and follows it.
   const [targets, setTargets] = useState<readonly GridRect[]>([]);
   const [zones, setZones] = useState<readonly GridRect[]>([]);
   const [hudRects, setHudRects] = useState<readonly GridRect[]>([]);
@@ -648,6 +658,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     count: stripCount,
     box,
     anchor: stripAnchor,
+    fixed: promptPair,
     keyHud: KEY_HUD,
     controlsHud: STRIP_CONTROLS_HUD,
     softHud: STRIP_SOFT_HUD,
@@ -684,7 +695,6 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       data-camera-want={wantMode ?? camera.mode}
       data-camera-lock={locked ? "true" : undefined}
       data-fly="false"
-      data-upright={camera.upright ? "true" : "false"}
       data-stage-scale={((placed?.sizes.equal ?? 0) / SEAT_Z).toFixed(3)}
       data-ready={placed ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
@@ -697,7 +707,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
             ? ([0, 1] as const).map((column) => {
             const rect = frames[column];
             if (!rect) return null;
-            const members = finale && finale.bottom.column === column ? [finale.bottom.seat, finale.top.seat] : cells.filter((cell) => cell.column === column).map((cell) => cell.seat);
+            const members = cells.filter((cell) => cell.column === column).map((cell) => cell.seat);
             const turnSeat = engine.turnSeat != null && members.includes(engine.turnSeat) && !gone(engine.turnSeat) ? engine.turnSeat : null;
             const turnTone = turnSeat != null ? tones.get(turnSeat) : undefined;
             const faded = finale != null && finale.bottom.column !== column;
@@ -757,20 +767,22 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
             const out = state !== "live";
             const self = slot.relation === "self";
             const drawer = drawerSeats[cell.column];
-            // On a cross finale board each field draws its own Extra Monster row (the two seats share no zone).
-            const emz = finale?.kind === "cross" && inFinale(cell.seat) ? "own" : drawer === cell.seat ? "pair" : "none";
+            // One of the pair draws the shared Extra Monster row. On the face-off each of the two draws its own row: nothing is
+            // shared in the picture (the two stay two fields); the engine's link of a facing pair shows as a link light only.
+            const emz = inFinale(cell.seat) ? "own" : drawer === cell.seat ? "pair" : "none";
+            const linkedSeat = finale?.kind === "same" && inFinale(cell.seat) ? (finale.bottom.seat === cell.seat ? finale.top.seat : finale.bottom.seat) : null;
             const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
               engine,
               seat: cell.seat,
               viewerSeat,
               masterRule,
               side: cell.home ? "you" : "opp",
-              upright: camera.upright,
               tone: slot.tone,
               density: "full",
               hand: self ? "face" : "backs",
               emz,
-              pair: stablePair(cell.seat, {
+              ...(linkedSeat != null ? { emzLink: { other: linkedSeat, otherName: nameOf(linkedSeat) } } : {}),
+              pair: inFinale(cell.seat) ? undefined : stablePair(cell.seat, {
                 other: cell.partner,
                 left: PAIR_LEFT,
                 right: 0,
@@ -790,7 +802,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               onHoverCard: controller.onHoverCard,
             };
             const exitRow = exitState.exits.find((entry) => entry.seat === cell.seat);
-            // In the finale the seats that left are gone from the table; the last one out keeps its outline on the board.
+            // In the face-off the seats that left are gone from the table; the last one out keeps its outline on the board.
             const outline = out && (finale == null || inFinale(cell.seat)) ? placed.cells[cellIndex(cell)].own : null;
             return (
               <div
@@ -808,9 +820,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 {out ? null : (
                   <RivalField
                     pose={pose}
-                    angleOffsetDeg={(lateTurns?.get(cell.seat) ?? spot.turn) - spot.turn}
                     field={field}
                     render={renderSeatField}
+                    angleOffsetDeg={(lateTurns?.get(cell.seat) ?? spot.turn) - spot.turn}
                     placement={{
                       left: spot.rect.x,
                       top: spot.rect.y,
@@ -831,7 +843,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                     masterRule={masterRule}
                     faceUpHand={exitRow.faceUpHand}
                     reducedMotion={reducedMotion}
-                    clipTop={finale?.kind === "cross" && inFinale(cell.seat) ? 0 : OVERLAP * spot.z}
+                    clipTop={inFinale(cell.seat) ? 0 : OVERLAP * spot.z}
                     onDone={() => exitState.finish(cell.seat)}
                   />
                 ) : null}
@@ -867,9 +879,10 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 key={cell.seat}
                 className={styles.lp}
                 data-grid-lp={cell.seat}
-                {...{ [FOLLOW_ATTR]: "" }}
+                data-out={placeLabels?.has(cell.seat) === true ? "true" : undefined}
                 data-lp-side={inFinale(cell.seat) ? "left" : undefined}
                 data-gone={finale != null && !inFinale(cell.seat) ? "true" : undefined}
+                {...{ [FOLLOW_ATTR]: "" }}
                 style={lpStyle}
               >
                 <HoloLp
@@ -880,13 +893,16 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   handCount={view.hand.length}
                   deckCount={view.deckCount}
                   clockMs={room.clock?.remainingMs[cell.seat] ?? null}
+                  clock={room.clock}
                   status={holoStatus(engine, cell.seat, promptSeat)}
                   me={slot.relation === "self"}
                   x={0}
                   y={0}
-                  fit={lpFit(lp)}
+                  fit={lpFit(lp, placeLabels?.has(cell.seat) === true)}
                   beam="none"
                   master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
+                  masterInUse={masterInUse(view, engine.seats)}
+                  linkedWith={finale?.kind === "same" && inFinale(cell.seat) ? nameOf(cell.seat === finale.bottom.seat ? finale.top.seat : finale.bottom.seat) : null}
                   onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
                   lastDamage={lastSeatDamage(engine.events, cell.seat)}
                   legal={pickable}
@@ -918,7 +934,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       </div>
       <ViewReset zoomed={zoom.zoomed} scale={zoom.view.s} onReset={zoom.reset} board={rootRef} style={{ right: 10, top: 44 }} />
       {fx ? <div className={styles.slot} data-slot="fx">{fx}</div> : null}
-      {promptCenter ? <div className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-pair={promptPair ? promptColumn ?? undefined : undefined} data-prompt-dense={promptPair ? "true" : undefined} style={promptStyle}>{promptCenter}</div> : null}
+      {promptCenter ? <div ref={slotRef} className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined} data-prompt-pair={promptPair ? promptColumn ?? undefined : undefined} data-prompt-dense={promptPair ? "true" : undefined} style={promptStyle}>{promptCenter}</div> : null}
       {overlay ? <div className={styles.slot} data-slot="overlay">{overlay}</div> : null}
     </div>
   );

@@ -1,7 +1,10 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import type { DuelCardInfo } from "@yugidraft/shared/duels";
+import { Link2 } from "lucide-react";
+import type { DuelCardInfo, DuelClock } from "@yugidraft/shared/duels";
+import { clockSeconds, isLowClock } from "../clock-beep";
+import { useLiveClockMs } from "../use-live-clock";
 import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
 import { hexToRgbTriplet } from "./seat-angle";
@@ -19,6 +22,8 @@ export interface HoloLpProps {
   deckCount: number;
   /** Clock left of this seat in ms, or null when the duel has no clock. */
   clockMs: number | null;
+  /** The duel clock. With it the panel shows this seat's live time (ticking while the seat answers); without it, `clockMs` as given. */
+  clock?: DuelClock | null;
   status: SeatStatus;
   /** True for the viewer's own panel: a little larger, no projector beam. */
   me: boolean;
@@ -50,11 +55,15 @@ export interface HoloLpProps {
   /** A rival's Deck Master: a small art thumb at the top right of the panel. A click inspects it. */
   master?: DuelCardInfo | null;
   onInspectMaster?: (card: DuelCardInfo) => void;
-  /** The seat just left the duel: the LP is struck out, a chip says its place ("Eliminated, 3rd"), and the panel fades away. */
-  exiting?: boolean;
+  /** The rival's master is out of its zone: the thumb is an empty "in use" slot until the card returns (master-place.ts). */
+  masterInUse?: boolean;
   /** The seat is out but its board still waits for the battle to end (crumble-gate.ts): the plate keeps its LP and hides the elimination marks. */
   held?: boolean;
+  /** The seat just left the duel and its panel is on its way out (use-seat-exits.ts): the state line is hidden, a place chip shows. */
+  exiting?: boolean;
   placeLabel?: string | null;
+  /** The name of the facing seat this one shares its Extra Monster Zones and columns with (a plaza pair): a small link glyph with a tooltip. */
+  linkedWith?: string | null;
   /** The seats regroup after an elimination: the panel waits, then glides to its new corner. */
   glide?: boolean;
   /** Hangs under the panel (your Deck Master chip). It sits outside the panel body, so it never changes the panel's own box. */
@@ -77,7 +86,7 @@ const STATE_LABEL: Partial<Record<SeatStatus, string>> = {
 
 export function formatClock(ms: number | null): string | null {
   if (ms == null || !Number.isFinite(ms)) return null;
-  const total = Math.max(0, Math.round(ms / 1000));
+  const total = clockSeconds(ms);
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
@@ -112,6 +121,7 @@ export function HoloLp({
   handCount,
   deckCount,
   clockMs,
+  clock: duelClock = null,
   status,
   me,
   x,
@@ -126,10 +136,12 @@ export function HoloLp({
   fit,
   master = null,
   onInspectMaster,
+  masterInUse = false,
   lastDamage = null,
   exiting = false,
   held = false,
   placeLabel = null,
+  linkedWith = null,
   glide = false,
   footer = null,
   footerTight = false,
@@ -140,7 +152,10 @@ export function HoloLp({
   const stateLabel = STATE_LABEL[status];
   const turn = status === "turn";
   const out = status === "eliminated";
-  const clock = formatClock(clockMs);
+  const liveMs = useLiveClockMs(duelClock, seat);
+  const shownMs = duelClock ? liveMs : clockMs;
+  const clock = formatClock(shownMs);
+  const lowClock = shownMs != null && isLowClock(shownMs);
   const follows = follow && !floating && fit == null;
   const style: CSSProperties & Record<string, string | number> = {
     "--t": hexToRgbTriplet(hex.main),
@@ -156,6 +171,11 @@ export function HoloLp({
       <div className={styles.top} data-holo-text="true">
         <i aria-hidden="true" />
         <b>{me ? `${name} (you)` : name}</b>
+        {linkedWith ? (
+          <span className={styles.linked} title={`Shares Extra Monster Zones and columns with ${linkedWith}`} aria-label={`Shares Extra Monster Zones and columns with ${linkedWith}`} role="img" data-pair-badge="">
+            <Link2 size={12} strokeWidth={2.2} aria-hidden="true" />
+          </span>
+        ) : null}
         {turn ? <span className={styles.turnChip}>Turn</span> : null}
       </div>
       <div className={styles.main} data-lp-seat={seat} data-holo-text="true">
@@ -176,7 +196,7 @@ export function HoloLp({
           <DeckIcon />
           {deckCount}
         </span>
-        {clock ? <span className={styles.clock}>{clock}</span> : null}
+        {clock ? <span className={styles.clock} data-low={lowClock ? "true" : undefined}>{clock}</span> : null}
       </div>
       {stateLabel && !exiting ? <div className={styles.state}>{out && placeLabel ? `Eliminated, ${placeLabel}` : stateLabel}</div> : null}
       {status === "choosing" ? <div className={styles.think}>choosing...</div> : null}
@@ -227,11 +247,14 @@ export function HoloLp({
           type="button"
           className={styles.master}
           data-master-thumb={seat}
-          aria-label={`${name}'s Master: ${master.name}`}
-          title={`${name}'s Master: ${master.name}`}
+          data-master-dock={seat}
+          data-master-source={seat}
+          data-in-use={masterInUse ? "true" : undefined}
+          aria-label={`${name}'s Master: ${master.name}${masterInUse ? " (in use)" : ""}`}
+          title={`${name}'s Master: ${master.name}${masterInUse ? " (in use)" : ""}`}
           onClick={() => onInspectMaster?.(master)}
         >
-          <img src={cardArtUrl(master.code, "small")} alt="" draggable={false} />
+          {masterInUse ? null : <img src={cardArtUrl(master.code, "small")} alt="" draggable={false} />}
         </button>
       ) : null}
       {exiting ? <span className={styles.exitChip} data-exit-chip>{placeLabel ? `Eliminated, ${placeLabel}` : "Eliminated"}</span> : null}

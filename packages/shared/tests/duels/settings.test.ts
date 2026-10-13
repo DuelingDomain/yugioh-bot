@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   defaultDuelSettings,
+  DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT,
+  DOMAIN_FFA_FIRST_TURN_DRAW_SETTING,
   DUEL_FORMATS,
   duelClockBankMs,
   duelClockRulesText,
@@ -17,6 +19,7 @@ import {
   sharedExtraSeatOf,
   seatsOfTeam,
   startingLpFor,
+  supportsFirstTurnDrawSetting,
   teamCountFor,
   teamOfSeat,
 } from "../../src/duels/settings.js";
@@ -41,6 +44,47 @@ describe("normalizeDuelSettings", () => {
   it("pins the current TCG list for new standard games", () => {
     expect(normalizeDuelSettings("normal", undefined).banlist).toBe(PINNED_TCG_BANLIST_ID);
     expect(defaultDuelSettings("normal").turnSeconds).toBe(240);
+  });
+});
+
+describe("Domain FFA first-turn draw setting", () => {
+  it("exports the setting key for the UI", () => {
+    expect(DOMAIN_FFA_FIRST_TURN_DRAW_SETTING).toBe("firstTurnDraw");
+  });
+
+  it.each(["ffa3", "ffa4"] as const)("%s defaults on and stores either boolean", (format) => {
+    expect(DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT).toBe(true);
+    expect(supportsFirstTurnDrawSetting("domain", format)).toBe(true);
+    expect(defaultDuelSettings("domain", format).firstTurnDraw).toBe(true);
+    expect(normalizeDuelSettings("domain", undefined, format).firstTurnDraw).toBe(true);
+    expect(normalizeDuelSettings("domain", {}, format).firstTurnDraw).toBe(true);
+    for (const firstTurnDraw of [false, true]) {
+      const settings = normalizeDuelSettings("domain", { firstTurnDraw }, format);
+      expect(settings.firstTurnDraw).toBe(firstTurnDraw);
+      expect(parseStoredDuelSettings(JSON.stringify(settings)).firstTurnDraw).toBe(firstTurnDraw);
+      expect(isCustomDomain(5, settings)).toBe(!firstTurnDraw);
+    }
+    for (const firstTurnDraw of ["false", 0, null]) {
+      expect(() => normalizeDuelSettings("domain", { firstTurnDraw }, format)).toThrow(/firstTurnDraw must be a boolean/);
+    }
+  });
+
+  it.each([
+    ["domain", "1v1"], ["domain", "tag"],
+    ["normal", "1v1"], ["normal", "tag"], ["normal", "ffa3"], ["normal", "ffa4"],
+  ] as const)("%s %s has no setting and rejects an override", (mode, format) => {
+    expect(supportsFirstTurnDrawSetting(mode, format)).toBe(false);
+    expect(defaultDuelSettings(mode, format)).not.toHaveProperty("firstTurnDraw");
+    expect(normalizeDuelSettings(mode, {}, format)).not.toHaveProperty("firstTurnDraw");
+    for (const firstTurnDraw of [false, true]) {
+      expect(() => normalizeDuelSettings(mode, { firstTurnDraw }, format)).toThrow(/only available for Domain ffa3 and ffa4/);
+    }
+  });
+
+  it("leaves the rule unspecified on old records", () => {
+    expect(parseStoredDuelSettings(null)).not.toHaveProperty("firstTurnDraw");
+    expect(parseStoredDuelSettings(JSON.stringify({ startingHand: 5 }))).not.toHaveProperty("firstTurnDraw");
+    expect(() => parseStoredDuelSettings(JSON.stringify({ firstTurnDraw: "no" }))).toThrow(/corrupt/);
   });
 });
 
@@ -159,7 +203,8 @@ describe("sharedExtraSeatOf", () => {
     expect([0, 1, 2, 3].map((seat) => sharedExtraSeatOf(format, seat, new Set([2])))).toEqual([1, 0, null, null]);
   });
   it("keeps other formats separate and rejects invalid seats", () => {
-    for (const format of ["1v1", "ffa3"] as const) expect(sharedExtraSeatOf(format, 0)).toBeNull();
+    expect(sharedExtraSeatOf("1v1", 0)).toBeNull();
+    expect([0, 1, 2].map(seat => sharedExtraSeatOf("ffa3", seat))).toEqual([1, 0, null]);
     for (const seat of [-1, 4, 1.5]) expect(sharedExtraSeatOf("tag", seat)).toBeNull();
   });
 });

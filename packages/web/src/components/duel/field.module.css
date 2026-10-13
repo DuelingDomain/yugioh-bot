@@ -851,6 +851,69 @@
   cursor: not-allowed;
 }
 
+/* A shared Extra Monster Zone seen from one of its two seats (plaza): both seats of the pair give it the same soft violet tint
+   (no motion), so it reads as one linked row. A card of the facing seat in it shows as a calm ghost with a small link glyph;
+   nothing there can be targeted from this side. */
+.zone[data-link] .frame {
+  box-shadow: inset 0 0 14px -4px rgb(155 126 255 / 0.4), 0 0 0 1px rgb(155 126 255 / 0.26);
+  transition:
+    box-shadow 0.18s ease-out,
+    border-color 0.18s ease-out,
+    opacity 0.18s ease-out,
+    transform 0.18s var(--ease);
+}
+
+.zone[data-link="taken"] .frame {
+  filter: saturate(0.5);
+  opacity: 0.55;
+  box-shadow: inset 0 0 12px -4px rgb(155 126 255 / 0.3), 0 0 0 1px rgb(155 126 255 / 0.2);
+}
+
+.zone[data-link="taken"] .zoneHit {
+  cursor: help;
+}
+
+.zoneLink {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 4;
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(10 12 26 / 0.7);
+  color: rgb(190 170 255 / 0.9);
+  pointer-events: none;
+}
+
+/* Hover or keyboard focus on either cell of a linked Extra Monster Zone lights BOTH cells the same way (one violet light, same
+   strength): the zone you point at and its mirror on the partner's field. The two cells carry one data-link-id (see linkIdOf in
+   field.tsx), and the rule sits on the table stage, so it reaches the partner's field in another DOM subtree. A pair of seats is
+   always 0+1 or 2+3; the id names the pair and which of the two zones, so the four ids below are all there are. Only :hover and
+   :focus-visible count: a click leaves no light behind. */
+:global([data-table-stage]):has([data-link-id="0-1-5"]:hover, [data-link-id="0-1-5"] :focus-visible) [data-link-id="0-1-5"] .frame,
+:global([data-table-stage]):has([data-link-id="0-1-6"]:hover, [data-link-id="0-1-6"] :focus-visible) [data-link-id="0-1-6"] .frame,
+:global([data-table-stage]):has([data-link-id="2-3-5"]:hover, [data-link-id="2-3-5"] :focus-visible) [data-link-id="2-3-5"] .frame,
+:global([data-table-stage]):has([data-link-id="2-3-6"]:hover, [data-link-id="2-3-6"] :focus-visible) [data-link-id="2-3-6"] .frame {
+  border-color: rgb(190 170 255 / 0.7);
+  box-shadow: inset 0 0 18px -2px rgb(168 144 255 / 0.75), 0 0 0 1px rgb(190 170 255 / 0.7), 0 0 14px -2px rgb(155 126 255 / 0.6);
+  opacity: 1;
+  filter: none;
+}
+
+:global([data-table-stage]):has([data-link-id="0-1-5"]:hover, [data-link-id="0-1-5"] :focus-visible) [data-link-id="0-1-5"] .zoneName,
+:global([data-table-stage]):has([data-link-id="0-1-6"]:hover, [data-link-id="0-1-6"] :focus-visible) [data-link-id="0-1-6"] .zoneName,
+:global([data-table-stage]):has([data-link-id="2-3-5"]:hover, [data-link-id="2-3-5"] :focus-visible) [data-link-id="2-3-5"] .zoneName,
+:global([data-table-stage]):has([data-link-id="2-3-6"]:hover, [data-link-id="2-3-6"] :focus-visible) [data-link-id="2-3-6"] .zoneName {
+  color: rgb(214 200 255);
+}
+
+:global([data-reduced="true"]) .zone[data-link] .frame {
+  transition: none;
+}
+
 .zone:hover,
 .zone:has(:focus-visible) {
   z-index: 6;
@@ -921,6 +984,11 @@
     border-color 0.3s,
     background-color 0.2s,
     transform 0.18s var(--ease);
+}
+
+/* A card flying to this zone hides what shows the card, also what React adds meanwhile; the outline and the zone label stay. */
+.frame[data-card-hidden] > :not([data-zone-label]) {
+  visibility: hidden;
 }
 
 .zone[data-kind="emz"] .frame {
@@ -1430,6 +1498,10 @@
     opacity: 1;
     animation: none;
   }
+
+  .zone[data-link] .frame {
+    transition: none;
+  }
 }
 
 .mark {
@@ -1638,6 +1710,29 @@
   border: 1px dashed var(--sheet-hi);
   border-radius: calc(5 * var(--k));
   pointer-events: none;
+}
+
+/* Multi-seat tables: the zone is an empty well while the master is out of it. A solid soft slot, no dashed cut-out. */
+.masterArt[data-in-use="true"] {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, rgb(27 39 64 / 0.5), rgb(10 14 24 / 0.65));
+  box-shadow: inset 0 0 0 1px var(--sheet-hi), inset 0 2px 10px rgb(0 0 0 / 0.5);
+}
+
+.masterInUse {
+  color: var(--ink-3, var(--ink));
+  font-size: calc(11 * var(--k));
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.masterSummon {
+  margin: 0;
+  color: var(--ink-2, var(--ink));
+  font-size: calc(12 * var(--k));
+  font-weight: 600;
 }
 
 .masterDock[data-selected="true"] .mark {
@@ -2003,7 +2098,7 @@
 /* ---------- seat field: one seat of a 3 or 4 seat table ----------
    A standalone board of 5.83 x 3.39 zone sizes. --z comes from --sf-z (default 112px, the 3-way prototype size);
    everything else is a multiple of --z, so the table stage scales and turns the whole box. --t is the seat tone
-   (an rgb triplet) and --lab the turn of labels (the counter-rotation, so text reads level at any seat angle). */
+   (an rgb triplet). Cards, labels and stats all turn with the field, so everything faces the seat that owns it. */
 
 .seatField {
   --z: var(--sf-z, 112px);
@@ -2015,7 +2110,6 @@
   --pile-col: var(--cw);
   --pad: calc(var(--z) * 0.125);
   --ts: var(--sf-ts, 1);
-  --lab: 0deg;
   /* On-screen text floors, in this field's own px: 12px for labels and 14px for names and counts, times the Text size
      setting (--tt). --sk is the whole scale from the field's px to the screen (stage fit times pose scale; 1 in the grid).
      The floor fades out below 0.5 (--fk) and is capped by the zone size: a docked or overview field is a thumbnail, and floored
@@ -2082,6 +2176,27 @@
   border: 1px solid var(--sheet-lo);
   border-radius: 3px;
   pointer-events: none;
+}
+
+/* The band the 4-way grid cuts away or hands to the facing field's shared Extra Monster Zones: the cracks keep out of it.
+   It is only a measuring box. */
+.sfCrackAvoid {
+  display: none;
+}
+
+.seatField[data-emz="none"] .sfCrackAvoid {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: block;
+  height: calc(var(--z) * 1.196 + 6px);
+  pointer-events: none;
+}
+
+/* The Rooftop keeps that row as mat. */
+:global([data-roof-world]) .seatField[data-emz="none"] .sfCrackAvoid {
+  display: none;
 }
 
 .sfRule {
@@ -2347,17 +2462,6 @@
   inset: calc((var(--z) - var(--cw)) / 2 - 1px) calc((var(--z) - var(--cw)) / -2 - 1px);
 }
 
-/* Labels, stats, counters and marks turn against the field so they read level (--lab). */
-.seatField .pileLabel,
-.seatField .plate,
-.seatField .overlayBadge,
-.seatField .mark,
-.seatField .zoneName,
-.seatField .pendulumMark,
-.seatField .openChip {
-  rotate: var(--lab);
-}
-
 .seatField .plate {
   font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
 }
@@ -2367,7 +2471,7 @@
   font-size: min(max(calc(var(--z) * 0.116 * var(--ts)), var(--fl)), calc(var(--cardw) * 0.2));
 }
 
-/* At a big text size the hand card is too narrow for "1400 / 1200" at the text floor: the plate shows ATK only, like a quarter-turned field. */
+/* At a big text size the hand card is too narrow for "1400 / 1200" at the text floor: the plate shows ATK only. */
 [data-text-big="true"] .seatField .handCard .plate {
   font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
 }
@@ -2375,27 +2479,6 @@
 [data-text-big="true"] .seatField .handCard .plate .plateSep,
 [data-text-big="true"] .seatField .handCard .plate .plateDef {
   display: none;
-}
-
-/* A field turned a quarter: the level plate has only a card's width to sit in, so it shows one stat (ATK, or DEF in defense) and sizes to it. */
-.seatField[data-quarter="true"] .plate {
-  right: auto;
-  left: 50%;
-  width: max-content;
-  translate: -50% 0;
-}
-
-.seatField[data-quarter="true"] .plate .plateSep,
-.seatField[data-quarter="true"] .plate .plateDef {
-  display: none;
-}
-
-.seatField[data-quarter="true"] .zone[data-defense="true"] .plate b {
-  display: none;
-}
-
-.seatField[data-quarter="true"] .zone[data-defense="true"] .plate .plateDef {
-  display: inline;
 }
 
 /* A docked rival is a thumbnail at about a third of its size: its pile counts would be 4px text lying over the next pile. */
@@ -2421,7 +2504,6 @@
     0 0 8px rgb(0 0 0 / 0.85);
   text-transform: uppercase;
   translate: -50% 100%;
-  rotate: var(--lab);
   white-space: nowrap;
   /* A long name stops at the board's width instead of running off the table area. */
   max-width: 10em;
@@ -2487,7 +2569,6 @@
   pointer-events: none;
   text-transform: uppercase;
   translate: -50% -50%;
-  rotate: var(--lab);
 }
 
 /* The viewer's hand sits right below the board and turns with it. */

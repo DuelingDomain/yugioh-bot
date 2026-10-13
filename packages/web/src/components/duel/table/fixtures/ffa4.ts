@@ -1,6 +1,6 @@
 import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { ev, MZ, SZ } from "../../fx-lab/board";
-import { LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
+import { LOCATION_DMZONE, LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
 import {
   fixtureEngine,
   fixtureLog,
@@ -309,9 +309,9 @@ function fillDefense(seats: DuelSeatView[]): void {
   }
 }
 
-export type Ffa4PreviewPick = "field" | "hand" | "emz" | "zone" | "yesno" | "option" | "cards" | "search" | "search2" | "position" | "number";
+export type Ffa4PreviewPick = "field" | "hand" | "emz" | "zone" | "yesno" | "option" | "cards" | "search" | "search2" | "position" | "number" | "dm";
 
-export const FFA4_PREVIEW_PICKS: readonly Ffa4PreviewPick[] = ["field", "hand", "emz", "zone", "yesno", "option", "cards", "search", "search2", "position", "number"];
+export const FFA4_PREVIEW_PICKS: readonly Ffa4PreviewPick[] = ["field", "hand", "emz", "zone", "yesno", "option", "cards", "search", "search2", "position", "number", "dm"];
 
 /**
  * The prompt of a preview pick that is not a pick among your own cards: a zone of your field (`zone`), the "Activate its
@@ -347,6 +347,19 @@ function previewPrompt(pick: Ffa4PreviewPick, own: DuelSeatView): DuelPrompt | n
         id: "pick-position", seat: ASTER, kind: "choice", title: `Choose a position for ${C.blueEyes.name}`, context: { type: "position" }, source,
         options: [{ id: `pos:${POS_FACEUP_ATTACK}`, label: "Face-up Attack" }, { id: `pos:${POS_FACEUP_DEFENSE}`, label: "Face-up Defense" }],
       };
+    case "dm": {
+      // The idle command of your Deck Master in its zone: a Summon, a Set and a long Activate (a Pendulum master).
+      const at = { controller: ASTER, location: LOCATION_DMZONE, sequence: 0 };
+      return {
+        id: "pick-dm", seat: ASTER, kind: "choice", title: "Main Phase", context: { type: "action", phase: "main" },
+        options: [
+          { id: "summon:0", label: `Normal Summon ${C.darkMagicianGirl.name}`, ...at },
+          { id: "mset:0", label: `Set monster ${C.darkMagicianGirl.name}`, ...at },
+          { id: "activate:0", label: `Activate ${C.darkMagicianGirl.name}: Place this card in your Pendulum Zone`, ...at },
+          { id: "activate:1", label: `Activate ${C.darkMagicianGirl.name}: Special Summon 1 monster from your hand or Graveyard`, ...at },
+        ],
+      };
+    }
     case "number":
       return { id: "pick-number", seat: ASTER, kind: "number", title: "Declare a Level", source, options: [1, 2, 3, 4, 5, 6].map((level) => ({ id: `n${level}`, label: String(level), values: [level] })) };
     default:
@@ -376,6 +389,7 @@ export function ffa4Variant(set: TableFixtureSet, opts: { out: readonly number[]
           own.monsters = [...own.monsters];
           putMonster(own, 5, C.stardust);
         }
+        if (opts.pick === "dm" && own.deckMaster) own.deckMaster = { ...own.deckMaster, card: C.darkMagicianGirl, inZone: true, returns: 1, nextCost: 500 };
         const other = previewPrompt(opts.pick, own);
         const options: DuelPromptOption[] = other ? [] : opts.pick === "hand"
           ? own.hand.map((card, sequence) => ({ id: `h${sequence}`, label: card.name ?? "Card", controller: ASTER, location: LOCATION_HAND, sequence }))

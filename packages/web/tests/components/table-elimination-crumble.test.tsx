@@ -18,7 +18,7 @@ import { clearLpMotion, noteLpMotion } from "@/components/duel/lp-motion";
 import { CRUMBLE_GATE_CAP_MS, CRUMBLE_GATE_TICK_MS } from "@/components/duel/table/crumble-gate";
 import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "@/components/duel/table/rival-field";
 import { OUT_HOLD_MS } from "@/components/duel/table/grid-layout";
-import { FINALE_BEAT_MS } from "@/components/duel/table/grid-finale";
+import { FINALE_BEAT_MS } from "@/components/duel/table/final-duel-caption";
 import { GLIDE_MS } from "@/components/duel/table/use-seat-exits";
 
 // Each test renders a full table; most take 0.5 to 1.5 s locally and CI runs several times slower than the 5 s default allows.
@@ -506,7 +506,6 @@ describe("the crumble waits for the attack, the damage and the LP roll that put 
     expect(container.querySelector("[data-seat-slot='1']")?.hasAttribute("data-glide")).toBe(false);
   });
 
-  const finaleOf = (container: HTMLElement) => container.querySelector("[data-grid-stage]")?.getAttribute("data-grid-finale") ?? null;
   const BEAT_AND_CRUMBLE = EXIT_CRUMBLE_MS + FINALE_BEAT_MS;
   // Time to the release of the held crumble, in gate ticks.
   const untilReleased = (container: HTMLElement, seat: number) => {
@@ -518,7 +517,9 @@ describe("the crumble waits for the attack, the damage and the LP roll that put 
     return waited;
   };
 
-  it("shows the 4-way finale board only a crumble and a beat after the crumble started, not after the elimination", () => {
+  const finaleOf = (container: HTMLElement) => container.querySelector("[data-grid-stage]")?.getAttribute("data-grid-finale") ?? null;
+
+  it("shows the 4-way face-off only a crumble and a beat after the crumble started, not after the elimination", () => {
     const main = FFA4_FIXTURES.states.main;
     const { container, rerender } = render(<Shell state={main} />);
     rerender(<Shell state={withOut(main, [3])} />);
@@ -526,7 +527,7 @@ describe("the crumble waits for the attack, the damage and the LP roll that put 
     expect(crumbles(container)).toBe(0);
     battleRunning = true;
     rerender(<Shell state={withOut(main, [3, 2])} />);
-    // The battle outlasts the crumble and the beat, and the board still waits.
+    // The battle outlasts the crumble and the beat, and the face-off still waits.
     settle(BEAT_AND_CRUMBLE + 1000);
     expect(heldOf(container, 2)).toBe(true);
     expect(finaleOf(container)).toBeNull();
@@ -536,10 +537,10 @@ describe("the crumble waits for the attack, the damage and the LP roll that put 
     settle(BEAT_AND_CRUMBLE - CRUMBLE_GATE_TICK_MS);
     expect(finaleOf(container)).toBeNull();
     settle(CRUMBLE_GATE_TICK_MS * 2);
-    expect(finaleOf(container)).not.toBeNull();
+    expect(finaleOf(container)).toBe("same");
   });
 
-  it("holds the finale for two seats that go out together until both crumbles have started", () => {
+  it("holds the face-off for two seats that go out together until both crumbles have started", () => {
     const main = FFA4_FIXTURES.states.main;
     const { container, rerender } = render(<Shell state={main} />);
     battleRunning = true;
@@ -551,12 +552,12 @@ describe("the crumble waits for the attack, the damage and the LP roll that put 
     expect(finaleOf(container)).toBeNull();
     battleRunning = false;
     untilReleased(container, 2);
-    // They crumble together: the board is not held for one of them.
+    // They crumble together: the face-off is not held for one of them.
     expect(heldOf(container, 3)).toBe(false);
     settle(BEAT_AND_CRUMBLE - CRUMBLE_GATE_TICK_MS);
     expect(finaleOf(container)).toBeNull();
     settle(CRUMBLE_GATE_TICK_MS * 2);
-    expect(finaleOf(container)).not.toBeNull();
+    expect(finaleOf(container)).toBe("same");
   });
 
   it("does not wait for the board under reduced motion, only for the short pause, however long the battle", () => {

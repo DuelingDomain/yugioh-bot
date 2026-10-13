@@ -37,6 +37,9 @@ export {
   DUEL_CLOCK_REGAIN_MIN_MS,
   DUEL_OPENING_GRACE_MS,
   defaultDuelSettings,
+  DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT,
+  DOMAIN_FFA_FIRST_TURN_DRAW_SETTING,
+  supportsFirstTurnDrawSetting,
   duelClockBankMs,
   duelClockRegainMs,
   duelClockRulesText,
@@ -342,7 +345,7 @@ export interface DuelSeatView {
   /** Team of this seat (`teamOfSeat(format, seat)`). Absent in 1v1 views made before multi-player formats. */
   team?: number;
   /**
-   * Living facing seat sharing these Extra Monster Zones in FFA4 and Tag (0/1, 2/3). Null in other formats or
+   * Living facing seat sharing these Extra Monster Zones: FFA3 (0/1), FFA4 and Tag (0/1, 2/3). Null for unpaired seats or
    * when either seat is eliminated. Sequences 5/6 mirror to 6/5. Absent in older views.
    */
   sharedExtraWith?: number | null;
