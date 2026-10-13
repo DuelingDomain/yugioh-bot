@@ -1,15 +1,18 @@
 import Database from "better-sqlite3";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createSavedDeckService } from "@yugidraft/shared/services";
-const mocks = vi.hoisted(() => ({ getDb: vi.fn(), savedActor: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getDb: vi.fn(), savedActor: vi.fn(), useEngineDatabase: false }));
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb: mocks.getDb }));
 vi.mock("@/lib/draft-decks", () => ({ backfillDraftDecks: vi.fn() }));
 vi.mock("@yugidraft/shared/services", async original => {
   const actual = await original<typeof import("@yugidraft/shared/services")>();
-  return { ...actual, loadArtworkIdentityCatalog: () => new Map(),
-    createDeckTypeLookup: (db: Database.Database, engine = new Map()) => actual.createDeckTypeLookup(db, engine),
+  return { ...actual, loadArtworkIdentityCatalog: (directory?: string) => mocks.useEngineDatabase ? actual.loadArtworkIdentityCatalog(directory) : new Map(),
+    createDeckTypeLookup: (db: Database.Database, engine?: import("@yugidraft/shared/duels").CardIdentityCatalog) => actual.createDeckTypeLookup(db, engine ?? (mocks.useEngineDatabase ? undefined : new Map())),
     createCardCatalogService: (db: Database.Database) => actual.createCardCatalogService(db, { identityCatalog: new Map() }),
   };
 });
@@ -22,9 +25,10 @@ import { POST as IMPORT } from "../../app/api/decks/import/route";
 import { checkSavedDeckMaster } from "../../src/lib/saved-decks";
 let db: Database.Database;
 let decks: ReturnType<typeof createSavedDeckService>;
+let fixtureDirectory: string | undefined;
 const request = (body: unknown) => new Request("http://test/api/decks", { method: "POST", body: JSON.stringify(body) });
 beforeEach(() => {
-  vi.resetAllMocks(); db = new Database(":memory:"); migrate(db);
+  vi.resetAllMocks(); mocks.useEngineDatabase = false; db = new Database(":memory:"); migrate(db);
   for (const [id, type] of [[901, "Spell Card"], [902, "Trap Card"], [903, "Fusion Monster"], [904, "Pendulum Effect Monster"]] as const) {
     db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,'test','','','[]','test')").run(id, `Test ${type}`, type);
   }
@@ -32,8 +36,64 @@ beforeEach(() => {
   mocks.getDb.mockReturnValue(db);
   mocks.savedActor.mockResolvedValue({ ok: true, guildId: "test-g", ownerUserId: "test-owner", decks });
 });
-afterEach(() => db.close());
+afterEach(() => {
+  db.close(); vi.unstubAllEnvs();
+  if (fixtureDirectory) rmSync(fixtureDirectory, { recursive: true, force: true });
+  fixtureDirectory = undefined;
+});
+
+async function useEngineFixture() {
+  fixtureDirectory = mkdtempSync(join(tmpdir(), "web-extra-lookup-"));
+  const data = join(fixtureDirectory, "data");
+  const engineDirectory = join(data, "duel-engine");
+  mkdirSync(engineDirectory, { recursive: true });
+  const engine = new Database(join(engineDirectory, "cards.cdb"));
+  engine.exec("create table datas(id integer primary key, alias integer, type integer); create table texts(id integer primary key, name text);");
+  for (const [id, alias, type, name] of [
+    [12381100, 0, 97, "Dragon Master Magia"], [43321985, 0, 8225, "Ancient Fairy Life Dragon"],
+    [1546123, 0, 97, "Cyber End Dragon"], [1546124, 1546123, 97, "Cyber End Dragon"],
+    [100459004, 0, 97, "Blue-Eyes Ultimate Dragon, the God-Surpassing Servant"],
+    [55144522, 0, 2, "Pot of Greed"],
+  ] as const) {
+    engine.prepare("insert into datas values (?,?,?)").run(id, alias, type);
+    engine.prepare("insert into texts values (?,?)").run(id, name);
+  }
+  engine.close();
+  const path = join(data, "bot.sqlite");
+  await db.backup(path); db.close(); db = new Database(path);
+  vi.stubEnv("DUEL_DATA_DIR", undefined);
+  vi.stubEnv("DATABASE_PATH", path);
+  mocks.useEngineDatabase = true;
+  decks = createSavedDeckService(db);
+  mocks.getDb.mockReturnValue(db);
+  mocks.savedActor.mockResolvedValue({ ok: true, guildId: "test-g", ownerUserId: "test-owner", decks });
+}
 describe("deck APIs reject invalid Extra cards independently of the client", () => {
+  it("saves the owner's Domain deck after adding Ancient Fairy Life Dragon beside uncached Magia", async () => {
+    await useEngineFixture();
+    const body = { name: "Owner deck", mode: "domain", deck: { main: [], extra: [12381100], side: [] } };
+    const created = await POST(request(body));
+    expect(created.status).toBe(201);
+    const { deck: saved } = await created.json();
+    const updated = await PUT(request({ ...body, deck: { ...body.deck, extra: [12381100, 43321985] } }), { params: Promise.resolve({ id: String(saved.id) }) });
+    expect(updated.status).toBe(200);
+    expect((await updated.json()).deck.deck.extra).toEqual([12381100, 43321985]);
+    expect(db.prepare("select name from card_catalog where ygoprodeck_id=12381100").get()).toBeUndefined();
+  });
+  it.each([1546124, 100459004])("saves and imports uncached engine artwork/pre-release card %s", async code => {
+    await useEngineFixture();
+    const created = await POST(request({ name: "Engine deck", mode: "normal", deck: { main: [], extra: [code], side: [] } }));
+    expect(created.status).toBe(201);
+    const imported = await IMPORT(request({ mode: "normal", text: `#extra\n${code}` }));
+    expect(imported.status).toBe(200);
+    expect((await imported.json()).deck.extra).toEqual([code]);
+  });
+  it("names an uncached engine Spell in the save error", async () => {
+    await useEngineFixture();
+    const response = await POST(request({ name: "Invalid", mode: "normal", deck: { main: [], extra: [55144522], side: [] } }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Move Pot of Greed") });
+  });
   it.each(["get", "list"])("exposes the repair notice on the saved-deck object returned by %s", async read => {
     const original = { main: Array(60).fill(901), extra: [901, 903], side: [] };
     const id = Number(db.prepare("insert into saved_decks(guild_id,owner_user_id,name,mode,deck_json) values ('test-g','test-owner','Test legacy','normal',?)").run(JSON.stringify(original)).lastInsertRowid);

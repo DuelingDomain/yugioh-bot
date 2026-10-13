@@ -18,6 +18,13 @@ export function isExtraDeckCard(card: DeckCardType | null | undefined): boolean 
     && /\b(fusion|synchro|xyz|link)\b/i.test(type);
 }
 
+/** Missing type data must not be treated as a Main Deck type. */
+export function hasKnownDeckCardType(card: DeckCardType | undefined): boolean {
+  const type = card?.type;
+  return typeof type === "number" ? Number.isInteger(type) && (type & (0x1 | 0x2 | 0x4 | 0x8000000)) !== 0
+    : typeof type === "string" && /\b(monster|spell|trap|token|skill)\b/i.test(type);
+}
+
 export const INVALID_EXTRA_DECK_CARD = "INVALID_EXTRA_DECK_CARD";
 export class ExtraDeckCardError extends Error {
   readonly status = 400;
@@ -31,7 +38,7 @@ export class ExtraDeckCardError extends Error {
 export function assertExtraDeckCards(deck: Pick<DuelDeck, "extra">, find: (code: number) => DeckCardType | undefined): void {
   for (const code of deck.extra) {
     const card = find(code);
-    if (!isExtraDeckCard(card)) throw new ExtraDeckCardError(card?.name ?? `card ${code}`);
+    if (!isExtraDeckCard(card)) throw new ExtraDeckCardError(card?.name?.trim() || `card ${code}`);
   }
 }
 
@@ -47,15 +54,22 @@ export function routeDeckSections(deck: DuelDeck, find: (code: number) => DeckCa
   deck: DuelDeck; moves: DeckSectionMove[]; messages: string[];
 } {
   const moves: DeckSectionMove[] = [];
+  const unknownMessages = new Set<string>();
   const main: number[] = [];
   const extra: number[] = [];
   for (const from of ["main", "extra"] as const) {
     for (const code of deck[from]) {
       const card = find(code);
-      const to = isExtraDeckCard(card) ? "extra" : "main";
+      const known = hasKnownDeckCardType(card);
+      const to = known ? (isExtraDeckCard(card) ? "extra" : "main") : from;
+      if (!known) unknownMessages.add(`Card type is unknown for ${card?.name?.trim() || `card ${code}`}. The card stays in its ${from === "extra" ? "Extra" : "Main"} Deck section.`);
       (to === "extra" ? extra : main).push(code);
-      if (from !== to) moves.push({ code, name: card?.name ?? `card ${code}`, from, to });
+      if (from !== to) moves.push({ code, name: card?.name?.trim() || `card ${code}`, from, to });
     }
+  }
+  for (const code of deck.side) {
+    const card = find(code);
+    if (!hasKnownDeckCardType(card)) unknownMessages.add(`Card type is unknown for ${card?.name?.trim() || `card ${code}`}. The card stays in its Side Deck section.`);
   }
   const messages = (["extra", "main"] as const).flatMap(from => {
     const moved = moves.filter(move => move.from === from);
@@ -64,5 +78,6 @@ export function routeDeckSections(deck: DuelDeck, find: (code: number) => DeckCa
     const target = from === "extra" ? "Main" : "Extra";
     return [`${moved.length} ${moved.length === 1 ? "card" : "cards"} moved from ${source} Deck to ${target} Deck: ${moved.map(move => move.name).join(", ")}.`];
   });
-  return { deck: { ...deck, main, extra, side: [...deck.side] }, moves, messages };
+  if (extra.length > 15) messages.push(`Extra Deck contains ${extra.length} cards; the limit is 15. Cards after position 15 stay in Extra Deck: ${extra.slice(15).map(code => find(code)?.name?.trim() || `card ${code}`).join(", ")}.`);
+  return { deck: { ...deck, main, extra, side: [...deck.side] }, moves, messages: [...messages, ...unknownMessages] };
 }

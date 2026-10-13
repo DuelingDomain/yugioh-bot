@@ -301,6 +301,10 @@ export function importDeckIdentity(deck: DeckSections, codes: ReadonlyMap<number
   return allCodes(deck).map(code => codes.get(code) ?? code).sort((a, b) => a - b).join(",");
 }
 
+const sectionIssues = (messages: string[]): ImportIssue[] => messages.map(message => ({
+  code: message.startsWith("Card type is unknown") ? "unknown_card_type" : message.startsWith("Extra Deck contains") ? "extra_size" : "section_moved", message,
+}));
+
 export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]): Promise<NextResponse> {
   const valid = rows.filter(row => row.errors.length === 0);
   const response = () => {
@@ -333,7 +337,7 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
     const master = mapped.errors.length || !final.ok ? [] : await masterIssues(row.deck);
     if (master.some(issue => issue.code === "validation_unavailable")) return errorResponse("Duel engine unavailable, try again", 503);
     row.errors.push(...mapped.errors, ...(final.ok ? [] : final.errors), ...master.map(issue => masterLine === undefined ? issue : { ...issue, line: masterLine }));
-    row.warnings.push(...mapped.warnings, ...routed.messages.map(message => ({ code: "section_moved", message })), ...sizeWarnings(row.deck));
+    row.warnings.push(...mapped.warnings, ...sectionIssues(routed.messages), ...sizeWarnings(row.deck).filter(issue => issue.code !== "extra_size" || !routed.messages.some(message => message.startsWith("Extra Deck contains"))));
     const duplicate = duplicates.get(key);
     if (duplicate) row.duplicateOf = duplicate;
     else duplicates.set(key, { kind: "row", rowId: row.rowId, name: row.name });
@@ -348,6 +352,7 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
   if (!resolved.ok) return resolved.response;
   const created: Array<{ id: number; name: string }> = [];
   const failed: Array<{ index: number; errors: ImportIssue[] }> = [];
+  const warnings: Array<{ index: number; warnings: ImportIssue[] }> = [];
   const prepared: Array<{ index: number; name: string; mode: DuelMode; deck: DuelDeck }> = [];
   const findCard = createDeckTypeLookup(getDb()).snapshot();
   for (const [index, row] of checked.entries()) {
@@ -364,7 +369,11 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
         throw error;
       }
     }
-    const master = mapped.errors.length ? [] : await masterIssues(mapped.deck);
+    // Direct bulk rows must obey the same section rule as preview rows.
+    const routed = mapped.errors.length ? { deck: mapped.deck, messages: [] }
+      : routeDeckSections({ ...mapped.deck, deckMaster: mapped.deck.deckMaster ?? undefined }, findCard);
+    const warning = sectionIssues(routed.messages);
+    const master = mapped.errors.length ? [] : await masterIssues(routed.deck);
     if (master.some(issue => issue.code === "validation_unavailable")) return errorResponse("Duel engine unavailable, try again", 503);
     const errors = [...mapped.errors, ...master];
     if (errors.length > 0) {
@@ -372,12 +381,13 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
       continue;
     }
     // Validate the resolved deck too. The service remains the authority for storage rules.
-    const final = validateImportRow({ name: row.name, deck: mapped.deck, mode: importMode(row.mode) });
+    const final = validateImportRow({ name: row.name, deck: routed.deck, mode: importMode(row.mode) });
     if (!final.ok) {
       failed.push({ index, errors: final.errors });
       continue;
     }
     prepared.push({ index, name: final.name, mode: final.mode, deck: final.deck });
+    if (warning.length) warnings.push({ index, warnings: warning });
   }
   // Finish every host check before writing: a 503 must not hide already-created decks.
   for (const final of prepared) {
@@ -390,5 +400,5 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
       failed.push({ index: final.index, errors: [{ code: "save_failed", message: error.message }] });
     }
   }
-  return NextResponse.json({ created, failed: failed.sort((a, b) => a.index - b.index) });
+  return NextResponse.json({ created, failed: failed.sort((a, b) => a.index - b.index), ...(warnings.length ? { warnings } : {}) });
 }

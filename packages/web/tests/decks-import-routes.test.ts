@@ -12,11 +12,16 @@ import { encodeYdke } from "@yugidraft/shared/decks";
 const mocks = vi.hoisted(() => ({
   savedActor: vi.fn(), duelActor: vi.fn(), callDuelHost: vi.fn(),
   auth: vi.fn(), getDb: vi.fn(), membership: vi.fn(),
+  engine: new Map<number, { name: string; type: number }>(),
 }));
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/lib/db", () => ({ getDb: mocks.getDb }));
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g" } }));
 vi.mock("@/lib/discord-guild-membership", () => ({ verifyDiscordGuildMembership: mocks.membership }));
+vi.mock("@yugidraft/shared/services", async original => {
+  const actual = await original<typeof import("@yugidraft/shared/services")>();
+  return { ...actual, createDeckTypeLookup: (db: Database.Database) => actual.createDeckTypeLookup(db, mocks.engine) };
+});
 vi.mock("@/lib/saved-decks", async original => ({
   ...await original<typeof import("../src/lib/saved-decks")>(), requireSavedDeckActor: mocks.savedActor,
 }));
@@ -25,6 +30,8 @@ vi.mock("@/lib/duel-host", () => ({ requireDuelActor: mocks.duelActor, callDuelH
 import { POST as preview } from "../app/api/decks/import/preview/route";
 import { POST as bulk } from "../app/api/decks/import/bulk/route";
 import { POST as createDeck } from "../app/api/decks/route";
+
+import { domainDeck, domainEngine, domainYdk } from "./fixtures/domain-engine-deck";
 
 let db: Database.Database;
 let decks: ReturnType<typeof createSavedDeckService>;
@@ -45,7 +52,9 @@ beforeEach(() => {
   mocks.getDb.mockReturnValue(db);
   mocks.auth.mockResolvedValue({ user: { id: "owner", name: "Owner" } });
   mocks.membership.mockResolvedValue({ ok: true });
-  decks = createSavedDeckService(db);
+  mocks.engine.clear();
+  mocks.engine.set(44508094, { name: "Test Extra", type: 0x41 });
+  decks = createSavedDeckService(db, mocks.engine);
   mocks.savedActor.mockResolvedValue({ ok: true, guildId: "g", ownerUserId: "owner", decks });
   mocks.duelActor.mockResolvedValue({ ok: true, guildId: "g", playerId: 7 });
   mocks.callDuelHost.mockImplementation(async (input: { op: string; codes?: number[]; lookupLimit: number }) => ({
@@ -57,6 +66,24 @@ beforeEach(() => {
 afterEach(() => { db.close(); vi.restoreAllMocks(); });
 
 describe("backend review fixes", () => {
+  it("previews and saves a 70-card Domain deck with engine-only Extra cards", async () => {
+    for (const [code, card] of domainEngine) mocks.engine.set(code, card);
+    const [shown] = await previewRows([{ ...source(domainYdk), mode: "domain" }]);
+    expect(shown.deck).toEqual({ ...domainDeck, deckMaster: domainDeck.deckMaster });
+    expect(shown.errors).toEqual([]);
+    expect(shown.warnings.filter((warning: { code: string }) => warning.code === "section_moved")).toEqual([]);
+    const response = await bulk(request({ rows: [shown] }));
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.failed).toEqual([]);
+    expect(decks.get(result.created[0].id, "g", "owner")?.deck).toEqual(domainDeck);
+  });
+  it("keeps a named unknown-type card in Extra in the import preview", async () => {
+    db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (9999,'Named unknown','','fusion','','','[]','test')");
+    const [shown] = await previewRows([source("#extra\n9999")]);
+    expect(shown.deck.extra).toEqual([9999]);
+    expect(shown.warnings.some((warning: { message: string }) => warning.message.includes("Named unknown"))).toBe(true);
+  });
   const unknownCodes = (offset = 0) => Array.from({ length: 50 }, (_, i) => 91000000 + offset + i);
   function unknownHost() {
     const fetch = vi.fn();
@@ -315,7 +342,7 @@ describe("backend review fixes", () => {
     const shown = JSON.parse(text).rows[0];
     expect(shown.errors).toEqual([]);
     expect(shown.warnings).toHaveLength(21);
-    expect(shown.warnings.at(-1)).toMatchObject({ code: "more_issues", message: "and 9981 more issues", count: 9981 });
+    expect(shown.warnings.at(-1)).toMatchObject({ code: "more_issues", message: "and 9982 more issues", count: 9982 });
   });
 
   it("caps card errors in both preview and bulk", async () => {
@@ -683,7 +710,9 @@ describe("preview", () => {
     const rows = await previewRows([source(`#main\n${"89631139\n".repeat(301)}`), source(`#main\n89631139\n#extra\n${"44508094\n".repeat(16)}!side\n${"14558127\n".repeat(16)}`, "f2")]);
     expect(rows[0].errors).toContainEqual(expect.objectContaining({ code: "invalid_deck" }));
     expect(rows[1].errors).toEqual([]);
-    expect(rows[1].warnings.map((w: { code: string }) => w.code)).toEqual(["main_size", "extra_size", "side_size"]);
+    expect(rows[1].warnings.map((w: { code: string }) => w.code)).toEqual(["extra_size", "unknown_card_type", "unknown_card_type", "main_size", "side_size"]);
+    expect(rows[1].deck.extra).toHaveLength(16);
+    expect(rows[1].warnings[0].message).toContain("15");
   });
 
   it("reports rejected Domain masters using the ordinary save rule", async () => {
@@ -726,11 +755,13 @@ describe("bulk", () => {
     } });
     const response = await bulk(request({ rows: [row("Good"), row("Unknown Extra", { main: [], extra: [999], side: [] })] }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    const result = await response.json();
+    expect(result).toMatchObject({
       created: [{ id: expect.any(Number), name: "Good" }],
       failed: [{ index: 1, errors: [{ code: limited ? "lookup_limited" : "unknown_card",
         message: limited ? "lookup limit reached, try again" : "Unknown card 999", passcode: 999 }] }],
     });
+    expect(result.warnings).toContainEqual({ index: 0, warnings: [{ code: "unknown_card_type", message: expect.stringContaining("89631139") }] });
     expect(decks.list("g", "owner").map(saved => saved.name)).toEqual(["Good"]);
   });
 

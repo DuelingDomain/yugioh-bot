@@ -16,7 +16,7 @@ export const ENGINE_HOST_RULE_FILES = [
   "legacy/engine", "legacy/views", "legacy/prompts", "legacy/script-compat", "cards", "domain-core", "core-capabilities",
   "multi-scripts", "chain-mode", "chain-options", "script-errors", "script-load-scope", "sort-response", "hand-identities", "log-lines", "text",
   "raw-messages", "attack-target-pick", "wasm-sync-export", "card-script-source", "card-script-hash", "practice-bot",
-  "engine-loop-error", "engine-resource-resolver", "legacy/index", "prompt-trace", "sandbox-snapshot",
+  "engine-loop-error", "engine-resource-resolver", "legacy/index", "prompt-trace", "sandbox-snapshot", "card-name-search", "domain-action-prompts",
 ] as const;
 
 /** Replay/fork compatibility version. Bump for engine/journal behavior changes; the CI

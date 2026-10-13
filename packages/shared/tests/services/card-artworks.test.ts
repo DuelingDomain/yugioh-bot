@@ -421,7 +421,7 @@ describe("artwork fetch limits", () => {
   });
 });
 
-it.each(["absolute", "relative", "default"])("resolves the %s engine path from cwd and filters legacy alternate options", (mode) => {
+it.each(["absolute", "relative", "default"])("resolves the %s engine path and filters legacy alternate options", (mode) => {
   const dir = mkdtempSync(join(tmpdir(), "card-art-engine-"));
   const engineDir = join(dir, "data/duel-engine");
   mkdirSync(engineDir, { recursive: true });
@@ -432,7 +432,8 @@ it.each(["absolute", "relative", "default"])("resolves the %s engine path from c
     insert into texts values (89631139,'Blue-Eyes White Dragon'),(89631146,'Blue-Eyes White Dragon');`);
   engine.close();
   vi.stubEnv("DUEL_DATA_DIR", mode === "absolute" ? engineDir : mode === "relative" ? relative(dir, engineDir) : undefined);
-  const cwd = vi.spyOn(process, "cwd").mockReturnValue(dir);
+  vi.stubEnv("DATABASE_PATH", join(dir, "data", "bot.sqlite"));
+  const cwd = vi.spyOn(process, "cwd").mockReturnValue(mode === "default" ? join(dir, "packages", "web") : dir);
   try {
     expect(canonicalCardCode(89631146, loadArtworkIdentityCatalog())).toBe(89631139);
     const { db } = setup();

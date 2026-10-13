@@ -109,6 +109,9 @@ describe("current engine identity", () => {
     // replay-only selection of an unknown 1v1 family and failure metadata. Saved-choice
     // and identity guards, live recovery, command application and Manual loss timing are unchanged.
     // The same v3 hash also covers the facing-pairs rule edits e7d5224b2 (first-turn draw) and 372fb5684 (FFA3 views).
+    // PR #361 changes Extra Deck admission before play. It does not change engine or journal rules.
+    // Keep the local version 3 identity and refresh only its local fingerprint, as in PR #363.
+    // Include the existing card-name-search and domain-action-prompts dependencies in coverage. Their code is unchanged.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 

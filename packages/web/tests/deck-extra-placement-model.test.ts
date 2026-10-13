@@ -62,17 +62,17 @@ describe("which cards are Extra Deck cards", () => {
 describe("placement block", () => {
   it("blocks a Spell or Trap in Extra with the clear message", () => {
     expect(placementBlockForKind("spelltrap", "extra")).toBe("Spell and Trap cards cannot go in the Extra Deck.");
-    expect(placementBlock(catalog.get(2), "extra")).toBe(SPELL_TRAP_EXTRA_MESSAGE);
-    expect(placementBlock(catalog.get(3), "extra", "side")).toBe(SPELL_TRAP_EXTRA_MESSAGE);
+    expect(placementBlock(catalog.get(2), "extra")).toBe(`Card 2: ${SPELL_TRAP_EXTRA_MESSAGE}`);
+    expect(placementBlock(catalog.get(3), "extra", "side")).toBe(`Card 3: ${SPELL_TRAP_EXTRA_MESSAGE}`);
   });
 
   it("blocks a main-deck monster, a Pendulum one included, in Extra", () => {
-    expect(placementBlock(catalog.get(1), "extra")).toBe(MAIN_MONSTER_EXTRA_MESSAGE);
-    expect(placementBlock(catalog.get(8), "extra")).toBe(MAIN_MONSTER_EXTRA_MESSAGE);
+    expect(placementBlock(catalog.get(1), "extra")).toBe(`Card 1: ${MAIN_MONSTER_EXTRA_MESSAGE}`);
+    expect(placementBlock(catalog.get(8), "extra")).toBe(`Card 8: ${MAIN_MONSTER_EXTRA_MESSAGE}`);
   });
 
   it("blocks an Extra Deck monster in Main", () => {
-    for (const code of [4, 5, 6, 7]) expect(placementBlock(catalog.get(code), "main")).toBe(EXTRA_MONSTER_MAIN_MESSAGE);
+    for (const code of [4, 5, 6, 7]) expect(placementBlock(catalog.get(code), "main")).toBe(`Card ${code}: ${EXTRA_MONSTER_MAIN_MESSAGE}`);
   });
 
   it("allows the legal placements and anything in Side", () => {

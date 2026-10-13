@@ -1,4 +1,4 @@
-import { isExtraDeckCard, cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
+import { hasKnownDeckCardType, isExtraDeckCard, cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
 import {
   TYPE_FUSION,
   TYPE_LINK,
@@ -84,10 +84,13 @@ export function placementBlockForKind(kind: CardKind, section: DeckSection): str
  * Why this card cannot go in the section, or null when it can. A card without details (still loading, or
  * not in the card database) cannot be told apart, so it only goes to the Side Deck or stays in its section.
  */
-export function placementBlock(card: Pick<DuelCardInfo, "type"> | undefined, section: DeckSection, from?: CardSource["from"]): string | null {
+export function placementBlock(card: (Pick<DuelCardInfo, "type"> & Partial<Pick<DuelCardInfo, "name">>) | undefined, section: DeckSection, from?: CardSource["from"]): string | null {
   if (section === "side") return null;
-  if (!card) return from === section ? null : CARD_DETAILS_PENDING_MESSAGE;
-  return placementBlockForKind(cardKind(card), section);
+  const reason = !hasKnownDeckCardType(card)
+    ? from === section ? null : CARD_DETAILS_PENDING_MESSAGE
+    : placementBlockForKind(cardKind(card!), section);
+  const name = card?.name?.trim();
+  return reason && name ? `${name}: ${reason}` : reason;
 }
 
 export interface MisplacedCards {
@@ -102,7 +105,7 @@ export function misplacedCards(deck: DuelDeck, catalog: CardCatalog): MisplacedC
   const pick = (codes: readonly number[], misplaced: (card: DuelCardInfo | DeckCardInfo) => boolean) =>
     codes.filter((code) => {
       const card = catalog.get(code);
-      return card != null && misplaced(card);
+      return card != null && hasKnownDeckCardType(card) && misplaced(card);
     });
   return {
     inExtra: pick(deck.extra, (card) => !isExtraDeckCard(card)),
