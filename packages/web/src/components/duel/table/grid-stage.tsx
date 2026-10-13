@@ -6,6 +6,7 @@ import { masterInUse } from "../master-place";
 import { AttackLine } from "./attack-line";
 import { crumbleWaiting, onCrumbleStart } from "./crumble-gate";
 import { boxOf, cancelTracks, FLIP_EASING, FLIP_MS, playFlip, type FlipTrack } from "./grid-flip";
+import { FINALE_GLIDE_EASING, FINALE_GLIDE_MS } from "./grid-finale";
 import { useGridFocus } from "./grid-focus";
 import {
   cellIndex,
@@ -335,7 +336,7 @@ export const exitPose = (seat: number, spot: GridCellRect, rotateDeg: 0 | 180): 
 });
 
 /** The 4-way table as two columns of facing fields that share an Extra Monster row (see grid-layout.ts). */
-export function GridStage({ controller, layout, camera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, grid, placeLabels, gridHub, hubPlace = "band" }: TableStageViewProps) {
+export function GridStage({ controller, layout, camera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, grid, placeLabels, gridFinale = null, gridHub, hubPlace = "band" }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
@@ -392,20 +393,33 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const drawerSeats = ([0, 1] as const).map((column) => pairDrawer(cells, states, column));
   const drawerRow = ([0, 1] as const).map((column) => cells.find((cell) => cell.seat === drawerSeats[column])?.row ?? 1) as [0 | 1, 0 | 1];
   const drawerKey = drawerRow.join("");
+  // The face-off: the last two seats sit in the middle, facing, as on the 1v1 table (visual only: see grid-finale.ts).
+  const finaleBottom = gridFinale ? cells.find((cell) => cell.seat === gridFinale.bottom) ?? null : null;
+  const finaleTop = gridFinale ? cells.find((cell) => cell.seat === gridFinale.top) ?? null : null;
+  const finale = finaleBottom && finaleTop && gridFinale ? { kind: gridFinale.kind, bottom: finaleBottom, top: finaleTop } : null;
+  const finaleKey = finale ? `${finale.kind}:${finale.bottom.seat}:${finale.top.seat}` : null;
+  const inFinale = (seat: number) => finale != null && (finale.bottom.seat === seat || finale.top.seat === seat);
   const layoutBox = useMemo(() => {
     if (box.width <= 0 || box.height <= 0) return null;
+    const ends = finaleKey ? finaleKey.split(":") : null;
+    const bottom = ends ? cells.find((cell) => cell.seat === Number(ends[1])) : undefined;
+    const top = ends ? cells.find((cell) => cell.seat === Number(ends[2])) : undefined;
     return gridFocusLayout(world, box, focusCell, {
       homeColumn,
       drawerRow: drawerKey.split("").map(Number) as [0 | 1, 0 | 1],
       corner: hud ? HUD_CORNER : null,
+      finale: bottom && top ? { bottom, top, homeHand: bottom.home } : null,
     });
-  }, [box, drawerKey, focusCell, homeColumn, world, hud]);
+  }, [box, cells, drawerKey, finaleKey, focusCell, homeColumn, world, hud]);
   const placed = layoutBox;
 
-  // The pair frames (see `pairFrameRect`): the live fields of each column.
+  // The pair frames (see `pairFrameRect`): the live fields of each column, or on the face-off the frame round both fields
+  // (the column of the bottom seat); the other column's frame stays where it was while it fades.
   const frameOf = (column: 0 | 1): GridRect | null => {
     if (!placed) return null;
-    return pairFrameRect(cells.filter((cell) => cell.column === column && !gone(cell.seat)).map((cell) => placed.cells[cellIndex(cell)].rect));
+    if (finale && placed.finale && finale.bottom.column === column) return placed.finale.frame;
+    const spots = finale ? placed.regular : placed.cells;
+    return pairFrameRect(cells.filter((cell) => cell.column === column && !gone(cell.seat)).map((cell) => spots[cellIndex(cell)].rect));
   };
   const frames = [frameOf(0), frameOf(1)] as const;
   const frameKey = frames.map((r) => (r ? `${r.x},${r.y},${r.width},${r.height}` : "-")).join("|");
@@ -413,41 +427,66 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const tracks = useRef(new Map<string, FlipTrack>());
   const frameTracks = useRef(new Map<string, FrameTrack>());
   const lastBox = useRef({ width: 0, height: 0 });
+  // A field that turns on its way (a seat changing between the bottom and the top of the face-off) draws its labels and card
+  // faces for its old turn during the first half of the move, then for the new one: its text never shows upside down.
+  const [lateTurns, setLateTurns] = useState<ReadonlyMap<number, 0 | 180> | null>(null);
+  const turnTimer = useRef<number | undefined>(undefined);
+  const lastFinale = useRef<string | null>(finaleKey);
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || !placed) return;
     const resized = lastBox.current.width !== box.width || lastBox.current.height !== box.height;
     lastBox.current = { width: box.width, height: box.height };
     const animate = !resized && !reducedMotion;
+    const toFinale = lastFinale.current !== finaleKey;
+    lastFinale.current = finaleKey;
     const seen = new Set<string>();
-    const move = (key: string, el: HTMLElement | null, rect: GridRect, turn: 0 | 180, fadeText: boolean) => {
-      if (!el) return;
+    const move = (key: string, el: HTMLElement | null, rect: GridRect, turn: 0 | 180, fadeText: boolean, finaleMove: boolean) => {
+      if (!el) return null;
       seen.add(key);
-      tracks.current.set(key, playFlip(el, tracks.current.get(key), boxOf(rect), animate, { turn, fadeText }));
+      const options = finaleMove ? { turn, fadeText, duration: FINALE_GLIDE_MS, easing: FINALE_GLIDE_EASING } : { turn, fadeText };
+      const track = playFlip(el, tracks.current.get(key), boxOf(rect), animate, options);
+      tracks.current.set(key, track);
+      return track;
     };
+    const turned = new Map<number, 0 | 180>();
     for (const cell of cells) {
       const spot = placed.cells[cellIndex(cell)];
-      move(`f${cell.seat}`, root.querySelector<HTMLElement>(`[data-seat-slot="${cell.seat}"]`), spot.rect, spot.turn, false);
-      move(`l${cell.seat}`, root.querySelector<HTMLElement>(`[data-grid-lp="${cell.seat}"]`), spot.plate, 0, true);
+      const before = tracks.current.get(`f${cell.seat}`)?.turn;
+      const track = move(`f${cell.seat}`, root.querySelector<HTMLElement>(`[data-seat-slot="${cell.seat}"]`), spot.rect, spot.turn, false, toFinale);
+      if (track?.anim && before != null && before !== spot.turn) turned.set(cell.seat, before);
+      move(`l${cell.seat}`, root.querySelector<HTMLElement>(`[data-grid-lp="${cell.seat}"]`), spot.plate, 0, true, toFinale);
     }
     const origin = root.getBoundingClientRect();
     for (const column of [0, 1] as const) {
       const el = root.querySelector<HTMLElement>(`[data-pair-frame="${column}"]`);
       const rect = frames[column];
       if (!el || !rect) continue;
-      moveFrame(el, frameTracks.current, `p${column}`, rect, animate, FLIP_MS, FLIP_EASING, origin);
+      moveFrame(el, frameTracks.current, `p${column}`, rect, animate, toFinale ? FINALE_GLIDE_MS : FLIP_MS, toFinale ? FINALE_GLIDE_EASING : FLIP_EASING, origin);
     }
     for (const key of [...tracks.current.keys()]) {
       if (seen.has(key)) continue;
       cancelTracks([tracks.current.get(key)!]);
       tracks.current.delete(key);
     }
+    if (turned.size > 0) {
+      window.clearTimeout(turnTimer.current);
+      setLateTurns(turned);
+      turnTimer.current = window.setTimeout(() => setLateTurns(null), (toFinale ? FINALE_GLIDE_MS : FLIP_MS) / 2);
+    } else {
+      // Any other run (a resize, reduced motion, a new focus) ends a turn that was under way: the field stands at its new turn at once.
+      window.clearTimeout(turnTimer.current);
+      setLateTurns(null);
+    }
     // The frames are read from `frameKey`; a seat that goes out changes them without a new layout.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placed, box.width, box.height, cells, reducedMotion, frameKey]);
+  }, [placed, box.width, box.height, cells, reducedMotion, finaleKey, frameKey]);
   useEffect(() => {
     const live = tracks.current;
-    return () => cancelTracks(live.values());
+    return () => {
+      cancelTracks(live.values());
+      window.clearTimeout(turnTimer.current);
+    };
   }, []);
 
   // The seat fields are memoized: a field is drawn again only when something in it changes, never for a move or a
@@ -526,15 +565,15 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   };
 
   // The phase hub: in the band of your column (else any that is still drawn), or in the middle of the table between the
-  // columns.
-  const hubColumn: 0 | 1 | null = (homeColumn != null && drawerSeats[homeColumn] != null ? homeColumn : drawerSeats[0] != null ? 0 : drawerSeats[1] != null ? 1 : null);
+  // columns. On the face-off: in the Extra Monster row of the bottom seat's field.
+  const hubColumn: 0 | 1 | null = finale?.bottom.column ?? (homeColumn != null && drawerSeats[homeColumn] != null ? homeColumn : drawerSeats[0] != null ? 0 : drawerSeats[1] != null ? 1 : null);
   // Its chips stay in the free cells beside the Extra Monster Zones (five columns, 0.075 z apart): a pair side by side
   // where it fits, else stacked (see bandHubFit).
-  const hubBand = placed && hubColumn != null ? placed.bands[hubColumn] : null;
+  const hubBand = placed && hubColumn != null ? placed.finale?.band ?? placed.bands[hubColumn] : null;
   const hubFit = hubBand ? bandHubFit(hubBand.z, (hubBand.rect.width - 4 * hubBand.z * 0.075) / 5) : null;
   const hubStyle = ((): CSSProperties | null => {
     if (!placed || !gridHub) return null;
-    if (hubPlace === "center") {
+    if (hubPlace === "center" && finale == null) {
       const left = placed.cells[0].rect;
       const right = placed.cells[2].rect;
       const gutterX = (left.x + left.width + right.x) / 2;
@@ -544,7 +583,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       return { left: gutterX, top: line, transform: followTransform(gutterX, line), ["--hub-z" as string]: `${placed.bands[0].z}px` };
     }
     if (hubColumn == null) return null;
-    const band = placed.bands[hubColumn];
+    const band = placed.finale?.band ?? placed.bands[hubColumn];
     const z = band.z;
     const fit = { width: band.rect.width, height: band.rect.height, ["--z" as string]: `${z}px`, ["--g" as string]: `${z * 0.075}px`, ["--hub-hc" as string]: `${hubFit?.chip ?? 0}px` };
     // The chips of a band sit in the free cells beside the Extra Monster Zones: under a zoom they grow with the board, so
@@ -557,9 +596,11 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   // and under a zoom (the prompt is not part of the zoomed world); only a new layout of the fields moves it. The pair that
   // is yours (a spectator's, the pair in focus) only gives the size unit. The prompt slot carries the box as --pr-* (board px)
   // for the panels and the yes/no bar.
-  const promptColumn: 0 | 1 | null = viewerSeat != null ? homeColumn : focusCell?.column ?? null;
+  // On the face-off: the one frame round both fields.
+  const promptColumn: 0 | 1 | null = finale ? finale.bottom.column : viewerSeat != null ? homeColumn : focusCell?.column ?? null;
   const pairFrame = (promptColumn != null ? frames[promptColumn] : null) ?? frames[0] ?? frames[1];
-  const promptPair = pairFrame ? centeredPromptBox(box, frames) : null;
+  const promptFrames = finale && promptColumn != null ? [frames[promptColumn]] : frames;
+  const promptPair = pairFrame ? centeredPromptBox(box, promptFrames) : null;
   // The phase hub can stand in the middle band: a prompt that would cover its chips steps up or down off them (it stays centred across the table).
   const slotRef = useRef<HTMLDivElement>(null);
   const dodge = usePromptDodge(rootRef, slotRef, promptCenter != null && promptPair != null, `${controller.prompt?.id ?? ""}|${frameKey}|${box.width}x${box.height}|${zoom.zoomed ? `${Math.round(zoom.view.s * 100)},${Math.round(zoom.view.x)},${Math.round(zoom.view.y)}` : 0}|${hubPlace}`);
@@ -598,7 +639,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     };
     // Once the fields stand still, once late (under reduced motion they can lay out after the first frame), and while a
     // pick is open, again when the fields mount or mark targets.
-    return watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : FLIP_MS + 80, watch: legalKey !== "" });
+    return watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : Math.max(FLIP_MS, FINALE_GLIDE_MS) + 80, watch: legalKey !== "" });
   }, [placed, legalKey, reducedMotion, zoom.view]);
   const barRoom = useMemo(() => (!promptPair ? undefined : zoom.zoomed ? dockBarRoom(box) : restBarRoom(promptPair, box, targets, zones, hudRects)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -648,6 +689,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       data-table-stage={layout.format}
       data-grid-stage="true"
       data-grid-focus={focus.seat ?? "all"}
+      data-grid-finale={finale?.kind}
       data-format={format}
       data-camera-mode={camera.mode}
       data-camera-want={wantMode ?? camera.mode}
@@ -668,7 +710,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
             const members = cells.filter((cell) => cell.column === column).map((cell) => cell.seat);
             const turnSeat = engine.turnSeat != null && members.includes(engine.turnSeat) && !gone(engine.turnSeat) ? engine.turnSeat : null;
             const turnTone = turnSeat != null ? tones.get(turnSeat) : undefined;
-            const lifted = focus.seat != null && cells.some((cell) => cell.column === column && cell.seat === focus.seat);
+            const faded = finale != null && finale.bottom.column !== column;
+            const lifted = finale == null && focus.seat != null && cells.some((cell) => cell.column === column && cell.seat === focus.seat);
             return (
               <div
                 key={`frame${column}`}
@@ -676,13 +719,14 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 data-pair-frame={column}
                 data-focus={lifted ? "true" : undefined}
                 data-turn={turnTone ? "true" : undefined}
+                data-gone={faded ? "true" : undefined}
                 aria-hidden="true"
                 style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height, ...(turnTone ? { ["--t" as string]: hexToRgbTriplet(SEAT_TONE_HEX[turnTone].main) } : {}) }}
               />
             );
               })
             : null}
-          {placed
+          {placed && finale == null
             ? ([0, 1] as const).map((column) => {
             // The break of a pair: a seam flashes on the edge where the field that went out was joined.
             const inColumn = cells.filter((cell) => cell.column === column);
@@ -723,8 +767,10 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
             const out = state !== "live";
             const self = slot.relation === "self";
             const drawer = drawerSeats[cell.column];
-            // One of the pair draws the shared Extra Monster row.
-            const emz = drawer === cell.seat ? "pair" : "none";
+            // One of the pair draws the shared Extra Monster row. On the face-off each of the two draws its own row: nothing is
+            // shared in the picture (the two stay two fields); the engine's link of a facing pair shows as a link light only.
+            const emz = inFinale(cell.seat) ? "own" : drawer === cell.seat ? "pair" : "none";
+            const linkedSeat = finale?.kind === "same" && inFinale(cell.seat) ? (finale.bottom.seat === cell.seat ? finale.top.seat : finale.bottom.seat) : null;
             const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
               engine,
               seat: cell.seat,
@@ -735,7 +781,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               density: "full",
               hand: self ? "face" : "backs",
               emz,
-              pair: stablePair(cell.seat, {
+              ...(linkedSeat != null ? { emzLink: { other: linkedSeat, otherName: nameOf(linkedSeat) } } : {}),
+              pair: inFinale(cell.seat) ? undefined : stablePair(cell.seat, {
                 other: cell.partner,
                 left: PAIR_LEFT,
                 right: 0,
@@ -755,7 +802,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               onHoverCard: controller.onHoverCard,
             };
             const exitRow = exitState.exits.find((entry) => entry.seat === cell.seat);
-            const outline = out ? placed.cells[cellIndex(cell)].own : null;
+            // In the face-off the seats that left are gone from the table; the last one out keeps its outline on the board.
+            const outline = out && (finale == null || inFinale(cell.seat)) ? placed.cells[cellIndex(cell)].own : null;
             return (
               <div
                 key={cell.seat}
@@ -774,6 +822,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                     pose={pose}
                     field={field}
                     render={renderSeatField}
+                    angleOffsetDeg={(lateTurns?.get(cell.seat) ?? spot.turn) - spot.turn}
                     placement={{
                       left: spot.rect.x,
                       top: spot.rect.y,
@@ -794,7 +843,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                     masterRule={masterRule}
                     faceUpHand={exitRow.faceUpHand}
                     reducedMotion={reducedMotion}
-                    clipTop={OVERLAP * spot.z}
+                    clipTop={inFinale(cell.seat) ? 0 : OVERLAP * spot.z}
                     onDone={() => exitState.finish(cell.seat)}
                   />
                 ) : null}
@@ -831,6 +880,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 className={styles.lp}
                 data-grid-lp={cell.seat}
                 data-out={placeLabels?.has(cell.seat) === true ? "true" : undefined}
+                data-lp-side={inFinale(cell.seat) ? "left" : undefined}
+                data-gone={finale != null && !inFinale(cell.seat) ? "true" : undefined}
                 {...{ [FOLLOW_ATTR]: "" }}
                 style={lpStyle}
               >
@@ -851,6 +902,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   beam="none"
                   master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
                   masterInUse={masterInUse(view, engine.seats)}
+                  linkedWith={finale?.kind === "same" && inFinale(cell.seat) ? nameOf(cell.seat === finale.bottom.seat ? finale.top.seat : finale.bottom.seat) : null}
                   onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
                   lastDamage={lastSeatDamage(engine.events, cell.seat)}
                   legal={pickable}
@@ -866,8 +918,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               })
             : null}
           {hubStyle && gridHub ? (
-            <div className={styles.hub} {...{ [FOLLOW_ATTR]: "" }} data-grid-hub={hubPlace === "center" ? "center" : "band"} data-hub-fit={hubPlace === "center" ? undefined : hubFit?.mode} data-emz-zones={masterRule >= 4 ? undefined : "false"} style={hubStyle}>
-              {gridHub(hubPlace === "center" ? "center" : "band")}
+            <div className={styles.hub} {...{ [FOLLOW_ATTR]: "" }} data-grid-hub={hubPlace === "center" && finale == null ? "center" : "band"} data-hub-fit={hubPlace === "center" && finale == null ? undefined : hubFit?.mode} data-emz-zones={masterRule >= 4 ? undefined : "false"} style={hubStyle}>
+              {gridHub(hubPlace === "center" && finale == null ? "center" : "band")}
             </div>
           ) : null}
       </div>

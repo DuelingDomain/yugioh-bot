@@ -8,6 +8,8 @@ import {
   effectiveMode,
   FLY_HOME,
   initialCamera,
+  holdsOwnFocus,
+  isFaceOff,
   isLocked,
 } from "@/components/duel/table/camera-model";
 import { tableLayout } from "@/components/duel/table/geometry";
@@ -380,30 +382,77 @@ describe("4-way camera", () => {
   });
 });
 
-describe("a 3-way table with two seats left keeps every camera control", () => {
+describe("the 3-way face-off has one view", () => {
   const OUT = [2];
+  const key = (k: string) => cameraActionForKey({ key: k }, L3, HOME, { out: OUT });
 
-  it("keeps every camera key", () => {
-    for (const k of ["0", "o", "]", "[", "p", "f", "Escape", "1", "2", "h", "s", "e"]) {
-      expect(cameraActionForKey({ key: k }, L3, HOME, { out: OUT })).toEqual(cameraActionForKey({ key: k }, L3, HOME));
-    }
-    expect(cameraActionForKey({ key: "0" }, L3, HOME, { out: OUT })).toEqual({ type: "overview" });
+  it("detects the face-off on a 3-way table only", () => {
+    expect(isFaceOff(L3, [])).toBe(false);
+    expect(isFaceOff(L3, [2])).toBe(true);
+    expect(isFaceOff(L4, [3])).toBe(false);
+    expect(isFaceOff(L4, [2, 3])).toBe(false);
   });
 
-  it("moves the camera for the same requests as with three alive, and never by itself", () => {
-    for (const action of [{ type: "overview" }, { type: "focus", seat: 1 }, { type: "focusStep", dir: 1 }, { type: "look", seat: 1 }, { type: "toggleFly" }, { type: "enlarge", seat: 0 }] as CameraAction[]) {
-      expect(run(HOME, action, L3, OUT)).toEqual(run(HOME, action, L3));
-    }
-    expect(run(HOME, { type: "overview" }, L3, OUT).mode).toBe("fly");
-    // A seat that goes out does not move the camera: a tick with no lock leaves every view as it is.
-    const own = run(HOME, { type: "enlarge", seat: 0 });
-    expect(run(own, { type: "tick", nowMs: 2500 }, L3, OUT)).toEqual(run(own, { type: "tick", nowMs: 2500 }, L3));
-    expect(run(initialCamera(L3, { mode: "fly" }), { type: "tick", nowMs: 2500 }, L3, OUT).mode).toBe("fly");
+  it("turns the camera keys off, and keeps the others", () => {
+    for (const k of ["0", "o", "]", "[", "p", "f", "Escape", "2", "3"]) expect(key(k)).toBeNull();
+    expect(key("1")).toEqual({ type: "home" });
+    expect(key("h")).toEqual({ type: "home" });
   });
 
-  it("keeps the lock to its end, then stays where it is (no face-off view)", () => {
+  it("does nothing when the camera is home, and sends it home when it is not", () => {
+    for (const action of [{ type: "overview" }, { type: "focus", seat: 1 }, { type: "focusStep", dir: 1 }, { type: "look", seat: 1 }, { type: "toggleFly" }, { type: "flyTo", seat: 1 }] as CameraAction[]) {
+      expect(run(HOME, action, L3, OUT)).toBe(HOME);
+      expect(run(initialCamera(L3, { mode: "fly" }), action, L3, OUT).mode).toBe("home");
+    }
+  });
+
+  it("goes home at once from fly mode under an FX lock, and keeps the lock", () => {
+    const fly = locked(initialCamera(L3, { mode: "fly" }));
+    expect(fly.mode).toBe("fly");
+    const home = run(fly, { type: "home" }, L3, OUT);
+    expect(home).toMatchObject({ mode: "home" });
+    expect(home.lock).toEqual(fly.lock);
+    expect(effectiveCamera(home, 1500).mode).toBe("home");
+  });
+
+  it("goes home in the update that ends the lock", () => {
     const fly = locked(initialCamera(L3, { mode: "fly" }), 1000);
-    expect(run(fly, { type: "tick", nowMs: 2500 }, L3, OUT)).toMatchObject({ mode: "fly", lock: null });
+    expect(run(fly, { type: "tick", nowMs: 2500 }, L3, OUT)).toMatchObject({ mode: "home", lock: null });
+    expect(run(fly, { type: "tick", nowMs: 2500 }, L3).mode).toBe("fly");
+  });
+
+  it("keeps your own field enlarged: an elimination is not a move of the viewer", () => {
+    const own = run(HOME, { type: "enlarge", seat: 0 });
+    expect(own).toMatchObject({ mode: "focus", focusSeat: 0 });
+    expect(holdsOwnFocus(L3, own, OUT)).toBe(true);
+    expect(holdsOwnFocus(L3, own, [0])).toBe(false);
+    expect(holdsOwnFocus(L3, run(HOME, { type: "enlarge", seat: 1 }), OUT)).toBe(false);
+    expect(holdsOwnFocus(L3, HOME, OUT)).toBe(false);
+    // The lock tick that ends in a face-off leaves it, a viewer move (E, Home) still goes home.
+    expect(run(locked(own, 1000), { type: "tick", nowMs: 2500 }, L3, OUT)).toMatchObject({ mode: "focus", focusSeat: 0, lock: null });
+    expect(run(own, { type: "enlarge", seat: 0 }, L3, OUT).mode).toBe("home");
+    expect(run(own, { type: "home" }, L3, OUT).mode).toBe("home");
+  });
+
+  it("keeps your own field for every request about a rival, and lets you enlarge it again from home", () => {
+    const own = run(HOME, { type: "enlarge", seat: 0 });
+    for (const action of [{ type: "enlarge", seat: 1 }, { type: "focus", seat: 1 }, { type: "focusStep", dir: 1 }, { type: "look", seat: 1 }] as CameraAction[]) {
+      expect(run(own, action, L3, OUT)).toBe(own);
+    }
+    expect(run(HOME, { type: "enlarge", seat: 1 }, L3, OUT)).toBe(HOME);
+    expect(run(HOME, { type: "enlarge", seat: 0 }, L3, OUT)).toMatchObject({ mode: "focus", focusSeat: 0 });
+    // The viewer's own seat out: nothing to enlarge.
+    expect(run(HOME, { type: "enlarge", seat: 0 }, L3, [0]).mode).toBe("home");
+    expect(cameraActionForKey({ key: "e" }, L3, HOME, { out: OUT })).toEqual({ type: "enlarge", seat: 0 });
+  });
+
+  it("Esc still leaves the enlarged field in a face-off, and does nothing at home", () => {
+    expect(cameraActionForKey({ key: "Escape" }, L3, run(HOME, { type: "enlarge", seat: 0 }), { out: OUT })).toEqual({ type: "home" });
+    expect(cameraActionForKey({ key: "Escape" }, L3, HOME, { out: OUT })).toBeNull();
+  });
+
+  it("still allows the views with three seats alive", () => {
+    expect(run(HOME, { type: "overview" }).mode).toBe("fly");
   });
 });
 

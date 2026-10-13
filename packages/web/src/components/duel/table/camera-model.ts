@@ -1,11 +1,11 @@
-import { flyYawFor, normalizeAngle } from "./geometry";
+import { aliveLayout, flyYawFor, normalizeAngle } from "./geometry";
 import type { CameraAction, CameraMode, CameraState, FlyPose, TableLayout } from "./types";
 
 /**
  * The camera of the multiplayer table as a pure model. The reducer takes a layout (who sits where) and an optional
  * context (the seats that are out of the duel). The view changes ONLY on an action of the viewer (a click or a key):
- * a remote move, a chain, an attack, a prompt or a new turn never dispatches one. (Two seats left change nothing: the fields stay
- * where they are and the camera keeps the same controls. A rival that leaves is no view any more.) The `lock` of the state is a preview
+ * a remote move, a chain, an attack, a prompt or a new turn never dispatches one. (A face-off, with two seats left,
+ * has one view, so it is home. A rival that leaves is no view any more.) The `lock` of the state is a preview
  * switch (`?lock=`): the duel itself never sets it.
  */
 
@@ -61,11 +61,46 @@ function move(state: CameraState, patch: Partial<CameraState> & { mode: CameraMo
   };
 }
 
+/**
+ * A 3-way table with two seats or fewer left is a face-off: the two boards face each other and there is one view.
+ * Overview, Focus, Look and the fly-in have nothing to show there.
+ */
+export function isFaceOff(layout: TableLayout, out: readonly number[] | ReadonlySet<number>): boolean {
+  if (layout.format !== "ffa3") return false;
+  const gone = out instanceof Set ? out : new Set(out);
+  return layout.slots.filter((slot) => !gone.has(slot.seat)).length <= 2;
+}
+
+/**
+ * Your own field enlarged on a 3-way table that is down to a face-off: the zoom stays (the camera never zooms by itself, and an
+ * elimination is not the player's move). Needs the viewer's seat alive; the player leaves it with Home, E, Esc or Back.
+ */
+export function holdsOwnFocus(layout: TableLayout, camera: Pick<CameraState, "mode" | "focusSeat">, out: readonly number[] | ReadonlySet<number>): boolean {
+  if (layout.format !== "ffa3" || camera.mode !== "focus" || camera.focusSeat !== layout.anchorSeat) return false;
+  return !(out instanceof Set ? out.has(layout.anchorSeat) : (out as readonly number[]).includes(layout.anchorSeat));
+}
+
+const FACE_OFF_VIEWS = new Set<CameraAction["type"]>(["overview", "focus", "enlarge", "focusStep", "look", "toggleFly", "flyTo"]);
+
 const MOVES = new Set<CameraAction["type"]>(["home", "overview", "focus", "enlarge", "focusStep", "look", "toggleFly", "flyTo", "orbit", "zoom"]);
 
 export function cameraReducer(state: CameraState, action: CameraAction, layout: TableLayout, ctx?: CameraContext): CameraState {
   const { anchor, known, out, rivals } = seatsOf(layout, ctx);
+  const faceOff = isFaceOff(layout, out);
+  // Your own field enlarged through a face-off: only Home, Esc and a second E leave it. A click or a key about a rival changes nothing.
+  if (faceOff && holdsOwnFocus(layout, state, out)) {
+    const aboutRival = action.type === "focusStep" || action.type === "look" || ((action.type === "focus" || action.type === "enlarge") && action.seat !== anchor);
+    if (aboutRival) return state;
+  }
+  // A face-off has one view, so a camera in another mode goes home at once, also under an FX lock (the lock stays).
+  if (faceOff && state.mode !== "home" && (action.type === "home" || FACE_OFF_VIEWS.has(action.type))) return move(state, HOME_VIEW);
   if (state.lock != null && MOVES.has(action.type)) return state;
+  // The viewer may enlarge their own field again in a face-off (the Zoom my field button, E): that view is the one the face-off keeps.
+  const ownAgain = faceOff && action.type === "enlarge" && action.seat === anchor && !out.has(anchor);
+  if (faceOff && !ownAgain) {
+    // One view only: a request for another one sends the camera home.
+    if (FACE_OFF_VIEWS.has(action.type)) return state.mode === "home" ? state : move(state, HOME_VIEW);
+  }
   switch (action.type) {
     case "home":
       return move(state, HOME_VIEW);
@@ -108,7 +143,7 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
       if (state.mode === "fly" && state.fly.targetSeat === action.seat && !state.fly.free) {
         return { ...state, fly: FLY_HOME };
       }
-      const fly: FlyPose = { yawDeg: flyYawFor(layout, action.seat), tiltDeg: SEAT_TILT, zoom: SEAT_ZOOM, targetSeat: action.seat, free: false };
+      const fly: FlyPose = { yawDeg: flyYawFor(aliveLayout(layout, out), action.seat), tiltDeg: SEAT_TILT, zoom: SEAT_ZOOM, targetSeat: action.seat, free: false };
       if (state.mode === "fly") return { ...state, fly };
       return move({ ...state, flyIn: true }, { mode: "fly", fly });
     }
@@ -135,7 +170,8 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
     }
     case "tick": {
       if (!state.lock || state.lock.untilMs > action.nowMs) return state;
-      return { ...state, lock: null };
+      // The lock ends in a face-off: no view but home is left, so the camera goes home in the same update.
+      return faceOff && state.mode !== "home" && !holdsOwnFocus(layout, state, out) ? move({ ...state, lock: null }, HOME_VIEW) : { ...state, lock: null };
     }
     default:
       // An action the table no longer has (the old auto camera, Keep, aim hold) changes nothing.
@@ -183,6 +219,9 @@ export function cameraActionForKey(
   ctx?: CameraContext,
 ): CameraAction | null {
   const key = event.code === "BracketLeft" ? "[" : event.code === "BracketRight" ? "]" : event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const faceOff = isFaceOff(layout, ctx?.out ?? []);
+  // Esc still leaves your own field enlarged through a face-off (the one view that can be on).
+  if (faceOff && (key === "]" || key === "[" || key === "o" || key === "0" || key === "f" || key === "p" || (key === "Escape" && camera.mode !== "focus"))) return null;
   switch (key) {
     // Tab is left to the browser: the seat boxes are keyboard stops. [ and ] walk the rivals.
     case "]":
@@ -214,6 +253,7 @@ export function cameraActionForKey(
   if (/^[1-9]$/.test(key)) {
     const slot = layout.slots[Number(key) - 1];
     if (!slot) return null;
+    if (faceOff && slot.seat !== layout.anchorSeat) return null;
     if (camera.mode === "fly") return { type: "flyTo", seat: slot.seat };
     return slot.seat === layout.anchorSeat ? { type: "home" } : { type: "focus", seat: slot.seat };
   }
