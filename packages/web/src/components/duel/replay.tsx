@@ -296,8 +296,11 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   if (session.format === "tag") {
     return (
       <ReplayBusy busy={awaiting}>
-        <ReplayTag slug={slug} viewerId={viewerId} model={model} timeline={timeline} engine={engine} controller={controller}
-          visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} inputSuspended={awaiting} />
+        {/* The Tag table shows the cracks of the seek position and never animates them. */}
+        <FieldCracksScope duelKey={slug} format={session.format} settings={session.settings} replay>
+          <ReplayTag slug={slug} viewerId={viewerId} model={model} timeline={timeline} engine={engine} controller={controller}
+            visibility={visibility} onVisibilityChange={changeVisibility} notice={notice} tools={ownerTools} inputSuspended={awaiting} />
+        </FieldCracksScope>
       </ReplayBusy>
     );
   }
@@ -321,9 +324,12 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   if (isFfaFormat(session.format)) {
     return (
       <ReplayBusy busy={awaiting}>
-        <ReplayFfa slug={slug} model={model} frames={model.frames} engine={engine} controller={controller} preferences={preferences}
-          visibility={visibility} canSwitchCards={canSwitchCards} onVisibility={changeVisibility} notice={notice}
-          newLines={newLines} onCamera={() => { setInspect(null); setHover(null); }} tools={ownerTools} inputSuspended={awaiting} />
+        {/* The free-for-all tables show the cracks of the seek position and never animate them. */}
+        <FieldCracksScope duelKey={slug} format={session.format} settings={session.settings} replay>
+          <ReplayFfa slug={slug} model={model} frames={model.frames} engine={engine} controller={controller} preferences={preferences}
+            visibility={visibility} canSwitchCards={canSwitchCards} onVisibility={changeVisibility} notice={notice}
+            newLines={newLines} onCamera={() => { setInspect(null); setHover(null); }} tools={ownerTools} inputSuspended={awaiting} />
+        </FieldCracksScope>
       </ReplayBusy>
     );
   }
