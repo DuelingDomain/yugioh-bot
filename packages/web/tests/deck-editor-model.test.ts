@@ -247,6 +247,6 @@ describe("cards with unknown engine types", () => {
     const incomplete: CardCatalog = new Map([[999, unknown]]);
     expect(fixMisplaced(source, incomplete, "extra")).toBe(source);
     expect(placementBlock(unknown, "extra", "extra")).toBeNull();
-    expect(placementBlock(unknown, "extra", "main")).toBe(CARD_DETAILS_PENDING_MESSAGE);
+    expect(placementBlock(unknown, "extra", "main")).toBe(`Named unknown: ${CARD_DETAILS_PENDING_MESSAGE}`);
   });
 });

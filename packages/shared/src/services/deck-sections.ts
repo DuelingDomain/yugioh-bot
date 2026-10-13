@@ -6,6 +6,7 @@ import type { DeckCardType } from "../duels/extra-deck.js";
 
 export type DeckTypeEngineSource = CardIdentityCatalog | (() => CardIdentityCatalog);
 type CardTypeLookup = (code: number) => DeckCardType | undefined;
+let warnedRemapLoad = false;
 
 export { hasKnownDeckCardType } from "../duels/extra-deck.js";
 
@@ -23,7 +24,17 @@ export function createDeckTypeLookup(db: Database.Database, engine?: DeckTypeEng
   const catalogCard = (code: number) => find.get(code, code);
   const directory = () => deckEngineDataDirectory(db.name);
   const loadEngine = typeof engine === "function" ? engine : () => engine ?? loadArtworkIdentityCatalog(directory());
-  const loadRemaps = () => engine === undefined ? loadCardPasscodeRemaps(directory()) : new Map<number, number>();
+  const loadRemaps = (): ReadonlyMap<number, number> => {
+    if (engine !== undefined) return new Map();
+    try { return loadCardPasscodeRemaps(directory()); }
+    catch (error) {
+      if (!warnedRemapLoad) {
+        console.warn("[deck-sections] Cannot load card passcode remaps; using an empty map.", error);
+        warnedRemapLoad = true;
+      }
+      return new Map();
+    }
+  };
   const lookup = (cards: CardIdentityCatalog, remaps: ReadonlyMap<number, number>, code: number) => {
     // Engine bits are authoritative for an engine passcode, even when its catalog row is absent or stale.
     const resolved = remaps.get(code) ?? code;

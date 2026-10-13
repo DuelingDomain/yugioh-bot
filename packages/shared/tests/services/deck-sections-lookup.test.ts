@@ -49,6 +49,23 @@ afterEach(() => {
 });
 
 describe("deck type lookup uses the engine bundle outside the repository cwd", () => {
+  it("warns once and keeps imports available when remaps are missing or invalid, then recovers", () => {
+    const bytes = JSON.stringify({ version: 1, remaps: { 100000001: MAGIA } });
+    writeFileSync(join(engineDirectory, "manifest.json"), JSON.stringify({
+      sources: { databaseFormat: "official-releases-prerelease-v4" },
+      integrity: { cardRemaps: createHash("sha256").update(bytes).digest("hex") },
+    }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const find = createDeckTypeLookup(db);
+    expect(find(MAGIA)?.type).toBe(97);
+    expect(find.snapshot()(100000001)).toBeUndefined();
+    writeFileSync(join(engineDirectory, "card-remaps.json"), "{}");
+    expect(createDeckTypeLookup(db).snapshot()(MAGIA)?.type).toBe(97);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("[deck-sections]");
+    writeFileSync(join(engineDirectory, "card-remaps.json"), bytes);
+    expect(find.snapshot()(100000001)?.type).toBe(97);
+  });
   it("saves Magia and Ancient Fairy Life Dragon with no catalog rows", () => {
     const decks = createSavedDeckService(db);
     const saved = decks.create("g", 1, { name: "Domain", mode: "domain", deck: { main: [], extra: [MAGIA], side: [] } });

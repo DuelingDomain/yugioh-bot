@@ -49,3 +49,23 @@ describe("Extra Deck card rule", () => {
     expect(original.extra).toEqual([901, 902, 901, 903]);
   });
 });
+
+describe("owner import section rules", () => {
+  it.each([0x41, 0x2001, 0x800001, 0x4000001, 0x1000061, 0x1002021, 0x1800021])("always sends type %s from Main to Extra and keeps explicit Side", type => {
+    const routed = routeDeckSections({ main: [1], extra: [], side: [1] }, () => ({ type, name: "Extra monster" }));
+    expect(routed.deck).toEqual({ main: [], extra: [1], side: [1] });
+    expect(routed.messages.join(" ")).toContain("Extra monster");
+  });
+  it("reports an unresolved type that is only in Side by name", () => {
+    const routed = routeDeckSections({ main: [], extra: [], side: [1] }, () => ({ type: 0, name: "Unknown Side card" }));
+    expect(routed.deck.side).toEqual([1]);
+    expect(routed.messages.join(" ")).toContain("Unknown Side card");
+  });
+  it("keeps Extra overflow in Extra and reports it by card name", () => {
+    const routed = routeDeckSections({ main: [1], extra: Array<number>(15).fill(1), side: [] }, () => ({ type: 0x41, name: "Overflow Fusion" }));
+    expect(routed.deck.main).toEqual([]);
+    expect(routed.deck.extra).toHaveLength(16);
+    expect(routed.messages.join(" ")).toMatch(/Extra.*15/);
+    expect(routed.messages.join(" ")).toContain("Overflow Fusion");
+  });
+});

@@ -67,6 +67,10 @@ export function routeDeckSections(deck: DuelDeck, find: (code: number) => DeckCa
       if (from !== to) moves.push({ code, name: card?.name?.trim() || `card ${code}`, from, to });
     }
   }
+  for (const code of deck.side) {
+    const card = find(code);
+    if (!hasKnownDeckCardType(card)) unknownMessages.add(`Card type is unknown for ${card?.name?.trim() || `card ${code}`}. The card stays in its Side Deck section.`);
+  }
   const messages = (["extra", "main"] as const).flatMap(from => {
     const moved = moves.filter(move => move.from === from);
     if (!moved.length) return [];
@@ -74,5 +78,6 @@ export function routeDeckSections(deck: DuelDeck, find: (code: number) => DeckCa
     const target = from === "extra" ? "Main" : "Extra";
     return [`${moved.length} ${moved.length === 1 ? "card" : "cards"} moved from ${source} Deck to ${target} Deck: ${moved.map(move => move.name).join(", ")}.`];
   });
+  if (extra.length > 15) messages.push(`Extra Deck contains ${extra.length} cards; the limit is 15. Cards after position 15 stay in Extra Deck: ${extra.slice(15).map(code => find(code)?.name?.trim() || `card ${code}`).join(", ")}.`);
   return { deck: { ...deck, main, extra, side: [...deck.side] }, moves, messages: [...messages, ...unknownMessages] };
 }
