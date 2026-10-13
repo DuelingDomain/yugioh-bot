@@ -142,6 +142,8 @@ describe("PhaseHub on your turn", () => {
     const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep, actionOptions: [] })} />);
     const pill = container.querySelector<HTMLElement>('[data-phase="BP"][title]')!;
     expect(pill.querySelector("[aria-hidden='true']:not(svg)")?.textContent).toBe("Battle");
+    // The visible pill (code and name, not the screen reader text) never carries the step.
+    expect(pill.querySelector("[class*='name']")?.textContent).not.toMatch(/step|calc/i);
     // The step is the caption, outside the pill and in the middle pair (above it in the layout).
     const step = container.querySelector<HTMLElement>('[data-part="step"]')!;
     expect(step.textContent).toBe(caption);
@@ -192,13 +194,8 @@ describe("PhaseHub on your turn", () => {
     expect(container.querySelector('[data-phase="BP"][title]')?.textContent).toBe("BPBattleBattle, current phase");
   });
 
-  it("anchors the step caption to the Battle pill's right edge and keeps it inside its cell", () => {
+  it("keeps the step caption's width in the table caption, so the player name is cut first", () => {
     const css = readFileSync(join(__dirname, "../../src/components/duel/phase-hub.module.css"), "utf8");
-    const rule = css.match(/\.stepAbove \{([^}]*)\}/)![1];
-    expect(rule).toMatch(/right: 0;/);
-    expect(rule).toMatch(/left: auto;/);
-    expect(rule).toMatch(/max-width: calc\(50cqw \+ 50% - 6px\);/);
-    expect(rule).not.toMatch(/translateX|left: 50%/);
     expect(css).toMatch(/\.captionStep \{[^}]*flex: none;/);
   });
 
