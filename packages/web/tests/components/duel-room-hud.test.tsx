@@ -565,7 +565,7 @@ describe("the pinned card peek of the 1v1 room", () => {
       spies.push(
         vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
           if (this === document.body) return rect({ left: 0, right: 1280, top: 0, bottom: LAYER_H }) as DOMRect;
-          return rect(this.getAttribute("data-testid") === "field-pick" ? box : { left: 0, right: 0, top: 0, bottom: 0 }) as DOMRect;
+          return rect(["field-pick", "field-card"].includes(this.getAttribute("data-testid") ?? "") ? box : { left: 0, right: 0, top: 0, bottom: 0 }) as DOMRect;
         }),
         vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? widthOf(this) : 0; }),
         // The effect text is 200 px tall when it fits, and 100 px more when `fits` says the place is too small for it.
@@ -685,6 +685,27 @@ describe("the pinned card peek of the 1v1 room", () => {
       hover();
       expect(peek().getAttribute("data-art")).toBe("small");
       expect(peek().getAttribute("data-squeezed")).toBeNull();
+    });
+
+    it("keeps its place when the hover ends and the pointer moves onto the text: the card it stays clear of is frozen with the shown card", () => {
+      vi.useFakeTimers();
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
+      mountWithText();
+      hover();
+      // The card stands under the left column: the panel takes the band above it (50 to 388) and keeps the card clear.
+      expect(css("--pv-bottom")).toBe("332px");
+      const width = css("--pv-w");
+      fireEvent.mouseLeave(screen.getByTestId("field-card"));
+      // The pointer enters the text before the hide delay is over: the panel is held and must not move (no jump to the first band).
+      fireEvent.pointerEnter(peek().querySelector("p[class*=previewText]")!);
+      act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 4); });
+      expect(peek().getAttribute("data-open")).toBe("true");
+      expect(css("--pv-bottom")).toBe("332px");
+      expect(css("--pv-w")).toBe(width);
+      // Without the hold the panel slides out in the same place.
+      fireEvent.pointerLeave(peek().querySelector("p[class*=previewText]")!);
+      expect(css("--pv-bottom")).toBe("332px");
+      expect(css("--pv-w")).toBe(width);
     });
 
     it("lets a hover stand over a life-point plate, so the art keeps its height; a pin stays clear of the plate", () => {
