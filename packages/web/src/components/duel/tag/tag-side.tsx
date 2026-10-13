@@ -227,6 +227,7 @@ export function TagSide({
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
+          ownSeats={partner == null ? [seat] : [seat, partner]}
         />
       </>
     );

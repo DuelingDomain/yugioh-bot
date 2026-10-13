@@ -1,8 +1,10 @@
 /**
  * Where the card peek stands: one window for hover and pin (a click only freezes it), always in the same column at the left edge, right of the
- * icon dock, so a player always looks at the same place for the card. The column is kept free of the board by every shell (`--pv-col-w` in
- * grid-hud.module.css; the shells set their left margin from it). The window must not cover the chain tower and chain panel, the Deck Master
- * plates, the icon dock or the controls: it stands in a free band of the column, between them. This file measures those parts on screen and
+ * icon dock, so a player always looks at the same place for the card. The shells keep the board right of a narrow column (`COLUMN_*`, `--pv-col-w`
+ * in grid-hud.module.css; they set their left margin from it). The window is wider than that column (`peekWidth`, 320 to 420 px): it takes the free
+ * room beside the board, up to the first field zone of the viewer's own board, so it never covers that board and the board does not shrink for it.
+ * The window may cover the Deck Master plates (it stands over them while it shows a card), but not the chain tower and chain panel, the icon
+ * dock or the controls: it stands in a free band of the column, between them. This file measures those parts on screen and
  * lists the bands to try, best first; `grid-preview.tsx` ranks them with the real size of the panel. All rects are viewport rects.
  */
 
@@ -12,6 +14,8 @@ export interface Box { left: number; top: number; right: number; bottom: number 
 export interface Obstacles {
   board: Box[];
   keep: Box[];
+  /** The field zones of the viewer's own seats (a part of `board`), when the caller names them. The width of the panel stops short of these. */
+  own?: Box[];
 }
 
 /** One place to try: a free band of the left column. The panel stands on the bottom of the band; `maxH` is the room up to its top. */
@@ -29,14 +33,21 @@ export const EDGE_LEFT_PX = 72;
 /** The top offset of the peek in the layer (under the header pills) and the room left under it. */
 export const TOP_PX = 50;
 const BOTTOM_PX = 8;
-/** The width of the panel: 14% of the window, from 220 to 284 px (`--pv-col-w`, grid-hud.module.css, says the same in CSS). */
-export const MIN_WIDTH_PX = 220;
-export const MAX_WIDTH_PX = 284;
-export const WIDTH_RATIO = 0.14;
+/** The width the panel asks for: 22% of the window, from 320 to 420 px (`--pv-col-w`, grid-hud.module.css, says the same in CSS). */
+export const MIN_WIDTH_PX = 320;
+export const MAX_WIDTH_PX = 420;
+export const WIDTH_RATIO = 0.22;
+/** The panel is never narrower than this, even where the viewer's own board is near (it then covers a part of the empty margin of the board frame, never a zone). */
+export const FLOOR_WIDTH_PX = 220;
 /** The panel width for a window (or layer) this wide. */
 export const peekWidth = (windowWidth: number): number => Math.round(Math.min(MAX_WIDTH_PX, Math.max(MIN_WIDTH_PX, windowWidth * WIDTH_RATIO)));
-/** The right edge of the peek column from the left edge of the window: the shells keep the board right of it (`--hud-left`). */
-export const peekColumnRight = (windowWidth: number): number => EDGE_LEFT_PX + peekWidth(windowWidth) + GAP_PX;
+/** The narrow column the shells keep free of the board (`--hud-left`): 14% of the window, from 220 to 284 px. The panel grows past it into free room. */
+export const COLUMN_MIN_PX = 220;
+export const COLUMN_MAX_PX = 284;
+export const COLUMN_RATIO = 0.14;
+export const columnWidth = (windowWidth: number): number => Math.round(Math.min(COLUMN_MAX_PX, Math.max(COLUMN_MIN_PX, windowWidth * COLUMN_RATIO)));
+/** The right edge of the board column from the left edge of the window: the shells keep the board right of it (`--hud-left`). */
+export const peekColumnRight = (windowWidth: number): number => EDGE_LEFT_PX + columnWidth(windowWidth) + GAP_PX;
 /** A free band shorter than this is a short place: it comes after the tall ones (the art and some lines may not fit it). */
 const MIN_BAND_PX = 260;
 /** The height of a typical panel: the free width is measured beside the board over this span up from the bottom of a band. */
@@ -45,8 +56,9 @@ const SPAN_PX = 520;
 const THIN_PX = 4;
 
 const BOARD_SELECTOR = "[data-zones], [data-lp-seat]";
+// The Deck Master plates ('hud-master', 'hud-other') are not here: the panel stands over them while it shows a card, and they stay where they are.
 const KEEP_SELECTOR = [
-  '[data-testid="chain-tower"]', "[data-chain-panel]", '[data-testid="hud-dock"]', '[data-testid="hud-master"]', '[data-testid="hud-other"]',
+  '[data-testid="chain-tower"]', "[data-chain-panel]", '[data-testid="hud-dock"]',
   "[data-team-plate]", "[data-grid-controls]", "[data-view-reset]", "[data-camera-panel]", "[data-hub-slot]", "[data-hub]",
   // The glass pills of the bottom bar (the hint of the phase, the turn controls): the hint reaches into the column at 1280 px.
   '[data-testid="hud-bottom"] nav > div',
@@ -82,7 +94,7 @@ function cornerBoxes(): Box[] {
  * Measure what the peek stays clear of. `peek`: the panel itself (it never counts). `pinned`: the panel is a pin, which also stays clear of
  * the life-point plates (`PIN_KEEP_SELECTOR`). The clicked card counts like the rest of the board.
  */
-export function measureObstacles(peek?: Element | null, pinned = false): Obstacles {
+export function measureObstacles(peek?: Element | null, pinned = false, ownSeats?: readonly number[]): Obstacles {
   // The board zones are many (up to 60 on a grid): they count by their rect only (a hidden zone has no size), with no computed style.
   const boxes = (selector: string, styled: boolean) => {
     const found: Box[] = [];
@@ -93,7 +105,22 @@ export function measureObstacles(peek?: Element | null, pinned = false): Obstacl
     }
     return found;
   };
-  return { board: boxes(BOARD_SELECTOR, false), keep: [...boxes(pinned ? PIN_KEEP_SELECTOR : KEEP_SELECTOR, true), ...cornerBoxes()] };
+  const obstacles: Obstacles = { board: boxes(BOARD_SELECTOR, false), keep: [...boxes(pinned ? PIN_KEEP_SELECTOR : KEEP_SELECTOR, true), ...cornerBoxes()] };
+  if (ownSeats && ownSeats.length > 0) obstacles.own = ownZoneBoxes(peek, ownSeats);
+  return obstacles;
+}
+
+/** The field zones of the given seats: a zone says `<seat>:<location>:<sequence>` (a pile of two kinds lists both). */
+function ownZoneBoxes(peek: Element | null | undefined, seats: readonly number[]): Box[] {
+  const found: Box[] = [];
+  for (const node of Array.from(document.querySelectorAll("[data-zones]"))) {
+    if (peek?.contains(node)) continue;
+    const mine = (node.getAttribute("data-zones") ?? "").split(" ").some((key) => key !== "" && seats.includes(Number(key.split(":")[0])));
+    if (!mine) continue;
+    const rect = node.getBoundingClientRect();
+    if (rect.width > 1 && rect.height > 1) found.push(boxOf(rect));
+  }
+  return found;
 }
 
 /** A short text that changes when what the peek stays clear of moves (a camera move, a chain that opens): the peek is placed again then. */
@@ -106,7 +133,9 @@ export function obstaclesKey(obstacles: Obstacles): string {
       ? { left: Math.min(union.left, box.left), top: Math.min(union.top, box.top), right: Math.max(union.right, box.right), bottom: Math.max(union.bottom, box.bottom) }
       : box;
   }
-  return `${keep}|${union ? [union.left, union.top, union.right, union.bottom].map((value) => Math.round(value / 8)).join(",") : ""}`;
+  // The own zones set the width of the panel: their left edge counts too.
+  const own = obstacles.own && obstacles.own.length > 0 ? Math.round(Math.min(...obstacles.own.map((box) => box.left)) / 8) : "";
+  return `${keep}|${union ? [union.left, union.top, union.right, union.bottom].map((value) => Math.round(value / 8)).join(",") : ""}|${own}`;
 }
 
 /** The area of `box` that lies on `others`. Overlaps thinner than a few px do not count. */
@@ -158,19 +187,20 @@ export function freeWidth(layer: Box, band: Band, board: readonly Box[]): number
 
 /**
  * The places of the panel: one per free band of the left column (the highest first). The width is `peekWidth` of the layer, or the free
- * room beside the board when that is less (never under the minimum). With no measurable layer it returns nothing: the CSS places it.
- * A column cut into short bands (a chain tower, the chain panel, a Deck Master plate) is still the column: the short bands follow the tall ones
+ * room beside the viewer's own board when that is less (never under `FLOOR_WIDTH_PX`). Without the own zones (the caller does not know the seat)
+ * every board part limits it. A band is cut by the parts the panel stays clear of over the whole width it asks for. The Deck Master plates cut
+ * nothing: the panel may stand over them. With no measurable layer it returns nothing: the CSS places it.
+ * A column cut into short bands (a chain tower, the chain panel) is still the column: the short bands follow the tall ones
  * (a pin can take one to stay clear of the clicked card), they are the only places when no band is tall, and the panel never goes to the other side.
  */
 export function peekPlaces(layer: Box, obstacles: Obstacles): Place[] {
   if (layer.bottom - layer.top <= 0) return [];
   const full = peekWidth(layer.right - layer.left);
   const x0 = layer.left + EDGE_LEFT_PX;
-  // The bands are cut at the minimum width: a part that stands further right (a life-point plate, the hub) only narrows the panel there.
-  const near = [...obstacles.board, ...obstacles.keep];
+  const limits = obstacles.own && obstacles.own.length > 0 ? obstacles.own : obstacles.board;
   const places: Place[] = [];
-  for (const band of bandsOf(x0, x0 + MIN_WIDTH_PX, layer.top + TOP_PX, layer.bottom - BOTTOM_PX, obstacles.keep)) {
-    const width = Math.max(MIN_WIDTH_PX, Math.min(full, freeWidth(layer, band, near)));
+  for (const band of bandsOf(x0, x0 + full, layer.top + TOP_PX, layer.bottom - BOTTOM_PX, obstacles.keep)) {
+    const width = Math.max(FLOOR_WIDTH_PX, Math.min(full, freeWidth(layer, band, limits)));
     places.push({ side: "left", width, top: band.top, maxH: band.bottom - band.top });
   }
   return places;

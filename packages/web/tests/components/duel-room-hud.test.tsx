@@ -604,7 +604,7 @@ describe("the pinned card peek of the 1v1 room", () => {
       pin();
       expect(peek().getAttribute("data-side")).toBe("left");
       expect(peek().getAttribute("data-anchor")).toBe("bottom");
-      expect(css("--pv-w")).toBe("220px");
+      expect(css("--pv-w")).toBe("320px");
       // The band runs from 50 (under the header pills) to 8 px above the layer end.
       expect(css("--pv-bottom")).toBe("8px");
       expect(css("--pv-max-h")).toBe("662px");
@@ -740,7 +740,7 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { tower.remove(); panel.remove(); }
     });
 
-    it("stops above the Tag team plate at the bottom left, and above a Deck Master plate", () => {
+    it("stops above the Tag team plate at the bottom left, and stands over a Deck Master plate", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
       const plate = part({ "data-team-plate": "" }, { left: 14, right: 200, top: 540, bottom: 700 });
       const master = part({ "data-testid": "hud-master" }, { left: 14, right: 200, top: 100, bottom: 160 });
@@ -748,9 +748,10 @@ describe("the pinned card peek of the 1v1 room", () => {
         mount();
         hover();
         expect(peek().getAttribute("data-side")).toBe("left");
-        // The band between the master (160 + 12) and the plate (540 - 12): it ends 720 - 528 above the layer bottom.
+        // The band from the header pills (50) to the plate (540 - 12): it ends 720 - 528 above the layer bottom. The master plate (100-160) cuts nothing:
+        // the panel stands over it while it shows a card.
         expect(css("--pv-bottom")).toBe("192px");
-        expect(css("--pv-max-h")).toBe("356px");
+        expect(css("--pv-max-h")).toBe("478px");
       } finally { plate.remove(); master.remove(); }
     });
 
@@ -832,11 +833,15 @@ describe("the pinned card peek of the 1v1 room", () => {
 
 
 
-    it("keeps a floor under the card art in a tall band, so a long text scrolls instead of taking the art to 0", () => {
+    it("sizes the card art with the band: from 104 px in a short one to 200 px in a tall one, and the panel is 320-420 px wide, over the Deck Master plate", () => {
       const css = readFileSync(join(__dirname, "../../src/components/duel/table/grid-hud.module.css"), "utf8");
-      const rule = css.match(/^\.previewArt\s*\{[^}]*\}/m);
-      // 0 in a band under about 330 px, up to 180 px from 510 px on (--pv-max-h is the band height that grid-preview.tsx sets).
-      expect(rule?.[0]).toMatch(/min-height:\s*clamp\(0px,\s*calc\(var\(--pv-max-h,\s*0px\)\s*-\s*330px\),\s*180px\)/);
+      const art = css.match(/^\.previewArt\s*\{[^}]*\}/m);
+      // --pv-max-h is the band height that grid-preview.tsx sets.
+      expect(art?.[0]).toMatch(/width:\s*clamp\(104px,\s*calc\(\(var\(--pv-max-h,\s*640px\)\s*-\s*340px\)\s*\*\s*0\.7\),\s*min\(200px,\s*46%\)\)/);
+      const panel = css.match(/^\.preview\s*\{[^}]*\}/m);
+      expect(panel?.[0]).toMatch(/--pv-col-w:\s*clamp\(320px,\s*22vw,\s*420px\)/);
+      // Above the Deck Master plate (.masterWrap, z-index 31).
+      expect(Number(panel?.[0].match(/z-index:\s*(\d+)/)?.[1])).toBeGreaterThan(Number(css.match(/^\.masterWrap\s*\{[^}]*z-index:\s*(\d+)/m)?.[1]));
     });
 
     it("takes the pointer in CSS, so a click on a pinned panel never reaches a card under it", () => {
@@ -882,7 +887,7 @@ describe("the pinned card peek of the 1v1 room", () => {
         hover();
         expect(css("--pv-max-h")).toBe("662px");
         // Not a chain part: the hover check runs on every fourth beat only (150 ms each).
-        dock = part({ "data-testid": "hud-other" }, TOWER);
+        dock = part({ "data-grid-controls": "" }, TOWER);
         act(() => { vi.advanceTimersByTime(450); });
         expect(css("--pv-max-h")).toBe("662px");
         act(() => { vi.advanceTimersByTime(150); });
@@ -891,7 +896,7 @@ describe("the pinned card peek of the 1v1 room", () => {
         fireEvent.click(screen.getByTestId("field-pick"));
         act(() => { vi.advanceTimersByTime(600); });
         expect(css("--pv-max-h")).toBe("662px");
-        dock = part({ "data-testid": "hud-other" }, TOWER);
+        dock = part({ "data-grid-controls": "" }, TOWER);
         act(() => { vi.advanceTimersByTime(150); });
         expect(css("--pv-max-h")).toBe("352px");
       } finally { dock?.remove(); vi.useRealTimers(); }
