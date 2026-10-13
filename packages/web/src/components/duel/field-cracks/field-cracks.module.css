@@ -1,0 +1,66 @@
+/* Field cracks: a hairline layer inside the mat, under the cards. It never takes the pointer. Widths are in screen px:
+   --u turns them into the layer's own units, so a small, rotated or zoomed field keeps a hairline a hairline. */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.svg {
+  position: absolute;
+  overflow: visible;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.seg {
+  /* pathLength is 1: the dash is the whole path, so the spread animation moves the dash offset from 1 to 0. */
+  stroke-dasharray: 1;
+}
+
+.svg path {
+  stroke-width: calc(var(--w, 1) * var(--u, 1) * 1px);
+}
+
+.dark path { stroke: rgb(2 4 10 / 0.62); }
+.dark .m { --w: 0.85; }
+.dark .b { --w: 0.65; }
+.dark .t { --w: 0.5; }
+
+/* The lit lip of each crack: a thin cool line pushed toward the light, which stays at the screen's top left. */
+.lite { transform: translate(calc(var(--lx, 0.7) * 1px), calc(var(--ly, 0.8) * 1px)); }
+.lite path { stroke: rgb(190 208 238 / 0.24); }
+.lite .m { --w: 0.5; }
+.lite .b { --w: 0.4; }
+.lite .t { --w: 0.3; }
+
+/* A barely-there glow inside the cracks: cool from stage 2, a faint violet at stage 3. No warm tones, no flicker. */
+.glow {
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  filter: blur(calc(1.6px * var(--u, 1)));
+}
+.glow path { stroke: rgb(120 160 230 / 0.13); }
+.glow .m { --w: 2.6; }
+.glow .b { --w: 2; }
+.glow .t { --w: 1.5; }
+.layer[data-stage="2"] .glow,
+.layer[data-stage="3"] .glow,
+.layer[data-stage="4"] .glow { opacity: 1; }
+.layer[data-stage="3"] .glow path,
+.layer[data-stage="4"] .glow path { stroke: rgb(168 124 205 / 0.14); }
+
+/* The cut edge of a chunk that fell: a dark line on the shadow side and a cool light line on the lit side. */
+.rimDark { transform: translate(calc(var(--lx, 0.7) * -0.8px), calc(var(--ly, 0.8) * -0.8px)); }
+.rimDark path { stroke: rgb(0 0 0 / 0.55); --w: 1.5; }
+.rimLite path { stroke: rgb(205 220 245 / 0.34); --w: 0.8; }
+
+:global([data-reduced-motion="true"]) .glow { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .glow { transition: none; }
+}
