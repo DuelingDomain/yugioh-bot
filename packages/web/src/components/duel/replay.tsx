@@ -9,6 +9,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { CardHoverInfo } from "./card-interactions";
 import { phaseLabel } from "./constants";
 import { DeckMasterRail, DuelField } from "./field";
+import { FieldCracksScope } from "./field-cracks/context";
 import { CoinTossFx } from "./coin-toss-fx";
 import { useHeldTossLogIds, withoutHeldTossLines } from "./coin-toss-lock";
 import { DuelFeedback } from "./feedback";
@@ -401,8 +402,11 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
         <section className={styles.boardColumn} aria-label="Replay field">
           <div className={styles.board} ref={boardRef}>
             <MoveSourceBoundary events={engine.events} duelKey={`${slug}:replay:${epoch}`} root={boardRef}>
+            {/* A replay shows the cracks of the seek position and never animates them. */}
+            <FieldCracksScope duelKey={slug} format={session.format} settings={session.settings} replay>
             <ReplayBoard key={`${slug}:${camera}:${focusSeat}`} table={table} masterRule={session.masterRule}
               camera={camera} focusSeat={focusSeat} mySeat={model.mySeat} playerName={playerName} />
+            </FieldCracksScope>
             <DuelFeedback events={engine.events} duelKey={`${slug}:replay:${epoch}`} attackToast
               soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} />
             {/* The replay plays the coin too, passive: nothing is locked and the cover takes no pointer. */}
@@ -508,7 +512,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
           <DeckMasterRail engine={engine} mySeat={model.mySeat} bottomSeat={camera} topSeat={focusSeat} legalKeys={table.legalKeys}
             selectedKeys={table.selectedKeys} canAct={false} legalActionsFor={noActions}
             onActivate={onActivate} onChooseAction={noop}
-            onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
+            onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} showInUse />
         </aside> : null}
       </div>
       <div className={styles.mobileBar}>{tabs(true)}</div>

@@ -2,16 +2,19 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { EDGE_LEFT_PX, GAP_PX, MAX_WIDTH_PX, MIN_WIDTH_PX, measureObstacles, obstaclesKey, peekColumnRight, peekPlaces, peekWidth, type Box } from "@/components/duel/table/peek-layout";
+import { EDGE_LEFT_PX, FLOOR_WIDTH_PX, GAP_PX, MAX_WIDTH_PX, MIN_WIDTH_PX, measureObstacles, obstaclesKey, peekColumnRight, peekPlaces, peekWidth, type Box } from "@/components/duel/table/peek-layout";
 
 const layer = (width: number, height: number): Box => ({ left: 0, top: 0, right: width, bottom: height });
 const box = (left: number, top: number, right: number, bottom: number): Box => ({ left, top, right, bottom });
 
 describe("the card peek column", () => {
-  it("is 14% of the window wide, from 220 to 284 px", () => {
+  it("asks for 22% of the window, from 320 to 420 px (the size floor of the card panel)", () => {
+    expect(MIN_WIDTH_PX).toBe(320);
+    expect(MAX_WIDTH_PX).toBe(420);
     expect(peekWidth(1280)).toBe(MIN_WIDTH_PX);
     expect(peekWidth(1366)).toBe(MIN_WIDTH_PX);
-    expect(peekWidth(1920)).toBe(269);
+    expect(peekWidth(1600)).toBe(352);
+    expect(peekWidth(1920)).toBe(MAX_WIDTH_PX);
     expect(peekWidth(2560)).toBe(MAX_WIDTH_PX);
   });
 
@@ -31,8 +34,8 @@ describe("the card peek column", () => {
   });
 
   it("takes the whole free height of the column with nothing in it", () => {
-    const [first] = peekPlaces(layer(1920, 1080), { board: [box(353, 38, 1900, 1042)], keep: [] });
-    expect(first.width).toBe(269);
+    const [first] = peekPlaces(layer(1920, 1080), { board: [box(520, 38, 1900, 1042)], keep: [] });
+    expect(first.width).toBe(MAX_WIDTH_PX);
     expect(first.top).toBe(50);
     expect(first.maxH).toBeGreaterThan(900);
   });
@@ -64,13 +67,33 @@ describe("the card peek column", () => {
   });
 
   it("keeps a gap to the board when the board is nearer than the column", () => {
-    const [first] = peekPlaces(layer(1920, 1080), { board: [box(330, 38, 1900, 1042)], keep: [] });
-    expect(first.width).toBe(330 - GAP_PX - EDGE_LEFT_PX);
+    const [first] = peekPlaces(layer(1920, 1080), { board: [box(400, 38, 1900, 1042)], keep: [] });
+    expect(first.width).toBe(400 - GAP_PX - EDGE_LEFT_PX);
   });
 
-  it("never makes the panel narrower than the minimum", () => {
+  it("never makes the panel narrower than the floor, even when the board is nearer", () => {
     const [first] = peekPlaces(layer(1366, 768), { board: [box(200, 38, 1350, 740)], keep: [] });
-    expect(first.width).toBe(MIN_WIDTH_PX);
+    expect(first.width).toBe(FLOOR_WIDTH_PX);
+  });
+
+  it("is as wide as the free room up to the own field zones, and the rival board does not limit it", () => {
+    const rival = box(200, 38, 1350, 400);
+    const own = box(420, 500, 1350, 740);
+    const [first] = peekPlaces(layer(1920, 1080), { board: [rival, own], keep: [], own: [own] });
+    expect(first.width).toBe(420 - GAP_PX - EDGE_LEFT_PX);
+    const [open] = peekPlaces(layer(1920, 1080), { board: [rival, own], keep: [], own: [box(900, 500, 1350, 740)] });
+    expect(open.width).toBe(MAX_WIDTH_PX);
+  });
+
+  it("stands over the Deck Master plate: only the kept parts cut the band (the plate is no kept part)", () => {
+    const l = layer(1920, 1080);
+    const board = [box(520, 38, 1900, 1042)];
+    // The plate (bottom left, 14..320 x 756..1066) is not measured as a kept part, so the band runs down to the bottom of the layer.
+    const [first] = peekPlaces(l, { board, keep: [box(14, 170, 162, 330)] });
+    expect(first.top + first.maxH).toBe(1080 - 8);
+    // The same plate as a kept part cuts the band: the panel would stop above it.
+    const [cut] = peekPlaces(l, { board, keep: [box(14, 170, 162, 330), box(14, 756, 320, 1066)] });
+    expect(cut.top + cut.maxH).toBeLessThanOrEqual(756 - GAP_PX);
   });
 
   it("gives no place for a layer with no size (the CSS places the panel)", () => {
@@ -85,13 +108,54 @@ describe("the card peek column", () => {
 
 describe("what the peek stays clear of", () => {
   afterEach(() => { document.body.innerHTML = ""; });
-  const part = (attribute: string, rect: Box) => {
+  const part = (attribute: string, rect: Box, value = "") => {
     const node = document.createElement("div");
-    node.setAttribute(attribute, "");
+    node.setAttribute(attribute, value);
     node.style.opacity = "1";
     node.getBoundingClientRect = () => ({ ...rect, x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top, toJSON: () => ({}) });
     document.body.append(node);
   };
+
+  it("does not keep clear of the Deck Master plates: the panel may cover them while it shows a card", () => {
+    part("data-testid", box(14, 756, 320, 1066), "hud-master");
+    expect(measureObstacles().keep).toHaveLength(0);
+  });
+
+  it("is at least 300 px wide in Tag, where the Extra Deck and Field piles stand at the left of the own board", () => {
+    const monster = box(520, 500, 580, 580);
+    const [first] = peekPlaces(layer(1366, 768), { board: [monster, box(309, 500, 369, 580)], keep: [], own: [monster] });
+    expect(first.width).toBeGreaterThanOrEqual(300);
+  });
+
+  it("stops short of the card it shows, and keeps clear of it in the bands when no room is left", () => {
+    const wide = peekPlaces(layer(1920, 1080), { board: [], keep: [], target: box(430, 400, 490, 480) });
+    expect(wide[0].width).toBe(430 - GAP_PX - EDGE_LEFT_PX);
+    const near = peekPlaces(layer(1920, 1080), { board: [], keep: [], target: box(200, 400, 260, 480) });
+    expect(near.every((place) => place.width >= FLOOR_WIDTH_PX)).toBe(true);
+    expect(near[0].top + near[0].maxH).toBeLessThanOrEqual(400 - GAP_PX);
+  });
+
+  it("computes the bands over the final width, not the requested one", () => {
+    const limit = box(400, 500, 1350, 740);
+    const blocker = box(430, 100, 520, 200);
+    const [first] = peekPlaces(layer(1920, 1080), { board: [limit], keep: [blocker], own: [limit] });
+    expect(first.width).toBe(400 - GAP_PX - EDGE_LEFT_PX);
+    expect(first.top).toBe(50);
+  });
+
+  it("measures the field zones of the own seats only (a pile of two kinds counts for its seat)", () => {
+    const zone = (key: string, rect: Box) => part("data-zones", rect, key);
+    zone("0:4:0", box(400, 500, 460, 580));
+    zone("1:4:0", box(300, 100, 360, 180));
+    zone("0:8:3", box(420, 700, 480, 780));
+    zone("0:256:0 0:8:5", box(380, 700, 440, 780));
+    zone("0:64:0", box(300, 700, 360, 780));
+    zone("", box(200, 300, 260, 360));
+    // Only Monster Zones and Spell/Trap Zones 0-4 limit the width: the piles (Field 0:8:5, Extra Deck 0:64:0, GY) may be covered.
+    expect(measureObstacles(null, false, [0]).own).toEqual([box(400, 500, 460, 580), box(420, 700, 480, 780)]);
+    expect(measureObstacles(null, false, [1]).own).toEqual([box(300, 100, 360, 180)]);
+    expect(measureObstacles().own).toBeUndefined();
+  });
 
   it("keeps clear of the chain panel and the phase hub, and of the life-point plates only for a pin", () => {
     part("data-chain-panel", box(14, 200, 230, 380));
@@ -123,9 +187,14 @@ describe("the CSS keeps the peek column free", () => {
 
   it("has the same column width as peekWidth, and no right side variant", () => {
     const css = read("table/grid-hud.module.css");
-    expect(css).toContain("--pv-col-w: clamp(220px, 14vw, 284px)");
+    expect(css).toContain("--pv-col-w: clamp(320px, 22vw, 420px)");
     expect(css).not.toContain('.preview[data-side="right"]');
     expect(css).not.toContain("--pv-right");
+  });
+
+  it("makes the card panel of the 1v1 3D mode 268 to 420 px wide, and its art grows with the pane", () => {
+    expect(read("solid/solid-room.module.css")).toContain("--insp-w: clamp(268px, 25vw, 420px)");
+    expect(read("inspector.module.css")).toContain("min(calc(170 * var(--duel-unit, 1px)), 44%)");
   });
 
   it("keeps the 1v1 board clear of the corner stack by --hud-left, not by a fixed number", () => {

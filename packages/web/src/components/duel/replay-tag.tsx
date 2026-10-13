@@ -19,6 +19,8 @@ import {
 } from "./replay-controller";
 import type { ReplayTimeline } from "./replay-timeline";
 import { defaultTeamNames } from "./tag/live-tag";
+import { MasterSeatsContext } from "./master-place";
+import { FieldCracksScope } from "./field-cracks/context";
 import { TagShell } from "./tag/tag-shell";
 import { useMatchHistoryHref } from "./history-link";
 import { ReplayStatus } from "./replay-status";
@@ -167,6 +169,8 @@ export function ReplayTag({ slug, viewerId, model, timeline, engine, controller,
     <div data-replay-frame={controller.frameId ?? undefined} data-replay-visibility={model.visibility} data-replay-camera={camera}>
       {/* Outside the keyed shell: a seek rebuilds the shell, and a live region that is rebuilt is not read out. */}
       <ReplayStatus playing={playing} index={index} last={last} caption={actor} />
+      <FieldCracksScope duelKey={slug} format={session.format} settings={session.settings} replay>
+      <MasterSeatsContext.Provider value={engine.seats}>
       <TagShell
         controller={table}
         teamNames={teamNames}
@@ -177,6 +181,8 @@ export function ReplayTag({ slug, viewerId, model, timeline, engine, controller,
         notices={notices}
         replay={{ transport, resetKey: controller.epoch, tools: headerTools }}
       />
+      </MasterSeatsContext.Provider>
+      </FieldCracksScope>
     </div>
   );
 }

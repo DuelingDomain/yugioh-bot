@@ -1,3 +1,5 @@
+import { centeredPromptBox } from "../src/components/duel/table/prompt-box";
+import { dodgeShift, dodgeUnit } from "../src/components/duel/table/prompt-dodge";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -64,10 +66,10 @@ describe("grid prompt placement", () => {
     ".slot[data-slot=\"prompt\"] :global([data-prompt-panel][data-precheck])",
     ".slot[data-slot=\"prompt\"] :global([data-prompt-panel]:not([data-precheck]))",
     ".slot[data-slot=\"prompt\"] :global([data-prompt-surface]:not([data-prompt-panel], [data-place]))",
-  ])("centres %s on the pair", (selector) => {
+  ])("centres %s on the screen, with the step off the phase chips", (selector) => {
     const body = rule(selector);
     expect(body).toMatch(/inset:\s*var\(--pr-cy, 50%\) auto auto var\(--pr-cx, 50%\)/);
-    expect(body).toMatch(/translate:\s*-50% -50%/);
+    expect(body).toMatch(/translate:\s*-50% calc\(-50% \+ var\(--pr-dy, 0px\)\)/);
   });
 
   it("sets the pair vars on the prompt slot", () => {
@@ -75,28 +77,33 @@ describe("grid prompt placement", () => {
     expect(source).toMatch(/"--pr-cx"/);
     expect(source).toMatch(/data-slot="prompt"[^>]*style=\{promptStyle\}/);
   });
+
+  it("centres on the whole board, not on the home pair, and never on the zoomed part of it", () => {
+    const source = readFileSync(join(__dirname, "../src/components/duel/table/grid-stage.tsx"), "utf8");
+    // The frames of both pairs; on the face-off (the last two seats) the one frame round both fields.
+    expect(source).toMatch(/centeredPromptBox\(box, promptFrames\)/);
+    expect(source).toMatch(/promptFrames = finale && promptColumn != null \? \[frames\[promptColumn\]\] : frames/);
+    expect(source).not.toMatch(/visibleRect\(zoom\.view, pairFrame/);
+    expect(source).toMatch(/fixed: promptPair/);
+  });
 });
 
-// The modal prompts take a unit from the pair height, so they stay small on a small screen and on the finale board.
+// The modal prompts take a unit from the pair height, so they stay small on a small screen.
 describe("promptUnit", () => {
   it("follows the pair height between the floor and the cap", () => {
-    expect(promptUnit(746, false)).toBe(1.1); // 1920x1080 pair
-    expect(promptUnit(520, false)).toBe(0.76); // 1280x800 pair
-    expect(promptUnit(300, false)).toBe(0.72);
-    expect(promptUnit(2000, false)).toBe(1.15);
-  });
-
-  it("is smaller on the finale board than on a pair of the same height", () => {
-    expect(promptUnit(746, true)).toBeLessThan(promptUnit(746, false));
+    expect(promptUnit(746)).toBe(1.1); // 1920x1080 pair
+    expect(promptUnit(520)).toBe(0.76); // 1280x800 pair
+    expect(promptUnit(300)).toBe(0.72);
+    expect(promptUnit(2000)).toBe(1.15);
   });
 
   it("is set on the slot, and the dense rules keep rows and buttons 32px or more and text 12px or more", () => {
     const grid = readFileSync(join(__dirname, "../src/components/duel/table/grid-stage.module.css"), "utf8");
-    expect(grid).toMatch(/\[data-prompt-dense\] :global\(\[data-prompt-panel\]\) \{\s*--duel-unit: var\(--pr-unit, 1px\)/);
+    expect(grid).toMatch(/\[data-prompt-dense\] :global\(\[data-prompt-panel\]\) \{\s*--duel-unit: clamp\(max\(1px, var\(--pr-unit, 1px\)\), 0\.0625vw, 1\.4px\)/);
     for (const step of grid.match(/--duel-t-\w+: max\((\d+)px/g) ?? []) expect(Number(step.match(/(\d+)px/)![1])).toBeGreaterThanOrEqual(12);
     const prompts = readFileSync(join(__dirname, "../src/components/duel/prompt-center.module.css"), "utf8");
-    expect(prompts).toMatch(/\[data-prompt-dense\]\) \.rowMain \{\s*min-height: max\(34px/);
-    expect(prompts).toMatch(/\[data-prompt-dense\]\) \.btn \{ min-height: max\(32px/);
+    expect(prompts).toMatch(/\[data-prompt-dense\]\) \.rowMain \{\s*min-height: max\(44px/);
+    expect(prompts).toMatch(/\[data-prompt-dense\]\) \.btn \{ min-height: max\(40px/);
     const source = readFileSync(join(__dirname, "../src/components/duel/table/grid-stage.tsx"), "utf8");
     expect(source).toMatch(/"--pr-unit" as string\]: `\$\{promptUnit\(/);
   });
@@ -164,5 +171,73 @@ describe("clearBarRoom", () => {
   });
   it("is undefined when no width keeps off the cards", () => {
     expect(clearBarRoom(rect(0, 0, 590, 270), [rect(0, 0, 590, 270)])).toBeUndefined();
+  });
+});
+
+// Every prompt sits in the middle of the screen: the same box at home, in a focus and under a zoom.
+describe("centeredPromptBox", () => {
+  const box = { width: 1552, height: 920 };
+  const frames = [{ x: 8, y: 134, width: 760, height: 560 }, { x: 784, y: 134, width: 760, height: 560 }];
+
+  it("spans the board across and the band of the fields down, so its middle is the middle of the table", () => {
+    const at = centeredPromptBox(box, frames);
+    expect(at.x + at.width / 2).toBe(box.width / 2);
+    expect(at.y).toBe(134);
+    expect(at.y + at.height).toBe(694);
+  });
+
+  it("does not depend on which pair is home", () => {
+    expect(centeredPromptBox(box, [frames[1], frames[0]])).toEqual(centeredPromptBox(box, frames));
+  });
+
+  it("falls back to the whole box without a measured frame", () => {
+    expect(centeredPromptBox(box, [null, { x: 0, y: 0, width: 0, height: 0 }])).toEqual({ x: 0, y: 0, width: 1552, height: 920 });
+  });
+});
+
+describe("dodgeShift: a centred prompt steps up or down off the phase chips, never sideways", () => {
+  const box = { width: 1552, height: 920 };
+  const panel = { x: 606, y: 380, width: 340, height: 54 };
+  // The chips of the hub: one row of small chips in the band between the pairs; the hub's band itself is as wide as the pair.
+  const chips = [{ x: 80, y: 384, width: 29, height: 22 }, { x: 330, y: 384, width: 29, height: 22 }, { x: 640, y: 384, width: 29, height: 22 }];
+
+  it("is 0 when the prompt touches no chip", () => {
+    expect(dodgeShift(panel, [chips[0], chips[1]], box)).toBe(0);
+  });
+
+  it("takes the shortest vertical shift that clears the chips, and the panel keeps its place across the board", () => {
+    const shift = dodgeShift(panel, chips, box);
+    expect(shift).not.toBe(0);
+    expect(Math.abs(shift)).toBeLessThanOrEqual(96);
+    const moved = { ...panel, y: panel.y + shift };
+    expect(chips.some((chip) => moved.y < chip.y + chip.height && chip.y < moved.y + moved.height && moved.x < chip.x + chip.width && chip.x < moved.x + moved.width)).toBe(false);
+    // Nothing in the shift is sideways: the middle across stays the middle of the board.
+    expect(Math.abs(panel.x + panel.width / 2 - box.width / 2)).toBeLessThan(4);
+  });
+
+  it("is not moved by a band as wide as the pair when no chip stands under the panel", () => {
+    expect(dodgeShift(panel, [{ x: 8, y: 380, width: 100, height: 66 }], box)).toBe(0);
+  });
+
+  it("stays in the middle and covers the hub when the panel is too tall to clear it", () => {
+    expect(dodgeShift({ ...panel, y: 300, height: 300 }, chips, box)).toBe(0);
+  });
+
+  it("at 1440p the bigger panel (133 px) may go further than 96 px, so it clears the chips instead of covering the hub", () => {
+    const big = { x: 1000, y: 640, width: 560, height: 133 };
+    const hub = [{ x: 1200, y: 660, width: 40, height: 90 }];
+    const bigBox = { width: 2200, height: 1300 };
+    expect(dodgeUnit(2560)).toBe(1.4);
+    expect(dodgeUnit(1920)).toBeCloseTo(1.2);
+    expect(dodgeUnit(1280)).toBe(1);
+    // At unit 1 the shift (122 or 125 px) is out of reach: the panel stays and covers the hub.
+    expect(dodgeShift(big, hub, bigBox)).toBe(0);
+    const shift = dodgeShift(big, hub, bigBox, 12, dodgeUnit(2560));
+    expect(shift).not.toBe(0);
+    expect(Math.abs(shift)).toBeLessThanOrEqual(96 * 1.4);
+    const moved = { ...big, y: big.y + shift };
+    expect(moved.y < hub[0].y + hub[0].height && hub[0].y < moved.y + moved.height).toBe(false);
+    // A small screen keeps the old limit.
+    expect(dodgeShift({ ...panel, y: 300, height: 300 }, chips, box, 12, dodgeUnit(1366))).toBe(0);
   });
 });

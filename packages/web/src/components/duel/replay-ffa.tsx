@@ -21,6 +21,8 @@ import type { ReplayLogEntry } from "./replay-timeline";
 import { ReplayStatus } from "./replay-status";
 import { ReplayVerificationNote } from "./replay-verification";
 import type { ReplayCheckNote } from "./replay-controller";
+import { MasterSeatsContext } from "./master-place";
+import { FieldCracksScope } from "./field-cracks/context";
 import { TableShell } from "./table/table-shell";
 import type { ReplayShellMode } from "./table/types";
 import replayStyles from "./replay.module.css";
@@ -234,7 +236,11 @@ export function ReplayFfa({
       className="-mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8">
       {/* Outside the keyed shell: a seek rebuilds the shell, and a live region that is rebuilt is not read out. */}
       <ReplayStatus playing={controller.playing} index={index} last={last} caption={caption} />
+      <FieldCracksScope duelKey={slug} format={session.format} settings={session.settings} replay>
+      <MasterSeatsContext.Provider value={engine.seats}>
       <TableShell controller={table} replay={replay} preferences={preferences} initialOutOrder={initialOutOrder} fillViewport inputSuspended={inputSuspended} />
+      </MasterSeatsContext.Provider>
+      </FieldCracksScope>
     </div>
   );
 }

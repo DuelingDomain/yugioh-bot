@@ -244,7 +244,7 @@ export function slotPlan(layout: TableLayout, camera: CameraView): PoseSlot[] | 
 }
 
 /**
- * Where every seat stands for a camera state. Upright only turns text, so it never moves a field. A lock is
+ * Where every seat stands for a camera state. A lock is
  * not read here: the caller passes the effective camera (see `effectiveCamera`).
  */
 export function seatPoses(
@@ -821,7 +821,7 @@ export function promptRooms(input: {
   const panelMax = Math.min(320, Math.max(220, box.width * 0.27));
   const base = { layout: input.layout, camera: input.camera, poses: input.poses, anchors: input.anchors, spread: input.spread, meFooter: input.meFooter, hint };
   const hub = hubPose(input.layout, input.camera, { box: { width: box.width, height: k * STAGE.height }, meFooter: input.meFooter });
-  const ring = ringPose(input.layout, input.camera, input.spread);
+  const ring = ringPose(input.layout, input.camera);
   const furniture: PromptRoom[] = [
     { x: hub.x - hub.width / 2, y: hub.y - hub.height / 2, width: hub.width, height: hub.height },
     { x: ring.x - 70 * ring.scale, y: ring.y - 70 * ring.scale, width: 140 * ring.scale, height: 154 * ring.scale },
@@ -1139,7 +1139,7 @@ function wideHubPose(
   fallback: HubPose,
   hud?: { width: number; height: number },
 ): HubPose {
-  const ring = ringPose(layout, camera, spread);
+  const ring = ringPose(layout, camera);
   const obstacles = hubObstacles(layout, poses, plates, meFooter, hint, spread, ring);
   if (hud) {
     const right = STAGE.width + spread;

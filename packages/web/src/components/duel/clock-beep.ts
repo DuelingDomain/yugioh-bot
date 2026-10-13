@@ -3,6 +3,28 @@ import type { DuelClock } from "@yugidraft/shared/duels";
 /** The warning fires when the viewer's own clock reaches this much time left. */
 export const LOW_CLOCK_MS = 60_000;
 
+/** Whole seconds a clock shows for `ms` left: rounded up, so the HUD bank and the player plates change on the same tick. */
+export function clockSeconds(ms: number): number {
+  return Math.ceil(Math.max(0, ms) / 1000);
+}
+
+/** A clock is low (red) when the seconds it shows are at the limit or under. */
+export function isLowClock(ms: number, limitMs: number = LOW_CLOCK_MS): boolean {
+  return clockSeconds(ms) <= limitMs / 1000;
+}
+
+const receivedAtByClock = new WeakMap<DuelClock, number>();
+
+/** When this client first saw the snapshot (`performance.now()`). The HUD bank and the plates share it, so they count the same elapsed time. */
+export function clockReceivedAt(clock: DuelClock): number {
+  let at = receivedAtByClock.get(clock);
+  if (at == null) {
+    at = performance.now();
+    receivedAtByClock.set(clock, at);
+  }
+  return at;
+}
+
 /** Time left on a seat's clock at `at` (the client's `performance.now()` clock, offset by `receivedAt`). */
 export function liveClockMs(clock: DuelClock, seat: number, elapsedMs: number): number {
   const remaining = clock.remainingMs[seat];

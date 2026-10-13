@@ -25,8 +25,8 @@ export const ENGINE_HOST_RULE_FILES = [
  * Comments and other behavior-neutral edits may refresh that baseline with a stated reason.
  * Live play recovery deliberately does not gate on this version.
  */
-// Version 4 adds main's Deck Master prompt costs and seat-bound card declaration suggestions.
-export const ENGINE_HOST_RULE_VERSION = "duel-rules-4";
+// Version 5 adds fixed FFA facing pairs and the configurable Domain FFA first-turn draw rule.
+export const ENGINE_HOST_RULE_VERSION = "duel-rules-5";
 
 export class EngineResourceUnavailableError extends Error {
   readonly code = "ENGINE_UNAVAILABLE_FOR_SOURCE";

@@ -49,7 +49,7 @@ export interface SeatPose {
   x: number;
   y: number; // field centre in stage px
   scale: number;
-  rotateDeg: number; // effective rotation (text counter-rotates when upright)
+  rotateDeg: number; // effective rotation: the field, its cards and its text all turn with it
   tiltDeg?: number; // perspective tilt of a far field (rotateX), default 0
   /** Width of the field box at scale 1 (default SEAT_BOX.width): a wide 3-way table gives every zone column a card height, for full-size Defense cards. */
   width?: number;
@@ -76,7 +76,6 @@ export interface CameraState {
   mode: CameraMode;
   focusSeat: number | null;
   lookSeat: number | null;
-  upright: boolean;
   compact: "auto" | "on" | "off";
   fly: FlyPose;
   lock: { reason: CameraLockReason; untilMs: number } | null; // a preview switch only: the duel never sets it
@@ -94,7 +93,6 @@ export type CameraAction =
   | { type: "flyTo"; seat: number }
   | { type: "orbit"; dYawDeg: number; dTiltDeg: number }
   | { type: "zoom"; factor: number }
-  | { type: "toggleUpright" }
   | { type: "toggleCompact" }
   | { type: "lock"; reason: CameraLockReason; nowMs: number; ms: number }
   | { type: "tick"; nowMs: number };
@@ -117,7 +115,6 @@ export interface SeatFieldProps {
   /** Value of the `data-side` attribute when it must differ from `side` (Tag: "partner"). Default: `side`. */
   dataSide?: "you" | "opp" | "partner";
   angleDeg: number;
-  upright: boolean;
   tone: SeatTone;
   density: "full" | "rival" | "compact";
   hand: "face" | "backs" | "none";
@@ -129,6 +126,11 @@ export interface SeatFieldProps {
   emz: "own" | "shared-bottom" | "shared-top" | "pair" | "none";
   /** `framed`: the stage draws one frame round the pair (see grid-stage.tsx `pairFrameRect`), so this field draws no mat. */
   pair?: { other: number | null; left: number; right: number; gap: number; joined: boolean; framed?: boolean };
+  /**
+   * The plaza draws this seat's own two Extra Monster Zones, but the engine shares one row with the facing seat `other`
+   * (`sharedExtraWith`): the zones draw as linked, and a card of `other` in the mirrored zone shows as a taken ghost.
+   */
+  emzLink?: { other: number; otherName: string };
   showTally: boolean; // false when a holo LP panel owns data-lp-seat
   usable: boolean; // false: legal ring only, no USE glow (partner, spectator)
   name?: string; // display name of the seat (labels and aria text); default "Player <n>"

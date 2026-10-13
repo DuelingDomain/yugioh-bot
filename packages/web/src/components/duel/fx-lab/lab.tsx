@@ -30,6 +30,7 @@ import { installTimeShim, type TimeShim } from "./time-shim";
 import { DiceLabScreen } from "./dice-view";
 import { labSeriesRoom, OpeningLabScreen, SeriesLabHeader, SeriesLabScreen } from "./series-view";
 import { withDestroyCards } from "../destroy-cards";
+import { usePreviousSeats, withMasterSummonMoves } from "../master-summon-moves";
 
 /**
  * The FX lab: the real duel board and effect layers, fed by a scripted engine instead of a server.
@@ -334,6 +335,7 @@ export function FxLab() {
   };
 
   const engine = engineOf(live);
+  const previousSeats = usePreviousSeats(engine.seats);
   engine.prompt = script.prompt?.prompt ?? null;
   engine.result = result;
   // Between games and opening RPS are not live engine decisions.
@@ -426,7 +428,7 @@ export function FxLab() {
             <div className={fx.row}>
               <div className={fx.boardWrap}>
                 <div className={styles.board} ref={stageRef}>
-                  <MoveSourceBoundary key={live.runKey} events={engine.events} duelKey={duelKey} root={stageRef}>
+                  <MoveSourceBoundary key={live.runKey} events={withMasterSummonMoves(engine.events, previousSeats, engine.seats)} duelKey={duelKey} root={stageRef}>
                     <DeckSurrenderContext.Provider value={deckSurrender}>
                     <DuelField
                       engine={engine}
@@ -443,8 +445,8 @@ export function FxLab() {
                     </DeckSurrenderContext.Provider>
                     <FxBoundary>
                       <DuelFeedback events={engine.events} duelKey={duelKey} soundEnabled={sound} soundVolume={0.6} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
-                      <SummonFx events={withDestroyCards(engine.events)} duelKey={duelKey} reducedMotion={reduced} shake="medium" />
-                      <MoveFx events={withDestroyCards(engine.events)} duelKey={duelKey} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
+                      <SummonFx seats={engine.seats} events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={duelKey} reducedMotion={reduced} shake="medium" />
+                      <MoveFx events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={duelKey} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
                       <PositionFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} />
                       <ChainFx seats={engine.seats} events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={duelKey} reducedMotion={reduced} mySeat={0} playerName={(seat) => (seat === 0 ? "You" : "Practice Bot")} />
                       <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={duelKey} reducedMotion={reduced} mySeat={0} />
@@ -484,6 +486,7 @@ export function FxLab() {
                     onActivate={noop}
                     onChooseAction={noop}
                     onInspect={noop}
+                    showInUse
                   />
                 </aside>
               ) : null}

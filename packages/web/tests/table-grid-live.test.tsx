@@ -57,7 +57,7 @@ const main = FFA4_FIXTURES.states.main;
 const nameOf = (seat: number) => ["Aster", "Rook", "Juniper", "Mirelle"][seat];
 const liveOf = (container: HTMLElement) => container.querySelector("[data-testid='table-live']");
 
-// The 4-way HUD hides the out notes from the eye and draws the finale caption only: the one live region says both.
+// The 4-way HUD hides the out notes from the eye and draws the final duel caption only: the one live region says both.
 describe("the 4-way grid live region", () => {
   it("says a rival who leaves while you watch, with the place", () => {
     const { container, rerender } = render(<Shell state={main} />);

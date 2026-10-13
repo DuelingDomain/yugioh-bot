@@ -230,6 +230,8 @@ export interface HudMasterProps {
   onHoverCard?: DuelHoverHandler;
   /** The wide plate of the 3-way plaza (grid-master.tsx): the ability text shows, and the plate is the Deck Master Zone anchor. */
   wide?: boolean;
+  /** Multi-seat tables: the plate shows an empty "In use" slot while the master is out of its zone, and is the zone anchor of its seat. */
+  showInUse?: boolean;
 }
 
 export interface HudLayerProps {
@@ -255,9 +257,13 @@ export interface HudLayerProps {
   /** The pile viewer is open, or a pick hint is shown: the preview hides. An open card menu does not hide it. */
   previewHidden: boolean;
   reducedMotion: boolean;
+  /** The element of the hovered card (the preview shows it): the card peek never covers it. */
+  hoverAnchor?: HTMLElement | null;
+  /** The seats of the viewer (and the partner in Tag): the card peek is as wide as the free room up to their field zones, so it never covers them. */
+  ownSeats?: readonly number[];
 }
 
-export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, equipLinks, previewHidden, reducedMotion }: HudLayerProps) {
+export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats }: HudLayerProps) {
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   // A hovered board card says only what the art already shows (negated); a pinned one adds its equip, counter and material lines.
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
@@ -304,6 +310,8 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
         pinned={preview?.pinned === true}
         extras={extras}
         avoid={preview?.pinned === true ? hud.pinAnchor : null}
+        hoverAnchor={preview?.pinned === true ? null : hoverAnchor}
+        ownSeats={ownSeats}
         onClose={closePin}
       />
     </>

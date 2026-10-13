@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
-import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
+import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom, type DuelSeatView } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
@@ -56,9 +56,11 @@ import { ReportButton } from "./report-button";
 import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
 import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
+import { FieldCracksScope } from "./field-cracks/context";
 import { TableShell, type TableShellProps } from "./table/table-shell";
 import type { ReplayCarry } from "./table/replay-mode";
 import { ForkLabelsContext } from "./table/fork-labels";
+import { MasterSeatsContext } from "./master-place";
 import { TagShell } from "./tag/tag-shell";
 import { fieldWaitsForReveal } from "./field-gate";
 import { defaultTeamNames } from "./tag/live-tag";
@@ -133,6 +135,7 @@ import { PileViewer } from "./pile-viewer";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "./pile-focus";
 import { MatchSheetLog } from "./text-log";
 import { withDestroyCards } from "./destroy-cards";
+import { usePreviousSeats, withMasterSummonMoves } from "./master-summon-moves";
 import {
   CardTabEmpty, DEFAULT_SIDE_PANE, DESKTOP_PANES, desktopPane, mobilePanes, SidePanel, SideTabs, useIsNarrow, type SidePane,
 } from "./side-panel";
@@ -146,6 +149,7 @@ const SolidRoom = dynamic<SolidRoomProps>(() => import("./solid/solid-room").the
 });
 
 /** Slack after the crumble ends before an eliminated viewer switches to spectating. */
+const NO_SEATS: readonly DuelSeatView[] = [];
 const SPECTATE_AFTER_CRUMBLE_MS = 200;
 /** The Card/Log/Settings sheet in 3D mode is a solid panel (the tokens come from the 3D mode root, which holds the sheet). */
 const SOLID_SHEET_CLASS = "bg-[color:var(--ink-1)] border-t border-[color:var(--gold-b)] rounded-t-[16px] md:rounded-t-none";
@@ -274,6 +278,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // The server still refuses a stale answer by prompt id and revision.
   const syncing = realtime.recovering;
   const liveFormat = engineFormat(data?.engine);
+  // The seat views one update back: a Deck Master summon flies out of its plate only when the view shows it leaving.
+  const previousSeats = usePreviousSeats(data?.engine?.seats);
   // Live tables: FFA mounts TableShell, Tag 2v2 mounts the Rooftop (TagShell). ?stage=legacy keeps MultiSeatStage for both.
   const liveTagTable = isMultiSeat(data?.engine) && liveFormat === "tag" && !legacyStage;
   const liveTable = (isMultiSeat(data?.engine) && (liveFormat === "ffa3" || liveFormat === "ffa4") && !legacyStage) || liveTagTable;
@@ -1245,6 +1251,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       </div>
     );
   }
+  // Every board of this duel (live tables, 3D, flat) cracks from the same scope: duel id for the seed, starting LP of one side.
+  const withCracks = (node: ReactNode) => (
+    <FieldCracksScope duelKey={slug} format={data.session.format} settings={data.session.settings} replay={forkMode}>{node}</FieldCracksScope>
+  );
   if (liveTable && liveController) {
     // One seam set for both live shells, so the room stays one code path.
     const shellProps: TableShellProps = {
@@ -1285,10 +1295,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // switch, a Follow switch or a Reveal change clears them through `resetKey`, and the camera, the grid focus and the
     // zoom stay where the creator put them.
     const shellKey = forkMode ? `${slug}:fork` : watchingOnly ? `${slug}:watching` : slug;
-    return <ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
+    return withCracks(<ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
+      <MasterSeatsContext.Provider value={data?.engine?.seats ?? NO_SEATS}>
       {liveTagTable ? <TagShell key={shellKey} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={shellKey} {...shellProps} />}
+      </MasterSeatsContext.Provider>
       {forkResult}
-    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>;
+    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>);
   }
   const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
   const domain = data.session.mode === "domain";
@@ -1372,7 +1384,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       onChooseAction={onChooseAction}
       onActivate={onFieldActivate} topSeat={multi ? focusSeat : undefined}
       {...(forkMode ? forkMasterTitles : {})}
-      onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
+      onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} showInUse />
   ) : null;
   // The Log list stays mounted behind the other tabs (SidePanel keepMounted), so it keeps the rows it has built.
   // Only the instance in the column counts unread rows; the narrow sheet gets its own, uncounted copy.
@@ -1499,7 +1511,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     (engine?.seats ?? []).map((seat) => [seat.seat, seat.seat === localSeat ? SEAT_TONE_HEX.ice : SEAT_TONE_HEX.rose]),
   );
   const hudMaster = (seatView: NonNullable<typeof engine>["seats"][number] | undefined, local: boolean, title: string) =>
-    hudMasterProps({ legalKeys: fieldLegalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title);
+    hudMasterProps({ legalKeys: fieldLegalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title, true);
 
   // The pieces of the flat page, built once so the classic page and the 3D mode page (SolidRoom) show the same nodes.
   const wordmark = <Link href="/duels" replace={inDuelWindow}>Dueling Domain</Link>;
@@ -1627,16 +1639,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   } : null;
   // The board: the field (given by the caller), the FX layers as flat siblings of it, the prompt layer and the pile viewer.
   const renderBoard = (field: ReactNode): ReactNode => engine ? (
-    <MoveSourceBoundary events={engine.events} duelKey={slug} root={boardRef}>
+    <MoveSourceBoundary events={withMasterSummonMoves(engine.events, previousSeats, engine.seats)} duelKey={slug} root={boardRef}>
       {field}
       <FxBoundary>
       {fxUp ? <CoinTossFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion}
         replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
         soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
-      {fxUp ? <SummonFx events={withDestroyCards(engine.events)} duelKey={slug}
+      {fxUp ? <SummonFx seats={engine.seats} events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={slug}
         reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
-      {fxUp ? <MoveFx events={withDestroyCards(engine.events)} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
+      {fxUp ? <MoveFx events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
       {fxUp ? <ChainFx events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} seats={engine.seats} promptOpen={promptMine && ownPromptOpen(prompt, data.mySeat)} /> : null}
@@ -1726,7 +1738,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   );
 
   if (solid) {
-    return (
+    return withCracks(
       <ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
         <SolidRoom
           slug={slug}
@@ -1740,6 +1752,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           view={view}
           preferences={preferences}
           engine={engine ?? null}
+          previousSeats={previousSeats}
           mySeat={cameraSeat ?? data.mySeat}
           playerName={playerName}
           format={formatText}
@@ -1772,11 +1785,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           boardQuiet={boardQuiet}
           onBeforeViewChange={beforeViewChange}
         />
-      </DeckSurrenderContext.Provider></ForkSearchContext.Provider>
+      </DeckSurrenderContext.Provider></ForkSearchContext.Provider>,
     );
   }
 
-  return (
+  return withCracks(
     <ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
       data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
@@ -1858,10 +1871,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={pickHintShown || Boolean(pile?.open)}
           reducedMotion={preferences.reducedMotion}
+          hoverAnchor={hover?.anchor ?? null}
+          ownSeats={[localSeat]}
         />
       ) : null}
       {overlaysNode}
     </div>
-    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>
+    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>,
   );
 }

@@ -7,3 +7,7 @@
 .chip[data-action] { cursor: pointer; }
 /* Gold only for an active state: hover, focus in the tile, or the menu being open. */
 :is(button:hover, button:focus-visible) > .chip, .chip[data-open="true"], .chip[data-action]:hover { color: var(--chain-ink); box-shadow: 0 0 0 1px rgb(228 182 79 / 0.55); }
+/* The Deck Master crown sits bottom right and only shows while the tile is hovered or focused (it also stays on touch screens, which cannot hover). */
+.master { position: absolute; right: 3px; bottom: 3px; opacity: 0; }
+:is(button:hover, button:focus-visible) > .master { opacity: 1; }
+@media (hover: none) { .master { opacity: 1; } }

@@ -168,3 +168,38 @@ export function quadEdgePoint(quad: Quad, toward: Pt, gap: number): Pt {
   }
   return best === Infinity ? c : { x: c.x + ux * (best + gap), y: c.y + uy * (best + gap) };
 }
+
+/**
+ * The CSS `matrix3d` that maps a box of `width` x `height` px (its origin at the top-left corner, `transform-origin: 0 0`)
+ * onto `quad` (top-left, top-right, bottom-right, bottom-left, in the coordinates the box is placed in). A plain rotation or
+ * scale gives a plain matrix; a tilted view (a perspective camera) gives the trapezoid the real card has. Null for a
+ * quad that is no real outline (a corner pair that coincides, a size of 0, a fold).
+ */
+export function quadMatrix3d(width: number, height: number, quad: Quad): string | null {
+  if (!(width > 0 && height > 0)) return null;
+  const [p0, p1, p2, p3] = quad;
+  const area = Math.abs(((p0.x * p1.y - p1.x * p0.y) + (p1.x * p2.y - p2.x * p1.y) + (p2.x * p3.y - p3.x * p2.y) + (p3.x * p0.y - p0.x * p3.y)) / 2);
+  if (!(area >= 4)) return null;
+  const dx1 = p1.x - p2.x, dx2 = p3.x - p2.x, dx3 = p0.x - p1.x + p2.x - p3.x;
+  const dy1 = p1.y - p2.y, dy2 = p3.y - p2.y, dy3 = p0.y - p1.y + p2.y - p3.y;
+  let g = 0;
+  let h = 0;
+  if (Math.abs(dx3) > 1e-9 || Math.abs(dy3) > 1e-9) {
+    const den = dx1 * dy2 - dx2 * dy1;
+    if (Math.abs(den) < 1e-9) return null;
+    g = (dx3 * dy2 - dx2 * dy3) / den;
+    h = (dx1 * dy3 - dx3 * dy1) / den;
+  }
+  const a = p1.x - p0.x + g * p1.x, b = p3.x - p0.x + h * p3.x;
+  const d = p1.y - p0.y + g * p1.y, e = p3.y - p0.y + h * p3.y;
+  // A fold or a view from behind: a corner that would map to the far side of the camera.
+  if (1 + g < 1e-6 || 1 + h < 1e-6 || 1 + g + h < 1e-6) return null;
+  const m = [a / width, d / width, 0, g / width, b / height, e / height, 0, h / height, 0, 0, 1, 0, p0.x, p0.y, 0, 1];
+  return m.every(Number.isFinite) ? `matrix3d(${m.map((n) => Number(n.toPrecision(10))).join(",")})` : null;
+}
+
+/** True when the quad is an upright, unmirrored, straight box: the bounding rect then says all there is. */
+export function isPlainBox(quad: Quad): boolean {
+  const [p0, p1, p2, p3] = quad;
+  return Math.abs(p0.y - p1.y) < 0.75 && Math.abs(p3.y - p2.y) < 0.75 && Math.abs(p0.x - p3.x) < 0.75 && Math.abs(p1.x - p2.x) < 0.75 && p1.x > p0.x && p3.y > p0.y;
+}

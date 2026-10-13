@@ -1,0 +1,194 @@
+From 437d78a4b46bb5ec11ec2d275d967a93a75f2964 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 11 Oct 2026 20:26:31 -0400
+Subject: [PATCH] Use fixed FFA3 facing geometry throughout the duel
+
+Owner 2026-10-11, Domain rulebook v1.4 Player positioning. FFA3 seats 0/1 share EMZ, Link arrows and columns; seat 2 has no facing player. Column peers delegate to across_of, independent of activation bindings and survivor counts. Existing elimination cleanup retains the survivor field and never re-pairs.
+
+Co-Authored-By: Codex (gpt-6.1-sol) <noreply@openai.com>
+---
+ card.cpp      | 17 ++++++++---------
+ effect.h      |  1 -
+ field.cpp     | 24 ------------------------
+ field.h       | 13 ++++++-------
+ libduel.cpp   |  4 ++--
+ libeffect.cpp |  5 -----
+ processor.cpp |  4 ++--
+ 7 files changed, 18 insertions(+), 50 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index 4679feb..91c01a9 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -1522,17 +1522,13 @@ uint32_t card::get_column_zone(int32_t loc1, int32_t left, int32_t right) {
+ 	auto chkextra = [seq = current.sequence, mzone = (current.location == LOCATION_MZONE)](uint8_t s)->bool { 
+ 		return !mzone || seq < 5 || seq != s;
+ 	};
+-	// FFA3 EMZ are independent even when their columns line up. Exclude only
+-	// this card below, not the other seat's separately occupied mirrored EMZ.
+-	const bool independent_emz = pduel->game_field->n_duelists == 3
+-		&& pduel->game_field->n_teams == 3;
+ 	if (loc1 & LOCATION_MZONE) {
+ 		for (int32_t s = seq1; s <= seq2; ++s) {
+ 			zones |= (1u << s) | (1u << (16 + (4 - s)));
+ 			if (pduel->game_field->is_flag(DUEL_EMZONE)) {
+-				if (s == 1 && (chkextra(5) || independent_emz))
++				if (s == 1 && chkextra(5))
+ 					zones |= (1u << 5) | (1u << (16 + 6));
+-				else if (s == 3 && (chkextra(6) || independent_emz))
++				else if (s == 3 && chkextra(6))
+ 					zones |= (1u << 6) | (1u << (16 + 5));
+ 			}
+ 		}
+@@ -1562,13 +1558,16 @@ int32_t card::is_all_column() {
+ 		return FALSE;
+ 	card_set cset;
+ 	get_column_cards(&cset, 0, 0);
+-	if(pduel->game_field->n_duelists == 3 && pduel->game_field->n_teams == 3) {
+-		// FFA3 has separate EMZ. Count the actual column's available positions,
+-		// including both mirrored EMZ when a peer exists; the source is excluded.
++	if(pduel->game_field->n_duelists > 2) {
++		// Count only the fixed living fields. Mirrored EMZ bits name one physical
++		// position; an unpaired seat counts just its own column.
+ 		uint32_t zone = get_column_zone(LOCATION_ONFIELD, 0, 0);
+ 		uint32_t full = 0;
++		const uint32_t mask = zone;
+ 		for(; zone; zone &= zone - 1)
+ 			++full;
++		if((mask & (1u << 5)) && (mask & (1u << 22))) --full;
++		if((mask & (1u << 6)) && (mask & (1u << 21))) --full;
+ 		return full && cset.size() == full;
+ 	}
+ 	uint32_t full = 3;
+diff --git a/effect.h b/effect.h
+index 657d5ab..cae15c4 100644
+--- a/effect.h
++++ b/effect.h
+@@ -79,7 +79,6 @@ public:
+ 	// Read-only operation metadata: an activated opponent-only field/player effect needs a declaration.
+ 	bool operation_declares_opponent{ false };
+ 	// Explicit card-overlay opt-in: this activated effect affects opponent columns.
+-	bool column_peer{ false };
+ 	bool operation_declaration_incomplete{ false };
+ 	uint64_t category{};
+ 	card* owner{ nullptr };
+diff --git a/field.cpp b/field.cpp
+index e2a4807..e79b844 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -15,30 +15,6 @@
+ #include "group.h"
+ #include "interpreter.h"
+ 
+-// R-FFA-THREE-COLUMNS: a selected peer while three live, the sole peer while two live.
+-uint8_t field::column_peer_of(uint8_t p) const {
+-	if(n_duelists != 3 || n_teams != n_duelists)
+-		return across_of(p);
+-	if(!is_alive(p))
+-		return DUELIST_NONE;
+-	const auto* s = pduel->lua->current_scope();
+-	if(s && s->eff && s->eff->column_peer && (s->eff->type & EFFECT_TYPE_ACTIONS) && !(s->eff->type & EFFECT_TYPE_CONTINUOUS)) {
+-		// A flagged condition can read columns before its target callback runs.
+-		pduel->lua->scope_mark_touched();
+-		const auto peer = pduel->lua->scope_bound_opp();
+-		// A chain's bound seat wins over survivor geometry, even after it leaves.
+-		// Other reads in this operation keep that seat and see its empty field.
+-		if(is_duelist(peer) && is_duelist(s->P) && !same_team(s->P, peer)) {
+-			if(p == s->P)
+-				return peer;
+-			return p == peer ? s->P : DUELIST_NONE;
+-		}
+-	}
+-	uint8_t opponents[MAX_DUELISTS];
+-	// Use the pick's pending-loss policy before a peer has been bound.
+-	return pick_opponents(p, opponents) == 1 ? opponents[0] : DUELIST_NONE;
+-}
+-
+ bool chain::chain_operation_sort(const chain& c1, const chain& c2) {
+ 	return c1.triggering_effect->id < c2.triggering_effect->id;
+ }
+diff --git a/field.h b/field.h
+index 796275a..31ad60e 100644
+--- a/field.h
++++ b/field.h
+@@ -546,12 +546,13 @@ public:
+ 	bool is_skipped_seat(int64_t p) const {
+ 		return n_duelists > 2 && !is_alive(p);
+ 	}
+-	// Four-seat facing geometry is shared by FFA4 and Tag (owner 2026-10-07).
++	// Fixed facing geometry (owner 2026-10-11): FFA3 0/1; FFA4 and Tag 0/1, 2/3.
+ 	bool has_shared_zones() const {
+-		return n_duelists == 4 && (n_teams == n_duelists || n_teams == 2);
++		return (n_duelists == 3 && n_teams == n_duelists)
++			|| (n_duelists == 4 && (n_teams == n_duelists || n_teams == 2));
+ 	}
+ 	// Tag: p0=1A, p1=2A, p2=1B, p3=2B. Both formats face 0/1 and 2/3.
+-	// FFA3 has separate EMZ/Links; 1v1 keeps its opponent field.
++	// Seat 2 in FFA3 has no facing seat. Elimination never moves the seats.
+ 	uint8_t across_of(uint8_t p) const {
+ 		if(n_duelists == 2)
+ 			return opponent_of(p);
+@@ -562,10 +563,8 @@ public:
+ 		}
+ 		return DUELIST_NONE;
+ 	}
+-	// Column-only FFA3 house rule; EMZ and Link geometry still use across_of.
+-	// Const for field state only: a flagged read marks the Lua activation probe
+-	// as opponent-dependent via scope_mark_touched(). It does not bind a seat.
+-	uint8_t column_peer_of(uint8_t p) const;
++	// Columns use exactly the same fixed facing seat as EMZ and Link arrows.
++	uint8_t column_peer_of(uint8_t p) const { return across_of(p); }
+ 	// The high half of a zone effect: explicit selection, geometry, bound seat,
+ 	// then the physical across field (FFA4/Tag) or the separate-field fallback.
+ 	uint8_t zone_opponent(effect* peffect) const;
+diff --git a/libduel.cpp b/libduel.cpp
+index b50832b..6b979e0 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -4978,10 +4978,10 @@ LUA_STATIC_FUNCTION(MPAcrossSeat) {
+ 	lua_pushinteger(L, across == DUELIST_NONE ? -1 : across);
+ 	return 1;
+ }
+-// Column geometry is distinct from EMZ and Link sharing. Arguments are real seats.
++// Column geometry uses the fixed EMZ/Link facing pairs. Arguments are real seats.
+ LUA_STATIC_FUNCTION(MPColumnGeometry) {
+ 	const auto& f = *pduel->game_field;
+-	lua_pushboolean(L, f.has_shared_zones() || (f.n_duelists == 3 && f.n_teams == f.n_duelists));
++	lua_pushboolean(L, f.has_shared_zones());
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(MPColumnPeerSeat) {
+diff --git a/libeffect.cpp b/libeffect.cpp
+index 679cad6..31363da 100644
+--- a/libeffect.cpp
++++ b/libeffect.cpp
+@@ -290,11 +290,6 @@ LUA_FUNCTION(SetValue) {
+ 	}
+ 	return 0;
+ }
+-// Fork-private opt-in. Pure own-field column reads must not declare an opponent.
+-LUA_FUNCTION(SetColumnPeer) {
+-	self->column_peer = lua_get<bool>(L, 2);
+-	return 0;
+-}
+ LUA_FUNCTION(SetOperation) {
+ 	check_param_count(L, 2);
+ 	if(self->operation)
+diff --git a/processor.cpp b/processor.cpp
+index c2ab77e..7dfa726 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -5087,8 +5087,8 @@ void field::adjust_all() {
+ }
+ // n > 2: the low half names the handler's zones. zone_opponent chooses the
+ // high half: explicit selection, current geometry, bound opponent, then the
+-// format default. FFA4 and Tag default to the facing seat and mirror EMZs.
+-// FFA3 keeps its separate EMZs and next-living-opponent fallback.
++// format default. FFA3, FFA4 and Tag use fixed facing seats and mirror EMZs.
++// A seat without a living facing player has no shared geometry.
+ // A saved dead opponent never redirects the high half to another seat.
+ static void add_disabled_zones_n(field* f, uint8_t handler, uint32_t value, uint8_t bound = DUELIST_NONE) {
+ 	if(!f->is_duelist(handler))
+-- 
+2.43.0
+

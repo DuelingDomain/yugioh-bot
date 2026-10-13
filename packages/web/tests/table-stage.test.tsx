@@ -86,13 +86,17 @@ describe("TableShell on the 3-way fixtures", () => {
     expect(parseFloat(slot.style.getPropertyValue("--pr-unit"))).toBeGreaterThan(0);
   });
 
-  it("moves the prompt off your field while a declared attack targets a monster of it", () => {
+  it("keeps the prompt in the middle of your field while an attack is declared on it", () => {
     const { container, rerender } = render(<Shell id="chain-2" attackOn={0} />);
-    // The ring on the target and the end of the arrow stay clear: the prompt takes the free room, not the middle of your field.
-    expect(container.querySelector("[data-prompt-center]")).toBeNull();
-    // An attack on a rival's monster leaves the prompt where it is.
+    const middle = (node: ParentNode) => parseFloat(node.querySelector<HTMLElement>('[data-slot="prompt"]')!.style.getPropertyValue("--pr-cx"));
+    expect(container.querySelector("[data-prompt-center]")).not.toBeNull();
+    const own = middle(container);
+    expect(Number.isFinite(own)).toBe(true);
+    expect(own).toBeGreaterThan(300);
     rerender(<Shell id="chain-2" attackOn={1} />);
     expect(container.querySelector("[data-prompt-center]")).not.toBeNull();
+    expect(middle(container)).toBe(own);
+    expect(Number.isFinite(middle(container))).toBe(true);
   });
 
   it("draws one LP panel per seat and one seat field per seat", () => {
@@ -119,17 +123,25 @@ describe("TableShell on the 3-way fixtures", () => {
     }
   });
 
-  it("toggles upright text with the S key", () => {
+  it("has no upright text mode: the S key and the View panel change nothing, so a rival field stays turned", () => {
     const { container } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-table-stage]")!;
-    expect(stage.getAttribute("data-upright")).toBe("false");
-    act(() => {
-      fireEvent.keyDown(window, { key: "s" });
-    });
-    expect(stage.getAttribute("data-upright")).toBe("true");
-    act(() => {
-      fireEvent.keyDown(window, { key: "S" });
-    });
-    expect(stage.getAttribute("data-upright")).toBe("false");
+    const turned = () => Array.from(container.querySelectorAll("[data-seat-field]")).map((el) => `${el.getAttribute("data-seat-field")}:${el.getAttribute("data-seat-angle")}`);
+    const before = turned();
+    let allowed = true;
+    for (const name of ["s", "S"]) {
+      act(() => {
+        allowed = fireEvent.keyDown(window, { key: name });
+      });
+      expect(allowed).toBe(true);
+    }
+    expect(stage.hasAttribute("data-upright")).toBe(false);
+    expect(container.querySelector("[data-cam='upright']")).toBeNull();
+    expect(container.textContent).not.toMatch(/upright text/i);
+    expect(turned()).toEqual(before);
+    for (const el of container.querySelectorAll("[data-seat-field]")) {
+      expect(el.hasAttribute("data-straight")).toBe(false);
+      for (const zone of el.querySelectorAll("[data-zones]")) if (!zone.closest("[data-hand-seat]")) expect(zone.getAttribute("data-side")).not.toBe("opp");
+    }
   });
 });

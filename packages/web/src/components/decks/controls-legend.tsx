@@ -1,7 +1,7 @@
 import styles from "./editor.module.css";
 
 /** What the mouse does on a deck card and on a card in the list. The phone line says what a touch does. */
-export function ControlsLegend({ phone = false }: { phone?: boolean }) {
+export function ControlsLegend({ phone = false, domain = false }: { phone?: boolean; domain?: boolean }) {
   if (phone) {
     return <p className={styles["de-legend-phone"]}>Tap: select a card · Hold: change art</p>;
   }
@@ -13,6 +13,7 @@ export function ControlsLegend({ phone = false }: { phone?: boolean }) {
         <li><kbd>Left-click</kbd> remove</li>
         <li><kbd>Ctrl+click</kbd> move to/from Side Deck (<kbd>Cmd</kbd> on Mac)</li>
         <li><kbd>Right-click</kbd> change art</li>
+        {domain ? <li><kbd>Crown</kbd> on a monster: set as Deck Master</li> : null}
         <li><kbd>Ctrl+right-click</kbd> add a copy (<kbd>Cmd</kbd> on Mac), Standard only</li>
       </ul>
       <p className={styles["de-legend-k"]}>Card list</p>
@@ -24,6 +25,7 @@ export function ControlsLegend({ phone = false }: { phone?: boolean }) {
       <ul>
         <li><kbd>Enter</kbd> or <kbd>Space</kbd> select</li>
         <li><kbd>Delete</kbd> remove</li>
+        {domain ? <li><kbd>M</kbd> set a monster as Deck Master</li> : null}
         <li><kbd>+</kbd> or <kbd>=</kbd> add a copy, Standard only</li>
         <li><kbd>Ctrl+Enter</kbd> move to/from Side Deck</li>
         <li><kbd>Menu</kbd> or <kbd>Shift+F10</kbd> change art</li>

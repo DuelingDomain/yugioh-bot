@@ -51,7 +51,8 @@ import { CameraControls } from "./camera-controls";
 import { isFaceOff } from "./camera-model";
 import { controllerLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
-import { CAPTION_TEXT, useGridFinale } from "./grid-finale";
+import { CAPTION_TEXT, useFinalDuel } from "./final-duel-caption";
+import { finaleBoard } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { hudPreview } from "./hud-preview";
 import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./hud-layer";
@@ -77,6 +78,7 @@ import { SEAT_TONE_HEX, type CameraLockReason, type CameraState, type ReplayShel
 import hudStyles from "./grid-hud.module.css";
 import styles from "./table-shell.module.css";
 import { withDestroyCards } from "../destroy-cards";
+import { usePreviousSeats, withMasterSummonMoves } from "../master-summon-moves";
 
 export interface TableShellActions {
   onExit?: () => void;
@@ -236,9 +238,9 @@ function TableShellBody({
   }, [given, pick.noteAnswer, pickContinuation]);
   const tracked = useMemo(() => ({ ...given, onAnswer }), [given, onAnswer]);
   const narrow = useIsNarrow();
-  // A 4-way free-for-all draws the 2 by 2 grid (grid-layout.ts decides); every other table keeps the plaza stage.
-  // A core that shares the Extra Monster Zones another way than the grid draws them keeps the plaza stage for the whole
-  // duel, also once its last two seats share nothing (see useLatch).
+  // A 4-way free-for-all draws the grid of facing pairs (grid-layout.ts decides); every other table (the 3-way too) keeps the
+  // plaza stage. A core that shares the Extra Monster Zones another way than the grid draws them (the facing pairs are
+  // fixed for the whole duel) keeps the plaza stage for the whole duel (see useLatch).
   const trackedFormat = engineFormat(tracked.engine) as TableFormat;
   const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats);
   const gridRefused = useLatch(trackedFormat === "ffa4" && !gridFits);
@@ -270,6 +272,7 @@ function TableShellBody({
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, cameraSeat, nameOf, prompt } = base;
+  const previousSeats = usePreviousSeats(engine.seats);
   const namedChain = useMemo(() => projectChainNames(engine.chain, engine.seats), [engine.chain, engine.seats]);
   const format = engineFormat(engine);
   // A table of 3 or 4 draws its phases on the board, beside the turn ring. Tag keeps them in the bar.
@@ -290,7 +293,7 @@ function TableShellBody({
   const suspended = inputSuspended || ui.suspended || (narrow && sheetOpen);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
-  const camera = useCamera({ controller, layout, initial: replayCarry?.current.camera ?? initialCamera, initialLock: replay ? null : initialLock, seatKeys: flow.seatKeys, suspended, uprightOnly: grid });
+  const camera = useCamera({ controller, layout, initial: replayCarry?.current.camera ?? initialCamera, initialLock: replay ? null : initialLock, seatKeys: flow.seatKeys, suspended, keysOff: grid });
   // A replay seek remounts the table: remember what the viewer chose, so the next mount starts from it.
   useEffect(() => {
     if (replayCarry) replayCarry.current.camera = carriedCamera(camera.state);
@@ -301,8 +304,7 @@ function TableShellBody({
   useEffect(() => {
     if (replayCarry) replayCarry.current.sidePane = ui.pane;
   }, [replayCarry, ui.pane]);
-  // The 4-way grid starts on the full table (all four fields). The turn strip and the keys (1 to 4, O, Esc) move the focus.
-  const gridSeats = useMemo(() => gridCells(layout), [layout]);
+  // The grid starts on the full table. The turn strip and the keys (1 to 4, O, Esc) move the focus.
   const gridShown = useMemo(() => engine.seats.filter((view) => !view.eliminated).map((view) => view.seat), [engine.seats]);
   const gates = gridKeyGates({ prompt: controller.prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudOpen });
   const gridFocus = useGridFocus({
@@ -312,9 +314,13 @@ function TableShellBody({
     digitsFree: gates.digitsFree,
     escapeFree: gates.escapeFree,
   });
-  // The last two seats of a 4-way glide into one full board in the middle (the 1v1 composition) and say FINAL DUEL. The 3-way
-  // plaza uses the same caption and timing: its seats regroup face to face (geometry.ts duoFinaleSlots).
-  const finale = useGridFinale({ seats: engine.seats, cells: gridSeats, reducedMotion: controller.reducedMotion });
+  // The last two seats of a 3-way or 4-way table are named in a caption (FINAL DUEL). The 3-way plaza regroups them face to face
+  // (geometry.ts aliveLayout); the 4-way grid glides them to face each other (grid-finale.ts). Both are a visual change only: the
+  // facing pairs, columns and Extra Monster links stay as they were. A new duel or game starts the state again, with no animation.
+  const finalDuel = useFinalDuel({ seats: engine.seats, viewerSeat, reducedMotion: controller.reducedMotion, resetKey: `${room.session.slug}:${room.series?.gameNumber ?? 0}` });
+  const caption = finalDuel.caption;
+  const gridCellList = useMemo(() => (grid ? gridCells(layout) : []), [grid, layout]);
+  const gridFinale = useMemo(() => (grid && finalDuel.reached ? finaleBoard(finalDuel.reached, gridCellList) : null), [grid, finalDuel.reached, gridCellList]);
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
   // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
@@ -434,6 +440,7 @@ function TableShellBody({
       onInspect={controller.onInspect}
       rivals={[]}
       selfTitle={spectator ? `${nameOf(layout.anchorSeat)}'s Master` : forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)}'s Master` : undefined}
+      showInUse
     />
   ) : null;
 
@@ -507,7 +514,7 @@ function TableShellBody({
   // the last two are: there the out notes are hidden from the eye and not live, and the caption is only drawn.
   const freshOut = grid ? out.filter((entry) => (replay != null || entry.seat !== viewerSeat) && !outAtOpen.has(entry.seat)) : [];
   const newestOut = freshOut.reduce<(typeof out)[number] | null>((best, entry) => (best == null || entry.place < best.place ? entry : best), null);
-  const finaleNote = (grid || plazaHud) && finale.caption ? `Final duel: ${finale.caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
+  const finaleNote = (grid || plazaHud) && caption ? `Final duel: ${caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
   const liveText = [
     viewerEliminated ? (forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)} is eliminated.` : "You are eliminated. You keep watching.") : "",
     newestOut ? `${nameOf(newestOut.seat)} is out, ${placeLabel(newestOut.place)}.` : "",
@@ -640,13 +647,13 @@ function TableShellBody({
         <header className={hudStyles.top} data-testid="hud-top">
           <div className={hudStyles.topLeft}>{identityNode}</div>
           {replay ? null : hudClockBank(room.clock, session, controller.reducedMotion)}
-          <div className={hudStyles.topMid} data-caption={finale.caption ? "true" : undefined}>
+          <div className={hudStyles.topMid} data-caption={caption ? "true" : undefined}>
             {seatStripNode}
-            {finale.caption ? (
-              <div key={finale.caption.id} className={hudStyles.caption} aria-hidden="true" data-testid="grid-caption" data-kind={finale.caption.kind}>
+            {caption ? (
+              <div key={caption.id} className={hudStyles.caption} aria-hidden="true" data-testid="grid-caption">
                 <span className={hudStyles.captionKey}>{CAPTION_TEXT}</span>
                 <span className={hudStyles.captionNames}>
-                  {finale.caption.seats.map((seat, index) => (
+                  {caption.seats.map((seat, index) => (
                     <span key={seat} className={hudStyles.captionName}>
                       {index > 0 ? <em>vs</em> : null}
                       <i style={{ background: toneOf(seat).main, boxShadow: `0 0 8px ${toneOf(seat).main}` }} />
@@ -726,7 +733,7 @@ function TableShellBody({
         {hud ? null : promptDockNode}
         <section className={`${roomStyles.boardColumn} ${hud ? styles.hudBoard : ""}`} aria-label="Duel field">
           <div className={roomStyles.board} ref={boardRef} data-duel-board>
-            <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
+            <MoveSourceBoundary events={withMasterSummonMoves(engine.events, previousSeats, engine.seats)} duelKey={session.slug} root={boardRef}>
               <Stage
                 controller={controller}
                 layout={layout}
@@ -739,7 +746,7 @@ function TableShellBody({
                 placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
                 grid={grid ? gridFocus : undefined}
-                gridFinale={grid ? finale.board : undefined}
+                gridFinale={gridFinale}
                 hubPlace={hubPlace}
                 replay={replay != null}
                 gridHub={grid && hubOn ? (place) => (
@@ -784,8 +791,8 @@ function TableShellBody({
                     {/* A replay plays the coin too, passive: it takes no lock and no pointer, so the transport stays usable. */}
                     {fxActive ? <CoinTossFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} passive={replay != null} /> : null}
                     {fxActive ? <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <SummonFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
-                    {fxActive ? <MoveFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
+                    {fxActive ? <SummonFx seats={engine.seats} events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
+                    {fxActive ? <MoveFx events={withMasterSummonMoves(withDestroyCards(engine.events), previousSeats, engine.seats)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} promptOpen={promptMine && ownPromptOpen(prompt, viewerSeat)} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
@@ -930,6 +937,7 @@ function TableShellBody({
               engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
               !spectator && !replay,
               spectator || replay ? `${nameOf(viewerSeat ?? layout.anchorSeat)}'s Master` : forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)}'s Master` : "Your Master",
+              true,
             ),
             wide: plazaHud,
           } : null}
@@ -938,6 +946,8 @@ function TableShellBody({
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
+          hoverAnchor={ui.hover?.anchor ?? null}
+          ownSeats={[viewerSeat ?? layout.anchorSeat]}
         />
       ) : null}
       {narrow ? <TablePhonePanes domain={domain} pane={ui.pane} open={sheetOpen} unread={logUnread}

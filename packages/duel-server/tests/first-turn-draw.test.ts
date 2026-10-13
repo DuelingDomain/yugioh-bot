@@ -19,6 +19,19 @@ it("defaults to 1v1 Domain when the format is omitted", () => {
   expect(firstTurnDrawFor("domain")).toBe(false);
 });
 
+it.each(["ffa3", "ffa4"] as const)("%s honors its per-duel Domain setting", (format) => {
+  expect(firstTurnDrawFor("domain", 5, format, { firstTurnDraw: false })).toBe(false);
+  expect(firstTurnDrawFor("domain", 5, format, { firstTurnDraw: true })).toBe(true);
+  expect(firstTurnDrawFor("domain", 5, format, {})).toBe(true);
+});
+
+it("ignores the FFA override for 1v1, Tag and Standard rules", () => {
+  expect(firstTurnDrawFor("domain", 5, "1v1", { firstTurnDraw: true })).toBe(false);
+  expect(firstTurnDrawFor("domain", 5, "tag", { firstTurnDraw: false })).toBe(true);
+  expect(firstTurnDrawFor("normal", 5, "ffa3", { firstTurnDraw: true })).toBe(false);
+  expect(firstTurnDrawFor("normal", 1, "1v1", { firstTurnDraw: false })).toBe(true);
+});
+
 it.each([1, 2, 3, 4, 5] as const)("old Domain MR%s records without a flag keep their historical stock draw rule", (masterRule) => {
   expect(savedFirstTurnDraw(undefined, "domain", masterRule, "1v1")).toBe(masterRule <= 2);
 });

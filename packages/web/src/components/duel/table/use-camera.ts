@@ -25,8 +25,8 @@ export interface UseCameraOptions {
   seatKeys: boolean;
   /** A menu or the pile viewer is open: no camera key fires while it is. */
   suspended?: boolean;
-  /** The stage has no camera to move (the 4-way grid): only the upright key (S) fires, and Tab is left to the browser. */
-  uprightOnly?: boolean;
+  /** The stage has no camera to move (the 4-way grid): no key drives it, and Tab is left to the browser. */
+  keysOff?: boolean;
   /** Reads the real clock. A test injects its own. */
   now?: () => number;
 }
@@ -69,7 +69,7 @@ function typing(target: EventTarget | null): boolean {
  * remote move, a chain, an effect, a prompt or a new turn never moves it. When the viewer must pick a target on a
  * field that is not in view, `hint` names that field and the table marks it. It reads the clock only inside effects.
  */
-export function useCamera({ controller, layout, initial, initialLock = null, seatKeys, suspended = false, uprightOnly = false, now = Date.now }: UseCameraOptions): UseCamera {
+export function useCamera({ controller, layout, initial, initialLock = null, seatKeys, suspended = false, keysOff = false, now = Date.now }: UseCameraOptions): UseCamera {
   const { engine, prompt, viewerSeat, nameOf } = controller;
   const out = useMemo(
     () => engine.seats.filter(isEliminated).map((view) => view.seat),
@@ -109,15 +109,15 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
   }, [faceOff, state.mode, state.focusSeat, layout, out]);
 
   const escapeOwned = useRef(false);
-  const keyRef = useRef({ state, seatKeys, suspended, uprightOnly });
-  keyRef.current = { state, seatKeys, suspended, uprightOnly };
+  const keyRef = useRef({ state, seatKeys, suspended, keysOff });
+  keyRef.current = { state, seatKeys, suspended, keysOff };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // AltGr (reported as Ctrl+Alt) types [ and ] on AZERTY, German and other layouts, so those two keys pass with it.
       const bracket = event.key === "[" || event.key === "]" || event.code === "BracketLeft" || event.code === "BracketRight";
       const altGr = event.ctrlKey && event.altKey;
       if (event.metaKey || ((event.ctrlKey || event.altKey) && !(bracket && altGr)) || typing(event.target) || keyRef.current.suspended) return;
-      if (keyRef.current.uprightOnly && event.key !== "s" && event.key !== "S") return;
+      if (keyRef.current.keysOff) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('[role="dialog"][aria-modal="true"]') || document.querySelector('[aria-modal="true"]')) return;
       // The rail and the drawer are ordinary controls: Tab walks through them, Space presses a button, and no key drives the camera from there.
@@ -127,7 +127,7 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
       if (event.key === "Escape" && (event.defaultPrevented || escapeOwned.current || document.querySelector("[role='dialog']:not([hidden]), [role='menu']:not([hidden])"))) return;
       const action = cameraActionForKey(event, env.current.layout, keyRef.current.state, env.current.ctx);
       if (!action) return;
-      if (event.key === " " || event.key === "s" || event.key === "S") event.preventDefault();
+      if (event.key === " ") event.preventDefault();
       dispatch(action);
     };
     window.addEventListener("keydown", onKey);
