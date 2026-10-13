@@ -287,14 +287,27 @@ export function createMatchService(db: Database.Database) {
     approve(matchId: number, approverId: number): Match {
       const match = findById(matchId);
       ensureOpponentCanResolve(match, approverId);
+      // A report that waited past the end of its tournament no longer counts: no Elo, no points.
+      if (match.tournamentId !== null) {
+        const tournament = db
+          .prepare("select status from tournaments where id = ?")
+          .get(match.tournamentId) as { status: string } | undefined;
+        if (tournament && (tournament.status === "cancelled" || tournament.status === "completed")) {
+          throw new Error(`Tournament is ${tournament.status}; this report can no longer be confirmed`);
+        }
+      }
 
-      db.prepare(
+      // Only a still pending report can be approved: a cancel that denied it in the meantime wins.
+      const approved = db.prepare(
         `
         update matches
         set status = 'approved', approver_id = ?, resolved_at = current_timestamp
-        where id = ?
+        where id = ? and status = 'pending'
       `,
       ).run(approverId, matchId);
+      if (approved.changes !== 1) {
+        throw new Error("Match is not pending");
+      }
 
       const approvedMatch = findById(matchId);
       completeTournamentMatch(approvedMatch);
@@ -307,13 +320,16 @@ export function createMatchService(db: Database.Database) {
       const match = findById(matchId);
       ensureOpponentCanResolve(match, denierId);
 
-      db.prepare(
+      const denied = db.prepare(
         `
         update matches
         set status = 'denied', approver_id = ?, resolved_at = current_timestamp
-        where id = ?
+        where id = ? and status = 'pending'
       `,
       ).run(denierId, matchId);
+      if (denied.changes !== 1) {
+        throw new Error("Match is not pending");
+      }
 
       if (match.tournamentId !== null) {
         db.prepare(

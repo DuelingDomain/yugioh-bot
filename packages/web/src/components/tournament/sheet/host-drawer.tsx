@@ -20,13 +20,15 @@ import styles from "./rail.module.css";
  * Host tools button. It slides out over 220ms; the trap, Escape, `inert` and the focus return all let go
  * the moment `open` goes false, not when the exit ends.
  */
-export function HostDrawer({ open, tournament, tournamentSlug, ratings, onChanged, onClose }: {
+export function HostDrawer({ open, tournament, tournamentSlug, ratings, onChanged, onClose, onCancel }: {
   open: boolean;
   tournament: TournamentDetail;
   tournamentSlug: string;
   ratings: PlayerRatings;
   onChanged: () => void;
   onClose: () => void;
+  /** Cancel tournament was pressed. The sheet closes this drawer and opens its own dialog. */
+  onCancel: () => void;
 }) {
   const { mounted, state } = usePresence(open, DURATION.drawerOut);
   const close = useRef<HTMLButtonElement>(null);
@@ -101,7 +103,7 @@ export function HostDrawer({ open, tournament, tournamentSlug, ratings, onChange
           )}
           {tournament.status === "active" && (
             <section className={styles.dSec} aria-label="Ending early">
-              <EndingEarly tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
+              <EndingEarly tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} onCancel={onCancel} />
             </section>
           )}
         </div>
