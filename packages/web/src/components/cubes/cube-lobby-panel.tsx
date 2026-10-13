@@ -13,6 +13,7 @@ interface AllowedCube {
   mainCount: number;
   extraCount: number;
   sampleImages: string[];
+  canEdit?: boolean;
 }
 
 export interface CubeHostTools {
@@ -187,13 +188,13 @@ export function CubeLobbyPanel({
                 )}
                 {hostTools && (
                   <span className={styles.tha}>
-                    <Link
+                    {cube.canEdit === true && <Link
                       className="btn btn-quiet btn-sm"
                       href={`/cubes/${cube.id}?from=${encodeURIComponent(`/draft/${slug}`)}`}
                       aria-label={`Edit cube ${cube.name}`}
                     >
                       Edit cube
-                    </Link>
+                    </Link>}
                     <ThemeMenu
                       name={cube.name}
                       busy={hostTools.busy}

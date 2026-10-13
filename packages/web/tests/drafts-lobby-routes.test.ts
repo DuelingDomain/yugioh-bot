@@ -223,6 +223,7 @@ vi.doMock("@/lib/draft-lobby-api", async () => ({
       insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,1,'main',5),(1,2,'extra',3);
       update drafts set config_json = '{"mode":"theme","themeSelection":"player_pick","allowedCubeIds":[1]}';
       insert into draft_player_cube (draft_id,player_id,cube_id) values (1,1,1);`);
+    db.exec("insert into players (guild_id, discord_user_id, display_name) values ('guild', 'viewer', 'Viewer'); insert into draft_players (draft_id, player_id) values (1, 2)");
     projection = sharedServices.createDraftLobbyService(db).read(1, "viewer");
     service.read.mockReturnValue({ ...projection, players: projection.players.map((p) => ({ ...p, discordUserId: "secret", readySetupHash: "secret" })) });
     auth.mockResolvedValue({ user: { id: "viewer" } });

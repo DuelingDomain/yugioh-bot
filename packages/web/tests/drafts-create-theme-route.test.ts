@@ -38,8 +38,8 @@ describe("POST /api/drafts (theme mode)", () => {
 
     const { getDb } = await import("@/lib/db");
     const db = getDb();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Blue-Eyes', 'u')").run();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', 'u')").run();
+    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Blue-Eyes', 'creator-user')").run();
+    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', 'creator-user')").run();
     return db;
   }
 
@@ -170,8 +170,8 @@ describe("POST /api/drafts (theme mode)", () => {
     const db = new Database(dbPath);
     migrate(db);
     // two cubes to allow
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1','Blue-Eyes','u','t','t')").run();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1','Dark Magician','u','t','t')").run();
+    db.prepare("insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1','Blue-Eyes','creator-user','t','t')").run();
+    db.prepare("insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1','Dark Magician','creator-user','t','t')").run();
     db.close();
 
     const { POST } = await import("../app/api/drafts/route");

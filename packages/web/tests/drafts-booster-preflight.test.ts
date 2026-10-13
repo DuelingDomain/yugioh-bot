@@ -81,7 +81,7 @@ it.each([3, 4, 8])("starts a web set draft with %i players and 100 cards", async
   const db = getDb();
   for (let id = 1; id <= 100; id++) db.prepare(`insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[{"set_name":"Set A"}]', 't')`).run(id, `Card ${id}`);
   const { POST } = await import("../app/api/drafts/route");
-  const created = await POST(new Request("http://x/api/drafts", { method: "POST", body: JSON.stringify({ name: "Set night", config: { setNames: ["Set A"], packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40 } }) }) as NextRequest);
+  const created = await POST(new Request("http://x/api/drafts", { method: "POST", body: JSON.stringify({ name: "Set night", config: { lobbySeats: count, setNames: ["Set A"], packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40 } }) }) as NextRequest);
   expect(created.status).toBe(201);
   const draft = await created.json();
   expect(draft.errors).toEqual([]);

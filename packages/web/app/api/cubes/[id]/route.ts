@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
-import { cubeWriteAccess } from "@/lib/cube-access";
+import { cubeOwnerAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
@@ -30,6 +30,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (ctx instanceof NextResponse) return ctx;
 
   const db = getDb();
+  const denied = cubeOwnerAccess(db, ctx.cubeId, ctx);
+  if (denied) return denied;
   const catalog = createCardCatalogService(db);
   const cubes = createCubeService(db, catalog);
   const cube = db
@@ -71,7 +73,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   if (ctx instanceof NextResponse) return ctx;
 
   const db = getDb();
-  const denied = await cubeWriteAccess(db, ctx.cubeId, ctx.userId);
+  const denied = cubeOwnerAccess(db, ctx.cubeId, ctx);
   if (denied) return denied;
   const body = (await request.json().catch(() => ({}))) as { name?: string; draftType?: string };
   const draftType = body.draftType === undefined ? null : parseCubeDraftType(body.draftType);
@@ -98,7 +100,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (ctx instanceof NextResponse) return ctx;
 
   const db = getDb();
-  const denied = await cubeWriteAccess(db, ctx.cubeId, ctx.userId);
+  const denied = cubeOwnerAccess(db, ctx.cubeId, ctx);
   if (denied) return denied;
   createCubeService(db, createCardCatalogService(db)).deleteCube(ctx.cubeId);
   return NextResponse.json({ ok: true });

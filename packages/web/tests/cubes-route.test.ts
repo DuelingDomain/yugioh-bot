@@ -521,13 +521,13 @@ describe("cube API routes", () => {
       method: method === "cards" ? "POST" : method,
       body: method === "DELETE" ? undefined : JSON.stringify({ name: "Stolen", op: "add", catalogCardId: 1, pool: "main" }),
     }), { params: Promise.resolve({ id: String(cube.id) }) });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     expect(await cubeIdOf("Owned")).toBe(cube.id);
     const { getDb } = await import("../src/lib/db");
     expect(getDb().prepare("select count(*) as n from cube_cards where cube_id = ?").get(cube.id)).toEqual({ n: 0 });
   });
 
-  it.each(["PUT", "DELETE", "cards"])("%s allows a guild admin who is not the owner", async (method) => {
+  it.each(["PUT", "DELETE", "cards"])("%s rejects a guild admin who is not the owner", async (method) => {
     await setupDb();
     const { POST } = await import("../app/api/cubes/route");
     const created = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Owned" }) }));
@@ -541,7 +541,7 @@ describe("cube API routes", () => {
       method: method === "cards" ? "POST" : method,
       body: method === "DELETE" ? undefined : JSON.stringify({ name: "Admin edit", op: "add", catalogCardId: 1, pool: "main" }),
     }), { params: Promise.resolve({ id: String(cube.id) }) });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(404);
   });
 
   it.each(["PUT", "DELETE", "cards"])("%s rejects even an owner who is no longer a member", async (method) => {

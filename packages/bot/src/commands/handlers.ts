@@ -644,27 +644,28 @@ async function handleDraft(
         return;
       }
       case "list": {
-        const templates = deps.templates.list(guildId);
+        const templates = deps.templates.list(guildId, interaction.user.id);
 
         if (templates.length === 0) {
-          await interaction.reply("No templates saved yet.");
+          await interaction.reply({ content: "No templates saved yet.", ephemeral: true });
           return;
         }
 
-        await interaction.reply(
-          [
+        await interaction.reply({
+          content: [
             "Draft templates:",
             ...templates.map((template) => {
               const sets = template.config.setNames?.length ? `Sets: ${template.config.setNames.join(", ")}` : "All cards";
               return `- ${template.name} (${sets})`;
             }),
           ].join("\n"),
-        );
+          ephemeral: true,
+        });
         return;
       }
       case "delete": {
         const templateName = requireStringOption(interaction, "name");
-        const template = deps.templates.findByName(guildId, templateName);
+        const template = deps.templates.findByName(guildId, templateName, interaction.user.id);
 
         if (!template) {
           throw new Error(`Template not found: ${templateName}`);
@@ -674,7 +675,7 @@ async function handleDraft(
           throw new Error("Only the template creator can delete it");
         }
 
-        deps.templates.delete(guildId, templateName);
+        deps.templates.delete(guildId, templateName, interaction.user.id);
         await interaction.reply(`Deleted template: ${templateName}.`);
         return;
       }

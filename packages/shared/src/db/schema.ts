@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { migrateCubeOwnerNames } from "./cube-owner-names.js";
 import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
@@ -105,7 +106,7 @@ export function migrate(db: Database.Database) {
       created_by_user_id text not null,
       created_at text not null default current_timestamp,
       updated_at text not null default current_timestamp,
-      unique (guild_id, name)
+      unique (guild_id, created_by_user_id, name)
     );
 
     create table if not exists cube_cards (
@@ -922,6 +923,7 @@ export function migrate(db: Database.Database) {
   db.exec("create index if not exists card_script_error_created_idx on card_script_error_occurrences (created_at)");
   db.exec("create index if not exists card_script_error_revision_idx on card_script_error_occurrences (resolved_code, script_hash, created_at)");
   migrateConfigPoolsToCubeCards(db);
+  migrateCubeOwnerNames(db);
 }
 
 /**

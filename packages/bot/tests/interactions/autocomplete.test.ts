@@ -407,6 +407,7 @@ describe("autocomplete interactions", () => {
     const app = setup();
     app.templates.save("guild-1", "Classic", { setNames: ["Metal Raiders"] }, "user-1");
     app.templates.save("guild-1", "Modern", { setNames: ["Duelist Nexus"] }, "user-1");
+    app.templates.save("guild-1", "Private Classic", {}, "user-2");
 
     const { interaction, responses } = fakeAutocomplete({
       commandName: "draft",

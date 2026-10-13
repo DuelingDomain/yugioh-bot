@@ -79,12 +79,14 @@ function seedGate() {
 }
 
 beforeEach(() => {
+  vi.stubEnv("THEME_DRAFTS", "1");
   vi.resetModules();
   auth.mockReset().mockResolvedValue({ user: { id: "host" } });
   broadcast.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   for (const db of connections.splice(0)) db.close();

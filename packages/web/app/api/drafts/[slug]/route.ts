@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
-import { cubeReferenceAccess } from "@/lib/cube-access";
+import { draftCubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
 import { env } from "@/lib/env";
 import { boosterDraftConfigError, cardsPerPlayerError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, DraftTerminalError } from "@yugidraft/shared/services";
@@ -180,7 +180,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         ? boosterDraftConfigError({ customExtraCardIds: candidate.customExtraCardIds }) ?? themeDraftNumberError(candidate)
         : boosterDraftConfigError(candidate);
       if (numberError) throw new DraftLobbyApiError(numberError, "INVALID_CONFIG");
-      const denied = cubeReferenceAccess(db, candidate.allowedCubeIds, { allowMissing: true });
+      // Check the submitted source before sanitization can remove an inaccessible ID.
+      const references = patch && "poolSource" in patch ? { ...candidate, poolSource: patch.poolSource } : candidate;
+      const denied = draftCubeReferenceAccess(db, references, userId, base);
       if (denied) return denied;
       const assignmentError = hostThemeAssignmentError(db, existing.guildId, candidate, roster);
       if (assignmentError) throw new DraftLobbyApiError(assignmentError, "INVALID_CONFIG");

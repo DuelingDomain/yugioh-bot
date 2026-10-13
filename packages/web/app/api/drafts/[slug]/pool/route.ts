@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createDraftService, createCardCatalogService } from "@yugidraft/shared/services";
+import { createDraftService, createCardCatalogService, findDraftReadAccess } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import type { CardSummary } from "@/lib/card-types";
 import { draftReadAccess } from "@/lib/draft-access";
@@ -20,14 +20,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   const denied = draftReadAccess(db, slug, env.discordGuildId, session.user.id);
   if (denied) return denied;
   const row = db
-    .prepare("select config_json from drafts where web_slug = ? and guild_id = ?")
-    .get(slug, env.discordGuildId) as { config_json: string } | undefined;
+    .prepare("select config_json, created_by_user_id from drafts where web_slug = ? and guild_id = ?")
+    .get(slug, env.discordGuildId) as { config_json: string; created_by_user_id: string } | undefined;
   if (!row) {
     return NextResponse.json({ error: "Draft not found" }, { status: 404 });
   }
 
   try {
     const config = JSON.parse(row.config_json) as DraftConfig;
+    if (config.mode === "theme" && row.created_by_user_id !== session.user.id
+      && !findDraftReadAccess(db, slug, env.discordGuildId, session.user.id)?.isSeated) {
+      return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+    }
     const drafts = createDraftService(db);
     const catalog = createCardCatalogService(db);
 

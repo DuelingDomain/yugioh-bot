@@ -42,6 +42,20 @@ const baseProps = {
 };
 
 describe("DraftManageView — setup rail", () => {
+  it("reloads the booster pool when the viewer joins", async () => {
+    let joined = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/pool")
+      ? joined ? Response.json({ cards: [] }) : Response.json({}, { status: 404 })
+      : Response.json({ errors: [], warnings: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<DraftManageView {...baseProps} slug="join-pool" isCreator={false} isParticipant={false} />);
+    expect(await screen.findByText("Couldn't load the pool.")).toBeInTheDocument();
+    joined = true;
+    rerender(<DraftManageView {...baseProps} slug="join-pool" isCreator={false} isParticipant />);
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/pool"))).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByText("Couldn't load the pool.")).not.toBeInTheDocument());
+  });
+
   it("shows booster reachability errors on entering the lobby and refreshes them after edits", async () => {
     let errors = ["This pool can give one player at most 24 cards (at most 3 copies of each card), but the deck needs 40."];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/preflight")
@@ -335,9 +349,10 @@ describe("DraftManageView — theme draft", () => {
   });
 
   it("gives the host theme tools: edit link, a menu with Detach and Delete, and the add panel", async () => {
-    stubFetch();
+    stubFetch(url => url === "/api/cubes" ? Response.json({ cubes: [{ ...cubes[0], canEdit: true }, { id: 9, name: "Branded", archetype: null, mainCount: 40, extraCount: 5, canEdit: true }] }) : undefined);
     render(<DraftManageView {...baseProps} slug="s" draft={themeDraft()} isCreator isParticipant />);
-    expect(screen.getByRole("link", { name: "Edit cube Despia" })).toHaveAttribute("href", "/cubes/7?from=%2Fdraft%2Fs");
+    expect(await screen.findByRole("link", { name: "Edit cube Despia" })).toHaveAttribute("href", "/cubes/7?from=%2Fdraft%2Fs");
+    expect(screen.queryByRole("link", { name: "Edit cube Lightsworn" })).not.toBeInTheDocument();
     const more = screen.getByRole("button", { name: "More for Despia" });
     expect(more).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(more);
@@ -722,15 +737,20 @@ describe("DraftManageView — Seats First lobby", () => {
     expect(screen.queryByRole("button", { name: /add bot/i })).not.toBeInTheDocument();
   });
 
-  it("asks before it starts with players who are not ready, then sends force only after Start anyway", async () => {
-    const stub = stubFetch({ extra: { "POST /api/drafts/s/start": answerWith({ revision: 6 }) } });
+  it("uses server readiness and sends force only after Start anyway", async () => {
+    let requests = 0;
+    const stub = stubFetch({ extra: { "POST /api/drafts/s/start": () => ++requests === 1
+      ? Response.json({ code: "NOT_READY", notReadyPlayerIds: [2], unclaimedPlayerIds: [] }, { status: 409 })
+      : answerWith({ revision: 6 })(),
+    } });
     render(view());
     fireEvent.click(screen.getByRole("button", { name: /^start draft/i }));
     expect(await screen.findByRole("dialog", { name: /not everyone is ready/i })).toBeInTheDocument();
-    expect(postsTo(stub, "/start")).toHaveLength(0);
+    expect(postsTo(stub, "/start")).toHaveLength(1);
+    expect(postsTo(stub, "/start")[0].body).toEqual({ revision: 5 });
     fireEvent.click(screen.getByRole("button", { name: /start anyway/i }));
-    await waitFor(() => expect(postsTo(stub, "/start")).toHaveLength(1));
-    expect(postsTo(stub, "/start")[0].body).toEqual({ revision: 5, force: true });
+    await waitFor(() => expect(postsTo(stub, "/start")).toHaveLength(2));
+    expect(postsTo(stub, "/start")[1].body).toEqual({ revision: 5, force: true });
   });
 
   it("shows the start box from the lobby, stops with the token on Esc, and never starts by timer", async () => {

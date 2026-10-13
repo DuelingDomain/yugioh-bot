@@ -91,12 +91,14 @@ describe("mutations are limited to the configured guild", () => {
     expect(getDb().prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
   });
 
-  it("theme creation can use another member's cube in the configured guild", async () => {
+  it("theme creation cannot use another member's cube in the configured guild", async () => {
     const { POST } = await import("../app/api/drafts/route");
     const res = await POST(new Request("http://x", {
       method: "POST", body: JSON.stringify({ name: "Theme", channelId: "c", config: { mode: "theme", allowedCubeIds: [2] } }),
     }) as NextRequest);
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(404);
+    const { getDb } = await import("../src/lib/db");
+    expect(getDb().prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
   });
 
   it("draft config edits cannot attach another guild's cube", async () => {

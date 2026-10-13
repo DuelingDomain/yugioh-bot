@@ -129,7 +129,7 @@ describe("cube pool routes", () => {
       if (!taken) {
         taken = true;
         const db = await rawDb();
-        db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','RACE','other')").run();
+        db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','RACE','creator')").run();
         db.close();
       }
       return Response.json({ data: [] });
@@ -156,21 +156,21 @@ describe("cube pool routes", () => {
     expect((await createPool({ name: "Big", cards: many })).status).toBe(400);
   });
 
-  it("copies the extra pool of another cube in the guild only", async () => {
+  it("copies only an owned extra pool and rejects foreign sources", async () => {
     await setupDb();
     const db = await rawDb();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Src','x')").run();
+    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Src','creator')").run();
     db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other','Foreign','x')").run();
     db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (1,2,'extra',3)").run();
     db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (2,2,'extra',3)").run();
     db.close();
     const ok = await (await createPool({ name: "Copy", cards: [{ id: 1, copies: 1 }], copyExtraFromCubeId: 1 })).json();
-    const foreign = await (await createPool({ name: "Copy2", cards: [{ id: 1, copies: 1 }], copyExtraFromCubeId: 2 })).json();
+    const foreign = await createPool({ name: "Copy2", cards: [{ id: 1, copies: 1 }], copyExtraFromCubeId: 2 });
     const check = await rawDb();
     const extra = (id: number) =>
       check.prepare("select catalog_card_id id, max_copies copies from cube_cards where cube_id = ? and pool = 'extra'").all(id);
     expect(extra(ok.cube.id)).toEqual([{ id: 2, copies: 3 }]);
-    expect(extra(foreign.cube.id)).toEqual([]);
+    expect(foreign.status).toBe(404);
     check.close();
   });
 
@@ -204,16 +204,16 @@ describe("cube pool routes", () => {
       db.close();
     });
 
-    it("is 403 for a non-owner non-admin and 400 for bad cards", async () => {
+    it("is 404 for a non-owner or admin and 400 for bad cards", async () => {
       const post = await seededCube();
       expect((await post({ op: "replaceMain", cards: [{ id: 3, copies: 0 }] })).status).toBe(400);
       auth.mockResolvedValue({ user: { id: "stranger", name: "Joey" } });
-      expect((await post({ op: "replaceMain", cards: [{ id: 3, copies: 1 }] })).status).toBe(403);
+      expect((await post({ op: "replaceMain", cards: [{ id: 3, copies: 1 }] })).status).toBe(404);
       discord.permissions = "32";
       vi.resetModules();
       const { POST } = await import("../app/api/cubes/[id]/cards/route");
       const res = await POST(json({ op: "replaceMain", cards: [{ id: 3, copies: 1 }] }), { params: Promise.resolve({ id: "1" }) });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(404);
     });
   });
 
@@ -228,12 +228,11 @@ describe("cube pool routes", () => {
     const cubes = (await (await GET()).json()).cubes;
     expect(cubes.map((c: any) => [c.name, c.createdByUserId, c.createdByName, c.canEdit])).toEqual([
       ["Mine", "creator", "Yugi", true],
-      ["Theirs", "someone", null, false],
     ]);
     discord.permissions = "32";
     vi.resetModules();
     const again = (await (await (await import("../app/api/cubes/route")).GET()).json()).cubes;
-    expect(again.map((c: any) => c.canEdit)).toEqual([true, true]);
+    expect(again.map((c: any) => c.canEdit)).toEqual([true]);
     discord.memberStatus = 500;
     vi.resetModules();
     const failed = await (await import("../app/api/cubes/route")).GET();
@@ -244,20 +243,20 @@ describe("cube pool routes", () => {
     await setupDb();
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));
     const db = await rawDb();
-    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Real Name','x')").run();
+    db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Real Name','creator')").run();
     db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other','Foreign','x')").run();
     db.close();
     const { POST } = await import("../app/api/drafts/route");
     const make = (name: string, poolSource: unknown) =>
       POST(json({ name, config: { setNames: [], customCardIds: [1, 3], packSize: 8, packsPerPlayer: 5, poolSource } }));
     expect((await make("D1", { cubeId: 1, cubeName: "Fake" })).status).toBe(201);
-    expect((await make("D2", { cubeId: 2, cubeName: "Foreign" })).status).toBe(201);
+    expect((await make("D2", { cubeId: 2, cubeName: "Foreign" })).status).toBe(404);
     expect((await make("D3", { cubeId: "x" })).status).toBe(201);
     const check = await rawDb();
     const cfg = (name: string) =>
       JSON.parse((check.prepare("select config_json from drafts where name = ?").get(name) as any).config_json);
     expect(cfg("D1").poolSource).toEqual({ cubeId: 1, cubeName: "Real Name" });
-    expect(cfg("D2").poolSource).toBeUndefined();
+    expect(check.prepare("select id from drafts where name = ?").get("D2")).toBeUndefined();
     expect(cfg("D3").poolSource).toBeUndefined();
     check.close();
   });

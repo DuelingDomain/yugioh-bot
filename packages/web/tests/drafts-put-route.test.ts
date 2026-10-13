@@ -280,18 +280,20 @@ describe("PUT /api/drafts/[slug]", () => {
     expect(data.config.poolSource).toEqual({ cubeId, cubeName: "Goat" });
   });
 
-  it("drops a foreign or unknown poolSource and clears the stored one", async () => {
+  it("rejects a foreign or unknown poolSource and keeps the stored one", async () => {
     await setupDraftWithCustomPool();
     const { getDb } = await import("@/lib/db");
     const own = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Goat','creator-user')").run().lastInsertRowid);
     const foreign = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other-guild','Foreign','x')").run().lastInsertRowid);
     expect((await putConfig({ poolSource: { cubeId: own, cubeName: "Goat" } })).data.config.poolSource).toBeDefined();
     const dropped = await putConfig({ poolSource: { cubeId: foreign, cubeName: "Foreign" } });
-    expect(dropped.data.config.poolSource).toBeUndefined();
+    expect(dropped.response.status).toBe(404);
+    expect(dropped.data).toEqual({ error: "Cube not found" });
     await putConfig({ poolSource: { cubeId: own, cubeName: "Goat" } });
     const unknown = await putConfig({ poolSource: { cubeId: 99999, cubeName: "Nope" } });
-    expect(unknown.data.config.poolSource).toBeUndefined();
-    expect(JSON.parse((getDb().prepare("select config_json from drafts where web_slug='test-slug'").get() as { config_json: string }).config_json).poolSource).toBeUndefined();
+    expect(unknown.response.status).toBe(404);
+    expect(unknown.data).toEqual({ error: "Cube not found" });
+    expect(JSON.parse((getDb().prepare("select config_json from drafts where web_slug='test-slug'").get() as { config_json: string }).config_json).poolSource).toEqual({ cubeId: own, cubeName: "Goat" });
   });
 
   it("recomputes the pool from the new selection instead of reusing the stale snapshot", async () => {

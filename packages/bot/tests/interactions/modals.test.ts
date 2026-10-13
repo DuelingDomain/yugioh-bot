@@ -173,9 +173,10 @@ describe("modal interactions", () => {
     });
   });
 
-  it("rejects draft creation when template is not found", async () => {
+  it.each([false, true])("rejects a missing or foreign template (foreign=%s)", async foreign => {
     const app = setup();
     app.players.upsert("guild-1", "user-1", "Yugi");
+    if (foreign) app.templates.save("guild-1", "Missing", {}, "user-2");
 
     const { interaction, replies } = fakeModal({
       customId: "draft_create_modal",

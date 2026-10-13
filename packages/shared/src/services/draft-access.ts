@@ -21,6 +21,7 @@ export function findDraftReadAccess(db: Database.Database, slug: string, guildId
   return {
     id: draft.id,
     status: draft.status,
+    isSeated: Boolean(draft.isPlayer),
     canRead: draft.status === "pending" || draft.creatorUserId === userId || Boolean(draft.isPlayer),
   };
 }

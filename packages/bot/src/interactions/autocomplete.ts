@@ -116,7 +116,7 @@ export async function handleAutocomplete(
           }
 
           const templates = deps.templates
-            .list(interaction.guildId)
+            .list(interaction.guildId, interaction.user.id)
             .filter((template) => template.name.toLowerCase().includes(query.toLowerCase()));
 
           await interaction.respond(

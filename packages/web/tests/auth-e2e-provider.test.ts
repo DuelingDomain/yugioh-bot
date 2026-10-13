@@ -1,4 +1,7 @@
 import { readFileSync } from "node:fs";
+import Database from "better-sqlite3";
+import { migrate } from "@yugidraft/shared/db";
+import { createCardCatalogService, createCubeService, createPlayerService } from "@yugidraft/shared/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type Provider = {
@@ -134,6 +137,31 @@ describe("E2E test login provider", () => {
   });
 
   describe("session shape", () => {
+    it("maps a Discord session to the same text cube owner as the bot", async () => {
+      const discordId = "900000000000009001";
+      const otherDiscordId = "900000000000009002";
+      const { callbacks } = await loadConfig();
+      const token = await callbacks.jwt({
+        token: { sub: "nextauth-subject" }, account: { provider: "discord" }, profile: { id: discordId },
+      });
+      const session = await callbacks.session({ session: { user: {} }, token });
+      const db = new Database(":memory:");
+      try {
+        migrate(db);
+        const player = createPlayerService(db).findOrCreate("guild", discordId, "Owner");
+        const cubes = createCubeService(db, createCardCatalogService(db, { identityCatalog: new Map() }), new Map());
+        const mine = cubes.save("guild", "Same name", {}, discordId);
+        cubes.save("guild", "Same name", {}, otherDiscordId);
+        expect(session.user.id).toBe(discordId);
+        expect(player.id).not.toBe(Number(discordId));
+        expect(db.prepare("select typeof(created_by_user_id) type from cubes where id = ?").get(mine.id)).toEqual({ type: "text" });
+        expect(cubes.list("guild", session.user.id).map(cube => cube.id)).toEqual([mine.id]);
+        expect(cubes.findByName("guild", "Same name", session.user.id)?.createdByUserId).toBe(discordId);
+      } finally {
+        db.close();
+      }
+    });
+
     it("gives the test user the same discordId and session.user.id as the Discord provider", async () => {
       process.env.E2E_AUTH = "1";
       process.env.E2E_AUTH_SECRET = STRONG_SECRET;
