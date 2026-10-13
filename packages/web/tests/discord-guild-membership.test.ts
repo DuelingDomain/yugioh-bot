@@ -183,4 +183,96 @@ describe("verifyDiscordGuildMembership", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    { status: 401, reason: "provider_check_failed" },
+    { status: 403, reason: "provider_check_failed" },
+    { status: 429, reason: "rate_limited" },
+    { status: 500, reason: "provider_unavailable" },
+  ])("logs only a fixed reason and duration for Discord status $status", async ({ status, reason }) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const clock = vi.spyOn(performance, "now").mockReturnValue(100);
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => {
+      clock.mockReturnValue(175);
+      return new Response(`private response ${guildId} ${userId} ${botToken}`, { status });
+    }));
+
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken, now: 1_000 }))
+      .resolves.toEqual({ ok: false, status: 503 });
+    expect(warn.mock.calls).toEqual([
+      ["[web-access] Discord guild check unavailable", { reason, durationMs: 75 }],
+    ]);
+    const line = JSON.stringify(warn.mock.calls);
+    for (const privateText of [guildId, userId, botToken, "private response"]) {
+      expect(line).not.toContain(privateText);
+    }
+  });
+
+  it.each([
+    { name: "AbortError", reason: "timeout" },
+    { name: "TimeoutError", reason: "timeout" },
+    { name: "Error", reason: "provider_check_failed" },
+  ])("logs a safe reason for $name failures", async ({ name, reason }) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const clock = vi.spyOn(performance, "now").mockReturnValue(100);
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => {
+      clock.mockReturnValue(5_100);
+      throw Object.assign(new Error(`private error ${guildId} ${userId} ${botToken}`), { name });
+    }));
+
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken, now: 1_000 }))
+      .resolves.toEqual({ ok: false, status: 503 });
+    expect(warn.mock.calls).toEqual([
+      ["[web-access] Discord guild check unavailable", { reason, durationMs: 5_000 }],
+    ]);
+    const line = JSON.stringify(warn.mock.calls);
+    for (const privateText of [guildId, userId, botToken, "private error"]) {
+      expect(line).not.toContain(privateText);
+    }
+  });
+
+  it("logs a served cached failure without another Discord request", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const clock = vi.spyOn(performance, "now").mockReturnValue(100);
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(500));
+    vi.stubGlobal("fetch", fetchMock);
+    await verifyDiscordGuildMembership({ guildId, userId, botToken, now: 1_000 });
+    warn.mockClear();
+    clock.mockReturnValueOnce(200).mockReturnValue(202);
+
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken, now: 2_000 }))
+      .resolves.toEqual({ ok: false, status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls).toEqual([
+      ["[web-access] Discord guild check unavailable", { reason: "cached_failure", durationMs: 2 }],
+    ]);
+    const line = JSON.stringify(warn.mock.calls);
+    for (const privateText of [guildId, userId, botToken]) expect(line).not.toContain(privateText);
+  });
+
+  it("logs a missing token without calling Discord", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(performance, "now").mockReturnValue(100);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken: "", now: 1_000 }))
+      .resolves.toEqual({ ok: false, status: 503 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warn.mock.calls).toEqual([
+      ["[web-access] Discord guild check unavailable", { reason: "missing_token", durationMs: 0 }],
+    ]);
+    const line = JSON.stringify(warn.mock.calls);
+    for (const privateText of [guildId, userId, botToken]) expect(line).not.toContain(privateText);
+  });
+
+  it.each([200, 404])("does not warn for status %i or its cached decision", async (status) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(status));
+    vi.stubGlobal("fetch", fetchMock);
+    await verifyDiscordGuildMembership({ guildId, userId, botToken, now: 1_000 });
+    await verifyDiscordGuildMembership({ guildId, userId, botToken, now: 2_000 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
 });
