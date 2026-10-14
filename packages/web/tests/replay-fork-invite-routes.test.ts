@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createDuelSeriesService, createTournamentService, DuelInviteRefusalError } from "@yugidraft/shared/services";
 import { forkEventFixture } from "../../shared/tests/helpers/replay-fork-events.js";
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 
 const mocks = vi.hoisted(() => ({ db: vi.fn(), actor: vi.fn(), session: vi.fn(), notify: vi.fn(),
   announce: vi.fn(), tournament: vi.fn(), identity: vi.fn(), linkDeck: vi.fn(), mapDecks: vi.fn() }));
@@ -25,7 +26,6 @@ beforeEach(() => {
   vi.clearAllMocks(); app = forkEventFixture(); mocks.db.mockReturnValue(app.db);
   env.discordBotEnabled = true;
   env.webUrl = "https://duel.example/app";
-  vi.spyOn(console, "error").mockImplementation(() => {});
   mocks.actor.mockResolvedValue({ ok: true, ...app.owner, duels: app.duels });
   mocks.session.mockResolvedValue({ ok: true, userId: app.owner.userId });
   mocks.notify.mockResolvedValue(undefined);
@@ -222,13 +222,16 @@ it.each(refusedWebUrls)("refuses a tournament duel before saving for WEB_URL %s 
 });
 
 it.each([
-  new DuelInviteRefusalError(),
-  Object.assign(new Error("Duel invites are unavailable"), { code: "DUEL_INVITE_REFUSED", status: 500 }),
-  { code: "DUEL_INVITE_REFUSED" },
-])("maps the runtime invite refusal code to 409 with the real handler: %j", async error => {
+  { error: new DuelInviteRefusalError(), status: 409,
+    body: { error: "Duel invites are unavailable", code: "DUEL_INVITE_REFUSED" } },
+  { error: Object.assign(new Error("private invite diagnostic"), { code: "DUEL_INVITE_REFUSED", status: 500 }), status: 500,
+    body: { error: "Something went wrong" } },
+  { error: { code: "DUEL_INVITE_REFUSED" }, status: 500,
+    body: { error: "Something went wrong" } },
+])("exposes invite refusals only for the trusted error class: %j", async ({ error, status, body }) => {
   const response = duelErrorResponse(error);
-  expect(response.status).toBe(409);
-  expect(await response.json()).toEqual({ error: "Duel invites are unavailable", code: "DUEL_INVITE_REFUSED" });
+  expect(response.status).toBe(status);
+  expect(await response.json()).toEqual(body);
   expect(response.headers.get("cache-control")).toBe("private, no-store");
 });
 
@@ -249,3 +252,5 @@ it("keeps the persisted fork-kind guard at the invite sender", async () => {
     challengerName: "Test player", duelName: "Fork", bestOf: 1, ranked: false, tournamentName: null })).toBe(false);
   expect(mocks.announce).not.toHaveBeenCalled(); expect(duelRows()).toEqual(before); expect(seriesRows()).toEqual([]);
 });
+
+useConsoleObservability();

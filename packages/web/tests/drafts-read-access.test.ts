@@ -18,6 +18,7 @@ vi.mock("@yugidraft/shared/services", () => import("../../shared/src/services/in
 vi.mock("@yugidraft/shared/ws", () => import("../../shared/src/ws/index"));
 vi.mock("@yugidraft/shared/notify", () => import("../../shared/src/notify/index"));
 vi.mock("@yugidraft/shared/duels", () => import("../../shared/src/duels/index"));
+vi.mock("@yugidraft/shared/observability", () => import("../../shared/src/observability/index"));
 vi.mock("@/lib/notify", () => ({ announcer: {}, broadcaster: {} }));
 
 const statuses = ["pending", "active", "completed", "cancelled"] as const;

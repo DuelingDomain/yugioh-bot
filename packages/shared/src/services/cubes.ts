@@ -120,9 +120,11 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     const result = db
       .prepare(
         `insert into cubes (guild_id, name, archetype, banlist, created_by_user_id, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?)`,
+         values (?, ?, ?, ?, ?, ?, ?)
+         on conflict(guild_id, created_by_user_id, name) do nothing`,
       )
       .run(guildId, name, archetype, banlist, createdByUserId, now, now);
+    if (result.changes === 0) throw new CubeNameTakenError(name);
     return Number(result.lastInsertRowid);
   };
 
