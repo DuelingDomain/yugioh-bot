@@ -27,6 +27,7 @@
           token: event.properties.token,
           distinct_id: event.properties.distinct_id,
           $cookieless_mode: event.properties.$cookieless_mode,
+          $raw_user_agent: event.properties.$raw_user_agent,
           $lib: event.properties.$lib,
           $lib_version: event.properties.$lib_version,
           $process_person_profile: false,

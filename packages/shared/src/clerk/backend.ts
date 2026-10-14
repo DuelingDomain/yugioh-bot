@@ -111,8 +111,8 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
         ...(input.skipLegalChecks === undefined ? {} : { skip_legal_checks: input.skipLegalChecks }),
       });
     },
-    async deleteUser(clerkUserId) {
-      await deleteResource(`/users/${encodeURIComponent(clerkUserId)}`);
+    deleteUser(clerkUserId) {
+      return deleteResource(`/users/${encodeURIComponent(clerkUserId)}`);
     },
     async deleteWaitlistEntriesByEmail(email) {
       const normalized = email.trim().toLowerCase();

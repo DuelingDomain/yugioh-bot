@@ -26,6 +26,7 @@ function pageViewOnly(event: CaptureResult): CaptureResult | null {
       token: event.properties.token,
       distinct_id: event.properties.distinct_id,
       $cookieless_mode: event.properties.$cookieless_mode,
+      $raw_user_agent: event.properties.$raw_user_agent,
       $lib: event.properties.$lib,
       $lib_version: event.properties.$lib_version,
       $process_person_profile: false,
@@ -40,7 +41,7 @@ export function PageViews() {
   const pathname = usePathname();
   useEffect(() => {
     const key = process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim();
-    if (!key || !pathname || !pageRoute(pathname)) return;
+    if (!key || !pageRoute(pathname)) return;
     void import("posthog-js").then(({ default: posthog }) => {
       if (posthog.__loaded || !pageRoute(window.location.pathname)) return;
       posthog.init(key, {

@@ -18,14 +18,13 @@ export async function deleteUser(ctx: OpsContext, userId: number) {
     return { status: "not_found", userId, message: "No user with this ID; nothing to do (already deleted, or the ID is wrong)" };
   }
   const user = createUserService(ctx.db).findById(userId)!;
-  const needsClerk = (preview.hasClerkUser || user.email !== null) && !ctx.skipClerk;
   const clerkPlan: ClerkOutcome = !preview.hasClerkUser && user.email === null ? "none" : ctx.skipClerk ? "skipped" : "would_delete";
   if (!ctx.apply) {
     return { status: "dry-run", userId, mode: preview.mode, clerk: clerkPlan, message: "Dry run; add --apply to delete" };
   }
 
   const clerk: ClerkOutcome = clerkPlan === "would_delete" ? "deleted" : clerkPlan;
-  if (needsClerk) {
+  if (clerkPlan === "would_delete") {
     if (!ctx.backend) fail("CLERK_SECRET_KEY is required to delete the Clerk user (or pass --skip-clerk)", "failed");
     try {
       if (user.email) await withRateLimit(ctx, () => ctx.backend!.deleteWaitlistEntriesByEmail(user.email!));

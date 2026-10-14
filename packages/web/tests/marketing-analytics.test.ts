@@ -38,7 +38,7 @@ it("loads the standard landing snippet through the proxy and emits only safe coo
   document.head.appendChild(sdkScript);
   await Promise.resolve();
   const event = browser.posthog.capture("$pageview");
-  expect(event?.properties).toMatchObject({ $current_url: "https://marketing.example/", $pathname: "/", distinct_id: "$posthog_cookieless", $cookieless_mode: true, $process_person_profile: false });
+  expect(event?.properties).toMatchObject({ $current_url: "https://marketing.example/", $pathname: "/", distinct_id: "$posthog_cookieless", $cookieless_mode: true, $raw_user_agent: navigator.userAgent, $process_person_profile: false });
   expect(JSON.stringify(event)).not.toMatch(/Private text|private-text|member|email|referrer/);
   expect(browser.posthog.capture("$autocapture", { text: "private-text" })).toBeUndefined();
   expect(document.cookie).toBe("");

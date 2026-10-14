@@ -49,6 +49,7 @@ export async function drainProductEvents(db: Database.Database, options: {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ api_key: options.key, batch: events.map(row => ({
           event: row.name,
+          uuid: row.event_uuid,
           timestamp: new Date(row.occurred_at).toISOString(),
           properties: {
             ...JSON.parse(row.props_json),

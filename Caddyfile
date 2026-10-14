@@ -1,3 +1,25 @@
+(posthog_ingest) {
+    handle /ingest/static/* {
+        uri strip_prefix /ingest
+        reverse_proxy https://eu-assets.i.posthog.com {
+            header_up Host {upstream_hostport}
+            header_up -Cookie
+            header_up -Authorization
+            header_up -Referer
+        }
+    }
+    @ingest path /ingest /ingest/*
+    handle @ingest {
+        uri strip_prefix /ingest
+        reverse_proxy https://eu.i.posthog.com {
+            header_up Host {upstream_hostport}
+            header_up -Cookie
+            header_up -Authorization
+            header_up -Referer
+        }
+    }
+}
+
 {$SITE_DOMAIN} {
     # The private app must stay out of search, including on the current host.
     header >X-Robots-Tag "noindex, nofollow"
@@ -17,7 +39,10 @@ Disallow: /
     handle /socket.io/* {
         reverse_proxy ws:3001
     }
-    reverse_proxy web:3000
+    import posthog_ingest
+    handle {
+        reverse_proxy web:3000
+    }
 }
 
 # Canonical host, including old HTTP IP links posted in Discord.
@@ -60,25 +85,7 @@ www.{$SITE_DOMAIN}, http:// {
     handle @waitlist {
         reverse_proxy web:3000
     }
-    handle /ingest/static/* {
-        uri strip_prefix /ingest
-        reverse_proxy https://eu-assets.i.posthog.com {
-            header_up Host {upstream_hostport}
-            header_up -Cookie
-            header_up -Authorization
-            header_up -Referer
-        }
-    }
-    @ingest path /ingest /ingest/*
-    handle @ingest {
-        uri strip_prefix /ingest
-        reverse_proxy https://eu.i.posthog.com {
-            header_up Host {upstream_hostport}
-            header_up -Cookie
-            header_up -Authorization
-            header_up -Referer
-        }
-    }
+    import posthog_ingest
     handle /login {
         redir https://{$SITE_DOMAIN}/login 302
     }

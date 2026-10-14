@@ -45,7 +45,7 @@ it("captures anonymous cookieless key-page views across navigation without title
   const view = render(<StrictMode><PageViews /></StrictMode>);
   await waitFor(() => expect(state.events).toHaveLength(1));
   expect(state.events[0].event).toBe("$pageview");
-  expect(state.events[0].properties).toMatchObject({ $pathname: "/access", $current_url: "http://localhost:3000/access", $cookieless_mode: true, distinct_id: "$posthog_cookieless", $process_person_profile: false });
+  expect(state.events[0].properties).toMatchObject({ $pathname: "/access", $current_url: "http://localhost:3000/access", $cookieless_mode: true, $raw_user_agent: navigator.userAgent, distinct_id: "$posthog_cookieless", $process_person_profile: false });
   expect(document.cookie).toBe("");
   expect(localStorage.length).toBe(0);
   expect(state.sdk!.sessionRecordingStarted()).toBe(false);

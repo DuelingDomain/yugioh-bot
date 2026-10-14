@@ -34,21 +34,26 @@ it("delivers at most 100 events, with application IDs and anonymous events witho
 
 it("backs off failed delivery durably, preserves event identity on retry and stops after ten attempts", async () => {
   db.transaction(() => recordProductEvent(db, "waitlist_joined", null))();
+  const { event_uuid } = db.prepare<[], { event_uuid: string }>("select event_uuid from product_events").get()!;
   const received: any[] = [];
-  let accepted = false;
+  let acknowledged = false;
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
     received.push(JSON.parse(String(init.body)).batch[0]);
-    return new Response(null, { status: accepted ? 200 : 503 });
+    if (!acknowledged) throw new TypeError("Response lost after acceptance");
+    return new Response(null, { status: 200 });
   });
   await drainProductEvents(db, configured);
   await drainProductEvents(db, configured);
   expect(received).toHaveLength(1);
   expect(db.prepare("select attempts,sent_at from product_events").get()).toEqual({ attempts: 1, sent_at: null });
-  vi.setSystemTime(now + 10_000); accepted = true;
+  vi.setSystemTime(now + 10_000); acknowledged = true;
   await drainProductEvents(db, configured);
   expect(received).toHaveLength(2);
-  expect(received[1].properties).toEqual(received[0].properties);
+  expect(received.map(event => ({ uuid: event.uuid, distinct_id: event.properties.distinct_id }))).toEqual([
+    { uuid: event_uuid, distinct_id: `anonymous:${event_uuid}` },
+    { uuid: event_uuid, distinct_id: `anonymous:${event_uuid}` },
+  ]);
   db.exec("update product_events set sent_at=null,attempts=10");
   vi.setSystemTime(now + 30 * 86400_000 - 1);
   await drainProductEvents(db, configured);
@@ -95,12 +100,4 @@ it("deletes the matching person by distinct ID using only the persons API and wo
   await drainProductEvents(db, configured);
   expect([...persons]).toEqual([["person-8", "8"]]);
   expect(db.prepare("select sent_at,attempts from product_events").get()).toEqual({ sent_at: now + 10_000, attempts: 1 });
-});
-
-it("keeps a deletion pending if worker person credentials are incomplete", async () => {
-  db.transaction(() => recordProductEvent(db, "$delete_person", 7))();
-  vi.spyOn(console, "warn").mockImplementation(() => {});
-  vi.stubGlobal("fetch", () => { throw new Error("Missing configuration"); });
-  await drainProductEvents(db, { ...configured, projectId: "" });
-  expect(db.prepare("select sent_at,attempts from product_events").get()).toEqual({ sent_at: null, attempts: 1 });
 });

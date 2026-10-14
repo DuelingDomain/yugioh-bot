@@ -27,6 +27,10 @@ WEB_URL=https://${SITE_DOMAIN}
 After `.env` edits, run `docker compose -f docker-compose.yml up -d --no-build`. After Caddyfile edits, run `docker compose -f docker-compose.yml up -d --no-build --no-deps --force-recreate caddy`; `restart` does not refresh the bind mount.
 Discord OAuth redirects to `https://app.duelingdomain.com/api/auth/callback/discord`; the old domain's callback remains registered for rollback.
 
+## Analytics routing
+
+The app and marketing host blocks import the same `(posthog_ingest)` Caddy snippet before their app/static fallbacks. `/ingest/static/*` goes to `https://eu-assets.i.posthog.com`; `/ingest` and other `/ingest/*` requests go to `https://eu.i.posthog.com`. Caddy strips the `/ingest` prefix and removes Cookie, Authorization and Referer upstream. These anonymous requests bypass Next.js authentication.
+
 ## Marketing host behaviour
 
 - Static files come from `site/public`, mounted read-only at `/srv/site`.

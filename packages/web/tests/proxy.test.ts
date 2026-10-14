@@ -64,22 +64,3 @@ it("never initializes Clerk in E2E mode and rechecks the gate", async () => {
   expect((await proxy(request("/api/drafts"), {} as never))?.status).toBe(401);
   vi.stubEnv("E2E_AUTH", "0"); expect((await proxy(req, {} as never))?.status).toBe(307);
 });
-it.each(["0", "1"])("opens only the ingest path and its descendants in E2E_AUTH=%s", async mode => {
-  vi.stubEnv("E2E_AUTH", mode);
-  vi.stubEnv("E2E_AUTH_SECRET", "x".repeat(32));
-  for (const path of ["/ingest", "/ingest/", "/ingest/i/v0/e/", "/ingest/static/array.js"]) {
-    expect((await proxy(request(path, "POST"), {} as never))?.status ?? 200).toBe(200);
-  }
-  for (const path of ["/ingestx", "/ingest-static/array.js", "/api/ingest"]) {
-    expect((await proxy(request(path), {} as never))?.status).toBe(path.startsWith("/api/") ? 401 : 307);
-  }
-});
-it("forwards ingestion without browser credentials or the original page URL", async () => {
-  const req = new NextRequest("https://example.com/ingest/i/v0/e/", { method: "POST", headers: { cookie: "session=private", authorization: "Bearer private", referer: "https://example.com/draft/private-title?invite=private", "content-type": "application/json", "user-agent": "browser" } });
-  const response = await proxy(req, {} as never);
-  expect(response?.status).toBe(200);
-  expect(response?.headers.get("x-middleware-override-headers")?.split(",")).toEqual(["content-type", "user-agent"]);
-  expect(response?.headers.get("x-middleware-request-content-type")).toBe("application/json");
-  expect(response?.headers.get("x-middleware-request-user-agent")).toBe("browser");
-  for (const header of ["cookie", "authorization", "referer"]) expect(response?.headers.get(`x-middleware-request-${header}`)).toBeNull();
-});
