@@ -54,7 +54,12 @@ export async function POST(
       }
     }
 
-    const body = await request.json();
+    let body: unknown;
+    try { body = await request.json(); }
+    catch (error) {
+      if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      throw error;
+    }
     const { format, bestOf: rawBestOf } = body as { format?: string; bestOf?: unknown };
 
     if (!format || (format !== "round_robin" && format !== "single_elim")) {

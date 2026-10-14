@@ -1,5 +1,5 @@
 import { apiErrorResponse } from "@/lib/api-errors";
-import { report, log } from "@yugidraft/shared/observability";
+import { report } from "@yugidraft/shared/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -40,7 +40,12 @@ export async function POST(
     const denied = draftReadAccess(db, slug, guildId, actor.userId);
     if (denied) return denied;
 
-    const body = await request.json();
+    let body: unknown;
+    try { body = await request.json(); }
+    catch (error) {
+      if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      throw error;
+    }
     const { cardId } = body as { cardId?: unknown };
 
     if (cardId === undefined || cardId === null || typeof cardId !== "number" || !Number.isInteger(cardId)) {

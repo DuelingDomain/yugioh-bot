@@ -107,8 +107,8 @@ export function redactDuelResult<T>(data: T, guildId: string, playerId: number):
   return redactDuelTournamentMetadata(getDb, data, guildId, playerId);
 }
 
-function hostErrorBody(text: string, status: number): { error: string; code?: string; finalBoard?: "available" | "none";
-  canOpenUnchecked?: boolean; reason?: ReplayUnverifiedReason; limit?: number; forksUrl?: string } | undefined {
+function hostErrorBody(text: string, status: number): { expected: boolean; body: { error: string; code?: string; finalBoard?: "available" | "none";
+  canOpenUnchecked?: boolean; reason?: ReplayUnverifiedReason; limit?: number; forksUrl?: string } } | undefined {
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") {
@@ -119,11 +119,11 @@ function hostErrorBody(text: string, status: number): { error: string; code?: st
       const unverified: { reason?: ReplayUnverifiedReason; canOpenUnchecked?: boolean } = status === 409 && "code" in parsed && parsed.code === "REPLAY_UNVERIFIED"
         && "reason" in parsed && (parsed.reason === "board_mismatch" || parsed.reason === "command_mismatch" || parsed.reason === "no_saved_board")
         ? { reason: parsed.reason, canOpenUnchecked: "canOpenUnchecked" in parsed && parsed.canOpenUnchecked === true } : {};
-      return { error: parsed.error, ...("code" in parsed && typeof parsed.code === "string" ? { code: parsed.code } : {}),
+      return { expected: "expected" in parsed && parsed.expected === true, body: { error: parsed.error, ...("code" in parsed && typeof parsed.code === "string" ? { code: parsed.code } : {}),
         ...("code" in parsed && typeof parsed.code === "string"
           && ((status === 409 && ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE", "REPLAY_UNVERIFIED"].includes(parsed.code))
             || (status === 413 && parsed.code === "REPLAY_TOO_LARGE"))
-          && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery, ...unverified };
+          && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery, ...unverified } };
     }
   } catch {}
   return undefined;
@@ -190,7 +190,7 @@ export async function callDuelHost(input: {
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
   const replayOp = input.op === "replay" || input.op === "owner-replay" || input.op === "replay-fork"
     || input.op === "fork-list" || input.op === "fork-restart" || input.op === "fork-cancel";
-  const failure = (body: NonNullable<ReturnType<typeof hostErrorBody>>, status: number): NextResponse => NextResponse.json({
+  const failure = (body: NonNullable<ReturnType<typeof hostErrorBody>>["body"], status: number): NextResponse => NextResponse.json({
     ...body, ...(replayOp && !body.code && status >= 500 ? { code: "ENGINE_BUSY" } : {}),
   }, { status: replayOp && status >= 500 ? 503 : status,
     headers: { "cache-control": "private, no-store" } });
@@ -258,11 +258,11 @@ export async function callDuelHost(input: {
       return { ok: false, response: failure({ error }, 503) };
     }
     const parsed = hostErrorBody(result.text, result.status);
-    if (!parsed || result.status === 500) {
+    if (!parsed || (result.status === 500 && !parsed.expected)) {
       const { body, status } = errorResponseBody(new Error(result.text), { tags: { operation: input.op } });
       return { ok: false, response: NextResponse.json(body, { status, headers: { "cache-control": "private, no-store" } }) };
     }
-    return { ok: false, response: failure(parsed, result.status) };
+    return { ok: false, response: failure(parsed.body, result.status) };
   }
   if (!result.text) {
     return { ok: false, response: failure({ error: "Empty engine response" }, 502) };

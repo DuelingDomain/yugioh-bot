@@ -21,7 +21,12 @@ export async function POST(
     const db = getDb();
     const access = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
     if (!access?.canRead) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
-    const body = (await request.json()) as { tournamentMatchId?: number };
+    let body: { tournamentMatchId?: number };
+    try { body = await request.json(); }
+    catch (error) {
+      if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      throw error;
+    }
     if (!body.tournamentMatchId) {
       return NextResponse.json({ error: "Missing tournamentMatchId" }, { status: 400 });
     }

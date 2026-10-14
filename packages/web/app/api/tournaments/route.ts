@@ -27,8 +27,13 @@ export async function POST(request: NextRequest) {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
 
-  const body = await request.json();
-  const { name, format } = body as { name: string; format: string };
+  let body: { name: string; format: string; visibility?: unknown };
+  try { body = await request.json(); }
+  catch (error) {
+    if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    throw error;
+  }
+  const { name, format } = body;
   const visibility = body.visibility === undefined ? "private" : body.visibility;
   if (!isTournamentVisibility(visibility)) return NextResponse.json({ error: "visibility must be open or private" }, { status: 400 });
 

@@ -924,9 +924,7 @@ export function createDuelHost(options: {
         stepsInTurn = 1;
       }
 
-      let answer: DuelAnswer;
-      let note: string | undefined;
-      ({ answer, note } = await chooseAutoAnswer(game, entry, seat, prompt, view));
+      const { answer, note } = await chooseAutoAnswer(game, entry, seat, prompt, view);
       if ((answer as { surrender?: boolean }).surrender) {
         await forfeitSeat(slug, guildId, game, seat, "Surrender", false);
         continue;
@@ -3478,16 +3476,18 @@ export function createDuelHost(options: {
         }
         const intentional = error instanceof ExpectedError || error instanceof DeckLegalityError ||
           error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError ||
-          error instanceof DuelServiceError || error instanceof TournamentDuelError || error instanceof ExtraDeckCardError;
+          error instanceof DuelServiceError || error instanceof TournamentDuelError;
         if (!intentional) {
           const { body, status } = errorResponseBody(error, { tags: { operation: "[duel] Unexpected request error", ...(requestOp ? { op: requestOp } : {}) } });
           return Response.json(body, { status });
         }
+        const status = error instanceof DeckLegalityError ? 400 : error.status;
         return Response.json({ error: error.message,
+          ...(status === 500 ? { expected: true } : {}),
           ...((error instanceof RequestError || error instanceof ExtraDeckCardError || error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError || error instanceof ReplayForkStorageError) && error.code ? { code: error.code } : {}),
           ...(error instanceof ReplayForkLaunchError ? error.recovery : {}),
           ...(error instanceof RequestError && error.finalBoard ? { finalBoard: error.finalBoard } : {}),
-          ...(error instanceof RequestError ? error.unverified : {}) }, { status: error instanceof DeckLegalityError ? 400 : error.status });
+          ...(error instanceof RequestError ? error.unverified : {}) }, { status });
       } finally { clearTimeout(replayDeadline); }
     },
     async close(): Promise<void> {

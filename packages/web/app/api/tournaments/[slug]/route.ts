@@ -1,5 +1,5 @@
 import { apiErrorResponse } from "@/lib/api-errors";
-import { ExpectedError, report } from "@yugidraft/shared/observability";
+import { report } from "@yugidraft/shared/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -311,7 +311,12 @@ export async function PUT(
     }
 
     const tournamentId = tournament.id;
-    const body = await request.json();
+    let body: unknown;
+    try { body = await request.json(); }
+    catch (error) {
+      if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      throw error;
+    }
     const { name, deadlineAt, reportConfirmWindowHours, bestOf, duelRules } = body as {
       name?: string;
       deadlineAt?: string | null;
@@ -376,7 +381,6 @@ export async function PUT(
     try {
       applyUpdates();
     } catch (err) {
-      if (err instanceof ExpectedError) return apiErrorResponse(err, "[api/tournaments/[slug] PUT]");
       if (err instanceof TournamentDuelError) {
         return NextResponse.json({ error: err.message }, { status: err.status });
       }

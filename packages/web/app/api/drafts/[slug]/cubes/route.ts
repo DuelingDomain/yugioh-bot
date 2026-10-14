@@ -1,11 +1,10 @@
-import { CubeNameTakenError } from "@yugidraft/shared/services";
 import { apiErrorResponse } from "@/lib/api-errors";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
+import { createCardCatalogService, createCubeService, CubeNameTakenError } from "@yugidraft/shared/services";
 import type { Cube } from "@yugidraft/shared/types";
 import { broadcaster } from "@/lib/notify";
 import { setCubeDraftType } from "@/lib/cube-type";
