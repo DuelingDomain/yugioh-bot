@@ -199,6 +199,9 @@ def main():
         assert node['url'].startswith('https://'), node
         if 'publisher' in node:
             assert node['publisher']['@id'] == organization['@id'], node
+    trailer_id = index.find(id='case')[0]['attrs']['data-youtube-id']
+    fallback = [e['attrs']['href'] for e in index.find('a') if e['attrs'].get('href', '').startswith('https://www.youtube.com/watch?v=')]
+    assert fallback == ['https://www.youtube.com/watch?v=' + trailer_id], ('no-JS trailer link must use the same ID', fallback, trailer_id)
     assert len(index.find('p', **{'class': 'c-text'})) == 6
     assert len(index.find('div', **{'class': 'face'})) == 3
     assert len(index.find('form', method='post', action='/api/waitlist')) == 2

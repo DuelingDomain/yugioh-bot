@@ -371,8 +371,11 @@
         </button>
       </div>
     </div>
-    <div class="plate" id="plate" aria-live="polite"><b id="plate-t">Launch trailer</b><small id="plate-s">73 seconds · sound on</small></div>
+    <div class="plate" id="plate"><b id="plate-t">Launch trailer</b><small id="plate-s">73 seconds · sound on</small></div>
+    <span class="sr-only" id="trailer-status" role="status"></span>
   </div>
+  <!-- No-JS fallback. Keep this ID equal to data-youtube-id on #case; the link stays hidden while it is VIDEO_ID. -->
+  <noscript><p class="trailer-link"><a href="https://www.youtube.com/watch?v=VIDEO_ID" rel="noopener">Watch the launch trailer on YouTube</a></p></noscript>
 </section>
 
 <div class="rule" aria-hidden="true"></div>

@@ -319,7 +319,7 @@
 
   /* ---------- trailer slot: click-to-load YouTube facade ---------- */
   /* The video ID lives in data-youtube-id on #case. Nothing loads from YouTube before the click. */
-  var plate = $('#plate'), plateT = $('#plate-t'), plateS = $('#plate-s'), plateTimer = 0;
+  var plate = $('#plate'), status = $('#trailer-status'), plateT = $('#plate-t'), plateS = $('#plate-s'), plateTimer = 0;
   var trailerCase = $('#case'), trailerWindow = $('.window', trailerCase);
   var trailerId = (trailerCase.getAttribute('data-youtube-id') || '').trim();
   var trailerLive = /^[A-Za-z0-9_-]{11}$/.test(trailerId);
@@ -334,7 +334,6 @@
       frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
       frame.allowFullscreen = true;
       frame.referrerPolicy = 'strict-origin-when-cross-origin';
-      frame.loading = 'lazy';
       trailerWindow.appendChild(frame);
       trailerWindow.classList.add('is-playing');
       plate.classList.add('low');
@@ -344,8 +343,9 @@
     // Placeholder ID: keep the "coming soon" behaviour until the real ID is set.
     plate.classList.remove('shake'); void plate.offsetWidth; if (!isRM()) plate.classList.add('shake');
     plateT.textContent = 'Not yet. Soon.'; plateS.textContent = 'The trailer is still being cut';
+    status.textContent = 'Not yet. The trailer is still being cut.'; // only this message is announced, not the restore
     clearTimeout(plateTimer);
-    plateTimer = setTimeout(function () { plateT.textContent = plateIdle[0]; plateS.textContent = plateIdle[1]; }, 2200);
+    plateTimer = setTimeout(function () { plateT.textContent = plateIdle[0]; plateS.textContent = plateIdle[1]; status.textContent = ''; }, 2200);
   });
 
   /* ---------- no-JS form fallback: the server redirects to /?waitlist=joined|exists|invalid|limited|retry|error#join ---------- */
