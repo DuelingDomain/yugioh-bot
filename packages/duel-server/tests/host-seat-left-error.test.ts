@@ -74,6 +74,15 @@ function fixture(format: DuelFormat, state: "eliminated" | "pendingElimination" 
 }
 
 describe("host opponent picks for a seat that has left", () => {
+  it("returns a generic 500 when the worker fails while answering", async () => {
+    const t = fixture("ffa3", "eliminated");
+    t.worker.answer = async () => { throw new TypeError("fixture worker detail"); };
+    const response = await t.post("opt:1");
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Something went wrong" });
+    expect(t.service.privateState(t.slug, "g1").commands).toEqual([]);
+  });
+
   it.each((["ffa3", "ffa4", "tag"] as const).flatMap((format) =>
     (["eliminated", "pendingElimination", "allEliminated"] as const).map((state) => ({ format, state }))))(
     "returns the seat-left code for a removed option in $format with $state", async ({ format, state }) => {

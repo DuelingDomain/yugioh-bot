@@ -1,4 +1,4 @@
-import { report } from "@yugidraft/shared/observability";
+import { apiErrorResponse } from "@/lib/api-errors";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -61,8 +61,6 @@ export async function POST(
     }
     return NextResponse.json(approved);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to approve match";
-    report(error, { tags: { operation: "[api/matches/[id]/approve] error" } });
-    return NextResponse.json({ error: message }, { status: 400 });
+    return apiErrorResponse(error, "[api/matches/[id]/approve] error");
   }
 }

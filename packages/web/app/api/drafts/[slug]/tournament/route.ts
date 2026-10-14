@@ -1,4 +1,4 @@
-import { report } from "@yugidraft/shared/observability";
+import { apiErrorResponse } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -54,7 +54,12 @@ export async function POST(
       }
     }
 
-    const body = await request.json();
+    let body: unknown;
+    try { body = await request.json(); }
+    catch (error) {
+      if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      throw error;
+    }
     const { format, bestOf: rawBestOf } = body as { format?: string; bestOf?: unknown };
 
     if (!format || (format !== "round_robin" && format !== "single_elim")) {
@@ -88,15 +93,6 @@ export async function POST(
     if (error instanceof TournamentDuelError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    if (error instanceof Error) {
-      if (
-        error.message.includes("Only the draft creator") ||
-        error.message.includes("must be completed")
-      ) {
-        return NextResponse.json({ error: error.message }, { status: 403 });
-      }
-    }
-    report(error, { tags: { operation: "[api/drafts/[slug]/tournament POST] error" } });
-    return NextResponse.json({ error: "Failed to create tournament" }, { status: 500 });
+    return apiErrorResponse(error, "[api/drafts/[slug]/tournament POST]");
   }
 }

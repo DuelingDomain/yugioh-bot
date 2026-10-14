@@ -449,7 +449,8 @@ describe("duel host rooms", () => {
 
     expect((await post(host, { op: "start", slug: session.slug, guildId: "g1", playerId: p1 })).status).toBe(200);
     const failed = await post(host, { op: "surrender", slug: session.slug, guildId: "g1", playerId: p1 });
-    expect(failed.status).toBe(503);
+    expect(failed.status).toBe(500);
+    expect(failed.data).toEqual({ error: "Something went wrong" });
     expect(duels.get(session.slug, "g1").status).toBe("active");
     expect(duels.get(session.slug, "g1").endedAt).toBeNull();
 
@@ -675,7 +676,8 @@ describe("duel host clocks", () => {
       playerId: p1,
       command: { promptId: "p1", revision: 1, answer: { choice: "pass" } },
     });
-    expect(rejected.status).toBe(400);
+    expect(rejected.status).toBe(500);
+    expect(rejected.data).toEqual({ error: "Something went wrong" });
     expect(storedClock(duels, session.slug)).toEqual(before);
     expect(worker.revision).toBe(1);
   });

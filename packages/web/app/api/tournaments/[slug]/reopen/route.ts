@@ -1,3 +1,4 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -20,7 +21,12 @@ export async function POST(
     const db = getDb();
     const access = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
     if (!access?.canRead) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
-    const body = (await request.json()) as { tournamentMatchId?: number };
+    let body: { tournamentMatchId?: number };
+    try { body = await request.json(); }
+    catch (error) {
+      if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      throw error;
+    }
     if (!body.tournamentMatchId) {
       return NextResponse.json({ error: "Missing tournamentMatchId" }, { status: 400 });
     }
@@ -42,9 +48,7 @@ export async function POST(
     try {
       createTournamentService(db).reopenTournamentMatch(body.tournamentMatchId, actor.userId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to reopen";
-      const status = /organizer/i.test(message) ? 403 : 400;
-      return NextResponse.json({ error: message }, { status });
+      return apiErrorResponse(err, "[api/tournaments/[slug]/reopen]");
     }
 
     void broadcaster.tournament(

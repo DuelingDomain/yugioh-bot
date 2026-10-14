@@ -375,6 +375,18 @@ describe("cube API routes", () => {
     expect(gamma).toMatchObject({ mainCount: 0, extraCount: 0, mainCards: [] });
   });
 
+  it("returns a generic 500 when creating a cube fails during storage", async () => {
+    await setupDb();
+    const { getDb } = await import("../src/lib/db");
+    getDb().exec("create trigger failed_write before insert on cubes begin select raise(abort, 'fixture cube detail'); end");
+    const { POST } = await import("../app/api/cubes/route");
+    const response = await POST(new Request("http://x/api/cubes", {
+      method: "POST", body: JSON.stringify({ kind: "blank", name: "Pool" }),
+    }));
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Something went wrong" });
+  });
+
   it("saves a config-backed cube (pool) and rejects a duplicate name", async () => {
     await setupDb();
     const { POST: createCube } = await import("../app/api/cubes/route");

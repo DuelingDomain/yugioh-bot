@@ -1,4 +1,8 @@
 import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import Database from "better-sqlite3";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/session-identity", async () => {
@@ -80,14 +84,14 @@ describe("callDuelHost error messages", () => {
   });
 
   it("says the engine did not answer when the host is down", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed: /private/engine/path")));
     const { callDuelHost } = await loadHost();
 
     const result = await callDuelHost(call);
     if (result.ok) throw new Error("expected failure");
     expect(result.response.status).toBe(503);
     const body = (await result.response.json()) as { error: string };
-    expect(body.error).toMatch(/did not answer \(fetch failed\)/);
+    expect(body.error).toBe("The duel engine did not answer. It may be restarting. Try again in a moment.");
   });
 
   it("explains a secret mismatch instead of passing the host's 401 through", async () => {
@@ -99,6 +103,15 @@ describe("callDuelHost error messages", () => {
     expect(result.response.status).toBe(503);
     const body = (await result.response.json()) as { error: string };
     expect(body.error).toContain("do not match");
+  });
+
+  it("returns a generic 500 for a non-JSON host error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("fixture upstream detail", { status: 400 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost(call);
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(500);
+    expect(await result.response.json()).toEqual({ error: "Something went wrong" });
   });
 
   it("keeps the host's own error text for rule errors", async () => {
@@ -222,7 +235,7 @@ describe("callDuelHost error messages", () => {
     const { callDuelHost } = await loadHost();
     const result = await callDuelHost({ ...call, op: "owner-replay" });
     if (result.ok) throw new Error("expected failure");
-    expect(result.response.status).toBe(status >= 500 ? 503 : status);
+    expect(result.response.status).toBe(status);
     expect(await result.response.json()).not.toHaveProperty("finalBoard");
   });
 
@@ -273,13 +286,38 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "restarting" });
   });
 
-  it("preserves an unexpected host failure as a 500 for duel answers", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Duel server error" }, { status: 500 })));
-    const { callDuelHost } = await loadHost();
-    const result = await callDuelHost({ ...call, op: "respond" });
-    if (result.ok) throw new Error("expected failure");
-    expect(result.response.status).toBe(500);
-    expect(await result.response.json()).toEqual({ error: "Duel server error" });
+  it.each([
+    { expected: true, message: "Practice bot failed to make progress" },
+    { expected: false, message: "Something went wrong" },
+  ])("classifies host 500s across the web boundary (expected=$expected)", async ({ expected, message }) => {
+    const errors: unknown[] = [];
+    recording.report.mockImplementation(error => { errors.push(error); });
+    const { ExpectedError } = await import("@yugidraft/shared/observability");
+    const { migrate } = await import("@yugidraft/shared/db");
+    const { createDuelHost } = await import("../../duel-server/src/host");
+    const directory = mkdtempSync(join(tmpdir(), "duel-host-errors-"));
+    writeFileSync(join(directory, "manifest.json"), JSON.stringify({ bundleVersion: "test", sources: {} }));
+    const cards = new Database(join(directory, "cards.cdb"));
+    cards.exec("create table datas (id integer primary key, alias integer, type integer); create table texts (id integer primary key, name text)");
+    cards.close();
+    const db = new Database(":memory:");
+    migrate(db);
+    const host = createDuelHost({ db, dataDirectory: directory, secret: "s3cret", searchCards: () => {
+      throw expected ? new ExpectedError("Practice bot failed to make progress", 500) : new Error("fixture host detail");
+    } });
+    vi.stubGlobal("fetch", (_url: string, init: RequestInit) => host.handle(new Request("http://duel.test:4003/internal/duel", init)));
+    try {
+      const { callDuelHost } = await loadHost();
+      const result = await callDuelHost({ op: "cards", guildId: call.guildId, playerId: call.playerId, query: "fixture" });
+      if (result.ok) throw new Error("expected failure");
+      expect(result.response.status).toBe(500);
+      expect(await result.response.json()).toEqual({ error: message });
+      expect(errors.length > 0).toBe(!expected);
+    } finally {
+      await host.close();
+      db.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it.each(["view", "respond"] as const)("the room %s route surfaces a restart as 503", async op => {

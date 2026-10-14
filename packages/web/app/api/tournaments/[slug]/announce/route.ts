@@ -1,4 +1,4 @@
-import { report } from "@yugidraft/shared/observability";
+import { apiErrorResponse } from "@/lib/api-errors";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -74,13 +74,11 @@ export async function POST(
     );
 
     if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: 502 });
+      return apiErrorResponse(new Error(result.error), "[api/tournaments/[slug]/announce]");
     }
 
     return NextResponse.json({ success: true, channelId });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to announce";
-    report(error, { tags: { operation: "[api/tournaments/[slug]/announce] error" } });
-    return NextResponse.json({ error: message }, { status: 400 });
+    return apiErrorResponse(error, "[api/tournaments/[slug]/announce] error");
   }
 }

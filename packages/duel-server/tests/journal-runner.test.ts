@@ -179,7 +179,7 @@ describe("journal prefix runner", () => {
   it.each(["create", "view", "answer"] as const)("closes on %s failure and keeps the right error code", async (failAt) => {
     const worker = new TestWorker(); worker.failAt = failAt; worker.failure = new Error("test failure"); worker.closeFailure = true;
     await expect(runJournalPrefix({ source: source(), resources: resources(), prefixCount: 1, createWorker: () => worker }))
-      .rejects.toMatchObject({ code: failAt === "answer" ? "REPLAY_MISMATCH" : "ENGINE_BUSY", message: expect.stringContaining("test failure") });
+      .rejects.toMatchObject({ code: failAt === "answer" ? "REPLAY_MISMATCH" : "ENGINE_BUSY", message: "Engine worker request failed" });
     expect(worker.running).toBe(false);
   });
 
@@ -288,4 +288,24 @@ it("awaits worker commands before returning", async () => {
   const applied = applyWorkerJournalCommand(worker, 0, source().commands[0]!.command).then(() => { finished = true; });
   await Promise.resolve(); expect(finished).toBe(false); expect(worker.revision).toBe(1);
   release(); await applied; expect(finished).toBe(true); expect(worker.revision).toBe(2);
+});
+
+it.each([false, true])("reports worker construction failures while preserving the retryable code (async=%s)", async asynchronous => {
+  const { setObservabilityAdapter } = await import("@yugidraft/shared/observability");
+  const errors: unknown[] = [];
+  setObservabilityAdapter({ report: error => { errors.push(error); }, log() {}, async flush() {} });
+  try {
+    await expect(runJournalPrefix({ source: source(), resources: resources(), prefixCount: 0,
+      createWorker: () => {
+        const error = new TypeError("fixture worker construction detail");
+        if (asynchronous) return Promise.reject(error);
+        throw error;
+      },
+    })).rejects.toMatchObject({ code: "ENGINE_BUSY", message: "Could not create an engine worker" });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ message: "fixture worker construction detail" });
+  } finally {
+    const { consoleAdapter } = await import("../../shared/dist/observability/console-adapter.js");
+    setObservabilityAdapter(consoleAdapter);
+  }
 });

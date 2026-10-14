@@ -151,7 +151,8 @@ describe("chain-mode op", () => {
     const t = await table();
     t.worker.failNext = new Error("The core refused the automatic pass");
     const result = await t.post({ op: "chain-mode", mode: "off" }, t.players[1]!);
-    expect(result.status).toBe(409);
+    expect(result.status).toBe(500);
+    expect(result.data).toEqual({ error: "Something went wrong" });
     expect(t.worker.running).toBe(false);
     expect(t.journal()).toHaveLength(0);
     // The next request rebuilds the duel from the journal on a fresh worker, where the mode never changed.

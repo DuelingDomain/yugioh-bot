@@ -581,7 +581,7 @@ describe("manual and automatic deadlines", () => {
     expect(app.drafts.findById(app.draft.id).status).toBe("pending");
     expect(app.db.prepare("select count(*) as n from draft_deal").get()).toEqual({ n: 0 });
     expect(app.db.prepare("select count(*) as n from draft_packs").get()).toEqual({ n: 0 });
-    expect(app.read().lobby).toMatchObject({ start: null, lastStartError: "Injected deal failure", autoStart: { held: true } });
+    expect(app.read().lobby).toMatchObject({ start: null, lastStartError: "Something went wrong", autoStart: { held: true } });
   });
 
   it.each(["manual", "auto"] as const)("isolates a bad config in a %s lobby and starts a later valid lobby", (kind) => {

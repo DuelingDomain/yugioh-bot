@@ -1,4 +1,4 @@
-import { report } from "../observability/index.js";
+import { ExpectedError, log, report } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { randomInt } from "node:crypto";
 import type {
@@ -705,7 +705,10 @@ export function createSeriesStore(db: Database.Database) {
     try {
       recordResultTx(series, winnerPlayerId as number);
     } catch (error) {
-      report(error, { tags: { operation: "[duel-series] recording the series result failed" }, extra: { seriesId: series.id, tournamentMatchId: series.tournament_match_id, duelId: duel.id } });
+      const operation = "[duel-series] recording the series result failed";
+      const context = { seriesId: series.id, tournamentMatchId: series.tournament_match_id, duelId: duel.id };
+      if (error instanceof ExpectedError) log("warn", operation, { ...context, reason: error.message });
+      else report(error, { tags: { operation }, extra: context });
     }
   };
 

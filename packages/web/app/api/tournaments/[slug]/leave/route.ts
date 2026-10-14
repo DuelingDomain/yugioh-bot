@@ -1,4 +1,4 @@
-import { report } from "@yugidraft/shared/observability";
+import { apiErrorResponse } from "@/lib/api-errors";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -46,8 +46,6 @@ export async function POST(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to leave tournament";
-    report(error, { tags: { operation: "[api/tournaments/[slug]/leave] error" } });
-    return NextResponse.json({ error: message }, { status: 400 });
+    return apiErrorResponse(error, "[api/tournaments/[slug]/leave] error");
   }
 }

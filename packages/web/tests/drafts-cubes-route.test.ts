@@ -64,6 +64,20 @@ describe("POST/DELETE /api/drafts/[slug]/cubes (draft cubes)", () => {
     db.close();
   });
 
+  it("returns generic JSON when saving a draft cube fails", async () => {
+    await seedBlankThemeDraft();
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(process.env.DATABASE_PATH!);
+    db.exec("create trigger failed_write before insert on cubes begin select raise(abort, 'fixture draft cube detail'); end");
+    db.close();
+    const { POST } = await import("../app/api/drafts/[slug]/cubes/route");
+    const response = await POST(new Request("http://localhost/api/drafts/theme-slug/cubes", {
+      method: "POST", body: JSON.stringify({ kind: "blank", name: "Pool" }),
+    }), { params: Promise.resolve({ slug: "theme-slug" }) });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Something went wrong" });
+  });
+
   it("adds a blank cube to the draft and then removes it", async () => {
     await seedBlankThemeDraft();
     const { POST, DELETE } = await import("../app/api/drafts/[slug]/cubes/route");

@@ -1,3 +1,4 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { cubeReferenceAccess } from "@/lib/cube-access";
@@ -480,18 +481,10 @@ export function draftLobbyErrorResponse(error: unknown): Response {
   if (error instanceof DraftLobbyServiceError) {
     return NextResponse.json({ error: error.message, code: error.code, ...error.details }, { status: error.status });
   }
-  const failure = error as { message?: string; code?: string; details?: Record<string, unknown> } | null;
-  if (failure?.code && Object.hasOwn(DRAFT_LOBBY_ERROR_STATUS, failure.code)) {
-    const code = failure.code as DraftLobbyErrorCode;
-    const details = failure.details ?? failure;
-    const body: Record<string, unknown> = { error: failure.message ?? "Lobby action failed", code };
-    for (const key of ["notReadyPlayerIds", "unclaimedPlayerIds", "errors", "warnings"] as const) {
-      if (key in details) body[key] = (details as Record<string, unknown>)[key];
-    }
-    return NextResponse.json(body, { status: DRAFT_LOBBY_ERROR_STATUS[code] });
+  if (error instanceof DraftLobbyApiError) {
+    return NextResponse.json({ error: error.message, code: error.code }, { status: DRAFT_LOBBY_ERROR_STATUS[error.code] });
   }
-  report(error, { tags: { operation: "[draft lobby] action failed" } });
-  return NextResponse.json({ error: "Failed to update draft lobby" }, { status: 500 });
+  return apiErrorResponse(error, "[draft lobby] action failed");
 }
 
 export type DraftLobbyContext = {

@@ -63,9 +63,9 @@ it("stops the pick route's bot loop when cancellation commits after it reads opt
     }
     return options;
   });
-  const botPick = vi.spyOn(drafts, "pickCard");
   vi.mocked(createDraftService).mockReturnValueOnce(drafts);
-  const logError = recording.report.mockClear().mockImplementation(() => {});
+  const errors: unknown[] = [];
+  recording.report.mockImplementation(error => { errors.push(error); });
   const { POST } = await import("../app/api/drafts/[slug]/pick/route");
   const response = await POST(new NextRequest(`http://localhost/api/drafts/${draft.webSlug}/pick`, {
     method: "POST", body: JSON.stringify({ cardId: card.id }),
@@ -74,12 +74,38 @@ it("stops the pick route's bot loop when cancellation commits after it reads opt
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ status: "cancelled" });
   expect(terminalCommitted).toBe(true);
-  expect(botPick).toHaveBeenCalledOnce();
-  expect(botPick).toHaveBeenCalledWith(draft.id, 2, expect.any(Number), "auto");
-  expect(logError).not.toHaveBeenCalledWith("[draft] bot pick failed:", expect.anything());
+  expect(errors).toEqual([]);
   expect(drafts.findById(draft.id).pickDeadlineAt).toBeNull();
   expect(drafts.picks(draft.id).map(pick => pick.playerId)).toEqual([]);
   expect(db.pragma("foreign_key_check")).toEqual([]);
 });
 
 const recording = useRecordingObservability();
+
+it("returns a safe 400 without reporting malformed pick JSON", async () => {
+  const errors: unknown[] = [];
+  recording.report.mockImplementation(error => { errors.push(error); });
+  db = new Database(":memory:"); databases.push(db);
+  migrate(db);
+  db.exec("insert into users(id, username, display_name) values (1, 'host', 'Host')");
+  const player = createPlayerService(db).findOrCreate("g", 1, "Host");
+  const draft = createDraftService(db).create("g", null, "Malformed pick", {}, 1, player.id);
+  const { POST } = await import("../app/api/drafts/[slug]/pick/route");
+  const response = await POST(new NextRequest(`http://localhost/api/drafts/${draft.webSlug}/pick`, {
+    method: "POST", body: '{"cardId":private-input',
+  }), { params: Promise.resolve({ slug: draft.webSlug! }) });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({ error: "Invalid JSON body" });
+  expect(errors).toEqual([]);
+});
+
+it("returns a generic 500 when the pick route cannot read storage", async () => {
+  db = new Database(":memory:");
+  db.close();
+  const { POST } = await import("../app/api/drafts/[slug]/pick/route");
+  const response = await POST(new NextRequest("http://localhost/api/drafts/fixture/pick", {
+    method: "POST", body: JSON.stringify({ cardId: 1 }),
+  }), { params: Promise.resolve({ slug: "fixture" }) });
+  expect(response.status).toBe(500);
+  expect(await response.json()).toEqual({ error: "Something went wrong" });
+});

@@ -169,7 +169,8 @@ describeWithCores("host eliminates a seat while a prompt is open (real engine)",
     const eliminate = t.worker.eliminate.bind(t.worker);
     t.worker.eliminate = async (...args) => { await eliminate(...args); throw new Error("Card script error (strict mode)"); };
     const failed = await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[holder] });
-    expect(failed.status).toBe(409);
+    expect(failed.status).toBe(500);
+    expect(failed.data).toEqual({ error: "Something went wrong" });
     expect(t.worker.running).toBe(false);
     expect(t.duels.privateState(t.slug, "g1").commands).toHaveLength(0);
     const host2 = makeHost(t.db, new RealEngineWorker());

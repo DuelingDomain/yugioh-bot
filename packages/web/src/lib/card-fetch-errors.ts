@@ -1,3 +1,4 @@
+import { apiErrorResponse } from "./api-errors";
 import { NextResponse } from "next/server";
 import { CardFetchLimitError, isCardFetchError } from "@yugidraft/shared/services";
 
@@ -19,8 +20,7 @@ export function withCardFetchErrors<Args extends unknown[]>(handler: (...args: A
     try { return await handler(...args); }
     catch (error) {
       const response = cardFetchErrorResponse(error);
-      if (response) return response;
-      throw error;
+      return response ?? apiErrorResponse(error, "[card fetch API]");
     }
   };
 }

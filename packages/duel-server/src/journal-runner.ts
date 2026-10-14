@@ -1,3 +1,4 @@
+import { ExpectedError, report } from "@yugidraft/shared/observability";
 import { createHash } from "node:crypto";
 import {
   isEngineIdentity, isReplaySeed, isUnknownEngineChoice, sameEngineIdentity, seatCountFor, sourceEngineChoice,
@@ -134,7 +135,8 @@ function creationOptions({ source, resources, prefixCount, checkpointSeat, targe
       overlayHash = multiScriptsFolderHash(multiScriptsDirectory);
     }
   } catch (error) {
-    throw new JournalRunnerError(error instanceof Error ? error.message : "Source engine rules are not available", "ENGINE_UNAVAILABLE_FOR_SOURCE", error);
+    if (!(error instanceof ExpectedError)) report(error, { tags: { operation: "[duel] source engine rules" } });
+    throw new JournalRunnerError(error instanceof ExpectedError ? error.message : "Source engine rules are not available", "ENGINE_UNAVAILABLE_FOR_SOURCE", error);
   }
   if (!resources.allowVersionMismatch && source.bundleVersion !== pinnedEngineVersion(resources.bundleVersion, count, overlayHash)) {
     throw new JournalRunnerError("The engine resource version changed after this game was played", "ENGINE_UNAVAILABLE_FOR_SOURCE");
@@ -171,7 +173,10 @@ export async function runJournalPrefix(options: JournalRunOptions): Promise<Jour
   const created = creationOptions(options); // Check rules/resources/count before allocating a worker.
   let worker: DuelGameWorker;
   try { worker = await options.createWorker(); }
-  catch (error) { throw new JournalRunnerError(error instanceof Error ? error.message : "Could not create an engine worker", "ENGINE_BUSY", error); }
+  catch (error) {
+    report(error, { tags: { operation: "[duel] create journal worker" } });
+    throw new JournalRunnerError(error instanceof ExpectedError ? error.message : "Could not create an engine worker", "ENGINE_BUSY", error);
+  }
   let stage = "engine";
   try {
     const run = async (): Promise<JournalRunResult> => {
@@ -214,6 +219,7 @@ export async function runJournalPrefix(options: JournalRunOptions): Promise<Jour
     if (error instanceof EngineResourceUnavailableError) {
       throw new JournalRunnerError(error.message, error.code, error);
     }
-    throw new JournalRunnerError(error instanceof Error ? error.message : "Engine worker request failed", code, error, familyFailed);
+    report(error, { tags: { operation: "[duel] journal engine request" } });
+    throw new JournalRunnerError("Engine worker request failed", code, error, familyFailed);
   }
 }

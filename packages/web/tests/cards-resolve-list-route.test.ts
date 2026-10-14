@@ -324,3 +324,10 @@ it("looks up counted card lines before section titles and prose, so a long docum
   expect(result.corrected).toEqual([{ from: "Fresh Fusion Alpah", to: "Fresh Fusion Alpha" }]);
   expect(result.unknown).toEqual(prose);
 }, 40000);
+
+it("returns a generic 500 when card lookup cannot read the catalog", async () => {
+  db.exec("alter table card_catalog rename to fixture_catalog");
+  const response = await resolve({ listText: "Dark Hole" });
+  expect(response.status).toBe(500);
+  expect(await response.json()).toEqual({ error: "Something went wrong" });
+});

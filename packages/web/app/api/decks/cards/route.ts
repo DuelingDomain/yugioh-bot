@@ -1,6 +1,7 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { cardAdmissionContext, type CardAdmissionContext } from "@/lib/card-admission-context";
 import { NextResponse } from "next/server";
-import { parseCardQuery, type CardQuery } from "@yugidraft/shared/duels";
+import { CardQueryError, parseCardQuery, type CardQuery } from "@yugidraft/shared/duels";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
@@ -16,8 +17,9 @@ export async function POST(request: Request) {
     context = cardAdmissionContext(body);
     cardQuery = parseCardQuery(body);
   } catch (error) {
-    const message = error instanceof SyntaxError ? "Invalid JSON" : error instanceof Error ? error.message : "Invalid JSON";
-    return NextResponse.json({ error: message }, { status: 400 });
+    if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    if (error instanceof CardQueryError) return NextResponse.json({ error: error.message }, { status: 400 });
+    return apiErrorResponse(error, "[api/decks/cards]");
   }
   const result = await callDuelHost({
     op: "card-query",

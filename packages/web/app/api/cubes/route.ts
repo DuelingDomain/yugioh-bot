@@ -1,3 +1,6 @@
+import { CardListError } from "@/lib/card-list-parser";
+import { ExpectedError } from "@yugidraft/shared/observability";
+import { apiErrorResponse } from "@/lib/api-errors";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
@@ -247,8 +250,9 @@ export async function POST(request: Request) {
   } catch (error) {
     const fetchFailure = cardFetchErrorResponse(error);
     if (fetchFailure) return fetchFailure;
-    // CubeNameTakenError: another save took the name after the early check above.
-    const message = error instanceof Error ? error.message : "Failed to create cube";
-    return NextResponse.json({ error: message }, { status: isListImport && !(error instanceof CubeNameTakenError) ? 400 : 409 });
+    if (error instanceof ExpectedError || error instanceof CardListError) {
+      return NextResponse.json({ error: error.message }, { status: isListImport && !(error instanceof CubeNameTakenError) ? 400 : 409 });
+    }
+    return apiErrorResponse(error, "[api/cubes POST]");
   }
 }

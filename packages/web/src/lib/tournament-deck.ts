@@ -1,3 +1,5 @@
+import { ExpectedError } from "@yugidraft/shared/observability";
+import { apiErrorResponse } from "@/lib/api-errors";
 import type Database from "better-sqlite3";
 import { NextResponse } from "next/server";
 import { createDraftService } from "@yugidraft/shared/services";
@@ -42,9 +44,11 @@ export async function loadDraftPool(input: {
   try {
     picks = createDraftService(input.db).pool(input.draftId, input.playerId);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load the draft pool";
-    const status = message === "Player has not joined this draft" ? 403 : 404;
-    return { ok: false, response: NextResponse.json({ error: message }, { status }) };
+    if (error instanceof ExpectedError) {
+      const status = error.message === "Player has not joined this draft" ? 403 : 404;
+      return { ok: false, response: NextResponse.json({ error: error.message }, { status }) };
+    }
+    return { ok: false, response: apiErrorResponse(error, "[tournament deck] draft pool") };
   }
 
   const ids = [...new Set(picks.map((pick) => pick.catalogCardId))];

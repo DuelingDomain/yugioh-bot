@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
-import { activate, chainWith, choose, chooseScripted, defaultAnswer, pass, pickOpponent, ScriptedBotError, surrender, target } from "../src/scripted-bot.js";
+import { activate, chainWith, choose, chooseScripted, defaultAnswer, pass, pickOpponent, surrender, target } from "../src/scripted-bot.js";
 
 const DUST = 60082869;
 const JINZO = 77585513;
@@ -69,9 +69,14 @@ describe("rules", () => {
     expect(chooseScripted([choose("to_bp")], idle, view(), ctx).answer).toEqual({ choice: "to_bp" });
     expect(chooseScripted([pass()], idle, view(), ctx).answer).toEqual({ choice: "to_ep" });
   });
-  it("a rule that cannot find its card throws a clear error", () => {
-    const prompt = { id: "p2", seat: 1, kind: "cards", title: "t", min: 1, max: 1, options: [option("card:0", 12580477, { controller: 0 }), option("card:1", 53129443, { controller: 0 })] } as DuelPrompt;
-    const bad = { note: "bad", when: () => true, do: () => { throw new Error("boom"); } };
-    expect(() => chooseScripted([bad], prompt, view(), ctx)).toThrow(ScriptedBotError);
+  it.each(["when", "do"] as const)("keeps a failed %s rule's details out of its trace", phase => {
+    const prompt = { id: "p2", seat: 1, kind: "cards", title: "t", min: 1, max: 1,
+      options: [option("card:0", 12580477, { controller: 0 }), option("card:1", 53129443, { controller: 0 })] } as DuelPrompt;
+    const bad = { note: "bad", when: () => true, do: () => ({ choice: "card:0" }),
+      [phase]: () => { throw new Error("fixture rule detail"); } };
+    const traces: unknown[] = [];
+    expect(() => chooseScripted([bad], prompt, view(), { ...ctx, trace: entry => { traces.push(entry); } }))
+      .toThrow(`Rule "bad" failed in ${phase}(): Something went wrong`);
+    expect(traces).toEqual([{ rule: "bad", matched: phase === "do", reason: `failed in ${phase}(): Something went wrong` }]);
   });
 });

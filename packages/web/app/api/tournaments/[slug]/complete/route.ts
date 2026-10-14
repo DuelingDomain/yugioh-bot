@@ -1,4 +1,4 @@
-import { report } from "@yugidraft/shared/observability";
+import { apiErrorResponse } from "@/lib/api-errors";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -62,8 +62,6 @@ export async function POST(
 
     return NextResponse.json({ id: completed.id, status: completed.status });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to end tournament";
-    report(error, { tags: { operation: "[api/tournaments/[slug]/complete] error" } });
-    return NextResponse.json({ error: message }, { status: 400 });
+    return apiErrorResponse(error, "[api/tournaments/[slug]/complete] error");
   }
 }

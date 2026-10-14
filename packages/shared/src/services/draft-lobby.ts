@@ -1,4 +1,4 @@
-import { report } from "../observability/index.js";
+import { errorResponseBody, report } from "../observability/index.js";
 import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import {
@@ -397,14 +397,14 @@ export function createDraftLobbyService(db: Database.Database) {
               // assignment/deal back before the failure and Hold are committed.
               return { started: drafts.start(id, now, { scheduleToken: row.lobby_start_token }), changed };
             } catch (error) {
-              report(error, { tags: { operation: "[draft-lobby] start failed" } });
-              return fail(error instanceof Error ? error.message : "Draft start failed");
+              const { body } = errorResponseBody(error, { tags: { operation: "[draft-lobby] start failed" } });
+              return fail(body.error);
             }
           }).immediate();
           if (transition.started) result.started.push(transition.started);
           if (transition.changed) result.changedSlugs.push(transition.changed);
         } catch (error) {
-          report(error, { tags: { operation: "[draft-lobby] tick failed" } });
+          const { body } = errorResponseBody(error, { tags: { operation: "[draft-lobby] tick failed" } });
           try {
             const changed = db.transaction(() => {
               const current = db.prepare("select web_slug from drafts where id = ? and status = 'pending'")
@@ -412,7 +412,7 @@ export function createDraftLobbyService(db: Database.Database) {
               if (!current) return null;
               clearDraftLobbyStart(db, id);
               db.prepare(`update drafts set lobby_revision = lobby_revision + 1, lobby_auto_held = lobby_auto_start,
-                lobby_start_error = ? where id = ?`).run(error instanceof Error ? error.message : "Lobby tick failed", id);
+                lobby_start_error = ? where id = ?`).run(body.error, id);
               return current.web_slug;
             }).immediate();
             if (changed) result.changedSlugs.push(changed);

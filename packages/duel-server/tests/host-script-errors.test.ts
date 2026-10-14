@@ -62,8 +62,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
     hosts.push(host);
     try {
       const result = await request(host, { op: "view", slug: session.slug, guildId: "g", playerId: players[0] }, 503);
-      expect(JSON.stringify(result)).toContain("Engine script error:");
-      expect(JSON.stringify(result)).not.toMatch(/stack overflow|private_lua_diagnostic/);
+      expect(result).toEqual({ error: "Duel engine is temporarily unavailable" });
       const events = output.errors;
       const fatal = events.filter(event => event.tags?.operation === "Card script fatal");
       expect(fatal).toEqual([expect.objectContaining({
@@ -200,15 +199,15 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
         const body = { ...base, op: "respond", playerId: players[seat], command: { promptId: view.prompt!.id, revision: view.revision, answer: attackAnswer(view.prompt!) } };
         const triggering = view.prompt!.options.some((entry) => entry.id.startsWith("attack:"));
         const commandsBefore = duels.privateState(session.slug, "g").commands.length;
-        await request(host, body, triggering ? 400 : 200);
+        const result = await request(host, body, triggering ? 500 : 200);
         if (!triggering) continue;
+        expect(result).toEqual({ error: "Something went wrong" });
         expect(await views()).toEqual(before);
         expectRuntimeOccurrences(db, session.id);
         expect(duels.privateState(session.slug, "g").commands).toHaveLength(commandsBefore);
         expect(topScriptErrors(db)[0]?.count).toBe(1);
-        const retry = await request(host, body, 400);
-        expect(JSON.stringify(retry)).toContain("Card script error (strict mode)");
-        expect(JSON.stringify(retry)).not.toContain("3743515");
+        const retry = await request(host, body, 500);
+        expect(retry).toEqual({ error: "Something went wrong" });
         expect(await views()).toEqual(before);
         expectRuntimeOccurrences(db, session.id);
         expect(topScriptErrors(db)[0]?.count).toBe(1);

@@ -1,3 +1,4 @@
+import { ExpectedError } from "@yugidraft/shared/observability";
 import { DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT, supportsFirstTurnDrawSetting,
   type DuelFormat, type DuelMasterRule, type DuelMode, type DuelSettings } from "@yugidraft/shared/duels";
 
@@ -27,7 +28,7 @@ export function savedFirstTurnDraw(
   format: DuelFormat = "1v1",
 ): boolean {
   if (stored !== undefined) {
-    if (typeof stored !== "boolean") throw new Error("Saved first-turn draw rule must be a boolean.");
+    if (typeof stored !== "boolean") throw new ExpectedError("Saved first-turn draw rule must be a boolean.", 409);
     return stored;
   }
   // Before the draw flag was saved, every 1v1 engine used the stock Master Rule draw rule (MR1/MR2 only).
@@ -35,5 +36,5 @@ export function savedFirstTurnDraw(
   if (format === "1v1") return masterRule <= 2;
   if (masterRule <= 2) return true;
   if (format === "tag") return false;
-  throw new Error("The first-turn draw rule was not saved for this duel. Its old rule cannot be determined safely; recovery and replay are unavailable.");
+  throw new ExpectedError("The first-turn draw rule was not saved for this duel. Its old rule cannot be determined safely; recovery and replay are unavailable.", 409);
 }

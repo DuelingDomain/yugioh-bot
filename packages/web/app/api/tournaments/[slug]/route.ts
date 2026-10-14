@@ -1,3 +1,4 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { report } from "@yugidraft/shared/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -33,9 +34,6 @@ type TournamentRow = {
   created_at: string;
   started_at: string | null;
 };
-
-/** A settings (deadline / report window) step failed inside the PUT transaction. */
-class SettingsUpdateError extends Error {}
 
 function resolveTournamentBySlug(db: ReturnType<typeof getDb>, slug: string): TournamentRow | undefined {
   return db.prepare("select * from tournaments where web_slug = ? and guild_id = ?").get(slug, env.discordGuildId) as TournamentRow | undefined;
@@ -313,7 +311,12 @@ export async function PUT(
     }
 
     const tournamentId = tournament.id;
-    const body = await request.json();
+    let body: unknown;
+    try { body = await request.json(); }
+    catch (error) {
+      if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      throw error;
+    }
     const { name, deadlineAt, reportConfirmWindowHours, bestOf, duelRules } = body as {
       name?: string;
       deadlineAt?: string | null;
@@ -364,11 +367,7 @@ export async function PUT(
         db.prepare("update tournaments set name = ? where id = ?").run(name, tournamentId);
       }
       if (Object.keys(patch).length > 0) {
-        try {
-          tournaments.updateSettings(tournamentId, patch);
-        } catch (err) {
-          throw new SettingsUpdateError(err instanceof Error ? err.message : "Failed to update settings");
-        }
+        tournaments.updateSettings(tournamentId, patch);
       }
       if (rulesChange) {
         createTournamentDuelService(db).setRules(tournamentId, userId, {
@@ -382,9 +381,6 @@ export async function PUT(
     try {
       applyUpdates();
     } catch (err) {
-      if (err instanceof SettingsUpdateError) {
-        return NextResponse.json({ error: err.message }, { status: 400 });
-      }
       if (err instanceof TournamentDuelError) {
         return NextResponse.json({ error: err.message }, { status: err.status });
       }
@@ -418,8 +414,7 @@ export async function PUT(
       && error.message.includes("tournaments.guild_id, tournaments.created_by_user_id, tournaments.name")) {
       return NextResponse.json({ error: "You already have a tournament called this that hasn't finished." }, { status: 400 });
     }
-    report(error, { tags: { operation: "[api/tournaments/[slug] PUT] error" } });
-    return NextResponse.json({ error: "Failed to update tournament" }, { status: 500 });
+    return apiErrorResponse(error, "[api/tournaments/[slug] PUT] error");
   }
 }
 
@@ -472,8 +467,6 @@ export async function POST(
       status: started.status,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to start tournament";
-    report(error, { tags: { operation: "[api/tournaments/[slug] POST] error" } });
-    return NextResponse.json({ error: message }, { status: 400 });
+    return apiErrorResponse(error, "[api/tournaments/[slug] POST] error");
   }
 }
