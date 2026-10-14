@@ -15,6 +15,7 @@ from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
 
 PUBLIC = Path(__file__).resolve().parents[1] / 'public'
+DISCORD_INVITE = 'https://discord.gg/NcpbK3kZA'
 VOID = set('area base br col embed hr img input link meta param source track wbr'.split())
 
 
@@ -239,8 +240,8 @@ def main():
     assert {'https://duelingdomain.com/', 'https://app.duelingdomain.com',
             'https://duelingdomain.com/privacy', 'https://duelingdomain.com/terms'} <= set(links), 'llms.txt required links'
     for link in links:
-        if link == 'https://app.duelingdomain.com':
-            continue  # The public sign-in entry point; private app URLs stay excluded.
+        if link in ('https://app.duelingdomain.com', DISCORD_INVITE):
+            continue  # The public sign-in entry point and community invite; private app URLs stay excluded.
         parsed = urlsplit(link)
         assert parsed.scheme == 'https' and parsed.netloc == 'duelingdomain.com', link
         target = pages[resolve(parsed.path).name]
@@ -253,8 +254,19 @@ def main():
         assert not forbidden.search(file.name), file.name
         if file.suffix in ('.html', '.css', '.js', '.mjs', '.py', '.md', '.svg', '.txt', '.xml', '.webmanifest'):
             assert not forbidden.search(file.read_text()), file
+    # The app's sign-in providers stay off these pages. The only allowed mentions on the
+    # homepage are the community invite link and its "Join our Discord" label.
     for name in ('index.html', '404.html', 'terms.html'):
-        assert 'discord' not in pages[name].file.read_text().lower(), name
+        text = pages[name].file.read_text()
+        if name == 'index.html':
+            text = text.replace(DISCORD_INVITE, '').replace('Join our Discord', '')
+        assert 'discord' not in text.lower(), name
+    homepage_links = [e['attrs'] for e in pages['index.html'].find('a') if e['attrs'].get('href') == DISCORD_INVITE]
+    assert len(homepage_links) == 4, 'Discord invite expected in nav, hero, join section and footer'
+    for attrs in homepage_links:
+        assert attrs.get('target') == '_blank' and attrs.get('rel') == 'noopener noreferrer', attrs
+        assert attrs.get('aria-label') == 'Join our Discord (opens in a new tab)', attrs
+    assert any(DISCORD_INVITE in node.get('sameAs', []) for node in graph if node['@type'] == 'Organization')
     if google:
         assert 'browser contacts Google' in pages['privacy.html'].file.read_text()
         print('FALLBACK: Google Fonts retained after sandbox DNS failure. Run self-host-fonts.py before launch.')
