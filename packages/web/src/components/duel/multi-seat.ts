@@ -213,6 +213,18 @@ export function sharedExtraPairs(engine: Pick<DuelEngineView, "format" | "seats"
   return pairs.sort(([a], [b]) => a.seat - b.seat);
 }
 
+/**
+ * The living facing pair of a 3-way table (seats 0 and 1), when the engine reports it (`sharedExtraWith`, both ways). The plaza
+ * draws a link between the two fields. Seat 2, a pair with a seat that is out, and an older core without the field give null.
+ */
+export function plazaFacingPair(engine: Pick<DuelEngineView, "format" | "seats">): [DuelSeatView, DuelSeatView] | null {
+  if (engineFormat(engine) !== "ffa3") return null;
+  const first = engine.seats.find((view) => view.seat === 0);
+  const second = engine.seats.find((view) => view.seat === 1);
+  if (!first || !second || isEliminated(first) || isEliminated(second)) return null;
+  return first.sharedExtraWith === 1 && second.sharedExtraWith === 0 ? [first, second] : null;
+}
+
 /** The seat that plays after `seat`, skipping eliminated and leaving seats. Null when no other seat is alive. */
 export function nextSeatAfter(seats: readonly DuelSeatView[], seat: number): number | null {
   const ordered = [...seats].sort((a, b) => a.seat - b.seat);

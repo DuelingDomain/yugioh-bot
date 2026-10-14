@@ -30,3 +30,6 @@ packages/duel-server/domain-core/.emcache/
 packages/duel-server/legacy-1v1/domain-core/.build/
 packages/duel-server/legacy-1v1/domain-core/dist/
 .status/
+
+# Public release images and registry build caches must not copy source maps.
+**/*.map

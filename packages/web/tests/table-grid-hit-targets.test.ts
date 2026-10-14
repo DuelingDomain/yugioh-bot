@@ -78,7 +78,7 @@ describe("4-way grid: the phase hub sits in the free cells beside the Extra Mons
     expect(hub).toMatch(/--hc: var\(--hub-hc, clamp\(26px, calc\(var\(--hub-z\) \* 0\.28\), 38px\)\);/);
     expect(hub).toMatch(/:global\(\[data-hub-fit\]\) \.cell\[data-cell\] \.pair::before \{\s*display: none;/);
     expect(hub).toMatch(/:global\(\[data-hub-fit="stack"\]\) \.pair \{\s*flex-direction: column;/);
-    expect(hub).toMatch(/:global\(\[data-hub-fit="stack"\]\) \.owner,\s*:global\(\[data-hub-fit="stack"\]\) \.under \{\s*display: none;/);
+    expect(hub).toMatch(/:global\(\[data-hub-fit="stack"\]\) \.owner,\s*:global\(\[data-hub-fit="stack"\]\) \.stepAbove,\s*:global\(\[data-hub-fit="stack"\]\) \.under \{\s*display: none;/);
   });
 });
 

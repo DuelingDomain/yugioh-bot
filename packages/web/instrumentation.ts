@@ -1,3 +1,4 @@
+import { log } from "@yugidraft/shared/observability";
 import * as Sentry from "@sentry/nextjs";
 
 export async function register() {
@@ -12,7 +13,7 @@ export async function register() {
   ];
   for (const [name, value] of checks) {
     if (!value) {
-      console.warn(`[startup] ${name} is empty — related broadcasts will silently no-op`);
+      log("warn", "[startup] missing broadcast configuration", { name });
     }
   }
 }

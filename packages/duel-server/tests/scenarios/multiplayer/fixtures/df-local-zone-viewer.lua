@@ -27,10 +27,12 @@ function s.cost(e,tp,eg,ep,ev,re,r,rp,chk)
   local mutual=c:GetMutualLinkedZone(1-tp)
   local column=c:GetColumnZone(LOCATION_MZONE,0,0,1-tp)
   if chk~=0 then
-   assert(linked==(s.expected_count==3 and 0x80007 or 7),'opponent Link zone changed')
-   assert(free==(s.expected_count==3 and 0x80005 or 5),'opponent free Link zone changed')
+   -- FFA3 seat 1 faces seat 0; seat 2 is local. Every FFA4 seat has a fixed facing player.
+   local shared=s.expected_count==3 or Duel.MPSeatOf(c)==1
+   assert(linked==(shared and 0x80007 or 7),'opponent Link zone changed')
+   assert(free==(shared and 0x80005 or 5),'opponent free Link zone changed')
    assert(mutual==2,'opponent mutual Link zone changed')
-   assert(column==(s.expected_count==3 and 0x80002 or 2),'opponent column zone changed')
+   assert(column==(shared and 0x80002 or 2),'opponent column zone changed')
   end
  end
  if chk==0 then return true end

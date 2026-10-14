@@ -16,7 +16,7 @@ vi.mock("next/font/google", () => {
 
 const swr = vi.hoisted(() => ({ data: null as unknown }));
 const sendDuelAction = vi.hoisted(() => vi.fn(async () => ({})));
-vi.mock("swr", () => ({ default: () => ({ data: swr.data, error: undefined, isLoading: false, mutate: vi.fn() }) }));
+vi.mock("swr", () => ({ useSWRConfig: () => ({ mutate: () => Promise.resolve() }), default: () => ({ data: swr.data, error: undefined, isLoading: false, mutate: vi.fn() }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({
   useDuelWebsocket: () => ({ syncing: false, recovering: false, connected: true, presence: null, resync: vi.fn() }),
@@ -565,7 +565,7 @@ describe("the pinned card peek of the 1v1 room", () => {
       spies.push(
         vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
           if (this === document.body) return rect({ left: 0, right: 1280, top: 0, bottom: LAYER_H }) as DOMRect;
-          return rect(this.getAttribute("data-testid") === "field-pick" ? box : { left: 0, right: 0, top: 0, bottom: 0 }) as DOMRect;
+          return rect(["field-pick", "field-card"].includes(this.getAttribute("data-testid") ?? "") ? box : { left: 0, right: 0, top: 0, bottom: 0 }) as DOMRect;
         }),
         vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) { return isPanel(this) ? widthOf(this) : 0; }),
         // The effect text is 200 px tall when it fits, and 100 px more when `fits` says the place is too small for it.
@@ -604,7 +604,7 @@ describe("the pinned card peek of the 1v1 room", () => {
       pin();
       expect(peek().getAttribute("data-side")).toBe("left");
       expect(peek().getAttribute("data-anchor")).toBe("bottom");
-      expect(css("--pv-w")).toBe("220px");
+      expect(css("--pv-w")).toBe("320px");
       // The band runs from 50 (under the header pills) to 8 px above the layer end.
       expect(css("--pv-bottom")).toBe("8px");
       expect(css("--pv-max-h")).toBe("662px");
@@ -649,13 +649,14 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { tower.remove(); }
     });
 
-    it("never goes to the right: with a single band, a clicked card under the left panel does not move it", () => {
+    it("never goes to the right: a clicked card under the left panel gets the pin above it, still in the left column (it never covers the card it shows)", () => {
       layout({ left: 100, right: 180, top: 400, bottom: 560 });
       mount();
       pin();
       expect(peek().getAttribute("data-side")).toBe("left");
       expect(css("--pv-right")).toBe("");
-      expect(css("--pv-bottom")).toBe("8px");
+      // The band from the header pills (50) to the card (400 - 12): it ends 720 - 388 above the layer bottom.
+      expect(css("--pv-bottom")).toBe("332px");
     });
 
     it("shows the art again when the panel moves from a short place to a tall one (a squeeze in a passing place does not hide it for good)", () => {
@@ -671,6 +672,40 @@ describe("the pinned card peek of the 1v1 room", () => {
       hover();
       expect(css("--pv-max-h")).toBe("662px");
       expect(peek().getAttribute("data-squeezed")).toBeNull();
+    });
+
+    it("keeps the art when the text is cut: it shrinks to the small size and the rest of the text scrolls", () => {
+      layout({ left: 900, right: 980, top: 300, bottom: 420 });
+      // The text is cut (taller than its box) and the art is tall enough (160 px): the art stays, small.
+      spies.push(
+        vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) { return this.tagName === "IMG" ? 160 : this.tagName === "P" ? 100 : 0; }),
+        vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) { return this.tagName === "P" ? 400 : 0; }),
+      );
+      mountWithText();
+      hover();
+      expect(peek().getAttribute("data-art")).toBe("small");
+      expect(peek().getAttribute("data-squeezed")).toBeNull();
+    });
+
+    it("keeps its place when the hover ends and the pointer moves onto the text: the card it stays clear of is frozen with the shown card", () => {
+      vi.useFakeTimers();
+      layout({ left: 100, right: 180, top: 400, bottom: 560 });
+      mountWithText();
+      hover();
+      // The card stands under the left column: the panel takes the band above it (50 to 388) and keeps the card clear.
+      expect(css("--pv-bottom")).toBe("332px");
+      const width = css("--pv-w");
+      fireEvent.mouseLeave(screen.getByTestId("field-card"));
+      // The pointer enters the text before the hide delay is over: the panel is held and must not move (no jump to the first band).
+      fireEvent.pointerEnter(peek().querySelector("p[class*=previewText]")!);
+      act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS * 4); });
+      expect(peek().getAttribute("data-open")).toBe("true");
+      expect(css("--pv-bottom")).toBe("332px");
+      expect(css("--pv-w")).toBe(width);
+      // Without the hold the panel slides out in the same place.
+      fireEvent.pointerLeave(peek().querySelector("p[class*=previewText]")!);
+      expect(css("--pv-bottom")).toBe("332px");
+      expect(css("--pv-w")).toBe(width);
     });
 
     it("lets a hover stand over a life-point plate, so the art keeps its height; a pin stays clear of the plate", () => {
@@ -740,7 +775,7 @@ describe("the pinned card peek of the 1v1 room", () => {
       } finally { tower.remove(); panel.remove(); }
     });
 
-    it("stops above the Tag team plate at the bottom left, and above a Deck Master plate", () => {
+    it("stops above the Tag team plate at the bottom left, and stands over a Deck Master plate", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
       const plate = part({ "data-team-plate": "" }, { left: 14, right: 200, top: 540, bottom: 700 });
       const master = part({ "data-testid": "hud-master" }, { left: 14, right: 200, top: 100, bottom: 160 });
@@ -748,24 +783,25 @@ describe("the pinned card peek of the 1v1 room", () => {
         mount();
         hover();
         expect(peek().getAttribute("data-side")).toBe("left");
-        // The band between the master (160 + 12) and the plate (540 - 12): it ends 720 - 528 above the layer bottom.
+        // The band from the header pills (50) to the plate (540 - 12): it ends 720 - 528 above the layer bottom. The master plate (100-160) cuts nothing:
+        // the panel stands over it while it shows a card.
         expect(css("--pv-bottom")).toBe("192px");
-        expect(css("--pv-max-h")).toBe("356px");
+        expect(css("--pv-max-h")).toBe("478px");
       } finally { plate.remove(); master.remove(); }
     });
 
-    it("is never narrower than the column minimum, with the board beside it: the same one on hover and pin", () => {
+    it("is never narrower than the floor width (300 px), with the board beside it: the same one on hover and pin", () => {
       layout({ left: 900, right: 980, top: 300, bottom: 420 });
-      // The board starts at x 300: 300 - 12 (gap) - 72 (the left edge) = 216 px of room, under the 220 px minimum.
+      // The board starts at x 300: 300 - 12 (gap) - 72 (the left edge) = 216 px of room, under the 300 px floor.
       const board = part({ "data-zones": "1:4:0" }, { left: 300, right: 940, top: 100, bottom: 500 });
       try {
         mount();
         hover();
         expect(peek().getAttribute("data-side")).toBe("left");
-        expect(css("--pv-w")).toBe("220px");
+        expect(css("--pv-w")).toBe("300px");
         fireEvent.click(screen.getByTestId("field-pick"));
         expect(peek().getAttribute("data-side")).toBe("left");
-        expect(css("--pv-w")).toBe("220px");
+        expect(css("--pv-w")).toBe("300px");
       } finally { board.remove(); }
     });
 
@@ -778,7 +814,7 @@ describe("the pinned card peek of the 1v1 room", () => {
         pin();
         // The plate (500) less the 12 px gap ends the band; the board is 8 px right of the column, so the panel keeps its minimum width.
         expect(peek().getAttribute("data-side")).toBe("left");
-        expect(css("--pv-w")).toBe("220px");
+        expect(css("--pv-w")).toBe("300px");
         expect(css("--pv-max-h")).toBe("438px");
         expect(css("--pv-bottom")).toBe("232px");
       } finally { zones.remove(); plate.remove(); }
@@ -832,11 +868,15 @@ describe("the pinned card peek of the 1v1 room", () => {
 
 
 
-    it("keeps a floor under the card art in a tall band, so a long text scrolls instead of taking the art to 0", () => {
+    it("sizes the card art with the band: from 104 px in a short one to 200 px in a tall one, and the panel is 320-420 px wide, over the Deck Master plate", () => {
       const css = readFileSync(join(__dirname, "../../src/components/duel/table/grid-hud.module.css"), "utf8");
-      const rule = css.match(/^\.previewArt\s*\{[^}]*\}/m);
-      // 0 in a band under about 330 px, up to 180 px from 510 px on (--pv-max-h is the band height that grid-preview.tsx sets).
-      expect(rule?.[0]).toMatch(/min-height:\s*clamp\(0px,\s*calc\(var\(--pv-max-h,\s*0px\)\s*-\s*330px\),\s*180px\)/);
+      const art = css.match(/^\.previewArt\s*\{[^}]*\}/m);
+      // --pv-max-h is the band height that grid-preview.tsx sets.
+      expect(art?.[0]).toMatch(/width:\s*clamp\(104px,\s*calc\(\(var\(--pv-max-h,\s*640px\)\s*-\s*340px\)\s*\*\s*0\.7\),\s*min\(200px,\s*46%\)\)/);
+      const panel = css.match(/^\.preview\s*\{[^}]*\}/m);
+      expect(panel?.[0]).toMatch(/--pv-col-w:\s*clamp\(320px,\s*22vw,\s*420px\)/);
+      // Above the Deck Master plate (.masterWrap, z-index 31).
+      expect(Number(panel?.[0].match(/z-index:\s*(\d+)/)?.[1])).toBeGreaterThan(Number(css.match(/^\.masterWrap\s*\{[^}]*z-index:\s*(\d+)/m)?.[1]));
     });
 
     it("takes the pointer in CSS, so a click on a pinned panel never reaches a card under it", () => {
@@ -882,7 +922,7 @@ describe("the pinned card peek of the 1v1 room", () => {
         hover();
         expect(css("--pv-max-h")).toBe("662px");
         // Not a chain part: the hover check runs on every fourth beat only (150 ms each).
-        dock = part({ "data-testid": "hud-other" }, TOWER);
+        dock = part({ "data-grid-controls": "" }, TOWER);
         act(() => { vi.advanceTimersByTime(450); });
         expect(css("--pv-max-h")).toBe("662px");
         act(() => { vi.advanceTimersByTime(150); });
@@ -891,7 +931,7 @@ describe("the pinned card peek of the 1v1 room", () => {
         fireEvent.click(screen.getByTestId("field-pick"));
         act(() => { vi.advanceTimersByTime(600); });
         expect(css("--pv-max-h")).toBe("662px");
-        dock = part({ "data-testid": "hud-other" }, TOWER);
+        dock = part({ "data-grid-controls": "" }, TOWER);
         act(() => { vi.advanceTimersByTime(150); });
         expect(css("--pv-max-h")).toBe("352px");
       } finally { dock?.remove(); vi.useRealTimers(); }

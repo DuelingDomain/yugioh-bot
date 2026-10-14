@@ -61,10 +61,10 @@ describe("recovery rate limits", () => {
     const real = `${OAUTH_COOKIE}=${sealCookie("oauth", { test: "real" })}`;
     expect(recoveryRateLimit(request("GET", real, "198.51.100.9"), "callback")).toBeNull();
   });
-  it("bounds distinct buckets and frees them after ten minutes", () => {
+  it("evicts the oldest distinct buckets and frees expired windows", () => {
     const ip = (i: number) => `10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`;
     for (let i = 0; i < 10_000; i++) expect(recoveryRateLimit(request("POST", undefined, ip(i)), "complete")).toBeNull();
-    expect(recoveryRateLimit(request("POST", undefined, "198.51.100.200"), "complete")?.status).toBe(429);
+    expect(recoveryRateLimit(request("POST", undefined, "198.51.100.200"), "complete")).toBeNull();
     // A full map still allows existing buckets within their own budget.
     expect(recoveryRateLimit(request("POST", undefined, ip(0)), "complete")).toBeNull();
     vi.advanceTimersByTime(600_000);

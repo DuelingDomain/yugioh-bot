@@ -26,7 +26,7 @@ export interface HudMasterSource {
 }
 
 /** The props of one Deck Master plate: the seat view, whether the plate is yours, and its title. */
-export function hudMasterProps(source: HudMasterSource, view: DuelSeatView | undefined, local: boolean, title: string): HudMasterProps {
+export function hudMasterProps(source: HudMasterSource, view: DuelSeatView | undefined, local: boolean, title: string, showInUse = false): HudMasterProps {
   const { prompt, canAct } = source;
   return {
     view,
@@ -43,6 +43,7 @@ export function hudMasterProps(source: HudMasterSource, view: DuelSeatView | und
     // buttons on the plate, and the token keeps opening the details.
     onActivate: prompt != null && !(prompt.kind === "choice" && prompt.context?.type === "action") ? source.onActivate : undefined,
     onHoverCard: source.onHoverCard,
+    showInUse,
   };
 }
 

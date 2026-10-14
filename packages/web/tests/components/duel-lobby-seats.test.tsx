@@ -14,7 +14,10 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push, replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
 vi.mock("swr", () => ({ default: () => ({ data: listData, mutate: vi.fn() }) }));
 vi.mock("../../src/components/decks/api", () => ({ listSavedDecks }));
 vi.mock("../../src/components/duel/api", async (importOriginal) => ({
@@ -185,7 +188,9 @@ describe("own table row", () => {
     const data = room(0, true);
     navigateDuelWindow(popup as unknown as Window, data.session.slug);
     popup.focus.mockClear();
-    listData.duels = [{ ...data.session, status: "active", mySeat: 0, lastActivityAt: "", series: null }];
+    listData.duels = [{ ...data.session, private: false, status: "active", mySeat: 0, lastActivityAt: "", series: null,
+      startedAt: null, durationMs: null, turnCount: null, engine: null,
+      seats: data.session.seats.map(seat => ({ ...seat, team: null, result: null })) }];
     render(<DuelLobby />);
     const link = screen.getByRole("link", { name: /Return/ });
     expect(fireEvent.click(link)).toBe(false);
@@ -199,7 +204,9 @@ describe("table list entry", () => {
   function table(full = false, occupiedSeat = 0) {
     const data = room(null, full);
     if (!full) data.session.seats[0].seat = occupiedSeat;
-    listData.duels = [{ ...data.session, mySeat: null, lastActivityAt: "", series: null }];
+    listData.duels = [{ ...data.session, private: false, mySeat: null, lastActivityAt: "", series: null,
+      startedAt: null, durationMs: null, turnCount: null, engine: null,
+      seats: data.session.seats.map(seat => ({ ...seat, team: null, result: null })) }];
     render(<DuelLobby />);
   }
 
@@ -231,7 +238,7 @@ describe("table list entry", () => {
 
   it("keeps the notice neutral if the server seats the player before its response is lost", async () => {
     takeDuelSeat.mockImplementation(async () => {
-      listData.duels[0].seats.push(room(1, true).session.seats[1]);
+      listData.duels[0].seats.push({ ...room(1, true).session.seats[1], team: null, result: null });
       throw new TypeError("Failed to fetch");
     });
     table();

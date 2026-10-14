@@ -1706,7 +1706,8 @@ export function projectView(args: {
       if (info) view.deckMaster = { card: info, inZone: domain.inZone, returns: domain.returns, nextCost: domain.nextCost };
     }
     if (multi) {
-      const sharedExtra = format === "tag" ? args.coreCapabilities?.tagSharedExtraZones : args.coreCapabilities?.ffa4SharedExtraZones;
+      const sharedExtra = format === "tag" ? args.coreCapabilities?.tagSharedExtraZones
+        : format === "ffa3" ? args.coreCapabilities?.ffa3SharedExtraZones : args.coreCapabilities?.ffa4SharedExtraZones;
       view.sharedExtraWith = sharedExtra ? sharedExtraSeatOf(format, seat, args.eliminated) : null;
       view.team = teamOfSeat(format, seat);
       view.eliminated = false;

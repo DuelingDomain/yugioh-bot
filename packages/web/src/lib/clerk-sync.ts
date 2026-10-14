@@ -16,7 +16,13 @@ export function syncClerkUser(clerkUserId: string): Promise<LinkOutcome> {
     // Remote I/O must finish before the shared service acquires SQLite's writer lock.
     const json = await backend.getUser(clerkUserId);
     if (!json || json.id !== clerkUserId) throw new ClerkBackendError("Clerk user is unavailable", 0, "missing_user", null);
-    const outcome = createUserService(getDb()).resolveClerkProfile(profileFromClerkUser(json));
+    const users = createUserService(getDb());
+    const profile = profileFromClerkUser(json);
+    const current = users.findByClerkId(clerkUserId);
+    const hasDiscord = json.external_accounts.some(account => account.provider === "oauth_discord" && account.verification?.status === "verified");
+    // Bootstrap metadata preserves a current link; it cannot restore a removed one.
+    if (!hasDiscord && current && current.discordUserId !== profile.discordUserId) profile.discordUserId = null;
+    const outcome = users.resolveClerkProfile(profile);
     // Recovery metadata bootstraps the link until Clerk owns it; then unlinking
     // the external account must also revoke application recovery.
     const recoveredDiscord = json.private_metadata?.existingPlayerDiscordId;

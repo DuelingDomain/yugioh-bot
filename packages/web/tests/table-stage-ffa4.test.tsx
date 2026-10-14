@@ -73,7 +73,7 @@ describe("TableShell on the 4-way fixtures", () => {
     expect(container.querySelectorAll("[data-compact-chips]")).toHaveLength(0);
   });
 
-  it("leaves the hidden camera alone on the grid: camera keys do nothing, Tab is not prevented, S still turns upright", () => {
+  it("leaves the hidden camera alone on the grid: camera keys do nothing, Tab is not prevented, S does nothing", () => {
     const { container } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-table-stage]")!;
     const key = (name: string) => {
@@ -87,9 +87,10 @@ describe("TableShell on the 4-way fixtures", () => {
     for (const name of ["4", "1", "0", "h", "o", "f", "p", "k", "a", "c"]) key(name);
     expect(stage.getAttribute("data-camera-mode")).toBe("home");
     expect(stage.getAttribute("data-camera-want")).toBe("home");
-    const upright = stage.getAttribute("data-upright");
-    expect(key("s")).toBe(false);
-    expect(stage.getAttribute("data-upright")).not.toBe(upright);
+    // S is not a key of the table: it is not prevented and no state changes.
+    expect(key("s")).toBe(true);
+    expect(key("S")).toBe(true);
+    expect(stage.hasAttribute("data-upright")).toBe(false);
   });
 
   it("lets the seat strip zoom the grid to any seat, yours too, and leaves the hidden camera alone", () => {

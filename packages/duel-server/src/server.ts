@@ -1,5 +1,6 @@
-import { report } from "@yugidraft/shared/observability";
+import { log, report } from "@yugidraft/shared/observability";
 import { awaitObservabilityShutdown } from "@yugidraft/shared/observability/node-bootstrap";
+import { findDuelEventTarget } from "@yugidraft/shared/services";
 import { config } from "dotenv";
 import { createServer, type ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
@@ -19,7 +20,7 @@ for (const key of [DUEL_1V1_ENGINE_ENV, DUEL_STANDARD_1V1_ENGINE_ENV]) {
   const value = process.env[key];
   const normalized = value?.trim().toLowerCase();
   if (normalized && !isDuelEngineChoice(normalized)) {
-    console.warn(`[duel] Invalid ${key}=${JSON.stringify(value)}; expected legacy or pinned. Using the fallback.`);
+    log("warn", "[duel] invalid engine setting; using the fallback", { key });
   }
 }
 console.log(`[duel] 1v1 engines: Standard=${duel1v1EngineForMode("normal")}, Domain=${duel1v1EngineForMode("domain")}`);
@@ -47,7 +48,9 @@ const host = createDuelHost({
   presetIssues,
   searchCards: (query) => cards.search(query),
   onChange: async (slug, guildId) => {
-    await wsTransport.post("/internal/duel/changed", JSON.stringify({ slug, guildId }));
+    const target = findDuelEventTarget(db, slug, guildId);
+    if (!target) return;
+    await wsTransport.post("/internal/duel/changed", JSON.stringify({ slug: target.slug, guildId: target.guildId }));
   },
   notifyTournament: async ({ kind, slug }) => {
     await broadcaster.tournament({ kind, slug });

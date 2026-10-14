@@ -31,7 +31,7 @@ To start already built images:
 
 ```bash
 cd /opt/yugioh-bot
-docker compose -f docker-compose.yml up -d
+docker compose -f docker-compose.yml up -d --no-build
 ```
 
 ## Backups

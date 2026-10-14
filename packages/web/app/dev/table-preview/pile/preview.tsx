@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { LOCATION_GRAVE, TYPE_EFFECT, TYPE_MONSTER, TYPE_SPELL } from "@/components/duel/constants";
 import { duelFontClasses } from "@/components/duel/fonts";
+import type { ChainLinkState } from "@/components/duel/chain-state";
 import { PileViewer } from "@/components/duel/pile-viewer";
 import { useTableTextScale } from "@/components/duel/card-text-size";
 
@@ -31,16 +32,31 @@ function pile(count: number, text: string | null): DuelCard[] {
   });
 }
 
+/** `2:activating,5:resolving` as chain links on the pile cards at those sequences (Chain 1, Chain 2, ...). */
+function chainLinks(raw: string | null, cards: readonly DuelCard[]): ChainLinkState[] {
+  return (raw ?? "").split(",").flatMap((part, at) => {
+    const [seq, phase] = part.split(":");
+    const card = cards.find((entry) => entry.sequence === Number(seq));
+    if (!card || seq === "") return [];
+    return [{
+      index: at + 1, seat: card.controller, code: card.code ?? null, name: card.name ?? null, card: null, text: null, cardType: null,
+      zone: { controller: card.controller, location: card.location, sequence: card.sequence }, targets: [],
+      status: phase === "resolving" ? "resolving" : "pending", negated: phase === "negated",
+    } satisfies ChainLinkState];
+  });
+}
+
 /** The pile viewer alone on a board-sized box (`box` = the box height in px, else the window), for the screenshots of every size. */
-export function PilePreview({ count, text, owner, reduced, box }: { count: number; text: string | null; owner: "you" | "opp"; reduced: boolean; box: number | null }) {
+export function PilePreview({ count, text, owner, reduced, box, chain }: { count: number; text: string | null; owner: "you" | "opp"; reduced: boolean; box: number | null; chain: string | null }) {
   useTableTextScale();
   const cards = useMemo(() => pile(count, text), [count, text]);
+  const links = useMemo(() => chainLinks(chain, cards), [chain, cards]);
   const [open, setOpen] = useState(true);
   return (
     <div className={duelFontClasses} style={{ position: "relative", height: box ? `${box}px` : "100dvh", background: "#070b15" }}>
       {open ? null : <button type="button" onClick={() => setOpen(true)} style={{ margin: 16, color: "#efe7d5" }}>Open Graveyard</button>}
       <PileViewer title={owner === "you" ? "Your Graveyard" : "Opponent Graveyard"} cards={cards} owner={owner} open={open} onClose={() => setOpen(false)}
-        onInspectCard={() => {}} reducedMotion={reduced} />
+        onInspectCard={() => {}} reducedMotion={reduced} chainLinks={links} />
     </div>
   );
 }

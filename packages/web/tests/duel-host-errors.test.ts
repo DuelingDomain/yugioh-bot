@@ -111,6 +111,72 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "Decks are locked after the duel starts" });
   });
 
+  it.each(["deck", "ready"] as const)("preserves the neutral start block in the %s route response", async op => {
+    const payload = { session: { status: "lobby" }, startBlocked: "Start blocked: another player's deck needs attention." };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(payload)));
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
+      duels: { touchWaiting: vi.fn(), room: () => ({ session: { status: "lobby" } }) } as never,
+    });
+    const { NextRequest } = await import("next/server");
+    const request = new NextRequest("http://web.test/api/duels/abc", { method: "POST", body: "{}" });
+    const { POST } = op === "deck" ? await import("../app/api/duels/[slug]/deck/route") : await import("../app/api/duels/[slug]/ready/route");
+    const response = await POST(request, { params: Promise.resolve({ slug: call.slug }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(payload);
+  });
+
+  it.each(["lobby", "between_games"] as const)("gets the owner's blocked-start notice from the host in %s room reads", async state => {
+    const payload = { session: { status: state === "lobby" ? "lobby" : "completed" },
+      startBlocked: { reason: "Move Fixture Spell to Main.", cardNames: ["Fixture Spell"] } };
+    const fetch = vi.fn().mockResolvedValue(Response.json(payload));
+    vi.stubGlobal("fetch", fetch);
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
+      duels: { touchWaiting: vi.fn(), room: () => ({ session: payload.session, mySeat: 0,
+        series: state === "between_games" ? { status: "between_games" } : null }) } as never,
+    });
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    const response = await GET(new Request("http://web.test/api/duels/abc"), { params: Promise.resolve({ slug: call.slug }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(payload);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ op: "view", playerId: call.playerId });
+  });
+
+  it("preserves the neutral flag on the next lobby read after series advancement", async () => {
+    const payload = { session: { status: "lobby", slug: "next-game" }, role: "player", mySeat: 1,
+      startBlockedByOther: true };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(payload)));
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
+      duels: { touchWaiting: vi.fn(), room: () => ({ session: payload.session, mySeat: 1 }) } as never,
+    });
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    const response = await GET(new Request("http://web.test/api/duels/next-game"), { params: Promise.resolve({ slug: "next-game" }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(payload);
+  });
+
+  it.each(["lobby", "between_games"] as const)("returns the local %s room when the host is unavailable", async state => {
+    const local = { session: { status: state === "lobby" ? "lobby" : "completed" }, mySeat: 0,
+      role: "player", myDeck: { main: [901], extra: [], side: [] },
+      series: state === "between_games" ? { status: "between_games" } : null };
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    const host = await loadHost();
+    vi.spyOn(host, "requireDuelActor").mockResolvedValue({
+      ok: true, guildId: call.guildId, playerId: call.playerId, userId: call.playerId,
+      duels: { touchWaiting: vi.fn(), room: () => local } as never,
+    });
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    const response = await GET(new Request("http://web.test/api/duels/abc"), { params: Promise.resolve({ slug: call.slug }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(local);
+  });
+
   it("keeps the seat-left code and text for duel answers", async () => {
     const body = { code: "seat_left", error: "That player has left. Pick again." };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(body, { status: 400 })));
@@ -128,6 +194,74 @@ describe("callDuelHost error messages", () => {
     if (result.ok) throw new Error("expected failure");
     expect(result.response.status).toBe(400);
     expect(await result.response.json()).toEqual({ error: "Invalid answer" });
+  });
+
+  it.each([
+    ...["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE"].map(code => ({ status: 409, code })),
+    { status: 413, code: "REPLAY_TOO_LARGE" },
+  ].flatMap(error => ["available", "none"].map(finalBoard => ({ ...error, finalBoard }))))
+  ("keeps finalBoard for a permitted $status: $code/$finalBoard", async ({ status, ...body }) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Cannot replay", ...body }, { status })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "owner-replay" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(status);
+    expect(await result.response.json()).toEqual({ error: "Cannot replay", ...body });
+  });
+
+  it.each([
+    { status: 403, code: "ACCESS_DENIED" }, { status: 404, code: "ACCESS_DENIED" },
+    { status: 409, code: "ACCESS_DENIED" }, { status: 400, code: "INVALID_CURSOR" },
+    { status: 503, code: "ENGINE_BUSY" }, { status: 409, code: "ENGINE_BUSY" },
+    { status: 403, code: "NOT_PLAYABLE" }, { status: 500, code: "REPLAY_MISMATCH" },
+    { status: 409, code: undefined },
+    { status: 409, code: "REPLAY_TOO_LARGE" }, { status: 413, code: "ACCESS_DENIED" },
+    { status: 413, code: "NOT_PLAYABLE" },
+  ])("drops finalBoard on $status/$code", async ({ status, code }) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Cannot replay", code, finalBoard: "available" }, { status })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "owner-replay" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(status >= 500 ? 503 : status);
+    expect(await result.response.json()).not.toHaveProperty("finalBoard");
+  });
+
+  it.each(["replay-fork", "fork-restart"] as const)("preserves only the recovery contract for a %s fork-limit error", async op => {
+    const body = { error: "Replay fork limit reached. Cancel a fork and try again.", code: "FORK_LIMIT",
+      limit: 4, forksUrl: "/api/admin/duels/forks" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, forks: [{ private: "fixture" }] }, { status: 429 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(429); expect(await result.response.json()).toEqual(body);
+    expect(result.response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it.each([0, -1, 4.5, "4"])("ignores an invalid fork quota %s", async limit => {
+    const body = { error: "Fork limit", code: "FORK_LIMIT" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, limit, forksUrl: "/api/admin/duels/forks" }, { status: 429 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "replay-fork" });
+    if (result.ok) throw new Error("expected failure");
+    expect(await result.response.json()).toEqual(body);
+  });
+
+  it.each(["https://example.test/forks", "/api/other", null])("ignores an unexpected fork list URL %s", async forksUrl => {
+    const body = { error: "Fork limit", code: "FORK_LIMIT" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, limit: 4, forksUrl }, { status: 429 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "replay-fork" });
+    if (result.ok) throw new Error("expected failure");
+    expect(await result.response.json()).toEqual(body);
+  });
+
+  it("does not attach fork recovery data to an engine-busy error", async () => {
+    const body = { error: "A replay fork is still launching", code: "ENGINE_BUSY" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...body, limit: 4, forksUrl: "/api/admin/duels/forks" }, { status: 503 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "replay-fork" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(503); expect(await result.response.json()).toEqual(body);
   });
 
   it("preserves a restart as a retryable 503 for duel answers", async () => {
@@ -152,8 +286,8 @@ describe("callDuelHost error messages", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "restarting" }, { status: 503 })));
     const host = await loadHost();
     vi.spyOn(host, "requireDuelActor").mockResolvedValue({
-      ok: true, guildId: call.guildId, playerId: call.playerId,
-      duels: { room: () => ({ session: { status: "active" } }) } as never,
+      ok: true, guildId: call.guildId, playerId: call.playerId, userId: 7,
+      duels: { touchWaiting: vi.fn(), room: () => ({ session: { status: "active" } }) } as never,
     });
     const context = { params: Promise.resolve({ slug: call.slug }) };
     let response: Response;
@@ -178,6 +312,16 @@ describe("callDuelHost error messages", () => {
     expect(JSON.parse(request.body as string)).toMatchObject({ op: "view", spectate: true });
     await callDuelHost({ ...call, op: "view" });
     expect(JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)).not.toHaveProperty("spectate");
+  });
+
+  it("carries the application user ID for the host mapping check", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { callDuelHost } = await loadHost();
+    await callDuelHost({ ...call, userId: 7 });
+    const payload = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    expect(payload).toMatchObject({ guildId: call.guildId, playerId: call.playerId, userId: 7 });
+    expect(payload).not.toHaveProperty("isOwner");
   });
 });
 

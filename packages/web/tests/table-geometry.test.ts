@@ -3,6 +3,7 @@ import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared
 import {
   ARENA_CENTER,
   aliveLayout,
+  controllerLayout,
   arrangementOf,
   boardBounds,
   flyWorld,
@@ -46,7 +47,7 @@ function engine(format: DuelFormat, count: number): DuelEngineView {
 }
 function camera(over: Partial<CameraState> = {}): CameraState {
   return {
-    mode: "home", focusSeat: null, lookSeat: null, upright: false, compact: "auto",
+    mode: "home", focusSeat: null, lookSeat: null, compact: "auto",
     fly: { yawDeg: 0, tiltDeg: 40, zoom: 1, targetSeat: null }, lock: null, ...over,
   };
 }
@@ -103,6 +104,25 @@ describe("tableLayout", () => {
     expect(layout.slots.map((s) => s.tone)).toEqual(["violet", "ice", "rose", "verdant"]);
     expect(layout.slots.every((s) => s.relation === "other")).toBe(true);
   });
+
+  it("keeps the places on the camera seat and moves only what is yours to the acting seat (a replay fork)", () => {
+    for (const [format, count] of [["ffa3", 3], ["ffa4", 4], ["tag", 4]] as const) {
+      const still = tableLayout(format, engine(format, count), 0);
+      const acting = controllerLayout(format, engine(format, count), { viewerSeat: 1, cameraSeat: 0 });
+      // Same seats in the same places with the same tones and compass: the board does not turn.
+      expect(acting.slots.map(({ seat, tone, compass, baseAngleDeg }) => ({ seat, tone, compass, baseAngleDeg })))
+        .toEqual(still.slots.map(({ seat, tone, compass, baseAngleDeg }) => ({ seat, tone, compass, baseAngleDeg })));
+      expect(acting.anchorSeat).toBe(0);
+      expect(acting.viewerSeat).toBe(0);
+      // Yours (the face-up hand, the usable zones) is the seat that acts.
+      expect(acting.slots.filter((s) => s.relation === "self").map((s) => s.seat)).toEqual([1]);
+    }
+  });
+
+  it("draws from the acting seat when a controller has no camera seat", () => {
+    const plain = controllerLayout("ffa3", engine("ffa3", 3), { viewerSeat: 1 });
+    expect(plain).toEqual(tableLayout("ffa3", engine("ffa3", 3), 1));
+  });
 });
 
 describe("seatPoses", () => {
@@ -121,12 +141,6 @@ describe("seatPoses", () => {
     expect(poses.get(2)?.x).toBe(550);
     expect(poses.get(0)?.x).toBe(298);
     expect(poses.get(1)?.x).toBe(802);
-  });
-
-  it("keeps the same poses when upright is on (only text turns)", () => {
-    const home = seatPoses(layout, camera(), VIEW);
-    const up = seatPoses(layout, camera({ upright: true }), VIEW);
-    for (const seat of [0, 1, 2]) expect(up.get(seat)).toEqual(home.get(seat));
   });
 
   it("gives every pose of a 4-way table a place inside the stage", () => {

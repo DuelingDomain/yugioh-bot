@@ -73,6 +73,14 @@ function remapDeck(value: Record<string, unknown>, remap: (code: number) => numb
     if (Array.isArray(deck[field])) deck[field] = deck[field].map(code => typeof code === "number" ? remap(code) : code);
   }
   if (typeof deck.deckMaster === "number") deck.deckMaster = remap(deck.deckMaster);
+  const notice = deck.extraDeckRepair;
+  if (notice && typeof notice === "object" && !Array.isArray(notice)) {
+    const repair = notice as Record<string, unknown>;
+    if (Array.isArray(repair.moves)) deck.extraDeckRepair = { ...repair, moves: repair.moves.map(move => {
+      if (!move || typeof move !== "object" || Array.isArray(move)) return move;
+      return typeof move.code === "number" ? { ...move, code: remap(move.code) } : move;
+    }) };
+  }
   return deck;
 }
 

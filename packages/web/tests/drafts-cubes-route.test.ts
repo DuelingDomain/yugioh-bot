@@ -99,6 +99,35 @@ describe("POST/DELETE /api/drafts/[slug]/cubes (draft cubes)", () => {
     expect(removed.allowedCubeIds).not.toContain(added.cube.id);
   }, 30000);
 
+  it("seeds the same archetype name into two hosts' private libraries", async () => {
+    await seedBlankThemeDraft();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [{
+      id: 1001, name: "Test Dragon", type: "Normal Monster", frameType: "normal", archetype: "Blue-Eyes",
+      card_images: [{ image_url: "i", image_url_small: "i" }],
+    }] })));
+    const { getDb } = await import("../src/lib/db");
+    const db = getDb();
+    db.prepare("insert into drafts(guild_id,name,status,created_by_user_id,config_json,web_slug) values('guild-1','Second Theme Night','pending',?,'{\"mode\":\"theme\",\"allowedCubeIds\":[]}','second-theme')").run(fixtureUserId("someone-else"));
+    const { POST } = await import("../app/api/drafts/[slug]/cubes/route");
+    const create = (slug: string) => POST(new Request(`http://localhost/api/drafts/${slug}/cubes`, {
+      method: "POST", body: JSON.stringify({ kind: "archetype", archetype: "Blue-Eyes" }),
+    }), { params: Promise.resolve({ slug }) });
+    const first = await create("theme-slug");
+    expect(first.status).toBe(201);
+    const firstCube = (await first.json()).cube;
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId("someone-else")), discordUserId: fixtureDiscordId("someone-else"), name: "P2" } });
+    const second = await create("second-theme");
+    expect(second.status).toBe(201);
+    const secondCube = (await second.json()).cube;
+    expect(secondCube.id).not.toBe(firstCube.id);
+    expect(db.prepare("select name,created_by_user_id from cubes order by id").all()).toEqual([
+      { name: "Blue-Eyes", created_by_user_id: fixtureUserId("u1") },
+      { name: "Blue-Eyes", created_by_user_id: fixtureUserId("someone-else") },
+    ]);
+    const { GET } = await import("../app/api/cubes/route");
+    expect((await (await GET()).json()).cubes.map((cube: { id: number }) => cube.id)).toEqual([secondCube.id]);
+  });
+
   it("attaches an existing library cube and detaching keeps it in the library", async () => {
     await seedBlankThemeDraft();
     const Database = (await import("better-sqlite3")).default;

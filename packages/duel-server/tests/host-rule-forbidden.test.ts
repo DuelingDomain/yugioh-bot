@@ -81,6 +81,7 @@ describeWithCores("live host forbidden list (" + mode + ")",
       for (let index = 0; index < count; index++) {
         const submitted = await post(players[index]!, { op: "deck", deck: index === seat ? invalid : legal });
         expect(submitted.status, JSON.stringify(submitted.body)).toBe(index === seat ? 400 : 200);
+        if (index === seat) expect(submitted.body.error).toMatch(/is forbidden in /);
       }
       expect(service.get(room.slug, "g1").seats.map((s) => s.ready)).toEqual(players.map((_, index) => index !== seat));
       expect((await post(players[0]!, { op: "start" })).status).toBe(409);
@@ -88,10 +89,29 @@ describeWithCores("live host forbidden list (" + mode + ")",
       // A deck from a prior service path must also fail the real check at start.
       service.setDeck(room.slug, "g1", players[seat]!, invalid);
       const refused = await post(players[0]!, { op: "start" });
-      expect(refused.status).toBe(400);
-      expect(refused.body.error).toMatch(/is forbidden in /);
-      expect(service.get(room.slug, "g1").status).toBe("lobby");
-      expect(creates).toBe(0);
+      if (seat === 0) {
+        expect(refused.status).toBe(400);
+        expect(refused.body.error).toMatch(/is forbidden in /);
+      } else {
+        expect(refused.status).toBe(200);
+        expect(refused.body).toMatchObject({
+          startBlocked: "Start blocked: another player's deck needs attention.", startBlockedByOther: true,
+        });
+        expect(refused.body).not.toHaveProperty("error");
+      }
+      for (const actor of players) {
+        const view = await post(actor, { op: "view" });
+        expect(view.status).toBe(200);
+        if (actor === players[seat]) {
+          expect(view.body.startBlocked).toMatchObject({ reason: expect.stringMatching(/is forbidden in /) });
+          expect(view.body).not.toHaveProperty("startBlockedByOther");
+        } else {
+          expect(view.body.startBlockedByOther).toBe(true);
+          expect(view.body).not.toHaveProperty("startBlocked");
+        }
+        expect(service.get(room.slug, "g1").status).toBe("lobby");
+        expect(creates).toBe(0);
+      }
       expect((await post(players[seat]!, { op: "deck", deck: legal })).status).toBe(200);
       const started = await post(players[0]!, { op: "start" });
       expect(started.status, JSON.stringify(started.body)).toBe(200);

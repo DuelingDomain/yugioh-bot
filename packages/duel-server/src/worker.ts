@@ -8,6 +8,8 @@ import { seatCountFor } from "@yugidraft/shared/duels";
 import { tracePrompt } from "./prompt-trace.js";
 import { EngineAnswerError } from "./prompts.js";
 import { EngineLoopError } from "./engine-loop-error.js";
+import { EngineResourceUnavailableError, verifyWorkerEngineIdentity } from "./engine-resource-resolver.js";
+import { loadCardDatabase } from "./cards.js";
 
 let game: EngineGame | null = null;
 let queue = Promise.resolve();
@@ -16,6 +18,7 @@ const scriptErrors: DuelScriptError[] = [];
 const fatalScriptErrors: DuelScriptFatalError[] = [];
 let creationIdentity = "start";
 let journalPosition = 0;
+let manualLossAnswersAfter: number | null = null;
 
 function canonicalCommand(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalCommand);
@@ -42,8 +45,9 @@ export async function handleWorkerRequest(request: DuelWorkerRequest): Promise<D
   if (mutation && response.ok) {
     if (request.op === "create") { creationIdentity = commandHash; journalPosition = 0; }
     else journalPosition++;
+    if (manualLossAnswersAfter !== null && journalPosition >= manualLossAnswersAfter) game?.setManualLossAnswers?.(true);
   }
-  if (request.op === "close") { creationIdentity = "start"; journalPosition = 0; traceSeats = 0; }
+  if (request.op === "close") { creationIdentity = "start"; journalPosition = 0; traceSeats = 0; manualLossAnswersAfter = null; }
   if (response.ok && game) {
     try {
       response.info = game.coreInfo();
@@ -72,13 +76,27 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
     switch (request.op) {
       case "create": {
         if (game) return { id: request.id, ok: false, error: "A game is already running in this worker" };
+        const boundary = request.options.manualLossAnswersAfter;
+        if (boundary !== undefined && (!Number.isSafeInteger(boundary) || boundary < 0)) {
+          return { id: request.id, ok: false, error: "Invalid fork control boundary" };
+        }
+        manualLossAnswersAfter = boundary ?? null;
+        if (request.options.engineIdentity) {
+          verifyWorkerEngineIdentity(request.options.dataDirectory, request.options, request.options.engineIdentity);
+        }
         // The legacy engine plays two-seat tables only; every other table uses the merged engine and its multi core.
         const legacy = request.options.engine === "legacy" && (request.options.format ?? "1v1") === "1v1";
+        const cardsAt = performance.now();
+        // Both engine factories reuse this thread's catalog cache. Time its cold load separately.
+        loadCardDatabase(request.options.dataDirectory);
+        const cardDbLoadMs = performance.now() - cardsAt;
+        const engineAt = performance.now();
         game = await (legacy ? createLegacyEngineGame : createEngineGame)({ ...request.options,
           onScriptError: (error) => scriptErrors.push(error), onFatalScriptError: (error) => fatalScriptErrors.push(error) });
+        const engineCreateMs = performance.now() - engineAt;
         traceSeats = process.env.DUEL_SCENARIOS === "1" && (request.options.format ?? "1v1") !== "1v1"
           ? seatCountFor(request.options.format!) : 0;
-        return { id: request.id, ok: true };
+        return { id: request.id, ok: true, createTimings: { cardDbLoadMs, engineCreateMs } };
       }
       case "view": {
         if (!game) return { id: request.id, ok: false, error: "No game" };
@@ -91,7 +109,7 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
       }
       case "search": {
         if (!game) return { id: request.id, ok: false, error: "No game" };
-        return { id: request.id, ok: true, value: game.searchCards(request.query) };
+        return { id: request.id, ok: true, value: game.searchCards(request.query, request.seat) };
       }
       case "eliminate": {
         if (!game) return { id: request.id, ok: false, error: "No game" };
@@ -118,6 +136,7 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
     return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error),
       message: error instanceof Error ? error.message : String(error),
       ...(error instanceof Error ? { name: error.name, stack: error.stack } : {}),
+      ...(error instanceof EngineResourceUnavailableError ? { code: error.code } : {}),
       ...(error instanceof EngineLoopError ? { engineLoop: true as const } : {}),
       ...(error instanceof EngineAnswerError ? { answerError: true as const, ...(error.code ? { code: error.code } : {}) } : {}) };
   }

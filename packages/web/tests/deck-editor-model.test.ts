@@ -12,11 +12,15 @@ import {
 } from "../src/components/duel/constants";
 import {
   chooseMaster,
+  fixMisplaced,
+  placementBlock,
+  CARD_DETAILS_PENDING_MESSAGE,
   clearSection,
   copyProblems,
   deckYdkText,
   placeCard,
   removeCard,
+  removeMaster,
   sectionBreakdown,
   shuffled,
   sortDeck,
@@ -215,5 +219,34 @@ describe("shuffled", () => {
     const out = shuffled(input, () => (seed = (seed * 16807) % 2147483647) / 2147483647);
     expect(out.slice().sort()).toEqual(input);
     expect(input).toEqual([1, 2, 3, 4, 5]);
+  });
+});
+
+describe("removeMaster", () => {
+  it("returns the card to the slot it came from", () => {
+    const start: DeckMasterSelection = { deck: { main: [1, 3], extra: [], side: [], deckMaster: 5 }, masterOrigin: { section: "main", index: 1 } };
+    expect(removeMaster(start).deck).toEqual({ main: [1, 5, 3], extra: [], side: [] });
+  });
+
+  it("puts a card with no origin into its home section instead of deleting it", () => {
+    const saved: DeckMasterSelection = { deck: { main: [1], extra: [], side: [], deckMaster: 5 }, masterOrigin: null };
+    expect(removeMaster(saved)).toEqual({ deck: { main: [1, 5], extra: [], side: [] }, masterOrigin: null });
+    expect(removeMaster(saved, "extra").deck).toEqual({ main: [1], extra: [5], side: [] });
+  });
+
+  it("changes nothing without a Deck Master", () => {
+    const none: DeckMasterSelection = { deck: { main: [1], extra: [], side: [] }, masterOrigin: null };
+    expect(removeMaster(none)).toEqual(none);
+  });
+});
+
+describe("cards with unknown engine types", () => {
+  it("keeps a named card in Extra when type data is absent", () => {
+    const source = selection([], [999]);
+    const unknown = card(999, "Named unknown", 0);
+    const incomplete: CardCatalog = new Map([[999, unknown]]);
+    expect(fixMisplaced(source, incomplete, "extra")).toBe(source);
+    expect(placementBlock(unknown, "extra", "extra")).toBeNull();
+    expect(placementBlock(unknown, "extra", "main")).toBe(`Named unknown: ${CARD_DETAILS_PENDING_MESSAGE}`);
   });
 });

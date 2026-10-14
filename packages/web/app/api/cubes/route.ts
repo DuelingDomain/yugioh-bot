@@ -9,6 +9,7 @@ import { cubeDraftTypeOf, parseCubeDraftType, setCubeDraftType } from "@/lib/cub
 import { ensureCatalogCards, parsePoolEntries } from "@/lib/cube-pool";
 import { prepareCubeListImport } from "@/lib/cube-list-import";
 import { themeDraftsEnabled } from "@/lib/theme-drafts";
+import { cubeReferenceAccess } from "@/lib/cube-access";
 
 export const runtime = "nodejs";
 
@@ -40,19 +41,19 @@ export async function GET() {
   const rows = db
     .prepare(`select c.id, c.guild_id, c.name, c.archetype, c.banlist, c.config_json, c.created_by_user_id,
               (select u.display_name from users u where u.id = c.created_by_user_id) as created_by_name
-         from cubes c where c.guild_id = ? order by c.name asc`)
-    .all(env.discordGuildId) as CubeRow[];
+         from cubes c where c.guild_id = ? and c.created_by_user_id = ? order by c.name asc`)
+    .all(env.discordGuildId, actor.userId) as CubeRow[];
 
-  // One query for every card of every cube in the guild, instead of two per cube.
+  // Read only this owner's cards, with one query instead of two per cube.
   const cardRows = db
     .prepare(
       `select cc.cube_id, cc.pool, cc.catalog_card_id, cc.max_copies
          from cube_cards cc
          join cubes c on c.id = cc.cube_id
-        where c.guild_id = ?
+        where c.guild_id = ? and c.created_by_user_id = ?
         order by cc.cube_id asc, cc.rowid asc`,
     )
-    .all(env.discordGuildId) as Array<{ cube_id: number; pool: string; catalog_card_id: number; max_copies: number }>;
+    .all(env.discordGuildId, actor.userId) as Array<{ cube_id: number; pool: string; catalog_card_id: number; max_copies: number }>;
   const mainByCube = new Map<number, Array<{ id: number; copies: number }>>();
   const extraCountByCube = new Map<number, number>();
   for (const card of cardRows) {
@@ -117,9 +118,13 @@ export async function POST(request: Request) {
   }
 
   const db = getDb();
-  const catalog = createCardCatalogService(db);
+  const catalog = createCardCatalogService(db, { memberId: actor.userId });
   const cubes = createCubeService(db, catalog);
   const guildId = env.discordGuildId;
+  if (body.copyExtraFromCubeId !== undefined) {
+    const denied = cubeReferenceAccess(db, [body.copyExtraFromCubeId], { userId: actor.userId });
+    if (denied) return denied;
+  }
   const isListImport = body.importText !== undefined || body.kind === "list";
 
   try {
@@ -131,10 +136,10 @@ export async function POST(request: Request) {
       }
       const name = typeof body.name === "string" ? body.name.trim() : "";
       if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 });
-      if (db.prepare("select 1 from cubes where guild_id = ? and lower(name) = lower(?)").get(guildId, name)) {
+      if (db.prepare("select 1 from cubes where guild_id = ? and created_by_user_id = ? and lower(name) = lower(?)").get(guildId, actor.userId, name)) {
         throw new CubeNameTakenError(name);
       }
-      const { entries, unknown, corrected, lookupLimited } = await prepareCubeListImport(catalog, body.importText);
+      const { entries, unknown, corrected, lookupLimited, moves, messages } = await prepareCubeListImport(catalog, body.importText);
       if (entries.length === 0) {
         return NextResponse.json({ error: "No cards found in that list.", added: 0, copies: 0, unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) }, { status: 400 });
       }
@@ -144,7 +149,7 @@ export async function POST(request: Request) {
         if (draftType) setCubeDraftType(db, created.id, draftType);
         return { cube: withDraftType(db, created.id, cubes.findCube(created.id)), ...result };
       })();
-      return NextResponse.json({ ...result, unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) }, { status: 201 });
+      return NextResponse.json({ ...result, unknown, corrected, ...(moves ? { moves, messages } : {}), ...(lookupLimited ? { lookupLimited } : {}) }, { status: 201 });
     }
     if (body.kind === "archetype") {
       const archetype = body.archetype?.trim();
@@ -171,8 +176,8 @@ export async function POST(request: Request) {
       if (extra && "error" in extra) return NextResponse.json({ error: extra.error }, { status: 400 });
       const entries = [...parsed.entries, ...(extra?.entries ?? []).map((e) => ({ ...e, pool: "extra" as const }))];
       const taken = db
-        .prepare("select id from cubes where guild_id = ? and lower(name) = lower(?)")
-        .get(guildId, name);
+        .prepare("select id from cubes where guild_id = ? and created_by_user_id = ? and lower(name) = lower(?)")
+        .get(guildId, actor.userId, name);
       if (taken) {
         return NextResponse.json({ error: `A cube named "${name}" already exists` }, { status: 409 });
       }
@@ -198,8 +203,8 @@ export async function POST(request: Request) {
     // settings: store it as a config-backed cube. Reject duplicates by name.
     if (body.config && body.kind !== "blank") {
       const existing = db
-        .prepare("select id from cubes where guild_id = ? and name = ?")
-        .get(guildId, name) as { id: number } | undefined;
+        .prepare("select id from cubes where guild_id = ? and created_by_user_id = ? and name = ?")
+        .get(guildId, actor.userId, name) as { id: number } | undefined;
       if (existing) {
         return NextResponse.json({ error: `A cube named "${name}" already exists` }, { status: 409 });
       }

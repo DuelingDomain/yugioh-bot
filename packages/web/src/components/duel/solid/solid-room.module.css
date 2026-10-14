@@ -75,7 +75,9 @@
   /* layout (desktop, spec 2.5); --strip is 0 because there is no dev strip */
   --hdr: 48px;
   --pad: 12px;
-  --insp-w: 268px;
+  /* The card panel: wide enough to read a long effect (268px at a small window, up to 420px). The board is bound by the window height, so the wider column costs it nothing
+     (the width bound of --s stays above the height bound from 1280px on). */
+  --insp-w: clamp(268px, 25vw, 420px);
   --dock-w: 0px;
   --opp-h: 78px;
   --hand-h: clamp(100px, 13vh, 150px);
@@ -134,7 +136,7 @@
 .root[data-view="flat"] { --tilt: 0deg; }
 
 @media (min-width: 1800px) {
-  .root { --insp-w: 300px; --opp-h: 88px; }
+  .root { --opp-h: 88px; }
   .root[data-domain="true"] { --dock-w: 280px; }
 }
 

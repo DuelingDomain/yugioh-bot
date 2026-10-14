@@ -8,6 +8,7 @@ import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelEngineView, DuelFormat, DuelMode } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
+import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
 import { topScriptErrors } from "../src/script-error-store.js";
 import { reproOptions, attackAnswer } from "./helpers/script-error-repro.js";
 import { queryErrorOptions } from "./helpers/query-error-repro.js";
@@ -27,6 +28,18 @@ async function request(host: DuelHost, body: Record<string, unknown>, expectedSt
   const data = await response.json() as any;
   expect(response.status, JSON.stringify(data)).toBe(expectedStatus);
   return data;
+}
+
+// The prepared bundle patches Sabersaurus's own direct-attack error, leaving
+// only the synthetic callback. Recovery/replay/retry must preserve its exact
+// occurrence key without recording it again.
+function expectRuntimeOccurrences(db: Database.Database, duelId: number) {
+  const rows = db.prepare("select command_hash, error_index from card_script_error_occurrences where duel_id = ? and code = 3743515 order by error_index").all(duelId);
+  expect(rows).toHaveLength(1);
+  const [first] = rows as Array<{ command_hash: string; error_index: number }>;
+  expect(first!.command_hash).toMatch(/^[a-f0-9]{64}$/);
+  expect(rows).toEqual([{ command_hash: first!.command_hash, error_index: 1 }]);
+  return rows;
 }
 
 describeWithCores("script errors through host, worker and journal", [needs.standard(DATA), needs.domain(DATA), needs.installedMulti(DATA)], () => {
@@ -66,9 +79,9 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
     players.slice(1).forEach(player => duels.takeSeat(session.slug, "g", player));
     players.forEach((player, seat) => duels.setDeck(session.slug, "g", player, options.decks[seat]!));
     const version = JSON.parse(readFileSync(`${DATA}/manifest.json`, "utf8")).bundleVersion;
-    duels.activate(session.slug, "g", players[0]!, options.seed, pinnedEngineVersion(version, players.length, format === "1v1" ? null : activeMultiScriptsHash(DATA)), null, {
+    duels.activateRecorded(session.slug, "g", players[0]!, options.seed, pinnedEngineVersion(version, players.length, format === "1v1" ? null : activeMultiScriptsHash(DATA)), null, {
       engine, scriptErrorMode: "tolerant", firstTurnDraw: false, startupScripts: options.startupScripts.map(script => script.content),
-    });
+    }, getCurrentEngineResources(DATA, { mode: "normal", format, engine }).identity);
     const makeHost = () => { const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000 }); hosts.push(host); return host; };
     let host = makeHost();
     const base = { slug: session.slug, guildId: "g" };
@@ -101,7 +114,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
     ["legacy", "1v1", "normal"], ["legacy", "1v1", "domain"],
     ["pinned", "1v1", "normal"], ["pinned", "1v1", "domain"],
     ["pinned", "ffa4", "normal"], ["pinned", "ffa4", "domain"],
-  ] as const)("%s %s %s: accepts/journals the answer, counts once and recovers identically", async (engine, format: DuelFormat, mode: DuelMode) => {
+  ] as const)("%s %s %s: accepts/journals the answer, deduplicates engine occurrence ordinals and recovers identically", async (engine, format: DuelFormat, mode: DuelMode) => {
     const db = new Database(":memory:");
     migrate(db);
     const log = recording.log.mockClear().mockImplementation(() => {});
@@ -112,9 +125,9 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
     players.slice(1).forEach((player) => duels.takeSeat(session.slug, "g", player));
     players.forEach((player, seat) => duels.setDeck(session.slug, "g", player, options.decks[seat]!));
     const version = JSON.parse(readFileSync(`${DATA}/manifest.json`, "utf8")).bundleVersion;
-    duels.activate(session.slug, "g", players[0]!, options.seed, pinnedEngineVersion(version, players.length, format === "1v1" ? null : activeMultiScriptsHash(DATA)), null, {
+    duels.activateRecorded(session.slug, "g", players[0]!, options.seed, pinnedEngineVersion(version, players.length, format === "1v1" ? null : activeMultiScriptsHash(DATA)), null, {
       engine, scriptErrorMode: "tolerant", firstTurnDraw: false, startupScripts: options.startupScripts!.map((script) => script.content),
-    });
+    }, getCurrentEngineResources(DATA, { mode, format, engine }).identity);
     const makeHost = () => { const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000 }); hosts.push(host); return host; };
     let host = makeHost();
     const base = { slug: session.slug, guildId: "g" };
@@ -130,6 +143,7 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
         await request(host, { ...base, op: "respond", playerId: players[seat], command: { promptId: view.prompt!.id, revision: view.revision, answer: attackAnswer(view.prompt!) } });
       }
       const live = await views();
+      const occurrences = expectRuntimeOccurrences(db, session.id);
       expect(live[0]!.events.some((event) => event.kind === "script-error")).toBe(true);
       expect(live[0]!.result).toBeNull();
       expect(duels.privateState(session.slug, "g").commands.length).toBeGreaterThan(0);
@@ -140,17 +154,19 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
       vi.stubEnv("DUEL_SCRIPT_ERRORS", "strict");
       host = makeHost();
       expect(await views()).toEqual(live);
+      expect(expectRuntimeOccurrences(db, session.id)).toEqual(occurrences);
       expect(topScriptErrors(db)[0]?.count).toBe(1);
       duels.complete(session.slug, "g", 0, "Test replay completion");
       const replay = await request(host, { ...base, op: "replay", playerId: players[0] });
       expect(JSON.stringify(replay)).toContain("Card script error:");
+      expect(expectRuntimeOccurrences(db, session.id)).toEqual(occurrences);
       expect(topScriptErrors(db)[0]?.count).toBe(1);
       expect(log.mock.calls.filter(([, , fields]) => fields.event === "card_script_error")).toHaveLength(1);
     } finally {
       await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close();
     }
   }, 30_000);
-  it("discards a strict failed worker, restores the journal and counts a retried occurrence once", async () => {
+  it("discards a strict failed worker and deduplicates engine occurrence ordinals on retry", async () => {
     const db = new Database(":memory:");
     migrate(db);
     recording.log.mockClear().mockImplementation(() => {});
@@ -180,12 +196,14 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
         await request(host, body, triggering ? 400 : 200);
         if (!triggering) continue;
         expect(await views()).toEqual(before);
+        expectRuntimeOccurrences(db, session.id);
         expect(duels.privateState(session.slug, "g").commands).toHaveLength(commandsBefore);
         expect(topScriptErrors(db)[0]?.count).toBe(1);
         const retry = await request(host, body, 400);
         expect(JSON.stringify(retry)).toContain("Card script error (strict mode)");
         expect(JSON.stringify(retry)).not.toContain("3743515");
         expect(await views()).toEqual(before);
+        expectRuntimeOccurrences(db, session.id);
         expect(topScriptErrors(db)[0]?.count).toBe(1);
         return;
       }

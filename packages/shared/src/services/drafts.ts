@@ -496,8 +496,7 @@ export function createDraftService(
       where pk.draft_id = ? and pk.player_id = ? order by pk.id`)
       .all(draftId, playerId) as Array<{ catalog_card_id: number; name: string | null; type: string | null; frame_type: string | null; forced: number }>;
     const deck = buildDraftDeck(rows.map((row) => ({ catalogId: row.catalog_card_id, name: row.name, type: row.type,
-      forced: row.forced === 1,
-      extra: isExtraDeckFrame({ type: row.type ?? "", frameType: row.frame_type ?? "" }) })));
+      forced: row.forced === 1 })));
     return ["#main", ...deck.main, "#extra", ...deck.extra, "", "!side", ...deck.side, ""].join("\n");
   };
 

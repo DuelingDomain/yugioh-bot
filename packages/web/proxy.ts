@@ -14,7 +14,8 @@ function beforeAuth(request: NextRequest): Response | null {
   return null;
 }
 function unauthorized(request: NextRequest) {
-  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401,
+    headers: { "cache-control": "private, no-store" } });
   const url = new URL("/sign-in", request.url);
   url.searchParams.set("redirect_url", request.nextUrl.pathname + request.nextUrl.search);
   return NextResponse.redirect(url);
@@ -23,6 +24,9 @@ function unauthorized(request: NextRequest) {
 let clerkProxy: NextMiddleware | undefined;
 export default async function proxy(request: NextRequest, event: NextFetchEvent) {
   if (request.nextUrl.pathname === "/monitoring") return NextResponse.next();
+  // Clerk calls this signed endpoint without a browser session. Do not initialize
+  // session middleware here; the route verifies the signature before any writes.
+  if (request.method === "POST" && request.nextUrl.pathname === "/api/webhooks/clerk") return NextResponse.next();
   // Disabled test endpoints remain unavailable even when Clerk cannot initialize.
   if (request.nextUrl.pathname.startsWith("/api/test-auth/") && !isE2EAuthEnabled()) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });

@@ -130,7 +130,7 @@ describe("Popover (the import popover)", () => {
 describe("HostDrawer", () => {
   const tournament = { matches: [], status: "done", currentUserPlayerId: null } as never;
   const drawer = (open: boolean, onClose: () => void = vi.fn()) => (
-    <HostDrawer open={open} tournament={tournament} tournamentSlug="t" ratings={{} as never} onChanged={vi.fn()} onClose={onClose} />
+    <HostDrawer open={open} tournament={tournament} tournamentSlug="t" ratings={{} as never} onChanged={vi.fn()} onClose={onClose} onCancel={vi.fn()} />
   );
 
   it("slides out in place, stops trapping at once, returns focus, then unmounts", async () => {

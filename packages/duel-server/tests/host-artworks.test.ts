@@ -16,6 +16,8 @@ import { seedIdentity, seedUser } from "./helpers/identity.js";
 it("serves signed artwork families and preserves chosen passcodes through deck submission and worker startup", async () => {
   const dir = mkdtempSync(join(tmpdir(), "host-artworks-"));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "fixture" }));
+  // The fake worker never loads this core; resource identity still hashes its file.
+  writeFileSync(join(dir, "ocgcore.standard.wasm"), "fake-worker-fixture");
   writeFileSync(join(dir, "strings.conf"), ""); mkdirSync(join(dir, "card-scripts"));
   writeFileSync(join(dir, "card-scripts/c10.lua"), "-- canonical script");
   const cdb = new Database(join(dir, "cards.cdb"));

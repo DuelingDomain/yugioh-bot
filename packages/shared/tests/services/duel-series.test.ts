@@ -1164,6 +1164,19 @@ describe("tournament series", () => {
     return { app, t, slot, register };
   }
 
+  it("lets tournament player one create a casual table without changing the match", () => {
+    const { app, slot, register } = tournamentSetup();
+    register(app.p1, validDeck(1));
+    register(app.p2, validDeck(1000));
+    const playerOne = Number(slot.player_one_id);
+    const match = app.series.startTournamentMatch({ guildId: "g1", tournamentMatchId: slot.id, actorPlayerId: playerOne });
+    expect(app.duels.waitingHostedTable("g1", playerOne)).toBeNull();
+    const created = app.duels.createRequest({ guildId: "g1", organizerPlayerId: playerOne, fingerprint: "casual" }, () => ({ session: app.duels.create({ guildId: "g1", organizerPlayerId: playerOne, name: "Casual", mode: "normal" }) }));
+    expect(created.session.status).toBe("lobby");
+    expect(app.duels.get(match.duel.slug, "g1").status).toBe("lobby");
+    app.db.close();
+  });
+
   it("rejects a missing deck, a stranger, a BYE and an inactive tournament", () => {
     const { app, t, slot, register } = tournamentSetup();
     expectStatus(() => app.series.startTournamentMatch({ guildId: "g1", tournamentMatchId: slot.id, actorPlayerId: app.p1 }), 409);

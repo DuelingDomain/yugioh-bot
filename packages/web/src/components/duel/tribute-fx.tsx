@@ -14,7 +14,7 @@
  */
 import { useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { cardArtUrl } from "./constants";
-import { findMoveDestination, findZoneElement } from "./event-queue";
+import { departureTurn, findMoveDestination, findZoneElement } from "./event-queue";
 import { TRIBUTE_TIMING } from "./duel-timing";
 import type { MovePlan } from "./move-plan";
 import { Track } from "./summon-fx";
@@ -102,7 +102,9 @@ export function TributeGhost({ plan, overlay, landed, done }: Props) {
     el.style.setProperty("--orb", `${Math.max(8, Math.min(18, w * 0.2))}px`);
 
     // A Defense Position card lies on its side; the opponent's side of the table is turned half way round.
-    const turn = (source.side === "opp" ? 180 : 0) + (source.defense ? 90 : 0);
+    // A seat field of a multiplayer table is turned as a whole: the seat's live turn joins it.
+    const sideTurn = (source.side === "opp" ? 180 : 0) + (source.defense ? 90 : 0);
+    const turn = departureTurn(plan.event.from, sideTurn) ?? sideTurn;
     const into = findZoneElement(tribute.to)?.getBoundingClientRect();
     const tx = into && into.width > 4 ? into.left - o.left + into.width / 2 - cx : 0;
     const ty = into && into.height > 4 ? into.top - o.top + into.height / 2 - cy : -h * 1.2;

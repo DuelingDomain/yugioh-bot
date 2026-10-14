@@ -35,7 +35,7 @@ for (const format of ["ffa3", "ffa4"] as const) {
     ...(count === 4 ? { p3: { monsters: [cards[3], "Mystical Elf"] } } : {}),
   };
   const emptySteps: Step[] = [expectNotOffered("activate", "Creature Swap", "p0"),
-    endTurn("p0"), endTurn("p1"), normalSummon("Mystical Elf", "p2"), zone("p2", "m0", "p2"), endTurn("p2"),
+    endTurn("p0"), endTurn("p1"), normalSummon({ card: "Mystical Elf", from: "hand" }, "p2"), zone("p2", "m0", "p2"), endTurn("p2"),
     ...(count === 4 ? [endTurn("p3")] : []), expectOffered("activate", "Creature Swap", "p0"), activate("Creature Swap", "p0")];
   const emptyBoard: Parameters<typeof expectBoard>[0] = {};
   const selected = [cards[0], cards[1], "Mystical Elf", cards[3]];

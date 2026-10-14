@@ -328,6 +328,6 @@ describe("OpeningScreen", () => {
 
   it("shows the settled order", () => {
     open("rps-start");
-    expect(screen.getByTestId("opening-status").textContent).toBe("You choose to go first");
+    expect(screen.getByTestId("opening-status").textContent).toBe("You chose to go first. Starting the duel…");
   });
 });

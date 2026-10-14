@@ -258,7 +258,7 @@ describe("TournamentsList load more", () => {
 });
 
 describe("tournamentFromApi", () => {
-  it("drops fields the list does not read", () => {
-    expect(tournamentFromApi({ ...tournament(4), guildId: "g1", createdByUserId: 9 })).toEqual(tournament(4));
+  it("keeps the creator for the cancel link and drops fields the list does not read", () => {
+    expect(tournamentFromApi({ ...tournament(4), guildId: "g1", createdByUserId: 9 })).toEqual({ ...tournament(4), createdByUserId: 9 });
   });
 });

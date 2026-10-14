@@ -1,3 +1,5 @@
+import { auth } from "@/lib/auth";
+import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
@@ -5,7 +7,7 @@ import { dirname, join } from "node:path";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
 import { getDb } from "@/lib/db";
 import { cardImageCachePath, type CardImageSource } from "@/lib/card-image-cache";
-import { CARD_BACK_SVG, CardFetchError, CardImageValidationError, fetchCardImageResource, isCardFetchError, readCardImageResponse, trustedCardImageUrl, validateCardImage, type CardImageResource } from "@yugidraft/shared/services";
+import { CARD_BACK_SVG, CardFetchError, CardFetchLimitError, CardImageValidationError, fetchCardImageResource, isCardFetchError, readCardImageResponse, trustedCardImageUrl, validateCardImage, type CardImageResource } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
 
@@ -35,7 +37,7 @@ class ImageMissingError extends Error {}
 class ImageInvalidError extends CardFetchError {}
 
 /** Try Ignis for missing full/small cards before considering the engine alias. */
-async function fetchImage(passcode: number, variant: ImageVariant): Promise<FetchedImage> {
+async function fetchImage(passcode: number, variant: ImageVariant, memberId?: number): Promise<FetchedImage> {
   const artwork = artworkOf(passcode);
   const baseUrl = variant === "cropped" ? YGOPRODECK_CROPPED_URL : variant === "small" ? YGOPRODECK_SMALL_URL : YGOPRODECK_IMAGE_URL;
   const storedUrl = variant === "cropped" ? artwork?.image_url_cropped : variant === "small" ? artwork?.image_url_small : artwork?.image_url;
@@ -48,7 +50,7 @@ async function fetchImage(passcode: number, variant: ImageVariant): Promise<Fetc
     }
   };
   // Ignis has full-card art only; a missing crop must stay on YGOPRODeck.
-  return fetchCardImageResource(url, passcode, fetch, readImage, variant !== "cropped");
+  return fetchCardImageResource(url, passcode, fetch, readImage, variant !== "cropped", memberId);
 }
 
 /**
@@ -132,7 +134,7 @@ async function writeCachedImage(filename: string, source: CardImageSource, image
   finally { await rm(temporaryPath, { force: true }).catch(() => {}); }
 }
 
-async function loadImage(passcode: number, variant: ImageVariant, filename: string): Promise<CachedImage> {
+async function loadImage(passcode: number, variant: ImageVariant, filename: string, memberId?: number): Promise<CachedImage> {
   const cached = await readCachedImage(passcode, variant, filename);
   if (cached) return cached;
   if ((missingImages.get(filename) ?? 0) > Date.now()) throw new ImageMissingError();
@@ -142,9 +144,12 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
   let upstreamError: unknown;
   let fallbackError: unknown;
   try {
-    fetched = await fetchImage(passcode, variant);
+    fetched = await fetchImage(passcode, variant, memberId);
     fallbackError = fetched.fallbackError;
-  } catch (error) { upstreamError = error; }
+  } catch (error) {
+    if (error instanceof CardFetchLimitError) throw error;
+    upstreamError = error;
+  }
   if (fetched?.image) {
     await writeCachedImage(filename, fetched.source, fetched.image);
     return { image: fetched.image, cacheControl: fetched.source === "ignis" ? FALLBACK_CACHE_CONTROL : OWN_CACHE_CONTROL };
@@ -166,7 +171,7 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
     let image = cachedAlias?.image;
     // A primary 404 always permits alias fetching, even after an Ignis error.
     if (!image && !upstreamError) {
-      const fetchedAlias = await fetchImage(alias, variant);
+      const fetchedAlias = await fetchImage(alias, variant, memberId);
       image = fetchedAlias.image ?? undefined;
       fallbackError ??= fetchedAlias.fallbackError;
     }
@@ -183,11 +188,11 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
   throw new ImageMissingError(`No card image for ${passcode}`);
 }
 
-async function getCachedImage(passcode: number, variant: ImageVariant): Promise<CachedImage> {
+async function getCachedImage(passcode: number, variant: ImageVariant, memberId?: number): Promise<CachedImage> {
   const filename = imageFilename(passcode, variant);
   const existing = inFlight.get(filename);
   if (existing) return existing;
-  const pending = loadImage(passcode, variant, filename);
+  const pending = loadImage(passcode, variant, filename, memberId);
   inFlight.set(filename, pending);
   try { return await pending; }
   finally { inFlight.delete(filename); }
@@ -208,7 +213,8 @@ export async function GET(
       return NextResponse.json({ error: "Invalid image variant" }, { status: 400 });
     }
 
-    const { image, cacheControl } = await getCachedImage(Number(raw), variant);
+    const session = await auth();
+    const { image, cacheControl } = await getCachedImage(Number(raw), variant, session ? Number(session.user.id) : undefined);
 
     return new Response(new Uint8Array(image), {
       headers: {
@@ -217,6 +223,7 @@ export async function GET(
       },
     });
   } catch (error) {
+    if (error instanceof CardFetchLimitError) return cardFetchErrorResponse(error)!;
     if (error instanceof ImageMissingError) {
       return NextResponse.json({ error: "Card image not found" }, { status: 404 });
     }

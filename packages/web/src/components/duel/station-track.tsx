@@ -9,6 +9,7 @@ import { ChainModeSwitch } from "./chain-mode-switch";
 import { useIsNarrow } from "./side-panel";
 import { duelFontClasses } from "./fonts";
 import { useSkinStyles } from "./skin";
+import { useForkLabels } from "./table/fork-labels";
 import type { ChainModeControl } from "./use-chain-mode";
 import baseStyles from "./station-track.module.css";
 
@@ -130,6 +131,8 @@ export type StationTrackProps = {
   attackLockTestId?: string;
   /** The viewer's own chain response switch (Auto / Always / Off). Absent for spectators, replays and scenario tables. */
   chainMode?: ChainModeControl | null;
+  /** A replay has no one to wait for: the disabled "Waiting" turn button is left out. The caption and the attack-lock chip stay. */
+  replay?: boolean;
   /**
    * Where the phase steps live. "bar" (default): the six stations sit in this bar. "hub": the phase hub in the middle of
    * the board shows them, so on a desktop width the bar keeps only the caption, the clock and the buttons; on a phone
@@ -212,10 +215,12 @@ export function StationTrack({
   attackLock,
   attackLockTestId = "attack-lock",
   chainMode,
+  replay = false,
   phases = "bar",
   compact = false,
 }: StationTrackProps) {
   const styles = useSkinStyles(baseStyles, "station");
+  const forkLabels = useForkLabels();
   // The hub shows the phases on the board, but only where it fits. On a phone the bar keeps its own strip.
   const narrow = useIsNarrow();
   const hubbed = phases === "hub" && !narrow;
@@ -385,10 +390,10 @@ export function StationTrack({
               >
                 <i className={styles.chipDot} aria-hidden="true" />
                 <span className={styles.chipText}>
-                  <span className={styles.chipName}>{chip.you ? "You" : chip.name.split(" ")[0]}</span>
+                  <span className={styles.chipName}>{chip.you && !forkLabels ? "You" : chip.name.split(" ")[0]}</span>
                   <small className={styles.chipWord} data-testid="chip-word" aria-hidden="true">{SEAT_CHIP_WORD[chip.status]}</small>
                 </span>
-                <span className={styles.srOnly}>{chip.you ? `${chip.name} (you)` : chip.name}{chip.status === "turn" ? ", turn" : chip.status === "eliminated" ? ", out" : ""}</span>
+                <span className={styles.srOnly}>{chip.you && !forkLabels ? `${chip.name} (you)` : chip.name}{chip.status === "turn" ? ", turn" : chip.status === "eliminated" ? ", out" : ""}</span>
               </li>
             ))}
           </ol>
@@ -417,7 +422,7 @@ export function StationTrack({
             <span className={styles.primaryLabel}>{PRIMARY_LABEL[primaryId]}</span>
             <ArrowRight strokeWidth={2} aria-hidden="true" />
           </button>
-        ) : (
+        ) : replay ? null : (
           <button type="button" className={styles.primary} disabled aria-disabled="true" data-wait="true">
             <span className={styles.primaryLabel} title={waitLabel}>{waitLabel}</span>
             <Hourglass strokeWidth={2} aria-hidden="true" />

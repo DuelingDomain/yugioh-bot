@@ -17,9 +17,10 @@ export interface CardScriptErrorCount {
 
 /** Host-only side effect. Saved seed, journal position, attempted command and request ordinal deduplicate retries. */
 export function createScriptErrorRecorder(db: Database.Database, log: (line: string) => void = line => {
-  const entry = JSON.parse(line) as { event: string; code?: number; mode?: string };
-  logEvent("warn", "Card script diagnostic", { event: entry.event, code: entry.code, mode: entry.mode });
+  const entry = JSON.parse(line) as { event: string; code?: number; mode?: string; duelId?: number; duelKind?: string };
+  logEvent("warn", "Card script diagnostic", { event: entry.event, code: entry.code, mode: entry.mode, duelId: entry.duelId, duelKind: entry.duelKind });
 }, autoBlocks?: AutoBlockPolicy) {
+  const storedKind = db.prepare<[number], { kind: string }>("SELECT kind FROM duels WHERE id = ?");
   const once = db.prepare(`INSERT OR IGNORE INTO card_script_error_occurrences
     (duel_id, command_hash, error_index, code, created_at, resolved_code, script_hash, script_error_mode, engine_kind, helper_scripts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const prune = db.prepare(`DELETE FROM card_script_error_occurrences
@@ -59,6 +60,12 @@ export function createScriptErrorRecorder(db: Database.Database, log: (line: str
   return (duelId: number, error: DuelScriptError): boolean => {
     if (capped.has(`${duelId}:${error.code}`)) return false;
     try {
+      // The kind is immutable and server-owned. Fork diagnostics use a separate log stream;
+      // neither their samples nor their retries enter production telemetry or admission policy.
+      if (storedKind.get(duelId)?.kind === "replay-fork") {
+        log(JSON.stringify({ event: "replay_fork_script_error", duelKind: "replay-fork", duelId, ...error }));
+        return true;
+      }
       pruneIfDue();
       if (!save.immediate(duelId, error)) return false;
       log(JSON.stringify({ event: "card_script_error", duelId, ...error }));

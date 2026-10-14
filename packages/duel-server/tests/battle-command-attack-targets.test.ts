@@ -195,12 +195,15 @@ describeWithCores("live battle command attack targets", liveNseat, () => {
     expect(game.view(0).seats[1].graveyard.some(card => card.name === "Silver Fang")).toBe(true);
   });
 
-  it("refreshes conditional direct attacks when FFA3 returns to 1v1 columns", async () => {
+  it.each([1, 2])("keeps fixed FFA3 columns when seat %i leaves the battle prompt", async (removed) => {
     const { game } = await battle({ format: "ffa3", p0: { monsters: [null, null, null, null, null, "Mekk-Knight Spectrum Supreme"] },
-      p1: { monsters: [null, null, null, "Battle Ox"] }, p2: { monsters: ["Silver Fang"] } });
-    expect(attacker(game, 5).attackTargets).toEqual({ monsters: [monster(1, 3), monster(2)], direct: [1, 2] });
-    game.eliminate(2, 0);
-    expect(attacker(game, 5).attackTargets).toEqual({ monsters: [monster(1, 3)], direct: [] });
+      p1: { monsters: [null, null, null, "Battle Ox"] }, p2: { monsters: [null, null, null, "Silver Fang"] } });
+    expect(attacker(game, 5).attackTargets).toEqual({ monsters: [monster(1, 3), monster(2, 3)], direct: [] });
+    game.eliminate(removed, 0);
+    // Only seat 1 shares this column. Seat 2 cannot replace it after elimination.
+    expect(attacker(game, 5).attackTargets).toEqual(removed === 1
+      ? { monsters: [monster(2, 3)], direct: [2] }
+      : { monsters: [monster(1, 3)], direct: [] });
   });
 
   it("refreshes surviving attack options when surrender removes a borrowed attacker", async () => {

@@ -42,7 +42,7 @@ export default async function TournamentsPage() {
         </SvButton>
       }
     >
-      <TournamentsList initialItems={tournaments} nextCursor={nextCursor} rounds={rounds} viewerId={viewerId} />
+      <TournamentsList initialItems={tournaments} nextCursor={nextCursor} rounds={rounds} viewerId={viewerId} viewerUserId={userId} />
     </PageFrame>
   );
 }

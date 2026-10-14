@@ -13,6 +13,8 @@ export interface TournamentListItem {
   status: string;
   participantCount: number;
   webSlug?: string;
+  /** The organizer's user id. The list shows its cancel control to that user only. */
+  createdByUserId?: number;
 }
 
 /**
@@ -30,6 +32,7 @@ export function tournamentFromApi(item: TournamentApiItem): TournamentListItem {
     status: item.status,
     participantCount: item.participantCount,
     webSlug: item.webSlug ?? undefined,
+    createdByUserId: item.createdByUserId,
   };
 }
 

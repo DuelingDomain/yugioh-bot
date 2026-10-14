@@ -42,6 +42,8 @@ export type ConfirmedResultInput = {
   playerTwoId: number;
   winnerId: number;
   source: MatchSource;
+  /** Required for engine results. Omitted for independent manual results. The persisted kind is authoritative. */
+  sourceDuelId?: number;
   /** tournament_matches.id; the slot must be open (not completed). */
   tournamentMatchId?: number | null;
   /** Player who caused the record (organizer); null for an engine result. */
@@ -286,14 +288,27 @@ export function createMatchService(db: Database.Database) {
     approve(matchId: number, approverId: number): Match {
       const match = findById(matchId);
       ensureOpponentCanResolve(match, approverId);
+      // A report that waited past the end of its tournament no longer counts: no Elo, no points.
+      if (match.tournamentId !== null) {
+        const tournament = db
+          .prepare("select status from tournaments where id = ?")
+          .get(match.tournamentId) as { status: string } | undefined;
+        if (tournament && (tournament.status === "cancelled" || tournament.status === "completed")) {
+          throw new Error(`Tournament is ${tournament.status}; this report can no longer be confirmed`);
+        }
+      }
 
-      db.prepare(
+      // Only a still pending report can be approved: a cancel that denied it in the meantime wins.
+      const approved = db.prepare(
         `
         update matches
         set status = 'approved', approver_id = ?, resolved_at = current_timestamp
-        where id = ?
+        where id = ? and status = 'pending'
       `,
       ).run(approverId, matchId);
+      if (approved.changes !== 1) {
+        throw new Error("Match is not pending");
+      }
 
       const approvedMatch = findById(matchId);
       completeTournamentMatch(approvedMatch);
@@ -306,13 +321,16 @@ export function createMatchService(db: Database.Database) {
       const match = findById(matchId);
       ensureOpponentCanResolve(match, denierId);
 
-      db.prepare(
+      const denied = db.prepare(
         `
         update matches
         set status = 'denied', approver_id = ?, resolved_at = current_timestamp
-        where id = ?
+        where id = ? and status = 'pending'
       `,
       ).run(denierId, matchId);
+      if (denied.changes !== 1) {
+        throw new Error("Match is not pending");
+      }
 
       if (match.tournamentId !== null) {
         db.prepare(
@@ -337,8 +355,18 @@ export function createMatchService(db: Database.Database) {
       }
 
       const insertAndAdvance = db.transaction((): number => {
+        if (input.sourceDuelId !== undefined) {
+          const source = Number.isSafeInteger(input.sourceDuelId) && input.sourceDuelId > 0
+            ? db.prepare<[number, string], { kind: string }>("select kind from duels where id = ? and guild_id = ?").get(input.sourceDuelId, input.guildId) : undefined;
+          if (!source) throw new Error("Source duel not found");
+          if (source.kind !== "play") throw new Error("Replay forks cannot record match results");
+        }
         let slot: any = null;
         if (input.tournamentMatchId != null) {
+          if (db.prepare(`select 1 from duels d join duel_series s on s.id = d.series_id
+            where s.tournament_match_id = ? and d.kind != 'play' limit 1`).get(input.tournamentMatchId)) {
+            throw new Error("Replay forks cannot be linked to a tournament result");
+          }
           slot = db.prepare("select * from tournament_matches where id = ?").get(input.tournamentMatchId);
           if (!slot) throw new Error("Tournament match not found");
           if (slot.status === "completed") throw new Error("Tournament match is already completed");

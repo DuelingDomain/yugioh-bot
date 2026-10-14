@@ -154,7 +154,7 @@ describe("Tag camera move with the Web Animations API", () => {
     const world = worldNode()!;
     const before = world.style.transform;
     const count = worldAnims().length;
-    size.h = 640;
+    size.w = 760; // the wide field is width-limited at this size, so the width moves the fit
     act(() => observed?.());
     expect(worldAnims().length).toBe(count + 1);
     const ease = live()[0]!;

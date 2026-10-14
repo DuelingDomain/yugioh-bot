@@ -1568,6 +1568,39 @@ describe("command handlers", () => {
     ).rejects.toThrow("Only the event creator can do that");
   });
 
+  it("lists and deletes only the invoking user's templates through the linked application identity", async () => {
+    const app = setup();
+    const user = { id: "900000000000009001", username: "Member" };
+    const owner = app.players.ensureUser(user.id, user.username);
+    app.db.prepare("update users set clerk_user_id = 'test-clerk-linked' where id = ?").run(owner.id);
+    const other = app.players.ensureUser("900000000000009002", "Other");
+    const mine = app.templates.save("guild-1", "Mine", {}, owner.id);
+    const theirs = app.templates.save("guild-1", "Hidden", { setNames: ["Private set"] }, other.id);
+    const list = fakeInteraction({ commandName: "draft", subcommandGroup: "template", subcommand: "list", user });
+    await handleCommand(list.interaction, app);
+    expect(list.replies[0]).toMatchObject({ content: expect.stringContaining("Mine"), ephemeral: true });
+    expect(JSON.stringify(list.replies[0])).not.toContain("Hidden");
+    expect(JSON.stringify(list.replies[0])).not.toContain("Private set");
+    await expect(handleCommand(fakeInteraction({ commandName: "draft", subcommandGroup: "template", subcommand: "delete", user, strings: { name: "Hidden" } }).interaction, app)).rejects.toThrow("Template not found");
+    expect(app.templates.findCube(theirs.id).createdByUserId).toBe(other.id);
+    await handleCommand(fakeInteraction({ commandName: "draft", subcommandGroup: "template", subcommand: "delete", user, strings: { name: "Mine" } }).interaction, app);
+    expect(() => app.templates.findCube(mine.id)).toThrow();
+  });
+
+  it("cannot replace another user's cube with a template save", async () => {
+    const app = setup();
+    const user = { id: "900000000000009003", username: "Actor" };
+    const player = app.players.upsert("guild-1", user.id, user.username);
+    app.drafts.create("guild-1", "channel-1", "My draft", {}, player.userId, player.id);
+    const other = app.players.ensureUser("900000000000009004", "Owner");
+    const cube = app.templates.save("guild-1", "Hidden", { packSize: 9 }, other.id);
+    await handleCommand(fakeInteraction({ commandName: "draft", subcommandGroup: "template", subcommand: "save", user, strings: { name: "Hidden", draft: "My draft" } }).interaction, app);
+    const saved = app.templates.findByName("guild-1", "Hidden", player.userId);
+    expect(saved?.id).not.toBe(cube.id);
+    expect(saved?.createdByUserId).toBe(player.userId);
+    expect(app.templates.findCube(cube.id)).toMatchObject({ createdByUserId: other.id, config: { packSize: 9 } });
+  });
+
   it("/draft template save over an existing cube replaces the draft config but keeps what the cube is for", async () => {
     const app = setup();
     const yugi = { id: "900000000000000116", username: "Yugi" };
