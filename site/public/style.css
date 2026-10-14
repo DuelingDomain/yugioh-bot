@@ -329,14 +329,15 @@ html.js:not(.rm) .fcard.is-dealing { pointer-events: none; }
 .soc-line { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
 .soc-note { font-size: 15px; color: var(--text-2); }
 .soc, .nav-soc, .soc-foot { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; transition: color .2s var(--ease), border-color .2s var(--ease), background .2s var(--ease); }
-.soc svg, .nav-soc svg, .soc-foot svg { flex: none; width: 20px; height: 20px; color: #8D97F5; }
+.soc svg, .nav-soc svg, .soc-foot svg { flex: none; width: 20px; height: 20px; color: #5865F2; }
 .soc { min-height: 44px; padding: 0 18px; border: 1px solid rgba(201, 164, 92, .38); border-radius: 9px; background: rgba(20, 25, 41, .6); color: #C9D1E8; font-size: 15px; font-weight: 500; letter-spacing: .02em; }
 .soc:hover { border-color: var(--gold); background: rgba(30, 36, 62, .8); color: #fff; }
 .nav-soc { padding: 10px 2px; font-size: 14px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: #AEB7D0; }
 .nav-soc:hover { color: var(--text); }
 .nav-soc svg { width: 18px; height: 18px; }
 .soc-foot svg { width: 16px; height: 16px; }
-.foot a.soc-foot:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.foot a.soc-foot { text-decoration: underline; text-underline-offset: 3px; }
+.foot a.soc-foot:hover { color: var(--text); }
 .soc:focus-visible, .nav-soc:focus-visible, .soc-foot:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 6px; }
 @media (max-width: 900px) { .nav-soc { display: none; } .soc-line { margin-top: 14px; } }
 

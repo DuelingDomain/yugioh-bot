@@ -15,6 +15,9 @@ from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
 
 PUBLIC = Path(__file__).resolve().parents[1] / 'public'
+# Community invite. Use a never-expiring invite (no expiry date, unlimited uses): a default
+# invite dies after 30 days and would leave dead links, JSON-LD sameAs and llms.txt entries.
+# The HTML repeats this URL exactly; change it here and in index.html and llms.txt together.
 DISCORD_INVITE = 'https://discord.gg/NcpbK3kZA'
 VOID = set('area base br col embed hr img input link meta param source track wbr'.split())
 
@@ -254,18 +257,24 @@ def main():
         assert not forbidden.search(file.name), file.name
         if file.suffix in ('.html', '.css', '.js', '.mjs', '.py', '.md', '.svg', '.txt', '.xml', '.webmanifest'):
             assert not forbidden.search(file.read_text()), file
-    # The app's sign-in providers stay off these pages. The only allowed mentions on the
-    # homepage are the community invite link and its "Join our Discord" label.
+    # The app's sign-in providers stay off these pages. The homepage may name Discord only in
+    # its four community links (href + visible label), the shared glyph symbol, and the JSON-LD
+    # sameAs. Strip exactly those, then fail on any other "discord" text.
     for name in ('index.html', '404.html', 'terms.html'):
         text = pages[name].file.read_text()
         if name == 'index.html':
-            text = text.replace(DISCORD_INVITE, '').replace('Join our Discord', '')
-        assert 'discord' not in text.lower(), name
-    homepage_links = [e['attrs'] for e in pages['index.html'].find('a') if e['attrs'].get('href') == DISCORD_INVITE]
+            assert text.count(DISCORD_INVITE) == 5, 'invite expected in four links and sameAs'
+            assert text.count('discord-glyph') == 5, 'glyph symbol id expected once plus four uses'
+            label = '<span>Join our Discord</span><span class="sr-only"> (opens in a new tab)</span>'
+            assert text.count(label) == 4, 'four exact link labels expected'
+            text = text.replace(DISCORD_INVITE, '').replace('discord-glyph', '').replace(label, '')
+        assert 'discord' not in text.lower(), (name, 'unexpected Discord text')
+    homepage_links = [e for e in pages['index.html'].find('a') if e['attrs'].get('href') == DISCORD_INVITE]
     assert len(homepage_links) == 4, 'Discord invite expected in nav, hero, join section and footer'
-    for attrs in homepage_links:
+    for link in homepage_links:
+        attrs = link['attrs']
         assert attrs.get('target') == '_blank' and attrs.get('rel') == 'noopener noreferrer', attrs
-        assert attrs.get('aria-label') == 'Join our Discord (opens in a new tab)', attrs
+        assert 'aria-label' not in attrs and link['text'].strip() == 'Join our Discord (opens in a new tab)', link['text']
     assert any(DISCORD_INVITE in node.get('sameAs', []) for node in graph if node['@type'] == 'Organization')
     if google:
         assert 'browser contacts Google' in pages['privacy.html'].file.read_text()
