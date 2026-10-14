@@ -252,6 +252,7 @@ with Compose; the duel target needs the prepared named engine context described 
    Retrying only an old failed retention job fails before any registry request. This prevents
    an old retry from moving the tags after a newer deploy. If retention fails, check the registry
    error and dispatch a new Deploy run for the intended current release before cleanup.
+   Retrying only the failed retain job reports "Artifact not found"; dispatch a new Deploy instead.
    Add a non-SHA recovery tag to any older registry version that must stay beyond ten releases.
    Cache tags become public with their packages. They contain intermediate build layers and `.next/cache`.
    The build has no secrets. Do not add build-time secrets or private data fetches to these public caches.
