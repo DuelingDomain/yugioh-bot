@@ -8,6 +8,7 @@ import { DeckMasterRail } from "../field";
 import { DuelHistoryRail } from "../history-rail";
 import { CardInspector, cardScrollerProps } from "../inspector";
 import { livePileCards } from "../pile-focus";
+import { useLiveChainLinks } from "../pile-chain-marks";
 import { PileViewer } from "../pile-viewer";
 import { optionsForCard, PromptTray } from "../prompts";
 import type { DuelPreferences } from "../preferences";
@@ -288,6 +289,8 @@ export function TagSide({
 export function TagPileViewer({ controller, ui }: { controller: TableController; ui: TagSideUi }) {
   const { engine, viewerSeat, nameOf } = controller;
   const seatTones = useSeatTones(controller);
+  // The chain as the pile viewer marks it (the card a link activated from), live while the viewer is open.
+  const chainLinks = useLiveChainLinks(engine.events, engine.chain, controller.room.session.status !== "active" || engine.result != null);
   const pile = ui.pile;
   if (!pile) return null;
   const ownerSeat = pile.seat ?? pile.cards[0]?.controller ?? null;
@@ -306,6 +309,7 @@ export function TagPileViewer({ controller, ui }: { controller: TableController;
       onActivateCard={(card, anchor) => controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor, true)}
       legalKeys={controller.legalKeys}
       selectedKeys={controller.selectedKeys}
+      chainLinks={chainLinks}
       reducedMotion={controller.reducedMotion}
     />
   );
