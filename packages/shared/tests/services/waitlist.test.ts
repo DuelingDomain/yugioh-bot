@@ -97,3 +97,15 @@ describe("waitlist", () => {
     expect(db.prepare("select email from waitlist_signups").get()).toEqual({ email: "player@example.test" });
   });
 });
+
+it("records one anonymous join with no metadata and rolls back when recording fails", () => {
+  const waitlist = createWaitlistService(db);
+  waitlist.join("member@example.test", { source: "private text", userAgent: "private browser" });
+  waitlist.join("MEMBER@example.test");
+  expect(db.prepare("select name,user_id,props_json from product_events").all()).toEqual([
+    { name: "waitlist_joined", user_id: null, props_json: "{}" },
+  ]);
+  db.exec("create trigger reject_event before insert on product_events begin select raise(abort, 'record failed'); end");
+  expect(() => waitlist.join("other@example.test")).toThrow("record failed");
+  expect(db.prepare("select count(*) as n from waitlist_signups").get()).toEqual({ n: 1 });
+});

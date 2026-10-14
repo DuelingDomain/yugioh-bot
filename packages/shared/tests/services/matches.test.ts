@@ -1,7 +1,7 @@
-import { useRecordingObservability } from "../helpers/recording-observability.mjs";
+import { useConsoleObservability } from "../helpers/recording-observability.mjs";
 import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createMatchService } from "../../src/services/matches.js";
 import { createTournamentService } from "../../src/services/tournaments.js";
@@ -231,7 +231,6 @@ describe("matches.recordConfirmedResult", () => {
       when new.kind = '${kind}'
       begin select raise(abort, 'forced scoring failure'); end;
     `);
-    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       const match = caller === "confirmed"
         ? app.matches.recordConfirmedResult({
@@ -244,11 +243,35 @@ describe("matches.recordConfirmedResult", () => {
       expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id))
         .toEqual({ status: "completed", match_id: match.id });
       expect(app.db.prepare("select * from point_awards where kind = ?").all(kind)).toEqual([]);
-      expect(spy).toHaveBeenCalledTimes(1);
+      expect(errors).toEqual([expect.objectContaining({
+        message: "forced scoring failure",
+        tags: { operation: "[scoring] failed" },
+      })]);
     } finally {
-      spy.mockRestore();
+      app.db.close();
     }
   });
 });
 
-const recording = useRecordingObservability();
+it.each(["round_robin", "single_elim"].flatMap(format => ["approve", "auto", "record"].map(approval => ({ format, approval }))))("records final-match completion atomically for $format via $approval", ({ format, approval }) => {
+  const app = setup();
+  try {
+    const owner = seedUser(app.db, "u1").userId;
+    const tournament = app.tournaments.create("g1", "Private tournament", format as "round_robin" | "single_elim", owner);
+    app.tournaments.join(tournament.id, app.p1); app.tournaments.join(tournament.id, app.p2); app.tournaments.start(tournament.id);
+    const slot = app.tournaments.matches(tournament.id)[0];
+    const pending = approval === "record" ? null : app.tournaments.report(tournament.id, app.p1, app.p2, app.p1);
+    const finish = () => approval === "record" ? app.matches.recordConfirmedResult({ guildId: "g1", playerOneId: app.p1, playerTwoId: app.p2, winnerId: app.p1, source: "tournament", tournamentMatchId: slot.id })
+      : approval === "approve" ? app.matches.approve(pending!.id, app.p2) : app.matches.autoApprove(pending!.id);
+    app.db.exec("create trigger reject_event before insert on product_events when new.name='tournament_finished' begin select raise(abort, 'record failed'); end");
+    expect(finish).toThrow("record failed");
+    expect(app.tournaments.findById(tournament.id).status).toBe("active");
+    if (pending) expect(app.db.prepare("select status from matches where id=?").get(pending.id)).toEqual({ status: "pending" });
+    app.db.exec("drop trigger reject_event"); finish();
+    expect(app.tournaments.findById(tournament.id).status).toBe("completed");
+    expect(app.db.prepare("select name,user_id,props_json from product_events where name='tournament_finished'").all()).toEqual([
+      { name: "tournament_finished", user_id: owner, props_json: JSON.stringify({ format, participantCount: 2 }) },
+    ]);
+  } finally { app.db.close(); }
+});
+const { errors } = useConsoleObservability();

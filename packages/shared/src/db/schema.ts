@@ -1158,6 +1158,21 @@ export function migrate(db: Database.Database) {
   `);
   db.exec("create index if not exists bug_reports_duel_idx on bug_reports (guild_id, duel_slug, created_at)");
 
+  db.exec(`
+    create table if not exists product_events (
+      id integer primary key autoincrement,
+      name text not null,
+      user_id integer,
+      props_json text not null,
+      occurred_at integer not null,
+      sent_at integer,
+      attempts integer not null default 0,
+      next_attempt_at integer not null default 0,
+      event_uuid text not null
+    );
+    create index if not exists product_events_unsent_idx on product_events(id) where sent_at is null;
+  `);
+
   // Public, email-only signups are independent of Discord players and guilds.
   db.exec(`
     create table if not exists waitlist_signups (
@@ -1204,6 +1219,8 @@ export function migrate(db: Database.Database) {
   migrateIdentity(db);
   migrateCubeOwnerNames(db);
   migrateAccessIndexes(db);
+
+  addColumnIfMissing(db, "users", "first_sign_in_at", "integer");
 
   // Draft privacy follows identity migration so grants reference application users.
   // Adding the default also makes every existing draft private; codes stay lazy.

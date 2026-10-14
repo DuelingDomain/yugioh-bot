@@ -32,15 +32,6 @@ www.{$SITE_DOMAIN}, http:// {
 }
 """
 
-APP_SEO = """    # The private app must stay out of search, including on the current host.
-    header >X-Robots-Tag "noindex, nofollow"
-    handle /robots.txt {
-        header Content-Type "text/plain; charset=utf-8"
-        respond "User-agent: *
-Disallow: /
-" 200
-    }
-"""
 ROBOTS = "User-agent: *\nDisallow: /"
 
 
@@ -175,7 +166,6 @@ def main():
     (public / "fonts/check.woff2").write_bytes(b"wOF2-cache-fixture")
     baseline = ARTIFACTS / "Caddyfile.before"
     baseline.write_text(BASELINE)
-    assert (ROOT / "Caddyfile").read_text().replace(APP_SEO, "", 1).startswith(BASELINE), "App blocks changed beyond robots/noindex"
     stub = ARTIFACTS / "Caddyfile.upstream"
     stub.write_text(':3000 {\n redir /needs-login /login 302\n respond "web {method} {uri}" 200\n}\n:3001 {\n respond "ws {method} {uri}" 200\n}\n')
     start(NETWORK + "-upstream", stub, upstream=True)

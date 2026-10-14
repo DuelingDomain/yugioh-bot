@@ -1,3 +1,4 @@
+import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 import type { Tournament as BaseTournament, TournamentMatch, TournamentPlayer, TournamentVisibility } from "../types/index.js";
 import type { DuelBestOf } from "../duels/index.js";
@@ -352,6 +353,7 @@ export function createTournamentService(db: Database.Database) {
     ).run(tournamentId);
     const changedDuelSlugs = cancelOpenSeries(tournamentId);
     voidUnconfirmedReports(tournamentId);
+    recordProductEvent(db, "tournament_finished", tournament.createdByUserId, { format: tournament.format, participantCount: participantsFor(tournamentId).length });
 
     return { tournament: findById(tournamentId), changedDuelSlugs };
   });
@@ -366,6 +368,8 @@ export function createTournamentService(db: Database.Database) {
     if (closed.changes > 0) {
       changedDuelSlugs = cancelOpenSeries(tournamentId);
       voidUnconfirmedReports(tournamentId);
+      const tournament = findById(tournamentId);
+      recordProductEvent(db, "tournament_finished", tournament.createdByUserId, { format: tournament.format, participantCount: participantsFor(tournamentId).length });
     }
     return { tournament: findById(tournamentId), changedDuelSlugs };
   });
@@ -418,21 +422,28 @@ export function createTournamentService(db: Database.Database) {
         `,
       );
 
+      // Keep the pre-check outside the write transaction so a racing host's row survives rejection.
+      const insertWithEvent = db.transaction((webSlug: string) => {
+        const result = insert.run(
+          guildId,
+          name,
+          format,
+          createdByUserId,
+          webSlug,
+          options?.deadlineAt ?? null,
+          options?.reportConfirmWindowHours ?? null,
+          bestOf,
+          duelRulesJson,
+          visibility,
+        );
+        recordProductEvent(db, "tournament_created", createdByUserId, { format, participantCount: 0 });
+        return result;
+      });
+
       let result;
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
-          result = insert.run(
-            guildId,
-            name,
-            format,
-            createdByUserId,
-            generateWebSlug(),
-            options?.deadlineAt ?? null,
-            options?.reportConfirmWindowHours ?? null,
-            bestOf,
-            duelRulesJson,
-            visibility,
-          );
+          result = insertWithEvent.immediate(generateWebSlug());
           break;
         } catch (err: any) {
           if (err?.code === "SQLITE_CONSTRAINT_UNIQUE"
@@ -587,12 +598,17 @@ export function createTournamentService(db: Database.Database) {
         throw new Error("You have already joined this tournament");
       }
 
-      db.prepare(
+      const insert = db.prepare(
         `
         insert into tournament_participants (tournament_id, player_id)
         values (?, ?)
       `,
-      ).run(tournamentId, playerId);
+      );
+      db.transaction(() => {
+        insert.run(tournamentId, playerId);
+        const player = db.prepare("select user_id from players where id=?").get(playerId) as { user_id: number };
+        recordProductEvent(db, "tournament_joined", player.user_id, { format: tournament.format, participantCount: participantsFor(tournamentId).length });
+      }).immediate();
     },
 
     participants(tournamentId: number): number[] {

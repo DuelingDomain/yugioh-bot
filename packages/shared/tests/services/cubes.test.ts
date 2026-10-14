@@ -512,3 +512,21 @@ describe("cube service Discord-template-compatible ops", () => {
     expect(cubes.applyCubeToConfig(cube.id, { customCardIds: [3, 3] }).customCardIds).toEqual([3, 3, 1, 1]);
   });
 });
+
+it.each(["blank", "saved", "cards"])("records a new %s cube once and rolls back if recording fails", kind => {
+  const { db, cubes } = setup();
+  try {
+    const owner = seedUser(db, "one").userId;
+    const create = (name: string) => kind === "blank" ? cubes.createBlank("g", name, owner)
+      : kind === "saved" ? cubes.save("g", name, { packSize: 8 }, owner)
+      : cubes.createWithCards("g", name, owner, [{ id: 1, copies: 1 }]);
+    create("Private cube");
+    if (kind === "saved") create("Private cube");
+    expect(db.prepare("select name,user_id,props_json from product_events").all()).toEqual([
+      { name: "cube_created", user_id: owner, props_json: "{}" },
+    ]);
+    db.exec("create trigger reject_event before insert on product_events begin select raise(abort, 'record failed'); end");
+    expect(() => create("Other cube")).toThrow("record failed");
+    expect(cubes.list("g", owner)).toHaveLength(1);
+  } finally { db.close(); }
+});

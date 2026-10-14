@@ -125,3 +125,24 @@ describe("Clerk Backend REST client", () => {
     });
   });
 });
+
+it("removes exact waitlist email matches across pages", async () => {
+  const entries = new Map([["match/1", "Member@Example.test"], ["match2", "member@example.test"], ["other", "other-member@example.test"]]);
+  const fetcher: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (new Headers(init?.headers).get("Authorization") !== `Bearer ${secretKey}`) return json({}, 401);
+    if (url.pathname === "/v1/waitlist_entries") {
+      const offset = Number(url.searchParams.get("offset"));
+      const all = [...entries].map(([id, email_address]) => ({ id, email_address, status: "pending" }));
+      return json({ data: all.slice(offset, offset + 1), total_count: all.length });
+    }
+    if (init?.method === "DELETE") {
+      const id = decodeURIComponent(url.pathname.slice("/v1/waitlist_entries/".length));
+      const existed = entries.delete(id);
+      return new Response(null, { status: existed ? 204 : 404 });
+    }
+    return json({}, 404);
+  };
+  await createClerkBackend({ secretKey, fetch: fetcher }).deleteWaitlistEntriesByEmail(" member@example.test ");
+  expect([...entries]).toEqual([["other", "other-member@example.test"]]);
+});

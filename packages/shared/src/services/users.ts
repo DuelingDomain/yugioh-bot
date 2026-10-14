@@ -1,3 +1,4 @@
+import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 import type { ClerkProfile } from "../clerk/profile.js";
 import { hasHistory } from "./user-history.js";
@@ -82,6 +83,7 @@ export function createUserService(db: Database.Database): UserService {
     // Identity/history reads must all happen after BEGIN IMMEDIATE acquires the
     // writer lock. No caller's cached user is used to make a folding decision.
     let a = byClerk.get(profile.clerkUserId);
+    const created = !a;
     if (!a) {
       db.prepare("insert into users(clerk_user_id,username,display_name) values(?,'',?) on conflict(clerk_user_id) do nothing")
         .run(profile.clerkUserId, profile.displayName);
@@ -98,8 +100,16 @@ export function createUserService(db: Database.Database): UserService {
       db.prepare("update users set discord_user_id=? where id=?").run(discordId, id);
       db.prepare("update players set discord_user_id=? where user_id=?").run(discordId, id);
     };
-    const outcome = (id: number, conflict: LinkConflict | null = null, foldedUserId: number | null = null): LinkOutcome =>
-      ({ user: mapUser(byId.get(id)!), conflict, foldedUserId });
+    const outcome = (id: number, conflict: LinkConflict | null = null, foldedUserId: number | null = null): LinkOutcome => {
+      if (created && id === a.id) recordProductEvent(db, "account_created", id);
+      return { user: mapUser(byId.get(id)!), conflict, foldedUserId };
+    };
+    const foldAnalytics = (sourceId: number, targetId: number) => {
+      db.prepare("update users set first_sign_in_at=coalesce(first_sign_in_at,(select first_sign_in_at from users where id=?)) where id=?")
+        .run(sourceId, targetId);
+      db.prepare("delete from product_events where user_id=?").run(sourceId);
+      if (sourceId !== a.id || !created) recordProductEvent(db, "$delete_person", sourceId);
+    };
     applyProfile(a.id);
     const discordId = profile.discordUserId;
     if (discordId === null) {
@@ -114,6 +124,7 @@ export function createUserService(db: Database.Database): UserService {
     if (b.clerk_user_id !== null) return outcome(a.id, "discord_claimed");
     if (!hasHistory(db, a.id)) {
       moveInviteGrants(a.id, b.id);
+      foldAnalytics(a.id, b.id);
       db.prepare("delete from players where user_id=?").run(a.id);
       db.prepare("update users set clerk_user_id=null where id=?").run(a.id);
       db.prepare("delete from users where id=?").run(a.id);
@@ -123,6 +134,7 @@ export function createUserService(db: Database.Database): UserService {
     }
     if (!hasHistory(db, b.id)) {
       moveInviteGrants(b.id, a.id);
+      foldAnalytics(b.id, a.id);
       db.prepare("delete from players where user_id=?").run(b.id);
       db.prepare("update users set discord_user_id=null where id=?").run(b.id);
       db.prepare("delete from users where id=?").run(b.id);

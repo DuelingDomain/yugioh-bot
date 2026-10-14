@@ -36,6 +36,7 @@ export interface ClerkBackend {
   listWaitlistEntries(query: { query?: string; status?: string; offset?: number; limit?: number }): Promise<{ data: ClerkWaitlistEntryJson[]; totalCount: number }>;
   /** DELETE /users/{id}. A 404 means the user is already gone and resolves like a success. */
   deleteUser(clerkUserId: string): Promise<void>;
+  deleteWaitlistEntriesByEmail(email: string): Promise<void>;
 }
 
 export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; fetch?: typeof fetch; timeoutMs?: number }): ClerkBackend {
@@ -82,6 +83,11 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
     return query ? `${path}?${query}` : path;
   }
 
+  async function deleteResource(path: string): Promise<void> {
+    try { await request(path, "DELETE"); }
+    catch (error) { if (!(error instanceof ClerkBackendError) || error.status !== 404) throw error; }
+  }
+
   return {
     getUser(clerkUserId) { return request(`/users/${encodeURIComponent(clerkUserId)}`); },
     async listUsers(query) {
@@ -105,9 +111,23 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
         ...(input.skipLegalChecks === undefined ? {} : { skip_legal_checks: input.skipLegalChecks }),
       });
     },
-    async deleteUser(clerkUserId) {
-      try { await request(`/users/${encodeURIComponent(clerkUserId)}`, "DELETE"); }
-      catch (error) { if (!(error instanceof ClerkBackendError) || error.status !== 404) throw error; }
+    deleteUser(clerkUserId) {
+      return deleteResource(`/users/${encodeURIComponent(clerkUserId)}`);
+    },
+    async deleteWaitlistEntriesByEmail(email) {
+      const normalized = email.trim().toLowerCase();
+      const ids: string[] = [];
+      let offset = 0;
+      for (;;) {
+        const params = new URLSearchParams({ query: normalized, offset: String(offset), limit: "100" });
+        const page = await request<{ data: ClerkWaitlistEntryJson[]; total_count: number }>(queryPath("/waitlist_entries", params));
+        for (const entry of page.data) if (entry.email_address.trim().toLowerCase() === normalized) ids.push(entry.id);
+        offset += page.data.length;
+        if (offset >= page.total_count) break;
+        if (page.data.length === 0) throw new ClerkBackendError("Incomplete waitlist response", 0, null, null);
+      }
+      // Finish pagination before deleting so offsets still refer to the same entries.
+      for (const id of ids) await deleteResource(`/waitlist_entries/${encodeURIComponent(id)}`);
     },
     updateUserExternalId(clerkUserId, externalId) { return request(`/users/${encodeURIComponent(clerkUserId)}`, "PATCH", { external_id: externalId }); },
     updateUserMetadata(clerkUserId, input) { return request(`/users/${encodeURIComponent(clerkUserId)}/metadata`, "PATCH", { private_metadata: input.privateMetadata }); },

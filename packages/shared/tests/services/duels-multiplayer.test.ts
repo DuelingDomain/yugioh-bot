@@ -294,3 +294,23 @@ it("opens gzip public and deduped own-seat boards in a finished room", async () 
   expect(duels.room(session.slug, "g1", ids[4]!).engine?.revision).toBe(10);
   db.close();
 });
+
+it("records active table cancellation once and rolls it back if the event fails", () => {
+  const { db, duels, ids } = setup();
+  try {
+    const session = duels.create({ guildId: "g1", organizerPlayerId: ids[0], name: "Private table", mode: "normal", format: "ffa3" });
+    for (const [seat, id] of ids.slice(0, 3).entries()) {
+      if (seat > 0) duels.takeSeat(session.slug, "g1", id);
+      duels.setDeck(session.slug, "g1", id, deck(seat * 100 + 1));
+    }
+    duels.activate(session.slug, "g1", ids[0], ["1"], "bundle", null);
+    db.exec("create trigger reject_event before insert on product_events when new.name='duel_finished' begin select raise(abort, 'record failed'); end");
+    expect(() => duels.cancel(session.slug, "g1", ids[0], 3)).toThrow("record failed");
+    expect(duels.get(session.slug, "g1").status).toBe("active");
+    db.exec("drop trigger reject_event");
+    duels.cancel(session.slug, "g1", ids[0], 3); duels.cancel(session.slug, "g1", ids[0], 3);
+    expect(db.prepare("select name,user_id,props_json from product_events where name='duel_finished'").all()).toEqual([
+      { name: "duel_finished", user_id: seedUser(db, "u1").userId, props_json: '{"mode":"normal","format":"ffa3","seatCount":3,"endedBy":"cancelled","turnCount":3}' },
+    ]);
+  } finally { db.close(); }
+});

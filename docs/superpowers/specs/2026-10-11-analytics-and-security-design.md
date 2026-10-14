@@ -98,7 +98,7 @@ Each item is an independent change with its own tests.
 
 - `posthog-js` with `cookieless_mode: "always"`, `api_host: "/ingest"`, `capture_pageview: "history_change"`, `autocapture: false`, `disable_session_recording: true`. No `identify`; browser events stay anonymous.
 - **Key pages.** Marketing landing, `/access`, sign-up, dashboard, Draft lobby and room, duel Table, tournaments, cubes. Other pages do not load the script.
-- **Proxy.** App: Next rewrite `/ingest/*` to the EU ingest and assets hosts, public in `proxy.ts`. Marketing: Caddy proxies `/ingest/*` the same way; the static page uses the standard snippet with `api_host: "/ingest"`.
+- **Proxy.** App and marketing import one Caddy `(posthog_ingest)` snippet before app/static fallbacks. It strips `/ingest`, sends `/ingest/static/*` to `eu-assets.i.posthog.com` and `/ingest` or `/ingest/*` to `eu.i.posthog.com`, and drops Cookie, Authorization and Referer upstream. The static page uses the standard snippet with `api_host: "/ingest"`.
 - **Env.** `NEXT_PUBLIC_POSTHOG_KEY` (web build arg), `POSTHOG_KEY` and `POSTHOG_PERSONAL_API_KEY` (worker), `POSTHOG_HOST` (default `https://eu.i.posthog.com`). Empty key means no script and no sending. E2E and tests never set them.
 - **Project setting.** Cookieless server hash mode enabled in the PostHog project.
 
@@ -108,7 +108,7 @@ Each item is an independent change with its own tests.
 - No waitlist email (owner 2026-10-11: about five users; the policy update is enough).
 - Analytics stay off in production (empty keys) until the updated policy is live.
 
-**Tests.** Outbox: event written in the same transaction (rolled back with it), drain sends and marks, backoff, cleanup, no-op adapter, deletion job. Type test: disallowed prop keys fail to compile. Web: `/ingest` public, script absent when key empty, absent on non-key pages.
+**Tests.** Outbox: event written in the same transaction (rolled back with it), drain sends and marks, backoff, cleanup, no-op adapter, deletion job. Type test: disallowed prop keys fail to compile. Caddy: anonymous `/ingest` routing on both hosts. Web: script absent when key empty, absent on non-key pages.
 
 ## Build order and parallel streams
 

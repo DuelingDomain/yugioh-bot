@@ -1,3 +1,4 @@
+import { recordProductEvent } from "../analytics/index.js";
 import { report } from "../observability/index.js";
 import { randomBytes, randomInt } from "node:crypto";
 import type Database from "better-sqlite3";
@@ -207,6 +208,14 @@ export function createDraftService(
   // player a saved deck of their picks. A failure must not undo the last pick; the decks are
   // saved later, when the player opens My decks or the tournament page.
   const completeDraft = (draftId: number, now: Date, waveNumber?: number) => {
+    const draft = findById(draftId);
+    if (draft.status === "completed") return;
+    const timing = db.prepare("select started_at from drafts where id=?").get(draftId) as { started_at: string | null };
+    recordProductEvent(db, "draft_completed", draft.createdByUserId, {
+      mode: draft.config.mode === "theme" ? "theme" : "booster",
+      seatCount: (db.prepare("select count(*) as n from draft_players where draft_id=?").get(draftId) as { n: number }).n,
+      ...(timing.started_at ? { durationSeconds: Math.max(0, Math.floor((now.getTime() - Date.parse(timing.started_at)) / 1000)) } : {}),
+    });
     clearDraftLobbyStart(db, draftId, true);
     if (waveNumber === undefined) {
       db.prepare("update drafts set status = 'completed', pick_deadline_at = null, ended_at = ? where id = ?").run(now.toISOString(), draftId);
@@ -273,6 +282,7 @@ export function createDraftService(
       `,
       ).run(draftId, creatorPlayerId);
 
+      recordProductEvent(db, "draft_created", createdByUserId, { mode: config.mode === "theme" ? "theme" : "booster", seatCount: 1 });
       return draftId;
     },
   );
@@ -983,6 +993,7 @@ export function createDraftService(
 
     if (draft.config.mode === "theme") {
       const started = startThemeDraft(draftId, draft, now);
+      recordProductEvent(db, "draft_started", draft.createdByUserId, { mode: "theme", seatCount: joined.length });
       clearDraftLobbyStart(db, draftId, true);
       db.prepare("update drafts set lobby_revision = lobby_revision + 1 where id = ?").run(draftId);
       return started;
@@ -1066,6 +1077,7 @@ export function createDraftService(
 
     clearDraftLobbyStart(db, draftId, true);
     db.prepare("update drafts set lobby_revision = lobby_revision + 1 where id = ?").run(draftId);
+    recordProductEvent(db, "draft_started", draft.createdByUserId, { mode: "booster", seatCount: playerIds.length });
     return findById(draftId);
   });
 
