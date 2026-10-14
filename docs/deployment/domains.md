@@ -36,9 +36,12 @@ The app and marketing host blocks import the same `(posthog_ingest)` Caddy snipp
 - Static files come from `site/public`, mounted read-only at `/srv/site`.
 - Only `GET /` and `GET /index.html` with `dd_signed_in=1` return 302 to `https://app.duelingdomain.com/`. Adding `?home=1` serves the marketing page even with the hint. Home responses carry `Vary: Cookie` and `Cache-Control: private, no-store`.
 - Clean `/privacy` and `/terms` resolve to their HTML files.
+- `/robots.txt` allows the public marketing pages and links to the sitemap. The sitemap lists only the canonical home, privacy and terms URLs, with dates updated when their content changes.
+- `/llms.txt` serves a short product overview and public source links as `text/plain; charset=utf-8`, using the static file cache policy. It is optional context for agents; Google does not require it for AI Search features.
 - Only exact `POST /api/waitlist` is proxied to the app; other APIs and socket paths return 404.
 - `/login` returns 302 to `https://app.duelingdomain.com/login`.
-- Missing files use `404.html` with status 404 and `Cache-Control: no-store`.
+- Missing files and direct `/404` or `/404.html` requests use `404.html` with status 404, `X-Robots-Tag: noindex` and `Cache-Control: no-store`. The HTML also carries `noindex`.
+- Static responses negotiate Zstandard or gzip compression. Home HTML stays `private, no-store`; other static files revalidate after five minutes, images cache for a day and versioned font files for a year.
 - CSP restricts resources to self (data images and inline styles allowed), forbids framing, and uses self-hosted fonts. HSTS is `max-age=31536000`, without `includeSubDomains` or `preload`.
 
 | Marketing request | Behaviour |
@@ -84,9 +87,11 @@ Handle deletion requests through the contact mailbox within 30 days; delete wait
 ```bash
 sqlite3 -header -csv "$WAITLIST_DB" 'select email, created_at from waitlist_signups order by created_at;' > waitlist.csv
 ```
-**Search engines (still to do):** Create a Search Console Domain property and a Bing Webmaster property.
-Add each tool's exact verification TXT record in Namecheap; retain the records after verification.
-Submit `https://duelingdomain.com/sitemap.xml` to both tools; check canonical selection and indexing. The private app stays excluded from search.
+**Search engines:** The owner reports that Google Search Console is now verified. Retain its verification record. After deploying the marketing changes, submit `https://duelingdomain.com/sitemap.xml` under Sitemaps, then use URL Inspection for `https://duelingdomain.com/`, run Test live URL and choose Request indexing. Check the selected canonical and Page indexing reports as Google recrawls. Import the verified property in Bing Webmaster Tools using Import from Google Search Console, confirm the apex host, and submit the same sitemap there.
+
+The app's Caddy-served `/robots.txt` allows crawling (`User-agent: *`, `Allow: /`), while every app response retains `X-Robots-Tag: noindex, nofollow`, including public sign-in pages and authentication redirects. [Google requires crawlers to see noindex](https://developers.google.com/search/docs/crawling-indexing/block-indexing); `Disallow: /` would prevent that and could leave linked app URLs in search. Authentication still protects private content. Do not add app URLs to the marketing sitemap or request app indexing. If app URLs already appear in search, use a Search Console property covering the app to inspect the header and monitor exclusion after recrawl; use temporary removals only when immediate removal is needed.
+
+The reported Safe Browsing "Deceptive pages" issue is separate from indexing and trust copy. After the sign-in remediation is deployed and checked, the owner should review the affected URLs in Search Console's Security issues report and request a review. Publishing contact details or changing robots rules does not by itself resolve that classification.
 
 **Clerk:** The app signs in through Clerk (application "Dueling Domain"); there is no NextAuth origin or web Discord credential left.
 - **Instances:** development (`ins_3KLXWtn1cgAToznzTpN0azZeq2k`, dev keys only in an ignored `packages/web/.env.local`), production on `app.duelingdomain.com`, and a separate staging instance with its own keys and HTTPS origin. Never copy keys or Clerk user IDs between instances; staging scrubs `clerk_user_id` from copied databases.
