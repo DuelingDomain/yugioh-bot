@@ -187,7 +187,7 @@ def main():
         assert not page.find('style') and not any('style' in e['attrs'] for e in page.elements), (name, 'inline style')
     index = pages['index.html']
     visible = ' '.join(index.text)
-    assert all(text in visible for text in ['Rip it', 'open.', 'Draft night', 'Domain format', 'No install', 'Tag duels', 'Free-for-all', 'Season ladder', 'Behind glass, for now.', 'Join the list', 'Your wave opens', 'Your invite'])
+    assert all(text in visible for text in ['Rip it', 'open.', 'Draft night', 'Domain format', 'No install', 'Tag duels', 'Free-for-all', 'Season ladder', 'Out of the case.', 'Join the list', 'Your wave opens', 'Your invite'])
     assert 150 <= len(index.find('meta', name='description')[0]['attrs']['content']) <= 155
     schema = index.find('script', type='application/ld+json')
     assert len(schema) == 1, 'Homepage must expose its JSON-LD in static HTML'
