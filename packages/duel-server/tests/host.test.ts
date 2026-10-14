@@ -1681,7 +1681,9 @@ it("frees the player's share immediately when a duel ends and worker close waits
   try {
     await vi.waitFor(() => expect(closing).toBe(true));
     starting = start(second.slug);
-    const result = await Promise.race([starting, new Promise<{ status: number }>((resolve) => setTimeout(() => resolve({ status: 0 }), 200))]);
+    // Starting includes resource fingerprint validation. Prove it finishes before we
+    // release the first worker's close, without timing that unrelated filesystem work.
+    const result = await starting;
     expect(result.status).toBe(200);
   } finally { finishClose!(); await ended; await starting; }
 });
