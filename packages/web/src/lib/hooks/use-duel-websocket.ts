@@ -11,6 +11,8 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL ||
   (typeof window !== "undefined" ? window.location.origin : "http://localhost:3001");
 const POLL_LIVE_MS = 10_000;
 const POLL_STALE_MS = 1000;
+const JOIN_RETRY_MS = 3000;
+const JOIN_RETRY_MAX_MS = 30_000;
 
 type Presence = Omit<DuelPresencePayload, "slug">;
 
@@ -80,6 +82,7 @@ export function useDuelWebsocket(
     let guildId: string | undefined;
     let request: AbortController | undefined;
     let renewal: number | undefined;
+    let joinRetryMs = JOIN_RETRY_MS;
     let pollTimer: number | undefined;
     let trailing = false;
     let inFlight: Promise<void> | null = null;
@@ -211,6 +214,7 @@ export function useDuelWebsocket(
 
     const disconnected = () => {
       clearTimeout(renewal);
+      joinRetryMs = JOIN_RETRY_MS;
       request?.abort();
       subscribed = false;
       updateLive(false);
@@ -234,11 +238,9 @@ export function useDuelWebsocket(
       const recoverSnapshot = !subscribed;
       request = new AbortController();
       let credentials: DuelConnectionResponse | undefined;
-      let tokenRejected = false;
       try {
         let result!: DuelJoinAck;
         for (let attempt = 0; attempt < 2; attempt++) {
-          tokenRejected = false;
           const response = await fetch(`/api/duels/${encodeURIComponent(slug)}/connection${spectate ? "?spectate=1" : ""}`, {
             cache: "no-store", signal: AbortSignal.any([request.signal, AbortSignal.timeout(8000)]),
           });
@@ -255,12 +257,13 @@ export function useDuelWebsocket(
           });
           if (!isCurrent() || socket.id !== socketId || !socket.connected) return;
           if (result?.ok) break;
-          tokenRejected = result?.error === "invalid token" || result?.error === "expired token";
+          const tokenRejected = result?.error === "invalid token" || result?.error === "expired token";
           if (!tokenRejected || attempt === 1) throw new Error("Room subscription rejected");
         }
         if (!result.ok) return;
         if (!isCurrent() || socket.id !== socketId || !socket.connected) return;
         subscribed = true;
+        joinRetryMs = JOIN_RETRY_MS;
         // Visibility can change while the join acknowledgement is in flight.
         socket.emit("duel:visibility", { visible: document.visibilityState === "visible" });
         patch((current) => ({
@@ -276,7 +279,10 @@ export function useDuelWebsocket(
         subscribed = false;
         updateLive(false);
         patch(idle(slug, { syncing: false, recovering: true }));
-        if (socket.connected && !tokenRejected) renewal = window.setTimeout(() => void join(), 3000);
+        if (socket.connected && socket.id === socketId) {
+          renewal = window.setTimeout(() => void join(), joinRetryMs);
+          joinRetryMs = Math.min(joinRetryMs * 2, JOIN_RETRY_MAX_MS);
+        }
         return;
       } finally {
         joining = false;

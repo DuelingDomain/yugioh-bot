@@ -613,7 +613,6 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let lastPlaceSeat: number | undefined;
   let synchroSummon: MapPromptExtras["synchroSummon"];
   let sawRetry = false;
-  const hintCardName = () => (lastHintCard ? cards.get(lastHintCard)?.name : undefined);
 
   const appendLog = (text: string, audience: "all" | number = "all"): LogEntry => {
     const entry = { id: nextLogId++, text, audience };
@@ -751,7 +750,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           // Placeholders are filled when the prompt is built, against the card the prompt names.
           lastSelectHint = cards.resolveLabel(message.hint) || cards.system(Number(message.hint));
         } else if (message.hint_type === OcgHintType.EVENT || message.hint_type === OcgHintType.MESSAGE) {
-          const text = fillPlaceholders(cards.resolveLabel(message.hint) || cards.system(Number(message.hint)) || "", [hintCardName()]);
+          // HINT_CARD has no source zone to establish visibility for a public log.
+          const text = fillPlaceholders(cards.resolveLabel(message.hint) || cards.system(Number(message.hint)) || "", ["a card"]);
           const duplicateRecipient = logHintRecipientsLeft > 0 && loggedHintCall;
           if (logHintRecipientsLeft > 0) {
             logHintRecipientsLeft -= 1;

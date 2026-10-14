@@ -386,7 +386,6 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let lastHintCard: number | undefined;
   let synchroSummon: MapPromptExtras["synchroSummon"];
   let sawRetry = false;
-  const hintCardName = () => (lastHintCard ? cards.get(lastHintCard)?.name : undefined);
 
   const appendLog = (text: string, audience: "all" | number = "all"): LogEntry => {
     const entry = { id: nextLogId++, text, audience };
@@ -517,7 +516,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
           // Placeholders are filled when the prompt is built, against the card the prompt names.
           lastSelectHint = cards.resolveLabel(message.hint) || cards.system(Number(message.hint));
         } else if (message.hint_type === OcgHintType.EVENT || message.hint_type === OcgHintType.MESSAGE) {
-          const text = fillPlaceholders(cards.resolveLabel(message.hint) || cards.system(Number(message.hint)) || "", [hintCardName()]);
+          // LEGACY-1V1: HINT_CARD has no source zone to establish visibility for a public log.
+          const text = fillPlaceholders(cards.resolveLabel(message.hint) || cards.system(Number(message.hint)) || "", ["a card"]); // LEGACY-1V1
           if (text) appendLog(text);
         } else if (message.hint_type === OcgHintType.CARD) {
           lastHintCard = Number(message.hint) || undefined;

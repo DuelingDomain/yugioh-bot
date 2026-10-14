@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { seatCountFor, type DuelFormat } from "@yugidraft/shared/duels";
-import { OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
+import { OcgHintType, OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
+import { createLegacyEngineGame } from "../src/legacy/index.js";
 import { DESTROY_NOTE_PREFIX } from "../src/views.js";
 import { MSG_ATTACK_DUELIST } from "../src/raw-messages.js";
 
@@ -9,6 +10,7 @@ const fake = vi.hoisted(() => ({
   messages: [] as OcgMessage[],
   buffers: [] as Uint8Array[],
   destroyNote: "",
+  hintLabels: new Map<bigint, string>(),
   report: (_type: number, _text: string) => undefined,
 }));
 
@@ -32,8 +34,8 @@ vi.mock("../src/cards.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/cards.js")>(),
   loadCardDatabase: () => ({
     readScript: () => "-- test resource", cardData: () => null,
-    get: (code: number) => ({ code, name: code === 1 ? "Dark Magician" : "Mirror Force", type: 1 }),
-    resolveLabel: () => "", system: () => undefined,
+    get: (code: number) => ({ code, name: code === 1 ? "Dark Magician" : code === 70781052 ? "Summoned Skull" : "Mirror Force", type: 1 }),
+    resolveLabel: (hint: bigint) => fake.hintLabels.get(hint) ?? "", system: () => undefined,
   }),
 }));
 vi.mock("../src/multi-scripts.js", async (importOriginal) => ({
@@ -44,7 +46,7 @@ vi.mock("../src/raw-messages.js", async (importOriginal) => ({
   rawMessageCapture: () => ({ take: () => fake.buffers.splice(0) }),
 }));
 
-beforeEach(() => { fake.messages = []; fake.buffers = []; fake.destroyNote = ""; });
+beforeEach(() => { fake.messages = []; fake.buffers = []; fake.destroyNote = ""; fake.hintLabels.clear(); });
 
 const place = (controller: number, location: OcgLocation = OcgLocation.MZONE, position: OcgPosition = OcgPosition.FACEUP_ATTACK) => ({
   controller, location, sequence: 0, position,
@@ -54,12 +56,12 @@ const chain = (controller: number, chain_size: number, code = 1) => ({
   triggering_controller: controller, triggering_location: OcgLocation.MZONE, triggering_sequence: 0,
 } as OcgMessage);
 
-async function open(format: DuelFormat, messages: OcgMessage[]): Promise<EngineGame> {
+async function open(format: DuelFormat, messages: OcgMessage[], create = createEngineGame): Promise<EngineGame> {
   fake.messages = [...messages, {
     type: OcgMessageType.SELECT_IDLECMD, player: 0, summons: [], special_summons: [], pos_changes: [],
     monster_sets: [], spell_sets: [], activates: [], to_bp: false, to_ep: true, shuffle: false,
   }];
-  return createEngineGame({
+  return create({
     format, mode: "normal", decks: Array.from({ length: seatCountFor(format) }, () => ({ main: [], extra: [], side: [] })),
     dataDirectory: "/tmp/text-log-no-engine-resources", seed: ["1", "2", "3", "4"],
     standardWasmBinary: new ArrayBuffer(0), multiWasmBinary: new ArrayBuffer(0),
@@ -161,4 +163,20 @@ describe.each<DuelFormat>(["1v1", "ffa3", "ffa4", "tag"])("%s Text log player la
       for (const viewer of viewers) expect(log(game, viewer)).toEqual([]);
     } finally { game.close(); }
   });
+});
+
+it.each([
+  { engine: "pinned", create: createEngineGame }, { engine: "legacy", create: createLegacyEngineGame },
+])("uses a generic card name in $engine public hint logs when only a private hint names the card", async ({ create }) => {
+  fake.hintLabels.set(502n, "Choose an effect for [%ls].");
+  const game = await open("1v1", [
+    { type: OcgMessageType.HINT, hint_type: OcgHintType.CARD, player: 0, hint: 70781052n },
+    { type: OcgMessageType.HINT, hint_type: OcgHintType.EVENT, player: 0, hint: 502n },
+    { type: OcgMessageType.HINT, hint_type: OcgHintType.MESSAGE, player: 0, hint: 502n },
+  ], create);
+  try {
+    for (const viewer of [0, 1, null]) expect(log(game, viewer)).toEqual([
+      "Choose an effect for [a card].", "Choose an effect for [a card].",
+    ]);
+  } finally { game.close(); }
 });
