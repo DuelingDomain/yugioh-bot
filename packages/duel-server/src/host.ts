@@ -5,7 +5,8 @@ import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
 import { scriptErrorModeFromEnv } from "./script-errors.js";
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
@@ -3498,18 +3499,12 @@ export function createDuelHost(options: {
   return {
     async handle(request: Request): Promise<Response> {
       if (request.method !== "POST" || new URL(request.url).pathname !== "/internal/duel") return new Response("Not found", { status: 404 });
-      const raw = await request.text();
-      if (Buffer.byteLength(raw) > 64 * 1024) return Response.json({ error: "Request too large" }, { status: 413 });
-      const signature = request.headers.get("x-announce-signature") ?? "";
-      const expected = "sha256=" + createHmac("sha256", options.secret).update(raw).digest("hex");
-      if (Buffer.byteLength(signature) !== Buffer.byteLength(expected) || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
+      const result = await readSignedRequest(request, { secret: options.secret, purpose: "duel-host" });
+      if (!result.ok) return Response.json({ error: result.status === 401 ? "Unauthorized" : result.status === 413 ? "Request too large" : "Invalid JSON" }, { status: result.status });
       let requestOp: string | undefined;
       let replayDeadline: ReturnType<typeof setTimeout> | undefined;
       try {
-        let body: Record<string, unknown>;
-        try { body = JSON.parse(raw); } catch { throw new RequestError("Invalid JSON", 400); }
+        const body = result.body as Record<string, unknown>;
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("Invalid request", 400);
         if (typeof body.op === "string" && DUEL_OPS.has(body.op)) requestOp = body.op;
         const fork = typeof body.slug === "string" && typeof body.guildId === "string"

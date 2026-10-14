@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { rmSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,7 +49,7 @@ afterEach(async () => { await host.close(); vi.useRealTimers(); db.close(); vi.r
 async function post(body: Record<string, unknown>) {
   const raw = JSON.stringify({ guildId: "g", playerId, ...body });
   return host.handle(new Request("http://test/internal/duel", { method: "POST", body: raw,
-    headers: { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
+    headers: { ...signedRequestHeaders({ url: "http://test/internal/duel", method: "POST", body: raw, secret: secret, purpose: "duel-host" }) } }));
 }
 function room() {
   return duels.create({ guildId: "g", organizerPlayerId: playerId, name: "Test room", mode: "normal",

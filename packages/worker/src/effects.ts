@@ -1,7 +1,7 @@
+import { signedTransport } from "@yugidraft/shared/internal-auth";
 import {
   createAnnouncer,
   createBroadcaster,
-  httpTransport,
   type AnnouncePayload,
   type SignedPostTransport,
 } from "@yugidraft/shared/notify";
@@ -48,7 +48,7 @@ export function effectsFromEnv(env: NodeJS.ProcessEnv): WorkerEffects {
   return createEffects({
     enabled: env.DISCORD_BOT_ENABLED === "1",
     // A stalled WS or bot must not hold a tick: these calls give up after five seconds.
-    ws: httpTransport({ url: env.WS_INTERNAL_URL ?? "", secret: env.WS_INTERNAL_SECRET ?? "", timeoutMs: WORKER_EFFECT_TIMEOUT_MS }),
-    bot: httpTransport({ url: env.BOT_ANNOUNCE_URL ?? "", secret: env.BOT_ANNOUNCE_SECRET ?? "", timeoutMs: WORKER_EFFECT_TIMEOUT_MS }),
+    ws: signedTransport({ purpose: "ws-broadcast", url: env.WS_INTERNAL_URL ?? "", secret: env.WS_INTERNAL_SECRET ?? "", timeoutMs: WORKER_EFFECT_TIMEOUT_MS }),
+    bot: signedTransport({ purpose: "bot-announce", url: env.BOT_ANNOUNCE_URL ?? "", secret: env.BOT_ANNOUNCE_SECRET ?? "", timeoutMs: WORKER_EFFECT_TIMEOUT_MS }),
   });
 }

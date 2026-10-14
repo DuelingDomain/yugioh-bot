@@ -1,14 +1,5 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 
-export function verifyAnnounceSignature(
-  rawBody: string,
-  signatureHeader: string | undefined,
-  secret: string,
-): boolean {
-  if (!secret) return false;
-  if (!signatureHeader || !signatureHeader.startsWith("sha256=")) return false;
-  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  const received = signatureHeader.slice("sha256=".length);
-  if (received.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(received), Buffer.from(expected));
+export function readAnnounceRequest(request: Request, secret: string) {
+  return readSignedRequest(request, { secret, purpose: "bot-announce" });
 }

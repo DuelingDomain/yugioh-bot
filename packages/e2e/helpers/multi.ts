@@ -1,6 +1,6 @@
 import type { Browser, BrowserContext, Page, TestInfo } from "@playwright/test";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { createHmac } from "node:crypto";
+import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { join, relative } from "node:path";
 import { duelDataDir, guildId, multiStatusDir, ports, repoRoot } from "../stack/env.mjs";
 import { cardCode } from "./cards";
@@ -269,14 +269,9 @@ async function debugTraceCall(request: { get: (url: string, options?: { timeout?
 async function hostCall(body: Record<string, unknown>, timeoutMs = 6000): Promise<{ status: number; body: unknown }> {
   const secret = process.env.E2E_DUEL_SECRET ?? "";
   const raw = JSON.stringify(body);
-  const signature = "sha256=" + createHmac("sha256", secret).update(raw).digest("hex");
-  const response = await fetch(`http://127.0.0.1:${ports.duel}/internal/duel`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-announce-signature": signature },
-    body: raw,
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const text = await response.text();
+  const response = await signedTransport({ url: `http://127.0.0.1:${ports.duel}`, secret, purpose: "duel-host", timeoutMs })
+    .post("/internal/duel", raw);
+  const text = response.text;
   try {
     return { status: response.status, body: JSON.parse(text) };
   } catch {

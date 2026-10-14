@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -22,11 +22,11 @@ it.each(["view", "private-operation\n", { private: "private-operation" }, null])
   const searchCards = vi.fn(() => []);
   const host = createDuelHost({ db, dataDirectory: dir, secret, searchCards });
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
-  const post = (body: object) => {
+  const post = async (body: object) => {
     const raw = JSON.stringify(body);
     return host.handle(new Request("http://localhost/internal/duel", {
       method: "POST", body: raw,
-      headers: { "x-announce-signature": `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}` },
+      headers: { ...await signedHeaders(raw, secret, "http://localhost/internal/duel", "duel-host") },
     }));
   };
   try {

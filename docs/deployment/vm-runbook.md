@@ -320,6 +320,15 @@ Repeat the deploy health checks. Image rollback does not reverse database migrat
 engine/passcode changes or new writes. For the first release after this change, the previous images
 can be VM-built images with no GHCR SHA tag; use `:prev` and the matching release backup for those.
 
+### Internal signing cutover
+
+Deploy web, WS, duel and worker together (and update any separately enabled bot). The v2 internal signing format
+has no compatibility period with the previous format. Keep the existing internal secrets and synchronize service
+clocks; signed requests must be within 60 seconds of the receiving service's clock. Draft and tournament room
+tokens remain valid. Previously issued duel connection tokens are replaced: open duel tabs fetch fresh credentials
+and retry once when a join is rejected. After deployment, check that an open duel tab reconnects and that draft
+updates still arrive. Roll back all communicating services together if needed.
+
 ### Before a deploy that changes the engine bundle
 
 The multiplayer merge changes the Standard and Domain cores, so its first deploy replaces the bundle. Before it:

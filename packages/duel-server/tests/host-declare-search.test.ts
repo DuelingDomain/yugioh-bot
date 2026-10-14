@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { rmSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
@@ -46,7 +46,7 @@ it.each(["1v1", "tag", "ffa3", "ffa4"] as DuelFormat[])("binds %s search to the 
   async function post(body: Record<string, unknown>, as = players[0]): Promise<{ status: number; data: unknown }> {
     const raw = JSON.stringify({ guildId: "g", slug: session.slug, playerId: as, ...body });
     const response = await host.handle(new Request("http://local/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", "declare-test").update(raw).digest("hex") } }));
+      headers: { ...signedRequestHeaders({ url: "http://local/internal/duel", method: "POST", body: raw, secret: "declare-test", purpose: "duel-host" }) } }));
     return finishTestDiceOpening(host, { slug: session.slug, ...body }, { status: response.status, data: await response.json() }, next => post(next, as));
   }
   expect((await post({ op: "start" })).status).toBe(200);

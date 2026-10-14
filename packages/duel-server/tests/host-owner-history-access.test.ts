@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { rmSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -46,7 +46,7 @@ async function post(op: string, body: Record<string, unknown> = {}) {
   const raw = JSON.stringify({ op, slug, guildId, playerId: ownerPlayerId, ...body });
   return host.handle(new Request("http://localhost/internal/duel", { method: "POST",
     headers: { "content-type": "application/json",
-      "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") }, body: raw }));
+      ...signedRequestHeaders({ url: "http://localhost/internal/duel", method: "POST", body: raw, secret: SECRET, purpose: "duel-host" }) }, body: raw }));
 }
 
 it("lets the owner read another player's private finished duel without granting mutation rights", async () => {

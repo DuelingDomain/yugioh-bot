@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { join, resolve } from "node:path";
 import { expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -52,7 +52,7 @@ describeWithCores(TWO_BUNDLES ? "real cross-version replay (two bundles)" : "rea
       const post = async (input: Record<string, unknown>) => {
         const raw = JSON.stringify({ slug: session.slug, guildId, playerId: players[0], ...input });
         const response = await host!.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-          headers: { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
+          headers: { ...signedRequestHeaders({ url: "http://localhost/internal/duel", method: "POST", body: raw, secret: secret, purpose: "duel-host" }) } }));
         return { status: response.status, body: await response.json() as any };
       };
       let room = await post({ op: "view" });

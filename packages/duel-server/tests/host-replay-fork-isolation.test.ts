@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -87,7 +87,7 @@ function fixture(format: DuelFormat = "1v1", pendingLoss = false) {
 async function post(app: ReturnType<typeof fixture>, host: DuelHost, op: string, body: Record<string, unknown> = {}) {
   const raw = JSON.stringify({ op, slug: app.fork.slug, guildId: app.guildId, playerId: app.owner.playerId, ...body });
   const response = await host.handle(new Request("http://local/internal/duel", { method: "POST",
-    headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") }, body: raw }));
+    headers: { "content-type": "application/json", ...signedRequestHeaders({ url: "http://local/internal/duel", method: "POST", body: raw, secret: SECRET, purpose: "duel-host" }) }, body: raw }));
   return { status: response.status, data: await response.json() as any };
 }
 function realRows(app: ReturnType<typeof fixture>) {

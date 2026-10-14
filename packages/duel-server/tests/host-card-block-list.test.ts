@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { rmSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
@@ -46,7 +46,7 @@ afterEach(async () => { for (const host of hosts.splice(0)) await host.close(); 
 
 async function post(host: DuelHost, body: Record<string, unknown>) {
   const raw = JSON.stringify(body);
-  const result = await host.handle(new Request("http://local/internal/duel", { method: "POST", headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") }, body: raw }));
+  const result = await host.handle(new Request("http://local/internal/duel", { method: "POST", headers: { "content-type": "application/json", ...await signedHeaders(raw, SECRET, "http://local/internal/duel", "duel-host") }, body: raw }));
   return { status: result.status, data: await result.json() as any };
 }
 
