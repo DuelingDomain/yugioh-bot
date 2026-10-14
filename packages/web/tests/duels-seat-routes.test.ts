@@ -14,6 +14,7 @@ vi.mock("@/lib/duel-host", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/duel-host")>(), requireDuelActor, callDuelHost,
 }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange }));
+vi.mock("@/lib/db", () => ({ getDb: () => db }));
 
 let db: Database.Database;
 let duels: ReturnType<typeof createDuelService>;
@@ -69,6 +70,7 @@ describe("spectator entry", () => {
     }
     expect(duels.get(slug, "g").seats).toHaveLength(1);
     expect(duels.room(slug, "g", guest).mySeat).toBeNull();
+    expect(callDuelHost).not.toHaveBeenCalled();
     expect(notifyDuelChange).not.toHaveBeenCalled();
   });
 

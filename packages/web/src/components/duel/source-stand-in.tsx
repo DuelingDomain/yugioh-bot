@@ -7,6 +7,7 @@
  */
 import { forwardRef, type CSSProperties } from "react";
 import { cardArtUrl, isDefenseAt } from "./constants";
+import { departureTurn } from "./event-queue";
 import type { MovePlan } from "./move-plan";
 import styles from "./move-fx.module.css";
 
@@ -44,6 +45,9 @@ export function placeSourceStandIn(el: HTMLElement, plan: MovePlan, overlay: DOM
   el.style.height = `${h}px`;
   el.style.setProperty("--fx-r", `${Math.max(2, w * 0.05)}px`);
   const defense = plan.event.fromPosition == null ? from.defense : isDefenseAt(plan.event.from?.location, plan.event.fromPosition);
-  el.style.transform = `rotate(${cardTurn(from.side, defense)}deg) scale(${scale})`;
+  // The stand-in lies on the card it replaces: a seat field of a multiplayer table is turned as a whole, so the seat's
+  // live turn joins the side and Defense turn (a rival's card would stand upright on its turned field otherwise).
+  const sideTurn = cardTurn(from.side, defense);
+  el.style.transform = `rotate(${departureTurn(plan.event.from, sideTurn) ?? sideTurn}deg) scale(${scale})`;
   return true;
 }

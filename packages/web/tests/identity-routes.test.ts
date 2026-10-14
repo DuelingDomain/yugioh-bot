@@ -21,7 +21,7 @@ it("rejects non-creators, permits the numeric owner, and scopes guilds", async (
   const { DELETE } = await import("../app/api/cubes/[id]/route");
   state.userId = "102"; state.discordId = "900000000000000102";
   const request = new Request("http://localhost/api/cubes/8", { method: "DELETE" });
-  expect((await DELETE(request, { params: Promise.resolve({ id: "8" }) })).status).toBe(403);
+  expect((await DELETE(request, { params: Promise.resolve({ id: "8" }) })).status).toBe(404);
   state.userId = "101";
   expect((await DELETE(request, { params: Promise.resolve({ id: "8" }) })).status).toBe(200);
   expect((await DELETE(request, { params: Promise.resolve({ id: "9" }) })).status).toBe(404);

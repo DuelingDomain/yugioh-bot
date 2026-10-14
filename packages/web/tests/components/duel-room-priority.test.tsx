@@ -10,7 +10,7 @@ const { state, mutate, sendDuelAction, startBeats } = vi.hoisted(() => ({
   state: { room: null as DuelRoom | null, error: null as Error | null, recovering: false, syncing: false, beats: false, revealed: true },
   mutate: vi.fn(async () => {}), sendDuelAction: vi.fn(), startBeats: vi.fn(),
 }));
-vi.mock("swr", () => ({ default: () => ({ data: state.room, error: state.error, isLoading: false, mutate }) }));
+vi.mock("swr", () => ({ useSWRConfig: () => ({ mutate: () => Promise.resolve() }), default: () => ({ data: state.room, error: state.error, isLoading: false, mutate }) }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };

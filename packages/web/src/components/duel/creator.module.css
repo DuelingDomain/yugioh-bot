@@ -1,4 +1,16 @@
 /* Custom game creator: ruled sections on the left, a live summary on the right. */
+.openTable {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 14px 18px;
+  border: 1px solid var(--duel-rule);
+  border-radius: 8px;
+}
+.openTable p { flex: 1 1 240px; margin: 0; }
+.openTable a { text-decoration: underline; text-underline-offset: 3px; }
 .form { display: block; }
 .wrap { width: 100%; max-width: 1160px; margin: 0 auto; }
 

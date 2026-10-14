@@ -20,10 +20,10 @@ describe("draft invite fixed windows", () => {
     expect(draftInviteRateLimit(request("1.2.3.4, spoofed"),999)?.status).toBe(429);
     expect(draftInviteRateLimit(request("other"),999)).toBeNull();
   });
-  it("bounds memory by refusing new buckets instead of evicting active windows", async () => {
+  it("evicts the oldest buckets so new clients can continue", async () => {
     const { draftInviteRateLimit } = await import("../src/lib/draft-invite-rate-limit");
     for (let i=0;i<5000;i++) expect(draftInviteRateLimit(request(`ip-${i}`),i+1)).toBeNull();
-    expect(draftInviteRateLimit(request("overflow"),99999)?.status).toBe(429);
+    expect(draftInviteRateLimit(request("overflow"),99999)).toBeNull();
     vi.advanceTimersByTime(60_000);
     expect(draftInviteRateLimit(request("overflow"),99999)).toBeNull();
   });

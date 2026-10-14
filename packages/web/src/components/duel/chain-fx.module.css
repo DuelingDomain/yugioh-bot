@@ -72,6 +72,9 @@
   border-radius: 7px;
   box-shadow: 0 0 0 1px #171020, 0 0 12px rgb(155 126 255 / 0.55);
 }
+/* A target on a card of a turned field (3-way, 4-way) is turned with it (--turn, set in JS); its words stay upright, hung
+   from the same corner of the card. */
+.target[data-turned="true"] .targetTag { rotate: calc(var(--turn, 0deg) * -1); transform-origin: left bottom; }
 .targetTag {
   position: absolute;
   bottom: var(--target-offset, 0px);
@@ -182,6 +185,9 @@
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.65), inset 0 0 0 1px rgb(244 214 144 / 0.22), 0 2px 7px rgb(0 0 0 / 0.55);
   animation: chainDrop 0.24s cubic-bezier(0.34, 1.3, 0.5, 1) both;
 }
+/* A card of a turned field (3-way, 4-way): the badge stays upright on the card's corner nearest the top right of the screen.
+   Its centre (--bx, --by, in the slot's pixels) is set in JS, and includes the step --shift makes. */
+.slot[data-turned="true"] .badge { right: auto; left: var(--bx, 0px); top: var(--by, 0px); translate: -50% -50%; }
 /* The highest link is larger and sits on top (the slot z-index is the link number). */
 .slot[data-top="true"] .badge { scale: 1.16; }
 /* Under an open prompt (set by the frame loop): the badge steps back so it never covers the question. */
@@ -250,7 +256,6 @@
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6);
   animation: chainClink 0.2s ease-out 0.08s both;
 }
-.glyph { width: 76%; height: 76%; }
 
 /* The burst ring around a badge: gold when the link resolves, red when it is negated. */
 .badge::after {

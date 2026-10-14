@@ -24,6 +24,7 @@ import type { DuelActivateHandler, DuelHoverHandler } from "./field";
 import type { InspectTarget } from "./inspector";
 import { disabledZoneNames, disabledZones, opponentPickLabel, type SeatPick, type SeatRelation } from "./multi-seat";
 import styles from "./opponent-board.module.css";
+import { useForkLabels } from "./table/fork-labels";
 
 export type SeatBoardCallbacks = {
   legalKeys: ReadonlySet<string>;
@@ -360,6 +361,7 @@ export function SeatBoard({
   /** An opponent pick is open: this board answers it when its seat is offered. */
   pick?: SeatPick | null;
 }) {
+  const forkLabels = useForkLabels();
   const seat = view.seat;
   const eliminated = view.eliminated === true;
   const leaving = !eliminated && view.pendingElimination === true;
@@ -373,7 +375,7 @@ export function SeatBoard({
   const masterFace = deckMasterCard(view);
   const spells = [0, 1, 2, 3, 4].map((sequence) => view.spells[sequence] ?? null);
   const handKeys = view.hand.length === 0 ? [zoneKey(seat, LOCATION_HAND, 0)] : view.hand.map(cardKey);
-  const relationText = RELATION_LABEL[relation];
+  const relationText = forkLabels ? (relation === "self" ? "Acting" : relation === "opponent" ? "" : RELATION_LABEL[relation]) : RELATION_LABEL[relation];
   const pickable = !eliminated && pick?.options.has(seat) === true;
 
   return (
@@ -419,7 +421,7 @@ export function SeatBoard({
             <Count label="Banished" count={view.banished.length} keys={pileKeys(seat, LOCATION_REMOVED, view.banished)} pile owner={name} cards={view.banished} callbacks={callbacks} />
           </div>
           <div className={styles.rows}>
-            <div className={styles.row} data-row="monsters">
+            <div className={styles.row} data-row="monsters" data-monster-row={seat}>
               {monsters.map((card, sequence) => (
                 <CardCell key={`mz-${sequence}`} card={card} kind="mz" label={`${name} monster zone ${sequence + 1}`}
                   keys={withExact(card, [zoneKey(seat, LOCATION_MZONE, sequence)])} callbacks={callbacks}

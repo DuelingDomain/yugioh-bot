@@ -1222,6 +1222,7 @@ export function observeDuelEvent(
   chain: StoredChainLink[],
   id: number,
   ctx?: EventContext,
+  activator?: number,
 ): StoredDuelEvent | null {
   if (ctx) {
     switch (message.type) {
@@ -1334,11 +1335,12 @@ export function observeDuelEvent(
     }
     case OcgMessageType.CHAINING: {
       const info = cards.get(message.code);
+      const seat = activator ?? message.controller;
       const description = fillPlaceholders(cards.resolveLabel(message.description), [info?.name, locationLabel(message.location, message.sequence)]) || undefined;
       chain.length = message.chain_size;
       chain[message.chain_size - 1] = {
         index: message.chain_size,
-        seat: message.controller,
+        seat,
         code: message.code,
         description,
         zone: zoneOf(message),
@@ -1348,7 +1350,7 @@ export function observeDuelEvent(
       return {
         id,
         kind: "activate",
-        seat: seatOf(ctx?.format, message.controller),
+        seat: seatOf(ctx?.format, seat),
         card: info,
         chainIndex: message.chain_size,
         text,
@@ -1704,7 +1706,8 @@ export function projectView(args: {
       if (info) view.deckMaster = { card: info, inZone: domain.inZone, returns: domain.returns, nextCost: domain.nextCost };
     }
     if (multi) {
-      const sharedExtra = format === "tag" ? args.coreCapabilities?.tagSharedExtraZones : args.coreCapabilities?.ffa4SharedExtraZones;
+      const sharedExtra = format === "tag" ? args.coreCapabilities?.tagSharedExtraZones
+        : format === "ffa3" ? args.coreCapabilities?.ffa3SharedExtraZones : args.coreCapabilities?.ffa4SharedExtraZones;
       view.sharedExtraWith = sharedExtra ? sharedExtraSeatOf(format, seat, args.eliminated) : null;
       view.team = teamOfSeat(format, seat);
       view.eliminated = false;
@@ -1718,7 +1721,7 @@ export function projectView(args: {
     const description = fillPlaceholders(args.cards.resolveLabel(link.description), [info?.name, locationLabel(link.location, link.sequence)]) || undefined;
     return {
       index: index + 1,
-      seat: link.controller,
+      seat: args.chain?.[index]?.seat ?? link.controller,
       code: link.code,
       name: info?.name,
       description,

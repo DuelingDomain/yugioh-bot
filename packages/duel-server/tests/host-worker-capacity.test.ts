@@ -11,12 +11,19 @@ import { seedIdentity, seedUser } from "./helpers/identity.js";
 
 // Keep the host and worker client real while controlling thread termination.
 const transports = vi.hoisted(() => [] as Array<import("node:events").EventEmitter & { finishTermination?: () => void }>);
-vi.mock("node:worker_threads", async () => {
+vi.mock("node:worker_threads", async original => {
+  const real = await original<typeof import("node:worker_threads")>();
   const { EventEmitter } = await import("node:events");
   return {
+    ...real,
     Worker: class extends EventEmitter {
       finishTermination?: () => void;
-      constructor() { super(); transports.push(this); }
+      constructor(filename: string | URL, options?: import("node:worker_threads").WorkerOptions) {
+        super();
+        // Main also hashes resources and encodes replay JSON in workers. Keep those threads real.
+        if (typeof filename !== "string" || !filename.includes("/worker.ts")) return new real.Worker(filename, options);
+        transports.push(this);
+      }
       postMessage(message: { id: number; op: string; seat?: number | null }) {
         const view: DuelEngineView = {
           revision: 1, turn: 1, turnSeat: 0, phase: "main1",

@@ -12,11 +12,12 @@ afterEach(() => s.db?.close());
 it("rejects non-creators on cube and cube cards writes and tournament creation", async () => {
  const cube = await import("../app/api/cubes/[id]/route"); const cards = await import("../app/api/cubes/[id]/cards/route"); const tournament = await import("../app/api/drafts/[slug]/tournament/route");
  const req = new Request("http://localhost", { method: "PUT", body: JSON.stringify({ name: "Stolen", format: "round_robin" }) });
- expect((await cube.PUT(req, { params: Promise.resolve({ id: "1" }) })).status).toBe(403);
- expect((await cards.POST(req.clone(), { params: Promise.resolve({ id: "1" }) })).status).toBe(403);
+ expect((await cube.PUT(req, { params: Promise.resolve({ id: "1" }) })).status).toBe(404);
+ expect((await cards.POST(req.clone(), { params: Promise.resolve({ id: "1" }) })).status).toBe(404);
+ expect(s.db!.prepare("select name from cubes where id=1").get()).toEqual({ name: "Cube" });
  // The draft is private, so a non-creator gets the generic not-found.
  expect((await tournament.POST(req.clone() as never, { params: Promise.resolve({ slug: "draft" }) })).status).toBe(404);
- const { GET } = await import("../app/api/cubes/route"); expect((await (await GET()).json()).cubes[0].canEdit).toBe(false);
+ const { GET } = await import("../app/api/cubes/route"); expect((await (await GET()).json()).cubes).toEqual([]);
 });
 it("permits email-only creators to write cubes", async () => { s.userId = 1; const { PUT } = await import("../app/api/cubes/[id]/route"); expect((await PUT(new Request("http://localhost", { method: "PUT", body: JSON.stringify({ name: "Renamed" }) }), { params: Promise.resolve({ id: "1" }) })).status).toBe(200); });
 it("removes settings and admin season API routes", () => { for (const path of ["../app/api/settings/route.ts", "../app/api/admin/season/route.ts"]) expect(existsSync(fileURLToPath(new URL(path, import.meta.url)))).toBe(false); });

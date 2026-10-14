@@ -14,7 +14,7 @@ vi.mock("next/link", () => ({
 }));
 
 const swr = vi.hoisted(() => ({ data: null as unknown }));
-vi.mock("swr", () => ({
+vi.mock("swr", () => ({ useSWRConfig: () => ({ mutate: () => Promise.resolve() }),
   default: () => ({ data: swr.data, error: undefined, isLoading: false, mutate: vi.fn() }),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));

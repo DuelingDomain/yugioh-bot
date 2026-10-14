@@ -184,14 +184,19 @@ export async function runUpdate(options: Options = {}) {
     };
     const [oldTree, newTree] = await Promise.all([treeAt(old.scripts), treeAt(next.scripts)]);
     let oldDataError: string | undefined;
-    const [database, oldDatabase] = await Promise.all([
-      downloadReleasedCardData(next.database, temporary, download, { historyStart }),
-      downloadReleasedCardData(old.database, join(temporary,"old-data"), download, { historyStart }).catch((error: unknown) => {
+    // Both downloads write beneath temporary. Settle both before finally can remove it,
+    // including when either call throws before returning its promise.
+    const [candidateDownload, previousDownload] = await Promise.allSettled([
+      Promise.resolve().then(() => downloadReleasedCardData(next.database, temporary, download, { historyStart })),
+      Promise.resolve().then(() => downloadReleasedCardData(old.database, join(temporary,"old-data"), download, { historyStart })).catch((error: unknown) => {
         if (!(error instanceof CardRemapValidationError)) throw error;
         oldDataError = error.message;
         return null;
       }),
     ]);
+    if (candidateDownload.status === "rejected") throw candidateDownload.reason;
+    if (previousDownload.status === "rejected") throw previousDownload.reason;
+    const database = candidateDownload.value, oldDatabase = previousDownload.value;
     const stringsAt = async (sha: string) => Buffer.from(await (await download(`https://raw.githubusercontent.com/ProjectIgnis/Distribution/${sha}/config/strings.conf`)).arrayBuffer());
     const nextStrings = await stringsAt(next.strings);
     const oldStrings = old.strings === next.strings ? nextStrings : await stringsAt(old.strings);

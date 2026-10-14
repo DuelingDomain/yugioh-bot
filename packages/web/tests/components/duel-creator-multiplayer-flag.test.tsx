@@ -9,6 +9,10 @@ vi.mock("next/font/google", () => {
 });
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
+vi.mock("@/components/duel/api", async original => ({
+  ...await original<object>(), getHostedWaitingTable: vi.fn(async () => ({ table: null })),
+}));
+
 import { DuelCreator } from "@/components/duel/creator";
 
 afterEach(() => cleanup());

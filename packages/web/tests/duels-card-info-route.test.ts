@@ -8,7 +8,8 @@ import fixture from "../../duel-server/tests/support/fixtures/red-eyes-exceed-ca
 const { requireDuelActor, callDuelHost, room, getDb } = vi.hoisted(() => ({
   requireDuelActor: vi.fn(), callDuelHost: vi.fn(), room: vi.fn(), getDb: vi.fn(),
 }));
-vi.mock("@/lib/duel-host", () => ({
+vi.mock("@/lib/duel-host", async original => ({
+  ...await original<typeof import("../src/lib/duel-host")>(),
   requireDuelActor, callDuelHost,
   duelErrorResponse: () => NextResponse.json({ error: "Not found" }, { status: 404 }),
 }));
@@ -36,6 +37,14 @@ const post = (codes: unknown) => new Request("http://localhost/api/duels/cards",
 const search = (query: string, slug?: string) => new NextRequest(
   `http://localhost/api/duels/cards?${new URLSearchParams({ q: query, ...(slug ? { slug } : {}) })}`,
 );
+
+it.each(["", "b"])("forwards short announcement query %j with actor identity and preserves deck markers", async query => {
+  const matches = [{ ...cards[0], inDeck: true }];
+  callDuelHost.mockResolvedValue({ ok: true, data: { cards: matches } });
+  const { GET } = await import("../app/api/duels/cards/route");
+  expect(await (await GET(search(query, "room"))).json()).toEqual({ cards: matches });
+  expect(callDuelHost).toHaveBeenCalledWith({ op: "cards", slug: "room", guildId: "guild-1", playerId: 7, query });
+});
 function cacheCard(code = cards[0].code, name = "Catalog name", text = "Catalog full text") {
   db.prepare(`insert into card_catalog
     (ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
@@ -159,7 +168,7 @@ it("checks room access with the actor's guild before slug-bound lookups", async 
   room.mockImplementation(() => { throw new Error("Room belongs to another guild"); });
   const { GET } = await import("../app/api/duels/cards/route");
   expect((await GET(search("17242022", "other"))).status).toBe(404);
-  expect(room).toHaveBeenCalledWith("other", "guild-1", 7);
+  expect(room).toHaveBeenCalledWith("other", "guild-1", 7, { includeStoredBoard: false });
   expect(callDuelHost).not.toHaveBeenCalled();
   expect(getDb).not.toHaveBeenCalled();
 });

@@ -192,7 +192,7 @@ describe("duel format rooms", () => {
 
 describe("final snapshots per seat", () => {
   function finishedFfa() {
-    const { duels, ids } = setup();
+    const { db, duels, ids } = setup();
     const s = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "A", mode: "normal", format: "ffa3" });
     duels.takeSeat(s.slug, "g1", ids[1]!);
     duels.takeSeat(s.slug, "g1", ids[2]!);
@@ -202,8 +202,33 @@ describe("final snapshots per seat", () => {
       public: view(3, 10),
       seats: [view(3, 20), view(3, 21), view(3, 22)],
     });
-    return { duels, ids, slug: s.slug };
+    return { db, duels, ids, slug: s.slug };
   }
+
+  it.each(["ffa3", "ffa4", "tag"] as const)("stores each %s seat once and reads every own view", (format) => {
+    const { db, duels, ids } = setup();
+    const count = format === "ffa3" ? 3 : 4;
+    const session = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "Final", mode: "normal", format });
+    for (let seat = 1; seat < count; seat++) duels.takeSeat(session.slug, "g1", ids[seat]!);
+    for (let seat = 0; seat < count; seat++) duels.setDeck(session.slug, "g1", ids[seat]!, deck(100 * seat + 1));
+    duels.activate(session.slug, "g1", ids[0]!, ["1"], "b", null);
+    duels.complete(session.slug, "g1", 0, "done", { public: view(count, 10), seats: Array.from({ length: count }, (_, seat) => view(count, 20 + seat)) });
+    expect(db.prepare("select turn_count from duels where id=?").get(session.id)).toEqual({ turn_count: 1 });
+    expect(db.prepare("select snapshot_seat0_json, snapshot_seat1_json from duels where id=?").get(session.id))
+      .toEqual({ snapshot_seat0_json: null, snapshot_seat1_json: null });
+    for (let seat = 0; seat < count; seat++) expect(duels.room(session.slug, "g1", ids[seat]!).engine?.revision).toBe(20 + seat);
+    expect(duels.room(session.slug, "g1", ids[count]!).engine?.revision).toBe(10);
+    db.close();
+  });
+
+  it("keeps legacy seat columns when a multiplayer list is incomplete", () => {
+    const { db, duels, ids, slug } = finishedFfa();
+    db.prepare("update duels set status='active' where web_slug=?").run(slug);
+    duels.complete(slug, "g1", 0, "done", { public: view(3, 1), seats: [view(3, 2), view(3, 3)] });
+    expect(duels.room(slug, "g1", ids[0]!).engine?.revision).toBe(2);
+    expect(duels.room(slug, "g1", ids[1]!).engine?.revision).toBe(3);
+    db.close();
+  });
 
   it("returns each seat its own final board and strips prompts", () => {
     const { duels, ids, slug } = finishedFfa();
@@ -256,4 +281,16 @@ describe("migration of old rows", () => {
     expect(state.clock).toEqual({ turn: 2, remainingMs: [100, 200], activeSeat: 1, startedAt: 7 });
     expect(state.setup).toBeUndefined();
   });
+});
+
+it("opens gzip public and deduped own-seat boards in a finished room", async () => {
+  const { gzipSync } = await import("node:zlib");
+  const { db, duels, ids } = setup();
+  const session = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "Compressed", mode: "normal", format: "ffa4" });
+  for (let seat = 1; seat < 4; seat++) duels.takeSeat(session.slug, "g1", ids[seat]!);
+  db.prepare("update duels set status='completed',snapshot_public_json=?,snapshot_seats_json=? where id=?")
+    .run(gzipSync(JSON.stringify(view(4, 10))), gzipSync(JSON.stringify([0, 1, 2, 3].map(seat => view(4, 20 + seat)))), session.id);
+  for (let seat = 0; seat < 4; seat++) expect(duels.room(session.slug, "g1", ids[seat]!).engine?.revision).toBe(20 + seat);
+  expect(duels.room(session.slug, "g1", ids[4]!).engine?.revision).toBe(10);
+  db.close();
 });

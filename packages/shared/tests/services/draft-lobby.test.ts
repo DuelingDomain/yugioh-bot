@@ -176,6 +176,17 @@ describe("draft lobby projection and acknowledgement", () => {
     }
   });
 
+  it("hides cube claims and pool diagnostics from a viewer without a seat", () => {
+    const app = themeSetup();
+    app.claim(app.ids[0]);
+    app.db.prepare("update drafts set lobby_start_error = ? where id = ?").run("Cube 1: private pool detail", app.draft.id);
+    const outsider = app.read("outsider");
+    expect(outsider.players.every(player => player.cubeId === null)).toBe(true);
+    expect(outsider.lobby.warnings).not.toEqual(app.read().lobby.warnings);
+    expect(JSON.stringify(outsider)).not.toContain("Cube 1:");
+    expect(app.read("guest").players[0].cubeId).toBe(app.cubeId);
+  });
+
   it("clears just the affected acknowledgement and supports revision CAS for route transactions", () => {
     const app = setup();
     app.ready();

@@ -4,8 +4,6 @@ import { tableLayout } from "@/components/duel/table/geometry";
 import {
   cellIndex,
   cellState,
-  CROSS_OVERLAP,
-  FINALE_SIDE,
   gridCells,
   gridFocusLayout,
   gridPartnerOf,
@@ -40,9 +38,9 @@ describe("usesGridLayout", () => {
   it("is on for a 4-seat free-for-all, even while a seat is out, and off elsewhere", () => {
     expect(usesGridLayout("ffa4", seats())).toBe(true);
     expect(usesGridLayout("ffa4", seats([2]))).toBe(true);
-    expect(usesGridLayout("ffa3", seats().slice(0, 3))).toBe(false);
     expect(usesGridLayout("tag", seats())).toBe(false);
     expect(usesGridLayout("1v1", seats().slice(0, 2))).toBe(false);
+    expect(usesGridLayout("ffa3", seats().slice(0, 3))).toBe(false);
   });
 });
 
@@ -71,7 +69,7 @@ describe("gridCells", () => {
         expect(other.row).not.toBe(cell.row);
       }
     }
-    expect([0, 1, 2, 3].map(gridPartnerOf)).toEqual([1, 0, 3, 2]);
+    expect([0, 1, 2, 3].map((seat) => gridPartnerOf(seat))).toEqual([1, 0, 3, 2]);
   });
 
   it("seats a spectator with seat 0 at bottom-left", () => {
@@ -153,7 +151,6 @@ describe("gridFocusLayout", () => {
     expect(tl.rect.y).toBeLessThan(bl.rect.y);
     // The grid fields are wider (full-size Defense cards), so this box is bound by its width.
     expect(layout.sizes.equal).toBeGreaterThan(85);
-    expect(layout.finale).toBeNull();
   });
 
   it("keeps every field, plate and shared row inside the box, for every focus and box", () => {
@@ -302,108 +299,6 @@ describe("gridFocusLayout", () => {
   it("gives an empty box a zero layout instead of throwing", () => {
     const layout = gridFocusLayout(gridWorld(5), { width: 0, height: 0 }, { column: 0, row: 1 });
     expect(layout.cells.every((cell) => cell.z === 0 || Number.isFinite(cell.z))).toBe(true);
-  });
-});
-
-describe("gridFocusLayout finale", () => {
-  const view = { width: 1920, height: 1080 };
-  const finaleOf = (bottom: { column: 0 | 1; row: 0 | 1 }, top: { column: 0 | 1; row: 0 | 1 }, homeHand = true) =>
-    gridFocusLayout(gridWorld(5), view, { column: bottom.column, row: 1 }, { homeColumn: 0, finale: { bottom, top, homeHand } });
-  const same = () => finaleOf({ column: 0, row: 1 }, { column: 0, row: 0 });
-  const cross = () => finaleOf({ column: 0, row: 1 }, { column: 1, row: 1 });
-  const pair = (layout: GridFocusLayout, bottom: { column: 0 | 1; row: 0 | 1 }, top: { column: 0 | 1; row: 0 | 1 }) => ({
-    bottom: layout.cells[cellIndex(bottom)],
-    top: layout.cells[cellIndex(top)],
-  });
-
-  it("lays the last two out as one board in the middle, the bottom seat turned 0 under the top seat turned 180", () => {
-    for (const [layout, bottom, top] of [
-      [same(), { column: 0, row: 1 }, { column: 0, row: 0 }],
-      [cross(), { column: 0, row: 1 }, { column: 1, row: 1 }],
-      [finaleOf({ column: 1, row: 0 }, { column: 1, row: 1 }), { column: 1, row: 0 }, { column: 1, row: 1 }],
-    ] as const) {
-      const board = pair(layout, bottom, top);
-      expect(board.bottom.turn).toBe(0);
-      expect(board.top.turn).toBe(180);
-      expect(board.bottom.rect.x).toBe(board.top.rect.x);
-      expect(board.bottom.rect.y).toBeGreaterThan(board.top.rect.y);
-      expect(Math.abs(board.bottom.rect.x + board.bottom.rect.width / 2 - view.width / 2)).toBeLessThanOrEqual(1);
-      // One pair is as big as the lifted pair; two pairs give up a little to show two Extra Monster rows.
-      const lifted = gridFocusLayout(gridWorld(5), view, { column: 0, row: 1 }, { homeColumn: 0 }).sizes.focus;
-      expect(board.bottom.z).toBeGreaterThanOrEqual((layout.finale?.kind === "same" ? 1 : 0.85) * lifted - 0.01);
-      for (const cell of [board.top, board.bottom]) {
-        expect(inside(cell.rect, view)).toBe(true);
-        expect(inside(cell.plate, view)).toBe(true);
-      }
-    }
-  });
-
-  it("puts both plates on the LEFT of the board, the top plate at the top and mine at the bottom", () => {
-    const { top, bottom } = pair(same(), { column: 0, row: 1 }, { column: 0, row: 0 });
-    for (const cell of [top, bottom]) {
-      expect(cell.plate.x + cell.plate.width).toBeLessThanOrEqual(cell.rect.x);
-      expect(cell.plate.width).toBeCloseTo(FINALE_SIDE * cell.z, 0);
-      expect(cell.plate.height).toBeCloseTo(PLATE_H * cell.z, 0);
-    }
-    expect(top.plate.y).toBeCloseTo(top.rect.y, 0);
-    expect(bottom.plate.y + bottom.plate.height).toBeCloseTo(bottom.rect.y + bottom.rect.height, 0);
-  });
-
-  it("shares the Extra Monster row for one pair, and keeps two rows face to face for two pairs", () => {
-    const one = pair(same(), { column: 0, row: 1 }, { column: 0, row: 0 });
-    expect(one.top.rect.y + one.top.rect.height - one.bottom.rect.y).toBeCloseTo(OVERLAP * one.bottom.z, 0);
-    expect([one.top.drawer, one.bottom.drawer]).toEqual([false, true]);
-    expect(same().finale?.kind).toBe("same");
-
-    const two = pair(cross(), { column: 0, row: 1 }, { column: 1, row: 1 });
-    expect(two.top.rect.y + two.top.rect.height - two.bottom.rect.y).toBeCloseTo(CROSS_OVERLAP * two.bottom.z, 0);
-    expect([two.top.drawer, two.bottom.drawer]).toEqual([true, true]);
-    expect(two.top.own).toEqual(two.top.rect);
-    expect(two.bottom.own).toEqual(two.bottom.rect);
-    expect(cross().finale?.kind).toBe("cross");
-  });
-
-  it("frames the whole board and puts the hub band in the bottom seat's Extra Monster row", () => {
-    for (const layout of [same(), cross()]) {
-      const finale = layout.finale!;
-      const { top, bottom } = pair(layout, { column: 0, row: 1 }, layout.finale!.kind === "same" ? { column: 0, row: 0 } : { column: 1, row: 1 });
-      expect(finale.frame).toEqual({ x: top.rect.x, y: top.rect.y, width: top.rect.width, height: bottom.rect.y + bottom.rect.height - top.rect.y });
-      expect(finale.band.column).toBe(0);
-      expect(finale.band.rect.y).toBeGreaterThan(bottom.rect.y);
-      expect(finale.band.rect.y + finale.band.rect.height).toBeLessThan(bottom.own.y + bottom.own.height);
-      expect(finale.band.rect.x).toBeGreaterThan(bottom.rect.x);
-      expect(finale.band.rect.x + finale.band.rect.width).toBeLessThan(bottom.rect.x + bottom.rect.width);
-    }
-  });
-
-  it("keeps the cells without the finale in `regular`, and the same cells as `cells` when there is no finale", () => {
-    const layout = cross();
-    const plain = gridFocusLayout(gridWorld(5), view, { column: 0, row: 1 }, { homeColumn: 0 });
-    expect(layout.regular).toEqual(plain.cells);
-    expect(plain.regular).toEqual(plain.cells);
-    expect(plain.finale).toBeNull();
-    expect(layout.cells[cellIndex({ column: 1, row: 0 })]).toEqual(plain.cells[cellIndex({ column: 1, row: 0 })]);
-  });
-
-  it("gives my hand the whole board width in the finale", () => {
-    const { bottom } = pair(same(), { column: 0, row: 1 }, { column: 0, row: 0 });
-    expect(bottom.hand.shift).toBe(0);
-    expect(bottom.hand.width).toBeCloseTo(gridWorld(5).zones, 2);
-  });
-
-  it("fits a smaller box", () => {
-    const small = { width: 1440, height: 900 };
-    for (const finale of [
-      { bottom: { column: 0, row: 1 }, top: { column: 0, row: 0 } },
-      { bottom: { column: 0, row: 1 }, top: { column: 1, row: 0 } },
-    ] as const) {
-      const layout = gridFocusLayout(gridWorld(5), small, null, { homeColumn: 0, finale: { ...finale, homeHand: true } });
-      for (const target of [finale.bottom, finale.top]) {
-        const cell = layout.cells[cellIndex(target)];
-        expect(inside(cell.rect, small)).toBe(true);
-        expect(inside(cell.plate, small)).toBe(true);
-      }
-    }
   });
 });
 

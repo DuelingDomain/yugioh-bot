@@ -33,6 +33,8 @@ export interface UseStripRoomOptions {
   hand: string;
   /** The zone keys (see zoneKey) of the cards in the chain: the room never covers them while another place exists. */
   sourceKeys: readonly string[];
+  /** The box the room is centred in, fixed to the middle of the screen (see StripRoomInput.fixed). Omit to plan off the HUD and the cards. */
+  fixed?: Rect | null;
   /** Another HUD rect (the card pinned in the peek). */
   extraHud?: Rect | null;
   /** Anything that moves the board on screen (the camera view, a zoom, the hand): measured again at rest. */
@@ -72,13 +74,16 @@ export function unionOf(rects: readonly Rect[]): Rect | null {
  * second line of text), so Back and Pass never fall under the room's edge. The camera is never read or moved.
  */
 export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
-  const { rootRef, active, promptId, count, box, anchor, keyHud, controlsHud = "", softHud, hand, sourceKeys, extraHud, viewKey } = options;
+  const { rootRef, active, promptId, count, box, anchor, keyHud, controlsHud = "", softHud, hand, sourceKeys, extraHud, viewKey, fixed } = options;
   const [measured, setMeasured] = useState<Measured | null>(null);
   const [chrome, setChrome] = useState<number | null>(null);
   const sourceKey = sourceKeys.join(",");
   const lastPrompt = useRef("");
   // The panel's real chrome is read only once the room is applied: before that it sits in the narrow pair box and its text wraps taller.
   const roomed = useRef(false);
+  // The tile of the room shown for this prompt, box and view: the chrome only grows, so the tile only shrinks (no jump back to a larger tile).
+  const shown = useRef<{ key: string; card: number } | null>(null);
+  const capKey = `${promptId}|${box.width}x${box.height}|${viewKey}`;
 
   useEffect(() => {
     if (!active) {
@@ -134,8 +139,9 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
       setMeasured((current) => (current && sameRects(current.key, next.key) && sameRects(current.controls, next.controls) && sameRects(current.soft, next.soft) && sameRects(current.zones, next.zones) && sameRects(current.source, next.source) && ((current.hand === null && next.hand === null) || (current.hand !== null && next.hand !== null && sameRects([current.hand], [next.hand]))) ? current : next));
       // The panel's real height besides its cards, once the room is applied: it only grows, so a text that wraps differently in a new room cannot make the room flip back and forth.
       const panel = root.querySelector<HTMLElement>('[data-prompt-panel][data-tone="chain"][data-strip="true"]');
-      const wrap = panel?.querySelector<HTMLElement>("[data-strip-wrap]");
+      const wrap = panel?.querySelector<HTMLElement>("[data-strip-wrap] > [data-strip-frame]");
       if (panel && wrap && roomed.current) {
+        // Measured against the scrolling frame, not the whole strip block: the strip's own bar above the frame is chrome too (it is not a row).
         const real = Math.ceil((panel.getBoundingClientRect().height - wrap.getBoundingClientRect().height) / CHROME_STEP) * CHROME_STEP;
         if (real > 0) setChrome((current) => (current === null || real > current ? real : current));
       }
@@ -202,6 +208,7 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
   const room = useMemo(() => {
     if (!active || !measured) return undefined;
     return planStripRoom({
+      maxCard: shown.current?.key === capKey ? shown.current.card : undefined,
       box,
       count,
       anchor,
@@ -212,11 +219,14 @@ export function useStripRoom(options: UseStripRoomOptions): UseStripRoom {
       zones: measured.zones,
       source: measured.source,
       chrome: chrome === null ? undefined : Math.max(chrome, STRIP_ROOM.chrome),
+      fixed,
     });
-  }, [active, measured, box, count, anchor?.x, anchor?.y, extraHud, chrome]);
+  }, [active, measured, box, count, anchor?.x, anchor?.y, extraHud, chrome, fixed?.x, fixed?.y, fixed?.width, fixed?.height]);
 
   useEffect(() => {
     roomed.current = room !== undefined;
+    if (room) shown.current = { key: capKey, card: shown.current?.key === capKey ? Math.min(shown.current.card, room.card) : room.card };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room]);
   return { room, pending: active && measured === null };
 }

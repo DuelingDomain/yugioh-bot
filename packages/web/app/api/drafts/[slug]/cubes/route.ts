@@ -39,7 +39,7 @@ export async function POST(request: Request, { params }: Context) {
     }
     // Body parsing can yield too; avoid creating a cube for an already closed lobby.
     pendingThemeDraft(db, slug, guildId, userId, true);
-    const cubes = createCubeService(db, createCardCatalogService(db));
+    const cubes = createCubeService(db, createCardCatalogService(db, { memberId: actor.userId }));
     let seeded: Cube | undefined;
     if (kind === "archetype") {
       try {
@@ -67,7 +67,7 @@ export async function POST(request: Request, { params }: Context) {
       let cube: Cube;
       if (seeded || kind === "existing") {
         const cubeId = seeded?.id ?? body.cubeId;
-        if (!db.prepare("select id from cubes where id = ? and guild_id = ?").get(cubeId, guildId)) {
+        if (!db.prepare("select id from cubes where id = ? and guild_id = ? and created_by_user_id = ?").get(cubeId, guildId, userId)) {
           throw new ThemeDraftMutationError("CUBE_NOT_FOUND", "Cube not found");
         }
         cube = cubes.findCube(cubeId as number);
@@ -114,8 +114,9 @@ export async function DELETE(request: Request, { params }: Context) {
     const result = db.transaction(() => {
       const draft = pendingThemeDraft(db, slug, guildId, userId, true);
       // A deleted library cube may still be attached: allow detaching that stale reference.
-      const cube = db.prepare("select guild_id from cubes where id = ?").get(cubeId) as { guild_id: string } | undefined;
-      if (cube ? cube.guild_id !== guildId : !(draft.config.allowedCubeIds ?? []).includes(cubeId as number)) {
+      const cube = db.prepare("select guild_id, created_by_user_id from cubes where id = ?").get(cubeId) as { guild_id: string; created_by_user_id: number } | undefined;
+      const attached = (draft.config.allowedCubeIds ?? []).includes(cubeId as number);
+      if (cube ? cube.guild_id !== guildId || (cube.created_by_user_id !== userId && !attached) : !attached) {
         throw new ThemeDraftMutationError("CUBE_NOT_FOUND", "Cube not found");
       }
       const allowedCubeIds = (draft.config.allowedCubeIds ?? []).filter((id) => id !== cubeId);

@@ -1,4 +1,5 @@
 import { ChainOptions } from "./chain-options.js";
+import { ChainActivator } from "./chain-activator.js";
 import { scriptErrorCoreFactory } from "./script-load-scope.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
@@ -25,7 +26,7 @@ import createCore, {
   type OcgResponse,
   type OcgOpCode,
 } from "ocgcore-wasm";
-import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
+import { deckSearchCodes, isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
 import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, directAttackSeat, filterPromptOptions, isOpponentPick, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
@@ -227,7 +228,7 @@ export const DIAGNOSTICS_LIMIT = 200;
 export interface EngineGame {
   view(seat: number | null): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
-  searchCards(query: string): DuelCardInfo[];
+  searchCards(query: string, seat?: number): DuelCardInfo[];
   /**
    * Surrender removes a duelist immediately through Debug.SurrenderDuelist, or flags the loss while the
    * current chain finishes. Leaving seats auto-pass; required choices use the deterministic fallback.
@@ -245,6 +246,8 @@ export interface EngineGame {
    * same points gives the same duel, so every call must be journaled by the caller.
    */
   setChainMode(seat: number, mode: DuelChainMode): boolean;
+  /** Fork control after its copied prefix. Required choices from pending-loss seats stay Manual. */
+  setManualLossAnswers?(enabled: boolean): void;
   /** The last entries (oldest first) of the triage ring buffer. For the host report only, never for a view. */
   diagnostics(): EngineDiagnostic[];
   /** Core identity (wasm sha and file) and the counters since the last prompt. For reports and triage only. */
@@ -376,7 +379,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     throw new Error(multi ? `Exactly ${seatCount} decks are required for a ${format} duel` : "Exactly two decks are required");
   }
   const start = engineStartConfig(options.settings);
-  const firstTurnDraw = options.firstTurnDraw ?? firstTurnDrawFor(options.mode, options.masterRule, format);
+  const firstTurnDraw = options.firstTurnDraw ?? firstTurnDrawFor(options.mode, options.masterRule, format, options.settings);
   const flags = (duelFlagsFor(options.masterRule) & ~OcgDuelMode.FIRST_TURN_DRAW)
     | (firstTurnDraw ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
   const seed = parseSeed(options.seed);
@@ -587,7 +590,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const events: StoredDuelEvent[] = [];
   const chainMemory: StoredChainLink[] = [];
   const chainOptions = new ChainOptions(cards);
+  const chainActivator = new ChainActivator();
   const respond = (prompt: PendingPrompt, response: OcgResponse) => {
+    chainActivator.recordResponse(prompt.seat, response, prompt.message);
     try {
       chainOptions.recordResponse(prompt, response);
     } catch (error) {
@@ -681,11 +686,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     }
   };
 
-  const recordEvent = (message: OcgMessage) => {
+  const recordEvent = (message: OcgMessage, activator?: number) => {
     // Moves first: a card's move precedes the summon/set/activate/destroy event it belongs to.
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
-    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
+    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext, activator);
     try {
       chainOptions.observe(message, chainMemory, stored);
     } catch (error) {
@@ -728,7 +733,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     for (const stored of drainDeferredDestroys(eventContext, cards, nextEventId)) pushEvent(stored);
   };
 
-  const applyMessage = (message: OcgMessage) => {
+  const applyMessage = (message: OcgMessage, activator?: number) => {
     eliminationGroup = null;
     battleStep = nextBattleStep(battleStep, message);
     switch (message.type) {
@@ -771,7 +776,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       case OcgMessageType.CHAINING:
         startedChainLinks.delete(message.chain_size);
         liveChainSize = message.chain_size;
-        appendLog(`${playerLabel(format, message.controller)}'s ${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
+        appendLog(`${playerLabel(format, activator ?? message.controller)}'s ${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
         return;
       case OcgMessageType.SPSUMMONED:
         synchroSummon = undefined;
@@ -1059,15 +1064,17 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         messages.forEach((message, index) => {
           while (nextExtra < extras.length && extras[nextExtra]!.after <= index) applyRaw(extras[nextExtra++]!);
           options.onCoreMessage?.(message);
-          applyMessage(message);
-          recordEvent(message);
+          const activator = chainActivator.observe(message);
+          applyMessage(message, activator);
+          recordEvent(message, activator);
         });
         while (nextExtra < extras.length) applyRaw(extras[nextExtra++]!);
       } else {
         for (const message of messages) {
           options.onCoreMessage?.(message);
-          applyMessage(message);
-          recordEvent(message);
+          const activator = chainActivator.observe(message);
+          applyMessage(message, activator);
+          recordEvent(message, activator);
         }
       }
       flushDeferredDestroys();
@@ -1164,6 +1171,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
 
   /** Bound automatic answers while the current chain or cut-short turn finishes. */
   const LEAVING_ANSWER_LIMIT = 200;
+  let manualLossAnswers = false;
 
   const mustCloseResponseWindow = () => pending?.seat === closedResponseSeat
     && (pending?.message.type === OcgMessageType.SELECT_EFFECTYN
@@ -1177,6 +1185,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const answerForLeavingSeats = () => {
     for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow()); step += 1) {
       const current = pending;
+      // A fork's creator must answer required choices while the core finishes the loss.
+      // The core's signal to close an optional response window still needs to be consumed.
+      if (manualLossAnswers && !eliminated.has(current.seat) && !mustCloseResponseWindow()) break;
       closedResponseSeat = null;
       if (step >= LEAVING_ANSWER_LIMIT) {
         throw new Error(`Seat ${current.seat} is still in the duel after ${LEAVING_ANSWER_LIMIT} automatic answers (open prompt ${current.id}, ${current.prompt.kind})`);
@@ -1206,6 +1217,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   }
 
   const game: EngineGame = {
+    setManualLossAnswers(enabled) { manualLossAnswers = enabled; },
     view(seat) {
       if (closed) throw new Error("Engine is closed");
       if (seat != null && !(Number.isInteger(seat) && seat >= 0 && seat < seatCount)) throw new Error("Invalid seat");
@@ -1377,8 +1389,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       let nextExtra = 0;
       fresh.forEach((message, index) => {
         while (nextExtra < extras.length && extras[nextExtra]!.after <= index) applyRaw(extras[nextExtra++]!);
-        applyMessage(message);
-        recordEvent(message);
+        const activator = chainActivator.observe(message);
+        applyMessage(message, activator);
+        recordEvent(message, activator);
       });
       while (nextExtra < extras.length) applyRaw(extras[nextExtra++]!);
       flushDeferredDestroys();
@@ -1428,11 +1441,16 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     coreInfo() {
       return { wasmSha: loaded.sha, wasmFile: loaded.file, callsSinceLastPrompt, messagesSinceLastPrompt };
     },
-    searchCards(query) {
+    searchCards(query, seat) {
       if (closed) throw new Error("Engine is closed");
+      if (seat !== undefined && (!Number.isInteger(seat) || seat < 0 || seat >= options.decks.length
+        || pending?.message.type !== OcgMessageType.ANNOUNCE_CARD || pending.seat !== seat)) {
+        throw new EngineAnswerError("No card announcement is waiting for this seat");
+      }
       if (pending?.message.type === OcgMessageType.ANNOUNCE_CARD) {
         const opcodes = pending.message.opcodes as OcgOpCode[];
-        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes));
+        const ownDeck = seat === undefined ? undefined : deckSearchCodes(cards, options.decks[seat]!);
+        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes), ownDeck);
       }
       return cards.search(query);
     },

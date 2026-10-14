@@ -1,5 +1,7 @@
 # Duel engine switch and the multiplayer flag
 
+Staging is removed; it returns later on a separate server.
+
 The multiplayer merge ships with two limits. Both are set by environment variables on the VM.
 
 1. Saved 1v1 games keep their engine. Compose defaults new Standard games to pinned and Domain to legacy.
@@ -14,7 +16,6 @@ The multiplayer merge ships with two limits. Both are set by environment variabl
 
 - Set it in `docker-compose.yml` for the `duel` and `web` services (`MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-1}`). Put `MULTIPLAYER_TABLES=0` in `/opt/yugioh-bot/.env` to close the tables.
   Both services read it at run time. A restart of both switches it. No build is needed.
-- Staging sets it on in `docker-compose.staging.yml` (`STAGING_MULTIPLAYER_TABLES`, default `1`).
 - The E2E stack sets it on. `E2E_MULTIPLAYER_TABLES=0` turns it off. `packages/e2e/tests/multiplayer-flag-off.spec.ts` checks the off state.
 - Turning the flag off does not end a multi-seat duel that is already active. The host still runs it. The gate runs when a table starts, not when a duel recovers. It only refuses new tables.
 
@@ -28,15 +29,14 @@ The multiplayer merge ships with two limits. Both are set by environment variabl
 - For the global switch, any other value, an empty value or a missing value means `legacy`. Only `pinned` (any case,
   spaces trimmed) selects the merged engine. The Standard override below takes priority for Standard games.
 - Tables with 3 or more seats always use the multi core. The switch does not change them.
-- `docker-compose.yml` sets `DUEL_1V1_ENGINE=${DUEL_1V1_ENGINE:-legacy}`. Staging sets `${STAGING_DUEL_1V1_ENGINE:-legacy}`
-  for the same Domain default. Set `STAGING_DUEL_1V1_ENGINE=pinned` to test the merged Domain engine.
+- `docker-compose.yml` sets `DUEL_1V1_ENGINE=${DUEL_1V1_ENGINE:-legacy}` for Domain.
 - The deploy ships both engines. The engine bundle holds the merged and the legacy files.
 - The switch is read when a new game starts. Each game of a series reads the switch at its start. Change it, then
   recreate the `duel` container to apply the environment value. Active games keep their engine (see below).
 
 ### DUEL_STANDARD_1V1_ENGINE (Standard override, Compose default `pinned`)
 
-Production and staging Compose start new Standard 1v1 games on the existing pinned Standard core by default.
+Production Compose starts new Standard 1v1 games on the existing pinned Standard core by default.
 No production `.env` edit is needed. `DUEL_1V1_ENGINE=legacy` keeps Domain 1v1 on its current legacy core.
 The switch adds no engine files and does not change bundleVersion (see the cache note below).
 
@@ -49,16 +49,15 @@ fixes without Domain changes. It supports the triggering Scale and Link queries 
   over the global switch for Standard only. In native runs, missing, empty or invalid values use `DUEL_1V1_ENGINE`.
   Startup logs show the active Standard and Domain choices and warn about invalid non-empty values.
 - Domain keeps the global choice. Tag and 3+ seats keep the multi cores. Scenarios and presets keep pinned.
-- Production Compose passes `${DUEL_STANDARD_1V1_ENGINE:-pinned}` to `duel`. Staging uses
-  `${STAGING_DUEL_STANDARD_1V1_ENGINE:-pinned}`. A missing or empty Compose value means `pinned`, not the global choice.
+- Production Compose passes `${DUEL_STANDARD_1V1_ENGINE:-pinned}` to `duel`. A missing or empty Compose value means `pinned`, not the global choice.
 - Deploy this code to apply the Compose default. After changing a value in `.env`, recreate the container with
-  `docker compose -f docker-compose.yml up -d --force-recreate duel`. A Compose `restart` does not apply a changed
+  `docker compose -f docker-compose.yml up -d --no-build --force-recreate duel`. A Compose `restart` does not apply a changed
   environment value. Each game of a series reads the switch at its start; card admission uses the same choice.
 - Recovery and replay use the saved `setup.engine`, even after the override changes. Records with no choice
   still use legacy. Old Standard duels retain the old core limits. Keep both cores in the bundle.
 - To roll back new Standard games only, set `DUEL_STANDARD_1V1_ENGINE=legacy` in `/opt/yugioh-bot/.env` and recreate
   `duel` with the command above. Rollback needs the word `legacy`; an empty or removed value selects `pinned` in Compose.
-  Staging rollback uses `STAGING_DUEL_STANDARD_1V1_ENGINE=legacy`. Active games keep their saved choice.
+  Active games keep their saved choice.
 
 ### The engine of a duel is recorded
 
@@ -66,9 +65,10 @@ When a duel starts, the host saves `engine` in `setup_json` (`setup.engine`, `le
 and replay use the saved engine, not the current switch. So you can change the switch at any time without risk to
 active duels.
 
-- A duel with no record (made by main before this merge) is treated as `legacy`.
-- A scenario or preset duel (with startup scripts) is `pinned`. The legacy engine has no startup scripts.
-- A dev or staging duel made on the merged branch before the record existed is also read as `legacy`. Do not carry such duels over.
+- A 1v1 duel with no saved choice or identity starts checked replay verification on `legacy`. With complete saved public and own-seat boards, a failed journal or board check permits one attempt on installed `pinned` resources. A worker crash or process loop limit also permits that attempt; a full queue or timeout still returns `ENGINE_BUSY`.
+- A scenario or preset row with startup scripts and no saved choice or identity uses `pinned` only. Startup scripts already select pinned under the historical source rule, so such rows have a known candidate and receive no legacy fallback.
+- Dev or staging rows made before engine recording follow the same checked fallback. The first passing family is saved as `duel_replay_verifications.core_family` for later checked views and forks; the original row keeps its version and setup. Saved choices and recorded identities never permit a different family.
+- If both families fail, a family whose commands ran can supply an owner-only unchecked view and fork. Its reason and `core_family` are saved with the failed check. A matching verified family remains authoritative for checked views and forks. See [replay compatibility](engine-data-updates.md#unknown-source-engine-family).
 
 ### Bundle changes and the switch
 
@@ -103,7 +103,7 @@ The server refuses to start with `DUEL_1V1_ENGINE=legacy` when the manifest has 
 
 `packages/duel-server/legacy-1v1/expected-sha256.txt` holds the sha256 of the legacy Domain wasm and of `domain.legacy.lua`
 (the sha of main's own build). `packages/duel-server/scripts/check-legacy-pin.sh <data dir>` compares them with the files in a
-data dir. The build script runs it. The test, deploy and staging workflows run it on the bundle. A rebuild that gives another
+data dir. The build script runs it. The test and deploy workflows run it on the bundle. A rebuild that gives another
 wasm (for example a new emsdk image) fails there, so the legacy engine cannot drift from main without a visible change.
 The pin is rebuilt from main's scripts and checked again by the proof in the merge PR.
 
@@ -124,10 +124,10 @@ and legacy for Domain.
 ## How to roll back
 
 - To use the old engine for all new 1v1 games: set `DUEL_1V1_ENGINE=legacy` and `DUEL_STANDARD_1V1_ENGINE=legacy` in `.env`.
-  Recreate `duel` with `docker compose -f docker-compose.yml up -d --force-recreate duel`. An empty Standard value is
+  Recreate `duel` with `docker compose -f docker-compose.yml up -d --no-build --force-recreate duel`. An empty Standard value is
   not a rollback: Compose substitutes `pinned`.
 - To use pinned for all new 1v1 games: set `DUEL_1V1_ENGINE=pinned` and `DUEL_STANDARD_1V1_ENGINE=pinned`, then recreate `duel`.
-- To close the multi-seat tables: set `MULTIPLAYER_TABLES=0` in `/opt/yugioh-bot/.env` and recreate `duel` and `web` (`docker compose -f docker-compose.yml up -d duel web`).
+- To close the multi-seat tables: set `MULTIPLAYER_TABLES=0` in `/opt/yugioh-bot/.env` and recreate `duel` and `web` (`docker compose -f docker-compose.yml up -d --no-build duel web`).
 - To remove the whole merge: follow "Rollback" in `vm-runbook.md`.
 
 ## What is checked

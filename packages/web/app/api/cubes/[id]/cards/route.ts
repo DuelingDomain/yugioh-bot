@@ -1,7 +1,7 @@
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
-import { cubeWriteAccess } from "@/lib/cube-access";
+import { cubeOwnerAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardLookupBudget, createCardCatalogService, createCubeService, createPlayerService } from "@yugidraft/shared/services";
@@ -41,10 +41,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const db = getDb();
-  const denied = await cubeWriteAccess(db, cubeId, actor);
+  const denied = cubeOwnerAccess(db, cubeId, actor);
   if (denied) return denied;
 
-  const catalog = createCardCatalogService(db);
+  const catalog = createCardCatalogService(db, { memberId: actor.userId });
   const cubes = createCubeService(db, catalog);
   const body = (await request.json().catch(() => ({}))) as Op;
 
@@ -94,9 +94,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result, ...(lookupBudget.lookupLimited ? { lookupLimited: true } : {}) });
       }
       case "importList": {
-        const { entries, unknown, corrected, lookupLimited } = await prepareCubeListImport(catalog, body.text);
+        const { entries, unknown, corrected, lookupLimited, moves, messages } = await prepareCubeListImport(catalog, body.text);
         const result = cubes.importResolvedCards(cubeId, entries);
-        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result, unknown, corrected, ...(lookupLimited ? { lookupLimited } : {}) });
+        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result, unknown, corrected, ...(moves ? { moves, messages } : {}), ...(lookupLimited ? { lookupLimited } : {}) });
       }
       case "importYdk": {
         if (typeof body.text !== "string" || body.text.trim() === "") {

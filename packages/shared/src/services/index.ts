@@ -35,6 +35,8 @@ export * from "../scoring/rank.js";
 export * from "../scoring/achievements.js";
 export { createDuelService, DuelServiceError, DUEL_LIVE_IDLE_AFTER_MS } from "./duels.js";
 export type { DuelService, DuelPrivateState, DuelFinalSnapshots } from "./duels.js";
+export { createReplayForkService, hashReplayForkPrefix, ReplayForkStorageError } from "./replay-forks.js";
+export type { ReplayForkService, ReplayForkCreateInput, ReplayForkRetryInput, ReplayForkStored } from "./replay-forks.js";
 export { redactDuelTournamentMetadata } from "./duel-tournament-metadata.js";
 export {
   buildDraftDeck,
@@ -47,7 +49,7 @@ export {
   TEST_BOT_DISCORD_PREFIX,
 } from "./draft-decks.js";
 export type { DraftDeckNote, DraftDeckService } from "./draft-decks.js";
-export { createSavedDeckService, SavedDeckServiceError } from "./saved-decks.js";
+export { createSavedDeckService, validateSavedDeckWrite, SavedDeckServiceError } from "./saved-decks.js";
 export type { SavedDeckService, SavedDeckWrite } from "./saved-decks.js";
 export { createDuelSeriesService, SERIES_SIDE_WINDOW_MS } from "./duel-series.js";
 export type { DuelSeriesService, CreateChallengeInput, SeriesGameStart } from "./duel-series.js";
@@ -68,3 +70,10 @@ export * from "./tournament-access.js";
 export * from "./paged-lists.js";
 
 export { createTournamentVisibilityService, TournamentVisibilityServiceError, isTournamentVisibility } from "./tournament-visibility.js";
+
+export * from "./duel-access.js";
+
+export * from "./stored-duel-snapshots.js";
+export * from "./duel-snapshot-retention.js";
+export { createDeckTypeLookup } from "./deck-sections.js";
+export { createDeckCopyRepairService } from "./deck-copy-repair.js";

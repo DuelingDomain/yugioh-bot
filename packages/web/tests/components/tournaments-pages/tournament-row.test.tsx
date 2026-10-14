@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TournamentRow } from "../../../src/components/tournament/tournament-row";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const tournament = (variant: "running" | "open") => ({
   id: 7,
@@ -40,5 +40,56 @@ describe("TournamentRow", () => {
     expect(container.querySelector(".sv-mono")).toBeNull();
     rerender(<ul><TournamentRow tournament={tournament("running")} variant="running" you showYou /></ul>);
     expect(container.querySelectorAll(".sv-mono")).toHaveLength(1);
+  });
+
+  describe("organizer cancel control", () => {
+    const withSlug = (variant: "running" | "open") => ({ ...tournament(variant), webSlug: "friday" });
+
+    it("shows no Cancel control unless the caller passes canCancel", () => {
+      render(<ul><TournamentRow tournament={withSlug("open")} variant="open" /></ul>);
+      expect(screen.queryByRole("button", { name: /Cancel/ })).toBeNull();
+    });
+
+    it("shows no Cancel control for a row with no web slug, which has no cancel endpoint", () => {
+      render(<ul><TournamentRow tournament={tournament("open")} variant="open" canCancel /></ul>);
+      expect(screen.queryByRole("button", { name: /Cancel/ })).toBeNull();
+    });
+
+    it("opens the dialog on Cancel, asks first, then deletes by slug and reports the row", async () => {
+      const fetchMock = vi.fn(async () => Response.json({ id: 7, status: "cancelled" }));
+      vi.stubGlobal("fetch", fetchMock);
+      const onCancelled = vi.fn();
+      render(<ul><TournamentRow tournament={withSlug("running")} variant="running" canCancel onCancelled={onCancelled} /></ul>);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel tournament Friday tournament" }));
+      const dialog = await screen.findByRole("dialog", { name: "Cancel Friday tournament?" });
+      expect(dialog).toHaveTextContent("Live games in progress keep running");
+      expect(fetchMock).not.toHaveBeenCalled();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Yes, cancel" }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/friday", { method: "DELETE" }));
+      await waitFor(() => expect(onCancelled).toHaveBeenCalledWith(expect.objectContaining({ id: 7 })));
+    });
+
+    it("puts the visible text in the accessible name and mounts no dialog until asked", () => {
+      render(<ul><TournamentRow tournament={withSlug("open")} variant="open" canCancel /></ul>);
+      const button = screen.getByRole("button", { name: /Cancel tournament/ });
+      expect(button.getAttribute("aria-label")).toContain(button.textContent ?? "");
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(document.body.querySelectorAll("[role=dialog]")).toHaveLength(0);
+    });
+
+    it("describes the dialog with its list of consequences", async () => {
+      render(<ul><TournamentRow tournament={withSlug("running")} variant="running" canCancel /></ul>);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel tournament Friday tournament" }));
+      const dialog = await screen.findByRole("dialog", { name: "Cancel Friday tournament?" });
+      const described = document.getElementById(dialog.getAttribute("aria-describedby") ?? "");
+      expect(described).not.toBeNull();
+      expect(described).toHaveTextContent("Reports that wait for a confirm are dropped");
+    });
+
+    it("tells an open row's organizer that nothing was played", async () => {
+      render(<ul><TournamentRow tournament={withSlug("open")} variant="open" canCancel /></ul>);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel tournament Friday tournament" }));
+      expect(await screen.findByRole("dialog", { name: "Cancel Friday tournament?" })).toHaveTextContent("5 players who joined");
+    });
   });
 });

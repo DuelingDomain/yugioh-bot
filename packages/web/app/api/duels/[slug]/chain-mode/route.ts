@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isDuelChainMode } from "@yugidraft/shared/duels";
-import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { isDuelChainMode, isReplayFork } from "@yugidraft/shared/duels";
+import { readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
 
@@ -17,15 +17,28 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400, headers: { "cache-control": "private, no-store" } });
   }
   const mode = body && typeof body === "object" ? (body as { mode?: unknown }).mode : undefined;
   if (!isDuelChainMode(mode)) {
-    return NextResponse.json({ error: "Choose Auto, Always or Off" }, { status: 400 });
+    return NextResponse.json({ error: "Choose Auto, Always or Off" }, { status: 400, headers: { "cache-control": "private, no-store" } });
   }
 
+  let fork = false;
+  let control: ReturnType<typeof readDuelControl>;
+  let binding: { revision?: number; promptId?: string } = {};
   try {
-    actor.duels.room(slug, actor.guildId, actor.playerId);
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
+    control = readDuelControl(request, room, "action");
+    fork = room && isReplayFork(room.session);
+    if (fork) {
+      const supplied = body as { revision?: unknown; promptId?: unknown };
+      if (!Number.isSafeInteger(supplied.revision) || (supplied.revision as number) < 0
+        || (supplied.promptId !== undefined && (typeof supplied.promptId !== "string" || !supplied.promptId || supplied.promptId.length > 200))) {
+        return NextResponse.json({ error: "Fork response changes require a valid revision and prompt" }, { status: 400, headers: { "cache-control": "private, no-store" } });
+      }
+      binding = { revision: supplied.revision as number, ...(supplied.promptId !== undefined ? { promptId: supplied.promptId as string } : {}) };
+    }
   } catch (error) {
     return duelErrorResponse(error);
   }
@@ -34,9 +47,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     op: "chain-mode",
     slug,
     guildId: actor.guildId,
-    playerId: actor.playerId,
+    playerId: actor.playerId, ...(actor.userId !== undefined ? { userId: actor.userId } : {}), ...control, ...binding,
     chainMode: mode,
   });
   if (!result.ok) return result.response;
-  return NextResponse.json(result.data);
+  if (fork) {
+    try { actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false }); }
+    catch (error) { return duelErrorResponse(error); }
+  }
+  return NextResponse.json(result.data, { headers: { "cache-control": "private, no-store" } });
 }

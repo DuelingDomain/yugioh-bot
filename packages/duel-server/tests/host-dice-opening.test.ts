@@ -1,7 +1,5 @@
 import { createHmac } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -11,6 +9,7 @@ import { createDuelHost, type DuelHost } from "../src/host.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import { createTestDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 
 const SECRET = "dice-host-test";
 const resources: Array<{ host: DuelHost; db: Database.Database; dir: string }> = [];
@@ -47,19 +46,7 @@ class Worker implements DuelGameWorker {
 
 function table(format: DuelFormat, values: number[], botSeat?: number, keepFixtureSeats = false, hostOptions: Pick<Parameters<typeof createDuelHost>[0], "maxTablesPerPlayer"> = {}) {
   vi.stubEnv("MULTIPLAYER_TABLES", "1");
-  const dir = mkdtempSync(join(tmpdir(), "host-dice-"));
-  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "fixture" }));
-  // The fake worker never loads a core. This file only satisfies the host's availability check.
-  writeFileSync(join(dir, "ocgcore.multi.wasm"), "fake-worker-fixture");
-  writeFileSync(join(dir, "strings.conf"), "");
-  const cards = new Database(join(dir, "cards.cdb"));
-  cards.exec(`create table datas (id integer primary key, ot integer, alias integer, setcode integer, type integer, race integer, attribute integer);
-    create table texts (id integer primary key, name text, desc text);`);
-  for (let code = 1; code <= 4; code++) {
-    cards.prepare("insert into datas values (?, 3, 0, 0, 17, 1, 1)").run(code);
-    cards.prepare("insert into texts values (?, ?, '')").run(code, `Test ${code}`);
-  }
-  cards.close();
+  const dir = createHostDataFixture(Array.from({ length: 4 }, (_, i) => ({ code: i + 1, name: `Test ${i + 1}` })));
   const db = new Database(":memory:"); migrate(db);
   const duels = createDuelService(db);
   const count = seatCountFor(format);
@@ -157,7 +144,7 @@ describe("host FFA dice opening", () => {
     expect(t.workers).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(1);
     expect(Date.now()).toBe(at + 3000);
-    expect(t.duels.get(t.slug, "g").status).toBe("active");
+    await vi.waitFor(() => expect(t.duels.get(t.slug, "g").status).toBe("active"));
     expect(t.duels.get(t.slug, "g").seats[0]?.playerId).toBe(t.players[2]);
     expect(t.workers[0]!.options?.decks[0]?.main[0]).toBe(3);
     const winner = await t.post("view", t.players[2]!);
@@ -178,6 +165,7 @@ describe("host FFA dice opening", () => {
     await vi.advanceTimersByTimeAsync(2999);
     expect(t.workers).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(t.duels.get(t.slug, "g").status).toBe("active"));
     expect(t.duels.get(t.slug, "g").seats[0]?.playerId).toBe(t.players[1]);
   });
 
@@ -196,6 +184,7 @@ describe("host FFA dice opening", () => {
     const t = table("ffa3", [1, 2, 6], 2);
     await t.post("start");
     await vi.advanceTimersByTimeAsync(3000);
+    await vi.waitFor(() => expect(t.duels.privateState(t.slug, "g").commands[0]?.seat).toBe(0));
     expect(t.duels.get(t.slug, "g").seats[0]?.isBot).toBe(true);
     expect(t.workers[0]?.answers).toEqual([0]);
     expect(t.duels.privateState(t.slug, "g").commands[0]?.seat).toBe(0);
@@ -208,13 +197,14 @@ describe("host FFA dice opening", () => {
     await t.post("start");
     vi.spyOn(Worker.prototype, "create").mockRejectedValueOnce(new Error("Test start failed"));
     await vi.advanceTimersByTimeAsync(3000);
+    await vi.waitFor(() => expect(t.duels.openingState(t.slug, "g")).toBeNull());
     expect(t.duels.get(t.slug, "g").status).toBe("lobby");
     expect(t.duels.openingState(t.slug, "g")).toBeNull();
     expect(t.duels.get(t.slug, "g").seats[0]?.playerId).toBe(t.players[2]);
     t.rollDie.mockReturnValueOnce(1).mockReturnValueOnce(6).mockReturnValueOnce(2);
     expect((await t.post("start")).data.opening.rounds).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(3000);
-    expect(t.duels.get(t.slug, "g").status).toBe("active");
+    await vi.waitFor(() => expect(t.duels.get(t.slug, "g").status).toBe("active"));
     expect(t.duels.get(t.slug, "g").seats[0]?.playerId).toBe(t.players[1]);
   });
 
@@ -228,6 +218,7 @@ describe("host FFA dice opening", () => {
       expect((await t.post("start")).data.opening.rounds).toHaveLength(1);
       expect(t.rollDie).toHaveBeenCalledTimes(3);
       await vi.advanceTimersByTimeAsync(3000);
+      await vi.waitFor(() => expect(t.duels.get(t.slug, "g").status).toBe("active"));
     }
   });
 });

@@ -170,43 +170,6 @@ describe("install-engine-bundle.sh Domain multi core", () => {
   });
 });
 
-describe("staging bundle wrapper", () => {
-  function stagingRun(f: Fixture): { status: number | null; out: string } {
-    writeFileSync(join(f.src, "ocgcore.multi.SOURCE"), "tag=deploy-test\n");
-    const tarball = join(f.root, "bundle.tar.gz");
-    expect(spawnSync("tar", ["-C", f.src, "-czf", tarball, "."]).status).toBe(0);
-    const wrapper = join(dirname(script), "../../../scripts/staging/install-staging-bundle.sh");
-    const result = spawnSync("sh", [wrapper, tarball, dirname(f.dst)], { encoding: "utf8" });
-    return { status: result.status, out: `${result.stdout}${result.stderr}` };
-  }
-
-  it("requires the Domain artifact before changing the installed bundle", () => {
-    const f = fixture({ tag: "old", multi: "m1" }, { tag: "new", multi: "m2" }, []);
-    const before = snapshot(f.dst);
-    const result = stagingRun(f);
-    expect(result.status).toBe(1);
-    expect(result.out).toContain("ocgcore.multi-domain.wasm is missing");
-    expect(snapshot(f.dst)).toEqual(before);
-  });
-
-  it("updates both cores under an identical manifest", () => {
-    const f = fixture({ tag: "same", multi: "m1" }, { tag: "same", multi: "m2" }, []);
-    writeDomainMulti(f.dst, "d1");
-    writeDomainMulti(f.src, "d2");
-    expect(stagingRun(f).status).toBe(0);
-    expect(snapshot(f.dst)).toEqual(snapshot(f.src));
-  });
-
-  it("uses the shared active-duel guard for a Domain-only update", () => {
-    const f = fixture({ tag: "same", multi: "m1" }, { tag: "same", multi: "m1" }, [{ format: "tag", status: "active" }]);
-    writeDomainMulti(f.dst, "d1");
-    writeDomainMulti(f.src, "d2");
-    const before = snapshot(f.dst);
-    expect(stagingRun(f).status).toBe(1);
-    expect(snapshot(f.dst)).toEqual(before);
-  });
-});
-
 describe("install-engine-bundle.sh preflight (DUEL_PREFLIGHT=1)", () => {
   it("refuses a changed bundle while a 1v1 duel is active, and changes nothing", () => {
     const f = fixture({ tag: "old", multi: "m1" }, { tag: "new", multi: "m1" }, [{ format: "1v1", status: "active" }]);

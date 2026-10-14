@@ -6,7 +6,7 @@ import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import { emptyCardQuery, normalizeDuelSettings, type DuelAnswer, type DuelCardInfo, type DuelEngineView } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
-import { pinnedEngineVersion } from "../src/multi-scripts.js";
+import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
 import { createScriptErrorRecorder, topScriptErrors } from "../src/script-error-store.js";
 import { cardScriptHash } from "../src/card-script-hash.js";
 import { loadCardDatabase } from "../src/cards.js";
@@ -92,8 +92,9 @@ describe("automatic blocks through host and replay", () => {
     duels.takeSeat(session.slug, "g", players[1]!);
     players.forEach((player, seat) => duels.setDeck(session.slug, "g", player, options.decks[seat]!));
     const version = JSON.parse(readFileSync(`${DATA}/manifest.json`, "utf8")).bundleVersion;
-    duels.activate(session.slug, "g", players[0]!, options.seed, pinnedEngineVersion(version, 2, null), null,
-      { engine, scriptErrorMode: "tolerant", firstTurnDraw: false, startupScripts: options.startupScripts!.map(script => script.content) });
+    const resources = getCurrentEngineResources(DATA, { mode: "normal", engine });
+    duels.activateRecorded(session.slug, "g", players[0]!, options.seed, resources.bundleVersion, null,
+      { engine, scriptErrorMode: "tolerant", firstTurnDraw: false, startupScripts: options.startupScripts!.map(script => script.content) }, resources.identity);
     const prior = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Earlier", mode: "normal", settings: options.settings });
     duels.takeSeat(prior.slug, "g", players[1]!);
     const policy = createAutoBlockPolicy(db, { bundleVersion: version, scriptHash: (code, kind, helpers) => cardScriptHash(loadCardDatabase(DATA), code, kind, undefined, helpers) });
@@ -138,6 +139,7 @@ describe("automatic blocks through host and replay", () => {
       expect(topScriptErrors(db)[0]!.count).toBe(count);
       duels.complete(session.slug, "g", 0, "Replay test");
       const replay = await request(host, { ...base, op: "replay", playerId: players[0] });
+      expect(replay.verification).toBe("exact");
       expect(JSON.stringify(replay)).toContain("Card script error:");
       expect(JSON.stringify(replay)).not.toContain("Its effect script is being investigated");
       expect(topScriptErrors(db)[0]!.count).toBe(count);

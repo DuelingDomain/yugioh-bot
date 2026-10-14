@@ -6,7 +6,6 @@ import { Mono, StatusLine, SvButton, ringColour, YouPill } from "@/components/sh
 import type { PlayerRatings } from "../sheet-contracts";
 import type { TournamentDetail } from "../types";
 import { DeckMarker } from "../deck-marker";
-import { useOptionalRouter } from "../use-optional-router";
 import styles from "./rail.module.css";
 
 /** The organizer's list of who has a deck in. Everyone else sees the standings instead. */
@@ -27,26 +26,28 @@ export function PlayersPanel({ tournament }: { tournament: TournamentDetail; rat
   );
 }
 
-/** End now and Cancel. Both confirm in place; same endpoints as the old host controls. */
-export function EndingEarly({ tournament, tournamentSlug, onChanged }: { tournament: TournamentDetail; tournamentSlug: string; onChanged: () => void }) {
-  const router = useOptionalRouter();
-  const [confirm, setConfirm] = useState<"complete" | "cancel" | null>(null);
+/**
+ * End now (keep results) and Cancel (no results). End now confirms in place; Cancel asks the sheet to
+ * open the cancel dialog (`onCancel`), which sits outside the drawer so the two dialogs never trap each other.
+ */
+export function EndingEarly({ tournament, tournamentSlug, onChanged, onCancel }: { tournament: TournamentDetail; tournamentSlug: string; onChanged: () => void; onCancel: () => void }) {
+  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (tournament.status !== "active") return null;
 
-  async function run(kind: "complete" | "cancel") {
+  async function endNow() {
     setBusy(true);
     setError(null);
-    const fallback = kind === "complete" ? "Failed to end tournament" : "Failed to cancel";
+    const fallback = "Failed to end tournament";
     try {
-      const res = await fetch(`/api/tournaments/${tournamentSlug}${kind === "complete" ? "/complete" : ""}`, { method: kind === "complete" ? "POST" : "DELETE" });
+      const res = await fetch(`/api/tournaments/${tournamentSlug}/complete`, { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? fallback);
       }
-      if (kind === "cancel") router?.push("/tournaments");
-      else { setConfirm(null); onChanged(); }
+      setConfirming(false);
+      onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : fallback);
     } finally {
@@ -56,28 +57,28 @@ export function EndingEarly({ tournament, tournamentSlug, onChanged }: { tournam
 
   return (
     <div>
-      {confirm ? (
+      {confirming ? (
         <div className={styles.confirmBox}>
           <StatusLine tone="warn">
-            <strong>{confirm === "complete" ? "End the tournament now?" : "Cancel this tournament?"}</strong>{" "}
-            {confirm === "complete" ? "Unplayed matches stay unplayed. No champion is recorded." : "It closes for everyone, results and Elo included, and can't be reopened."}
+            <strong>End the tournament now?</strong>{" "}
+            Unplayed matches stay unplayed and open games close. Live games keep running, but their results are not recorded. Reports that wait for a confirm are dropped. The standings so far are kept. No champion is recorded.
           </StatusLine>
           <div className={styles.endActs}>
-            <SvButton variant="quiet" disabled={busy} onClick={() => { setConfirm(null); setError(null); }}>Go back</SvButton>
-            <SvButton variant="danger" disabled={busy} aria-busy={busy} onClick={() => run(confirm)}>{confirm === "complete" ? "Yes, end now" : "Yes, cancel"}</SvButton>
+            <SvButton variant="quiet" disabled={busy} onClick={() => { setConfirming(false); setError(null); }}>Go back</SvButton>
+            <SvButton variant="danger" disabled={busy} aria-busy={busy} onClick={endNow}>Yes, end now</SvButton>
           </div>
         </div>
       ) : (
         <>
           <div className={styles.endRow}>
-            <p className={styles.endT}>End the tournament early</p>
-            <p className={styles.endN}>Unplayed matches stay unplayed and no champion is recorded.</p>
-            <div className={styles.endActs}><SvButton onClick={() => setConfirm("complete")}>End now</SvButton></div>
+            <p className={styles.endT}>End now (keep results)</p>
+            <p className={styles.endN}>Closes the tournament with the standings as they are. Unplayed matches stay unplayed and no champion is recorded.</p>
+            <div className={styles.endActs}><SvButton onClick={() => setConfirming(true)}>End now</SvButton></div>
           </div>
           <div className={styles.endRow}>
-            <p className={styles.endT}>Remove it</p>
-            <p className={styles.endN}>Removes the tournament for everyone, results and Elo included.</p>
-            <div className={styles.endActs}><SvButton variant="danger" onClick={() => setConfirm("cancel")}>Cancel the tournament</SvButton></div>
+            <p className={styles.endT}>Cancel (no results)</p>
+            <p className={styles.endN}>Cancels open matches and records no final standings. You are asked to confirm.</p>
+            <div className={styles.endActs}><SvButton variant="danger" onClick={onCancel}>Cancel tournament</SvButton></div>
           </div>
         </>
       )}

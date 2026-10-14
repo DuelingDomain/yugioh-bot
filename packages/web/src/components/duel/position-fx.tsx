@@ -30,10 +30,12 @@ import {
   isPositionEvent,
   maxEventId,
   positionChangeOf,
+  SCALED_FIELD,
   type DuelFxCue,
   type DuelFxCueDetail,
   type PositionChange,
   type PositionEvent,
+  zoneCardParts,
 } from "./event-queue";
 import { chainEffectAt, isSequenceFlip } from "./chain-beats";
 import { flipSequenceSteps } from "./flip-sequence";
@@ -85,13 +87,13 @@ export function flipCopyBase(geo: Pick<Geo, "side" | "turn">): number {
   return (geo.side === "opp" ? 180 : 0) + geo.turn;
 }
 
-function measure(overlay: HTMLElement, zone: HTMLElement): Geo | null {
+export function measure(overlay: HTMLElement, zone: HTMLElement): Geo | null {
   const o = overlay.getBoundingClientRect();
   const z = zone.getBoundingClientRect();
   if (z.width < 4 || z.height < 4 || o.width < 4) return null;
   // A turned seat field: the zone's bounding box is not the card's box, its edges and angle are. Any other table (1v1,
   // Tag, a perspective view) keeps the box, so its copy does not change by a few pixels.
-  const pose = zone.closest("[data-seat-field]") ? screenPose(zone) : null;
+  const pose = zone.closest(SCALED_FIELD) ? screenPose(zone) : null;
   const h = pose?.h ?? z.height;
   const w = Math.min(pose?.w ?? z.width, h * CARD_ASPECT);
   const cx = z.left - o.left + z.width / 2;
@@ -111,14 +113,6 @@ function place(el: HTMLElement | null, geo: Geo): void {
 
 function artOf(zone: HTMLElement): HTMLElement | null {
   return zone.querySelector<HTMLElement>("[data-card-art]");
-}
-
-/** The frame that holds the card art and its stat plate. */
-function cardBodyOf(zone: HTMLElement): HTMLElement | null {
-  const art = artOf(zone);
-  if (!art) return null;
-  const body = art.parentElement?.parentElement;
-  return body && body !== zone && zone.contains(body) ? body : art;
 }
 
 function emitCue(cue: DuelFxCue): void {
@@ -163,7 +157,7 @@ function useSetup(
 /** Reduced motion: the card in its new position fades in. */
 function FadeFx(props: EffectProps) {
   useSetup(props, ({ track, zone, d }) => {
-    track.play(cardBodyOf(zone), [{ opacity: 0 }, { opacity: 1 }], { duration: REDUCED_MS, delay: d, fill: "backwards", easing: "ease-out" });
+    for (const part of zoneCardParts(zone)) track.play(part, [{ opacity: 0 }, { opacity: 1 }], { duration: REDUCED_MS, delay: d, fill: "backwards", easing: "ease-out" });
   });
   return null;
 }
@@ -222,12 +216,11 @@ function FlipFx(props: EffectProps) {
     const base = flipCopyBase(geo);
     const from = base + (change.fromDefense ? 90 : 0);
     const to = base + (change.toDefense ? 90 : 0);
-    const body = cardBodyOf(zone);
     const faceMs = props.item.faceMs;
     const total = faceMs ? Math.round((FLIP_REVEAL_MS * faceMs) / FLIP_FACE_AT_MS) : FLIP_REVEAL_MS;
     const faceAt = FLIP_FACE_AT_MS / FLIP_REVEAL_MS;
-    // The real card is invisible for exactly as long as the copy is on top of it.
-    track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: total, delay: d, fill: "backwards" });
+    // The real card is invisible for exactly as long as the copy is on top of it. The zone outline stays drawn.
+    for (const part of zoneCardParts(zone)) track.play(part, [{ opacity: 0 }, { opacity: 0 }], { duration: total, delay: d, fill: "backwards" });
     track.play(
       anchor.current,
       [

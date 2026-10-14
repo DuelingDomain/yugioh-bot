@@ -1,4 +1,4 @@
-import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
+import type { DuelCardInfo, DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { ev, MZ, SZ } from "../../fx-lab/board";
 import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
 import {
@@ -306,6 +306,18 @@ const extra = {
   "respond-10": respondState(10),
   "respond-14": respondState(14),
   "respond-long-5": respondState(5, true),
+  // The Deck Master recall question: a long title, the Optional badge, the card art, the recall text and Yes / No.
+  "recall-yesno": make("recall-yesno" as TableStateId, "Deck Master recall: yes or no", {
+    prompt: () => ({
+      id: "recall-yesno",
+      seat: REN,
+      kind: "choice",
+      title: "Return Sage with Eyes of Blue to the Deck Master zone?",
+      context: { type: "deck-master-recall", card: C.blueEyes as unknown as DuelCardInfo, returns: 1, nextCost: 1000 },
+      cancelable: true,
+      options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }],
+    }),
+  }),
   // A field-select bar over cards in your hand and on your field (the Banish cost of a summon).
   "banish-pick": make("banish-pick" as TableStateId, "Banish: select a card", { prompt: banishPrompt("banish-pick") }),
   // The same pick while a chain is open: the chain tower stands at the side of the board.
@@ -336,11 +348,12 @@ export type Ffa3PreviewPick = "def" | "cards" | "cards2" | "attack" | "attack-di
  * A preview variant of the 3-way fixtures: `out` sweeps those seats (as the engine does: no LP, an empty board, the
  * elimination order); `defense` lays Defense Position monsters on every field; `pick: "def"` asks you to pick one monster
  * on any field (yours included), so the turned cards are the targets; `pick: "cards"` asks for one of 14 Deck cards (`"cards2"`: one of 2).
+ * `pair: true` reports the facing pair 0+1 (`sharedExtraWith`), which draws the link between those two fields on the plaza.
  * `pick: "attack"` is the battle action prompt (click your
  * monster, aim, click a target); `"attack-direct"` is the same with the first living rival's monsters gone (a direct attack).
  */
-export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]; defense?: boolean; pick?: Ffa3PreviewPick | null }): TableFixtureSet {
-  if (opts.out.length === 0 && !opts.defense && !opts.pick) return set;
+export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]; defense?: boolean; pick?: Ffa3PreviewPick | null; pair?: boolean }): TableFixtureSet {
+  if (opts.out.length === 0 && !opts.defense && !opts.pick && !opts.pair) return set;
   const states = Object.fromEntries(
     Object.entries(set.states).map(([id, state]) => {
       const engine = state.room.engine!;
@@ -353,6 +366,9 @@ export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]
         view.monsters = view.monsters.map(() => null);
         view.spells = view.spells.map(() => null);
       }
+      // `pair`: the engine's contract for a 3-way table (seats 0 and 1 share one Extra Monster row, seat 2 shares nothing). A
+      // seat whose partner is out shares with nobody. The plain fixtures leave it out, like a core that does not report it.
+      if (opts.pair) for (const view of seats) view.sharedExtraWith = view.seat < 2 && !view.eliminated && !seats[view.seat ^ 1].eliminated ? view.seat ^ 1 : null;
       if (opts.defense || opts.pick === "def") {
         for (const view of seats) {
           if (view.eliminated) continue;

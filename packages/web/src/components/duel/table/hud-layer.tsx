@@ -26,6 +26,8 @@ export interface HudPaneState {
   toggle: (pane: HudPane) => void;
   /** Closes the open flyout and the pinned peek. */
   close: () => void;
+  /** Closes only what is private to one view: the pinned card and the Card flyout. Log, Settings and Camera stay open. */
+  closePrivate: () => void;
   /** Opens the Card flyout: Inspect on a plate or a log row. A click on a board card pins it instead (`pinCard`). */
   openCard: () => void;
   /** The board card pinned in the left peek, or `null`. It never shows together with a flyout. */
@@ -51,13 +53,15 @@ const PIN_ZONES = (seat: DuelSeatView): Array<DuelCard | null> => [...seat.hand,
  * Inspect on a card) does. A hover or a prompt row never opens the Card flyout, so it cannot cover the response prompt.
  * Call it before `useTableUi`, then pass `openCard` on and give `useHudEscape` the table's `suspended` flag.
  */
-export function useHudPane({ camera = false, log = true }: {
+export function useHudPane({ camera = false, log = true, initialPane = null }: {
   /** The table has a camera panel (the Tag Rooftop, the 3-way plaza): the dock gets a camera icon. */
   camera?: boolean;
   /** The dock has the Log icon. Every table has it; only a HUD with no log panel turns it off. */
   log?: boolean;
+  /** The flyout that is open at mount. A replay seek remounts the table and brings back the one the viewer had open. */
+  initialPane?: HudPane | null;
 } = {}): HudPaneState {
-  const [pane, setPaneState] = useState<HudPane | null>(null);
+  const [pane, setPaneState] = useState<HudPane | null>(initialPane ?? null);
   // `handSize`: the hand of the pinned card as the last sync saw it, so a shifted sequence can be told from another copy.
   const [pin, setPin] = useState<{ card: DuelCard; anchor: HTMLElement | null; handSize?: number } | null>(null);
   const epochRef = useRef(0);
@@ -76,6 +80,12 @@ export function useHudPane({ camera = false, log = true }: {
   const close = useCallback(() => {
     epochRef.current += 1;
     setPaneState(null);
+    setPin(null);
+  }, []);
+  // The pinned card and the Card flyout belong to the view they were opened in. Log, Settings and Camera stay open.
+  const closePrivate = useCallback(() => {
+    epochRef.current += 1;
+    setPaneState((current) => (current === "card" ? null : current));
     setPin(null);
   }, []);
   const openCard = useCallback(() => setPane("card"), [setPane]);
@@ -129,7 +139,7 @@ export function useHudPane({ camera = false, log = true }: {
   const pinAnchor = pin?.anchor ?? null;
   const dock = useMemo<readonly DockPane[]>(() => (camera ? DOCK_PANES_CAMERA : DOCK_PANES).filter((id) => log || id !== "log"), [camera, log]);
   const tabs: readonly HudPane[] = pane === "card" ? ["card", ...dock] : dock;
-  return { pane, setPane, toggle, close, openCard, pinned, pinAnchor, pinCard, syncPin, epoch, tabs, dock };
+  return { pane, setPane, toggle, close, closePrivate, openCard, pinned, pinAnchor, pinCard, syncPin, epoch, tabs, dock };
 }
 
 /**
@@ -220,6 +230,8 @@ export interface HudMasterProps {
   onHoverCard?: DuelHoverHandler;
   /** The wide plate of the 3-way plaza (grid-master.tsx): the ability text shows, and the plate is the Deck Master Zone anchor. */
   wide?: boolean;
+  /** Multi-seat tables: the plate shows an empty "In use" slot while the master is out of its zone, and is the zone anchor of its seat. */
+  showInUse?: boolean;
 }
 
 export interface HudLayerProps {
@@ -245,9 +257,13 @@ export interface HudLayerProps {
   /** The pile viewer is open, or a pick hint is shown: the preview hides. An open card menu does not hide it. */
   previewHidden: boolean;
   reducedMotion: boolean;
+  /** The element of the hovered card (the preview shows it): the card peek never covers it. */
+  hoverAnchor?: HTMLElement | null;
+  /** The seats of the viewer (and the partner in Tag): the card peek is as wide as the free room up to their field zones, so it never covers them. */
+  ownSeats?: readonly number[];
 }
 
-export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, equipLinks, previewHidden, reducedMotion }: HudLayerProps) {
+export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats }: HudLayerProps) {
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   // A hovered board card says only what the art already shows (negated); a pinned one adds its equip, counter and material lines.
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
@@ -294,6 +310,8 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
         pinned={preview?.pinned === true}
         extras={extras}
         avoid={preview?.pinned === true ? hud.pinAnchor : null}
+        hoverAnchor={preview?.pinned === true ? null : hoverAnchor}
+        ownSeats={ownSeats}
         onClose={closePin}
       />
     </>

@@ -9,6 +9,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+import { directTargetNode } from "@/components/duel/direct-target";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { TAG_FIXTURES } from "@/components/duel/tag/fixtures";
@@ -58,6 +59,9 @@ describe("aim arrow on the Tag table: a direct attack", () => {
     move(chip);
     expect(arrow()?.getAttribute("data-aim-arrow")).toBe("snapped");
     expect(label()).toMatch(/^Direct attack: /);
+    // The arrow aims at the rival's field (its row of Monster Zones), not at the LP chip.
+    expect(directTargetNode(OPEN_RIVAL)).toBe(container.querySelector(`[data-monster-row='${OPEN_RIVAL}']`));
+    expect(directTargetNode(OPEN_RIVAL)).not.toBeNull();
     pointerClick(chip);
     expect(onAnswer).toHaveBeenCalledTimes(1);
     expect(onAnswer).toHaveBeenCalledWith({ choice: `direct-${OPEN_RIVAL}` });

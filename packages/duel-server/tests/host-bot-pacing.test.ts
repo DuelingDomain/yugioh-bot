@@ -101,7 +101,7 @@ async function setup(options: { botStepDelayMs?: number | ((prompt: DuelPrompt) 
     pollIntervalMs: 60_000,
     createWorker: () => worker,
     botStepDelayMs: options.botStepDelayMs,
-    stallMs: 0, // no stall watchdog interval: the timer counts below expect only the sweep interval
+    stallMs: 0, // Timer counts below include polling and retention, but no stall watchdog.
     onChange: (slug) => { changes.push(slug); },
   });
   hosts.push(host);
@@ -192,6 +192,7 @@ describe("practice bot pacing", () => {
   it("stops when the human surrenders", async () => {
     vi.useFakeTimers();
     const { worker, respond, host, base, duels, slug } = await setup({ botStepDelayMs: () => 500 });
+    const hostTimers = vi.getTimerCount();
     await respond();
     await vi.advanceTimersByTimeAsync(500);
     expect(worker.answers).toEqual([0, 1]);
@@ -200,7 +201,9 @@ describe("practice bot pacing", () => {
     expect(duels.get(slug, "g1").status).toBe("completed");
     await vi.advanceTimersByTimeAsync(5000);
     expect(worker.answers).toEqual([0, 1]);
-    expect(vi.getTimerCount()).toBeLessThanOrEqual(1); // only the host's sweep interval
+    expect(vi.getTimerCount()).toBe(hostTimers); // No bot timer survives surrender.
+    await host.close();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("records the win itself when the bot's move ends the duel", async () => {

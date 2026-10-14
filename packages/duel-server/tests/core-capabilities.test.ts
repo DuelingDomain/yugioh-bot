@@ -15,15 +15,21 @@ function data(source?: string) {
 }
 
 describe("loaded core capabilities", () => {
+  it.each(["ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"])("checks FFA3 shared geometry against the loaded hash of %s", wasm => {
+    const directory = data();
+    writeFileSync(join(directory, wasm.replace(/\.wasm$/, ".SOURCE")), `sha256=${sha}\ncapabilities=ffa3-facing-extra-zones\n`);
+    expect(readCoreCapabilities(directory, wasm, sha)).toEqual({ ffa3SharedExtraZones: true, ffa4SharedExtraZones: false, tagSharedExtraZones: false });
+    expect(readCoreCapabilities(directory, wasm, "wrong").ffa3SharedExtraZones).toBe(false);
+  });
   it.each(["ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"])("enables Tag shared zones only for matching tagged %s", (wasm) => {
     const directory = data();
     writeFileSync(join(directory, wasm.replace(/\.wasm$/, ".SOURCE")), `sha256=${sha}\ncapabilities=ffa4-facing-extra-zones,tag-facing-extra-zones\n`);
-    expect(readCoreCapabilities(directory, wasm, sha)).toEqual({ ffa4SharedExtraZones: true, tagSharedExtraZones: true });
-    expect(readCoreCapabilities(directory, wasm, "wrong")).toEqual({ ffa4SharedExtraZones: false, tagSharedExtraZones: false });
+    expect(readCoreCapabilities(directory, wasm, sha)).toEqual({ ffa3SharedExtraZones: false, ffa4SharedExtraZones: true, tagSharedExtraZones: true });
+    expect(readCoreCapabilities(directory, wasm, "wrong")).toEqual({ ffa3SharedExtraZones: false, ffa4SharedExtraZones: false, tagSharedExtraZones: false });
   });
   it("enables facing shared zones only with an explicit flag and the loaded core hash", () => {
     expect(readCoreCapabilities(data(`sha256=${sha}\ncapabilities=ffa4-facing-extra-zones\n`), "ocgcore.multi.wasm", sha))
-      .toEqual({ ffa4SharedExtraZones: true, tagSharedExtraZones: false });
+      .toEqual({ ffa3SharedExtraZones: false, ffa4SharedExtraZones: true, tagSharedExtraZones: false });
   });
   it.each([
     undefined,
@@ -32,17 +38,17 @@ describe("loaded core capabilities", () => {
     "sha256=wrong\ncapabilities=ffa4-facing-extra-zones\n",
     "capabilities=ffa4-facing-extra-zones\n",
   ])("keeps separate zones with absent, stale or unmarked metadata (%s)", (source) => {
-    expect(readCoreCapabilities(data(source), "ocgcore.multi.wasm", sha)).toEqual({ ffa4SharedExtraZones: false, tagSharedExtraZones: false });
+    expect(readCoreCapabilities(data(source), "ocgcore.multi.wasm", sha)).toEqual({ ffa3SharedExtraZones: false, ffa4SharedExtraZones: false, tagSharedExtraZones: false });
   });
   it.each(["ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"])("rejects the old 0/2 capability for %s even with a matching hash", (wasm) => {
     const directory = data();
     writeFileSync(join(directory, wasm.replace(/\.wasm$/, ".SOURCE")), `sha256=${sha}\ncapabilities=ffa4-shared-extra-zones\n`);
-    expect(readCoreCapabilities(directory, wasm, sha)).toEqual({ ffa4SharedExtraZones: false, tagSharedExtraZones: false });
+    expect(readCoreCapabilities(directory, wasm, sha)).toEqual({ ffa3SharedExtraZones: false, ffa4SharedExtraZones: false, tagSharedExtraZones: false });
   });
   it("checks Standard and Domain metadata separately", () => {
     const directory = data(`sha256=${sha}\ncapabilities=ffa4-facing-extra-zones\n`);
-    expect(readCoreCapabilities(directory, "ocgcore.multi-domain.wasm", sha)).toEqual({ ffa4SharedExtraZones: false, tagSharedExtraZones: false });
+    expect(readCoreCapabilities(directory, "ocgcore.multi-domain.wasm", sha)).toEqual({ ffa3SharedExtraZones: false, ffa4SharedExtraZones: false, tagSharedExtraZones: false });
     writeFileSync(join(directory, "ocgcore.multi-domain.SOURCE"), `sha256=${sha}\ncapabilities=other,ffa4-facing-extra-zones\n`);
-    expect(readCoreCapabilities(directory, "ocgcore.multi-domain.wasm", sha)).toEqual({ ffa4SharedExtraZones: true, tagSharedExtraZones: false });
+    expect(readCoreCapabilities(directory, "ocgcore.multi-domain.wasm", sha)).toEqual({ ffa3SharedExtraZones: false, ffa4SharedExtraZones: true, tagSharedExtraZones: false });
   });
 });

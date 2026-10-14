@@ -200,6 +200,20 @@ export function createTournamentService(db: Database.Database) {
     return [...slugs];
   };
 
+  /**
+   * Drops the reports nobody confirmed. Call inside the transaction that closes the tournament:
+   * once it is closed a report that waits for a confirm no longer counts, so it is denied and its
+   * slot goes back to open. Confirmed results are not touched.
+   */
+  const voidUnconfirmedReports = (tournamentId: number) => {
+    db.prepare(
+      "update tournament_matches set status = 'open', match_id = null where tournament_id = ? and status = 'pending_approval'",
+    ).run(tournamentId);
+    db.prepare(
+      "update matches set status = 'denied', resolved_at = current_timestamp where tournament_id = ? and status = 'pending'",
+    ).run(tournamentId);
+  };
+
   const insertPendingMatch = (
     tournament: Tournament,
     slotId: number,
@@ -321,6 +335,7 @@ export function createTournamentService(db: Database.Database) {
       "update tournaments set status = 'cancelled', ended_at = current_timestamp where id = ?",
     ).run(tournamentId);
     const changedDuelSlugs = cancelOpenSeries(tournamentId);
+    voidUnconfirmedReports(tournamentId);
 
     return { tournament: findById(tournamentId), changedDuelSlugs };
   });
@@ -336,6 +351,7 @@ export function createTournamentService(db: Database.Database) {
       "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
     ).run(tournamentId);
     const changedDuelSlugs = cancelOpenSeries(tournamentId);
+    voidUnconfirmedReports(tournamentId);
 
     return { tournament: findById(tournamentId), changedDuelSlugs };
   });
@@ -346,7 +362,11 @@ export function createTournamentService(db: Database.Database) {
         "update tournaments set status = 'completed', ended_at = current_timestamp where id = ? and status = 'active'",
       )
       .run(tournamentId);
-    const changedDuelSlugs = closed.changes > 0 ? cancelOpenSeries(tournamentId) : [];
+    let changedDuelSlugs: string[] = [];
+    if (closed.changes > 0) {
+      changedDuelSlugs = cancelOpenSeries(tournamentId);
+      voidUnconfirmedReports(tournamentId);
+    }
     return { tournament: findById(tournamentId), changedDuelSlugs };
   });
 

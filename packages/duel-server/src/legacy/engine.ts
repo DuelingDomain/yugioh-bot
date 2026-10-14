@@ -6,6 +6,7 @@ import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolic
 // Do not "fix" or tidy this file, ./views.ts or ./prompts.ts: they must stay equal to main. Every line that differs from main is
 // marked "LEGACY-1V1:". See packages/duel-server/legacy-1v1/README.md.
 import { ChainOptions } from "../chain-options.js"; // LEGACY-1V1: public chosen chain options
+import { ChainActivator } from "../chain-activator.js"; // LEGACY-1V1: credit the activator of both-side effects
 import { DIAGNOSTICS_LIMIT, type EngineDiagnostic } from "../engine.js"; // LEGACY-1V1: private display error diagnostics
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
 import { defaultChainMode } from "@yugidraft/shared/duels"; // LEGACY-1V1: chain response mode (Auto, Always, Off)
@@ -27,7 +28,7 @@ import createCore, {
   type OcgResponse, // LEGACY-1V1: public chosen chain options
   type OcgOpCode,
 } from "ocgcore-wasm";
-import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "../cards.js";
+import { deckSearchCodes, isOptionalCardScript, loadCardDatabase, type CardDatabase } from "../cards.js"; // LEGACY-1V1: owner card announcement autocomplete
 import { EngineAnswerError, autoResponse, isWaitingMessage, mapPrompt, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
@@ -104,7 +105,7 @@ export interface EngineGame {
   diagnostics(): EngineDiagnostic[]; // LEGACY-1V1: private display error diagnostics
   view(seat: number | null): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
-  searchCards(query: string): DuelCardInfo[];
+  searchCards(query: string, seat?: number): DuelCardInfo[]; // LEGACY-1V1: seat-scoped card announcement search
   /** LEGACY-1V1: set a seat's chain response mode; true when it passed the open window. See ../engine.ts EngineGame.setChainMode. */
   setChainMode(seat: number, mode: DuelChainMode): boolean;
   close(): void;
@@ -367,7 +368,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const events: StoredDuelEvent[] = [];
   const chainMemory: StoredChainLink[] = [];
   const chainOptions = new ChainOptions(cards); // LEGACY-1V1: public chosen chain options
+  const chainActivator = new ChainActivator(); // LEGACY-1V1: same display attribution as the merged engine
   const respond = (prompt: PendingPrompt, response: OcgResponse) => { // LEGACY-1V1: public chosen chain options
+    chainActivator.recordResponse(prompt.seat, response, prompt.message); // LEGACY-1V1: retain the activating answer across costs/targets
     try { // LEGACY-1V1: display data must not stop a duel
       chainOptions.recordResponse(prompt, response); // LEGACY-1V1: public chosen chain options
     } catch (error) { // LEGACY-1V1: display data must not stop a duel
@@ -460,7 +463,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     // Moves first: a card's move precedes the summon/set/activate/destroy event it belongs to.
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
-    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
+    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext, chainActivator.observe(message)); // LEGACY-1V1: public activator seat
     try { // LEGACY-1V1: display data must not stop a duel
       chainOptions.observe(message, chainMemory, stored); // LEGACY-1V1: public chosen chain options
     } catch (error) { // LEGACY-1V1: display data must not stop a duel
@@ -828,11 +831,16 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     diagnostics() { // LEGACY-1V1: private display error diagnostics
       return diagnostics.map((entry) => ({ ...entry })); // LEGACY-1V1: private display error diagnostics
     }, // LEGACY-1V1: private display error diagnostics
-    searchCards(query) {
+    searchCards(query, seat) { // LEGACY-1V1: seat-scoped card announcement search
       if (closed) throw new Error("Engine is closed");
+      if (seat !== undefined && (!Number.isInteger(seat) || seat < 0 || seat >= options.decks.length // LEGACY-1V1: reject another seat's search
+        || pending?.message.type !== OcgMessageType.ANNOUNCE_CARD || pending.seat !== seat)) { // LEGACY-1V1: reject another seat's search
+        throw new EngineAnswerError("No card announcement is waiting for this seat"); // LEGACY-1V1: reject another seat's search
+      } // LEGACY-1V1: reject another seat's search
       if (pending?.message.type === OcgMessageType.ANNOUNCE_CARD) {
         const opcodes = pending.message.opcodes as OcgOpCode[];
-        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes));
+        const ownDeck = seat === undefined ? undefined : deckSearchCodes(cards, options.decks[seat]!); // LEGACY-1V1: own cards only
+        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes), ownDeck); // LEGACY-1V1: keep legal-name opcodes
       }
       return cards.search(query);
     },

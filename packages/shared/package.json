@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./access/owner-access": {
+      "types": "./dist/access/owner-access.d.ts",
+      "source": "./src/access/owner-access.ts",
+      "default": "./dist/access/owner-access.js"
+    },
     "./duels": {
       "types": "./dist/duels/index.d.ts",
       "source": "./src/duels/index.ts",
@@ -34,6 +39,11 @@
       "source": "./src/util/web-slug.ts",
       "default": "./dist/util/web-slug.js"
     },
+    "./util/email-domain": {
+      "types": "./dist/util/email-domain.d.ts",
+      "source": "./src/util/email-domain.ts",
+      "default": "./dist/util/email-domain.js"
+    },
     "./ws": {
       "types": "./dist/ws/index.d.ts",
       "source": "./src/ws/index.ts",
@@ -58,6 +68,11 @@
       "types": "./dist/notify/index.d.ts",
       "source": "./src/notify/index.ts",
       "default": "./dist/notify/index.js"
+    },
+    "./decks": {
+      "types": "./dist/decks/index.d.ts",
+      "source": "./src/decks/index.ts",
+      "default": "./dist/decks/index.js"
     }
   },
   "scripts": {

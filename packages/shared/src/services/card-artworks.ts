@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { existsSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { canonicalCardCode, type CardIdentityCatalog } from "../duels/pool.js";
 
 export interface CardArtwork {
@@ -15,8 +16,16 @@ export interface CardArtwork {
 const engineCache = new Map<string, { mtime: number; cards: CardIdentityCatalog }>();
 let warnedMissingIdentity = false;
 
+/** Match the mounted application data directory, even when Next runs from packages/web. */
+export function deckEngineDataDirectory(databasePath = process.env.DATABASE_PATH): string {
+  if (process.env.DUEL_DATA_DIR) return resolve(process.env.DUEL_DATA_DIR);
+  const configuredPath = databasePath === ":memory:" ? process.env.DATABASE_PATH : databasePath;
+  if (configuredPath && configuredPath !== ":memory:") return resolve(dirname(resolve(configuredPath)), "duel-engine");
+  return resolve(dirname(fileURLToPath(import.meta.url)), "../../../../data/duel-engine");
+}
+
 /** Share the engine's artwork identity rule without opening its database for writes. */
-export function loadArtworkIdentityCatalog(dataDirectory = process.env.DUEL_DATA_DIR ?? "data/duel-engine"): CardIdentityCatalog {
+export function loadArtworkIdentityCatalog(dataDirectory = deckEngineDataDirectory()): CardIdentityCatalog {
   const path = resolve(dataDirectory, "cards.cdb");
   if (!existsSync(path)) {
     if (!warnedMissingIdentity) {
@@ -30,9 +39,9 @@ export function loadArtworkIdentityCatalog(dataDirectory = process.env.DUEL_DATA
   if (cached?.mtime === mtime) return cached.cards;
   const engine = new Database(path, { readonly: true, fileMustExist: true });
   try {
-    const rows = engine.prepare("select d.id, d.alias, d.type, t.name from datas d join texts t on t.id = d.id")
-      .all() as Array<{ id: number; alias: number; type: number; name: string }>;
-    const cards: CardIdentityCatalog = new Map(rows.map((row) => [row.id, row]));
+    const rows = engine.prepare("select d.id, d.alias, d.type, t.name from datas d left join texts t on t.id = d.id")
+      .all() as Array<{ id: number; alias: number; type: number; name: string | null }>;
+    const cards: CardIdentityCatalog = new Map(rows.map((row) => [row.id, { ...row, name: row.name ?? "" }]));
     engineCache.set(path, { mtime, cards });
     return cards;
   } finally { engine.close(); }
@@ -52,7 +61,7 @@ export function mainArtworkId(card: { id: number; name: string; card_images: Arr
  * Artwork metadata remains incomplete until sync; no images or API data are fetched.
  */
 export function backfillMainArtworkRows(db: Database.Database): void {
-  const identity = loadArtworkIdentityCatalog();
+  const identity = loadArtworkIdentityCatalog(deckEngineDataDirectory(db.name));
   if (identity.size === 0) return;
   const rows = db.prepare("select ygoprodeck_id, name from card_catalog").all() as Array<{ ygoprodeck_id: number; name: string }>;
   const insert = db.prepare(`insert or ignore into card_catalog

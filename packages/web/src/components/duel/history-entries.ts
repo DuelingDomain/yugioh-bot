@@ -129,15 +129,17 @@ const PLACEHOLDER_NAME = /^Player \d+$/;
 /**
  * How a player is named in the history: "You" for the viewer, their display name, or "Opponent" when a
  * two-player seat still has the placeholder name. With three or more seats the placeholder stays, because
- * "Opponent" would not say which one.
+ * "Opponent" would not say which one. In a replay fork (`fork`) nobody is "You" or "Opponent": every seat reads by name.
  */
 export function historyWho(
   seat: number | null,
   mySeat: number | null,
   playerName: (seat: number) => string,
   seatCount: number,
+  fork = false,
 ): string {
   if (seat == null) return "Unknown";
+  if (fork) return playerName(seat);
   if (mySeat != null && seat === mySeat) return "You";
   const name = playerName(seat);
   if (mySeat != null && seatCount <= 2 && PLACEHOLDER_NAME.test(name)) return "Opponent";
