@@ -10,6 +10,14 @@ import { runAndVerify } from "./run-one.js";
  */
 const REGRESSIONS: Array<Scenario & { defect: string }> = [
   {
+    defect: "checker: public Ancient Gear Token matched hidden Ancient Gear in a position prompt",
+    seed: 1927024029, mode: "domain", masterRule: 5, maxSteps: 400,
+  },
+  {
+    defect: "checker: Multiplying Kuriboh's visible printed text quotes Dark Magician in a prompt",
+    seed: 341600670, mode: "normal", masterRule: 5, maxSteps: 400,
+  },
+  {
     defect: "checker: face-up Archfiend's Call is named Summoned Skull by its public name-change effect",
     seed: 644659237, mode: "domain", masterRule: 5, maxSteps: 287,
   },

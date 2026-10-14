@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import type { DuelCard, DuelDeck, DuelEngineView, DuelMode, DuelPrompt } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelDeck, DuelEngineView, DuelMode, DuelZoneRef } from "@yugidraft/shared/duels";
+import { chainTargetPhrase } from "../../src/target-names.js";
 import type { Catalog } from "./card-pool.js";
 
 export type Viewer = 0 | 1 | null;
@@ -18,6 +19,32 @@ export interface Violation {
 export const LOC = { DECK: 0x1, HAND: 0x2, MZONE: 0x4, SZONE: 0x8, GRAVE: 0x10, REMOVED: 0x20, EXTRA: 0x40, DECKMASTER: 0x4000 };
 const TOKEN = 0x4000;
 const FACEDOWN = 0x2 | 0x8;
+const FACEUP = 0x1 | 0x4;
+
+function zoneKey(zone: DuelZoneRef): string {
+  return `${zone.controller}:${zone.location}:${zone.sequence}`;
+}
+
+function maskText(text: string): string {
+  return "\u0000".repeat(text.length);
+}
+
+/** Names a face-up field card can publicly use at these coordinates, without revealing a hidden copy's code. */
+function faceUpNames(view: DuelEngineView): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const seat of view.seats) {
+    for (const card of [...seat.monsters, ...seat.spells]) {
+      if (!card || card.code === undefined || (card.position & FACEUP) === 0 || (card.position & FACEDOWN) !== 0) continue;
+      const names = new Set(card.name ? [card.name] : []);
+      // Board queries keep the printed code; the target note's GetCode() can use a declared name instead.
+      for (const match of (card.description ?? "").matchAll(/\bthis card's name (?:becomes|is (?:(?:also|always) )?treated as) "([^"]+)"/gi)) {
+        names.add(match[1]!);
+      }
+      out.set(zoneKey(card), names);
+    }
+  }
+  return out;
+}
 
 /**
  * Who may see which hidden zones. Today a seat sees only its own hand and face-down cards.
@@ -136,8 +163,8 @@ export class InvariantChecker {
   private firstTurnSeat: number | null = null;
   private turnSeatByTurn = new Map<number, number>();
   private readonly known: [Set<number>, Set<number>, Set<number>] = [new Set(), new Set(), new Set()];
-  /** Public name-change effects teach a name, not the identity of hidden cards with that printed name. */
-  private readonly publicNames: [Set<string>, Set<string>, Set<string>] = [new Set(), new Set(), new Set()];
+  /** One previous board covers targets that moved during resolution; no name is kept beyond that view. */
+  private readonly lastFaceUpNames: [Map<string, Set<string>>, Map<string, Set<string>>, Map<string, Set<string>>] = [new Map(), new Map(), new Map()];
   private readonly lastLog = [0, 0, 0];
   private readonly lastEvent = [0, 0, 0];
   private readonly codeOwner = new Map<number, 0 | 1>();
@@ -184,11 +211,13 @@ export class InvariantChecker {
   /** Set once Parasite Paracide (shuffles itself into the opponent's Deck) appeared; per-owner counts are then skipped. */
   private deckSwapSeen = false;
 
-  private namesIn(text: string): Array<[string, number[]]> {
+  private namesIn(text: string, visibleNames?: ReadonlySet<string>): Array<[string, number[]]> {
     const out: Array<[string, number[]]> = [];
     let rest = text;
     const isWord = (ch: string | undefined) => ch !== undefined && /[A-Za-z0-9]/.test(ch);
-    for (const name of this.namesByLength) {
+    // Tokens and other visible cards may not be in either deck. Match their full names before shorter secrets.
+    const names = visibleNames ? [...new Set([...this.namesByLength, ...visibleNames])].sort((a, b) => b.length - a.length) : this.namesByLength;
+    for (const name of names) {
       // Whole-word matches only ("Bat" must not match inside "Battle Phase"); longest names go first.
       let from = 0;
       let found = false;
@@ -201,7 +230,7 @@ export class InvariantChecker {
         }
         from = at + 1;
       }
-      if (found) out.push([name, this.codesByName.get(name) ?? []]);
+      if (found && !visibleNames?.has(name)) out.push([name, this.codesByName.get(name) ?? []]);
     }
     return out;
   }
@@ -386,14 +415,6 @@ export class InvariantChecker {
       for (const seat of view.seats) {
         for (const card of allCards(seat)) if (card.code !== undefined) known.add(card.code);
         if (seat.deckMaster) known.add(seat.deckMaster.card.code);
-        for (const card of [...seat.monsters, ...seat.spells]) {
-          if (!card || card.code === undefined || (card.position & FACEDOWN) !== 0) continue;
-          // The target reporter uses GetCode(), which includes public name changes (Archfiend's Call).
-          // Board queries keep the printed code. Do not mark the name's separate passcode as known.
-          for (const match of (card.description ?? "").matchAll(/\bThis card's name becomes "([^"]+)"/g)) {
-            this.publicNames[vi]!.add(match[1]!);
-          }
-        }
       }
       const announced = this.announced[vi] as Set<number>;
       for (const link of view.chain) if (link.code !== undefined) { known.add(link.code); announced.add(link.code); }
@@ -465,14 +486,61 @@ export class InvariantChecker {
       // Text and code scan over everything new in this viewer's stream.
       const secret = (code: number) => this.codeTotals.has(code) && !known.has(code);
       const printed = new Set([...known].flatMap(code => this.options.printedText?.(code) ?? []));
-      const scanText = (text: string, where: string, detail: unknown) => {
-        if (where.startsWith("prompt ") && printed.has(text)) return;
+      const prompt = view.prompt;
+      const quoted = new Set<string>();
+      const promptNames = new Set<string>();
+      const readPrinted = (text: string) => {
+        for (const match of text.matchAll(/"[^"\n]+"/g)) quoted.add(match[0]);
+      };
+      const readVisibleCard = (card: Pick<DuelCard, "code" | "name" | "description" | "type">) => {
+        // A newly created Token is not in either deck and may be awaiting its first position choice.
+        const token = ((card.type ?? 0) & TOKEN) !== 0;
+        if (card.code === undefined || (!known.has(card.code) && !(token && !secret(card.code)))) return;
+        if (card.name) promptNames.add(card.name);
+        readPrinted(card.description ?? "");
+      };
+      for (const text of printed) readPrinted(text);
+      for (const seat of view.seats) {
+        for (const card of allCards(seat)) readVisibleCard(card);
+        if (seat.deckMaster) readVisibleCard(seat.deckMaster.card);
+      }
+      for (const option of prompt?.options ?? []) if (option.card) readVisibleCard(option.card);
+      if (prompt?.source && known.has(prompt.source.code)) {
+        promptNames.add(prompt.source.name);
+        readPrinted(prompt.source.text);
+      }
+
+      const currentFaceUpNames = faceUpNames(view);
+      const targetLabelScans = new Map<number, string[]>();
+      const targetScans = new Map<number, { chainIndex: number; phrase: string; scan: string }>();
+      for (const event of view.events) {
+        if (event.id <= this.lastEvent[vi]! || event.kind !== "target" || !event.targetLabels) continue;
+        const labels = event.targetLabels.map((label, index) => {
+          const zone = event.targets?.[index];
+          if (!zone) return label;
+          const key = zoneKey(zone);
+          const publicName = currentFaceUpNames.get(key)?.has(label) || this.lastFaceUpNames[vi]!.get(key)?.has(label);
+          return publicName ? maskText(label) : label;
+        });
+        targetLabelScans.set(event.id, labels);
+        if (event.chainIndex === undefined || !event.targets || event.targets.length !== labels.length) continue;
+        const phrase = chainTargetPhrase(event.targetLabels, event.targets.length);
+        if (event.text !== `Chain Link ${event.chainIndex} targets ${phrase}`) continue;
+        targetScans.set(event.id, { chainIndex: event.chainIndex, phrase, scan: chainTargetPhrase(labels, labels.length) });
+      }
+      const pendingTargetLogs = [...targetScans.values()];
+      const scanText = (text: string, where: string, detail: unknown, namesText = text) => {
+        const inPrompt = where.startsWith("prompt ");
+        if (inPrompt) {
+          // Only the quoted occurrences printed on a visible card are rules references. A standalone copy stays strict.
+          namesText = printed.has(text) ? maskText(text) : namesText.replace(/"[^"\n]+"/g, quote => quoted.has(quote) ? maskText(quote) : quote);
+        }
         for (const match of text.matchAll(/\b\d{5,10}\b/g)) {
           const code = Number(match[0]);
           if (secret(code)) add("privacy-text", `Viewer ${String(viewer)}: ${where} contains code ${code}`, { text, detail });
         }
-        for (const [name, codes] of this.namesIn(text)) {
-          if (COMMON_WORD_NAMES.has(name) || this.publicNames[vi]!.has(name)) continue;
+        for (const [name, codes] of this.namesIn(namesText, inPrompt ? promptNames : undefined)) {
+          if (COMMON_WORD_NAMES.has(name)) continue;
           if (codes.every((code) => secret(code))) add("privacy-text", `Viewer ${String(viewer)}: ${where} names hidden card "${name}"`, { text, detail });
         }
       };
@@ -491,17 +559,31 @@ export class InvariantChecker {
           if (!ok) add("privacy-log-audience", `Viewer ${String(viewer)} log says "${entry.text}" for cards outside own deck`);
           continue;
         }
-        scanText(entry.text, `log ${entry.id}`, entry);
+        let namesText = entry.text;
+        // The log has no coordinates. Pair each target suffix with its announcement in stream order.
+        // The source name and every other occurrence in the line are still scanned.
+        const targetLine = /^(Chain Link (\d+): .+ targets )(.+)$/.exec(entry.text);
+        if (targetLine) {
+          const at = pendingTargetLogs.findIndex(target => target.chainIndex === Number(targetLine[2]) && target.phrase === targetLine[3]);
+          if (at >= 0) namesText = targetLine[1] + pendingTargetLogs.splice(at, 1)[0]!.scan;
+        }
+        scanText(entry.text, `log ${entry.id}`, entry, namesText);
       }
       for (const event of view.events) {
         if (event.id <= (this.lastEvent[vi] as number)) continue;
-        scanText(event.text, `event ${event.id} text`, event);
+        const target = targetScans.get(event.id);
+        scanText(event.text, `event ${event.id} text`, event, target ? `Chain Link ${target.chainIndex} targets ${target.scan}` : event.text);
+        if (event.kind === "target") {
+          // Labels are observable even when the event's message uses a generic count or other wording.
+          event.targetLabels?.forEach((label, index) => {
+            scanText(label, `event ${event.id} target label ${index}`, event, targetLabelScans.get(event.id)?.[index] ?? label);
+          });
+        }
         if (event.card && secret(event.card.code)) add("privacy-event-card", `Viewer ${String(viewer)}: event ${event.id} (${event.kind}) shows hidden card ${event.card.name}`, event);
       }
       if (view.log.length > 0) this.lastLog[vi] = Math.max(this.lastLog[vi] as number, ...view.log.map((e) => e.id));
       if (view.events.length > 0) this.lastEvent[vi] = Math.max(this.lastEvent[vi] as number, ...view.events.map((e) => e.id));
       // Prompt: options, source and text must not expose unknown cards.
-      const prompt: DuelPrompt | null = view.prompt;
       if (prompt) {
         walkCodes(prompt, (code, key) => {
           if (secret(code)) add("privacy-prompt", `Viewer ${String(viewer)}: prompt "${prompt.title}" shows hidden card code ${code} (${key})`, prompt);
@@ -521,6 +603,7 @@ export class InvariantChecker {
       walkCodes(view.chain, (code) => {
         if (secret(code)) add("privacy-chain", `Viewer ${String(viewer)}: chain shows hidden card code ${code}`, view.chain);
       });
+      this.lastFaceUpNames[vi] = currentFaceUpNames;
     });
   }
 }
