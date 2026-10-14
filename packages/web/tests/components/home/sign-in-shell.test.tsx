@@ -38,7 +38,8 @@ describe("SignInShell", () => {
     expect(renderToString(shell)).toBe(first);
     const doc = new DOMParser().parseFromString(first, "text/html");
     expect(doc.querySelectorAll(`.${styles.dust} i`)).toHaveLength(14);
-    const images = Array.from(doc.querySelectorAll("img"));
+    // The trailer poster is a real image with its own alt text; only the decorative card backs are hidden.
+    const images = Array.from(doc.querySelectorAll("img")).filter((image) => !image.closest("section[aria-labelledby]"));
     expect(images).toHaveLength(3);
     for (const image of images) {
       expect(image.getAttribute("src")).toMatch(/^\/sign-in\/card-back-(main|extra)-hd\.webp$/);
