@@ -3,3 +3,4 @@ export type { SignedPostTransport, SignedPostResult } from "../internal-auth/ind
 export * from "./announce-payload.js";
 export * from "./broadcaster.js";
 export * from "./announcer.js";
+export * from "./join-request.js";

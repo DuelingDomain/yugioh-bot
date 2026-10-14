@@ -3019,7 +3019,7 @@ docker compose -f docker-compose.yml run --rm --no-deps worker node --input-type
     console.log("identity migration verified");
   } finally {db.close();}
 '
-docker compose -f docker-compose.yml up -d ws duel web bot worker caddy
+docker compose -f docker-compose.yml up -d --no-build ws duel web bot worker caddy
 for service in ws worker; do
   healthy=0
   for attempt in $(seq 1 36); do

@@ -92,7 +92,7 @@ export function Sheet({
 
   return (
     <div
-      className="fixed inset-0 z-50"
+      className="fixed inset-0 z-[var(--app-z-sheet)]"
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? "sheet-title" : undefined}

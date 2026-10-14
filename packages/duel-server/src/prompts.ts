@@ -24,8 +24,9 @@ import {
 import type { CardDatabase } from "./cards.js";
 import { cardInfoLabel } from "./cards.js";
 import { attributeName, fillPlaceholders, locationLabel, positionLabel, raceName, type TemplateValue } from "./text.js";
-import { DOMAIN_LEAVE_TAX_STEP, DUELIST_NONE, LOCATION_DECKMASTER, type DomainSeatState } from "./views.js";
+import { DOMAIN_LEAVE_TAX_STEP, DUELIST_NONE, type DomainSeatState } from "./views.js";
 import { sortCardResponse } from "./sort-response.js";
+import { annotateDeckMasterActions } from "./domain-action-prompts.js";
 export { sortCardResponse } from "./sort-response.js";
 
 export interface MapPromptExtras {
@@ -401,16 +402,7 @@ function buildPrompt(message: OcgMessage, cards: CardDatabase, id: string, selec
   switch (message.type) {
     case OcgMessageType.SELECT_IDLECMD: {
       const options = idleOptions(message, cards);
-      // The native protocol's byte-sized location encodes the 0x4000 Master
-      // zone as zero. Restore it only against the authoritative in-zone card.
-      if (extras?.domain) {
-        for (const option of options) {
-          const master = option.controller == null ? undefined : extras.domain[option.controller];
-          if (option.location === 0 && option.sequence === 0 && master?.inZone && option.card?.code === master.code) {
-            option.location = LOCATION_DECKMASTER;
-          }
-        }
-      }
+      annotateDeckMasterActions(options, extras?.domain);
       return {
         id,
         seat: message.player,
@@ -469,7 +461,7 @@ function buildPrompt(message: OcgMessage, cards: CardDatabase, id: string, selec
           message.player,
           id,
           hint || `Return ${card.name} to the Deck Master Zone?`,
-          `Next summon from the Deck Master Zone costs ${nextCost} LP.`,
+          `Next summon, set or activation from the Deck Master Zone costs ${nextCost} LP.`,
           card,
         );
         built.message = message;

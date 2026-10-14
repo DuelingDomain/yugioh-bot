@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DuelZoneRef } from "@yugidraft/shared/duels";
-import { captureZoneSnapshots, clearZoneSnapshots, getZoneSnapshot, resolveSource } from "../../src/components/duel/move-plan";
+import { captureDepartureSnapshots, captureZoneSnapshots, clearZoneSnapshots, getZoneSnapshot, resolveSource } from "../../src/components/duel/move-plan";
 
 const z = (controller: number, location: number, sequence: number): DuelZoneRef => ({ controller, location, sequence });
 
@@ -46,5 +46,36 @@ describe("the Deck Master plate as the source of a Deck Master summon", () => {
     document.body.append(cell);
     captureZoneSnapshots();
     expect(getZoneSnapshot(z(0, DMZONE, 0))?.rect.left).toBe(500);
+  });
+
+  it("ignores a plate in a closed drawer: it keeps its box but is hidden", () => {
+    const drawer = document.createElement("aside");
+    drawer.style.visibility = "hidden"; // the closed drawer slides away and turns invisible
+    document.body.append(drawer);
+    const hidden = plate(0);
+    drawer.append(hidden);
+    const inert = document.createElement("div");
+    inert.setAttribute("inert", "");
+    document.body.append(inert);
+    inert.append(plate(1));
+    captureZoneSnapshots();
+    expect(getZoneSnapshot(z(0, DMZONE, 0))).toBeNull();
+    expect(getZoneSnapshot(z(1, DMZONE, 0))).toBeNull();
+    // The open one of the same seat is used, whichever comes first in the page.
+    const open = plate(0);
+    open.getBoundingClientRect = () => ({ left: 300, top: 40, width: 90, height: 130, x: 300, y: 40, right: 390, bottom: 170, toJSON: () => ({}) });
+    captureZoneSnapshots();
+    expect(getZoneSnapshot(z(0, DMZONE, 0))?.rect.left).toBe(300);
+  });
+
+  it("finds a plate outside the board root: the pre-commit capture is scoped to the board, the HUD is not inside it", () => {
+    const board = document.createElement("div");
+    document.body.append(board);
+    plate(0); // the HUD layer: a sibling of the board
+    const summon = { id: 9, kind: "move", text: "", zone: z(0, 4, 4), from: z(0, DMZONE, 0), card: { code: 1 } } as never;
+    captureDepartureSnapshots([summon], board);
+    expect(resolveSource(z(0, DMZONE, 0), 9)?.rect).toEqual(rect);
+    // The byte-sized location 0 reads the same.
+    expect(getZoneSnapshot(z(0, 0, 0))?.rect).toEqual(rect);
   });
 });

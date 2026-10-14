@@ -268,7 +268,7 @@ describe("the host drawer after the start", () => {
   it("offers the host the locked switch and the link", () => {
     render(
       <SheetRoot>
-        <HostDrawer open tournament={{ ...sheetTournament, visibility: "open", canManageInvite: true }} tournamentSlug="slug1" ratings={new Map()} onChanged={() => {}} onClose={() => {}} />
+        <HostDrawer open tournament={{ ...sheetTournament, visibility: "open", canManageInvite: true }} tournamentSlug="slug1" ratings={new Map()} onChanged={() => {}} onClose={() => {}} onCancel={() => {}} />
       </SheetRoot>,
     );
     const invite = screen.getByRole("region", { name: "Invite" });
@@ -280,7 +280,7 @@ describe("the host drawer after the start", () => {
   it("has no Invite section without canManageInvite", () => {
     render(
       <SheetRoot>
-        <HostDrawer open tournament={{ ...sheetTournament, visibility: "open" }} tournamentSlug="slug1" ratings={new Map()} onChanged={() => {}} onClose={() => {}} />
+        <HostDrawer open tournament={{ ...sheetTournament, visibility: "open" }} tournamentSlug="slug1" ratings={new Map()} onChanged={() => {}} onClose={() => {}} onCancel={() => {}} />
       </SheetRoot>,
     );
     expect(screen.queryByRole("region", { name: "Invite" })).toBeNull();

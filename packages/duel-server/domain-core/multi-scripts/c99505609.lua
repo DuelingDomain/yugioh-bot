@@ -22,12 +22,7 @@ function s.desop(e,tp,eg,ep,ev,re,r,rp)
 	end
 end
 
--- FFA3 columns can contain two independent EMZ; use the core's column mask.
-if aux.MPColumnGeometry() and not aux.MPGeometryShared() then
+-- Full columns count the fixed living fields and one physical shared EMZ.
+if aux.MPColumnGeometry() then
 	function s.columnfilter(c) return c:IsAllColumn() end
-end
-
--- R-FFA-THREE-COLUMNS: choose the column opponent before cards or zones.
-if aux.MPColumnEffects then
-	s.initial_effect=aux.MPColumnEffects(s.initial_effect,{s.desop})
 end

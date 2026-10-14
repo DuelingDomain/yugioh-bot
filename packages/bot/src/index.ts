@@ -148,7 +148,7 @@ const broadcaster = createBroadcaster(
   signedTransport({ purpose: "ws-broadcast", url: process.env.WS_INTERNAL_URL ?? "", secret: process.env.WS_INTERNAL_SECRET ?? "", timeoutMs: 5_000 }),
 );
 
-const notifyDuelChange = createHttpNotifyDuelChange({
+const notifyDuelChange = createHttpNotifyDuelChange(db, {
   url: process.env.WS_INTERNAL_URL ?? "",
   secret: process.env.WS_INTERNAL_SECRET ?? "",
 });

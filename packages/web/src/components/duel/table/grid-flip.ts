@@ -59,8 +59,7 @@ export function boxAt(to: FlipBox, delta: FlipDelta, progress: number): FlipBox 
 }
 
 /**
- * The keyframes of a move that also turns the box (a field that goes from the bottom row to the top of the finale
- * board). The individual `translate` acts before the turn, so it is in the parent's px; `rotate` turns about the centre.
+ * The keyframes of a move that also turns the box (a field that changes between the bottom row and the top row). The individual `translate` acts before the turn, so it is in the parent's px; `rotate` turns about the centre.
  */
 export function turningKeyframes(delta: FlipDelta, from: 0 | 180, to: 0 | 180): Keyframe[] {
   return [
@@ -78,7 +77,7 @@ export function flipTransform(delta: FlipDelta, turn: 0 | 180): string {
 /** What the stage remembers of a box: where it rests now and the move that is running into that place. */
 export interface FlipTrack {
   box: FlipBox;
-  /** The turn the box rests at (a field of the finale board can turn from 0 to 180 on its way). */
+  /** The turn the box rests at (a box that changes row can turn from 0 to 180 on its way). */
   turn?: 0 | 180;
   delta: FlipDelta | null;
   anim: Animation | null;
@@ -100,7 +99,7 @@ export interface FlipOptions {
   /** Fade the text between 15% and 70% of the move when the box changes size (the numerals of a life panel). */
   fadeText: boolean;
   duration?: number;
-  /** A curve other than the usual one (the finale glide). */
+  /** A curve other than the usual one (a move that asks for its own easing). */
   easing?: string;
 }
 

@@ -58,5 +58,4 @@
   font: 600 max(calc(12px * var(--ts, 1)), var(--fl, 12.6px)) / 1 var(--f-num, "Arial Narrow");
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  rotate: var(--lab, 0deg);
 }

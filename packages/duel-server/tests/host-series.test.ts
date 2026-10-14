@@ -1,6 +1,7 @@
 import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { rmSync } from "node:fs";
+import { rmSync, utimesSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
@@ -25,6 +26,8 @@ beforeAll(() => {
     { code: 18144506, name: "Harpie's Feather Duster", type: 2 },
     { code: 46986414, name: "Dark Magician" },
     { code: 46986421, name: "Dark Magician", alias: 46986414 },
+    { code: 901, name: "Test Spell", type: 2 },
+    { code: 903, name: "Test Fusion", type: 0x41 },
   ]);
 });
 afterAll(() => { rmSync(DATA, { recursive: true, force: true }); });
@@ -237,6 +240,302 @@ function tournamentMatch(app: App, bestOf: 1 | 3, registeredDeck = deckWithSide(
 }
 
 describe("series game lobby ops", () => {
+  it("repairs known Extra cards in locked registration, series and lobby copies before Ready", async () => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const legacy = { ...deckWithSide(), main: deckWithSide().main.slice(0, 39), extra: [901] };
+    const { started, tournament } = tournamentMatch(app, 3, legacy);
+    const before = app.db.prepare("select deck_registered_at, deck_locked_at from tournament_participants where tournament_id=? order by player_id").all(tournament.id);
+    // Existing lobby seats and series snapshots can predate the repair as well.
+    app.db.prepare("update duel_seats set deck_json=? where duel_id=?").run(JSON.stringify(legacy), started.duel.id);
+    for (const column of ["base_deck0_json", "base_deck1_json", "deck0_json", "deck1_json"]) {
+      app.db.prepare(`update duel_series set ${column}=? where id=?`).run(JSON.stringify(legacy), started.series.id);
+    }
+    expect((await post(host, { op: "ready", slug: started.duel.slug, playerId: app.p1 })).status).toBe(200);
+    const response = await post(host, { op: "ready", slug: started.duel.slug, playerId: app.p2 });
+    expect(response.status).toBe(200);
+    expect(response.data.session.status).toBe("active");
+    expect(workers).toHaveLength(1);
+    const repaired = { ...legacy, main: [...legacy.main, 901], extra: [] };
+    expect(workers[0]!.createdOptions?.decks).toEqual([repaired, repaired]);
+    const registrations = app.db.prepare("select deck_json from tournament_participants where tournament_id=?").all(tournament.id) as { deck_json: string }[];
+    expect(registrations.map(row => JSON.parse(row.deck_json))).toEqual([repaired, repaired]);
+    for (const column of ["base_deck0_json", "base_deck1_json", "deck0_json", "deck1_json"]) {
+      expect(JSON.parse((app.db.prepare(`select ${column} as deck from duel_series where id=?`).get(started.series.id) as { deck: string }).deck)).toEqual(repaired);
+    }
+    expect(app.db.prepare("select deck_registered_at, deck_locked_at from tournament_participants where tournament_id=? order by player_id").all(tournament.id)).toEqual(before);
+  });
+
+  it("repairs between-game base/current copies without rewriting a completed game's deck", async () => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const { duel, series } = await startChallenge(app, host, 3);
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    const legacy = { ...deckWithSide(), main: deckWithSide().main.slice(0, 39), extra: [901] };
+    const historical = app.db.prepare("select deck_json from duel_seats where duel_id=? order by seat").all(duel.id);
+    for (const column of ["base_deck0_json", "base_deck1_json", "deck0_json", "deck1_json"]) {
+      app.db.prepare(`update duel_series set ${column}=? where id=?`).run(JSON.stringify(legacy), series.id);
+    }
+    expect((await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 })).status).toBe(200);
+    const response = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p2 });
+    expect(response.status).toBe(200);
+    expect(workers).toHaveLength(2);
+    expect(workers[1]!.createdOptions?.decks).toEqual(Array(2).fill({ ...legacy, main: [...legacy.main, 901], extra: [] }));
+    expect(app.db.prepare("select deck_json from duel_seats where duel_id=? order by seat").all(duel.id)).toEqual(historical);
+  });
+
+  it("shows remaining between-game blockers only to the ready owner and leaves unknown codes in Extra", async () => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const { duel, series } = await startChallenge(app, host, 3);
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+    const legacy = { ...deckWithSide(), main: deckWithSide().main.slice(0, 39), extra: [901, 999] };
+    app.db.prepare("update duel_series set base_deck0_json=?, deck0_json=? where id=?").run(JSON.stringify(legacy), JSON.stringify(legacy), series.id);
+    const view = await post(host, { op: "view", slug: duel.slug, playerId: app.p1 });
+    expect(view.status).toBe(200);
+    expect(view.data.startBlocked).toEqual({ reason: expect.stringContaining("card 999"), cardNames: ["card 999"] });
+    expect(view.data.mySide.currentDeck).toEqual({ ...legacy, main: [...legacy.main, 901], extra: [999] });
+    expect(view.data.series.sideReady[0]).toBe(true);
+    const opponent = await post(host, { op: "view", slug: duel.slug, playerId: app.p2 });
+    expect(opponent.status).toBe(200);
+    expect(opponent.data.startBlocked).toBeUndefined();
+    expect(JSON.stringify(opponent.data)).not.toContain("card 999");
+  });
+  it("names invalid tournament Extra cards only for their owner when autoStart is blocked", async () => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const bad = { ...deckWithSide(), extra: [999] };
+    const { started, tournament } = tournamentMatch(app, 3, bad);
+    const slug = started.duel.slug;
+    const before = app.db.prepare("select deck_json from tournament_participants where tournament_id=? order by player_id").all(tournament.id);
+    const refused = await post(host, { op: "ready", slug, playerId: app.p1 });
+    expect(refused.status).toBe(400);
+    expect(refused.data).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("card 999") });
+    // The other player's Ready succeeds, but the registered deck still blocks the start.
+    app.duels.markReady(slug, GUILD, app.p1);
+    app.duels.setDeck(slug, GUILD, app.p2, deckWithSide());
+    app.duels.markUnready(slug, GUILD, app.p2);
+    const startedResponse = await post(host, { op: "ready", slug, playerId: app.p2 });
+    expect(startedResponse.status).toBe(200);
+    expect(startedResponse.data).toMatchObject({ session: { status: "lobby" }, startBlocked: "Start blocked: another player's deck needs attention." });
+    expect(JSON.stringify(startedResponse.data)).not.toContain("card 999");
+    expect(startedResponse.data.error).toBeUndefined();
+    expect(app.duels.get(slug, GUILD).seats.find(seat => seat.playerId === app.p2)?.ready).toBe(true);
+    expect(workers).toHaveLength(0);
+    expect(app.db.prepare("select deck_json from tournament_participants where tournament_id=? order by player_id").all(tournament.id)).toEqual(before);
+    const ownerView = await post(host, { op: "view", slug, playerId: app.p1 });
+    expect(ownerView.status).toBe(200);
+    expect(ownerView.data.startBlocked).toEqual({ reason: expect.stringContaining("card 999"), cardNames: ["card 999"] });
+    const opponentView = await post(host, { op: "view", slug, playerId: app.p2 });
+    expect(opponentView.status).toBe(200);
+    expect(opponentView.data.startBlockedByOther).toBe(true);
+    expect(opponentView.data.startBlocked).toBeUndefined();
+    expect(JSON.stringify(opponentView.data)).not.toContain("card 999");
+  });
+  it("normalizes an uncached Extra passcode before saving a side deck between normal series games", async () => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const { duel } = challenge(app, 3);
+    const initial = { ...deckWithSide(), extra: [903] };
+    expect((await post(host, { op: "deck", slug: duel.slug, playerId: app.p1, deck: initial })).status).toBe(200);
+    expect((await post(host, { op: "deck", slug: duel.slug, playerId: app.p2, deck: initial })).status).toBe(200);
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ data: [{ id: 998, name: "Test Fusion", type: "Fusion Monster", frameType: "fusion", card_images: [{ image_url: "https://example.test/fusion.jpg", image_url_small: "https://example.test/fusion-small.jpg" }] }] }) }));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      const sided = await post(host, { op: "series-side", slug: duel.slug, playerId: app.p1, deck: { ...initial, extra: [998] } });
+      expect(sided.status).toBe(200);
+      expect(fetch).toHaveBeenCalled();
+      const ready = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+      expect(ready.status).toBe(200);
+      expect(ready.data.error).toBeUndefined();
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("returns the next game and a neutral block if an opponent's deck stops Ready advancement", async () => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const { duel, series } = await startChallenge(app, host, 3);
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    expect((await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 })).status).toBe(200);
+    // Simulate legacy data becoming visible after this opponent had already readied.
+    const bad = { ...app.series.sideState(series.id, GUILD, app.p1).currentDeck, extra: [999] };
+    app.db.prepare("update duel_series set deck0_json=? where id=?").run(JSON.stringify(bad), series.id);
+    const response = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p2 });
+    expect(response.status).toBe(200);
+    expect(response.data).toMatchObject({ nextSlug: app.series.get(series.id, GUILD).currentDuelSlug,
+      series: { status: "active" }, startBlocked: "Start blocked: another player's deck needs attention." });
+    expect(JSON.stringify(response.data)).not.toContain("card 999");
+    expect(response.data.error).toBeUndefined();
+    for (let read = 0; read < 2; read++) {
+      const otherView = await post(host, { op: "view", slug: response.data.nextSlug, playerId: app.p2 });
+      expect(otherView.status).toBe(200);
+      expect(otherView.data.startBlockedByOther).toBe(true);
+      expect(otherView.data.startBlocked).toBeUndefined();
+      expect(JSON.stringify(otherView.data)).not.toContain("card 999");
+    }
+    const ownerView = await post(host, { op: "view", slug: response.data.nextSlug, playerId: app.p1 });
+    expect(ownerView.data.startBlocked).toEqual({ reason: expect.stringContaining("card 999"), cardNames: ["card 999"] });
+    expect(ownerView.data.startBlockedByOther).toBeUndefined();
+    app.db.prepare("update duels set settings_json=json_set(settings_json, '$.visibility', 'public') where web_slug=?")
+      .run(response.data.nextSlug);
+    const spectatorView = await post(host, { op: "view", slug: response.data.nextSlug, playerId: app.p3 });
+    expect(spectatorView.status).toBe(200);
+    expect(spectatorView.data.startBlockedByOther).toBeUndefined();
+    expect(spectatorView.data.startBlocked).toBeUndefined();
+    expect(JSON.stringify(spectatorView.data)).not.toContain("card 999");
+    const ownerResponse = await post(host, { op: "ready", slug: response.data.nextSlug, playerId: app.p1 });
+    expect(ownerResponse.status).toBe(400);
+    expect(ownerResponse.data).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("card 999") });
+    expect(workers).toHaveLength(1);
+    const next = app.duels.get(response.data.nextSlug, GUILD);
+    expect(next.status).toBe("lobby");
+    expect(next.seats.every(seat => seat.ready)).toBe(true);
+  });
+  it.each(["deck", "seat", "unready", "start"] as const)("clears the other player's room flag after a %s change", async change => {
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const { duel, series } = await startChallenge(app, host, 3);
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+    const bad = { ...app.series.sideState(series.id, GUILD, app.p1).currentDeck, extra: [999] };
+    app.db.prepare("update duel_series set deck0_json=? where id=?").run(JSON.stringify(bad), series.id);
+    const response = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p2 });
+    const slug = response.data.nextSlug as string;
+    expect((await post(host, { op: "view", slug, playerId: app.p2 })).data.startBlockedByOther).toBe(true);
+
+    if (change === "deck") {
+      // Shared-service writes can happen without passing through the host.
+      app.duels.setDeck(slug, GUILD, app.p2, deckWithSide());
+    } else if (change === "seat") {
+      // Series seats are fixed in the UI; simulate an external seat replacement.
+      app.db.prepare("update duel_seats set player_id=? where duel_id=? and player_id=?")
+        .run(app.p3, app.duels.get(slug, GUILD).id, app.p1);
+    } else if (change === "unready") {
+      expect((await post(host, { op: "unready", slug, playerId: app.p1 })).status).toBe(200);
+    } else {
+      app.duels.setDeck(slug, GUILD, app.p1, deckWithSide());
+      const start = await post(host, { op: "start", slug, playerId: app.p2 });
+      expect(start.status).toBe(200);
+      expect(start.data.session.status).toBe("active");
+    }
+    for (let read = 0; read < 2; read++) {
+      const view = await post(host, { op: "view", slug, playerId: app.p2 });
+      expect(view.status).toBe(200);
+      expect(view.data).not.toHaveProperty("startBlockedByOther");
+      expect(view.data.startBlocked).toBeUndefined();
+      expect(JSON.stringify(view.data)).not.toContain("card 999");
+    }
+  });
+  it("keeps named card details with the owner while the other seat gets only the room flag", async () => {
+    const app = setup();
+    // Keep the real process bundle while the host uses its synthetic card database.
+    vi.unstubAllEnvs();
+    const { host, workers } = openHost(app);
+    const { duel, series } = await startChallenge(app, host, 3);
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+    const bad = { ...app.series.sideState(series.id, GUILD, app.p1).currentDeck, extra: [903, 903, 903, 903] };
+    app.db.prepare("update duel_series set deck0_json=? where id=?").run(JSON.stringify(bad), series.id);
+    const response = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p2 });
+    expect(response.status).toBe(200);
+    const slug = response.data.nextSlug as string;
+    const owner = await post(host, { op: "view", slug, playerId: app.p1 });
+    expect(owner.status).toBe(200);
+    expect(owner.data.startBlocked).toEqual({ reason: expect.stringMatching(/test fusion/i), cardNames: ["Test Fusion"] });
+    expect(owner.data.startBlockedByOther).toBeUndefined();
+    const other = await post(host, { op: "view", slug, playerId: app.p2 });
+    expect(other.status).toBe(200);
+    expect(other.data.startBlockedByOther).toBe(true);
+    expect(other.data.startBlocked).toBeUndefined();
+    expect(JSON.stringify(other.data).toLowerCase()).not.toContain("test fusion");
+  });
+  it("repairs future copies with the host directory and refreshes it between reads", async () => {
+    const app = setup();
+    const otherData = createHostDataFixture([
+      { code: 901, name: "Conflicting Fusion", type: 0x41 },
+      { code: 903, name: "Conflicting Spell", type: 2 },
+    ]);
+    try {
+      vi.stubEnv("DUEL_DATA_DIR", otherData);
+      const { host } = openHost(app);
+      const { duel, series } = challenge(app, 3);
+      const legacy = { ...deckWithSide(), extra: [901, 903] };
+      for (const column of ["base_deck0_json", "base_deck1_json", "deck0_json", "deck1_json"]) {
+        app.db.prepare(`update duel_series set ${column}=? where id=?`).run(JSON.stringify(legacy), series.id);
+      }
+      app.db.prepare("update duel_seats set deck_json=? where duel_id=?").run(JSON.stringify(legacy), duel.id);
+      const first = await post(host, { op: "view", slug: duel.slug, playerId: app.p1 });
+      expect(first.status).toBe(200);
+      expect(first.data.myDeck.extra).toEqual([903]);
+      expect(first.data.myDeck.main).toEqual([...legacy.main, 901]);
+      const path = join(DATA, "cards.cdb");
+      const cards = new Database(path);
+      try { cards.prepare("update datas set type=2 where id=903").run(); }
+      finally { cards.close(); }
+      const changed = new Date(Date.now() + 2000);
+      utimesSync(path, changed, changed);
+      const second = await post(host, { op: "view", slug: duel.slug, playerId: app.p1 });
+      expect(second.status).toBe(200);
+      expect(second.data.myDeck.extra).toEqual([]);
+      expect(second.data.myDeck.main).toEqual([...legacy.main, 901, 903]);
+    } finally {
+      const cards = new Database(join(DATA, "cards.cdb"));
+      try { cards.prepare("update datas set type=65 where id=903").run(); }
+      finally { cards.close(); }
+      const restored = new Date(Date.now() + 4000);
+      utimesSync(join(DATA, "cards.cdb"), restored, restored);
+      rmSync(otherData, { recursive: true, force: true });
+    }
+  });
+  it("does not label an engine start failure as another player's deck block", async () => {
+    const app = setup();
+    let failCreate = false;
+    const { host, workers } = openHost(app, { createWorker: () => {
+      if (!failCreate) return new FakeWorker();
+      return new class extends FakeWorker {
+        override async create() { throw new Error("Fixture engine unavailable"); }
+      }();
+    } });
+    const { duel } = await startChallenge(app, host, 3);
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+    failCreate = true;
+    const response = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p2 });
+    expect(response.status).toBe(200);
+    const view = await post(host, { op: "view", slug: response.data.nextSlug, playerId: app.p2 });
+    expect(view.status).toBe(200);
+    expect(view.data.session.status).toBe("lobby");
+    expect(view.data).not.toHaveProperty("startBlockedByOther");
+    expect(view.data).not.toHaveProperty("startBlocked");
+  });
+  it.each(["start", "ready", "deck"] as const)("clears an earlier deck block when %s fails for an engine reason", async op => {
+    const app = setup();
+    const { host, workers } = openHost(app, { createWorker: () => new class extends FakeWorker {
+      override async create() { throw new Error("Fixture engine unavailable"); }
+    }() });
+    const { duel } = challenge(app, 3);
+    const ownDeck = deckWithSide();
+    app.duels.setDeck(duel.slug, GUILD, app.p1, { ...ownDeck, extra: [903, 903, 903, 903] });
+    app.duels.setDeck(duel.slug, GUILD, app.p2, ownDeck);
+    const first = await post(host, { op: "start", slug: duel.slug, playerId: app.p2 });
+    expect(first.status).toBe(200);
+    expect(first.data.startBlockedByOther).toBe(true);
+    expect(workers).toHaveLength(0);
+    const before = app.duels.privateState(duel.slug, GUILD).decks;
+    // A rule change makes the old blocker inapplicable without changing any deck, seat or Ready flag.
+    app.db.prepare("update duels set settings_json=json_set(settings_json, '$.validateDeck', json('false')) where id=?")
+      .run(duel.id);
+    const second = await post(host, { op, slug: duel.slug, playerId: app.p2,
+      ...(op === "deck" ? { deck: ownDeck } : {}) });
+    expect(second.status).toBe(op === "start" ? 500 : 200);
+    expect(workers).toHaveLength(1);
+    expect(app.duels.privateState(duel.slug, GUILD).decks).toEqual(before);
+    const view = await post(host, { op: "view", slug: duel.slug, playerId: app.p2 });
+    expect(view.status).toBe(200);
+    expect(view.data).not.toHaveProperty("startBlockedByOther");
+    expect(view.data).not.toHaveProperty("startBlocked");
+  });
   it("starts a challenge game when the second player submits a deck, with seat 0 first in the engine order", async () => {
     const app = setup();
     const { host, workers } = openHost(app);
@@ -402,7 +701,8 @@ describe("series advance", () => {
     expect(after.status).toBe("active");
     expect(after.gameNumber).toBe(2);
     expect(after.currentDuelSlug).not.toBe(duel.slug);
-    expect(workers).toHaveLength(2);
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
+    await vi.waitFor(() => expect(app.duels.get(after.currentDuelSlug!, GUILD).status).toBe("active"));
     const game2 = app.duels.get(after.currentDuelSlug!, GUILD);
     expect(game2.status).toBe("active");
     expect(seatPlayer(app, game2.slug, 0)).toBe(loser);
@@ -508,7 +808,7 @@ describe("series advance", () => {
     expect(workers).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
     await settle();
-    expect(workers).toHaveLength(2);
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
     const nextSlug = app.series.get(series.id, GUILD).currentDuelSlug!;
     expect(seatPlayer(app, nextSlug, 1)).toBe(loser);
     expect(app.duels.privateState(nextSlug, GUILD).decks[1]).toEqual(sided);
@@ -858,7 +1158,7 @@ describe("series advance", () => {
       app.duels.setDeck(slug, GUILD, app.p1, deckWithSide());
       await vi.advanceTimersByTimeAsync(15 * 60_000);
       await settle();
-      expect(app.duels.get(slug, GUILD).status).toBe("active");
+      await vi.waitFor(() => expect(app.duels.get(slug, GUILD).status).toBe("active"));
       expect(workers).toHaveLength(1);
       expect(attempts()).toBe(5);
     } finally {
@@ -890,14 +1190,14 @@ describe("series advance", () => {
 
     const { workers } = openHost(app, { pollIntervalMs: 30_000 });
     await settle();
-    expect(workers).toHaveLength(1);
+    await vi.waitFor(() => expect(workers).toHaveLength(1));
     expect(app.duels.get(waiting.slug, GUILD).status).toBe("active");
     expect(app.series.get(first.series.id, GUILD).gameNumber).toBe(1);
 
     await vi.advanceTimersByTimeAsync(61_000);
     await settle();
     expect(app.series.get(first.series.id, GUILD).gameNumber).toBe(2);
-    expect(workers).toHaveLength(2);
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
   });
 
   it("times a between-games series that is not due yet when the host boots, instead of waiting for the next sweep", async () => {
@@ -919,7 +1219,7 @@ describe("series advance", () => {
     await vi.advanceTimersByTimeAsync(9_000);
     await settle();
     expect(app.series.get(first.series.id, GUILD).gameNumber).toBe(2);
-    expect(workers).toHaveLength(1);
+    await vi.waitFor(() => expect(workers).toHaveLength(1));
   });
 
   it("does not advance after the host closes", async () => {
@@ -962,7 +1262,7 @@ describe("Best of 3 against the practice bot", () => {
     expect(workers).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
     await settle();
-    expect(workers).toHaveLength(2);
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
     const series = app.series.forDuel(table.id)!;
     expect(humanSeat(app, series.currentDuelSlug!)).toBe(choice === "first" ? 0 : 1);
   });
@@ -1036,6 +1336,7 @@ describe("Best of 3 against the practice bot", () => {
     await settle();
     const after = app.series.get(between.data.series.id, GUILD);
     expect(after).toMatchObject({ status: "active", gameNumber: 2 });
+    await vi.waitFor(() => expect(app.duels.get(after.currentDuelSlug!, GUILD).status).toBe("active"));
     const game2 = app.duels.get(after.currentDuelSlug!, GUILD);
     expect(game2.status).toBe("active");
     expect(game2.seats.find((seat) => seat.seat === 0)!.isBot).toBe(true);
@@ -1054,6 +1355,33 @@ describe("Best of 3 against the practice bot", () => {
 });
 
 describe("tournament notices", () => {
+  it.each(["owner", "opponent"] as const)("refreshes the bracket when the %s's deck blocks Ready advancement", async failingPlayer => {
+    const app = setup();
+    const notify = vi.fn();
+    const { host, workers } = openHost(app, { notifyTournament: notify });
+    const { started } = tournamentMatch(app, 3);
+    const [a, b] = started.series.playerIds;
+    await post(host, { op: "ready", slug: started.duel.slug, playerId: a });
+    await post(host, { op: "ready", slug: started.duel.slug, playerId: b });
+    await endGame(host, workers[0]!, started.duel.slug, a, 0);
+    expect((await post(host, { op: "series-ready", slug: started.duel.slug, playerId: a })).status).toBe(200);
+    // Main size is checked during start, after the actor's Ready has been saved.
+    const bad = { ...deckWithSide(), main: deckWithSide().main.slice(0, 39) };
+    app.db.prepare(failingPlayer === "owner" ? "update duel_series set deck1_json=? where id=?" : "update duel_series set deck0_json=? where id=?")
+      .run(JSON.stringify(bad), started.series.id);
+    notify.mockClear();
+    const response = await post(host, { op: "series-ready", slug: started.duel.slug, playerId: b });
+    const latest = app.series.get(started.series.id, GUILD);
+    expect(latest.status).toBe("active");
+    expect(latest.currentDuelSlug).not.toBe(started.duel.slug);
+    expect(app.duels.get(latest.currentDuelSlug!, GUILD).status).toBe("lobby");
+    expect(response.status).toBe(failingPlayer === "owner" ? 400 : 200);
+    if (failingPlayer === "owner") expect(response.data.error).toContain("40");
+    else expect(response.data).toMatchObject({ nextSlug: latest.currentDuelSlug, startBlocked: "Start blocked: another player's deck needs attention." });
+    expect(notify).toHaveBeenCalledExactlyOnceWith({ kind: "match-updated", slug: started.series.tournamentSlug });
+    expect(workers).toHaveLength(1);
+  });
+
   it("tells the ws server about the slot and the finished tournament for a Best of 1", async () => {
     const app = setup();
     const notices: TournamentNotice[] = [];

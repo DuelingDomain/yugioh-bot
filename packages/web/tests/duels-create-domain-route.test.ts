@@ -4,7 +4,10 @@ import { MULTI_DOMAIN_UNAVAILABLE_MESSAGE } from "@yugidraft/shared/duels";
 const create = vi.fn();
 const callDuelHost = vi.fn();
 vi.mock("@/lib/duel-host", () => ({
-  requireDuelActor: vi.fn(async () => ({ ok: true, guildId: "g1", playerId: 1, duels: { create } })),
+  requireDuelActor: vi.fn(async () => ({ ok: true, guildId: "g1", playerId: 1, duels: { create, createRequest: (_input: unknown, action: () => { session: { slug: string } }) => {
+    const result = action();
+    return { ...result, changedSlugs: [result.session.slug], replayed: false };
+  } } })),
   duelErrorResponse: vi.fn(),
   callDuelHost: (...args: unknown[]) => callDuelHost(...args),
 }));

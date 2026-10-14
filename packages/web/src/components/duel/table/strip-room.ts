@@ -12,8 +12,8 @@ export const STRIP_ROOM = {
   /** The gap between tiles, and the panel's side padding, the strip's own and 10 px of slack (a border or a scrollbar must not drop a column). */
   gap: 12,
   side: 66,
-  /** Everything in the panel that is not the strip (title, chain line, chips, footer, paddings). */
-  chrome: 232,
+  /** Everything in the panel that is not the scrolling strip itself (title, chain line, chips, the strip's own bar, footer, paddings). */
+  chrome: 254,
   /** One row of tiles: the art (59:86), the two-line name and the row gap. */
   rowExtra: 57,
   /** The strip fades its last 28 px when more rows wait below: a room that shows one row keeps that much more, so the names stay clear. */
@@ -101,6 +101,14 @@ export interface StripRoomInput {
   source?: readonly Rect[];
   /** The height of the panel besides its cards, measured (px). Defaults to STRIP_ROOM.chrome, an estimate. */
   chrome?: number;
+  /** The largest tile (px) the room may take: the tile of the room already shown for this prompt, so a chrome that grows never brings a larger tile (and a jump) back. */
+  maxCard?: number;
+  /**
+   * A box (inside `box`) the room is centred in, whatever is under it: the screen's middle, where the player looks. The room takes the
+   * largest tiles that show a few cards in that box and is never moved to dodge a card or the HUD (the box's own height keeps it off the
+   * life plates). Without it the room is planned off the HUD and the cards (the tiers below).
+   */
+  fixed?: Rect | null;
 }
 
 export interface StripRoom extends Rect {
@@ -177,15 +185,86 @@ function variantsOf(count: number, box: { width: number; height: number }, tiles
  * Pure: the camera is never read or moved.
  */
 export function planStripRoom(input: StripRoomInput): StripRoom | undefined {
-  let best = planFor(input, STRIP_ROOM.card);
-  // A room that shows fewer than STRIP_ROOM.minShown tiles at a time while more choices wait scrolls too much: smaller tiles (112, then 96 px) are taken where they show more at a time.
+  if (input.fixed) return planFixed(input, input.fixed);
+  const cap = input.maxCard ?? Infinity;
+  const first = [STRIP_ROOM.card, ...STRIP_ROOM.smaller, ...EXTRA_TILES].find((tile) => tile <= cap) ?? EXTRA_TILES[EXTRA_TILES.length - 1];
+  let best = planFor(input, first);
+  // A room that shows fewer than STRIP_ROOM.minShown tiles at a time while more choices wait scrolls too much: smaller tiles (112, then 96 px) are taken where they show more.
   for (const tile of STRIP_ROOM.smaller) {
+    if (tile >= first) continue;
     if (!best || input.count <= tilesShown(best, input) || tilesShown(best, input) >= STRIP_ROOM.minShown) break;
     const next = planFor(input, tile);
     // Smaller tiles never buy their count with a worse cover: nothing more of your actions, your hand, the chain's cards or the HUD may be hidden.
     if (next && tilesShown(next, input) > tilesShown(best, input) && coverOf(next, input).every((n, i) => n <= coverOf(best!, input)[i])) best = next;
   }
+  // A box too low for one whole row of the chosen tiles plus the fade steps down to the first tile that fits, so the names stay above the fade.
+  // Where no tile fits, the smallest one that covers no more than the larger room is kept: a taller chrome never brings a larger tile back, so the panel does not jump between sizes.
+  if (best && best.height < leastHeight(best, input)) {
+    const wanted = best;
+    let smallest: StripRoom | undefined;
+    for (const tile of FIT_TILES) {
+      if (tile >= wanted.card) continue;
+      const next = planFor(input, tile);
+      if (!next || !coverOf(next, input).every((n, i) => n <= coverOf(wanted, input)[i])) continue;
+      smallest = next;
+      if (next.height >= leastHeight(next, input)) break;
+    }
+    if (smallest) best = smallest;
+  }
   return best;
+}
+
+/** The tiles a box too low for the larger ones falls back to, after STRIP_ROOM.smaller (the narrowest tile is 72 px). */
+const EXTRA_TILES = [80, 72];
+const FIT_TILES = [...STRIP_ROOM.smaller, ...EXTRA_TILES];
+
+/** The least height of a room that shows one whole row of its tiles (and the fade of the rows below it). */
+function leastHeight(room: StripRoom, input: Pick<StripRoomInput, "count" | "chrome">): number {
+  const rows = Math.ceil(input.count / room.cols);
+  return (input.chrome ?? STRIP_ROOM.chrome) + rowHeight(room.card) + (rows > 1 ? STRIP_ROOM.fade : 0);
+}
+
+/**
+ * The room of a panel fixed to the middle of `fixed`: the wanted width, the largest tiles (up to `maxCard`) whose whole row fits its height and
+ * that show a few cards, centred. Pure; nothing is measured but the panel's chrome.
+ */
+function planFixed(input: StripRoomInput, fixed: Rect): StripRoom | undefined {
+  const { count } = input;
+  // The fixed box already holds its own air (the plates and the hand it keeps off), so the room may take all of its height.
+  const box = { width: Math.min(input.box.width, fixed.width), height: Math.min(input.box.height, fixed.height + 2 * STRIP_ROOM.edge) };
+  if (!(box.width > 0) || !(box.height > 0) || !(count > 0)) return undefined;
+  const chrome = input.chrome ?? STRIP_ROOM.chrome;
+  // The largest tile the room may take (the tile already shown for this prompt, so a chrome that grows never brings a larger one back) down to the
+  // first one whose whole row fits the box with the fade below it, so no card is clipped; the tiles that show fewer than STRIP_ROOM.minShown cards
+  // give way to the smaller ones while those still fit. Where none fits, the smallest tile.
+  const cap = input.maxCard ?? Infinity;
+  const tiles = [STRIP_ROOM.card, ...STRIP_ROOM.smaller, ...EXTRA_TILES].filter((tile) => tile <= cap);
+  if (tiles.length === 0) tiles.push(EXTRA_TILES[EXTRA_TILES.length - 1]);
+  let pick: { size: StripRoomSize; shown: number } | null = null;
+  for (const tile of tiles) {
+    const size = stripRoomSize(count, box, STRIP_ROOM.maxCols, tile, chrome);
+    const room = { x: 0, y: 0, width: size.width, height: size.height, card: size.card, cols: size.cols };
+    if (size.height < leastHeight(room, { count, chrome })) {
+      // No whole row fits yet: the smaller tile tried next replaces this one, and the smallest stays where none fits.
+      if (!pick || pick.shown < 0) pick = { size, shown: -1 };
+      continue;
+    }
+    const shown = tilesShown(room, { count, chrome });
+    if (!pick || pick.shown < 0 || shown > pick.shown) pick = { size, shown };
+    if (shown >= Math.min(count, STRIP_ROOM.minShown)) break;
+  }
+  if (!pick || pick.size.width <= 0 || pick.size.height <= 0) return undefined;
+  const { size } = pick;
+  const cx = fixed.x + fixed.width / 2;
+  const cy = fixed.y + fixed.height / 2;
+  return {
+    x: Math.round(Math.min(Math.max(STRIP_ROOM.edge, cx - size.width / 2), Math.max(STRIP_ROOM.edge, input.box.width - size.width - STRIP_ROOM.edge))),
+    y: Math.round(Math.min(Math.max(STRIP_ROOM.edge, cy - size.height / 2), Math.max(STRIP_ROOM.edge, input.box.height - size.height - STRIP_ROOM.edge))),
+    width: Math.round(size.width),
+    height: Math.round(size.height),
+    card: size.card,
+    cols: size.cols,
+  };
 }
 
 /** What a room covers, as counts: your actions, the deep hand, the chain's cards, the key HUD, the soft HUD (a sliver does not count). */

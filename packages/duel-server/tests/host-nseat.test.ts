@@ -595,6 +595,43 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
     expect(scripts?.map((script) => script.content)).toEqual(state.setup?.startupScripts);
   });
 
+  it("keeps a scenario out of web replacement while its engine starts", async () => {
+    process.env.DUEL_SCENARIOS = "1";
+    const t = scenarioHost();
+    const duels = createDuelService(t.db);
+    const original = t.worker.create.bind(t.worker);
+    let release!: () => void;
+    let starting = false;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    t.worker.create = async options => { starting = true; await held; await original(options); };
+    const pending = post(t.host, { op: "start-preset", presetId: "dust-tornado-chain", ...t.who });
+    try {
+      await vi.waitFor(() => expect(starting).toBe(true), { timeout: 15_000 });
+      const row = t.db.prepare("select web_slug from duels where status = 'lobby'").get() as { web_slug: string };
+      expect(duels.privateState(row.web_slug, "g1").setup?.presetId).toBe("dust-tornado-chain");
+      const created = duels.createRequest({ guildId: "g1", organizerPlayerId: t.who.playerId, fingerprint: "web" }, () => ({ session: duels.create({ guildId: "g1", organizerPlayerId: t.who.playerId, name: "Web table", mode: "normal" }) }));
+      expect(created.changedSlugs).toEqual([created.session.slug]);
+      expect(duels.get(row.web_slug, "g1").status).toBe("lobby");
+      release();
+      expect((await pending).status).toBe(200);
+    } finally { release(); await pending; }
+  });
+
+  it("starts two presets for the same host and keeps their existing waiting table", async () => {
+    process.env.DUEL_SCENARIOS = "1";
+    const t = scenarioHost();
+    const duels = createDuelService(t.db);
+    const open = duels.create({ guildId: "g1", organizerPlayerId: t.who.playerId, name: "Waiting for a friend", mode: "normal" });
+    const first = await post(t.host, { op: "start-preset", presetId: "dust-tornado-chain", ...t.who });
+    const second = await post(t.host, { op: "start-preset", presetId: "dust-tornado-chain", ...t.who });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.data.slug).not.toBe(first.data.slug);
+    expect(duels.get(open.slug, "g1").status).toBe("lobby");
+    expect(duels.get(first.data.slug, "g1").status).toBe("active");
+    expect(duels.get(second.data.slug, "g1").status).toBe("active");
+  });
+
   it("gives a scenario table no chain response switch", async () => {
     process.env.DUEL_SCENARIOS = "1";
     const t = scenarioHost();
@@ -741,6 +778,17 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
     process.env.DUEL_REPORT_DIR = dir;
     const { t, slug, stuck } = await blockedDuel();
     try {
+      const row = t.db.prepare("select setup_json from duels where web_slug = ?").get(slug) as { setup_json: string };
+      const savedSetup = JSON.parse(row.setup_json);
+      t.db.prepare("update duels set setup_json = ? where web_slug = ?").run(JSON.stringify({ ...savedSetup, replayFork: {
+        ownerUserId: 101, control: "all-manual", origin: {
+          sourceSlug: "private-partial-source", sourceVersion: "source-v1", frameId: "frame-2", step: 2,
+          prefixCount: 7, prefixHash: "a".repeat(64), sourceSeats: [{ seat: 0, displayName: null }, { seat: 1, displayName: null }],
+        },
+      } }), slug);
+      const denied = await post(t.host, { op: "report", slug, note: "Forged fork metadata", ...t.who });
+      expect(denied.status).toBe(404);
+      t.db.prepare("update duels set setup_json = ? where web_slug = ?").run(JSON.stringify(savedSetup), slug);
       const began = Date.now();
       const reported = await post(t.host, { op: "report", slug, note: "Hung.", ...t.who });
       expect(Date.now() - began).toBeLessThan(2000);
@@ -751,6 +799,9 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
       expect(existsSync(join(folder, "journal.jsonl"))).toBe(true);
       expect(existsSync(join(folder, "views", "seat-0.json"))).toBe(true);
       expect(existsSync(join(folder, "room-setup.json"))).toBe(true);
+      const roomSetupText = readFileSync(join(folder, "room-setup.json"), "utf8");
+      expect(JSON.parse(roomSetupText).setup).toEqual(savedSetup);
+      // host-report-replay.test.ts proves redaction with real fork metadata in the report input.
       expect(existsSync(join(folder, "engine-diagnostics.json"))).toBe(true);
       expect(JSON.parse(readFileSync(join(folder, "debug-trace.json"), "utf8")).worker.busy).toBe(true);
       expect(JSON.parse(readFileSync(join(folder, "partial.json"), "utf8"))).toMatchObject({ partial: true, slug });
@@ -935,7 +986,7 @@ describe("the engine version a duel pins", () => {
 
   async function activated(format: DuelFormat, humans: number, version: string) {
     const t = await table(format, humans, []);
-    t.duels.activate(t.slug, "g1", t.players[0]!, ["seed"], version, null, { firstTurnDraw: false });
+    t.duels.activate(t.slug, "g1", t.players[0]!, ["1", "2", "3", "4"], version, null, { firstTurnDraw: false });
     return t;
   }
   const view = (t: Awaited<ReturnType<typeof table>>) => post(t.host, { op: "view", ...t.organizer });

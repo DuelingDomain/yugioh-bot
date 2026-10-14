@@ -239,8 +239,12 @@ export function resolveReturnSource(from: DuelZoneRef, seat: number, mySeat: num
   const side: "you" | "opp" = seat === (mySeat ?? 0) ? "you" : "opp";
   for (const kind of [PILE_KIND[from.location], "gy"]) {
     if (!kind) continue;
-    const pile = document.querySelector<HTMLElement>(`[data-kind="${kind}"][data-side="${side}"]`);
-    const snap = pile ? snapshotOf(pile, side) : null;
+    // The pile of the master's own seat: a table with several rivals has many "opp" piles, and the first one is not hers.
+    // A pile lists the keys of its cards (or its own empty key) as `seat:location:sequence`.
+    const piles = Array.from(document.querySelectorAll<HTMLElement>(`[data-kind="${kind}"]`));
+    const own = piles.find((el) => (el.dataset.zones ?? "").split(/\s+/).some((key) => key.startsWith(`${seat}:`)));
+    const pile = own ?? piles.find((el) => el.dataset.side === side);
+    const snap = pile ? snapshotOf(pile, own ? (own.dataset.side === "opp" ? "opp" : "you") : side) : null;
     if (snap) return snap;
   }
   return null;

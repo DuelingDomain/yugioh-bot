@@ -1,4 +1,6 @@
+import { LOCATION_DMZONE, zoneKey } from "../constants";
 import { duelFxClock } from "../fx-clock";
+import { getZoneSnapshot } from "../move-plan";
 import { DM_CARD_FADE_MS, DM_SLOT_MAX_MS, dmDurationMs, tiltDegOfCss } from "../fx3d/effects/deckmaster-summon-timeline";
 import { getSharedFx3d, viewportToHost } from "../fx3d/shared";
 import type { FxRect } from "../fx3d/types";
@@ -25,6 +27,8 @@ export type DeckMasterSummonInput = {
   zone: Element;
   /** The page card standing in that zone. It is hidden until the settle beat. Null: nothing to hide. */
   card?: Element | null;
+  /** What shows the card, to hide in its place (the zone frame, which is the outline, stays). Default: the card itself. */
+  parts?: readonly HTMLElement[];
   /** `.sv-plane`: its computed `--tilt` is the table tilt. Null or flat: 0. */
   plane?: Element | null;
   reduced: boolean;
@@ -54,6 +58,29 @@ export function findDockSource(seat: number): HTMLElement | null {
   return chip[0] ?? null;
 }
 
+type ViewportBox = { left: number; top: number; width: number; height: number };
+
+/**
+ * Where the hologram starts, in viewport pixels. In order:
+ *   1. the dock picture (the master is in its zone: the 1v1 rail without "In use");
+ *   2. the plate's box from before the update (`getZoneSnapshot`): once the master is out, the rail plate shows
+ *      "In use" and has no picture, and the view has already changed;
+ *   3. the dock plate itself (`[data-master-dock]`, with a size);
+ *   4. the chip on a phone.
+ * Null: nothing to start from (the caller uses a point under the zone).
+ */
+export function findDockRect(seat: number): ViewportBox | null {
+  if (typeof document === "undefined") return null;
+  const picture = Array.from(document.querySelectorAll<HTMLElement>(`[data-master-dock="${seat}"] img`)).filter(big)[0];
+  if (picture) return picture.getBoundingClientRect();
+  const snap = getZoneSnapshot({ controller: seat, location: LOCATION_DMZONE, sequence: 0 });
+  if (snap && snap.rect.width >= 4 && snap.rect.height >= 4) return snap.rect;
+  const plate = Array.from(document.querySelectorAll<HTMLElement>(`[data-master-dock="${seat}"]`)).filter(big)[0];
+  if (plate) return plate.getBoundingClientRect();
+  const chip = Array.from(document.querySelectorAll<HTMLElement>(`[data-sv-dm-chip="${seat}"]`)).filter(big)[0];
+  return chip ? chip.getBoundingClientRect() : null;
+}
+
 /** Starts loading and uploading the art early (call when the Deck Master is known). */
 export function prewarmDeckMasterArt(code: number): void {
   if (code > 0) getSharedFx3d()?.api.prefetchArt(code, true);
@@ -69,8 +96,8 @@ export function deckMasterSummonMs(reduced: boolean): number {
   return Math.min(DM_SLOT_MAX_MS, dmDurationMs(reduced));
 }
 
-function toRect(el: Element, host: { left: number; top: number }): FxRect {
-  const r = el.getBoundingClientRect();
+function toRect(el: Element | ViewportBox, host: { left: number; top: number }): FxRect {
+  const r = "getBoundingClientRect" in el ? el.getBoundingClientRect() : el;
   return viewportToHost({ left: r.left, top: r.top, width: r.width, height: r.height }, host);
 }
 
@@ -82,14 +109,16 @@ export async function playDeckMasterSummon(input: DeckMasterSummonInput): Promis
   const rect = toRect(input.zone, host);
   const cardEl = input.card ?? null;
   const dock = findDockSource(input.seat);
-  const from = dock ? toRect(dock, host) : { x: rect.x, y: rect.y + rect.h, w: rect.w * 0.6, h: rect.h * 0.6 };
+  const dockBox = findDockRect(input.seat);
+  const from = dockBox ? toRect(dockBox, host) : { x: rect.x, y: rect.y + rect.h, w: rect.w * 0.6, h: rect.h * 0.6 };
 
   prewarmDeckMasterArt(input.code);
 
   // Hide what the hologram stands in for.
   const card = cardEl as HTMLElement | null;
-  const saved = card ? card.style.opacity : "";
-  if (card && !input.reduced) card.style.opacity = "0";
+  const parts = input.parts ?? (card ? [card] : []);
+  const saved = parts.map((part) => part.style.opacity);
+  if (!input.reduced) for (const part of parts) part.style.opacity = "0";
   const dockImg = dock && dock instanceof HTMLImageElement && !input.reduced ? dock : null;
   const dockSaved = dockImg ? dockImg.style.visibility : "";
   if (dockImg) dockImg.style.visibility = "hidden";
@@ -98,12 +127,13 @@ export async function playDeckMasterSummon(input: DeckMasterSummonInput): Promis
 
   let cardShown = false;
   const showCard = (): void => {
-    if (cardShown || !card) return;
+    if (cardShown || parts.length === 0) return;
     cardShown = true;
-    card.style.opacity = saved;
-    if (!input.reduced) {
-      try { duelFxClock.animate(card, [{ opacity: 0 }, { opacity: 1 }], { duration: DM_CARD_FADE_MS, easing: "ease-out", fill: "backwards" }); } catch { /* no animation: the card just shows */ }
-    }
+    parts.forEach((part, index) => {
+      part.style.opacity = saved[index];
+      if (input.reduced) return;
+      try { duelFxClock.animate(part, [{ opacity: 0 }, { opacity: 1 }], { duration: DM_CARD_FADE_MS, easing: "ease-out", fill: "backwards" }); } catch { /* no animation: the card just shows */ }
+    });
   };
   const safety = duelFxClock.setTimeout(showCard, SAFETY_MS);
 

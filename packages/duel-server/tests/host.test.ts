@@ -1,6 +1,6 @@
 import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -12,6 +12,7 @@ import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import type { DecisionClockState } from "../src/clock.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 
 const SECRET = "duel-host-test-secret";
 const MANIFEST = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")) as { bundleVersion: string };
@@ -143,6 +144,7 @@ class FakeWorker implements DuelGameWorker {
 
 type HostHarness = {
   db?: Database.Database;
+  dataDirectory?: string;
   onChange?: (slug: string, guildId: string) => void | Promise<void>;
   archiveAfterMs?: number;
   idleWorkerMs?: number;
@@ -166,7 +168,7 @@ function openHost(createWorker: (() => DuelGameWorker) | undefined, extra: HostH
   if (!extra.db) migrate(db);
   const host = createDuelHost({
     db,
-    dataDirectory: DATA,
+    dataDirectory: extra.dataDirectory ?? DATA,
     secret: SECRET,
     searchCards: () => [],
     archiveAfterMs: extra.archiveAfterMs ?? 60 * 60 * 1000,
@@ -367,7 +369,7 @@ describe("duel host rooms", () => {
     migrate(db);
     const { p1, p2 } = seedPlayers(db);
     const { session, duels } = readyLobby(db, p1, p2);
-    duels.activate(session.slug, "g1", p1, ["seed-a"], MANIFEST.bundleVersion, null);
+    duels.activate(session.slug, "g1", p1, ["1", "2", "3", "4"], MANIFEST.bundleVersion, null);
 
     let attempts = 0;
     const { host } = openHost(() => {
@@ -386,7 +388,7 @@ describe("duel host rooms", () => {
     expect(duels.get(session.slug, "g1").status).toBe("active");
 
     const other = readyLobby(db, p1, p2);
-    other.duels.activate(other.session.slug, "g1", p1, ["seed-b"], MANIFEST.bundleVersion, null);
+    other.duels.activate(other.session.slug, "g1", p1, ["5", "6", "7", "8"], MANIFEST.bundleVersion, null);
     other.duels.recordCommand(other.session.slug, "g1", 0, { promptId: "saved", revision: 1, answer: { choice: "pass" } }, null);
     const { host: mismatchHost } = openHost(() => {
       const worker = new FakeWorker();
@@ -396,6 +398,25 @@ describe("duel host rooms", () => {
     const mismatched = await post(mismatchHost, { op: "view", slug: other.session.slug, guildId: "g1", playerId: p1 });
     expect(mismatched.status).toBe(409);
     expect(other.duels.get(other.session.slug, "g1").status).toBe("interrupted");
+  });
+
+  it("interrupts active recovery when the journal uses a retired loss rule", async () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    const { p1, p2 } = seedPlayers(db);
+    const { session, duels } = readyLobby(db, p1, p2);
+    duels.activate(session.slug, "g1", p1, ["1", "2", "3", "4"], MANIFEST.bundleVersion, null);
+    duels.recordCommand(session.slug, "g1", 0, { promptId: "eliminate-eot:3", revision: 1, answer: {} }, null);
+    const workers: FakeWorker[] = [];
+    const changes: Array<[string, string]> = [];
+    const { host } = openHost(() => {
+      const worker = new FakeWorker(); workers.push(worker); return worker;
+    }, { db, onChange: (slug, guildId) => { changes.push([slug, guildId]); } });
+    const response = await post(host, { op: "view", slug: session.slug, guildId: "g1", playerId: p1 });
+    expect(response).toMatchObject({ status: 409, data: { code: "ENGINE_UNAVAILABLE_FOR_SOURCE" } });
+    expect(duels.get(session.slug, "g1").status).toBe("interrupted");
+    expect(workers).toHaveLength(0);
+    expect(changes).toContainEqual([session.slug, "g1"]);
   });
 
   it("does not complete when a final board snapshot fails, then recovers", async () => {
@@ -429,7 +450,7 @@ describe("duel host rooms", () => {
     const { p1, p2 } = seedPlayers(db);
 
     const dead = readyLobby(db, p1, p2);
-    dead.duels.activate(dead.session.slug, "g1", p1, ["seed-dead"], MANIFEST.bundleVersion, null);
+    dead.duels.activate(dead.session.slug, "g1", p1, ["1", "2", "3", "4"], MANIFEST.bundleVersion, null);
     dead.duels.recordCommand(dead.session.slug, "g1", 0, { promptId: "saved", revision: 1, answer: { choice: "pass" } }, null);
     let deadAttempts = 0;
     const { host: deadHost } = openHost(() => {
@@ -447,7 +468,7 @@ describe("duel host rooms", () => {
     expect(dead.duels.get(dead.session.slug, "g1").status).toBe("active");
 
     const rejected = readyLobby(db, p1, p2);
-    rejected.duels.activate(rejected.session.slug, "g1", p1, ["seed-reject"], MANIFEST.bundleVersion, null);
+    rejected.duels.activate(rejected.session.slug, "g1", p1, ["5", "6", "7", "8"], MANIFEST.bundleVersion, null);
     rejected.duels.recordCommand(rejected.session.slug, "g1", 0, { promptId: "saved", revision: 1, answer: { choice: "pass" } }, null);
     const { host: rejectHost } = openHost(() => {
       const worker = new FakeWorker();
@@ -876,7 +897,8 @@ describe("duel host clocks", () => {
 
     nowMs = 35_000;
     await vi.advanceTimersByTimeAsync(20);
-    expect(duels.get(session.slug, "g1").status).toBe("completed");
+    // Recovery now awaits the resource hash worker before the sweep can finish.
+    await vi.waitFor(() => expect(duels.get(session.slug, "g1").status).toBe("completed"));
     expect(duels.get(session.slug, "g1").winnerSeat).toBe(1);
     expect(duels.get(session.slug, "g1").resultReason).toBe("Time limit");
     const retained = duels.room(session.slug, "g1", p1);
@@ -1110,6 +1132,7 @@ class LoggingWorker extends FakeWorker {
     const ids = Array.from({ length: this.revision }, (_, index) => index + 1);
     return {
       ...base,
+      ...(seat === null ? {} : { chainMode: "always" as const }),
       log: ids.map((id) => ({ id, text: `log ${id}` })),
       events: ids.map((id) => ({ id, kind: "phase" as const, text: `event ${id}` })),
     };
@@ -1151,6 +1174,20 @@ describe("duel host replay", () => {
   };
   const readReplay = (data: unknown) => data as ReplayBody;
 
+  it.each([{ seed: ["1"] }, { seed: ["0", "2", "3", "4"] }, { seed: ["1", "2", "3", "18446744073709551616"] }])
+  ("refuses invalid saved seed $seed before spawning and preserves source rows", async ({ seed }) => {
+    const { host, session, p1, db, spawned } = await playedDuel(true);
+    db.prepare("update duels set seed_json = ? where id = ?").run(JSON.stringify(seed), session.id);
+    const beforeDuel = db.prepare("select * from duels where id = ?").get(session.id);
+    const beforeCommands = db.prepare("select * from duel_commands where duel_id = ? order by seq").all(session.id);
+    const beforeSpawns = spawned.count;
+    const response = await post(host, { op: "replay", slug: session.slug, guildId: "g1", playerId: p1 });
+    expect(response.status).toBe(409);
+    expect(spawned.count).toBe(beforeSpawns);
+    expect(db.prepare("select * from duels where id = ?").get(session.id)).toEqual(beforeDuel);
+    expect(db.prepare("select * from duel_commands where duel_id = ? order by seq").all(session.id)).toEqual(beforeCommands);
+  });
+
   it("replays a surrendered duel with delta log/events and a final result frame", async () => {
     const { host, session, p1, duels } = await playedDuel(true);
     const before = duels.get(session.slug, "g1");
@@ -1189,6 +1226,7 @@ describe("duel host replay", () => {
       for (const frame of frames) {
         expect(frame.view.prioritySeat).toBeNull();
         expect(frame.view.prompt).toBeNull();
+        expect(frame.view).not.toHaveProperty("chainMode");
       }
     }
     const stored = db.prepare("select snapshot_public_json, snapshot_seat0_json, snapshot_seat1_json from duels where web_slug = ?")
@@ -1206,6 +1244,22 @@ describe("duel host replay", () => {
     const json = JSON.stringify(replay.frames);
     expect(json).not.toContain("111");
     expect(json).not.toContain("222");
+  });
+
+  it("sanitizes a synthetic final frame when an interrupted duel has no saved board", async () => {
+    const { host, session, p1, duels } = await playedDuel(false, 1);
+    duels.interrupt(session.slug, "g1", "Fixture interruption");
+    expect(duels.room(session.slug, "g1", p1).engine).toBeNull();
+    const response = await post(host, { op: "replay", slug: session.slug, guildId: "g1", playerId: p1 });
+    expect(response.status).toBe(200);
+    const frames = readReplay(response.data).frames;
+    expect(frames).toHaveLength(3);
+    expect(frames.at(-1)?.view.result?.reason).toBe("Fixture interruption");
+    for (const frame of frames) {
+      expect(frame.view.prompt).toBeNull();
+      expect(frame.view.prioritySeat).toBeNull();
+      expect(frame.view).not.toHaveProperty("chainMode");
+    }
   });
 
   it("stops at an engine result and skips the extra final frame", async () => {
@@ -1249,15 +1303,32 @@ describe("duel host replay", () => {
     expect(readHostError(res.data)).toBe("Replays are available after the duel ends");
   });
 
-  it("refuses a changed engine bundle without touching the duel", async () => {
+  it("verifies a changed engine bundle without touching the duel", async () => {
     const { host, session, p1, db, duels } = await playedDuel(true);
     db.prepare("update duels set bundle_version = 'old-bundle' where web_slug = ?").run(session.slug);
-    const before = duels.get(session.slug, "g1");
+    const before = duels.privateState(session.slug, "g1");
     const res = await post(host, { op: "replay", slug: session.slug, guildId: "g1", playerId: p1 });
-    expect(res.status).toBe(409);
-    expect(readHostError(res.data)).toContain("engine changed");
-    expect(duels.get(session.slug, "g1")).toEqual(before);
-    expect(before.status).toBe("completed");
+    expect(res).toMatchObject({ status: 200, data: { verification: "verified" } });
+    expect(duels.privateState(session.slug, "g1")).toEqual(before);
+    expect(before.session.status).toBe("completed");
+    expect(before.bundleVersion).toBe("old-bundle");
+  });
+
+  it("refuses a missing source engine before spawning without touching the duel", async () => {
+    const { session, p1, db, duels } = await playedDuel(true);
+    const directory = createHostDataFixture([]);
+    let spawned = 0;
+    try {
+      rmSync(join(directory, "ocgcore.standard.wasm"));
+      db.prepare("update duels set setup_json=json_set(setup_json,'$.engine','pinned','$.engineIdentity.coreFamily','pinned') where id=?")
+        .run(session.id);
+      const other = openHost(() => { spawned++; return new LoggingWorker(); }, { db, dataDirectory: directory });
+      const before = duels.privateState(session.slug, "g1");
+      const res = await post(other.host, { op: "replay", slug: session.slug, guildId: "g1", playerId: p1 });
+      expect(res).toMatchObject({ status: 409, data: { code: "ENGINE_UNAVAILABLE_FOR_SOURCE" } });
+      expect(spawned).toBe(0);
+      expect(duels.privateState(session.slug, "g1")).toEqual(before);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
   it("reports a replay that cannot be reproduced and closes its worker", async () => {
@@ -1286,7 +1357,8 @@ describe("duel host replay", () => {
     }, { db });
     const res = await post(other.host, { op: "replay", slug: session.slug, guildId: "g1", playerId: p1 });
     expect(res.status).toBe(503);
-    expect(readHostError(res.data)).toBe("spawn failed");
+    expect(readHostError(res.data)).toBe("Replay engine is temporarily unavailable.");
+    expect(res.data).toMatchObject({ code: "ENGINE_BUSY" });
   });
 
   it("caches replays per viewer", async () => {

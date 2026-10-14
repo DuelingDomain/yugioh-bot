@@ -346,6 +346,28 @@ describe("POST /api/bug-reports", () => {
     expect(githubCalls()[0]!.payload.body).not.toContain("duel-other");
   });
 
+  it.each([undefined, 50])("rejects a fork report before storage, host logs or GitHub, duplicateOf=%s", async duplicateOf => {
+    const userId = fixtureUserId(DISCORD_ID);
+    vi.stubEnv("OWNER_USER_IDS", String(userId));
+    const { getDb } = await import("../src/lib/db");
+    const setup = { replayFork: { ownerUserId: userId, control: "all-manual", origin: {
+      sourceSlug: "duel-private", sourceVersion: "source-v1", frameId: "opening", step: 0, prefixCount: 0,
+      prefixHash: "a".repeat(64), sourceSeats: [0, 1, 2].map(seat => ({ seat, displayName: `Source ${seat}` })),
+    } } };
+    const forkId = Number(getDb().prepare(`insert into duels(guild_id, web_slug, name, organizer_player_id, mode, status, format, kind, setup_json)
+      values(?, 'fork-report', 'Test fork', 1, 'normal', 'active', 'ffa3', 'replay-fork', ?)`).run(GUILD, JSON.stringify(setup)).lastInsertRowid);
+    getDb().prepare("insert into duel_seats(duel_id, seat, player_id) values(?, 0, 1)").run(forkId);
+    const POST = await route();
+    const res = await POST(post(body({ duplicateOf, duelSlug: "fork-report", path: "/duels/fork-report",
+      description: "The replay fork fork-report shows a private source log" })));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "Bug reports from replay forks are disabled to protect private duel data." });
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(await rows()).toHaveLength(0);
+    expect(callDuelHost).not.toHaveBeenCalled();
+    expect(github).not.toHaveBeenCalled();
+  });
+
   it("drops the duel slug when the player may not see the duel: not saved, no replay link, no slug in the issue", async () => {
     const POST = await route();
     const res = await POST(post(body({ duelSlug: "duel-private", path: "/duels/duel-private" })));

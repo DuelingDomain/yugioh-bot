@@ -11,7 +11,7 @@ vi.mock("next/font/google", () => {
 });
 
 const state = vi.hoisted(() => ({ data: null as unknown, replace: (() => undefined) as (path: string) => void }));
-vi.mock("swr", () => ({
+vi.mock("swr", () => ({ useSWRConfig: () => ({ mutate: () => Promise.resolve() }),
   default: () => ({ data: state.data, error: undefined, isLoading: false, mutate: () => undefined }),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace, push: () => undefined }) }));

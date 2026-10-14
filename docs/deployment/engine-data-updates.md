@@ -1,5 +1,7 @@
 # Engine data updates
 
+Staging is removed; it returns later on a separate server.
+
 The admin `GET /api/admin/card-data-status` endpoint reports the installed bundle and
 each pinned source's GitHub committer date as **data as of** (`engine.sources.*.pinnedCommitDate`).
 Preparation time is unknown (`preparedAt: null`, `preparedAtSource: "unknown"`); manifest
@@ -133,7 +135,7 @@ Deck import, code normalization, legality/pool counting and numeric scenario-car
 
 The web image route tries YGOPRODeck first and, after a 404 for full/small images, retries `https://pics.projectignis.org:2096/pics/{passcode}.jpg`. The duel UI and 3D art use those full/small routes, so temporary passcodes receive the existing Ignis fallback. Cropped images have no Ignis fallback and may return 404. No image/UI changes are needed for this feature.
 
-The scheduled workflow uses this same merge for names and candidate validation. It reports added, removed and graduated previews (including old-to-official codes), every deduplication drop, and added/removed release filenames. Loaded release and prerelease scripts participate in the advisory initialization probe and multiplayer scan even when those scripts did not change. Tree discovery receives `GITHUB_TOKEN` in CI, deployment, staging and candidate preparation. Tree/database downloads retry HTTP 403, 429 and 5xx three times, using `Retry-After` (seconds or HTTP date); `x-ratelimit-reset` also applies only when `x-ratelimit-remaining` is `0`. Exponential delays apply when no future server deadline is available. Each delay is capped at 60 seconds; exhausted retries fail the command so an operator can rerun it. Publication still accepts only the three existing pin files; no preview registry or release list is generated or committed. Bundle cache keys in CI, deployment and staging include both merge and prerelease-history helpers. Core-only checksums remain unchanged; `expected-sha256.txt` files contain WASM/Domain Lua hashes, not card-data hashes.
+The scheduled workflow uses this same merge for names and candidate validation. It reports added, removed and graduated previews (including old-to-official codes), every deduplication drop, and added/removed release filenames. Loaded release and prerelease scripts participate in the advisory initialization probe and multiplayer scan even when those scripts did not change. Tree discovery receives `GITHUB_TOKEN` in CI, deployment and candidate preparation. Tree/database downloads retry HTTP 403, 429 and 5xx three times, using `Retry-After` (seconds or HTTP date); `x-ratelimit-reset` also applies only when `x-ratelimit-remaining` is `0`. Exponential delays apply when no future server deadline is available. Each delay is capped at 60 seconds; exhausted retries fail the command so an operator can rerun it. Publication still accepts only the three existing pin files; no preview registry or release list is generated or committed. Bundle cache keys in CI and deployment include both merge and prerelease-history helpers. Core-only checksums remain unchanged; `expected-sha256.txt` files contain WASM/Domain Lua hashes, not card-data hashes.
 
 The C6 geometry audit scans every Lua directory in the prepared `card-scripts/` corpus and requires an exact match with `packages/duel-server/tests/fixtures/c6-geometry-audit.json`, including a reviewed reason for every expression. Prerelease support restores four expressions in `pre-release/c100458010.lua`, `c101402090.lua` and `c101403030.lua`, bringing the stock audit from 169 to 173 expressions. The fixture documents their masks/mirroring and limits; passing it does not prove effect gameplay. Castellan `101402090` has an unresolved FFA4 side-opponent geometry case, and opponent-field zone masks in Tag need a gameplay proof. Retained-script initial-effect smoke checks cover legacy/pinned 1v1, FFA3/FFA4 and Tag in normal/Domain modes, but do not exercise those callbacks. These require separate multiplayer rules/tests before claiming complete effect compatibility. Retained scripts excluded only because their passcode lacks a database row keep their `requiresAbsentCode` guard; the scan never skips `pre-release/`.
 
@@ -167,7 +169,7 @@ hash ordering, including bundles with optional built-core metadata.
 records and participates in `bundleVersion`. `scripts` still identifies the upstream
 archive; `domainLua`, `domainLegacyLua`, `multiScripts`, core pins and WASM bytes do not
 change. Deployment must re-prepare the bundle and ship its patched script **and manifest**.
-Existing cores can be reused; no WASM rebuild is necessary. CI/production/staging bundle
+Existing cores can be reused; no WASM rebuild is necessary. CI/production bundle
 cache keys include the patch recipe and suffix files. Drain active duels first; the new
 bundle version has the same recovery/replay consequences described below. Native golden
 metadata now also records `card-script-patches-sha256` using the folder-hash algorithm;
@@ -227,7 +229,73 @@ The first line is `Needs review: N conflicts, M risks, K shared-script changes, 
 - **Golden hashes — required in the data-update PR:** after reconciling the candidate, run `run-nduel.sh --record` against its prepared bundle, review and commit the golden diff, then run `run-nduel.sh --check`. `golden.tsv` records a SHA-256 fingerprint of the three data pins (canonical compact JSON in scripts/database/strings order). It is historical metadata, never synchronized automatically. Changed or missing metadata makes `--check` fail before a build with `data pins changed: re-record with run-nduel.sh --record`. The header also records `multi-scripts-sha256`, `patches-sha256` and `card-script-patches-sha256`: SHA-256 over bytewise-sorted `<relative path>\0<file SHA-256>\n` records for every regular multiplayer/shared overlay file, matching `multiScriptsFolderHash`, and only `*.patch` files in the patch folder, matching the core cache keys’ input selection (README edits do not invalidate golden). Changed or missing folder metadata fails before a build with `overlay/patches changed: re-record with run-nduel.sh --record`. The native CI job checks all committed golden rows only when core patches/pins, overlays, native tooling or data pins change, and on manual dispatch. It compiles the nduel driver against the ASan/UBSan library already built by `test:native`, then uses `NDUEL_SKIP_BUILD=1` to avoid a second core build. Both `--record` and `--check` require `NDUEL_PATCHES` and `NDUEL_PATCH_LIMIT` to be unset, since their headers describe the complete repository patch series. Disabling nightly for the automated dispatch does not waive this review step.
 - **Validation:** bundle preparation must succeed. Review probe findings, resolve stock conflicts, rerun the overlay check, re-record golden hashes in the PR, and review CI before merging.
 
-**Live-duel warning:** a merged data bump changes `bundleVersion`. Active duels with a different bundle version are interrupted on recovery. Drain active duels and **merge at a quiet time**; deploy preflight can refuse while duels remain active. **Replay-loss warning:** each bump also makes replays of all earlier duels with a different bundle version unavailable, because the host refuses replay on a `bundleVersion` mismatch. The owner must account for both effects when deciding cadence. Host behavior is unchanged; see the [VM runbook](vm-runbook.md).
+**Live-duel warning:** a merged data bump changes `bundleVersion`. Active duels with a different bundle version are interrupted on recovery. Drain active duels and **merge at a quiet time**; deploy preflight can refuse while duels remain active. **Replay compatibility:** earlier journals are rebuilt with current resources from their saved engine family and checked against the saved public and every own-seat final board. Ordinary replay and fork use are refused when resources or boards are missing, commands cannot be reproduced, or the rebuilt boards differ. Null-identity records require this check even at the current version label. The owner must account for live recovery and replay compatibility when deciding cadence; see the [VM runbook](vm-runbook.md) and the real cross-version check below.
+
+## Unknown source engine family
+
+Checked replay of an old 1v1 source with no saved engine choice, identity or
+startup scripts starts on legacy. Complete saved public and own-seat boards
+permit one pinned attempt after a command mismatch, board mismatch, worker
+crash or process loop limit. Startup-script rows remain pinned-only. Saved
+choices and recorded identities keep their family.
+
+Crashes and process loop limits only permit that alternate attempt. If no
+family verifies and either attempt crashed or hit the loop limit, return
+503 `ENGINE_BUSY` without writing a lasting verdict, including when pinned
+is not installed.
+
+Both attempts share the existing 25-second verification budget and the
+28-second request deadline. If the second attempt needs a fresh request,
+`REPLAY_VERIFIED_RETRY` retains the first failure in the bounded checked-build
+cache, so the retry builds pinned without repeating the slow legacy build.
+Queue pressure, timeouts and aborted requests remain transient and are not
+retained as family failures.
+
+Later checked views and forks use the recorded passing `core_family`. If both
+families fail with command or board mismatches, prefer a family's board-mismatch
+reason over a command failure and record that family for owner-only unchecked views and forks. Explicit
+unchecked views otherwise use the historical default, including after a
+pinned pass, and never replace a checked verdict. See [the engine-choice
+rules](duel-engine-switch.md#the-engine-of-a-duel-is-recorded) and replay-fork
+spec section 7.6.
+
+## Real cross-version replay check
+
+`packages/duel-server/tests/host-replay-cross-version-real.test.ts` plays live 1v1
+and FFA3 duels through the host, activates Pot of Greed and checks that its Lua
+effect draws two cards for every seat. It saves the original final boards through
+live completion, then verifies the journal with the current bundle and refuses
+a changed saved board.
+
+The unknown-choice real-engine case removes the recorded choice and identity
+from a pinned-made 1v1 journal. Legacy verifies first, and another projection
+reuses that recorded family. After an edited saved board, both real families
+fail the board check. It does not prove a real legacy failure followed by a
+pinned pass; that fallback is covered by synthetic worker regressions.
+
+CI uses one prepared bundle and changes only the saved version label. For a true
+cross-version check, set `DUEL_REPLAY_SOURCE_DATA_DIR` to a second prepared bundle.
+That mode requires different engine identities and keeps the original saved
+version label. Identical bundles fail this check instead of falling back to the
+label-only case. Both bundles need their card database, card scripts, Standard
+core and installed multi core.
+
+With Node 22 on `PATH`, build shared from the repository root, then run the named
+file. `REPLAY_CURRENT_BUNDLE` and `REPLAY_SOURCE_BUNDLE` are shell variables holding
+the selected prepared bundle directories:
+
+```sh
+prlimit --core=0 -- npm run build --workspace=packages/shared
+cd packages/duel-server
+DUEL_REQUIRE_CORES=1 NSEAT_LIVE=1 \
+  DUEL_DATA_DIR="$REPLAY_CURRENT_BUNDLE" \
+  DUEL_REPLAY_SOURCE_DATA_DIR="$REPLAY_SOURCE_BUNDLE" \
+  prlimit --core=0 -- node ../../node_modules/vitest/vitest.mjs run \
+    tests/host-replay-cross-version-real.test.ts --maxWorkers=1 --no-file-parallelism
+```
+
+Omit `DUEL_REPLAY_SOURCE_DATA_DIR` for the CI single-bundle label check. Each mode
+runs three tests. Remove the generated `packages/shared/dist` after local validation.
 
 ## Re-record golden hashes
 
@@ -377,7 +445,7 @@ Tag, FFA3 and FFA4. `DUEL_SCRIPT_ERRORS=tolerant` is the default; use
 Strict mode also ignores card-script errors in view queries so live play, recovery
 and replays remain deterministic.
 Unknown values fail configuration. Production Compose passes `DUEL_SCRIPT_ERRORS`;
-staging passes `STAGING_DUEL_SCRIPT_ERRORS` to the same container setting. Recreate
+The removed staging setting can be restored from git when staging returns. Recreate
 the duel container after changing it. The resolved policy is saved in the duel's
 private setup/journal; recovery and replay keep that policy even after the server
 setting changes. Older journals without this field recover in tolerant mode.

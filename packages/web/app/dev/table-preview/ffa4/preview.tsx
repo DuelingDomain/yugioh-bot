@@ -11,7 +11,7 @@ import { useTableTextScale } from "@/components/duel/card-text-size";
 export function Ffa4Preview({ stateId, cam, lock, review = false, out = null, pick = null, after = null, hub = null, def = null, viewer = null }: { stateId: string | null; cam: string | null; lock: string | null; review?: boolean; out?: string | null; pick?: string | null; after?: string | null; hub?: string | null; def?: string | null; viewer?: string | null }) {
   useTableTextScale();
   // `?out=2,3` sweeps those seats; `?after=1500` starts with them alive and sweeps them after that many ms (to watch the
-  // crumble and the finale move); `?pick=field|hand|emz` swaps the prompt for a pick among your own cards;
+  // crumble); `?pick=field|hand|emz` swaps the prompt for a pick among your own cards;
   // `zone|yesno|option|cards|position|number` for the other prompts of a duel (ffa4Variant).
   const outSeats = useMemo(() => (out ?? "").split(",").filter((part) => /^[0-3]$/.test(part)).map(Number), [out]);
   const delay = after != null && /^\d+$/.test(after) ? Number(after) : null;

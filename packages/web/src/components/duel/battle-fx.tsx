@@ -25,6 +25,7 @@ import { duelFontClasses } from "./fonts";
 import { armLpHold } from "./life-points";
 import { battleCalculation } from "./battle-calculation";
 import { captionSize, declaredCaption, directTargetSeat, placeCaption } from "./declared-attack";
+import { directTargetNode } from "./direct-target";
 import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 import { duelFxClock } from "./fx-clock";
 import { centerOfQuad, elementQuad, growQuad, isTurned, quadBox, quadEdgePoint, roundedQuadPath, type Quad } from "./quad";
@@ -123,10 +124,11 @@ function zoneQuad(key: string): Quad | null {
   return box.width > 0 && box.height > 0 ? quad : null;
 }
 
-function lpQuad(seat: number): Quad | null {
-  const node = document.querySelector<HTMLElement>(`[data-lp-seat="${seat}"]`);
+/** The outline of the field a direct attack aims at (see direct-target.ts), or null when it is not on screen. */
+function directQuad(seat: number): Quad | null {
+  const node = directTargetNode(seat);
   if (!node) return null;
-  const quad = elementQuad(node.querySelector("strong") ?? node);
+  const quad = elementQuad(node);
   const box = quadBox(quad);
   return box.width > 0 && box.height > 0 ? quad : null;
 }
@@ -138,10 +140,16 @@ function lpBox(seat: number): Box | null {
   return box.width > 0 && box.height > 0 ? box : null;
 }
 
-/** The LP tally a direct attack hits; null when its defender is not known (no wrong guess in a 3 or 4 seat duel). */
-function directLpBox(event: DuelEvent, seatCount: number): Box | null {
+/**
+ * The field a direct attack strikes (the attacker flies to it, the aim arrow points at it); the damage then shows on the LP
+ * tally (`lpBox`). Null when its defender is not known (no wrong guess in a 3 or 4 seat duel).
+ */
+function directFieldBox(event: DuelEvent, seatCount: number): Box | null {
   const seat = directTargetSeat(event, seatCount);
-  return seat == null ? null : lpBox(seat);
+  const node = seat == null ? null : directTargetNode(seat);
+  if (!node) return null;
+  const box = boxOf(node);
+  return box.width > 0 && box.height > 0 ? box : null;
 }
 
 type Arrow = { d: string; head: string; start: Pt; tip: Pt };
@@ -354,7 +362,7 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex, seatCo
     const targetInDefense = targetCard.position == null ? node.dataset.defense === "true" : isDefense(targetCard.position);
     return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: artUpsideDown(node, node.querySelector<HTMLElement>("[data-card-art]")) };
   }
-  const to = directLpBox(event, seatCount);
+  const to = directFieldBox(event, seatCount);
   if (!to) return null;
   return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false, targetTurned: false };
 }
@@ -385,7 +393,7 @@ function remeasureCapture(capture: AttackCapture, event: DuelEvent, seatCount: n
   let target = capture.target;
   let to = capture.to;
   if (capture.direct) {
-    to = directLpBox(event, seatCount) ?? to;
+    to = directFieldBox(event, seatCount) ?? to;
   } else if (event.target) {
     const node = zoneNode(keyOfZone(event.target));
     target = refreshCut(capture.target, node, capture.targetCard);
@@ -599,15 +607,17 @@ function measureAim(aim: BattleAim | null | undefined): AimGeom | null {
   const from = zoneQuad(aim.from);
   if (!from) return null;
   const targets: Quad[] = [];
+  // A field that is attacked directly takes the arrow only: no outline around its row of zones.
+  const aimed: Quad[] = [];
   if (aim.to.lpSeat != null) {
-    const quad = lpQuad(aim.to.lpSeat);
-    if (quad) targets.push(quad);
+    const quad = directQuad(aim.to.lpSeat);
+    if (quad) aimed.push(quad);
   }
   for (const key of aim.to.zones ?? []) {
     const quad = zoneQuad(key);
-    if (quad) targets.push(quad);
+    if (quad) { targets.push(quad); aimed.push(quad); }
   }
-  const arrows = targets.map((target) => arrowBetween(from, target)).filter((arrow): arrow is Arrow => arrow != null);
+  const arrows = aimed.map((target) => arrowBetween(from, target)).filter((arrow): arrow is Arrow => arrow != null);
   if (arrows.length === 0) return null;
   return { mode: aim.mode, from, arrows, rings: aim.mode === "preview" ? [] : targets, caption: aim.caption ? captionSpot(aim.caption, arrows[0]) : null };
 }
@@ -633,7 +643,7 @@ function captionSpot(text: string, lead: Arrow): Pt {
 function aimFingerprint(aim: BattleAim | null | undefined): string {
   if (!aim?.from) return "";
   const nodes: Array<Element | null> = [zoneNode(aim.from)];
-  if (aim.to.lpSeat != null) nodes.push(document.querySelector(`[data-lp-seat="${aim.to.lpSeat}"]`));
+  if (aim.to.lpSeat != null) nodes.push(directTargetNode(aim.to.lpSeat));
   for (const key of aim.to.zones ?? []) nodes.push(zoneNode(key));
   // A prompt or phone camera bar that mounts or moves later also moves the caption.
   if (aim.caption) nodes.push(...document.querySelectorAll("[data-prompt-panel], [data-seat-switcher]"));

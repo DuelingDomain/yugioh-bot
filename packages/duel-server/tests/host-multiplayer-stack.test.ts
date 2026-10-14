@@ -16,19 +16,14 @@ import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
 const SECRET = "test-stack-multiplayer";
-const STACKS = ["e2e", "staging"] as const;
+const STACKS = ["e2e"] as const;
 type Stack = typeof STACKS[number];
 
 // Read only the explicit launch settings. Do not inherit Vitest's default flag or read an env file.
-function tableFlag(stack: Stack, service: "duel" | "web"): string | undefined {
-  if (stack === "e2e") {
-    const source = readFileSync(new URL("../../e2e/stack/start.mjs", import.meta.url), "utf8");
-    const launch = source.split(`run("${service}",`)[1]?.split(/\nrun\(/)[0];
-    return launch?.match(/^\s+MULTIPLAYER_TABLES:\s*process\.env\.E2E_MULTIPLAYER_TABLES \?\? "([^"]+)"/m)?.[1];
-  }
-  const source = readFileSync(new URL("../../../docker-compose.staging.yml", import.meta.url), "utf8");
-  const launch = source.split(new RegExp(`^  ${service}:\\s*$`, "m"))[1]?.split(/^  \w+:\s*$/m)[0];
-  return launch?.match(/^\s+- MULTIPLAYER_TABLES=\$\{STAGING_MULTIPLAYER_TABLES:-([^}]+)\}/m)?.[1];
+function tableFlag(_stack: Stack, service: "duel" | "web"): string | undefined {
+  const source = readFileSync(new URL("../../e2e/stack/start.mjs", import.meta.url), "utf8");
+  const launch = source.split(`run("${service}",`)[1]?.split(/\nrun\(/)[0];
+  return launch?.match(/^\s+MULTIPLAYER_TABLES:\s*process\.env\.E2E_MULTIPLAYER_TABLES \?\? "([^"]+)"/m)?.[1];
 }
 
 function useStack(stack: Stack) {

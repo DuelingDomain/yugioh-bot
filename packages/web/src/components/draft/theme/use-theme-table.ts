@@ -290,14 +290,14 @@ interface CubeDetailBody {
   pools: { main: Array<{ catalogCardId: number; maxCopies: number }>; extra: Array<{ catalogCardId: number; maxCopies: number }> };
 }
 
-/** The whole pool of one cube, from `GET /api/cubes/[id]`, as card lists with the copies in `qty`. */
-export function useCubePreview() {
+/** Preview only cubes attached to this draft; library access stays private. */
+export function useCubePreview(slug: string) {
   const [preview, setPreview] = React.useState<CubePreview | null>(null);
   const latest = React.useRef(0);
   const open = React.useCallback((cubeId: number) => {
     const mine = ++latest.current;
     setPreview({ cubeId, cards: null, extraCards: null, error: null });
-    fetch(`/api/cubes/${cubeId}`)
+    fetch(`/api/drafts/${encodeURIComponent(slug)}/cubes/${cubeId}`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error("The pool could not be loaded."))))
       .then((data: CubeDetailBody) => {
         if (mine !== latest.current) return;
@@ -312,7 +312,7 @@ export function useCubePreview() {
       .catch((err: unknown) => {
         if (mine === latest.current) setPreview({ cubeId, cards: null, extraCards: null, error: err instanceof Error ? err.message : "The pool could not be loaded." });
       });
-  }, []);
+  }, [slug]);
   const close = React.useCallback(() => { latest.current++; setPreview(null); }, []);
   return { preview, open, close };
 }

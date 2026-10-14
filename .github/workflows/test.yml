@@ -265,7 +265,7 @@ jobs:
           cp "$dist/ocgcore.multi.sync.wasm" "$BUNDLE_DIR/ocgcore.multi.wasm"
           cp "$dist/ocgcore.multi-domain.sync.wasm" "$BUNDLE_DIR/ocgcore.multi-domain.wasm"
           for stem in ocgcore.multi ocgcore.multi-domain; do
-            printf 'tag=ci-%s\nsource=%s\nsha256=%s\ncapabilities=ffa4-facing-extra-zones\ninstalled=%s\nnote=built by .github/workflows/test.yml\n' \
+            printf 'tag=ci-%s\nsource=%s\nsha256=%s\ncapabilities=ffa3-facing-extra-zones,ffa4-facing-extra-zones,tag-facing-extra-zones\ninstalled=%s\nnote=built by .github/workflows/test.yml\n' \
               "${GITHUB_SHA::12}" "$dist/$stem.sync.wasm" \
               "$(sha256sum "$dist/$stem.sync.wasm" | cut -d' ' -f1)" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BUNDLE_DIR/$stem.SOURCE"
@@ -517,7 +517,7 @@ jobs:
         run: npm run build --workspace=packages/web
 
       - name: Deployment script tests
-        run: npx vitest run scripts/staging/deploy.test.ts
+        run: npx vitest run scripts/deployment/deploy.test.ts
 
       - name: Typecheck
         run: npm run typecheck

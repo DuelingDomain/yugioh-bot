@@ -67,6 +67,7 @@ describe("private tournament metadata in accessible duels", () => {
     expect(room.series).toMatchObject({ tournamentId: null, tournamentSlug: null, tournamentMatchId: null });
     expect(room.session.seriesId).toBe(app.started.series.id);
     expect(app.duels.room(app.started.duel.slug, "g1", app.players.stranger!).series?.tournamentId).toBe(app.tournament.id);
+    expect(mocks.post).not.toHaveBeenCalled();
   });
 
   it("hides live and archived all-scope discovery from strangers", () => {

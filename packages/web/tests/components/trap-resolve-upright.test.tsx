@@ -95,7 +95,7 @@ function Board({ view, viewer, reduced }: { view: DuelEngineView; viewer: number
   if (view.format === "ffa4") return <TableShell controller={controller} />;
   return <div>
     <DuelField engine={view} mySeat={viewer} masterRule={5} bottomName="Local" topName="Opponent" reducedMotion={reduced} {...callbacks} />
-    <SummonFx events={view.events} duelKey={key} reducedMotion={reduced} shake="off" />
+    <SummonFx seats={view.seats} events={view.events} duelKey={key} reducedMotion={reduced} shake="off" />
     <PositionFx events={view.events} duelKey={key} reducedMotion={reduced} />
     <MoveFx events={view.events} duelKey={key} reducedMotion={reduced} />
     <ChainFx events={view.events} chain={view.chain} duelKey={key} reducedMotion={reduced} mySeat={viewer} playerName={s => `P${s}`} />

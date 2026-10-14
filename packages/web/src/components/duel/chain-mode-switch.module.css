@@ -34,7 +34,8 @@
   border-radius: 5px;
   background: transparent;
   color: var(--cm-ink-3);
-  font: 500 calc((10px + 2px * var(--ft, 0)) * var(--tt, 1))/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Use the loaded duel font: native font matching can block the first board layout. */
+  font: 500 calc((10px + 2px * var(--ft, 0)) * var(--tt, 1))/1 var(--font-duel-num), monospace;
   letter-spacing: 0;
   text-transform: none;
 }

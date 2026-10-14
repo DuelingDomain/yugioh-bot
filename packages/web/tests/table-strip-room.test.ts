@@ -113,6 +113,82 @@ describe("planStripRoom on the measured tables", () => {
   });
 });
 
+describe("planStripRoom: the first row's names stay above the fade", () => {
+  // Measured at 1280x720 (ffa3) and 1366x768 / 1280x720 (tag): the strip's own bar (22 px) sits above the scrolling frame, so the chrome is
+  // the panel minus the frame (254 px or more), and a room of chrome + one row + the fade shows the whole first row clear of the fade.
+  it("counts the strip's own bar in the chrome estimate", () => {
+    expect(STRIP_ROOM.chrome).toBeGreaterThanOrEqual(254);
+  });
+
+  it("leaves the frame one whole row (art, name, padding) plus the 28 px fade, on every measured table, with the estimate and with a measured chrome", () => {
+    for (const name of Object.keys(REAL)) {
+      for (const chrome of [undefined, 254, 296]) {
+        const { input, room } = plan(name, chrome === undefined ? {} : { chrome });
+        const rows = Math.ceil(input.count / room.cols);
+        if (rows < 2) continue;
+        const wanted = Math.min(input.box.height - 2 * STRIP_ROOM.edge, (input.chrome ?? STRIP_ROOM.chrome) + Math.round((room.card * 86) / 59) + STRIP_ROOM.rowExtra + STRIP_ROOM.fade);
+        expect(room.height, `${name} chrome ${chrome}`).toBeGreaterThanOrEqual(wanted);
+      }
+    }
+  });
+
+  it("a phone box too low for one row of 130 px tiles plus the fade steps down to tiles that fit", () => {
+    const box = { width: 374, height: 488 };
+    const input: StripRoomInput = { box, count: 14, chrome: 254, anchor: { x: 187, y: 244 } };
+    const room = planStripRoom(input)!;
+    expect(room.card).toBeLessThan(STRIP_ROOM.card);
+    expect(room.height - 254).toBeGreaterThanOrEqual(Math.round((room.card * 86) / 59) + STRIP_ROOM.rowExtra + STRIP_ROOM.fade);
+    expect(inside(room, box)).toBe(true);
+  });
+
+  // The hook never gives less than STRIP_ROOM.chrome, and the chrome only grows while a prompt is open (a header that wraps taller). A tile that grows with it makes
+  // the panel jump (80 -> 72 -> 130 px), so the tile size never grows as the chrome grows, also where no tile fits one row.
+  const boxes: [string, StripRoomInput][] = [
+    ["phone 374x488", { box: { width: 374, height: 488 }, count: 14, anchor: { x: 187, y: 244 } }],
+    ["1252x460", { box: { width: 1252, height: 460 }, count: 14, anchor: { x: 626, y: 230 } }],
+    ["1000x460", { box: { width: 1000, height: 460 }, count: 6, anchor: { x: 500, y: 230 } }],
+    ["1252x488", { box: { width: 1252, height: 488 }, count: 10, anchor: { x: 626, y: 244 } }],
+  ];
+  const measured = Object.keys(REAL).map((name): [string, StripRoomInput] => [name, { ...real(name) }]);
+  it.each(boxes)("%s: the tile never grows as the chrome grows from 254 to 400", (_name, input) => {
+    let last = Infinity;
+    for (let chrome = STRIP_ROOM.chrome; chrome <= 400; chrome += 2) {
+      const room = planStripRoom({ ...input, chrome })!;
+      expect(room, `chrome ${chrome}`).toBeDefined();
+      expect(room.card, `chrome ${chrome}`).toBeLessThanOrEqual(last);
+      last = room.card;
+    }
+  });
+
+  // On a real table a different place can cover less with a larger tile at a taller chrome, so the hook passes the tile of the room it shows as `maxCard`.
+  it.each(measured)("%s: with the shown tile as maxCard, the tile never grows as the chrome grows from 254 to 400, and the room stays inside the box", (_name, input) => {
+    let last = Infinity;
+    for (let chrome = STRIP_ROOM.chrome; chrome <= 400; chrome += 2) {
+      const room = planStripRoom({ ...input, chrome, maxCard: Number.isFinite(last) ? last : undefined })!;
+      expect(room, `chrome ${chrome}`).toBeDefined();
+      expect(room.card, `chrome ${chrome}`).toBeLessThanOrEqual(last);
+      expect(inside(room, input.box), `chrome ${chrome}`).toBe(true);
+      last = room.card;
+    }
+  });
+
+  it("maxCard keeps the room from taking a larger tile", () => {
+    const input = real("ffa3-respond-10-1366x768-home");
+    expect(planStripRoom({ ...input, chrome: 254 })!.card).toBe(STRIP_ROOM.card);
+    expect(planStripRoom({ ...input, chrome: 254, maxCard: 96 })!.card).toBeLessThanOrEqual(96);
+  });
+
+  it("where no tile fits one row, the smallest tile is kept, not the 130 px one", () => {
+    const room = planStripRoom({ box: { width: 1252, height: 460 }, count: 14, anchor: { x: 626, y: 230 }, chrome: 400 })!;
+    expect(room.card).toBe(Math.min(...STRIP_ROOM.smaller, 72));
+  });
+
+  it("stripRoomSize keeps that least height as minHeight when more rows wait", () => {
+    const size = stripRoomSize(14, { width: 1252, height: 635 }, STRIP_ROOM.maxCols, 96, 254);
+    expect(size.minHeight).toBe(254 + Math.round((96 * 86) / 59) + STRIP_ROOM.rowExtra + STRIP_ROOM.fade);
+  });
+});
+
 describe("planStripRoom: a room that shows too few tiles steps down in tile size", () => {
   it("FFA4 zoom, 10 cards: the 130 px room shows 2 tiles at a time (fewer than STRIP_ROOM.minShown), so 112 or 96 px tiles are taken where they show more", () => {
     const name = "ffa4-respond-10-1366x768-focus2";
@@ -191,5 +267,73 @@ describe("the stage css gives the response panel its room", () => {
 
   it("sizes the tiles from --sr-card", () => {
     expect(read("card-strip.module.css")).toContain("--cs-w: var(--sr-card, 130px)");
+  });
+});
+
+describe("planStripRoom with a fixed box: the panel stays in the middle of it", () => {
+  const box = { width: 1892, height: 995 };
+  const fixed = { x: 0, y: 40, width: 1892, height: 900 };
+  const middle = (r: Rect) => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
+
+  it("centres the room on the fixed box, whatever the HUD and the anchor", () => {
+    const hud = [{ x: 700, y: 400, width: 500, height: 200 }];
+    const room = planStripRoom({ box, count: 4, anchor: { x: 200, y: 100 }, hud, soft: [], zones: [], source: [], fixed })!;
+    expect(room).toBeDefined();
+    expect(Math.abs(middle(room).x - 946)).toBeLessThan(2);
+    expect(Math.abs(middle(room).y - 490)).toBeLessThan(2);
+  });
+
+  it("is the same room under a zoom and at home (nothing it reads moves it)", () => {
+    const home = planStripRoom({ box, count: 4, anchor: { x: 946, y: 500 }, hud: [], soft: [], zones: [], source: [], fixed })!;
+    const zoomed = planStripRoom({ box, count: 4, anchor: { x: 1500, y: 200 }, hud: [{ x: 1200, y: 100, width: 600, height: 300 }], soft: [], zones: [], source: [{ x: 900, y: 450, width: 80, height: 110 }], fixed })!;
+    expect(zoomed).toEqual(home);
+  });
+
+  it("keeps the room inside the box and shrinks the tiles when the fixed box is low", () => {
+    const low = { x: 0, y: 300, width: 1366, height: 160 };
+    const room = planStripRoom({ box: { width: 1366, height: 640 }, count: 10, anchor: { x: 683, y: 380 }, hud: [], soft: [], zones: [], source: [], fixed: low })!;
+    expect(room).toBeDefined();
+    expect(inside(room, { width: 1366, height: 640 })).toBe(true);
+  });
+});
+
+describe("planStripRoom fixed to the band between the Tag plates and your hand", () => {
+  // Tag at 1366x768: the viewport is 1046x688; the far plate ends at 61, the near plate and your hand start at 525 (10 px of air each side).
+  const box = { width: 1046, height: 688 };
+  const band = { x: 0, y: 71, width: 1046, height: 515 - 71 };
+  const farPlate = { x: 328, y: 6, width: 392, height: 55 };
+  const nearPlate = { x: 12, y: 550, width: 330, height: 55 };
+  const hand = { x: 370, y: 525, width: 300, height: 140 };
+
+  it.each([2, 8, 14])("shows %i options without crossing a team plate or your hand", (count) => {
+    const room = planStripRoom({ box, count, anchor: { x: 523, y: 344 }, hud: [farPlate, nearPlate], soft: [], zones: [], source: [], hand, fixed: band })!;
+    expect(room).toBeDefined();
+    expect(room.y).toBeGreaterThanOrEqual(band.y);
+    expect(room.y + room.height).toBeLessThanOrEqual(band.y + band.height);
+    expect(overlap(room, farPlate)).toBe(0);
+    expect(overlap(room, nearPlate)).toBe(0);
+    expect(overlap(room, hand)).toBe(0);
+    expect(Math.abs(room.x + room.width / 2 - box.width / 2)).toBeLessThan(2);
+  });
+});
+
+describe("planStripRoom fixed: no card is clipped, the tile steps down and keeps to maxCard", () => {
+  const box = { width: 1046, height: 688 };
+  const band = { x: 0, y: 71, width: 1046, height: 444 };
+  const leastOf = (room: Rect & { card: number; cols: number }, count: number) => STRIP_ROOM.chrome + Math.round((room.card * 86) / 59) + STRIP_ROOM.rowExtra + (Math.ceil(count / room.cols) > 1 ? STRIP_ROOM.fade : 0);
+
+  it("takes a tile whose whole row fits a 444 px band (8 options)", () => {
+    const room = planStripRoom({ box, count: 8, anchor: { x: 523, y: 344 }, hud: [], soft: [], zones: [], source: [], fixed: band })!;
+    expect(room.height).toBeLessThanOrEqual(band.height);
+    expect(room.height).toBeGreaterThanOrEqual(leastOf(room, 8));
+    expect(room.card).toBeLessThan(STRIP_ROOM.card);
+  });
+
+  it("never takes a tile above maxCard", () => {
+    const tall = { x: 0, y: 0, width: 1892, height: 995 };
+    const free = planStripRoom({ box: { width: 1892, height: 995 }, count: 4, hud: [], soft: [], zones: [], source: [], fixed: tall })!;
+    const capped = planStripRoom({ box: { width: 1892, height: 995 }, count: 4, hud: [], soft: [], zones: [], source: [], fixed: tall, maxCard: 96 })!;
+    expect(free.card).toBeGreaterThan(96);
+    expect(capped.card).toBeLessThanOrEqual(96);
   });
 });
