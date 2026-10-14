@@ -74,9 +74,9 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waitingFor, trimmed, search]);
 
-  /** Why the chosen section was set aside for this card, or null when it was kept. */
+  /** Why the chosen section was set aside for this card, or null when it was kept. The add message names the card, so this reason leaves the name out. */
   function sectionWhy(card?: DeckCardInfo): string | null {
-    return section != null && card != null ? placementBlock(card, section) : null;
+    return section != null && card != null ? placementBlock({ type: card.type }, section) : null;
   }
 
   function sectionFor(card?: DeckCardInfo): AddSection {
