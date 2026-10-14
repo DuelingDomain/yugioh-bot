@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { CaptureResult } from "posthog-js";
 
@@ -38,6 +38,13 @@ function pageViewOnly(event: CaptureResult): CaptureResult | null {
 }
 
 export function PageViews() {
+  // Page-view tracking and its navigation subscription only run in the browser.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  return mounted ? <PageViewTracker /> : null;
+}
+
+function PageViewTracker() {
   const pathname = usePathname();
   useEffect(() => {
     const key = process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim();

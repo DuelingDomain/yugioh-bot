@@ -390,67 +390,71 @@ export function createTournamentService(db: Database.Database) {
         duelRules?: { mode?: unknown; masterRule?: unknown; settings?: unknown } | null;
       },
     ): Tournament {
-      return db.transaction(() => {
-        assertFormat(format);
-        const visibility = options?.visibility ?? "private";
-        if (visibility !== "open" && visibility !== "private") throw new Error("visibility must be open or private");
-        validateWindow(options?.reportConfirmWindowHours);
-        const bestOf = options?.bestOf ?? 3;
-        assertBestOf(bestOf);
-        const duelRulesJson = options?.duelRules ? serializeTournamentDuelRules(options.duelRules) : null;
+      assertFormat(format);
+      const visibility = options?.visibility ?? "private";
+      if (visibility !== "open" && visibility !== "private") throw new Error("visibility must be open or private");
+      validateWindow(options?.reportConfirmWindowHours);
+      const bestOf = options?.bestOf ?? 3;
+      assertBestOf(bestOf);
+      const duelRulesJson = options?.duelRules ? serializeTournamentDuelRules(options.duelRules) : null;
 
-        const existingCurrent = db
-          .prepare(
-            `
-            select id from tournaments
-            where guild_id = ?
-              and created_by_user_id = ?
-              and name = ?
-              and status in ('pending', 'active')
-            limit 1
-          `,
-          )
-          .get(guildId, createdByUserId, name);
-
-        if (existingCurrent) {
-          throw new CurrentNameTakenError("tournament");
-        }
-
-        const insert = db.prepare(
+      const existingCurrent = db
+        .prepare(
           `
-            insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, deadline_at, report_confirm_window_hours, best_of, duel_rules_json, visibility)
-            values (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
-          `,
+          select id from tournaments
+          where guild_id = ?
+            and created_by_user_id = ?
+            and name = ?
+            and status in ('pending', 'active')
+          limit 1
+        `,
+        )
+        .get(guildId, createdByUserId, name);
+
+      if (existingCurrent) {
+        throw new CurrentNameTakenError("tournament");
+      }
+
+      const insert = db.prepare(
+        `
+          insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, deadline_at, report_confirm_window_hours, best_of, duel_rules_json, visibility)
+          values (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+        `,
+      );
+
+      // Keep the pre-check outside the write transaction so a racing host's row survives rejection.
+      const insertWithEvent = db.transaction((webSlug: string) => {
+        const result = insert.run(
+          guildId,
+          name,
+          format,
+          createdByUserId,
+          webSlug,
+          options?.deadlineAt ?? null,
+          options?.reportConfirmWindowHours ?? null,
+          bestOf,
+          duelRulesJson,
+          visibility,
         );
-
-        let result;
-        for (let attempt = 0; attempt < 5; attempt++) {
-          try {
-            result = insert.run(
-              guildId,
-              name,
-              format,
-              createdByUserId,
-              generateWebSlug(),
-              options?.deadlineAt ?? null,
-              options?.reportConfirmWindowHours ?? null,
-              bestOf,
-              duelRulesJson,
-              visibility,
-            );
-            break;
-          } catch (err: any) {
-            if (err?.code === "SQLITE_CONSTRAINT_UNIQUE"
-              && err.message?.includes("tournaments.guild_id, tournaments.created_by_user_id, tournaments.name")) {
-              throw new CurrentNameTakenError("tournament");
-            }
-            if (err?.code !== "SQLITE_CONSTRAINT_UNIQUE" || attempt === 4) throw err;
-          }
-        }
-
         recordProductEvent(db, "tournament_created", createdByUserId, { format, participantCount: 0 });
-        return findById(Number(result!.lastInsertRowid));
-      }).immediate();
+        return result;
+      });
+
+      let result;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          result = insertWithEvent.immediate(generateWebSlug());
+          break;
+        } catch (err: any) {
+          if (err?.code === "SQLITE_CONSTRAINT_UNIQUE"
+            && err.message?.includes("tournaments.guild_id, tournaments.created_by_user_id, tournaments.name")) {
+            throw new CurrentNameTakenError("tournament");
+          }
+          if (err?.code !== "SQLITE_CONSTRAINT_UNIQUE" || attempt === 4) throw err;
+        }
+      }
+
+      return findById(Number(result!.lastInsertRowid));
     },
 
     findById,
@@ -582,25 +586,26 @@ export function createTournamentService(db: Database.Database) {
     },
 
     join(tournamentId: number, playerId: number): void {
-      return db.transaction(() => {
-        const tournament = findById(tournamentId);
+      const tournament = findById(tournamentId);
 
-        if (tournament.status !== "pending") {
-          throw new Error("Tournament has already started");
-        }
+      if (tournament.status !== "pending") {
+        throw new Error("Tournament has already started");
+      }
 
-        const existing = db.prepare("select 1 from tournament_participants where tournament_id = ? and player_id = ?").get(tournamentId, playerId);
+      const existing = db.prepare("select 1 from tournament_participants where tournament_id = ? and player_id = ?").get(tournamentId, playerId);
 
-        if (existing) {
-          throw new Error("You have already joined this tournament");
-        }
+      if (existing) {
+        throw new Error("You have already joined this tournament");
+      }
 
-        db.prepare(
-          `
-          insert into tournament_participants (tournament_id, player_id)
-          values (?, ?)
-        `,
-        ).run(tournamentId, playerId);
+      const insert = db.prepare(
+        `
+        insert into tournament_participants (tournament_id, player_id)
+        values (?, ?)
+      `,
+      );
+      db.transaction(() => {
+        insert.run(tournamentId, playerId);
         const player = db.prepare("select user_id from players where id=?").get(playerId) as { user_id: number };
         recordProductEvent(db, "tournament_joined", player.user_id, { format: tournament.format, participantCount: participantsFor(tournamentId).length });
       }).immediate();

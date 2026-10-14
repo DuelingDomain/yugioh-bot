@@ -287,27 +287,28 @@ export function createMatchService(db: Database.Database) {
     },
 
     approve(matchId: number, approverId: number): Match {
-      return db.transaction(() => {
-        const match = findById(matchId);
-        ensureOpponentCanResolve(match, approverId);
-        // A report that waited past the end of its tournament no longer counts: no Elo, no points.
-        if (match.tournamentId !== null) {
-          const tournament = db
-            .prepare("select status from tournaments where id = ?")
-            .get(match.tournamentId) as { status: string } | undefined;
-          if (tournament && (tournament.status === "cancelled" || tournament.status === "completed")) {
-            throw new Error(`Tournament is ${tournament.status}; this report can no longer be confirmed`);
-          }
+      const match = findById(matchId);
+      ensureOpponentCanResolve(match, approverId);
+      // A report that waited past the end of its tournament no longer counts: no Elo, no points.
+      if (match.tournamentId !== null) {
+        const tournament = db
+          .prepare("select status from tournaments where id = ?")
+          .get(match.tournamentId) as { status: string } | undefined;
+        if (tournament && (tournament.status === "cancelled" || tournament.status === "completed")) {
+          throw new Error(`Tournament is ${tournament.status}; this report can no longer be confirmed`);
         }
+      }
 
-        // Only a still pending report can be approved: a cancel that denied it in the meantime wins.
-        const approved = db.prepare(
-          `
-          update matches
-          set status = 'approved', approver_id = ?, resolved_at = current_timestamp
-          where id = ? and status = 'pending'
-        `,
-        ).run(approverId, matchId);
+      // Only a still pending report can be approved: a cancel that denied it in the meantime wins.
+      const approve = db.prepare(
+        `
+        update matches
+        set status = 'approved', approver_id = ?, resolved_at = current_timestamp
+        where id = ? and status = 'pending'
+      `,
+      );
+      return db.transaction(() => {
+        const approved = approve.run(approverId, matchId);
         if (approved.changes !== 1) {
           throw new Error("Match is not pending");
         }
@@ -423,19 +424,20 @@ export function createMatchService(db: Database.Database) {
     },
 
     autoApprove(matchId: number): Match {
-      return db.transaction(() => {
-        const match = findById(matchId);
-        if (match.status !== "pending") {
-          return match;
-        }
+      const match = findById(matchId);
+      if (match.status !== "pending") {
+        return match;
+      }
 
-        db.prepare(
-          `
-          update matches
-          set status = 'approved', approver_id = null, resolved_at = current_timestamp
-          where id = ?
-        `,
-        ).run(matchId);
+      const approve = db.prepare(
+        `
+        update matches
+        set status = 'approved', approver_id = null, resolved_at = current_timestamp
+        where id = ?
+      `,
+      );
+      return db.transaction(() => {
+        approve.run(matchId);
 
         const approvedMatch = findById(matchId);
         completeTournamentMatch(approvedMatch);

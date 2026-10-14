@@ -1,5 +1,6 @@
 -- Pre-replay schema from commit 9c1fe2119. Generated from an empty migrated DB.
 -- Duel/history tables, complete identity schema, FK dependencies and indexes. No data.
+-- Includes the nullable analytics sign-in marker so the replay migration compares like-for-like user rows.
 
 CREATE TABLE matches (
       id integer primary key autoincrement,
@@ -129,6 +130,7 @@ CREATE TABLE users (
   created_at text not null default current_timestamp,
   updated_at text not null default current_timestamp,
   synced_at text,
+  first_sign_in_at integer,
   check (email_verified = 0 or email is not null)
 );
 
