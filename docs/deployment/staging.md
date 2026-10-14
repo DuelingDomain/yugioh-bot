@@ -12,6 +12,8 @@ Production prepares the pinned 1v1 bundle and both multiplayer cores in GitHub A
 The deploy bundle includes a checksum and source record for each multiplayer core.
 The `duel-bundled` image uses that bundle through the named `engine` context.
 The VM pulls the image and installs the matching bundle before starting services.
+Production runs the carried `prepare-runtime-data.sh` ownership helper after bundle installation
+and again immediately before starting services, so the pulled images can run as uid/gid 1000.
 See [the deployment pipeline](vm-runbook.md#deployment-pipeline) for the full procedure.
 
 | Mode and layout | WASM loaded by the engine | Start guard |
