@@ -334,6 +334,16 @@ The multiplayer merge changes the Standard and Domain cores, so its first deploy
    (`DUEL_MEM_LIMIT`). The first game loads the card database and scripts (about 114 MB). Each game adds about 2.4 to
    4 MB.
 
+The duel host defaults to `DUEL_MAX_WORKERS=12` across live games and replay rebuilds,
+`DUEL_MAX_TABLES_PER_PLAYER=3` for each seated player at in-progress Tables, `DUEL_WORKER_HEAP_MB=256` per worker heap,
+`DUEL_CREATE_TIMEOUT_MS=120000` for creation and the full recovery/replay initialization phase,
+and `DUEL_OP_TIMEOUT_MS=15000` for other worker calls. WASM memory is outside the heap limit,
+so the worker count is the memory guard. Replay rebuilds wait in FIFO order (up to 32 queued).
+Finished, cancelled and archived Tables free player reservations; their workers count globally until close.
+Capacity refusals return 429; worker deadlines return 503 and release the worker. The next room request
+can recover an active duel from its saved journal. Set these values in `.env` and recreate `duel` to change them.
+Caddy caps app request bodies at 1 MB.
+
 ### Engine switch and multiplayer flag
 
 Compose defaults Standard 1v1 to `DUEL_STANDARD_1V1_ENGINE=pinned`, with no production `.env` edit.

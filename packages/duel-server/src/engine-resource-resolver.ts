@@ -13,6 +13,7 @@ import { ENGINE_PROTOCOL_VERSION } from "./worker-protocol.js";
 /** Runtime files that determine decoding, commands, script compatibility and board projection. */
 export const ENGINE_HOST_RULE_FILES = [
   "engine", "views", "prompts", "worker", "worker-protocol", "journal-command", "journal-runner", "first-turn-draw",
+  "answer-validation", "request-error",
   "legacy/engine", "legacy/views", "legacy/prompts", "legacy/script-compat", "cards", "domain-core", "core-capabilities",
   "multi-scripts", "chain-mode", "chain-options", "script-errors", "script-load-scope", "sort-response", "hand-identities", "log-lines", "text",
   "raw-messages", "attack-target-pick", "wasm-sync-export", "card-script-source", "card-script-hash", "practice-bot",
