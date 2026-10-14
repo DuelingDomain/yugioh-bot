@@ -1,11 +1,12 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = {} as never;
 const DECK = { main: [1, 2, 3], extra: [], side: [] };
 
 describe("web draft deck helpers", () => {
-  beforeEach(() => {
-    vi.resetModules();
+  beforeEach(async () => {
+    vi.resetModules(); await recording.install();
     vi.doMock("@/lib/db", () => ({ getDb: () => db }));
   });
   afterEach(() => {
@@ -33,7 +34,7 @@ describe("web draft deck helpers", () => {
   });
 
   it("never throws when the service fails", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     const boom = () => { throw new Error("db is locked"); };
     vi.doMock("@yugidraft/shared/services", () => ({
       createDraftDeckService: () => ({ ensureForUser: boom, linkTournament: boom, mainPoolCount: boom }),
@@ -46,7 +47,7 @@ describe("web draft deck helpers", () => {
   });
 
   it("does nothing when the shared build has no draft deck service", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     vi.doMock("@yugidraft/shared/services", () => ({}));
     const lib = await import("@/lib/draft-decks");
     expect(() => lib.backfillDraftDecks("g1", 101)).not.toThrow();
@@ -54,3 +55,5 @@ describe("web draft deck helpers", () => {
     expect(lib.draftDeckNoteFor(db, { draftId: 9, playerId: 7, deck: DECK })).toBeNull();
   });
 });
+
+const recording = useRecordingObservability();

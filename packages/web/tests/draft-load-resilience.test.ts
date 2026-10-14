@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -19,8 +20,8 @@ vi.mock("@/lib/notify", () => ({ broadcaster, announcer: { announce: vi.fn() } }
 // a corrupt saved deck, a viewer who is not a seat in the draft) degrades that part and nothing else.
 
 describe("draft load resilience", () => {
-  beforeEach(() => {
-    vi.resetModules();
+  beforeEach(async () => {
+    vi.resetModules(); await recording.install();
     auth.mockReset();
     broadcaster.draft.mockReset();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Yugi" } });
@@ -75,7 +76,7 @@ describe("draft load resilience", () => {
   };
 
   it("opens when a card in the pack has a catalog row with broken JSON", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     const { db, drafts, draft, slug, host } = await setup();
     const pack = drafts.currentPackOptions(draft.id, host);
     db.prepare("update card_catalog set card_sets_json = 'not json' where ygoprodeck_id = ?").run(pack[0].catalogCardId);
@@ -88,7 +89,7 @@ describe("draft load resilience", () => {
   });
 
   it("opens a finished draft when the saved deck is corrupt", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     const { db, draft, slug, host } = await setup();
     db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(new Date().toISOString(), draft.id);
     db.prepare(
@@ -104,7 +105,7 @@ describe("draft load resilience", () => {
   });
 
   it("opens an active draft for a viewer who has a player row but no seat", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     const { db, slug } = await setup();
 
     const response = await load(slug, "outsider");
@@ -115,7 +116,7 @@ describe("draft load resilience", () => {
   });
 
   it("fails the load when the database is locked, instead of showing stale data", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     const { db, slug } = await setup();
     vi.doMock("@yugidraft/shared/services", async (importOriginal) => {
       const actual = await importOriginal<typeof import("@yugidraft/shared/services")>();
@@ -135,8 +136,8 @@ describe("draft load resilience", () => {
     db.close();
   });
 
-  it("logs the draft slug when the route fails", async () => {
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("reports the failed load without including the draft slug", async () => {
+    const logged = recording.report.mockClear().mockImplementation(() => {});
     const { db, slug } = await setup();
     vi.doMock("../app/api/drafts/[slug]/helpers", () => ({
       buildDraftResponse: () => Promise.reject(new Error("boom")),
@@ -146,7 +147,8 @@ describe("draft load resilience", () => {
     const res = await GET(new Request("http://localhost/x") as NextRequest, { params: Promise.resolve({ slug }) });
 
     expect(res.status).toBe(500);
-    expect(logged.mock.calls.flat().join(" ")).toContain(slug);
+    expect(logged).toHaveBeenCalledWith(expect.any(Error), { tags: { operation: "[api/drafts/[slug]] load failed" } });
+    expect(JSON.stringify(logged.mock.calls)).not.toContain(slug);
     db.close();
   });
 });
@@ -154,3 +156,5 @@ describe("draft load resilience", () => {
 const FIXTURE_KEYS = ["host", "other", "outsider"] as const;
 
 // Session resolution is mocked; authorization still runs through the real web boundary.
+
+const recording = useRecordingObservability();

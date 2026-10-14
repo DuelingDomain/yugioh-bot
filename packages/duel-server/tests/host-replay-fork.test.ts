@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -211,18 +212,21 @@ it("denies fork listing for unsigned, non-owner, forged, wrong-guild and revoked
   expect((await post({ op: "fork-list", slug: undefined })).body).toEqual({ error: "Not found", code: "ACCESS_DENIED" });
   expect(workers).toHaveLength(0);
 });
+const recording = useRecordingObservability();
+
 it.each(["invalid creator metadata", "malformed JSON"])("skips and logs %s while retaining healthy active forks", async damage => {
   const healthy = (await post({ op: "replay-fork", ...request(), requestId: "healthy" })).body.slug;
   const bad = (await post({ op: "replay-fork", ...request(), requestId: "bad" })).body.slug;
   if (damage === "malformed JSON") db.prepare("update duels set setup_json = '{invalid' where web_slug = ?").run(bad);
   else db.prepare("update duels set setup_json = json_set(setup_json, '$.replayFork.control', 'invalid') where web_slug = ?").run(bad);
-  const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const warnings: Array<{ message: string; fields: Record<string, unknown> }> = [];
+  recording.log.mockImplementation((level, message, fields) => { if (level === "warn") warnings.push({ message, fields }); });
   try {
     const result = await post({ op: "fork-list", slug: undefined });
     expect(result.response.status).toBe(200);
     expect(result.body.forks.map((fork: any) => fork.slug)).toEqual([healthy]);
-    expect(warnings).toHaveBeenCalledWith("[replay-fork] Skipping invalid active fork", { slug: bad, code: "ACCESS_DENIED" });
-  } finally { warnings.mockRestore(); }
+    expect(warnings).toEqual([{ message: "[replay-fork] Skipping invalid active fork", fields: { code: "ACCESS_DENIED" } }]);
+  } finally { recording.log.mockReset(); }
 });
 
 it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("launches a private Manual %s fork with defaults after the unchanged prefix", async format => {

@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { duelFxClock } from "./fx-clock";
 
 /**
@@ -41,7 +42,7 @@ export function safeAnimate(el: Element, frames: Keyframe[], options: KeyframeAn
   try {
     return el.animate(sanitizeKeyframes(frames), timing);
   } catch (error) {
-    if (process.env.NODE_ENV !== "production") console.warn("[duel fx] animation skipped", error);
+    if (process.env.NODE_ENV !== "production") report(error, { tags: { operation: "[duel fx] animation skipped" } });
     return null;
   }
 }

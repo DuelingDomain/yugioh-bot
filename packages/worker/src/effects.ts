@@ -1,3 +1,4 @@
+import { report, log } from "@yugidraft/shared/observability";
 import { signedTransport } from "@yugidraft/shared/internal-auth";
 import {
   createAnnouncer,
@@ -26,7 +27,7 @@ export function createEffects(input: {
     try {
       await run();
     } catch (error) {
-      console.warn("[worker] effect failed", error);
+      report(error, { tags: { operation: "[worker] effect failed" } });
     }
   };
 
@@ -37,7 +38,7 @@ export function createEffects(input: {
     discord: payload => input.enabled ? safe(() => announce.announce(payload)) : Promise.resolve(),
     duel: (slug, guildId) => safe(async () => {
       const result = await input.ws.post("/internal/duel/changed", JSON.stringify({ slug, guildId }));
-      if (!result.ok) console.warn("[worker] duel invalidation failed", result.status);
+      if (!result.ok) log("warn", "[worker] duel invalidation failed", { status: result.status });
     }),
   };
 }

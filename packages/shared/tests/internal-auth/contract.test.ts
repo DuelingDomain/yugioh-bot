@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readSignedRequest, recordingTransport, signedTransport, signToken, verifyToken } from "../../src/internal-auth/index.js";
+import { useConsoleObservability } from "../helpers/recording-observability.mjs";
 
 const secret = "secret";
 const url = "http://internal";
@@ -44,6 +45,10 @@ describe("internal auth contract", () => {
     const request = await signedRequest();
     request.headers.set("x-internal-signature", header);
     expect(await readSignedRequest(request, cfg)).toEqual({ ok: false, status: 401 });
+    expect(output.warnings).toEqual([{
+      message: "internal request rejected",
+      fields: { purpose: "ws-broadcast", path: "/internal/test", reason: "invalid signature header" },
+    }]);
   });
   it("refuses a body beyond the default limit", async () => {
     expect(await readSignedRequest(await signedRequest("x".repeat(65537)), cfg)).toEqual({ ok: false, status: 413 });
@@ -99,3 +104,5 @@ describe("internal auth contract", () => {
     expect(recorder.calls).toEqual([{ path: "/test", body: "{}" }]);
   });
 });
+
+const output = useConsoleObservability();

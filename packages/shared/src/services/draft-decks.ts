@@ -1,3 +1,4 @@
+import { report } from "../observability/index.js";
 import { isExtraDeckCard } from "../duels/extra-deck.js";
 import type Database from "better-sqlite3";
 import type { DuelDeck } from "../duels/index.js";
@@ -283,7 +284,7 @@ export function createDraftDeckService(db: Database.Database, engine?: CardIdent
         try {
           if (savePlayer()) created.push(human.user_id);
         } catch (error) {
-          console.error(`[draft-decks] could not save the deck of player ${human.player_id} for draft ${draftId}:`, error);
+          report(error, { tags: { operation: "[draft-decks] could not save the deck of player for draft" } });
         }
       }
       const tournamentId = selectDraftTournament.get(draftId)?.tournament_id ?? null;

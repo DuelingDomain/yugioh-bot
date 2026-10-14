@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/session-identity", async () => {
@@ -13,9 +14,9 @@ async function loadHost() {
 }
 
 describe("callDuelHost error messages", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.spyOn(console, "error").mockImplementation(() => {});
+  beforeEach(async () => {
+    vi.resetModules(); await recording.install();
+    recording.report.mockClear().mockImplementation(() => {});
     process.env.DUEL_INTERNAL_URL = "http://duel.test:4003";
     process.env.DUEL_INTERNAL_SECRET = "s3cret";
   });
@@ -327,7 +328,7 @@ describe("callDuelHost error messages", () => {
 it("transports draft pool context and artwork-preserving normalization", async () => {
   process.env.DUEL_INTERNAL_URL = "http://duel.test";
   process.env.DUEL_INTERNAL_SECRET = "secret";
-  vi.resetModules();
+  vi.resetModules(); await recording.install();
   const fetchMock = vi.fn(async (_url: unknown, _init: RequestInit) => Response.json({ codes: {} }));
   vi.stubGlobal("fetch", fetchMock);
   try {
@@ -340,3 +341,5 @@ it("transports draft pool context and artwork-preserving normalization", async (
     expect(JSON.parse(fetchMock.mock.calls[2]![1].body as string)).toMatchObject({ lookupLimit: 0, cacheOnly: true });
   } finally { vi.unstubAllGlobals(); delete process.env.DUEL_INTERNAL_URL; delete process.env.DUEL_INTERNAL_SECRET; }
 });
+
+const recording = useRecordingObservability();

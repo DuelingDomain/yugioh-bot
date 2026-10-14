@@ -1,3 +1,4 @@
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -20,6 +21,7 @@ vi.mock("../src/worker-client.js", async original => ({
     const worker = new FakeWorker(); worker.onError = onError; worker.onFatal = onFatal; workers.push(worker); return worker;
   },
 }));
+const output = useConsoleObservability();
 const SECRET = "fork-isolation-fixture";
 const DATA = createHostDataFixture([1, 2, 3].map(code => ({ code, name: `Fixture ${code}` })));
 afterAll(() => rmSync(DATA, { recursive: true, force: true }));
@@ -140,11 +142,12 @@ describe("host fork isolation", () => {
   });
 
   it("skips prefix diagnostics and tags only errors from later fork commands", async () => {
-    const app = fixture(), log = vi.spyOn(console, "error").mockImplementation(() => {}), host = app.openHost();
+    const records = () => output.warnings.map(({ fields }) => fields);
+    const app = fixture(), host = app.openHost();
     expect((await post(app, host, "view")).status).toBe(200);
-    expect(log).not.toHaveBeenCalled();
+    expect(records()).toEqual([]);
     expect((await post(app, host, "respond", { command: { promptId: "p1", revision: 1, answer: { choice: "pass" } } })).status).toBe(200);
-    expect(log.mock.calls.map(([line]) => JSON.parse(String(line)))).toContainEqual(expect.objectContaining({ event: "replay_fork_script_error", duelKind: "replay-fork", duelId: app.fork.id }));
+    expect(records()).toContainEqual(expect.objectContaining({ event: "replay_fork_script_error", duelKind: "replay-fork", duelId: app.fork.id }));
     expect(app.db.prepare("select * from card_script_errors").all()).toEqual([]);
     expect(app.db.prepare("select * from card_script_error_occurrences").all()).toEqual([]);
   });

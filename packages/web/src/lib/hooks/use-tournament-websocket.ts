@@ -1,5 +1,7 @@
 "use client";
 
+import { log } from "@yugidraft/shared/observability";
+
 import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 
@@ -90,7 +92,7 @@ export function useTournamentWebsocket(slug: string, options: UseTournamentWebso
         });
       } catch (error) {
         if (!disposed && socket.connected && currentRequest === requestId && !(error instanceof Error && error.name === "AbortError")) {
-          console.warn("Tournament live feed is unavailable. Retrying.");
+          log("warn", "Tournament live feed is unavailable. Retrying.");
           scheduleJoinRetry(currentRequest);
         }
       }
@@ -146,7 +148,7 @@ export function useTournamentWebsocket(slug: string, options: UseTournamentWebso
 
     socket.on("connect_error", (err) => {
       // eslint-disable-next-line no-console
-      console.warn("Tournament WS connect error:", err.message);
+      log("warn", "Tournament WS connect error");
     });
 
     return () => {

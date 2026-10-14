@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { log } from "../observability/index.js";
 import { deriveKey, type Purpose } from "./keys.js";
 
 export type SignedPostResult = { ok: boolean; status: number; text: string };
@@ -72,7 +73,7 @@ export async function readSignedRequest(req: Request, cfg: {
 }): Promise<{ ok: true; body: unknown } | { ok: false; status: 400 | 401 | 413 }> {
   const path = new URL(req.url).pathname;
   const rejected = (status: 400 | 401 | 413, reason: string) => {
-    console.warn("internal request rejected", { purpose: cfg.purpose, path, reason });
+    log("warn", "internal request rejected", { purpose: cfg.purpose, path, reason });
     return { ok: false as const, status };
   };
   const maxBytes = cfg.maxBytes ?? 65536;

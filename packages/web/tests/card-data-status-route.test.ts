@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -10,8 +11,8 @@ vi.mock("@/lib/session-identity", async () => {
 vi.mock("@/lib/duel-host", () => ({ callEngineDataStatus: host }));
 vi.mock("@/lib/db", () => ({ getDb }));
 let db: Database.Database;
-beforeEach(() => {
-  vi.resetModules(); auth.mockReset(); host.mockReset(); getDb.mockReset();
+beforeEach(async () => {
+  vi.resetModules(); await recording.install(); auth.mockReset(); host.mockReset(); getDb.mockReset();
   auth.mockResolvedValue({ user: { id: "1", name: "Operator" } });
   vi.stubEnv("DISCORD_GUILD_ID", "guild-1"); vi.stubEnv("OWNER_USER_IDS", "1");
   db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
@@ -50,6 +51,8 @@ it("returns 503 when the duel host or local data is unavailable", async () => {
   host.mockResolvedValue({ ok: false, response: Response.json({ error: "Unavailable" }, { status: 503 }) });
   expect((await get()).status).toBe(503);
   getDb.mockImplementation(() => { throw new Error("Database unavailable"); });
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const log = recording.report.mockClear().mockImplementation(() => {});
   try { expect((await get()).status).toBe(503); } finally { log.mockRestore(); }
 });
+
+const recording = useRecordingObservability();

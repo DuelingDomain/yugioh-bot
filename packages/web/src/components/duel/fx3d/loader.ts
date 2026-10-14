@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type { Fx3dApi } from "./types";
 
 /**
@@ -45,7 +46,7 @@ export async function loadFx3d(host: HTMLElement, onStatus: (ready: boolean) => 
     await engine.warmed;
     return { api: engine, dispose: () => engine.dispose() };
   } catch (error) {
-    console.warn("[fx3d] unavailable, using the DOM effects", error);
+    report(error, { tags: { operation: "[fx3d] unavailable, using the DOM effects" } });
     return null;
   }
 }

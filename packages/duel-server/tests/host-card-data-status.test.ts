@@ -1,3 +1,4 @@
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { signedHeaders } from "./helpers/signed-request.js";
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -23,7 +24,6 @@ it("serves global card status only on the signed channel with a guild actor, eve
   const host = createDuelHost({ db, dataDirectory: dir, secret: "secret", searchCards: () => [], pollIntervalMs: 60_000, now: () => now });
   // A bundle copied to disk later is not the manifest this running host loaded.
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "replacement", sources: {} }));
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
   const post = async (body: object, signed = true) => {
     const raw = JSON.stringify(body);
     return host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
@@ -48,8 +48,10 @@ it("serves global card status only on the signed channel with a guild actor, eve
     now += 60_000;
     db.exec("drop table card_catalog");
     expect((await post({ op: "engine-data-status", guildId: "g", playerId: 1 })).status).toBe(503);
-    expect(log).toHaveBeenCalledWith("[duel] engine-data-status", expect.any(Error));
-  } finally { await host.close(); db.close(); log.mockRestore(); vi.unstubAllGlobals(); rmSync(dir, { recursive: true, force: true }); }
+    expect(output.errors).toEqual([expect.objectContaining({
+      message: "no such table: card_catalog", tags: { operation: "[duel] engine-data-status" },
+    })]);
+  } finally { await host.close(); db.close(); vi.unstubAllGlobals(); rmSync(dir, { recursive: true, force: true }); }
 });
 
 
@@ -84,3 +86,5 @@ it("closes the host in under one second while 50 sets and GitHub are pending", a
     vi.unstubAllGlobals(); rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const output = useConsoleObservability();

@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -84,7 +85,7 @@ const githubCalls = () => github.mock.calls.map(([url, init]) => ({ url: String(
 
 describe("POST /api/bug-reports", () => {
   beforeEach(async () => {
-    vi.resetModules();
+    vi.resetModules(); await recording.install();
     auth.mockReset();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     callDuelHost.mockReset();
@@ -249,7 +250,7 @@ describe("POST /api/bug-reports", () => {
   });
 
   it("keeps the report when GitHub fails, and never stores the token", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.log.mockClear().mockImplementation(() => {});
     github.mockResolvedValue(Response.json({ message: `Bad credentials ${TOKEN}` }, { status: 401 }));
     const POST = await route();
     const res = await POST(post(body()));
@@ -258,7 +259,7 @@ describe("POST /api/bug-reports", () => {
     const [row] = await rows();
     expect(row!.github_error).toBe("GitHub answered 401: Bad credentials [token]");
     expect(row!.github_error).not.toContain(TOKEN);
-    expect(warn).toHaveBeenCalledWith("[api/bug-reports] report 1 saved without an issue: GitHub answered 401: Bad credentials [token]");
+    expect(warn).toHaveBeenCalledWith("warn", "[api/bug-reports] report saved without an issue", {});
     expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
   });
 
@@ -417,7 +418,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
   }
 
   beforeEach(async () => {
-    vi.resetModules();
+    vi.resetModules(); await recording.install();
     auth.mockReset();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), discordUserId: fixtureDiscordId(DISCORD_ID), name: "Seraphina Quill" } });
     callDuelHost.mockReset();
@@ -526,23 +527,23 @@ describe("POST /api/bug-reports with duplicateOf", () => {
   });
 
   it("records and logs the GitHub lookup error when a saved issue takes a +1 without a comment", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.log.mockClear().mockImplementation(() => {});
     vi.stubEnv("BUG_REPORT_GITHUB_REPO", "someone/else");
     await ownIssueFromAnotherReport();
     github.mockResolvedValue(Response.json({ message: `Resource not accessible ${TOKEN}` }, { status: 403 }));
     const res = await (await route())(post(body({ duplicateOf: ISSUE })));
     expect(await res.json()).toEqual({ id: 2, issue: { number: ISSUE, url: "https://github.com/someone/else/issues/50" }, duplicate: true });
     expect((await rows())[1]).toMatchObject({ github_error: "GitHub answered 403: Resource not accessible [token]; no comment was added" });
-    expect(JSON.stringify(warn.mock.calls)).toContain("GitHub answered 403: Resource not accessible [token]");
+    expect(warn).toHaveBeenCalledWith("warn", "[api/bug-reports] duplicate report saved without a comment", {});
     expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
     expect(comments()).toHaveLength(0);
   });
 
-  it("logs GitHub's status and message when the duplicate target is missing or inaccessible", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("logs a warning when the duplicate target is missing or inaccessible", async () => {
+    const warn = recording.log.mockClear().mockImplementation(() => {});
     github.mockResolvedValue(Response.json({ message: `Not Found ${TOKEN}` }, { status: 404 }));
     expect((await (await route())(post(body({ duplicateOf: ISSUE })))).status).toBe(409);
-    expect(warn).toHaveBeenCalledWith("[api/bug-reports] issue #50 cannot take a report: GitHub answered 404: Not Found [token]");
+    expect(warn).toHaveBeenCalledWith("warn", "[api/bug-reports] issue cannot take a report", {});
     expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
     expect(await rows()).toHaveLength(0);
   });
@@ -596,3 +597,5 @@ describe("POST /api/bug-reports with duplicateOf", () => {
 });
 
 const FIXTURE_KEYS = ["other-owner", "x", "810293847561029384"] as const;
+
+const recording = useRecordingObservability();

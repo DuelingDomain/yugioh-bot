@@ -39,14 +39,20 @@ describe("persisted duel kind and setup", () => {
       const { db, duels, owner } = fixture();
       const good = duels.create({ guildId: "g", organizerPlayerId: owner.playerId, name: "Good", mode: "normal" });
       db.prepare("update duels set setup_json=? where web_slug='fixture'").run(raw);
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
       try {
         expect(duels.list("g", owner.playerId).map(row => row.slug)).toEqual([good.slug]);
         db.exec("update duels set archived_at=datetime('now'),status='completed'");
         expect(duels.list("g", owner.playerId, { archived: true }).map(row => row.slug)).toEqual([good.slug]);
         expect(() => duels.privateState("fixture", "g")).toThrow(/invalid/);
-        expect(warn).toHaveBeenCalled();
-      } finally { warn.mockRestore(); }
+        const events = diagnostic.mock.calls.map(([event]) => event);
+        expect(events).toEqual([expect.objectContaining({
+          name: "DuelServiceError", message: "Duel setup record is invalid", stack: expect.any(String),
+          tags: { operation: "[duels] invalid list row" },
+        })]);
+        expect(JSON.stringify(events)).not.toContain(raw);
+        expect(JSON.stringify(events)).not.toMatch(/"(?:guildId|playerId|ownerUserId|displayName|setup_json)"/);
+      } finally { diagnostic.mockRestore(); }
     });
 
   it.each([

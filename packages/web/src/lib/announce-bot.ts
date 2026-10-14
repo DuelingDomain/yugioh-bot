@@ -1,3 +1,4 @@
+import { log, report } from "@yugidraft/shared/observability";
 import { isDuelInviteReference, type AnnouncePayload } from "@yugidraft/shared/notify";
 import { DuelInviteRefusalError, findDuelEventTarget } from "@yugidraft/shared/services";
 import { isReplayFork } from "@yugidraft/shared/duels";
@@ -43,12 +44,12 @@ export async function sendDuelInvite(invite: DuelInvite, request?: Request): Pro
     const result = await announcer.announce({ ...invite, kind: "duel-invite", duelId: target.id,
       slug: target.slug, guildId: target.guildId, url: duelUrl(target.slug, request) });
     if (result && !result.ok) {
-      console.warn(`[announce-bot] duel-invite failed: ${result.error}`);
+      log("warn", "[announce-bot] duel-invite failed");
       return false;
     }
     return true;
   } catch (error) {
-    console.warn("[announce-bot] duel-invite failed", error);
+    report(error, { tags: { operation: "[announce-bot] duel-invite failed" } });
     return false;
   }
 }

@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
@@ -61,7 +62,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
 
     return NextResponse.json({ cards: summaries(ids), extraCards: summaries(drafts.resolveExtraCardIds(config, env.discordGuildId)) });
   } catch (error) {
-    console.error("[GET /api/drafts/[slug]/pool]", error);
+    report(error, { tags: { operation: "[GET /api/drafts/[slug]/pool]" } });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

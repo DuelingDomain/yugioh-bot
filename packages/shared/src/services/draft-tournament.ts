@@ -1,3 +1,4 @@
+import { report } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import type { DraftConfig, TournamentVisibility } from "../types/index.js";
 import type { TournamentFormat } from "./tournaments.js";
@@ -126,7 +127,7 @@ export function createDraftTournamentService(db: Database.Database) {
         try {
           createDraftDeckService(db).saveForDraft(draft.id);
         } catch (error) {
-          console.error(`[draft-tournament] could not save the draft decks for draft ${draft.id}:`, error);
+          report(error, { tags: { operation: "[draft-tournament] could not save the draft decks for draft" } });
         }
 
         const tournament = db

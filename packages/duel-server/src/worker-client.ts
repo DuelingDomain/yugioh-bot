@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
 import { Worker } from "node:worker_threads";
 import { RequestError } from "./request-error.js";
@@ -91,7 +92,11 @@ export class GameWorker implements DuelGameWorker {
   /** Index of the oldest prompt in the ring. Writes never shift the retained entries. */
   private promptStart = 0;
 
-  constructor(onScriptError?: (error: DuelScriptError) => void, onFatalScriptError?: (error: DuelScriptFatalError) => void, options: { heapMb?: number; onExit?: () => void } = {}) {
+  private readonly table?: string | (() => string | undefined);
+
+  constructor(onScriptError?: (error: DuelScriptError) => void, onFatalScriptError?: (error: DuelScriptFatalError) => void,
+    options: { heapMb?: number; onExit?: () => void; table?: string | (() => string | undefined) } = {}) {
+    this.table = options.table;
     const development = import.meta.url.endsWith(".ts");
     const module = new URL(development ? "./worker.ts" : "./worker.js", import.meta.url);
     const resourceLimits = { maxOldGenerationSizeMb: options.heapMb ?? workerLimitsFromEnv().heapMb };
@@ -122,11 +127,17 @@ export class GameWorker implements DuelGameWorker {
       if (!request) return;
       this.pending.delete(message.id);
       if (message.ok) request.resolve(message.value);
-      else request.reject(message.code === "ENGINE_UNAVAILABLE_FOR_SOURCE"
-        ? new EngineResourceUnavailableError("the worker cannot use the recorded engine resources")
-        : message.engineLoop ? new EngineLoopError() : message.answerError || message.code
-        ? new EngineAnswerError(message.error, message.code)
-        : new Error(message.error ?? "Engine rejected the request"));
+      else {
+        const error = message.code === "ENGINE_UNAVAILABLE_FOR_SOURCE"
+          ? new EngineResourceUnavailableError("the worker cannot use the recorded engine resources")
+          : message.engineLoop ? new EngineLoopError() : message.answerError || message.code
+          ? new EngineAnswerError(message.message ?? message.error, message.code)
+          : new Error(message.message ?? message.error ?? "Engine rejected the request");
+        if (message.name) error.name = message.name;
+        if (message.stack) error.stack = message.stack;
+        if (!message.answerError && !message.code) this.reportError(error);
+        request.reject(error);
+      }
     });
     this.worker.on("error", (error) => this.fail(error instanceof Error ? error : new Error(String(error))));
     this.worker.on("exit", (code) => {
@@ -135,7 +146,15 @@ export class GameWorker implements DuelGameWorker {
     });
   }
 
-  private fail(error: Error) {
+  private reportError(error: Error) {
+    let table: string | undefined;
+    try { table = typeof this.table === "function" ? this.table() : this.table; } catch {}
+    report(error, table ? { tags: { table } } : {});
+  }
+
+  private fail(error: Error, unexpected = true) {
+    if (this.stopped) return;
+    if (unexpected) this.reportError(error);
     this.stopped = true;
     for (const request of this.pending.values()) request.reject(error);
     this.pending.clear();
@@ -205,7 +224,7 @@ export class GameWorker implements DuelGameWorker {
   }
 
   async close(): Promise<void> {
-    this.fail(new Error("Engine worker closed"));
+    this.fail(new Error("Engine worker closed"), false);
     this.prompts.length = 0;
     this.promptStart = 0;
     await this.worker.terminate();

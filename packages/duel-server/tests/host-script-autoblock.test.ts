@@ -1,3 +1,4 @@
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { signedHeaders } from "./helpers/signed-request.js";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import Database from "better-sqlite3";
@@ -78,7 +79,7 @@ describe("automatic blocks through host and replay", () => {
     vi.stubEnv("DUEL_DATA_DIR", DATA);
     vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "2");
     vi.stubEnv("DUEL_1V1_ENGINE", engine);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    output.warnings.length = 0;
     const db = new Database(":memory:"); migrate(db);
     const players = [0, 1].map(i => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `auto${i}`).userId }).playerId);
     const duels = createDuelService(db);
@@ -148,6 +149,8 @@ describe("automatic blocks through host and replay", () => {
       await host.close(); host = makeHost();
       expect(await request(host, { ...base, op: "replay", playerId: players[0] })).toEqual(replay);
       expect(topScriptErrors(db)[0]!.count).toBe(count);
-    } finally { await host.close(); db.close(); log.mockRestore(); vi.unstubAllEnvs(); }
+    } finally { await host.close(); db.close(); vi.unstubAllEnvs(); }
   }, 30000);
 });
+
+const output = useConsoleObservability();

@@ -5,17 +5,21 @@ services:
       context: .
       target: ws
     restart: unless-stopped
+    init: true
     mem_limit: ${WS_MEM_LIMIT:-384m}
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
       - OWNER_USER_IDS=${OWNER_USER_IDS:-}
       - WEB_URL=${WEB_URL:?WEB_URL is required}
       - WS_PORT=3001
       - WS_INTERNAL_PORT=4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
-    command: node packages/ws/dist/server.js
+    command: node --import ./packages/ws/dist/instrument.js packages/ws/dist/server.js
     volumes:
       - ./data:/app/data
     healthcheck:
@@ -33,9 +37,13 @@ services:
       additional_contexts:
         engine: ./.deploy-duel-engine
     restart: unless-stopped
+    init: true
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
       - OWNER_USER_IDS=${OWNER_USER_IDS:-}
       - DUEL_DATA_DIR=/app/data/duel-engine
@@ -82,9 +90,13 @@ services:
       args:
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required}
     restart: unless-stopped
+    init: true
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
       - DUEL_DATA_DIR=/app/data/duel-engine
       - CARD_IMAGE_CACHE_DIR=/app/data/card-images
@@ -131,10 +143,14 @@ services:
       context: .
       target: worker
     restart: unless-stopped
+    init: true
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     stop_grace_period: 150s
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
       - OWNER_USER_IDS=${OWNER_USER_IDS:-}
       - CARD_IMAGE_CACHE_DIR=/app/data/card-images

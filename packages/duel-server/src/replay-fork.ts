@@ -1,3 +1,4 @@
+import { log } from "@yugidraft/shared/observability";
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { assertOwnerReplaySourceAccess, assertReplayForkAccess, resolveOwnerPlayer, ReplayAccessError,
@@ -43,7 +44,7 @@ export function listActiveReplayForks(db: Database.Database, actor: OwnerPlayerA
     catch (error) {
       if (!(error instanceof ReplayAccessError) || error.status !== 404) throw error;
       // No payload or error stack: a damaged row must not hide healthy forks or leak private metadata.
-      console.warn("[replay-fork] Skipping invalid active fork", { slug: fork.slug, code: error.code });
+      log("warn", "[replay-fork] Skipping invalid active fork", { code: error.code });
       return false;
     }
   });
@@ -67,7 +68,7 @@ interface ForkLaunchOptions {
   authorizeSource: (state: DuelPrivateState, actor: OwnerPlayerActor, unchecked: boolean, signal?: AbortSignal) => Promise<JournalResources>;
   /** Recorder is disabled until persistence. The closure supplies the new fork ID after commit. */
   createWorker: (duelId: () => number | undefined, actor: OwnerPlayerActor, session: DuelSession | undefined,
-    signal?: AbortSignal) => DuelGameWorker | Promise<DuelGameWorker>;
+    table: () => string, signal?: AbortSignal) => DuelGameWorker | Promise<DuelGameWorker>;
   /** All engine reads finish before commit. Handoff has no asynchronous failure window. */
   register: (session: DuelSession, worker: DuelGameWorker, views: DuelEngineView[]) => DuelRoom;
   remove: (slug: string, worker: DuelGameWorker) => Promise<void>;
@@ -118,7 +119,8 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
       const result: JournalRunResult = await runJournalPrefix({ source, resources, prefixCount, target,
         manualLossAnswersAfter: prefixCount,
         createWorker: async () => {
-          worker = await options.createWorker(() => recorderId, actor, restore ? state.session : undefined, workerSignal);
+          worker = await options.createWorker(() => recorderId, actor, restore ? state.session : undefined,
+            () => committed?.slug ?? state.session.slug, workerSignal);
           try { check(); workerSignal.throwIfAborted(); }
           catch (error) { try { await worker.close(); } catch { /* Keep the request failure. */ } throw error; }
           return worker;

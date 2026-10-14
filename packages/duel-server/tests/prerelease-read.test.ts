@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -67,7 +68,7 @@ it("exposes prerelease metadata and respects TCG/OCG bits, with unlisted cards u
 
 it("ignores bad retained-artwork/token remaps during import and preserves selected passcodes", async () => {
  const dir=fixture({57160137:57160136,98596597:23116809,100000003:12}),db=openDatabase(":memory:");
- const warning=vi.spyOn(console,"warn").mockImplementation(()=>{});
+ const warning=recording.log.mockClear().mockImplementation(()=>{});
  const cdb=new Database(join(dir,"cards.cdb"));
  cdb.exec(`INSERT INTO datas VALUES(57160136,3,0,0,2,0,0,0,0,0),(57160137,259,57160136,0,2,0,0,0,0,0),
  (23116809,3,0,0,16401,0,0,1,1,1),(98596597,259,0,0,16401,0,0,1,1,1);
@@ -78,3 +79,5 @@ it("ignores bad retained-artwork/token remaps during import and preserves select
   expect(await normalizeCardCodes(deck.main,dir,db,{fetch:vi.fn(),preserveArtwork:true})).toEqual(new Map([[57160137,57160137],[98596597,98596597],[100000003,12]]));
  } finally {warning.mockRestore();db.close();}
 });
+
+const recording = useRecordingObservability();

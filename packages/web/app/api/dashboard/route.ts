@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { findTournamentDashboardSummaries } from "@yugidraft/shared/services";
 import { env } from "@/lib/env";
 import { NextResponse } from "next/server";
@@ -99,7 +100,7 @@ export async function GET() {
 
     return NextResponse.json({ tournaments, drafts, stats });
   } catch (error) {
-    console.error("[api/dashboard] error:", error);
+    report(error, { tags: { operation: "[api/dashboard] error" } });
     return NextResponse.json(
       { error: "Failed to load dashboard" },
       { status: 500 }

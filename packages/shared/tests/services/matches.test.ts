@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../helpers/recording-observability.mjs";
 import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
@@ -230,7 +231,7 @@ describe("matches.recordConfirmedResult", () => {
       when new.kind = '${kind}'
       begin select raise(abort, 'forced scoring failure'); end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       const match = caller === "confirmed"
         ? app.matches.recordConfirmedResult({
@@ -249,3 +250,5 @@ describe("matches.recordConfirmedResult", () => {
     }
   });
 });
+
+const recording = useRecordingObservability();

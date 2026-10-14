@@ -301,6 +301,8 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.superseded != 'true' && needs.prepare.outputs.rollback != 'true'
     runs-on: ubuntu-24.04-arm
+    # Only web needs the production environment source-map upload secret.
+    environment: ${{ matrix.service == 'web' && 'production' || '' }}
     permissions:
       contents: read
       packages: write
@@ -387,6 +389,14 @@ jobs:
           tags: ${{ env.IMAGE }}:${{ env.DEPLOY_COMMIT }}
           build-args: |
             NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ matrix.service == 'web' && vars.NEXT_PUBLIC_SENTRY_DSN || '' }}
+            SENTRY_ORG=${{ matrix.service == 'web' && vars.SENTRY_ORG || '' }}
+            SENTRY_PROJECT=${{ matrix.service == 'web' && vars.SENTRY_PROJECT || '' }}
+            SENTRY_ENVIRONMENT=${{ matrix.service == 'web' && 'production' || '' }}
+            SENTRY_RELEASE=${{ matrix.service == 'web' && env.DEPLOY_COMMIT || '' }}
+            SENTRY_UPLOAD_SOURCEMAPS=${{ matrix.service == 'web' && secrets.SENTRY_AUTH_TOKEN != '' && '1' || '0' }}
+          secrets: |
+            SENTRY_AUTH_TOKEN=${{ matrix.service == 'web' && secrets.SENTRY_AUTH_TOKEN || '' }}
           build-contexts: |
             engine=${{ runner.temp }}/engine
             ${{ steps.next-cache.outputs.context }}
@@ -428,6 +438,14 @@ jobs:
           tags: ${{ env.IMAGE }}:nextcache
           build-args: |
             NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ matrix.service == 'web' && vars.NEXT_PUBLIC_SENTRY_DSN || '' }}
+            SENTRY_ORG=${{ matrix.service == 'web' && vars.SENTRY_ORG || '' }}
+            SENTRY_PROJECT=${{ matrix.service == 'web' && vars.SENTRY_PROJECT || '' }}
+            SENTRY_ENVIRONMENT=${{ matrix.service == 'web' && 'production' || '' }}
+            SENTRY_RELEASE=${{ matrix.service == 'web' && env.DEPLOY_COMMIT || '' }}
+            SENTRY_UPLOAD_SOURCEMAPS=${{ matrix.service == 'web' && secrets.SENTRY_AUTH_TOKEN != '' && '1' || '0' }}
+          secrets: |
+            SENTRY_AUTH_TOKEN=${{ matrix.service == 'web' && secrets.SENTRY_AUTH_TOKEN || '' }}
           build-contexts: ${{ steps.next-cache.outputs.context }}
           labels: |
             org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot
@@ -720,6 +738,7 @@ jobs:
              done
              DUELING_BACKUP_DIR="$release_dir/online" python3 scripts/backup/dueling-backup
              git reset --hard "$DEPLOY_COMMIT"
+             export SENTRY_RELEASE="$DEPLOY_COMMIT"
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
              sh "$DEPLOY_IMAGES" promote "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
              # Remove build definitions even from an older rollback checkout. Compose run has no --no-build option.

@@ -1,3 +1,4 @@
+import { log, report } from "@yugidraft/shared/observability";
 import { createServer, type Server } from "node:http";
 import { isDuelInviteReference, type AnnouncePayload } from "@yugidraft/shared/notify";
 import { DuelInviteRefusalError } from "@yugidraft/shared/services";
@@ -55,10 +56,10 @@ export function createAnnounceServer(opts: {
       return new Response(null, { status: 204 });
     } catch (err) {
       if (err instanceof DuelInviteRefusalError) {
-        console.warn(`[announce] refused invite for ${url.pathname}:`, err.message);
+        log("warn", "[announce] refused invite", { code: err.code, status: err.status });
         return Response.json({ error: err.message, code: err.code }, { status: err.status });
       }
-      console.error(`[announce] handler failed for ${url.pathname}:`, err);
+      report(err, { tags: { operation: "[announce] handler failed for" } });
       return new Response("Handler error", { status: 500 });
     }
   }
@@ -69,7 +70,7 @@ export function createAnnounceServer(opts: {
         const maxBytes = 65536;
         const url = `http://${nodeReq.headers.host ?? "localhost"}${nodeReq.url ?? "/"}`;
         const rejectSize = () => {
-          console.warn("internal request rejected", { purpose: "bot-announce", path: new URL(url).pathname, reason: "body too large" });
+          log("warn", "internal request rejected", { purpose: "bot-announce", path: new URL(url).pathname, reason: "body too large" });
           nodeReq.pause();
           nodeRes.writeHead(413, { connection: "close" });
           nodeRes.end("Request too large");
@@ -91,7 +92,7 @@ export function createAnnounceServer(opts: {
         nodeRes.writeHead(res.status, Object.fromEntries(res.headers));
         nodeRes.end(await res.text());
       } catch (error) {
-        console.error("Internal request handler failed", error);
+        report(error, { tags: { operation: "Internal request handler failed" } });
         if (!nodeRes.headersSent) nodeRes.writeHead(500);
         nodeRes.end("Something went wrong");
       }

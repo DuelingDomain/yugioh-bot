@@ -1,3 +1,4 @@
+import { report } from "../observability/index.js";
 import { randomBytes, randomInt } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer, DraftVisibility } from "../types/index.js";
@@ -219,7 +220,7 @@ export function createDraftService(
     try {
       createDraftDeckService(db).saveForDraft(draftId);
     } catch (error) {
-      console.error(`[drafts] could not save the draft decks for draft ${draftId}:`, error);
+      report(error, { tags: { operation: "[drafts] could not save the draft decks for draft" } });
     }
   };
   const seatOrder = (playerIds: number[], config: DraftConfig): number[] => {

@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -19,8 +20,8 @@ vi.mock("@/lib/notify", () => ({ broadcaster, announcer: { announce: vi.fn() } }
 // bots only pick cards they may take, and the draft response marks capped cards and passed picks.
 
 describe("per-player copy cap in the draft routes", () => {
-  beforeEach(() => {
-    vi.resetModules();
+  beforeEach(async () => {
+    vi.resetModules(); await recording.install();
     auth.mockReset();
     broadcaster.draft.mockReset();
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("host")), discordUserId: fixtureDiscordId("host"), name: "Yugi" } });
@@ -223,7 +224,7 @@ describe("per-player copy cap in the draft routes", () => {
         return service.pickCard(...args);
       } };
     });
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     const res = await pick(slug, cardId);
     expect(res.status).toBe(200);
     expect(raced).toBe(true);
@@ -262,3 +263,5 @@ describe("per-player copy cap in the draft routes", () => {
 const FIXTURE_KEYS = ["host", "other"] as const;
 
 // Session resolution is mocked; authorization still runs through the real web boundary.
+
+const recording = useRecordingObservability();

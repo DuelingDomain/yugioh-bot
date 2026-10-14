@@ -1,5 +1,7 @@
 "use client";
 
+import { report } from "@yugidraft/shared/observability";
+
 import { useEffect } from "react";
 import { useDraftStore } from "@/lib/stores/draft-store";
 
@@ -45,7 +47,7 @@ export function useDraftExpiryResync(slug: string) {
           });
         })
         .catch((error) => {
-          console.warn("Draft expiry resync failed:", error);
+          report(error, { tags: { operation: "Draft expiry resync failed" } });
         });
     };
 

@@ -1,3 +1,4 @@
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { signedHeaders } from "./helpers/signed-request.js";
 import { rmSync } from "node:fs";
 import Database from "better-sqlite3";
@@ -192,7 +193,7 @@ describe("host FFA dice opening", () => {
 
   it("frees a failed start and rolls fresh dice on the next attempt", async () => {
     vi.useFakeTimers();
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    output.warnings.length = 0;
     const t = table("ffa3", [1, 2, 6]);
     await t.post("start");
     vi.spyOn(Worker.prototype, "create").mockRejectedValueOnce(new Error("Test start failed"));
@@ -222,3 +223,5 @@ describe("host FFA dice opening", () => {
     }
   });
 });
+
+const output = useConsoleObservability();

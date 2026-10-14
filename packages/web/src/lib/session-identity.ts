@@ -1,3 +1,4 @@
+import { log } from "@yugidraft/shared/observability";
 import { auth as clerkAuth } from "@clerk/nextjs/server";
 import { cookies } from "next/headers";
 import { ClerkBackendError } from "@yugidraft/shared/clerk";
@@ -18,7 +19,7 @@ export async function resolveSessionIdentity(opts: { forceSync?: boolean } = {})
   const startedAt = performance.now();
   const unavailable = (reason: string): SessionResult => {
     // Emit only fixed reasons and elapsed time. Provider errors can contain private data.
-    console.warn("[web-access] session check unavailable", { reason, durationMs: Math.round(performance.now() - startedAt) });
+    log("warn", "[web-access] session check unavailable", { reason, durationMs: Math.round(performance.now() - startedAt) });
     return { ok: false, status: 503 };
   };
   if (isE2EAuthEnabled()) {

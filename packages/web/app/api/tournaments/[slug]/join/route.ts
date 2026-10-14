@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -49,7 +50,7 @@ export async function POST(
 
     return NextResponse.json({ success: true, playerId: player.id, displayName: player.displayName });
   } catch (error) {
-    console.error("[api/tournaments/[slug]/join] error:", error);
+    report(error, { tags: { operation: "[api/tournaments/[slug]/join] error" } });
     return NextResponse.json(
       { error: "Failed to join tournament" },
       { status: 500 }

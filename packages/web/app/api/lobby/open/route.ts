@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { createOpenNowService } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
@@ -18,7 +19,7 @@ export async function GET() {
     const open: OpenNow = createOpenNowService(db).forPlayer(env.discordGuildId, viewer?.id ?? null, actor.userId);
     return NextResponse.json(open, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    console.error("[api/lobby/open]", error);
+    report(error, { tags: { operation: "[api/lobby/open]" } });
     return NextResponse.json({ error: "Failed to load open lobbies" }, { status: 500, headers: { "Cache-Control": "no-store" } });
   }
 }

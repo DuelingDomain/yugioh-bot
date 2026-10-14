@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -95,7 +96,7 @@ export async function POST(
         return NextResponse.json({ error: error.message }, { status: 403 });
       }
     }
-    console.error("[api/drafts/[slug]/tournament POST] error:", error);
+    report(error, { tags: { operation: "[api/drafts/[slug]/tournament POST] error" } });
     return NextResponse.json({ error: "Failed to create tournament" }, { status: 500 });
   }
 }

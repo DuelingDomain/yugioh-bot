@@ -1,3 +1,4 @@
+import { report, log } from "@yugidraft/shared/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -20,7 +21,7 @@ const MAX_BOT_ROUNDS = 200;
 function reportBotError(error: unknown): void {
   const message = error instanceof Error ? error.message : "";
   if (!/already picked|already finished|current pack|current wave|no card to pick|Draft must be active/.test(message)) {
-    console.error("[draft] bot pick failed:", error);
+    report(error, { tags: { operation: "[draft] bot pick failed" } });
   }
 }
 
@@ -147,11 +148,11 @@ export async function POST(
     return NextResponse.json(response);
   } catch (error) {
     if (error instanceof Error) {
-      console.error("[api/drafts/[slug]/pick] error:", error.message);
+      log("warn", "[api/drafts/[slug]/pick] Pick rejected");
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    console.error("[api/drafts/[slug]/pick] unexpected error:", error);
+    report(error, { tags: { operation: "[api/drafts/[slug]/pick] unexpected error" } });
     return NextResponse.json(
       { error: "Failed to pick card" },
       { status: 500 }

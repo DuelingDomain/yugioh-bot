@@ -1,3 +1,4 @@
+import { log, report } from "@yugidraft/shared/observability";
 import { signedTransport, type SignedPostTransport } from "@yugidraft/shared/internal-auth";
 import type Database from "better-sqlite3";
 import { findDuelEventTarget, type DuelEventTarget } from "@yugidraft/shared/services";
@@ -16,18 +17,16 @@ export function createNotifyDuelChange(transport: SignedPostTransport,
     try {
       const target = resolveTarget(slug, guildId);
       if (!target) {
-        console.warn(`[notify-duel] target missing for ${guildId}/${slug}`);
+        log("warn", "[notify-duel] target missing");
         return;
       }
       if (isReplayFork(target)) return;
       const result = await transport.post("/internal/duel/changed", JSON.stringify({ slug: target.slug, guildId: target.guildId }));
       if (!result.ok) {
-        console.warn(
-          `[notify-duel] /internal/duel/changed -> ${result.status}${result.text ? ` ${result.text}` : ""}`,
-        );
+        log("warn", "[notify-duel] Invalidation rejected", { status: result.status });
       }
     } catch (error) {
-      console.warn("[notify-duel] /internal/duel/changed failed", error);
+      report(error, { tags: { operation: "[notify-duel] /internal/duel/changed failed" } });
     }
   };
 }

@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { TypedServer } from "./events.js";
 import { readSignedRequest } from "@yugidraft/shared/internal-auth";
+import { log, report } from "@yugidraft/shared/observability";
 import { draftSocketRoom } from "./rooms.js";
 import { isTalkLine, type TalkLineId } from "@yugidraft/shared/ws";
 
@@ -236,7 +237,7 @@ export function listenInternalHttp(opts: BroadcastOptions & { port: number }): S
       const maxBytes = opts.maxBytes ?? 65536;
       const url = `http://${nodeReq.headers.host ?? "localhost"}${nodeReq.url ?? "/"}`;
       const rejectSize = () => {
-        console.warn("internal request rejected", { purpose: "ws-broadcast", path: new URL(url).pathname, reason: "body too large" });
+        log("warn", "internal request rejected", { purpose: "ws-broadcast", path: new URL(url).pathname, reason: "body too large" });
         nodeReq.pause();
         nodeRes.writeHead(413, { connection: "close" });
         nodeRes.end("Request too large");
@@ -258,7 +259,7 @@ export function listenInternalHttp(opts: BroadcastOptions & { port: number }): S
       nodeRes.writeHead(res.status, Object.fromEntries(res.headers));
       nodeRes.end(await res.text());
     } catch (error) {
-      console.error("Internal request handler failed", error);
+      report(error, { tags: { operation: "Internal request handler failed" } });
       if (!nodeRes.headersSent) nodeRes.writeHead(500);
       nodeRes.end("Something went wrong");
     }

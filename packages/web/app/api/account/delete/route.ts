@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { ClerkBackendError, createClerkBackend } from "@yugidraft/shared/clerk";
 import { createUserService, deleteUserAccount } from "@yugidraft/shared/services";
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
       if (!secretKey) throw new ClerkBackendError("Clerk secret is unavailable", 0, "missing_secret", null);
       await createClerkBackend({ secretKey }).deleteUser(user.clerkUserId);
     } catch (error) {
-      console.error(`[account-delete] Clerk deletion failed for user ${access.userId} (status ${error instanceof ClerkBackendError ? error.status : 0})`);
+      report(error, { tags: { operation: "[account-delete] Clerk deletion failed for user (status )" } });
       return fail("retry_later", 503);
     }
     await settleClerkSync(user.clerkUserId);
@@ -46,8 +47,8 @@ export async function POST(request: Request) {
 
   try {
     deleteUserAccount(db, access.userId);
-  } catch {
-    console.error(`[account-delete] database step failed after Clerk deletion for user ${access.userId}; finish with the delete-user ops command`);
+  } catch (error) {
+    report(error, { userId: access.userId, tags: { operation: "[account-delete] database step failed after Clerk deletion" } });
     return fail("server_error", 500);
   }
 

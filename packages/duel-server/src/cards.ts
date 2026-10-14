@@ -1,3 +1,4 @@
+import { log } from "@yugidraft/shared/observability";
 import { indexScripts } from "./card-script-source.js";
 import Database from "better-sqlite3";
 import { existsSync, readFileSync } from "node:fs";
@@ -278,7 +279,7 @@ function loadFromDisk(root: string): LoadedCardDatabase {
             resolvedName = scriptName;
             if (!warnedFallbacks.has(normalized)) {
               warnedFallbacks.add(normalized);
-              console.warn(`[cards] Artwork script fallback ${normalized} → ${scriptName}; core self_code and GetID() remain ${match[1]}, not ${main}. Validate this engine bundle before deployment.`);
+              log("warn", "[cards] Using an artwork script fallback; validate this engine bundle before deployment.");
             }
           }
         }

@@ -1,3 +1,5 @@
+import { log, report } from "@yugidraft/shared/observability";
+import { awaitObservabilityShutdown } from "@yugidraft/shared/observability/node-bootstrap";
 import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { findDuelEventTarget } from "@yugidraft/shared/services";
 import { config } from "dotenv";
@@ -19,7 +21,7 @@ for (const key of [DUEL_1V1_ENGINE_ENV, DUEL_STANDARD_1V1_ENGINE_ENV]) {
   const value = process.env[key];
   const normalized = value?.trim().toLowerCase();
   if (normalized && !isDuelEngineChoice(normalized)) {
-    console.warn(`[duel] Invalid ${key}=${JSON.stringify(value)}; expected legacy or pinned. Using the fallback.`);
+    log("warn", "[duel] invalid engine setting; using the fallback", { key });
   }
 }
 console.log(`[duel] 1v1 engines: Standard=${duel1v1EngineForMode("normal")}, Domain=${duel1v1EngineForMode("domain")}`);
@@ -104,7 +106,7 @@ const server = createServer(async (request, response) => {
     });
     response.end(Buffer.from(await result.arrayBuffer()));
   } catch (error) {
-    console.error("[duel] Request failed", error);
+    report(error, { tags: { operation: "[duel] Request failed" } });
     if (!response.headersSent) response.writeHead(500, { "content-type": "application/json" });
     response.end(JSON.stringify({ error: "Duel service request failed" }));
   }
@@ -141,9 +143,10 @@ async function shutdown() {
     cards.close();
     db.close();
   } catch (error) {
-    console.error("[duel] Shutdown failed", error instanceof Error ? error.name : "Unknown");
+    report(error, { tags: { operation: "[duel] Shutdown failed" } });
     exitCode = 1;
   } finally {
+    await awaitObservabilityShutdown();
     clearTimeout(exitTimer);
     process.exit(exitCode);
   }

@@ -1,3 +1,4 @@
+import { log } from "@yugidraft/shared/observability";
 import { clerkClient } from "@clerk/nextjs/server";
 import type { NextRequest } from "next/server";
 import { createUserService } from "@yugidraft/shared/services";
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
     finally {
       if (!claimed) {
         try { await client.users.deleteUser(createdId); }
-        catch { console.warn(`[existing-player] users.id=${user.id} Clerk cleanup failed; owner repair required`); }
+        catch { log("warn", "[existing-player] Clerk cleanup failed; owner repair required"); }
       }
     }
     if (!claimed) return clearRecoveryCookies(recoveryError(SUPPORT, 409));

@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { createTournamentVisibilityService, TournamentVisibilityServiceError } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
@@ -28,7 +29,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof TournamentVisibilityServiceError) return tournamentNotFound();
-    console.error("[tournament invite] admission failed:", error);
+    report(error, { tags: { operation: "[tournament invite] admission failed" } });
     return NextResponse.json({ error: "Failed to accept invite" }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleCommand, type CommandInteractionLike } from "../src/commands/handlers.js";
 import { handleButton } from "../src/interactions/buttons.js";
@@ -170,7 +171,7 @@ describe("state change broadcasts", () => {
     deps.drafts.findById.mockReturnValueOnce({ ...draft, status: "active" })
       .mockReturnValue({ ...draft, status, currentPickStep: 2 });
     deps.messenger.updateStatus.mockRejectedValue(new Error("Discord unavailable"));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.report.mockClear().mockImplementation(() => {});
     try {
       const timer = createDraftTimerService(deps as unknown as Parameters<typeof createDraftTimerService>[0]);
       await timer.tick(new Date("2026-01-01T00:01:00Z"));
@@ -184,3 +185,5 @@ describe("state change broadcasts", () => {
     }
   });
 });
+
+const recording = useRecordingObservability();

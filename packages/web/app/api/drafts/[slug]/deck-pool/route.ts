@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -49,7 +50,7 @@ export async function GET(
       unresolved: pool.unresolved,
     });
   } catch (error) {
-    console.error("[api/drafts/[slug]/deck-pool] error:", error);
+    report(error, { tags: { operation: "[api/drafts/[slug]/deck-pool] error" } });
     return NextResponse.json({ error: "Failed to load the draft pool" }, { status: 500 });
   }
 }

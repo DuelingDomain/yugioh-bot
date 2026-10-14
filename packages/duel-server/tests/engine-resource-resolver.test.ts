@@ -110,6 +110,8 @@ describe("current engine identity", () => {
     // PR #344 integration refreshes version 5 for async worker admission, deadlines and structural answer checks.
     // Successful journals retain the same creation rules, command ordering and board projections.
     // Version 4 includes PR #354's behavior-neutral worker startup instrumentation and cached catalog preload.
+    // PR #346 refreshes version 5 for worker error metadata and card-loading fallback reporting.
+    // These changes preserve engine command interpretation and replay journal behavior.
     // Historical baselines remain unchanged.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });

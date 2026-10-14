@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -79,7 +80,7 @@ export async function POST(
     return NextResponse.json({ success: true, channelId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to announce";
-    console.error("[api/tournaments/[slug]/announce] error:", error);
+    report(error, { tags: { operation: "[api/tournaments/[slug]/announce] error" } });
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

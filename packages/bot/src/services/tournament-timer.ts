@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type { Match, MatchService, TournamentService } from "@yugidraft/shared/services";
 import type { Tournament } from "@yugidraft/shared/types";
 
@@ -36,7 +37,7 @@ export function createTournamentTimerService({
         const resolved = matches.autoApprove(overdue.id);
         await onMatchAutoResolved(resolved);
       } catch (error) {
-        console.warn(`[tournament-timer] auto-approve failed for match ${overdue.id}`, error);
+        report(error, { tags: { operation: "[tournament-timer] auto-approve failed for match" } });
       }
     }
 
@@ -47,7 +48,7 @@ export function createTournamentTimerService({
         for (const duelSlug of changedDuelSlugs) void notifyDuelChange?.(duelSlug, closed.guildId);
         await onTournamentClosed(closed);
       } catch (error) {
-        console.warn(`[tournament-timer] close failed for tournament ${tournament.id}`, error);
+        report(error, { tags: { operation: "[tournament-timer] close failed for tournament" } });
       }
     }
 
@@ -58,7 +59,7 @@ export function createTournamentTimerService({
           if (!matches.claimTournamentCompletionAnnouncement(tournamentId)) continue;
           await completedSweep.announce(tournamentId);
         } catch (error) {
-          console.warn(`[tournament-timer] completion announce failed for tournament ${tournamentId}`, error);
+          report(error, { tags: { operation: "[tournament-timer] completion announce failed for tournament" } });
         }
       }
     }

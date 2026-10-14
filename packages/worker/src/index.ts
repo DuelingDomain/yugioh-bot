@@ -1,3 +1,5 @@
+import { report } from "@yugidraft/shared/observability";
+import { awaitObservabilityShutdown } from "@yugidraft/shared/observability/node-bootstrap";
 import { config } from "dotenv";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,20 +54,29 @@ const jobs = [
 let draining: Promise<void> | undefined;
 function stop() {
   return draining ??= (async () => {
-    await Promise.all(jobs.map(job => job.stop()));
-    rmSync(healthPath, { force: true });
-    db.close();
+    const cleanup = async (run: () => unknown) => {
+      try { await run(); }
+      catch (error) {
+        report(error, { tags: { operation: "[worker] cleanup failed" } });
+        process.exitCode = 1;
+      }
+    };
+    try {
+      await Promise.all(jobs.map(job => cleanup(() => job.stop())));
+      await cleanup(() => rmSync(healthPath, { force: true }));
+      await cleanup(() => db.close());
+    } finally { await awaitObservabilityShutdown(); }
   })();
 }
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {
-    void stop().catch(error => { console.error(error); process.exitCode = 1; });
+    void stop().catch(error => { report(error, { tags: { operation: "Error path in worker/src/index.ts" } }); process.exitCode = 1; });
   });
 }
 try {
   await Promise.all(jobs.map(job => job.start()));
 } catch (error) {
-  console.error("[worker] startup failed", error);
+  report(error, { tags: { operation: "[worker] startup failed" } });
   await stop();
   process.exitCode = 1;
 }

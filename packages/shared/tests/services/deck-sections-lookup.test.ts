@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -11,6 +12,7 @@ import { loadArtworkIdentityCatalog } from "../../src/services/card-artworks.js"
 import { createDeckTypeLookup } from "../../src/services/deck-sections.js";
 import { createSavedDeckService } from "../../src/services/saved-decks.js";
 
+const recording = useRecordingObservability();
 let directory: string;
 let db: Database.Database;
 let engineDirectory: string;
@@ -49,20 +51,21 @@ afterEach(() => {
 });
 
 describe("deck type lookup uses the engine bundle outside the repository cwd", () => {
-  it("warns once and keeps imports available when remaps are missing or invalid, then recovers", () => {
+  it("reports once and keeps imports available when remaps are missing or invalid, then recovers", () => {
     const bytes = JSON.stringify({ version: 1, remaps: { 100000001: MAGIA } });
     writeFileSync(join(engineDirectory, "manifest.json"), JSON.stringify({
       sources: { databaseFormat: "official-releases-prerelease-v4" },
       integrity: { cardRemaps: createHash("sha256").update(bytes).digest("hex") },
     }));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errors: unknown[] = [];
+    recording.report.mockImplementation(error => { errors.push(error); });
     const find = createDeckTypeLookup(db);
     expect(find(MAGIA)?.type).toBe(97);
     expect(find.snapshot()(100000001)).toBeUndefined();
     writeFileSync(join(engineDirectory, "card-remaps.json"), "{}");
     expect(createDeckTypeLookup(db).snapshot()(MAGIA)?.type).toBe(97);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain("[deck-sections]");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(Error);
     writeFileSync(join(engineDirectory, "card-remaps.json"), bytes);
     expect(find.snapshot()(100000001)?.type).toBe(97);
   });

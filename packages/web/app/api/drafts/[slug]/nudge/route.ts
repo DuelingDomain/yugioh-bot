@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { createDraftLobbyService, isTestBotDiscordId } from "@yugidraft/shared/services";
 import { NUDGE_COOLDOWN_MS } from "@yugidraft/shared/types";
@@ -88,7 +89,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
         status: error.status, ...(error.retryAfterSeconds !== undefined ? { headers: { "Retry-After": String(error.retryAfterSeconds) } } : {}),
       });
     }
-    console.error("[api/drafts/[slug]/nudge] error:", error);
+    report(error, { tags: { operation: "[api/drafts/[slug]/nudge] error" } });
     return NextResponse.json({ error: "Failed to Nudge draft" }, { status: 500 });
   }
 }

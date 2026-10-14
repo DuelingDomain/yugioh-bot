@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type { Server, Socket } from "socket.io";
 import type { DraftRoomManager } from "./rooms.js";
 import {
@@ -110,7 +111,7 @@ export function registerEventHandlers(
     try {
       return opts.canReadTournament?.(claims) ?? false;
     } catch (error) {
-      console.error("[ws] tournament access check failed", error);
+      report(error, { tags: { operation: "[ws] tournament access check failed" } });
       return false;
     }
   }
@@ -128,7 +129,7 @@ export function registerEventHandlers(
     try {
       return opts.canReadDraft(claims);
     } catch (error) {
-      console.error("[ws] draft access check failed", error);
+      report(error, { tags: { operation: "[ws] draft access check failed" } });
       return false;
     }
   }
@@ -165,7 +166,7 @@ export function registerEventHandlers(
         subscriptions.get(socket)?.set(slug, { claims });
         ack?.();
       } catch (err) {
-        console.error(`[ws] draft:join error for ${socket.id}`, err);
+        report(err, { tags: { operation: "[ws] draft:join error for" } });
         ack?.({ error: "Draft not found" });
       }
     });
@@ -192,7 +193,7 @@ export function registerEventHandlers(
         tournamentMembers.set(slug, members);
         ack?.();
       } catch (err) {
-        console.error(`[ws] tournament:join error for ${socket.id}`, err);
+        report(err, { tags: { operation: "[ws] tournament:join error for" } });
         ack?.({ error: "Tournament not found" });
       }
     });

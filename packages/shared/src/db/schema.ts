@@ -1,3 +1,4 @@
+import { log } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
@@ -1313,7 +1314,7 @@ function migrateAccessIndexes(db: Database.Database) {
       group by web_slug having count(*) > 1 limit 1`).get();
     if (duplicate) {
       db.exec("create index if not exists drafts_web_slug_idx on drafts(web_slug)");
-      console.warn("[db] Duplicate draft web slugs detected; using a non-unique lookup index. Reconcile duplicates before enforcing uniqueness.");
+      log("warn", "[db] Duplicate draft web slugs detected; using a non-unique lookup index. Reconcile duplicates before enforcing uniqueness.");
     } else {
       db.exec("create unique index if not exists drafts_web_slug_unique on drafts(web_slug) where web_slug is not null; drop index if exists drafts_web_slug_idx;");
     }

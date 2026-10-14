@@ -1,3 +1,4 @@
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { signedHeaders } from "./helpers/signed-request.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +22,6 @@ it.each(["view", "private-operation\n", { private: "private-operation" }, null])
   const secret = "host-errors-secret";
   const searchCards = vi.fn(() => []);
   const host = createDuelHost({ db, dataDirectory: dir, secret, searchCards });
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
   const post = async (body: object) => {
     const raw = JSON.stringify(body);
     return host.handle(new Request("http://localhost/internal/duel", {
@@ -33,7 +33,7 @@ it.each(["view", "private-operation\n", { private: "private-operation" }, null])
     const invalid = await post({ op: "view", guildId: "g", playerId: 1 });
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toEqual({ error: "Duel slug is required" });
-    expect(log).not.toHaveBeenCalled();
+    expect(output.errors).toEqual([]);
     for (const [error, status, unexpected] of [
       [new Error("private-message"), 500, true],
       [Object.assign(new Error("private-message"), { status: 403 }), 403, false],
@@ -50,27 +50,30 @@ it.each(["view", "private-operation\n", { private: "private-operation" }, null])
       const response = await post({ op: "cards", query: "private-query", guildId: "g", playerId: 1 });
       expect(response.status).toBe(status);
       expect(await response.json()).toEqual({ error: unexpected ? "Duel server error" : "private-message" });
-      if (unexpected) expect(log).toHaveBeenCalledExactlyOnceWith("[duel] Unexpected request error", {
-        name: error instanceof Error ? error.name : "Unknown", op: "cards",
-      });
-      else expect(log).not.toHaveBeenCalled();
-      log.mockClear();
+      if (unexpected) expect(output.errors).toEqual([expect.objectContaining({
+        name: "Error", message: "private-message",
+        tags: { operation: "[duel] Unexpected request error", op: "cards" },
+      })]);
+      else expect(output.errors).toEqual([]);
+      output.errors.length = 0;
     }
-    log.mockClear();
+    output.errors.length = 0;
     db.close();
     const response = await post({ op, slug: "private-slug", guildId: "g", playerId: 1, note: "private-payload" });
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "Duel server error" });
-    expect(log).toHaveBeenCalledOnce();
-    expect(log).toHaveBeenCalledWith("[duel] Unexpected request error", { name: "TypeError", ...(op === "view" ? { op } : {}) });
-    const line = JSON.stringify(log.mock.calls[0]);
+    expect(output.errors).toEqual([expect.objectContaining({
+      name: "TypeError", tags: { operation: "[duel] Unexpected request error", ...(op === "view" ? { op } : {}) },
+    })]);
+    const line = JSON.stringify(output.errors[0].tags);
     expect(line).toContain("[duel]");
     expect(line).not.toMatch(/host-errors-secret|private-slug|private-payload|private-operation|private-message|private-query|database connection|[\r\n]/);
   } finally {
     await host.close();
     if (db.open) db.close();
-    log.mockRestore();
     vi.unstubAllEnvs();
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const output = useConsoleObservability();

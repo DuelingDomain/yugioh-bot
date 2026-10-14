@@ -1,3 +1,4 @@
+import { report } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { generateSingleElimFirstRound } from "../tournaments/formats.js";
 import { createScoringService } from "./scoring.js";
@@ -80,7 +81,7 @@ export function createMatchService(db: Database.Database) {
       fn();
     } catch (err) {
       if (strictScoring) throw err;
-      console.error("[scoring] failed", err);
+      report(err, { tags: { operation: "[scoring] failed" } });
     }
   };
 

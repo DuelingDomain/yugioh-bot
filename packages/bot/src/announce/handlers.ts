@@ -1,3 +1,4 @@
+import { report, log } from "@yugidraft/shared/observability";
 import { ChannelType, type Client } from "discord.js";
 import type Database from "better-sqlite3";
 import type { DraftMessenger } from "../commands/handlers.js";
@@ -61,7 +62,7 @@ export function createAnnounceHandlers({
         if (draft.statusMessageId) await messenger.updateStatus(draft);
         else await messenger.postStatus(draft);
       } catch (error) {
-        console.warn(`[announce] draft status failed for ${draft.id}:`, error);
+        report(error, { tags: { operation: "[announce] draft status failed for" } });
       }
       await channel.send(draftStartedAnnouncement({ name: draft.name, webSlug: draft.webSlug }));
     },
@@ -104,7 +105,7 @@ export function createAnnounceHandlers({
       const skip = (reason: string) => {
         db.prepare("update drafts set complete_message_id='skipped' where id=? and complete_message_id='worker-claimed'")
           .run(draftId);
-        console.error(`[announce] draft completion skipped for ${draftId}: ${reason}`);
+        log("warn", "[announce] draft completion skipped");
       };
       let channel;
       try {
@@ -122,7 +123,7 @@ export function createAnnounceHandlers({
         db.prepare("update drafts set complete_message_id=? where id=? and complete_message_id='worker-claimed'")
           .run(msg.id, draftId);
       } catch (error) {
-        console.error(`[announce] draft completion delivery failed for ${draftId}:`, error);
+        report(error, { tags: { operation: "[announce] draft completion delivery failed for" } });
       }
     },
     async onTournamentCreated({ channelId, name, format, webSlug, organizerUserId, participantCount }) {
@@ -174,7 +175,7 @@ export function createAnnounceHandlers({
         const user = await client.users.fetch(opponentDiscordUserId);
         await user.send(duelInviteMessage({ challengerName, duelName, bestOf, ranked, tournamentName, url }));
       } catch (err) {
-        console.warn(`[announce] could not DM duel invite to ${opponentDiscordUserId}:`, err);
+        log("warn", "[announce] Could not deliver duel invite");
       }
     },
   };

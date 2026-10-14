@@ -1,3 +1,4 @@
+import { log } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { normalizeEmailDomain } from "../util/email-domain.js";
@@ -33,7 +34,7 @@ function takeAlertSlot(): boolean {
   }
   if (!alertWindow.warned) {
     alertWindow.warned = true;
-    console.warn("[join-alert] Process limit reached (30 alerts/hour); further alerts dropped");
+    log("warn", "[join-alert] Process limit reached (30 alerts/hour); further alerts dropped");
   }
   return false;
 }
@@ -66,7 +67,7 @@ async function post(url: string, body: string): Promise<number | null> {
       // Long delays would retain timers and deliver stale alerts.
       if (!controller.signal.aborted && Number.isFinite(seconds) && seconds >= 0 && seconds <= MAX_RETRY_SECONDS) return seconds * 1000;
     }
-    if (!response.ok) console.warn(`[join-alert] Discord rejected an alert (HTTP ${response.status})`);
+    if (!response.ok) log("warn", "[join-alert] Discord rejected an alert", { status: response.status });
     return null;
   } finally { clearTimeout(timer); }
 }
@@ -122,6 +123,6 @@ export async function notifyJoinRequest(db: Database.Database, notice: JoinReque
     }
   } catch {
     // Fetch errors can include the secret URL or email. Never log the exception.
-    console.warn("[join-alert] Could not send an alert");
+    log("warn", "[join-alert] Could not send an alert");
   }
 }

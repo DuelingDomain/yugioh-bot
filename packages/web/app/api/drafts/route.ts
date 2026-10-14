@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ items, nextCursor: result.nextCursor, themeDraftsEnabled: themeDraftsEnabled() });
   } catch (error) {
     if (error instanceof InvalidListCursorError) return NextResponse.json({ error: error.message }, { status: 400 });
-    console.error("[api/drafts] error:", error);
+    report(error, { tags: { operation: "[api/drafts] error" } });
     return NextResponse.json({ error: "Failed to load drafts" }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { createCardCatalogService, createDeckTypeLookup, deckEngineDataDirectory, isCardFetchError, loadArtworkIdentityCatalog } from "@yugidraft/shared/services";
 import { requireSavedDeckActor } from "@/lib/saved-decks";
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
     if (isCardFetchError(error)) {
       return NextResponse.json({ error: "Card database is unavailable. Try again shortly.", code: "CARD_CATALOG_UNAVAILABLE" }, { status: 503 });
     }
-    console.error("[api/decks/import] preparation failed", { name: error instanceof Error ? error.name : "Unknown" });
+    report(error, { userId: actor.ownerUserId, tags: { operation: "[api/decks/import] preparation" } });
     return NextResponse.json({ error: "Could not prepare this deck import.", code: "DECK_IMPORT_FAILED" }, { status: 500 });
   }
 }

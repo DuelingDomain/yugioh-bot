@@ -1,3 +1,4 @@
+import { useConsoleObservability } from "../../../shared/tests/helpers/recording-observability.mjs";
 import { signedHeaders } from "../helpers/signed-request.js";
 import { describe, expect, it, vi } from "vitest";
 import { createAnnounceServer } from "../../src/announce/server.js";
@@ -140,7 +141,10 @@ it("dispatches signed Nudge requests and reports delivery failure", async () => 
   expect((await server.handle(await request())).status).toBe(204);
   expect(onDraftNudge).toHaveBeenCalledWith(payload);
   onDraftNudge.mockRejectedValue(new Error("Cannot send"));
-  const error = vi.spyOn(console, "error").mockImplementation(() => {});
   expect((await server.handle(await request())).status).toBe(500);
-  error.mockRestore();
+  expect(output.errors).toEqual([expect.objectContaining({
+    name: "Error", message: "Cannot send", tags: { operation: "[announce] handler failed for" },
+  })]);
 });
+
+const output = useConsoleObservability();

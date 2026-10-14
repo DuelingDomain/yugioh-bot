@@ -127,6 +127,12 @@ Shared business logic lives in factory functions: `createDraftService(db)`, `cre
 
 The bot wraps all discord.js interactions into framework-agnostic `*Like` types (e.g., `CommandInteractionLike`, `ButtonInteractionLike`) before passing them to handlers in `src/interactions/` and `src/commands/handlers.ts`. This keeps handler logic testable without Discord mocks.
 
+### Error reporting
+
+Use `@yugidraft/shared/observability`: `report` for caught unexpected errors, `log` for expected warnings, and `ExpectedError` with `errorResponseBody` for safe HTTP errors. Put application `users.id` in `ReportContext.userId`; keep personal fields and gameplay text out of tags and extras. Empty DSNs use the console adapter.
+
+Node services preload an instrument module; existing worker and duel shutdown drains await the reporting flush. Engine threads pass errors to the main thread for reporting with table context. Web initializes server, edge and browser adapters through Next instrumentation. For DSNs, source-map upload secrets, release metadata and production verification, read [Error reporting in the VM runbook](docs/deployment/vm-runbook.md#error-reporting).
+
 ### Inter-service communication
 
 - Internal HTTP uses `signedTransport` and `readSignedRequest` in `packages/shared/src/internal-auth`: purpose-derived HMAC-SHA256 over the version, method, path with query, timestamp and exact JSON body. The header is `x-internal-signature: t=<unix seconds>,v2=<hex>`; receivers enforce a 60-second timestamp window and a 64 KB body limit before parsing JSON. Purposes are `ws-broadcast`, `duel-host` and `bot-announce`; existing secrets stay unchanged.
@@ -139,7 +145,7 @@ The bot wraps all discord.js interactions into framework-agnostic `*Like` types 
 ### Web access model
 
 - `packages/web/proxy.ts` uses `clerkMiddleware`; one server resolver maps sessions to `users.id`. Protected APIs return 401 JSON without a session; pages redirect to `/sign-in?redirect_url=...`. Sync failure returns 503. `auth()` and `requireWebAccess()` retain their session/guard shapes.
-- Public paths: `/sign-in(.*)`, `/sign-up(.*)`, `/sso-callback(.*)`, `/access`, legacy `/login` redirect, static assets/icons, exact `POST /api/waitlist` and `GET /api/auth/session`. `/api/waitlistx` stays protected. Existing FX-lab paths are public only when enabled. Anonymous session GET returns 200 `null`.
+- Public paths: exact `/monitoring`, `/sign-in(.*)`, `/sign-up(.*)`, `/sso-callback(.*)`, `/access`, legacy `/login` redirect, static assets/icons, exact `POST /api/waitlist` and `GET /api/auth/session`. `/api/waitlistx` stays protected. Existing FX-lab paths are public only when enabled. Anonymous session GET returns 200 `null`.
 - Existing-player recovery also opens `/welcome-back`, exact `GET /api/auth/existing-player/start` and `GET /api/auth/callback/discord`, and exact `POST /api/auth/existing-player/complete` and `POST /api/auth/existing-player/ticket`. It proves Discord identity directly, requires a verified email and legal consent, and claims the existing `users` row without email-based account merging. Recovery cookies are encrypted with a key derived from the Clerk secret; the short-lived Clerk ticket never enters a URL. Runtime Discord OAuth client credentials reach only web.
 - There is no web/shared admin role or Discord membership gate. Creators manage drafts, tournaments and cubes; seat, participant, invite-grant and saved-deck ownership checks still apply. All reads remain scoped to `DISCORD_GUILD_ID`; cube library reads also require `created_by_user_id` to match the application user, with no admin override. Season writes use the VM owner CLI only.
 - `/settings` redirects to `/settings/account`, the sole `<UserProfile/>` page. Focus/return calls `/api/account/refresh` for forced sync. Two accounts with history are not automatically merged; the owner handles conflicts.

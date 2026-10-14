@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { verifyDuelConnectionToken, type DuelConnectionTokenClaims } from "@yugidraft/shared/ws";
 import type { TypedServer, TypedSocket } from "./events.js";
 
@@ -121,7 +122,7 @@ export function registerDuelEventHandlers(io: TypedServer, opts: { secret: strin
         ack?.({ ok: true, onlineSeats: snapshot.onlineSeats, spectatorCount: snapshot.spectatorCount });
         emitPresence(roomKey, claims.slug, claims.guildId);
       } catch (err) {
-        console.error(`[ws] duel:join error for ${socket.id}`, err);
+        report(err, { tags: { operation: "[ws] duel:join error for" } });
         ack?.({ ok: false, error: "join failed" });
       }
     });
