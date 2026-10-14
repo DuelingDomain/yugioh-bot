@@ -18,7 +18,7 @@ PUBLIC = Path(__file__).resolve().parents[1] / 'public'
 # Community invite. Use a never-expiring invite (no expiry date, unlimited uses): a default
 # invite dies after 30 days and would leave dead links, JSON-LD sameAs and llms.txt entries.
 # The HTML repeats this URL exactly; change it here and in index.html and llms.txt together.
-DISCORD_INVITE = 'https://discord.gg/NcpbK3kZA'
+DISCORD_INVITE = 'https://discord.gg/sUSmbRbBUm'
 VOID = set('area base br col embed hr img input link meta param source track wbr'.split())
 
 
