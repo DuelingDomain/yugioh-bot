@@ -1,3 +1,4 @@
+import { log } from "@yugidraft/shared/observability";
 import type Database from "better-sqlite3";
 import type { ProductEventName } from "@yugidraft/shared/analytics";
 
@@ -34,7 +35,7 @@ export async function drainProductEvents(db: Database.Database, options: {
     db.transaction(() => {
       for (const row of rows) retry.run(Date.now() + 10_000 * 2 ** row.attempts, row.id);
     })();
-    console.warn("[analytics] delivery deferred");
+    log("warn", "[analytics] delivery deferred", { eventCount: rows.length });
   };
   async function request(url: string, init: RequestInit): Promise<Response> {
     const response = await fetch(url, { ...init, signal: AbortSignal.timeout(5000) });

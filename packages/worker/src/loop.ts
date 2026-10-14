@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 /** Coalesce concurrent ticks and drain the current tick when stopped. */
 export function createLoop(run: () => Promise<void>, intervalMs?: number) {
   let pending: Promise<void> | undefined;
@@ -10,7 +11,7 @@ export function createLoop(run: () => Promise<void>, intervalMs?: number) {
     if (pending) return pending;
     pending = Promise.resolve()
       .then(run)
-      .catch(error => console.warn("[worker] tick failed", error))
+      .catch(error => report(error, { tags: { operation: "[worker] tick failed" } }))
       .finally(() => { pending = undefined; });
     return pending;
   }

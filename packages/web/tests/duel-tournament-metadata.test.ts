@@ -8,7 +8,10 @@ import { fixtureUserId, seedFixtureUsers } from "./fixtures/identity";
 const mocks = vi.hoisted(() => ({ db: null as Database.Database | null, post: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb: () => mocks.db }));
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g1", duelInternalUrl: "http://host", duelInternalSecret: "secret", wsInternalSecret: "ws-secret" } }));
-vi.mock("@yugidraft/shared/notify", () => ({ httpTransport: () => ({ post: mocks.post }) }));
+vi.mock("@yugidraft/shared/internal-auth", async (original) => ({
+  ...await original<typeof import("@yugidraft/shared/internal-auth")>(),
+  signedTransport: () => ({ post: mocks.post }),
+}));
 vi.mock("@/lib/web-access", () => ({ requireWebAccess: vi.fn() }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange: vi.fn() }));
 vi.mock("@/lib/notify", () => ({ broadcaster: { tournament: vi.fn() } }));

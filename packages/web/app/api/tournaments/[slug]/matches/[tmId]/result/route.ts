@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { createMatchService, createTournamentDuelService, TournamentDuelError, findTournamentReadAccess } from "@yugidraft/shared/services";
 import { requireWebAccess } from "@/lib/web-access";
@@ -69,7 +70,7 @@ export async function POST(
     if (error instanceof TournamentDuelError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    console.error("[api/tournaments/[slug]/matches/[tmId]/result] error:", error);
+    report(error, { tags: { operation: "[api/tournaments/[slug]/matches/[tmId]/result] error" } });
     return NextResponse.json({ error: "Failed to set result" }, { status: 500 });
   }
 }

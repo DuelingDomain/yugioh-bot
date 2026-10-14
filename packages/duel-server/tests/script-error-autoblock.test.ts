@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -50,7 +51,7 @@ describe("script error automatic admission blocks", () => {
       (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash, cleared_at, engine_kind)
       SELECT 20, reason, blocked_at, distinct_duels, error_count, threshold, window_days,
         bundle_version, script_hash, cleared_at, engine_kind FROM card_script_auto_blocks WHERE code = 10`);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = recording.report.mockClear().mockImplementation(() => {});
     try {
       const policy = createAutoBlockPolicy(t.db, { bundleVersion: "b", now: t.now, scriptHash: code => {
         if (code === 10) throw new Error("Unsupported legacy chain.lua snapshot layout");
@@ -59,7 +60,7 @@ describe("script error automatic admission blocks", () => {
       expect(policy.entries().map(entry => entry.code)).toEqual([20]);
       expect(t.db.prepare("SELECT cleared_at FROM card_script_auto_blocks WHERE code = 10").get()).toEqual({ cleared_at: new Date(t.now()).toISOString() });
       expect(log).toHaveBeenCalledTimes(1);
-      expect(JSON.parse(log.mock.calls[0]![0])).toMatchObject({ event: "card_script_auto_block_hash_failed", code: 10, engineKind: "pinned-normal", failure: "Unsupported legacy chain.lua snapshot layout" });
+      expect(log).toHaveBeenCalledWith(expect.objectContaining({ message: "Unsupported legacy chain.lua snapshot layout" }), { tags: { operation: "Card script hash failed" } });
     } finally { log.mockRestore(); }
   });
 
@@ -204,15 +205,15 @@ describe("script error automatic admission blocks", () => {
     expect(autoBlockConfigFromEnv()).toEqual({ threshold: 3, windowDays: 7 });
     vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "4"); vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS", "14");
     expect(autoBlockConfigFromEnv()).toEqual({ threshold: 4, windowDays: 14 });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.log.mockClear().mockImplementation(() => {});
     for (const value of ["0", "1", "no", "1.5", "1000001"]) {
       vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", value);
       expect(autoBlockConfigFromEnv().threshold).toBe(3);
-      expect(warn).toHaveBeenLastCalledWith(expect.stringContaining("DUEL_SCRIPT_ERROR_BLOCK_DUELS"));
+      expect(warn).toHaveBeenLastCalledWith("warn", "Invalid integer setting; using default", expect.objectContaining({ setting: "DUEL_SCRIPT_ERROR_BLOCK_DUELS" }));
     }
     vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "3"); vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS", "31");
     expect(autoBlockConfigFromEnv().windowDays).toBe(7);
-    expect(warn).toHaveBeenLastCalledWith(expect.stringContaining("DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS"));
+    expect(warn).toHaveBeenLastCalledWith("warn", "Invalid integer setting; using default", expect.objectContaining({ setting: "DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS" }));
     warn.mockRestore();
   });
   it("keeps admission arrays stable and performs no writes or revision work on reads", () => {
@@ -257,3 +258,5 @@ describe("script error automatic admission blocks", () => {
     t.advance(0.001); t.record(4, error); expect(t.policy.entries()).toEqual([]);
   });
 });
+
+const recording = useRecordingObservability();

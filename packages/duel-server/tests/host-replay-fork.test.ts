@@ -1,5 +1,6 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,6 +48,8 @@ class ForkWorker extends ReplayWorker {
 
 function startHost(extra: Partial<Parameters<typeof createDuelHost>[0]> = {}) {
   host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000,
+    // Fork quota tests exercise the four-fork storage contract independently of worker admission.
+    maxTablesPerPlayer: 8,
     onChange, createWorker: () => { const w = makeWorker(); workers.push(w); return w; }, ...extra });
 }
 function source(format: DuelFormat = "1v1", mode: "normal" | "domain" = "normal") {
@@ -82,7 +85,7 @@ function request(prefixCount = 1) {
 async function post(input: Record<string, unknown>, signed = true) {
   const raw = JSON.stringify({ slug, ...owner, ...input });
   const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-    headers: { "x-announce-signature": signed ? "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") : "bad" } }));
+    headers: { ...(signed ? signedRequestHeaders({ url: "http://localhost/internal/duel", method: "POST", body: raw, secret: secret, purpose: "duel-host" }) : { "x-internal-signature": "bad" }) } }));
   return { response, body: await response.json() as any };
 }
 const sourceRows = () => [db.prepare("select * from duels where web_slug = ?").get(slug),
@@ -158,6 +161,47 @@ it("reports accepted answers as activity without changing timestamps on list rea
   expect(activity.last_activity_at).not.toBe("2020-01-01 00:00:00");
   expect((await post({ op: "fork-list", slug: undefined })).body.forks[0].lastActivityAt).toBe(activity.last_activity_at);
 });
+it("counts a restarted fork as one in-progress Table for worker admission", async () => {
+  await host.close(); startHost({ maxWorkers: 3, maxTablesPerPlayer: 1 });
+  const input = request();
+  const launched = await post({ op: "replay-fork", ...input });
+  expect(launched.response.status).toBe(200);
+  const forkSlug = launched.body.slug;
+  expect((await post({ op: "fork-restart", slug: forkSlug })).response.status).toBe(200);
+  const limited = await post({ op: "replay-fork", ...input, requestId: "second-table" });
+  expect(limited.response.status).toBe(429);
+  expect(limited.body).toEqual({ error: "You already have 1 live duels. Finish one first." });
+  expect((await post({ op: "fork-list", slug: undefined })).body.forks.map((fork: { slug: string }) => fork.slug)).toEqual([forkSlug]);
+  expect((await post({ op: "fork-cancel", slug: forkSlug })).response.status).toBe(200);
+  expect((await post({ op: "replay-fork", ...input, requestId: "second-table" })).response.status).toBe(200);
+});
+it("removes an expired replay from the shared worker queue before capacity returns", async () => {
+  await host.close(); startHost({ maxWorkers: 1, replayRequestTimeoutMs: 200 });
+  const input = request();
+  const launched = await post({ op: "replay-fork", ...input });
+  expect(launched.response.status).toBe(200);
+  const replay = await post({ op: "owner-replay" });
+  expect(replay.response.status).toBe(503);
+  expect(replay.body.code).toBe("ENGINE_BUSY");
+  expect((await post({ op: "fork-cancel", slug: launched.body.slug })).response.status).toBe(200);
+  expect((await post({ op: "replay-fork", ...input, requestId: "after-timeout" })).response.status).toBe(200);
+  // Only the two successful forks allocate engines; the expired replay never starts later.
+  expect(workers).toHaveLength(2);
+});
+it("rejects malformed acting-seat answers without advancing or journaling a fork", async () => {
+  const launched = await post({ op: "replay-fork", ...request() });
+  expect(launched.response.status).toBe(200);
+  const forkSlug = launched.body.slug;
+  const before = createReplayForkService(db).privateState(forkSlug, owner).commands;
+  const command = { promptId: "p2", revision: 2, answer: { selected: [12] } };
+  const invalid = await post({ op: "respond", slug: forkSlug, as: 0, command });
+  expect(invalid.response.status).toBe(400);
+  expect(invalid.body).toEqual({ error: "Invalid answer" });
+  expect(createReplayForkService(db).privateState(forkSlug, owner).commands).toEqual(before);
+  expect((await post({ op: "view", slug: forkSlug })).body.engine.revision).toBe(2);
+  expect((await post({ op: "respond", slug: forkSlug, as: 0, command: { ...command, answer: { choice: "next" } } })).response.status).toBe(200);
+  expect(createReplayForkService(db).privateState(forkSlug, owner).commands).toHaveLength(before.length + 1);
+});
 it("denies fork listing for unsigned, non-owner, forged, wrong-guild and revoked callers", async () => {
   expect((await post({ op: "fork-list", slug: undefined }, false)).response.status).toBe(401);
   for (const actor of [{ playerId: 63, userId: 103 }, { playerId: 62, userId: 101 }, { guildId: "other-guild" }]) {
@@ -168,18 +212,21 @@ it("denies fork listing for unsigned, non-owner, forged, wrong-guild and revoked
   expect((await post({ op: "fork-list", slug: undefined })).body).toEqual({ error: "Not found", code: "ACCESS_DENIED" });
   expect(workers).toHaveLength(0);
 });
+const recording = useRecordingObservability();
+
 it.each(["invalid creator metadata", "malformed JSON"])("skips and logs %s while retaining healthy active forks", async damage => {
   const healthy = (await post({ op: "replay-fork", ...request(), requestId: "healthy" })).body.slug;
   const bad = (await post({ op: "replay-fork", ...request(), requestId: "bad" })).body.slug;
   if (damage === "malformed JSON") db.prepare("update duels set setup_json = '{invalid' where web_slug = ?").run(bad);
   else db.prepare("update duels set setup_json = json_set(setup_json, '$.replayFork.control', 'invalid') where web_slug = ?").run(bad);
-  const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const warnings: Array<{ message: string; fields: Record<string, unknown> }> = [];
+  recording.log.mockImplementation((level, message, fields) => { if (level === "warn") warnings.push({ message, fields }); });
   try {
     const result = await post({ op: "fork-list", slug: undefined });
     expect(result.response.status).toBe(200);
     expect(result.body.forks.map((fork: any) => fork.slug)).toEqual([healthy]);
-    expect(warnings).toHaveBeenCalledWith("[replay-fork] Skipping invalid active fork", { slug: bad, code: "ACCESS_DENIED" });
-  } finally { warnings.mockRestore(); }
+    expect(warnings).toEqual([{ message: "[replay-fork] Skipping invalid active fork", fields: { code: "ACCESS_DENIED" } }]);
+  } finally { recording.log.mockReset(); }
 });
 
 it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("launches a private Manual %s fork with defaults after the unchanged prefix", async format => {

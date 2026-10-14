@@ -1,5 +1,6 @@
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import { rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -164,11 +165,11 @@ function openHost(
 
 async function post(host: DuelHost, body: Record<string, unknown>) {
   const raw = JSON.stringify({ guildId: GUILD, ...body });
-  const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
+
   const response = await host.handle(
     new Request("http://localhost/internal/duel", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-announce-signature": signature },
+      headers: { "content-type": "application/json", ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") },
       body: raw,
     }),
   );
@@ -1123,15 +1124,15 @@ describe("series advance", () => {
     app.duels.setDeck(started.duel.slug, GUILD, app.p1, badDeck);
     app.duels.setDeck(started.duel.slug, GUILD, app.p2, deckWithSide(true));
     const slug = started.duel.slug;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    output.warnings.length = 0;
     const changes: string[] = [];
     try {
       const { workers } = openHost(app, { pollIntervalMs: 30_000, onChange: (changed) => void changes.push(changed) });
-      const attempts = () => warn.mock.calls.filter((call) => String(call[0]).includes("did not start")).length;
+      const attempts = () => output.warnings.filter(({ message }) => message.includes("Series game start deferred")).length;
       await settle();
       expect(attempts()).toBe(1);
-      expect(String(warn.mock.calls[0]![0])).toContain(slug);
-      expect(String(warn.mock.calls[0]![0])).toContain("Unknown card 999999999");
+      expect(JSON.stringify(output.warnings[0])).not.toContain(slug);
+      expect(output.warnings).toContainEqual({ message: "[duel] Series game start deferred", fields: { attempts: 1, retryMs: 60_000 } });
       expect(changes.filter((changed) => changed === slug)).toHaveLength(1);
 
       // Ticks at 30 s are skipped; the 2nd attempt comes after 1 minute, the 3rd 5 minutes later.
@@ -1162,7 +1163,7 @@ describe("series advance", () => {
       expect(workers).toHaveLength(1);
       expect(attempts()).toBe(5);
     } finally {
-      warn.mockRestore();
+      output.warnings.length = 0;
     }
   });
 
@@ -1480,3 +1481,5 @@ describe("catalog ops", () => {
     }
   });
 });
+
+const output = useConsoleObservability();

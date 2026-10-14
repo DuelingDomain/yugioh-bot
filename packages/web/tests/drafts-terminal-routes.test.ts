@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -143,8 +144,10 @@ describe("draft cancellation API", () => {
   });
   it("keeps a committed result successful if notification transport throws", async () => {
     const { draft, drafts } = setup(); state.broadcast.mockRejectedValue(new Error("offline"));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.report.mockClear().mockImplementation(() => {});
     try { expect((await call(draft.webSlug!)).status).toBe(200); expect(drafts.findById(draft.id).status).toBe("cancelled"); }
     finally { warn.mockRestore(); }
   });
 });
+
+const recording = useRecordingObservability();

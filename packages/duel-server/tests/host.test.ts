@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -97,6 +97,9 @@ class FakeWorker implements DuelGameWorker {
   onView: (() => void) | null = null;
   onAnswer: (() => void) | null = null;
   result: DuelEngineView["result"] = null;
+  promptOverride: DuelPrompt | null = null;
+  stuckAnswer = false;
+  stuckSearch = false;
   private stopped = false;
 
   get running() {
@@ -113,15 +116,18 @@ class FakeWorker implements DuelGameWorker {
     this.onView?.();
     if (this.failSeat1View && seat === 1) throw new Error("seat1 snapshot failed");
     const promptId = this.mismatchPrompt ? "other" : this.result ? null : this.promptId;
-    return fakeView(seat, promptId, this.mismatchPrompt ? 9 : this.revision, this.result, {
+    const view = fakeView(seat, promptId, this.mismatchPrompt ? 9 : this.revision, this.result, {
       turn: this.turn,
       turnSeat: this.turnSeat,
       promptSeat: this.promptSeat,
     });
+    if (this.promptOverride && seat === this.promptSeat && !this.result) view.prompt = this.promptOverride;
+    return view;
   }
 
   async answer(_seat: number, _promptId: string, _answer: DuelAnswer) {
     this.onAnswer?.();
+    if (this.stuckAnswer) return new Promise<void>(() => {});
     if (this.killOnAnswer) {
       this.stopped = true;
       throw new Error("worker died");
@@ -133,6 +139,7 @@ class FakeWorker implements DuelGameWorker {
   }
 
   async search(_query: string): Promise<DuelCardInfo[]> {
+    if (this.stuckSearch) return new Promise(() => {});
     return [];
   }
 
@@ -150,6 +157,10 @@ type HostHarness = {
   idleWorkerMs?: number;
   pollIntervalMs?: number;
   now?: () => number;
+  maxWorkers?: number;
+  maxTablesPerPlayer?: number;
+  opTimeoutMs?: number;
+  createTimeoutMs?: number;
 };
 
 const hosts: DuelHost[] = [];
@@ -177,6 +188,10 @@ function openHost(createWorker: (() => DuelGameWorker) | undefined, extra: HostH
     createWorker,
     onChange: extra.onChange,
     now: extra.now,
+    maxWorkers: extra.maxWorkers,
+    maxTablesPerPlayer: extra.maxTablesPerPlayer,
+    opTimeoutMs: extra.opTimeoutMs,
+    createTimeoutMs: extra.createTimeoutMs,
   });
   hosts.push(host);
   return { db, host };
@@ -184,11 +199,11 @@ function openHost(createWorker: (() => DuelGameWorker) | undefined, extra: HostH
 
 async function post(host: DuelHost, body: Record<string, unknown>) {
   const raw = JSON.stringify(body);
-  const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
+
   const response = await host.handle(
     new Request("http://localhost/internal/duel", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-announce-signature": signature },
+      headers: { "content-type": "application/json", ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") },
       body: raw,
     }),
   );
@@ -1373,4 +1388,327 @@ describe("duel host replay", () => {
     expect(spawned.count).toBe(before + 2);
     expect(readReplay(c.data).mySeat).toBeNull();
   });
+});
+
+
+describe("worker capacity", () => {
+  it.each(["end", "crash", "surrender", "idle"])("frees a global slot after %s", async (ending) => {
+    const workers: FakeWorker[] = [];
+    let nowMs = 1000;
+    const { db, host } = openHost(() => { const w = new FakeWorker(); workers.push(w); return w; }, { maxWorkers: 1, idleWorkerMs: 100, pollIntervalMs: 20, now: () => nowMs });
+    const { p1, p2 } = seedPlayers(db);
+    const first = readyLobby(db, p1, p2).session;
+    const second = readyLobby(db, p1, p2).session;
+    const start = (slug: string) => post(host, { op: "start", slug, guildId: "g1", playerId: p1 });
+    expect((await start(first.slug)).status).toBe(200);
+    expect(await start(second.slug)).toEqual({ status: 429, data: { error: "The duel server is busy. Try again in a minute." } });
+    expect(workers).toHaveLength(1);
+    if (ending === "crash") await workers[0]!.close();
+    else if (ending === "idle") {
+      nowMs += 101;
+      await vi.waitFor(() => expect(workers[0]!.closed).toBe(1));
+    } else if (ending === "end") {
+      workers[0]!.afterAnswer = (worker) => { worker.result = { winnerSeat: 0, reason: "Deck empty" }; };
+      expect((await post(host, { op: "respond", slug: first.slug, guildId: "g1", playerId: p1,
+        command: { promptId: "p1", revision: 1, answer: { choice: "pass" } } })).status).toBe(200);
+    }
+    else expect((await post(host, { op: "surrender", slug: first.slug, guildId: "g1", playerId: p1 })).status).toBe(200);
+    expect((await start(second.slug)).status).toBe(200);
+    expect(workers).toHaveLength(2);
+  });
+
+  it("counts every seated player and frees their slot on end", async () => {
+    const { db, host } = openHost(() => new FakeWorker(), { maxTablesPerPlayer: 1 });
+    const { p1, p2, p3 } = seedPlayers(db);
+    const first = readyLobby(db, p1, p2).session;
+    const second = readyLobby(db, p3, p2).session;
+    expect((await post(host, { op: "start", slug: first.slug, guildId: "g1", playerId: p1 })).status).toBe(200);
+    expect(await post(host, { op: "start", slug: second.slug, guildId: "g1", playerId: p3 })).toEqual({ status: 429, data: { error: "You already have 1 live duels. Finish one first." } });
+    expect((await post(host, { op: "surrender", slug: first.slug, guildId: "g1", playerId: p1 })).status).toBe(200);
+    expect((await post(host, { op: "start", slug: second.slug, guildId: "g1", playerId: p3 })).status).toBe(200);
+  });
+
+  it.each(["factory", "create"])("releases global and player reservations when %s fails", async (failure) => {
+    let fail = true;
+    const { db, host } = openHost(() => {
+      if (fail && failure === "factory") { fail = false; throw new Error("spawn failed"); }
+      const w = new FakeWorker(); w.failCreate = fail; fail = false; return w;
+    }, { maxWorkers: 1, maxTablesPerPlayer: 1 });
+    const { p1, p2 } = seedPlayers(db);
+    const { session } = readyLobby(db, p1, p2);
+    const start = () => post(host, { op: "start", slug: session.slug, guildId: "g1", playerId: p1 });
+    expect((await start()).status).toBe(500);
+    expect((await start()).status).toBe(200);
+  });
+});
+
+
+it("replay rebuilds wait for the same capacity as live games", async () => {
+  const workers: FakeWorker[] = [];
+  const { db, host } = openHost(() => { const w = new FakeWorker(); workers.push(w); return w; }, { maxWorkers: 1 });
+  const { p1, p2 } = seedPlayers(db);
+  const finished = readyLobby(db, p1, p2).session;
+  const busy = readyLobby(db, p1, p2).session;
+  const request = (op: string, slug: string) => post(host, { op, slug, guildId: "g1", playerId: p1 });
+  expect((await request("start", finished.slug)).status).toBe(200);
+  expect((await request("surrender", finished.slug)).status).toBe(200);
+  expect((await request("start", busy.slug)).status).toBe(200);
+  let resolved = false;
+  const replay = request("replay", finished.slug).then((result) => { resolved = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(resolved).toBe(false);
+  expect(workers).toHaveLength(2);
+  expect((await request("surrender", busy.slug)).status).toBe(200);
+  expect((await replay).status).toBe(200);
+  expect(workers).toHaveLength(3);
+  expect(workers[2]!.closed).toBe(1);
+});
+
+
+describe("host answer validation", () => {
+  const option = { id: "card:0", label: "Card", max: 2, values: [2] };
+  const cases: Array<{ kind: DuelPrompt["kind"]; invalid: unknown; valid: DuelAnswer }> = [
+    { kind: "cards", invalid: { selected: "card:0" }, valid: { selected: ["card:0"] } },
+    { kind: "cards", invalid: { selected: [0] }, valid: { selected: ["card:0"] } },
+    { kind: "choice", invalid: { choice: "card:0", value: "1" }, valid: { choice: "card:0" } },
+    { kind: "choice", invalid: { choice: 1 }, valid: { choice: "card:0" } },
+    { kind: "tribute", invalid: { counts: { "card:0": "1" } }, valid: { selected: ["card:0"] } },
+    { kind: "places", invalid: { selected: null }, valid: { selected: ["card:0"] } },
+    { kind: "order", invalid: { selected: false }, valid: { selected: ["card:0"] } },
+    { kind: "counters", invalid: { counts: null }, valid: { counts: { "card:0": 1 } } },
+    { kind: "counters", invalid: { counts: [] }, valid: { counts: { "card:0": 1 } } },
+    { kind: "counters", invalid: { counts: { "card:0": "1" } }, valid: { counts: { "card:0": 1 } } },
+    { kind: "number", invalid: { value: "1" }, valid: { value: 1 } },
+    { kind: "number", invalid: { value: null }, valid: { value: 1 } },
+    { kind: "announce-card", invalid: { cardCode: "1" }, valid: { cardCode: 1 } },
+    { kind: "sum", invalid: { selected: [null] }, valid: { selected: ["card:0"] } },
+    { kind: "toggle", invalid: { choice: [] }, valid: { choice: "card:0" } },
+    { kind: "choice", invalid: { cancel: "true" }, valid: { choice: "card:0" } },
+    { kind: "choice", invalid: [], valid: { choice: "card:0" } },
+  ];
+  it.each(cases)("refuses malformed $kind input $invalid and still accepts a valid answer", async ({ kind, invalid, valid }) => {
+    const worker = new FakeWorker();
+    worker.promptOverride = { id: "p1", seat: 0, kind, title: "Prompt", options: [option], min: 1, max: 1, target: 1 };
+    const { db, host } = openHost(() => worker);
+    const { p1, p2 } = seedPlayers(db);
+    const { session, duels } = readyLobby(db, p1, p2);
+    expect((await post(host, { op: "start", slug: session.slug, guildId: "g1", playerId: p1 })).status).toBe(200);
+    let answers = 0;
+    worker.onAnswer = () => { answers++; };
+    const before = duels.privateState(session.slug, "g1");
+    const respond = (answer: unknown) => post(host, { op: "respond", slug: session.slug, guildId: "g1", playerId: p1,
+      command: { promptId: "p1", revision: 1, answer } });
+    expect(await respond(invalid)).toEqual({ status: 400, data: { error: "Invalid answer" } });
+    expect(answers).toBe(0);
+    expect(worker.closed).toBe(0);
+    expect(worker.revision).toBe(1);
+    expect(duels.privateState(session.slug, "g1")).toEqual(before);
+    expect((await respond(valid)).status).toBe(200);
+    expect(answers).toBe(1);
+    expect(duels.privateState(session.slug, "g1").commands).toHaveLength(1);
+  });
+});
+
+
+it("recovers the saved journal after an answer times out and accepts the next answer", async () => {
+  const workers: FakeWorker[] = [];
+  const { db, host } = openHost(() => { const w = new FakeWorker(); workers.push(w); return w; }, { maxWorkers: 1, maxTablesPerPlayer: 1, opTimeoutMs: 30 });
+  const { p1, p2 } = seedPlayers(db);
+  const { session, duels } = readyLobby(db, p1, p2);
+  const request = (op: string, extra: Record<string, unknown> = {}) => post(host, { op, slug: session.slug, guildId: "g1", playerId: p1, ...extra });
+  expect((await request("start")).status).toBe(200);
+  expect((await request("respond", { command: { promptId: "p1", revision: 1, answer: { choice: "pass" } } })).status).toBe(200);
+  const saved = duels.privateState(session.slug, "g1");
+  expect(saved.commands).toHaveLength(1);
+  workers[0]!.stuckAnswer = true;
+  const stuck = request("respond", { command: { promptId: "p2", revision: 2, answer: { choice: "pass" } } });
+  const next = request("view");
+  expect(await stuck).toEqual({ status: 503, data: { error: "The duel engine did not answer in time." } });
+  const recovered = await next;
+  expect(recovered.status).toBe(200);
+  expect(readRoom(recovered.data).engine?.revision).toBe(2);
+  expect(workers[0]!.closed).toBe(1);
+  expect(workers).toHaveLength(2);
+  expect(workers[1]!.createdOptions?.seed).toEqual(saved.seed);
+  expect(workers[1]!.createdOptions?.decks).toEqual(saved.decks);
+  expect(duels.privateState(session.slug, "g1").commands).toEqual(saved.commands);
+  expect((await request("respond", { command: { promptId: "p2", revision: 2, answer: { choice: "pass" } } })).status).toBe(200);
+  expect(workers[1]!.revision).toBe(3);
+  expect(duels.privateState(session.slug, "g1").commands).toHaveLength(2);
+});
+
+
+it("uses the configured per-player limit from the environment", async () => {
+  vi.stubEnv("DUEL_MAX_TABLES_PER_PLAYER", "1");
+  try {
+    const { db, host } = openHost(() => new FakeWorker());
+    const { p1, p2 } = seedPlayers(db);
+    const first = readyLobby(db, p1, p2).session;
+    const second = readyLobby(db, p1, p2).session;
+    const start = (slug: string) => post(host, { op: "start", slug, guildId: "g1", playerId: p1 });
+    expect((await start(first.slug)).status).toBe(200);
+    expect((await start(second.slug)).status).toBe(429);
+  } finally { vi.unstubAllEnvs(); }
+});
+
+it("shutdown frees capacity and cancels a stuck call and a queued replay", async () => {
+  const workers: FakeWorker[] = [];
+  const { db, host } = openHost(() => { const w = new FakeWorker(); workers.push(w); return w; }, { maxWorkers: 1 });
+  const { p1, p2 } = seedPlayers(db);
+  const first = readyLobby(db, p1, p2).session;
+  const second = readyLobby(db, p1, p2).session;
+  const request = (op: string, slug: string, extra: Record<string, unknown> = {}) => post(host, { op, slug, guildId: "g1", playerId: p1, ...extra });
+  expect((await request("start", first.slug)).status).toBe(200);
+  expect((await request("surrender", first.slug)).status).toBe(200);
+  expect((await request("start", second.slug)).status).toBe(200);
+  workers[1]!.stuckAnswer = true;
+  let answering = false;
+  workers[1]!.onAnswer = () => { answering = true; };
+  const stuck = request("respond", second.slug, { command: { promptId: "p1", revision: 1, answer: { choice: "pass" } } });
+  const replay = request("replay", first.slug);
+  await vi.waitFor(() => expect(answering).toBe(true));
+  await host.close();
+  expect((await stuck).status).toBe(503);
+  expect((await replay).status).toBe(503);
+  expect(workers[1]!.closed).toBe(1);
+  expect(workers).toHaveLength(2);
+});
+
+
+it("returns a deadline response when a bot's card search does not complete", async () => {
+  const worker = new FakeWorker();
+  worker.promptSeat = 1;
+  worker.promptOverride = { id: "p1", seat: 1, kind: "announce-card", title: "Card", options: [] };
+  worker.stuckSearch = true;
+  const { db, host } = openHost(() => worker, { opTimeoutMs: 30 });
+  const { p1 } = seedPlayers(db);
+  const duels = createDuelService(db);
+  const session = duels.create({ guildId: "g1", organizerPlayerId: p1, name: "Duel", mode: "normal" });
+  const deck = buildPracticeBotDeck("normal", DATA);
+  duels.setDeck(session.slug, "g1", p1, deck);
+  duels.addPracticeBot(session.slug, "g1", p1, deck);
+  expect(await post(host, { op: "start", slug: session.slug, guildId: "g1", playerId: p1 })).toEqual({
+    status: 503, data: { error: "The duel engine did not answer in time." },
+  });
+  expect(worker.closed).toBe(1);
+});
+
+
+it("keeps stale-command clock expiry behaviour", async () => {
+  let nowMs = 1000;
+  const { db, host } = openHost(() => new FakeWorker(), { now: () => nowMs });
+  const { p1, p2 } = seedPlayers(db);
+  const { session, duels } = readyLobby(db, p1, p2, { ...defaultDuelSettings("normal"), turnSeconds: 30 });
+  expect((await post(host, { op: "start", slug: session.slug, guildId: "g1", playerId: p1 })).status).toBe(200);
+  nowMs = 31001;
+  expect((await post(host, { op: "respond", slug: session.slug, guildId: "g1", playerId: p1,
+    command: { promptId: "old", revision: 0, answer: { choice: "pass" } } })).status).toBe(200);
+  expect(duels.get(session.slug, "g1").status).toBe("completed");
+});
+
+
+it.each(["recovery", "replay"])("uses the creation deadline for %s journal operations", async (phase) => {
+  const workers: FakeWorker[] = [];
+  let replaying = false;
+  const { db, host } = openHost(() => {
+    const worker = new FakeWorker();
+    if (replaying) {
+      const answer = worker.answer.bind(worker);
+      worker.answer = async (...args) => { await new Promise((resolve) => setTimeout(resolve, 60)); await answer(...args); };
+    }
+    workers.push(worker);
+    return worker;
+  }, { maxWorkers: 1, opTimeoutMs: 30, createTimeoutMs: 500 });
+  const { p1, p2 } = seedPlayers(db);
+  const { session } = readyLobby(db, p1, p2);
+  const request = (op: string, extra: Record<string, unknown> = {}) => post(host, { op, slug: session.slug, guildId: "g1", playerId: p1, ...extra });
+  expect((await request("start")).status).toBe(200);
+  expect((await request("respond", { command: { promptId: "p1", revision: 1, answer: { choice: "pass" } } })).status).toBe(200);
+  if (phase === "replay") expect((await request("surrender")).status).toBe(200);
+  else await workers[0]!.close();
+  replaying = true;
+  const response = await request(phase === "replay" ? "replay" : "view");
+  expect(response.status).toBe(200);
+  expect(workers[1]!.revision).toBe(2);
+  if (phase === "recovery") {
+    expect((await request("respond", { command: { promptId: "p2", revision: 2, answer: { choice: "pass" } } })).status).toBe(503);
+  }
+});
+
+
+it.each(["active", "completed", "interrupted", "cancelled", "archived"] as const)("counts only in-progress Tables when three workers linger for $0 duels", async (status) => {
+  const workers: FakeWorker[] = [];
+  const { db, host } = openHost(() => { const worker = new FakeWorker(); workers.push(worker); return worker; }, { maxWorkers: 4 });
+  const { p1, p2 } = seedPlayers(db);
+  const tables = Array.from({ length: 4 }, () => readyLobby(db, p1, p2));
+  const start = (slug: string) => post(host, { op: "start", slug, guildId: "g1", playerId: p1 });
+  for (const { session } of tables.slice(0, 3)) expect((await start(session.slug)).status).toBe(200);
+  for (const { duels, session } of tables.slice(0, 3)) {
+    if (status === "completed" || status === "archived") duels.complete(session.slug, "g1", 0, "Finished");
+    if (status === "archived") duels.archive(session.slug, "g1", p1);
+    if (status === "interrupted") duels.interrupt(session.slug, "g1", "Stopped");
+    if (status === "cancelled") db.prepare("update duels set status = 'cancelled' where web_slug = ?").run(session.slug);
+  }
+  const result = await start(tables[3]!.session.slug);
+  if (status === "active") {
+    expect(result).toEqual({ status: 429, data: { error: "You already have 3 live duels. Finish one first." } });
+    expect(workers).toHaveLength(3);
+  } else {
+    expect(result.status).toBe(200);
+    expect(workers).toHaveLength(4);
+    const fifth = readyLobby(db, p1, p2);
+    expect(await start(fifth.session.slug)).toEqual({ status: 429, data: { error: "The duel server is busy. Try again in a minute." } });
+  }
+  expect(workers.every((worker) => worker.running && worker.closed === 0)).toBe(true);
+});
+
+it("frees the player's share immediately when a duel ends and worker close waits", async () => {
+  let finishClose: () => void;
+  let closing = false;
+  const workers: FakeWorker[] = [];
+  const { db, host } = openHost(() => {
+    const worker = new FakeWorker();
+    if (workers.length === 0) worker.close = () => new Promise<void>((resolve) => { closing = true; finishClose = resolve; });
+    workers.push(worker); return worker;
+  }, { maxWorkers: 2, maxTablesPerPlayer: 1 });
+  const { p1, p2 } = seedPlayers(db);
+  const first = readyLobby(db, p1, p2).session;
+  const second = readyLobby(db, p1, p2).session;
+  const start = (slug: string) => post(host, { op: "start", slug, guildId: "g1", playerId: p1 });
+  expect((await start(first.slug)).status).toBe(200);
+  const ended = post(host, { op: "surrender", slug: first.slug, guildId: "g1", playerId: p1 });
+  let starting: ReturnType<typeof start> | undefined;
+  try {
+    await vi.waitFor(() => expect(closing).toBe(true));
+    starting = start(second.slug);
+    // Starting includes resource fingerprint validation. Prove it finishes before we
+    // release the first worker's close, without timing that unrelated filesystem work.
+    const result = await starting;
+    expect(result.status).toBe(200);
+  } finally { finishClose!(); await ended; await starting; }
+});
+
+
+it("retains the global worker slot after a close deadline until the worker closes", async () => {
+  let finishClose: () => void;
+  const workers: FakeWorker[] = [];
+  const { db, host } = openHost(() => {
+    const worker = new FakeWorker();
+    if (workers.length === 0) {
+      const close = worker.close.bind(worker);
+      worker.close = async () => { await new Promise<void>((resolve) => { finishClose = resolve; }); await close(); };
+    }
+    workers.push(worker); return worker;
+  }, { maxWorkers: 1, maxTablesPerPlayer: 1, opTimeoutMs: 20 });
+  const { p1, p2 } = seedPlayers(db);
+  const first = readyLobby(db, p1, p2).session;
+  const second = readyLobby(db, p1, p2).session;
+  const start = (slug: string) => post(host, { op: "start", slug, guildId: "g1", playerId: p1 });
+  expect((await start(first.slug)).status).toBe(200);
+  try {
+    expect((await post(host, { op: "surrender", slug: first.slug, guildId: "g1", playerId: p1 })).status).toBe(200);
+    expect(workers[0]!.running).toBe(true);
+    expect(await start(second.slug)).toEqual({ status: 429, data: { error: "The duel server is busy. Try again in a minute." } });
+  } finally { finishClose!(); await vi.waitFor(() => expect(workers[0]!.running).toBe(false)); }
+  expect((await start(second.slug)).status).toBe(200);
 });

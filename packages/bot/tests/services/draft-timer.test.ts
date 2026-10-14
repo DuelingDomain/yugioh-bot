@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../../shared/tests/helpers/recording-observability.mjs";
 import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -136,7 +137,7 @@ describe("draft timer service", () => {
 
   it.each(["succeeds", "fails"])("broadcasts timer-driven completion when Discord delivery %s", async (delivery) => {
     const app = setup();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.report.mockClear().mockImplementation(() => {});
     const updateStatus = vi.spyOn(app.messenger, "updateStatus");
     if (delivery === "fails") updateStatus.mockRejectedValue(new Error("Discord unavailable"));
     try {
@@ -229,3 +230,5 @@ describe("draft timer service", () => {
     setIntervalSpy.mockRestore();
   });
 });
+
+const recording = useRecordingObservability();

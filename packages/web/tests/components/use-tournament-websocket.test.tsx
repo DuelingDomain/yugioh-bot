@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useRecordingObservability } from "../../../shared/tests/helpers/recording-observability.mjs";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -67,7 +68,7 @@ describe("tournament authorized live feed", () => {
         const calls: string[] = [];
         if (failure === "token failure") fetchToken.mockResolvedValueOnce({ ok: false, status: 500 });
         if (failure === "network failure") {
-          vi.spyOn(console, "warn").mockImplementation(() => {});
+          recording.log.mockClear().mockImplementation(() => {});
           fetchToken.mockRejectedValueOnce(new TypeError("Network unavailable"));
         }
         render(<Harness onMatchUpdated={() => calls.push("match")} onInvalidate={() => calls.push("invalidate")} />);
@@ -212,3 +213,5 @@ describe("tournament authorized live feed", () => {
     });
   });
 });
+
+const recording = useRecordingObservability();

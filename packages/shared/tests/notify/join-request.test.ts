@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -5,6 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
+
+const recording = useRecordingObservability();
+const warnings: Array<{ message: string; fields: Record<string, unknown> }> = [];
+const requests: Request[] = [];
 
 let notifyJoinRequest: typeof import("../../src/notify/join-request.js").notifyJoinRequest;
 
@@ -26,8 +31,14 @@ beforeEach(async () => {
   vi.stubEnv("DISCORD_ADMIN_SHOW_FULL_EMAIL", undefined);
   vi.stubEnv("DISCORD_ADMIN_DASHBOARD_URL", undefined);
   fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
-  vi.stubGlobal("fetch", fetcher);
-  vi.spyOn(console, "warn").mockImplementation(() => {});
+  requests.length = 0;
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+    requests.push(new Request(input, init));
+    return fetcher(input, init);
+  });
+  await recording.install();
+  warnings.length = 0;
+  recording.log.mockImplementation((level, message, fields) => { if (level === "warn") warnings.push({ message, fields }); });
 });
 afterEach(() => {
   db.close();
@@ -223,16 +234,15 @@ describe("join request notifications", () => {
     fetcher.mockRejectedValue(new Error(`${webhook} ${notice.email}`));
     await expect(notifyJoinRequest(db, notice)).resolves.toBeUndefined();
     await notifyJoinRequest(db, notice);
-    expect(fetcher).toHaveBeenCalledOnce();
-    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toMatch(/player@|discord\.example/);
+    expect(requests).toHaveLength(1);
+    expect(warnings).toEqual([{ message: "[join-alert] Could not send an alert", fields: {} }]);
   });
 
   it.each([400, 401, 500])("does not retry HTTP %s", async status => {
     fetcher.mockResolvedValue(new Response(null, { status }));
     await expect(notifyJoinRequest(db, notice)).resolves.toBeUndefined();
-    expect(fetcher).toHaveBeenCalledOnce();
-    expect(console.warn).toHaveBeenCalledWith(`[join-alert] Discord rejected an alert (HTTP ${status})`);
-    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain(webhook);
+    expect(requests).toHaveLength(1);
+    expect(warnings).toEqual([{ message: "[join-alert] Discord rejected an alert", fields: { status } }]);
   });
 
   it("aborts a slow HTTP request after two seconds", async () => {
@@ -295,9 +305,9 @@ describe("join request notifications", () => {
     const pending = notifyJoinRequest(db, notice);
     await vi.advanceTimersByTimeAsync(31_000);
     await pending;
-    expect(fetcher).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(0);
-    expect(console.warn).toHaveBeenCalledWith("[join-alert] Discord rejected an alert (HTTP 429)");
+    expect(warnings).toEqual([{ message: "[join-alert] Discord rejected an alert", fields: { status: 429 } }]);
   });
 
   it("permits one retry at the 30-second delay boundary", async () => {
@@ -337,11 +347,9 @@ describe("join request notifications", () => {
       await Promise.all(Array.from({ length: 35 }, (_, index) => notifyJoinRequest(index % 2 ? other : db, {
         ...notice, email: `player${index}@example.test`, source: index % 2 ? "sign-up" : "Clerk waitlist",
       })));
-      expect(fetcher).toHaveBeenCalledTimes(30);
+      expect(requests).toHaveLength(30);
       expect(claims().length + other.prepare("select * from join_request_notifications").all().length).toBe(35);
-      expect(console.warn).toHaveBeenCalledOnce();
-      expect(console.warn).toHaveBeenCalledWith("[join-alert] Process limit reached (30 alerts/hour); further alerts dropped");
-      expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toMatch(/player|example\.test/);
+      expect(warnings).toEqual([{ message: "[join-alert] Process limit reached (30 alerts/hour); further alerts dropped", fields: {} }]);
       expect(vi.getTimerCount()).toBe(0);
     } finally { other.close(); }
   });
@@ -352,11 +360,11 @@ describe("join request notifications", () => {
     for (let index = 0; index < 40; index++) await notifyJoinRequest(db, { ...notice, email: `disabled${index}@example.test` });
     vi.stubEnv("DISCORD_JOIN_REQUEST_ALERTS_ENABLED", "1");
     for (let index = 0; index < 29; index++) await notifyJoinRequest(db, { ...notice, email: `player${index}@example.test` });
-    expect(fetcher).toHaveBeenCalledTimes(30);
-    expect(console.warn).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(30);
+    expect(warnings).toHaveLength(0);
     await notifyJoinRequest(db, { ...notice, email: "over-limit@example.test" });
-    expect(fetcher).toHaveBeenCalledTimes(30);
-    expect(console.warn).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(30);
+    expect(warnings).toHaveLength(1);
   });
 
   it("resets the process limit after one hour without replaying dropped alerts", async () => {
@@ -364,18 +372,18 @@ describe("join request notifications", () => {
     const start = Date.parse(notice.createdAt);
     vi.setSystemTime(start);
     for (let index = 0; index < 32; index++) await notifyJoinRequest(db, { ...notice, email: `first${index}@example.test` });
-    expect(fetcher).toHaveBeenCalledTimes(30);
-    expect(console.warn).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(30);
+    expect(warnings).toHaveLength(1);
     vi.setSystemTime(start + 3_600_000 - 1);
     await notifyJoinRequest(db, { ...notice, email: "before-expiry@example.test" });
-    expect(fetcher).toHaveBeenCalledTimes(30);
-    expect(console.warn).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(30);
+    expect(warnings).toHaveLength(1);
     vi.setSystemTime(start + 3_600_000);
     await notifyJoinRequest(db, { ...notice, email: "first31@example.test" });
-    expect(fetcher).toHaveBeenCalledTimes(30);
+    expect(requests).toHaveLength(30);
     for (let index = 0; index < 31; index++) await notifyJoinRequest(db, { ...notice, email: `second${index}@example.test` });
-    expect(fetcher).toHaveBeenCalledTimes(60);
-    expect(console.warn).toHaveBeenCalledTimes(2);
+    expect(requests).toHaveLength(60);
+    expect(warnings).toHaveLength(2);
     expect(vi.getTimerCount()).toBe(0);
   });
 });

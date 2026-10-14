@@ -1,3 +1,4 @@
+import { log } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { seatCountFor, isDuelFormat } from "../duels/settings.js";
 import { compressStoredSnapshot, readStoredSeatBoards, storedTurnCount, STORED_BOARD_COLUMNS, type StoredDuelBoards, type StoredSnapshot } from "./stored-duel-snapshots.js";
@@ -75,7 +76,7 @@ export async function runDuelSnapshotRetention(db: Database.Database, options: D
   const report = (phase: Phase, error: unknown) => {
     if (isBusy(error)) stats.busy = true;
     else if (options.onError) options.onError(phase, error);
-    else console.warn("[duel] storage maintenance error", { phase, code: (error as { code?: string })?.code ?? "unknown",
+    else log("warn", "[duel] storage maintenance error", { phase, code: (error as { code?: string })?.code ?? "unknown",
       name: error instanceof Error ? error.name : "Unknown" });
   };
   // A later selected row can restart while an earlier row yields. Fetch only

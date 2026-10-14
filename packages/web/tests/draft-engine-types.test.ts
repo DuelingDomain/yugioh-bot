@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/duel-host", () => ({ callDuelHost: vi.fn() }));
@@ -85,7 +86,7 @@ describe("engine type lookup", () => {
 
   it("returns no types when the host is down, then leaves it alone until the backoff passes", async () => {
     let t = 1_000;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.report.mockClear().mockImplementation(() => {});
     const call = vi.fn(async () => {
       throw new Error("down");
     });
@@ -102,7 +103,7 @@ describe("engine type lookup", () => {
   });
 
   it("treats a malformed host answer as the host being down", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.report.mockClear().mockImplementation(() => {});
     const lookup = createEngineTypeLookup({ call: async () => ({ nope: true }) });
     expect((await lookup.lookup([1], actor)).size).toBe(0);
     warn.mockRestore();
@@ -129,3 +130,5 @@ describe("engine type lookup", () => {
     }
   });
 });
+
+const recording = useRecordingObservability();

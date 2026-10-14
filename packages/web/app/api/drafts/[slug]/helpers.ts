@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards } from "@/lib/cube-pool";
@@ -52,7 +53,7 @@ function degrade<T>(slug: string, part: string, fallback: T, run: () => T): T {
     // would show stale data (a frozen timer) while the database is busy.
     const code = (error as { code?: unknown } | null)?.code;
     if (typeof code === "string" && code.startsWith("SQLITE_BUSY")) throw error;
-    console.error(`[api/drafts/${slug}] ${part} failed:`, error);
+    report(error, { tags: { operation: "[api/drafts/[slug]] failed" } });
     return fallback;
   }
 }
@@ -489,7 +490,7 @@ export function draftLobbyErrorResponse(error: unknown): Response {
     }
     return NextResponse.json(body, { status: DRAFT_LOBBY_ERROR_STATUS[code] });
   }
-  console.error("[draft lobby] action failed:", error);
+  report(error, { tags: { operation: "[draft lobby] action failed" } });
   return NextResponse.json({ error: "Failed to update draft lobby" }, { status: 500 });
 }
 
@@ -575,7 +576,7 @@ export function validLobbyRevision(value: unknown): value is number {
 
 export async function notifyDraftLobbySeats(slug: string) {
   const results = await Promise.allSettled([broadcaster.draft({ kind: "seats", slug })]);
-  for (const result of results) if (result.status === "rejected") console.error("[draft lobby] seats notification failed:", result.reason);
+  for (const result of results) if (result.status === "rejected") report(result.reason, { tags: { operation: "[draft lobby] seats notification failed" } });
 }
 
 export async function notifyDraftLobbyTick(result: DraftLobbyTickResult) {
@@ -590,7 +591,7 @@ export async function notifyDraftLobbyTick(result: DraftLobbyTickResult) {
     }));
   }
   const results = await Promise.allSettled(deliveries);
-  for (const delivery of results) if (delivery.status === "rejected") console.error("[draft lobby] transition notification failed:", delivery.reason);
+  for (const delivery of results) if (delivery.status === "rejected") report(delivery.reason, { tags: { operation: "[draft lobby] transition notification failed" } });
 }
 
 

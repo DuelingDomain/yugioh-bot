@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { requireDuelActor } from "@/lib/duel-host";
 
@@ -16,9 +17,8 @@ export async function POST(request: Request) {
     // keep empty
   }
   const field = (key: string) => String(body[key] ?? "").slice(0, MAX_FIELD);
-  console.error(
-    `[duel-client-error] player=${actor.playerId} url=${field("url")} digest=${field("digest")}\n` +
-      `message: ${field("message")}\nstack: ${field("stack")}\ncomponentStack: ${field("componentStack")}`,
-  );
+  const error = new Error(field("message") || "Duel client error");
+  if (field("stack")) error.stack = field("stack");
+  report(error, { tags: { operation: "duel-client-error" } });
   return NextResponse.json({ ok: true });
 }

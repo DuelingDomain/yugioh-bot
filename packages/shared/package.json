@@ -74,6 +74,21 @@
       "source": "./src/notify/index.ts",
       "default": "./dist/notify/index.js"
     },
+    "./observability": {
+      "types": "./dist/observability/index.d.ts",
+      "source": "./src/observability/index.ts",
+      "default": "./dist/observability/index.js"
+    },
+    "./observability/node-bootstrap": {
+      "types": "./dist/observability/node-bootstrap.d.ts",
+      "source": "./src/observability/node-bootstrap.ts",
+      "default": "./dist/observability/node-bootstrap.js"
+    },
+    "./internal-auth": {
+      "types": "./dist/internal-auth/index.d.ts",
+      "source": "./src/internal-auth/index.ts",
+      "default": "./dist/internal-auth/index.js"
+    },
     "./decks": {
       "types": "./dist/decks/index.d.ts",
       "source": "./src/decks/index.ts",

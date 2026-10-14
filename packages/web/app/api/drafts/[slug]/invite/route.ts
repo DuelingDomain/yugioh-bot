@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { createDraftVisibilityService, DraftVisibilityServiceError } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
@@ -28,7 +29,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof DraftVisibilityServiceError) return draftNotFound();
-    console.error("[draft invite] admission failed:", error);
+    report(error, { tags: { operation: "[draft invite] admission failed" } });
     return NextResponse.json({ error: "Failed to accept invite" }, { status: 500 });
   }
 }

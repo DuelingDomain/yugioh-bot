@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -55,7 +55,7 @@ afterEach(async () => { await host.close(); db.close(); rmSync(dir, { recursive:
 async function post(input: Record<string, unknown> = {}) {
   const raw = JSON.stringify({ op: "replay", slug, guildId: owner.guildId, playerId: 64, version: 2, ...input });
   const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-    headers: { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
+    headers: { ...signedRequestHeaders({ url: "http://localhost/internal/duel", method: "POST", body: raw, secret: secret, purpose: "duel-host" }) } }));
   return { status: response.status, body: await response.json() as any };
 }
 const cross = () => db.prepare("update duels set bundle_version='older-bundle' where id=?").run(duelId);

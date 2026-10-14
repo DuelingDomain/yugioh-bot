@@ -1,4 +1,5 @@
-import type { SignedPostTransport } from "./signed-post.js";
+import { log } from "../observability/index.js";
+import type { SignedPostTransport } from "../internal-auth/index.js";
 import type { AnnouncePayload, AnnounceResult } from "./announce-payload.js";
 
 export type Announcer = {
@@ -12,7 +13,7 @@ export function createAnnouncer(transport: SignedPostTransport): Announcer {
       const res = await transport.post(`/internal/announce/${kind}`, JSON.stringify(data));
       if (res.ok) return { ok: true };
       const error = `Bot responded ${res.status}${res.text ? `: ${res.text}` : ""}`;
-      console.warn(`[announcer] ${kind}: ${error}`);
+      log("warn", "Announcement rejected", { kind, status: res.status });
       return { ok: false, error };
     },
   };

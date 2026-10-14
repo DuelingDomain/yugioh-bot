@@ -1,4 +1,5 @@
 import { recordProductEvent, type ProductEventProps } from "../analytics/index.js";
+import { report } from "../observability/index.js";
 import { readStoredBoard, freezeStoredBoard, encodeStoredSnapshot, storedTurnCount, type StoredSnapshot } from "./stored-duel-snapshots.js";
 import type { DuelScriptErrorMode } from "../duels/index.js";
 import type Database from "better-sqlite3";
@@ -1462,7 +1463,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       if (!(error instanceof DuelServiceError && error.status === 500 && error.message === "Duel setup record is invalid")) {
         throw error;
       }
-      console.warn(`[duels] Skipping invalid list row ${row.id}`, error);
+      report(error, { tags: { operation: "[duels] invalid list row" } });
       return [];
     }
   };

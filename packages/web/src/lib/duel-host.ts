@@ -1,6 +1,7 @@
+import { report, log } from "@yugidraft/shared/observability";
+import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { NextResponse } from "next/server";
 import { ReplayAccessError } from "@yugidraft/shared/access/owner-access";
-import { httpTransport } from "@yugidraft/shared/notify";
 import {
   createDuelService,
   createPlayerService,
@@ -96,7 +97,7 @@ export function duelErrorResponse(error: unknown) {
   ) {
     return NextResponse.json({ error: error.message }, { status: error.status, headers: { "cache-control": "private, no-store" } });
   }
-  console.error("[api/duels]", error);
+  report(error, { tags: { operation: "[api/duels]" } });
   return NextResponse.json({ error: "Failed to process duel request" }, { status: 500, headers: { "cache-control": "private, no-store" } });
 }
 
@@ -201,10 +202,10 @@ export async function callDuelHost(input: {
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
   if (configProblem) {
-    console.error(`[duel-host] ${configProblem}`);
+    log("warn", "[duel-host] configuration is incomplete");
     return { ok: false, response: failure({ error: configProblem }, 503) };
   }
-  const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 }
+  const transport = signedTransport({ ...cfg, purpose: "duel-host", ...(input.op === "engine-data-status" ? { timeoutMs: 5000 }
     : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
     : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {
@@ -249,13 +250,13 @@ export async function callDuelHost(input: {
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {
     if (result.status < 400) {
-      console.error(`[duel-host] ${input.op} failed: ${result.text || "no response"}`);
+      log("warn", "[duel-host] unavailable", { operation: input.op, status: result.status });
       return { ok: false, response: failure({ error: unreachableMessage(result.text) }, 503) };
     }
     if (result.status === 401) {
       // The host answers 401 only for a bad signature.
       const error = "The duel engine refused the web server: their DUEL_INTERNAL_SECRET values do not match. Ask the server admin to fix .env and restart both services.";
-      console.error(`[duel-host] ${error}`);
+      log("warn", "[duel-host] request was refused", { status: result.status });
       return { ok: false, response: failure({ error }, 503) };
     }
     return {

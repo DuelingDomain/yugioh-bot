@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type Database from "better-sqlite3";
 import type { DuelDeck } from "@yugidraft/shared/duels";
 import * as services from "@yugidraft/shared/services";
@@ -36,7 +37,7 @@ export function backfillDraftDecks(guildId: string, userId: number, db: Database
   try {
     api(db)?.ensureForUser(guildId, userId);
   } catch (error) {
-    console.error("[draft-decks] backfill failed:", error);
+    report(error, { tags: { operation: "[draft-decks] backfill failed" } });
   }
 }
 
@@ -45,7 +46,7 @@ export function linkDraftDeck(tournamentId: number, playerId: number, db: Databa
   try {
     api(db)?.linkTournament(tournamentId, playerId);
   } catch (error) {
-    console.error("[draft-decks] link failed:", error);
+    report(error, { tags: { operation: "[draft-decks] link failed" } });
   }
 }
 
@@ -60,7 +61,7 @@ export function draftDeckNoteFor(
     if (!note || !service) return null;
     return note(input.deck, service.mainPoolCount(input.draftId, input.playerId));
   } catch (error) {
-    console.error("[draft-decks] note failed:", error);
+    report(error, { tags: { operation: "[draft-decks] note failed" } });
     return null;
   }
 }

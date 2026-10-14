@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { createPlayerService } from "@yugidraft/shared/services";
 import type { CardDataStatus } from "@yugidraft/shared/types";
@@ -56,7 +57,7 @@ export async function GET() {
     const status: CardDataStatus = result.data;
     return NextResponse.json(status, { headers: { "cache-control": "no-store" } });
   } catch (error) {
-    console.error("[api/admin/card-data-status]", error);
+    report(error, { tags: { operation: "[api/admin/card-data-status]" } });
     return NextResponse.json({ error: "Card data status is unavailable" }, { status: 503 });
   }
 }

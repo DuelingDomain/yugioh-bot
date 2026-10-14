@@ -1,5 +1,7 @@
 "use client";
 
+import { report } from "@yugidraft/shared/observability";
+
 import { useCallback, useRef, useState } from "react";
 import { useDraftStore, type DraftState } from "@/lib/stores/draft-store";
 import { stepKeyOf, type RoomCard } from "./room-model";
@@ -52,7 +54,7 @@ export function usePick(slug: string, hooks?: PickHooks) {
         useDraftStore.getState().setFromServer(data);
         hooks?.onReconciled?.(attempt, data.myPool ?? []);
       } catch (err) {
-        console.error("Pick error:", err);
+        report(err, { tags: { operation: "Pick error" } });
         hooks?.onRejected?.();
         try {
           const refresh = await fetch(`/api/drafts/${slug}`);
@@ -62,7 +64,7 @@ export function usePick(slug: string, hooks?: PickHooks) {
             hooks?.onReconciled?.(attempt, data.myPool ?? []);
           }
         } catch (refreshErr) {
-          console.error("Failed to refresh draft state:", refreshErr);
+          report(refreshErr, { tags: { operation: "Failed to refresh draft state" } });
         }
       } finally {
         pendingRef.current = false;

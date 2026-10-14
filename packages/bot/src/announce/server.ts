@@ -1,7 +1,8 @@
+import { log, report } from "@yugidraft/shared/observability";
 import { createServer, type Server } from "node:http";
 import { isDuelInviteReference, type AnnouncePayload } from "@yugidraft/shared/notify";
 import { DuelInviteRefusalError } from "@yugidraft/shared/services";
-import { verifyAnnounceSignature } from "./auth.js";
+import { readAnnounceRequest } from "./auth.js";
 
 export type { AnnouncePayload };
 
@@ -44,12 +45,9 @@ export function createAnnounceServer(opts: {
     if (req.method !== "POST" || !routes[url.pathname]) {
       return new Response("Not found", { status: 404 });
     }
-    const body = await req.text();
-    if (!verifyAnnounceSignature(body, req.headers.get("x-announce-signature") ?? undefined, opts.secret)) {
-      return new Response("Unauthorized", { status: 401 });
-    }
-    let parsed: unknown;
-    try { parsed = JSON.parse(body); } catch { return new Response("Bad JSON", { status: 400 }); }
+    const result = await readAnnounceRequest(req, opts.secret);
+    if (!result.ok) return new Response(result.status === 401 ? "Unauthorized" : result.status === 413 ? "Request too large" : "Bad JSON", { status: result.status });
+    const parsed = result.body;
     if (url.pathname === "/internal/announce/duel-invite" && !isDuelInviteReference(parsed)) {
       return new Response("Bad duel reference", { status: 400 });
     }
@@ -58,28 +56,46 @@ export function createAnnounceServer(opts: {
       return new Response(null, { status: 204 });
     } catch (err) {
       if (err instanceof DuelInviteRefusalError) {
-        console.warn(`[announce] refused invite for ${url.pathname}:`, err.message);
+        log("warn", "[announce] refused invite", { code: err.code, status: err.status });
         return Response.json({ error: err.message, code: err.code }, { status: err.status });
       }
-      console.error(`[announce] handler failed for ${url.pathname}:`, err);
+      report(err, { tags: { operation: "[announce] handler failed for" } });
       return new Response("Handler error", { status: 500 });
     }
   }
 
   function listen(port: number): Server {
     const server = createServer(async (nodeReq, nodeRes) => {
-      const chunks: Buffer[] = [];
-      for await (const chunk of nodeReq) chunks.push(chunk as Buffer);
-      const buf = Buffer.concat(chunks);
-      const url = `http://${nodeReq.headers.host ?? "localhost"}${nodeReq.url ?? "/"}`;
-      const res = await handle(new Request(url, {
-        method: nodeReq.method,
-        headers: nodeReq.headers as any,
-        body: buf.length ? buf : undefined,
-      }));
-      nodeRes.writeHead(res.status, Object.fromEntries(res.headers));
-      const text = await res.text();
-      nodeRes.end(text);
+      try {
+        const maxBytes = 65536;
+        const url = `http://${nodeReq.headers.host ?? "localhost"}${nodeReq.url ?? "/"}`;
+        const rejectSize = () => {
+          log("warn", "internal request rejected", { purpose: "bot-announce", path: new URL(url).pathname, reason: "body too large" });
+          nodeReq.pause();
+          nodeRes.writeHead(413, { connection: "close" });
+          nodeRes.end("Request too large");
+        };
+        if (Number(nodeReq.headers["content-length"]) > maxBytes) { rejectSize(); return; }
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of nodeReq.iterator({ destroyOnReturn: false })) {
+          size += chunk.length;
+          if (size > maxBytes) { rejectSize(); return; }
+          chunks.push(chunk as Buffer);
+        }
+        const buf = Buffer.concat(chunks, size);
+        const res = await handle(new Request(url, {
+          method: nodeReq.method,
+          headers: nodeReq.headers as any,
+          body: buf.length ? buf : undefined,
+        }));
+        nodeRes.writeHead(res.status, Object.fromEntries(res.headers));
+        nodeRes.end(await res.text());
+      } catch (error) {
+        report(error, { tags: { operation: "Internal request handler failed" } });
+        if (!nodeRes.headersSent) nodeRes.writeHead(500);
+        nodeRes.end("Something went wrong");
+      }
     });
     server.listen(port, () => console.log(`[announce] listening on :${port}`));
     return server;

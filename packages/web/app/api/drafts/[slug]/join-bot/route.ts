@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -88,7 +89,7 @@ export async function POST(
     if (error instanceof Error && error.message === "You have already joined this draft") {
       return NextResponse.json({ error: "Bot has already joined this draft" }, { status: 400 });
     }
-    console.error("[api/drafts/[slug]/join-bot] error:", error);
+    report(error, { tags: { operation: "[api/drafts/[slug]/join-bot] error" } });
     return NextResponse.json({ error: "Failed to add bot to draft" }, { status: 500 });
   }
 }

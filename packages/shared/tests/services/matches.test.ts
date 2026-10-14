@@ -1,6 +1,7 @@
+import { useConsoleObservability } from "../helpers/recording-observability.mjs";
 import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createMatchService } from "../../src/services/matches.js";
 import { createTournamentService } from "../../src/services/tournaments.js";
@@ -230,7 +231,6 @@ describe("matches.recordConfirmedResult", () => {
       when new.kind = '${kind}'
       begin select raise(abort, 'forced scoring failure'); end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const match = caller === "confirmed"
         ? app.matches.recordConfirmedResult({
@@ -243,9 +243,12 @@ describe("matches.recordConfirmedResult", () => {
       expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id))
         .toEqual({ status: "completed", match_id: match.id });
       expect(app.db.prepare("select * from point_awards where kind = ?").all(kind)).toEqual([]);
-      expect(spy).toHaveBeenCalledTimes(1);
+      expect(errors).toEqual([expect.objectContaining({
+        message: "forced scoring failure",
+        tags: { operation: "[scoring] failed" },
+      })]);
     } finally {
-      spy.mockRestore();
+      app.db.close();
     }
   });
 });
@@ -271,3 +274,4 @@ it.each(["round_robin", "single_elim"].flatMap(format => ["approve", "auto", "re
     ]);
   } finally { app.db.close(); }
 });
+const { errors } = useConsoleObservability();

@@ -1,3 +1,4 @@
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { ClerkBackendError } from "@yugidraft/shared/clerk";
@@ -143,15 +144,17 @@ it.each([
   ["an unexpected exception", new Error("kaboom")],
 ])("answers 503 retry_later and leaves the database untouched when Clerk fails with %s", async (_label, error) => {
   s.deleteUser.mockRejectedValue(error);
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const res = await POST(req({ confirm: "Yugi_1" }));
   expect(res.status).toBe(503);
   expect(await res.json()).toEqual({ error: "retry_later" });
   expect(rowOf(1)).toMatchObject({ clerk_user_id: "user_one", email: "one@example.com", username: "Yugi_1" });
   expect(s.db!.prepare("select count(*) n from saved_decks").get()).toEqual({ n: 1 });
   expect(s.db!.prepare("select count(*) n from waitlist_signups").get()).toEqual({ n: 1 });
-  expect([...log.mock.calls, ...warn.mock.calls].flat().join(" ")).not.toMatch(/one@example|sk_test_secret|user_one/);
+  expect(errors).toEqual([expect.objectContaining({
+    user: { id: "1" },
+    tags: { operation: "[account-delete] Clerk deletion deferred" },
+  })]);
+  expect(JSON.stringify({ errors, warnings })).not.toMatch(/one@example|sk_test_secret|user_one/);
 });
 
 it("answers 503 retry_later when the Clerk secret is missing, with the database untouched", async () => {
@@ -163,19 +166,20 @@ it("answers 503 retry_later when the Clerk secret is missing, with the database 
   expect(rowOf(1)?.email).toBe("one@example.com");
 });
 
-it("answers 500 server_error when the database step fails after Clerk, logging only the user ID", async () => {
+it("answers 500 server_error and reports the database step with the application user ID", async () => {
   s.db!.exec("create trigger boom before delete on waitlist_signups begin select raise(abort, 'one@example.com exploded'); end");
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
   const res = await POST(req({ confirm: "Yugi_1" }));
   expect(res.status).toBe(500);
   expect(await res.json()).toEqual({ error: "server_error" });
-  expect(s.deleteUser).toHaveBeenCalledOnce();
   // The transaction rolled back, so the owner command can finish the job.
   expect(rowOf(1)).toMatchObject({ clerk_user_id: "user_one", email: "one@example.com" });
-  const logged = log.mock.calls.flat().map(String).join(" ");
-  expect(logged).toContain("1");
-  expect(logged).not.toMatch(/example\.com|exploded|Yugi_1|Display Name|sk_test_secret/);
-  expect(log.mock.calls.flat().some(arg => arg instanceof Error)).toBe(false);
+  const logged = JSON.stringify(errors);
+  expect(logged).not.toMatch(/example\.com|Yugi_1|Display Name|sk_test_secret/);
+  expect(errors).toEqual([expect.objectContaining({
+    message: "[redacted] exploded",
+    user: { id: "1" },
+    tags: { operation: "[account-delete] database step failed after Clerk deletion" },
+  })]);
 });
 
 it("deletes a local account with an email but no Clerk user ID", async () => {
@@ -239,3 +243,4 @@ it.each([false, true])("finishes remote waitlist removal before erasing email (r
   expect(entries.has("other")).toBe(true);
   expect(rowOf(1)?.email).toBe(failure ? "one@example.com" : null);
 });
+const { errors, warnings } = useConsoleObservability();

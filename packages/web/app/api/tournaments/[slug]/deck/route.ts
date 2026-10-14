@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { checkDeckAgainstPool } from "@yugidraft/shared/duels";
 import type { DuelDeck, DuelDeckValidation } from "@yugidraft/shared/duels";
@@ -26,7 +27,7 @@ function serviceError(error: unknown) {
   if (error instanceof TournamentDuelError || error instanceof SavedDeckServiceError) {
     return NextResponse.json({ error: error.message }, { status: error.status });
   }
-  console.error("[api/tournaments/[slug]/deck] error:", error);
+  report(error, { tags: { operation: "[api/tournaments/[slug]/deck] error" } });
   return NextResponse.json({ error: "Failed to process the tournament deck" }, { status: 500 });
 }
 

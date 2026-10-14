@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useRecordingObservability } from "../../../shared/tests/helpers/recording-observability.mjs";
 import React from "react";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -183,7 +184,7 @@ describe("coin barrier", () => {
     noteToss();
     const bad = vi.fn(() => { throw new Error("boom"); });
     const good = vi.fn();
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    recording.report.mockClear().mockImplementation(() => {});
     whenCoinBarrierClears(6, bad);
     whenCoinBarrierClears(6, good);
     expect(() => releaseCoinBarriers()).not.toThrow();
@@ -386,3 +387,5 @@ describe("coin barrier: a battle that waits", () => {
     expect(heard.seen.filter((cue) => (cue as { cue?: string }).cue === "battle")).toHaveLength(0);
   });
 });
+
+const recording = useRecordingObservability();

@@ -1,5 +1,6 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { findTournamentReadAccess } from "@yugidraft/shared/services";
@@ -88,7 +89,7 @@ describe("tournament room admission and broadcasts", () => {
     expect(c.socket.rooms.has("tournament:test-cup")).toBe(false);
   });
   it("fails closed when the permission query throws", () => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = recording.report.mockClear().mockImplementation(() => {});
     vi.spyOn(db, "prepare").mockImplementationOnce(() => { throw new Error("Unavailable"); });
     expect(join(createTournamentRoomToken(claims(), secret))).toEqual(denied);
     expect(clients[0].socket.rooms.has("tournament:test-cup")).toBe(false);
@@ -101,7 +102,7 @@ describe("tournament room admission and broadcasts", () => {
     const body = JSON.stringify({ slug: "test-cup", playerId: 1, displayName: "Private name" });
     const response = await handler(new Request(`http://internal/internal/tournament/${kind}`, {
       method: "POST", body,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(body).digest("hex") },
+      headers: { ...await signedHeaders(body, secret, `http://internal/internal/tournament/${kind}`, "ws-broadcast") },
     }));
     expect(response.status).toBe(204);
     expect(clients[0].socket.rooms.has("tournament:test-cup")).toBe(false);
@@ -140,3 +141,5 @@ describe("tournament room admission and broadcasts", () => {
     expect(clients[0].socket.emit).toHaveBeenCalledWith("tournament:subscription-expired",{slug:"test-cup"});
   });
 });
+
+const recording = useRecordingObservability();

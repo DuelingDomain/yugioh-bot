@@ -6,7 +6,8 @@
  * Transport calls the real signed duel host. All card lookups and writes are real.
  */
 import Database from "better-sqlite3";
-import { createHash, createHmac } from "node:crypto";
+import { createHash } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -139,7 +140,7 @@ afterAll(() => {
 async function hostPost(body: Record<string, unknown>) {
   const raw = JSON.stringify({ guildId: boundary.guildId, playerId: boundary.playerId, ...body });
   return boundary.host.handle(new Request("http://verify/internal/duel", { method: "POST", body: raw,
-    headers: { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
+    headers: { ...signedRequestHeaders({ url: "http://verify/internal/duel", method: "POST", body: raw, secret, purpose: "duel-host" }) } }));
 }
 const request = (body: unknown, method = "POST") => new Request("http://verify/api/decks", { method, body: JSON.stringify(body), headers: { "content-type": "application/json" } });
 function textFor(deck: DuelDeck, kind: "YDK" | "names" | "passcodes") {

@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type Database from "better-sqlite3";
 
 export function createNotifyCleanupService(opts: {
@@ -23,7 +24,7 @@ export function createNotifyCleanupService(opts: {
       try {
         await opts.deleteNotifyMessage(row.id);
       } catch (error) {
-        console.warn(`[notify-cleanup] failed for match ${row.id}`, error);
+        report(error, { tags: { operation: "[notify-cleanup] failed for match" } });
       }
     }
   }

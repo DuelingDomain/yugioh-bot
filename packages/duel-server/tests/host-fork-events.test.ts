@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +25,7 @@ afterEach(async () => { await host?.close(); app.db.close(); rmSync(directory, {
 async function post(op: string, slug = app.forkSlug, playerId = app.owner.playerId) {
   const body = JSON.stringify({ op, slug, playerId, guildId: app.guildId });
   return host.handle(new Request("http://test/internal/duel", { method: "POST", body,
-    headers: { "x-announce-signature": "sha256=" + createHmac("sha256", "fork-events").update(body).digest("hex") } }));
+    headers: { ...signedRequestHeaders({ url: "http://test/internal/duel", method: "POST", body: body, secret: "fork-events", purpose: "duel-host" }) } }));
 }
 it("emits fork cancel, retry and archive changes only for the fork slug", async () => {
   const before = app.db.prepare("select * from duels where id=?").get(app.source.id);

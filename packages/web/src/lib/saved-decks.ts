@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { assertExtraDeckCards, ExtraDeckCardError } from "@yugidraft/shared/duels";
 import type { CardIdentityCatalog, SavedDeck } from "@yugidraft/shared/duels";
@@ -98,7 +99,7 @@ export function savedDeckErrorResponse(error: unknown) {
   if (error instanceof SavedDeckServiceError) {
     return NextResponse.json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, { status: error.status });
   }
-  console.error("[api/decks]", error);
+  report(error, { tags: { operation: "[api/decks]" } });
   return NextResponse.json({ error: "Failed to process deck request" }, { status: 500 });
 }
 

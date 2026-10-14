@@ -1,3 +1,4 @@
+import { log } from "@yugidraft/shared/observability";
 import "dotenv/config";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -50,7 +51,7 @@ if (WS_INTERNAL_SECRET) {
     },
   });
 } else {
-  console.warn("[ws] WS_INTERNAL_SECRET not set - broadcast endpoint disabled");
+  log("warn", "[ws] WS_INTERNAL_SECRET not set - broadcast endpoint disabled");
 }
 
 export { io, roomManager };

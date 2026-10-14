@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useRecordingObservability } from "../../../shared/tests/helpers/recording-observability.mjs";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Fx3dEngine } from "@/components/duel/fx3d/engine";
@@ -75,7 +76,7 @@ describe("battle GPU preparation", () => {
   });
 
   it("restores the viewport and releases warm-up objects if the preparation draw fails", async () => {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warning = recording.report.mockClear().mockImplementation(() => {});
     gpu.render.mockImplementationOnce(() => { throw new Error("GPU temporarily unavailable"); });
     const engine = new Fx3dEngine(document.createElement("div"));
     try {
@@ -261,3 +262,5 @@ describe("decoded card textures", () => {
     art.dispose();
   });
 });
+
+const recording = useRecordingObservability();

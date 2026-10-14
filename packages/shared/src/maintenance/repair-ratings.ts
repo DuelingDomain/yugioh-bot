@@ -1,3 +1,4 @@
+import { report } from "../observability/index.js";
 import Database from "better-sqlite3";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -178,7 +179,7 @@ export function runRepairRatingsCli(args: string[], write: (text: string) => voi
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try { runRepairRatingsCli(process.argv.slice(2)); }
   catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    report(error, { tags: { operation: "Error path in shared/src/maintenance/repair-ratings.ts" } });
     process.exitCode = 1;
   }
 }

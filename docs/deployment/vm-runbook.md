@@ -320,6 +320,15 @@ Repeat the deploy health checks. Image rollback does not reverse database migrat
 engine/passcode changes or new writes. For the first release after this change, the previous images
 can be VM-built images with no GHCR SHA tag; use `:prev` and the matching release backup for those.
 
+### Internal signing cutover
+
+Deploy web, WS, duel and worker together (and update any separately enabled bot). The v2 internal signing format
+has no compatibility period with the previous format. Keep the existing internal secrets and synchronize service
+clocks; signed requests must be within 60 seconds of the receiving service's clock. Draft and tournament room
+tokens remain valid. Previously issued duel connection tokens are replaced: open duel tabs fetch fresh credentials
+and retry once when a join is rejected. After deployment, check that an open duel tab reconnects and that draft
+updates still arrive. Roll back all communicating services together if needed.
+
 ### Before a deploy that changes the engine bundle
 
 The multiplayer merge changes the Standard and Domain cores, so its first deploy replaces the bundle. Before it:
@@ -333,6 +342,16 @@ The multiplayer merge changes the Standard and Domain cores, so its first deploy
 4. Watch memory for the first days (`docker stats --no-stream`). The duel service has `mem_limit` 1g
    (`DUEL_MEM_LIMIT`). The first game loads the card database and scripts (about 114 MB). Each game adds about 2.4 to
    4 MB.
+
+The duel host defaults to `DUEL_MAX_WORKERS=12` across live games and replay rebuilds,
+`DUEL_MAX_TABLES_PER_PLAYER=3` for each seated player at in-progress Tables, `DUEL_WORKER_HEAP_MB=256` per worker heap,
+`DUEL_CREATE_TIMEOUT_MS=120000` for creation and the full recovery/replay initialization phase,
+and `DUEL_OP_TIMEOUT_MS=15000` for other worker calls. WASM memory is outside the heap limit,
+so the worker count is the memory guard. Replay rebuilds wait in FIFO order (up to 32 queued).
+Finished, cancelled and archived Tables free player reservations; their workers count globally until close.
+Capacity refusals return 429; worker deadlines return 503 and release the worker. The next room request
+can recover an active duel from its saved journal. Set these values in `.env` and recreate `duel` to change them.
+Caddy caps app request bodies at 1 MB.
 
 ### Engine switch and multiplayer flag
 
@@ -629,6 +648,16 @@ Configure production Clerk for `https://app.duelingdomain.com`: waitlist sign-up
 Existing-player recovery also uses the original application's registered `${WEB_URL}/api/auth/callback/discord` URI, alongside Clerk's callback. Keep that exact HTTPS URI registered; if the domain cutover left only the legacy hostname's callback, add the current `WEB_URL` URI before deploying. Forward `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET` to web through the explicit Compose entries, then recreate web so it receives them. No new cookie secret is needed; recovery derives its authenticated-encryption key from `CLERK_SECRET_KEY`. Do not print runtime configuration or credentials when checking this.
 
 Recovery bypasses the waitlist only for a server-proven Discord ID already in `users`; an unlinked row also needs a verified Discord email. An unlinked row gets a one-step `/welcome-back` consent page; no `players` row is required. An email already owned by another Clerk user is a support conflict, never automatic login by email. Clerk private metadata retains the proven Discord ID during initial profile sync. If Clerk's Discord sign-in still transfers into restricted signup after linking, direct OAuth proof issues a sign-in ticket for the stored Clerk ID after checking that Clerk's user exists, is neither banned nor locked, and has no conflicting Discord claim; a missing claim is recorded in private metadata before issuing the ticket. Sync clears that bootstrap metadata best-effort when a matching verified external Discord account appears, so removing that account then clears both application Discord links on the next sync. If no sync observes the matching verified external account before removal, or metadata cleanup keeps failing, the owner must clear `existingPlayerDiscordId` and the application Discord mapping to revoke recovery. Tickets expire in 120 seconds and travel through an encrypted HttpOnly cookie and same-origin POST, never a redirect URL. Verify recovery, preserved history and a second Discord sign-in in a browser before announcing the fix. Keep web private behind Caddy; recovery's bounded per-process limiter relies on Caddy overwriting incoming `X-Forwarded-For`.
+
+## Error reporting
+
+Create the web and server projects in the Sentry EU region. Keep DSNs empty until those projects are ready; empty values use console reporting. Set `SENTRY_DSN` and `SENTRY_ENVIRONMENT` in the protected VM `.env`. Web, ws, duel and worker receive these values through Compose; an independently run bot uses the same server setup.
+
+Set repository variables `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG` and `SENTRY_PROJECT` for source-map uploads. `SENTRY_PROJECT` accepts a comma-separated list; include the projects used by both the web server DSN and browser DSN when they differ. Set `SENTRY_AUTH_TOKEN` as a **production environment secret** with source-map upload access. The Actions `build` job selects the `production` environment for its web matrix entry and passes the token to `docker/build-push-action` through `secrets`. It never reaches the VM, a build argument or a runtime environment. The web runtime and Next cache builds receive identical Sentry arguments and secret mounts; builds with no Sentry values or with only a DSN skip upload. Local builds also skip upload by default. Production Compose only starts pulled images.
+
+The production workflow sets `SENTRY_RELEASE` to the checked-out deploy SHA for the web build and every service. Application source maps are excluded from the Docker context. Dependency installation, non-web compilation and the web build each delete map files in the same Docker step that creates them, before any layer or public build cache is exported. The web build also rejects output containing the upload token. Browser reports use the exact public `/monitoring` tunnel. Reporting uses `sendDefaultPii: false`, a 0.05 trace sample rate and no replay; only application user IDs belong in identity. Request bodies, cookies, credentials and personal fields are redacted before sending.
+
+After deployment, check that the services start and drain normally. Confirm an unexpected error arrives in the configured EU project with the deployed release and readable web stack frames. Remote delivery and source-map upload require the owner's project configuration and cannot be checked with empty DSNs.
 
 ## GitHub Actions Secrets
 

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useRecordingObservability } from "../../../shared/tests/helpers/recording-observability.mjs";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDraftWebsocket } from "../../src/lib/hooks/use-draft-websocket";
@@ -403,7 +404,7 @@ describe("draft reconnect", () => {
     });
 
     it("retries a network error while the socket stays connected", async () => {
-      vi.spyOn(console, "warn").mockImplementation(() => {});
+      recording.log.mockClear().mockImplementation(() => {});
       mockFetch.mockRejectedValueOnce(new TypeError("Network unavailable"));
       renderHook(() => useDraftWebsocket("cup"));
       await act(async () => connect());
@@ -435,3 +436,5 @@ describe("draft reconnect", () => {
     });
   });
 });
+
+const recording = useRecordingObservability();

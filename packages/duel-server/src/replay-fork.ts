@@ -1,3 +1,4 @@
+import { log } from "@yugidraft/shared/observability";
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { assertOwnerReplaySourceAccess, assertReplayForkAccess, resolveOwnerPlayer, ReplayAccessError,
@@ -6,10 +7,11 @@ import { createDuelService, createReplayForkService, hashReplayForkPrefix, Repla
   type DuelPrivateState } from "@yugidraft/shared/services";
 import { isReplayFork, isReplayForkRequest, type DuelCommand, type DuelEngineView, type DuelRoom, type DuelSession, type ReplayForkRequest,
   type ReplayForkResult, type ReplaySource } from "@yugidraft/shared/duels";
-import { runJournalPrefix, type JournalResources, type JournalRunResult } from "./journal-runner.js";
+import { JournalRunnerError, runJournalPrefix, type JournalResources, type JournalRunResult } from "./journal-runner.js";
 import { replayBuildError, replayHasUnsequencedLoss, type ReplayBuildErrorCode } from "./replay-builder.js";
 import { replayFrameId, replaySourceVersion, resolveReplayCursor, ReplayCursorError, type ReplayCursorCodec } from "./replay-cursor.js";
 import type { DuelGameWorker } from "./worker-client.js";
+import { RequestError } from "./request-error.js";
 import { pinnedEngineVersion } from "./multi-scripts.js";
 
 export const REPLAY_FORK_TIMEOUT_MS = 20_000;
@@ -42,7 +44,7 @@ export function listActiveReplayForks(db: Database.Database, actor: OwnerPlayerA
     catch (error) {
       if (!(error instanceof ReplayAccessError) || error.status !== 404) throw error;
       // No payload or error stack: a damaged row must not hide healthy forks or leak private metadata.
-      console.warn("[replay-fork] Skipping invalid active fork", { slug: fork.slug, code: error.code });
+      log("warn", "[replay-fork] Skipping invalid active fork", { code: error.code });
       return false;
     }
   });
@@ -65,7 +67,8 @@ interface ForkLaunchOptions {
   /** Check the complete source, with the shared bounded replay build, before a prefix can be forked. */
   authorizeSource: (state: DuelPrivateState, actor: OwnerPlayerActor, unchecked: boolean, signal?: AbortSignal) => Promise<JournalResources>;
   /** Recorder is disabled until persistence. The closure supplies the new fork ID after commit. */
-  createWorker: (duelId: () => number | undefined) => DuelGameWorker;
+  createWorker: (duelId: () => number | undefined, actor: OwnerPlayerActor, session: DuelSession | undefined,
+    table: () => string, signal?: AbortSignal) => DuelGameWorker | Promise<DuelGameWorker>;
   /** All engine reads finish before commit. Handoff has no asynchronous failure window. */
   register: (session: DuelSession, worker: DuelGameWorker, views: DuelEngineView[]) => DuelRoom;
   remove: (slug: string, worker: DuelGameWorker) => Promise<void>;
@@ -102,6 +105,8 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
     signal?.throwIfAborted();
     const release = reserve(actor, enforceActive);
     let worker: DuelGameWorker | undefined, committed: DuelSession | undefined, recorderId: number | undefined;
+    const controller = new AbortController();
+    const workerSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
     let expired = false, handedOff = false, timer: ReturnType<typeof setTimeout> | undefined;
     const check = () => {
       signal?.throwIfAborted();
@@ -113,7 +118,13 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
       const resources = selectedResources ?? await options.resourcesOf(state, restore ? "restart" : "launch"); check();
       const result: JournalRunResult = await runJournalPrefix({ source, resources, prefixCount, target,
         manualLossAnswersAfter: prefixCount,
-        createWorker: () => (worker = options.createWorker(() => recorderId)) });
+        createWorker: async () => {
+          worker = await options.createWorker(() => recorderId, actor, restore ? state.session : undefined,
+            () => committed?.slug ?? state.session.slug, workerSignal);
+          try { check(); workerSignal.throwIfAborted(); }
+          catch (error) { try { await worker.close(); } catch { /* Keep the request failure. */ } throw error; }
+          return worker;
+        } });
       check();
       if (result.views.public.result || !result.views.public.seats.some(s => !s.eliminated)) {
         throw new ReplayForkLaunchError("This checkpoint has no playable engine state.", "NOT_PLAYABLE");
@@ -153,6 +164,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
           Math.min(25_000, options.timeoutMs ?? replayForkTimeoutMs(prefixCount)));
       })]);
     } catch (error) {
+      if (error instanceof JournalRunnerError && error.cause instanceof RequestError && error.cause.status === 429) throw error.cause;
       if (error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError
         || error instanceof ReplayForkStorageError) throw error;
       if (error instanceof Error && "code" in error && error.code === "ENGINE_UNAVAILABLE_FOR_SOURCE") {
@@ -161,6 +173,7 @@ export function createReplayForkLauncher(options: ForkLaunchOptions) {
       const failure = replayBuildError(error);
       throw new ReplayForkLaunchError(failure.message, failure.code);
     } finally {
+      controller.abort(new ReplayForkLaunchError("Replay fork request ended.", "ENGINE_BUSY"));
       clearTimeout(timer);
       if (onAbort) signal?.removeEventListener("abort", onAbort);
       if (!handedOff) {

@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import type Database from "better-sqlite3";
 import { checkDeckAgainstPool, type DuelDeck, type SavedDeck } from "@yugidraft/shared/duels";
@@ -134,7 +135,7 @@ export function registerDraftDeck(draft: DraftDeckContext, saved: SavedDeck): st
       return undefined;
     }
     const reason = error instanceof TournamentDuelError ? error.message : "unexpected error";
-    console.error("[api/decks] tournament registration failed:", error);
+    report(error, { tags: { operation: "[api/decks] tournament registration failed" } });
     return `Your deck is saved, but it was not registered for the tournament: ${reason}`;
   }
 }

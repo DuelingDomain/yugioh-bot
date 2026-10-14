@@ -53,7 +53,7 @@ export interface ReplayBuildOptions {
   finalView: DuelEngineView | null;
   /** Internal final-state check, before any saved final frame replaces the rebuilt view. */
   verifyFinalViews?: (views: JournalTargetViews) => void;
-  createWorker: () => DuelGameWorker;
+  createWorker: (signal?: AbortSignal) => DuelGameWorker | Promise<DuelGameWorker>;
   maxBytes?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -126,6 +126,8 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
   const maxBytes = Math.min(REPLAY_MAX_BUILD_BYTES, options.maxBytes ?? limits.maxBytes);
   let bytes = 64 * 1024; // Envelope/session allowance; frame metadata and cursor growth counted below.
   let worker: DuelGameWorker | undefined;
+  const controller = new AbortController();
+  const workerSignal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
   let expired = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const playable = !replayHasUnsequencedLoss(source);
@@ -168,7 +170,15 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
     check();
     const result = await runJournalPrefix({ source, resources: options.resources, prefixCount: source.commands.length,
       manualLossAnswersAfter: options.manualLossAnswersAfter,
-      createWorker: () => (worker = options.createWorker()), checkpointSeat: dataSeat,
+      createWorker: async () => {
+        worker = await options.createWorker(workerSignal);
+        if (expired || workerSignal.aborted) {
+          try { await worker.close(); } catch { /* Keep the request failure. */ }
+          workerSignal.throwIfAborted();
+          throw new ReplayBuildError("Replay timed out.", "ENGINE_BUSY");
+        }
+        return worker;
+      }, checkpointSeat: dataSeat,
       onCheckpoint: async ({ view, input, actorSeat, beforeRevision, prefixCount }) => {
         check();
         if (expired) throw new ReplayBuildError("Replay timed out.", "ENGINE_BUSY");
@@ -215,6 +225,7 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
     })]);
   } catch (error) { throw replayBuildError(error); }
   finally {
+    controller.abort(new ReplayBuildError("Replay request ended.", "ENGINE_BUSY"));
     clearTimeout(timer);
     await encoder?.close();
     if (onAbort) options.signal?.removeEventListener("abort", onAbort);

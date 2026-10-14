@@ -1,3 +1,6 @@
+import { report } from "@yugidraft/shared/observability";
+import { awaitObservabilityShutdown } from "@yugidraft/shared/observability/node-bootstrap";
+import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { writeSync } from "node:fs";
 import { reportInteractionError } from "./interactions/errors.js";
 import "dotenv/config";
@@ -55,11 +58,11 @@ import { createAnnounceServer } from "./announce/server.js";
 import { deleteNotifyMessage } from "./lib/notify-message.js";
 import { announceTournamentCompleted } from "./lib/announce-tournament-completed.js";
 import { createHttpNotifyDuelChange } from "./lib/notify-duel.js";
-import { createBroadcaster, httpTransport } from "@yugidraft/shared/notify";
+import { createBroadcaster } from "@yugidraft/shared/notify";
 
 if (process.env.DISCORD_BOT_ENABLED !== "1") {
   await new Promise<never>(() => {
-    const stop = () => process.exit(0);
+    const stop = () => { void awaitObservabilityShutdown().then(() => process.exit(0)); };
     process.once("SIGTERM", stop);
     process.once("SIGINT", stop);
     // A referenced timer keeps the disabled service idle under unless-stopped.
@@ -144,7 +147,7 @@ function buildDraftStatus(draft: Draft) {
 const guildSettings = createGuildSettingsService(db);
 
 const broadcaster = createBroadcaster(
-  httpTransport({ url: process.env.WS_INTERNAL_URL ?? "", secret: process.env.WS_INTERNAL_SECRET ?? "", timeoutMs: 5_000 }),
+  signedTransport({ purpose: "ws-broadcast", url: process.env.WS_INTERNAL_URL ?? "", secret: process.env.WS_INTERNAL_SECRET ?? "", timeoutMs: 5_000 }),
 );
 
 const notifyDuelChange = createHttpNotifyDuelChange(db, {
@@ -206,7 +209,7 @@ const deps = {
         const { embed, components } = buildDraftStatus(draft);
         await message.edit({ embeds: [embed], components });
       } catch (error) {
-        console.warn(`Failed to update draft status message for ${draft.id}`, error);
+        report(error, { tags: { operation: "Failed to update draft status message for" } });
       }
     },
   } as DraftMessenger,

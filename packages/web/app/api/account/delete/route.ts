@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { ClerkBackendError, createClerkBackend } from "@yugidraft/shared/clerk";
 import { createUserService, deleteUserAccount } from "@yugidraft/shared/services";
@@ -42,16 +43,16 @@ export async function POST(request: Request) {
         await backend.deleteUser(user.clerkUserId);
         await settleClerkSync(user.clerkUserId);
       }
-    } catch {
-      console.error("[account-delete] Clerk deletion deferred");
+    } catch (error) {
+      report(error, { userId: access.userId, tags: { operation: "[account-delete] Clerk deletion deferred" } });
       return fail("retry_later", 503);
     }
   }
 
   try {
     deleteUserAccount(db, access.userId);
-  } catch {
-    console.error(`[account-delete] database step failed after Clerk deletion for user ${access.userId}; finish with the delete-user ops command`);
+  } catch (error) {
+    report(error, { userId: access.userId, tags: { operation: "[account-delete] database step failed after Clerk deletion" } });
     return fail("server_error", 500);
   }
 

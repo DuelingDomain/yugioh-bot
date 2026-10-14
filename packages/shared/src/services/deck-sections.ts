@@ -1,3 +1,4 @@
+import { report } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { deckEngineDataDirectory, loadArtworkIdentityCatalog } from "./card-artworks.js";
 import { loadCardPasscodeRemaps } from "../db/card-passcode-remaps.js";
@@ -29,7 +30,7 @@ export function createDeckTypeLookup(db: Database.Database, engine?: DeckTypeEng
     try { return loadCardPasscodeRemaps(directory()); }
     catch (error) {
       if (!warnedRemapLoad) {
-        console.warn("[deck-sections] Cannot load card passcode remaps; using an empty map.", error);
+        report(error, { tags: { operation: "[deck-sections] load card passcode remaps" } });
         warnedRemapLoad = true;
       }
       return new Map();

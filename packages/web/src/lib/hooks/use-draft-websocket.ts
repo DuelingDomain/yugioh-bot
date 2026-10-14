@@ -1,5 +1,7 @@
 "use client";
 
+import { log } from "@yugidraft/shared/observability";
+
 import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 import { useDraftStore } from "@/lib/stores/draft-store";
@@ -80,7 +82,7 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
         });
       } catch (error) {
         if (!disposed && socket.connected && currentRequest === requestId && !(error instanceof Error && error.name === "AbortError")) {
-          console.warn("Draft live feed is unavailable. Retrying.");
+          log("warn", "Draft live feed is unavailable. Retrying.");
           scheduleJoinRetry(currentRequest);
         }
       }
@@ -152,7 +154,7 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
 
     socket.on("connect_error", (err) => {
       // eslint-disable-next-line no-console
-      console.warn("Draft WS connect error:", err.message);
+      log("warn", "Draft WS connect error");
     });
 
     return () => {
