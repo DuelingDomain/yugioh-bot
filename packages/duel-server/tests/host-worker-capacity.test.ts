@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { rmSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterEach, expect, it, vi } from "vitest";
@@ -8,6 +7,7 @@ import type { DuelEngineView } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
+import { signedHeaders } from "./helpers/signed-request.js";
 
 // Keep the host and worker client real while controlling thread termination.
 const transports = vi.hoisted(() => [] as Array<import("node:events").EventEmitter & { finishTermination?: () => void }>);
@@ -75,7 +75,7 @@ it.each(["pending", "completed"] as const)("releases a timed-out worker slot on 
   const post = async (op: string, slug: string) => {
     const raw = JSON.stringify({ op, slug, guildId: "g", playerId: players[0] });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+      headers: await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") }));
     return { status: response.status, data: await response.json() };
   };
   const busy = { status: 429, data: { error: "The duel server is busy. Try again in a minute." } };
