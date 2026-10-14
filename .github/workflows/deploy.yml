@@ -115,12 +115,13 @@ jobs:
         if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      # Keep the activity guard from the workflow revision, even when deploying an older main SHA.
+      # Keep deployment controls from the workflow revision, even when deploying an older main SHA.
       - name: Save deployment activity guard
         if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         run: |
           cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/check-prod-activity.py"
           cp scripts/deployment/production-images.sh "$RUNNER_TEMP/production-images.sh"
+          cp scripts/deployment/prepare-runtime-data.sh "$RUNNER_TEMP/prepare-runtime-data.sh"
 
       - name: Checkout deploy ref
         if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
@@ -289,6 +290,7 @@ jobs:
             ${{ runner.temp }}/deploy-bundle.tar.gz
             ${{ runner.temp }}/check-prod-activity.py
             ${{ runner.temp }}/production-images.sh
+            ${{ runner.temp }}/prepare-runtime-data.sh
           if-no-files-found: error
           retention-days: 1
           overwrite: true
@@ -521,6 +523,7 @@ jobs:
           tar -C "$RUNNER_TEMP/deploy-bundle" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
           cp "$RUNNER_TEMP/release/check-prod-activity.py" "$RUNNER_TEMP/check-prod-activity.py"
           cp "$RUNNER_TEMP/release/production-images.sh" "$RUNNER_TEMP/production-images.sh"
+          cp "$RUNNER_TEMP/release/prepare-runtime-data.sh" "$RUNNER_TEMP/prepare-runtime-data.sh"
           : > "$RUNNER_TEMP/release/image-digests"
           for service in duel web worker ws; do
             cat "$RUNNER_TEMP/image-digests/$service.digest" >> "$RUNNER_TEMP/release/image-digests"
@@ -561,6 +564,7 @@ jobs:
           bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
           remote_bundle=
           remote_guard=
+          remote_prepare=
           remote_images=
           remote_refs=
           cleanup_transfer() {
@@ -572,6 +576,10 @@ jobs:
             if [ -n "$remote_guard" ]; then
               ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_guard'" || true
+            fi
+            if [ -n "$remote_prepare" ]; then
+              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_prepare'" || true
             fi
             if [ -n "$remote_images" ]; then
               ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
@@ -591,6 +599,11 @@ jobs:
           printf '%s' "$remote_guard" | grep -Eq '^/tmp/yugidraft-activity-guard\.[A-Za-z0-9]{6}\.py$' || exit 1
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$RUNNER_TEMP/check-prod-activity.py" "$VM_USER@$VM_HOST:$remote_guard"
+          remote_prepare=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            'mktemp /tmp/yugidraft-runtime-prepare.XXXXXX.sh')
+          printf '%s' "$remote_prepare" | grep -Eq '^/tmp/yugidraft-runtime-prepare\.[A-Za-z0-9]{6}\.sh$' || exit 1
+          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+            "$RUNNER_TEMP/prepare-runtime-data.sh" "$VM_USER@$VM_HOST:$remote_prepare"
           remote_images=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
             'mktemp /tmp/yugidraft-images.XXXXXX.sh')
           printf '%s' "$remote_images" | grep -Eq '^/tmp/yugidraft-images\.[A-Za-z0-9]{6}\.sh$' || exit 1
@@ -608,14 +621,14 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_IMAGES='$remote_images' DEPLOY_IMAGE_REFS='$remote_refs' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_RUNTIME_PREPARE='$remote_prepare' DEPLOY_IMAGES='$remote_images' DEPLOY_IMAGE_REFS='$remote_refs' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
              runtime_compose=
              resolved_compose=
              cleanup() {
-               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "$DEPLOY_IMAGES" "$DEPLOY_IMAGE_REFS"
+               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "$DEPLOY_RUNTIME_PREPARE" "$DEPLOY_IMAGES" "$DEPLOY_IMAGE_REFS"
                if [ -n "$installer" ]; then rm -f "$installer"; fi
                if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
                if [ -n "$runtime_compose" ]; then rm -f "$runtime_compose"; fi
@@ -623,6 +636,7 @@ jobs:
              }
              trap cleanup EXIT
              trap 'exit 1' HUP INT TERM
+             [ -f "$DEPLOY_RUNTIME_PREPARE" ] || { echo "DEPLOY_RUNTIME_PREPARE must be an existing helper" >&2; exit 1; }
              printf '%s' "$DEPLOY_COMMIT" | grep -Eq '^[0-9a-f]{40}$' || exit 1
              case "$DEPLOY_ROLLBACK" in true|false) ;; *) exit 1 ;; esac
              # Keep the lock for production deploys and owner maintenance; these must not overlap.
@@ -752,6 +766,7 @@ jobs:
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
                exit 1
              fi
+             sh "$DEPLOY_RUNTIME_PREPARE" data
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot run --rm --no-deps --pull never worker node --input-type=module -e '
                import {openDatabase} from "@yugidraft/shared/db";
                const db=openDatabase(process.env.DATABASE_PATH);
@@ -762,6 +777,7 @@ jobs:
                } finally {db.close();}
              '
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot down --remove-orphans
+             sh "$DEPLOY_RUNTIME_PREPARE" data
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot up -d --no-build ws duel web worker caddy
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=40

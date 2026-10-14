@@ -60,8 +60,9 @@ COPY --from=build /app/packages/shared/dist packages/shared/dist
 # Bot compiled output
 COPY --from=build /app/packages/bot/package*.json packages/bot/
 COPY --from=build /app/packages/bot/dist packages/bot/dist
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && chown node:node /app/data
 VOLUME ["/app/data"]
+USER node
 CMD ["sh", "-c", "node packages/bot/dist/deploy-commands.js && node packages/bot/dist/index.js"]
 
 # ── ws ───────────────────────────────────────────────────────────────────────
@@ -76,8 +77,9 @@ COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/ws/package*.json packages/ws/
 COPY --from=build /app/packages/ws/dist packages/ws/dist
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && chown node:node /app/data
 VOLUME ["/app/data"]
+USER node
 CMD ["node", "packages/ws/dist/server.js"]
 
 # ── duel ─────────────────────────────────────────────────────────────────────
@@ -97,7 +99,8 @@ COPY --from=build /app/packages/duel-server/card-block-list.json packages/duel-s
 COPY --from=build /app/packages/duel-server/dist packages/duel-server/dist
 COPY --from=build /app/packages/duel-server/scripts/install-engine-bundle.sh packages/duel-server/scripts/install-engine-bundle.sh
 COPY --from=build /app/packages/duel-server/scripts/verify-deploy-multi-cores.mjs packages/duel-server/scripts/verify-deploy-multi-cores.mjs
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && chown node:node /app/data
+USER node
 CMD ["sh", "-c", "sh packages/duel-server/scripts/install-engine-bundle.sh && exec node packages/duel-server/dist/server.js"]
 
 # CI compiles the pinned engine bundle before it reaches the VM. The deploy
@@ -118,8 +121,10 @@ ENV NODE_ENV=production
 COPY --from=web-build /app/packages/web/.next/standalone ./
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/packages/web/.next/cache && \
+    chown node:node /app/data && chown -R node:node /app/packages/web/.next/cache
 VOLUME ["/app/data"]
+USER node
 EXPOSE 3000
 CMD ["node", "packages/web/server.js"]
 
@@ -134,8 +139,9 @@ COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/worker/package*.json packages/worker/
 COPY --from=build /app/packages/worker/dist packages/worker/dist
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && chown node:node /app/data
 VOLUME ["/app/data"]
+USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["node", "packages/worker/dist/healthcheck.js"]
 CMD ["node", "packages/worker/dist/index.js"]
 
