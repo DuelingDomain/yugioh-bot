@@ -1,4 +1,4 @@
-import { report } from "../observability/index.js";
+import { ExpectedError, report } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import type { DraftConfig, TournamentVisibility } from "../types/index.js";
 import type { TournamentFormat } from "./tournaments.js";
@@ -55,10 +55,10 @@ export function createDraftTournamentService(db: Database.Database) {
 
       if (!draft) throw new Error("Draft not found");
       if (draft.created_by_user_id !== input.createdByUserId) {
-        throw new Error("Only the draft creator can create a tournament");
+        throw new ExpectedError("Only the draft creator can create a tournament", 403);
       }
       if (draft.status !== "completed") {
-        throw new Error("Draft must be completed before creating a tournament");
+        throw new ExpectedError("Draft must be completed before creating a tournament", 403);
       }
       if (draft.tournament_id !== null) {
         const existing = db

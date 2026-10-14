@@ -1,4 +1,4 @@
-import { report } from "@yugidraft/shared/observability";
+import { apiErrorResponse } from "@/lib/api-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -88,15 +88,6 @@ export async function POST(
     if (error instanceof TournamentDuelError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    if (error instanceof Error) {
-      if (
-        error.message.includes("Only the draft creator") ||
-        error.message.includes("must be completed")
-      ) {
-        return NextResponse.json({ error: error.message }, { status: 403 });
-      }
-    }
-    report(error, { tags: { operation: "[api/drafts/[slug]/tournament POST] error" } });
-    return NextResponse.json({ error: "Failed to create tournament" }, { status: 500 });
+    return apiErrorResponse(error, "[api/drafts/[slug]/tournament POST]");
   }
 }

@@ -147,3 +147,11 @@ describe("deck APIs reject invalid Extra cards independently of the client", () 
     expect(await response.json()).toMatchObject({ error: expect.any(String), code: "INVALID_DECK_IMPORT" });
   });
 });
+
+it("returns a fixed validation message for malformed import JSON", async () => {
+  const response = await IMPORT(new Request("http://test/api/decks/import", {
+    method: "POST", body: '{"fixture private text"}',
+  }));
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({ error: "Invalid JSON", code: "INVALID_DECK_IMPORT" });
+});

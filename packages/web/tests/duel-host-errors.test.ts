@@ -80,14 +80,14 @@ describe("callDuelHost error messages", () => {
   });
 
   it("says the engine did not answer when the host is down", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed: /private/engine/path")));
     const { callDuelHost } = await loadHost();
 
     const result = await callDuelHost(call);
     if (result.ok) throw new Error("expected failure");
     expect(result.response.status).toBe(503);
     const body = (await result.response.json()) as { error: string };
-    expect(body.error).toMatch(/did not answer \(fetch failed\)/);
+    expect(body.error).toBe("The duel engine did not answer. It may be restarting. Try again in a moment.");
   });
 
   it("explains a secret mismatch instead of passing the host's 401 through", async () => {
@@ -99,6 +99,15 @@ describe("callDuelHost error messages", () => {
     expect(result.response.status).toBe(503);
     const body = (await result.response.json()) as { error: string };
     expect(body.error).toContain("do not match");
+  });
+
+  it("returns a generic 500 for a non-JSON host error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("fixture upstream detail", { status: 400 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost(call);
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(500);
+    expect(await result.response.json()).toEqual({ error: "Something went wrong" });
   });
 
   it("keeps the host's own error text for rule errors", async () => {
@@ -222,7 +231,7 @@ describe("callDuelHost error messages", () => {
     const { callDuelHost } = await loadHost();
     const result = await callDuelHost({ ...call, op: "owner-replay" });
     if (result.ok) throw new Error("expected failure");
-    expect(result.response.status).toBe(status >= 500 ? 503 : status);
+    expect(result.response.status).toBe(status);
     expect(await result.response.json()).not.toHaveProperty("finalBoard");
   });
 
@@ -273,13 +282,13 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "restarting" });
   });
 
-  it("preserves an unexpected host failure as a 500 for duel answers", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Duel server error" }, { status: 500 })));
+  it("returns a generic 500 for an unexpected host response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "fixture host detail" }, { status: 500 })));
     const { callDuelHost } = await loadHost();
     const result = await callDuelHost({ ...call, op: "respond" });
     if (result.ok) throw new Error("expected failure");
     expect(result.response.status).toBe(500);
-    expect(await result.response.json()).toEqual({ error: "Duel server error" });
+    expect(await result.response.json()).toEqual({ error: "Something went wrong" });
   });
 
   it.each(["view", "respond"] as const)("the room %s route surfaces a restart as 503", async op => {

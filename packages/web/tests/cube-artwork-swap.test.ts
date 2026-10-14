@@ -170,7 +170,7 @@ it("rolls back artwork rows and config together when the cube update fails", asy
   const config = JSON.stringify({ customCardIds: [10, 11] });
   db.prepare("update cubes set config_json = ? where id = 1").run(config);
   db.exec("create trigger reject_cube_update before update on cubes begin select raise(abort, 'cube update failed'); end");
-  expect((await swap()).status).toBe(400);
+  expect((await swap()).status).toBe(500);
   expect(db.prepare("select catalog_card_id from cube_cards").all()).toEqual([{ catalog_card_id: 10 }]);
   expect(db.prepare("select config_json from cubes where id = 1").get()).toEqual({ config_json: config });
   expect(db.prepare("select 1 from card_catalog where ygoprodeck_id = 11").get()).toBeUndefined();

@@ -1,3 +1,4 @@
+import { ExpectedError } from "@yugidraft/shared/observability";
 import type { CubePools } from "@yugidraft/shared/types";
 import type { CubeService } from "@yugidraft/shared/services";
 import { parseDeckText } from "@/components/duel/ydk";
@@ -36,7 +37,7 @@ function startInMain(text: string): string {
 export async function importYdkIntoCube(cubes: CubeService, cubeId: number, text: string): Promise<YdkImportResult> {
   const ydk = parseDeckText(startInMain(text));
   const distinct = new Set([...ydk.main, ...ydk.side, ...ydk.extra, ...(ydk.deckMaster != null ? [ydk.deckMaster] : [])]);
-  if (distinct.size > IMPORT_MAX_DISTINCT) throw new Error(tooManyDistinct(distinct.size));
+  if (distinct.size > IMPORT_MAX_DISTINCT) throw new ExpectedError(tooManyDistinct(distinct.size), 400);
   const before = totalCopies(cubes.getCubePools(cubeId));
   const existing = copiesById(cubes.getCubePools(cubeId));
   const all: Array<{ codes: number[]; pool: "main" | "extra" }> = [

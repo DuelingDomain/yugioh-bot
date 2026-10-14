@@ -1,3 +1,4 @@
+import { ExpectedError } from "@yugidraft/shared/observability";
 import { normalizeImportedCardName } from "@yugidraft/shared/services";
 import { parseDeckText } from "@/components/duel/ydk";
 import type { DuelDeck } from "@yugidraft/shared/duels";
@@ -40,7 +41,10 @@ export function parseCardList(text: string, { keepDeckSections = false } = {}): 
   if (isYdke || isYdk) {
     let deck: DuelDeck;
     try { deck = parseDeckText(isYdke ? clean : `#main\n${clean.replace(/^\s*#side\s*$/gim, "!side")}`); }
-    catch (error) { throw new CardListError(error instanceof Error ? error.message : "Invalid deck list."); }
+    catch (error) {
+      if (error instanceof ExpectedError) throw new CardListError(error.message);
+      throw error;
+    }
     entries = [
       ...deck.main.map((query): CardListEntry => ({ query, copies: 1, pool: "main", original: String(query), ...(keepDeckSections ? { section: "main" as const } : {}) })),
       ...deck.extra.map((query): CardListEntry => ({ query, copies: 1, pool: "extra", original: String(query), ...(keepDeckSections ? { section: "extra" as const } : {}) })),

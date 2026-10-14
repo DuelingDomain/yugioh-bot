@@ -7,6 +7,7 @@ import type { DuelWorkerRequest, DuelWorkerResponse } from "./worker-protocol.js
 import { seatCountFor } from "@yugidraft/shared/duels";
 import { tracePrompt } from "./prompt-trace.js";
 import { EngineAnswerError } from "./prompts.js";
+import { EngineAnswerError as LegacyEngineAnswerError } from "./legacy/prompts.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { EngineResourceUnavailableError, verifyWorkerEngineIdentity } from "./engine-resource-resolver.js";
 import { loadCardDatabase } from "./cards.js";
@@ -138,7 +139,8 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
       ...(error instanceof Error ? { name: error.name, stack: error.stack } : {}),
       ...(error instanceof EngineResourceUnavailableError ? { code: error.code } : {}),
       ...(error instanceof EngineLoopError ? { engineLoop: true as const } : {}),
-      ...(error instanceof EngineAnswerError ? { answerError: true as const, ...(error.code ? { code: error.code } : {}) } : {}) };
+      ...((error instanceof EngineAnswerError || error instanceof LegacyEngineAnswerError) ? { answerError: true as const,
+        ...(error instanceof EngineAnswerError && error.code ? { code: error.code } : {}) } : {}) };
   }
 }
 

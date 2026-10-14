@@ -1,4 +1,4 @@
-import { report, log } from "@yugidraft/shared/observability";
+import { errorResponseBody, report, log } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { ReplayAccessError } from "@yugidraft/shared/access/owner-access";
 import { httpTransport } from "@yugidraft/shared/notify";
@@ -6,6 +6,7 @@ import {
   createDuelService,
   createPlayerService,
   redactDuelTournamentMetadata,
+  DuelInviteRefusalError,
   DuelServiceError,
   SavedDeckServiceError,
   TournamentDuelError,
@@ -75,9 +76,9 @@ export async function requireDuelActor(): Promise<DuelActor> {
 }
 
 export function duelErrorResponse(error: unknown) {
-  if (error && typeof error === "object" && "code" in error && error.code === "DUEL_INVITE_REFUSED") {
+  if (error instanceof DuelInviteRefusalError) {
     return NextResponse.json({
-      error: "message" in error && typeof error.message === "string" ? error.message : "Duel invites are unavailable",
+      error: error.message,
       code: error.code,
     }, { status: 409, headers: { "cache-control": "private, no-store" } });
   }
@@ -97,8 +98,8 @@ export function duelErrorResponse(error: unknown) {
   ) {
     return NextResponse.json({ error: error.message }, { status: error.status, headers: { "cache-control": "private, no-store" } });
   }
-  report(error, { tags: { operation: "[api/duels]" } });
-  return NextResponse.json({ error: "Failed to process duel request" }, { status: 500, headers: { "cache-control": "private, no-store" } });
+  const { body, status } = errorResponseBody(error, { tags: { operation: "[api/duels]" } });
+  return NextResponse.json(body, { status, headers: { "cache-control": "private, no-store" } });
 }
 
 /** Redact only when internal duel data leaves the web server for a viewer. */
@@ -107,7 +108,7 @@ export function redactDuelResult<T>(data: T, guildId: string, playerId: number):
 }
 
 function hostErrorBody(text: string, status: number): { error: string; code?: string; finalBoard?: "available" | "none";
-  canOpenUnchecked?: boolean; reason?: ReplayUnverifiedReason; limit?: number; forksUrl?: string } {
+  canOpenUnchecked?: boolean; reason?: ReplayUnverifiedReason; limit?: number; forksUrl?: string } | undefined {
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") {
@@ -124,20 +125,14 @@ function hostErrorBody(text: string, status: number): { error: string; code?: st
             || (status === 413 && parsed.code === "REPLAY_TOO_LARGE"))
           && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery, ...unverified };
     }
-  } catch {
-    // Host may return a plain-text error body.
-  }
-  return { error: text.trim() || "Duel engine error" };
+  } catch {}
+  return undefined;
 }
 
 export function duelHostConfigProblem(cfg: { url: string; secret: string }): string | null {
   const missing = [!cfg.url && "DUEL_INTERNAL_URL", !cfg.secret && "DUEL_INTERNAL_SECRET"].filter(Boolean);
   if (missing.length === 0) return null;
   return `The duel engine is not set up on this server: ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} missing. Ask the server admin to add ${missing.length > 1 ? "them" : "it"} to .env and restart the web and duel services.`;
-}
-
-function unreachableMessage(detail: string) {
-  return `The duel engine did not answer (${detail || "network error"}). It may be restarting. Try again in a moment.`;
 }
 
 export async function callDuelHost(input: {
@@ -195,7 +190,7 @@ export async function callDuelHost(input: {
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
   const replayOp = input.op === "replay" || input.op === "owner-replay" || input.op === "replay-fork"
     || input.op === "fork-list" || input.op === "fork-restart" || input.op === "fork-cancel";
-  const failure = (body: ReturnType<typeof hostErrorBody>, status: number): NextResponse => NextResponse.json({
+  const failure = (body: NonNullable<ReturnType<typeof hostErrorBody>>, status: number): NextResponse => NextResponse.json({
     ...body, ...(replayOp && !body.code && status >= 500 ? { code: "ENGINE_BUSY" } : {}),
   }, { status: replayOp && status >= 500 ? 503 : status,
     headers: { "cache-control": "private, no-store" } });
@@ -250,8 +245,11 @@ export async function callDuelHost(input: {
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {
     if (result.status < 400) {
-      log("warn", "[duel-host] unavailable", { operation: input.op, status: result.status });
-      return { ok: false, response: failure({ error: unreachableMessage(result.text) }, 503) };
+      report(new Error(result.text), { tags: { operation: input.op } });
+      const error = result.text === "Internal request timed out"
+        ? "The duel engine request timed out. It may be restarting. Try again in a moment."
+        : "The duel engine did not answer. It may be restarting. Try again in a moment.";
+      return { ok: false, response: failure({ error }, 503) };
     }
     if (result.status === 401) {
       // The host answers 401 only for a bad signature.
@@ -259,10 +257,12 @@ export async function callDuelHost(input: {
       log("warn", "[duel-host] request was refused", { status: result.status });
       return { ok: false, response: failure({ error }, 503) };
     }
-    return {
-      ok: false,
-      response: failure(hostErrorBody(result.text, result.status), result.status),
-    };
+    const parsed = hostErrorBody(result.text, result.status);
+    if (!parsed || result.status === 500) {
+      const { body, status } = errorResponseBody(new Error(result.text), { tags: { operation: input.op } });
+      return { ok: false, response: NextResponse.json(body, { status, headers: { "cache-control": "private, no-store" } }) };
+    }
+    return { ok: false, response: failure(parsed, result.status) };
   }
   if (!result.text) {
     return { ok: false, response: failure({ error: "Empty engine response" }, 502) };

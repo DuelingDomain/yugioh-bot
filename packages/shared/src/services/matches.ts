@@ -1,4 +1,4 @@
-import { report } from "../observability/index.js";
+import { ExpectedError, report } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { generateSingleElimFirstRound } from "../tournaments/formats.js";
 import { createScoringService } from "./scoring.js";
@@ -89,7 +89,7 @@ export function createMatchService(db: Database.Database) {
     const row = db.prepare("select * from matches where id = ?").get(matchId);
 
     if (!row) {
-      throw new Error("Match not found");
+      throw new ExpectedError("Match not found", 400);
     }
 
     return mapMatch(row);
@@ -100,11 +100,11 @@ export function createMatchService(db: Database.Database) {
       match.reporterId === match.playerOneId ? match.playerTwoId : match.playerOneId;
 
     if (match.status !== "pending") {
-      throw new Error("Match is not pending");
+      throw new ExpectedError("Match is not pending", 400);
     }
 
     if (playerId !== opponentId) {
-      throw new Error("Only the opponent can approve this match");
+      throw new ExpectedError("Only the opponent can approve this match", 400);
     }
   };
 
@@ -249,11 +249,11 @@ export function createMatchService(db: Database.Database) {
   return {
     report(input: ReportMatchInput): Match {
       if (input.reporterId === input.opponentId) {
-        throw new Error("Players cannot report matches against themselves");
+        throw new ExpectedError("Players cannot report matches against themselves", 400);
       }
 
       if (input.winnerId !== input.reporterId && input.winnerId !== input.opponentId) {
-        throw new Error("Winner must be one of the match players");
+        throw new ExpectedError("Winner must be one of the match players", 400);
       }
 
       const result = db
@@ -294,7 +294,7 @@ export function createMatchService(db: Database.Database) {
           .prepare("select status from tournaments where id = ?")
           .get(match.tournamentId) as { status: string } | undefined;
         if (tournament && (tournament.status === "cancelled" || tournament.status === "completed")) {
-          throw new Error(`Tournament is ${tournament.status}; this report can no longer be confirmed`);
+          throw new ExpectedError(`Tournament is ${tournament.status}; this report can no longer be confirmed`, 400);
         }
       }
 
@@ -307,7 +307,7 @@ export function createMatchService(db: Database.Database) {
       `,
       ).run(approverId, matchId);
       if (approved.changes !== 1) {
-        throw new Error("Match is not pending");
+        throw new ExpectedError("Match is not pending", 400);
       }
 
       const approvedMatch = findById(matchId);
@@ -329,7 +329,7 @@ export function createMatchService(db: Database.Database) {
       `,
       ).run(denierId, matchId);
       if (denied.changes !== 1) {
-        throw new Error("Match is not pending");
+        throw new ExpectedError("Match is not pending", 400);
       }
 
       if (match.tournamentId !== null) {
@@ -348,33 +348,33 @@ export function createMatchService(db: Database.Database) {
     /** Strict scoring propagates errors to the caller's recording transaction. */
     recordConfirmedResult(input: ConfirmedResultInput, options: { strictScoring?: boolean } = {}): Match {
       if (input.playerOneId === input.playerTwoId) {
-        throw new Error("Players cannot play matches against themselves");
+        throw new ExpectedError("Players cannot play matches against themselves", 400);
       }
       if (input.winnerId !== input.playerOneId && input.winnerId !== input.playerTwoId) {
-        throw new Error("Winner must be one of the match players");
+        throw new ExpectedError("Winner must be one of the match players", 400);
       }
 
       const insertAndAdvance = db.transaction((): number => {
         if (input.sourceDuelId !== undefined) {
           const source = Number.isSafeInteger(input.sourceDuelId) && input.sourceDuelId > 0
             ? db.prepare<[number, string], { kind: string }>("select kind from duels where id = ? and guild_id = ?").get(input.sourceDuelId, input.guildId) : undefined;
-          if (!source) throw new Error("Source duel not found");
-          if (source.kind !== "play") throw new Error("Replay forks cannot record match results");
+          if (!source) throw new ExpectedError("Source duel not found", 400);
+          if (source.kind !== "play") throw new ExpectedError("Replay forks cannot record match results", 400);
         }
         let slot: any = null;
         if (input.tournamentMatchId != null) {
           if (db.prepare(`select 1 from duels d join duel_series s on s.id = d.series_id
             where s.tournament_match_id = ? and d.kind != 'play' limit 1`).get(input.tournamentMatchId)) {
-            throw new Error("Replay forks cannot be linked to a tournament result");
+            throw new ExpectedError("Replay forks cannot be linked to a tournament result", 400);
           }
           slot = db.prepare("select * from tournament_matches where id = ?").get(input.tournamentMatchId);
-          if (!slot) throw new Error("Tournament match not found");
-          if (slot.status === "completed") throw new Error("Tournament match is already completed");
-          if (slot.match_id !== null) throw new Error("Tournament match has a pending result");
+          if (!slot) throw new ExpectedError("Tournament match not found", 400);
+          if (slot.status === "completed") throw new ExpectedError("Tournament match is already completed", 400);
+          if (slot.match_id !== null) throw new ExpectedError("Tournament match has a pending result", 400);
           const samePlayers =
             (slot.player_one_id === input.playerOneId && slot.player_two_id === input.playerTwoId) ||
             (slot.player_one_id === input.playerTwoId && slot.player_two_id === input.playerOneId);
-          if (!samePlayers) throw new Error("Players do not match the tournament match");
+          if (!samePlayers) throw new ExpectedError("Players do not match the tournament match", 400);
         }
 
         const result = db

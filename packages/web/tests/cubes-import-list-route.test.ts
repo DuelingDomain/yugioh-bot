@@ -195,7 +195,7 @@ describe("create cube from list", () => {
     upstream.mockImplementation(async () => Response.json({}, { status: 503 }));
     expect((await create({ name: "Offline", importText: "Dark Hole\nMissing" })).status).toBe(503);
     db.exec("create trigger fail_card before insert on cube_cards when NEW.catalog_card_id = 3 begin select raise(ABORT, 'write failed'); end;");
-    expect((await create({ name: "Rollback", importText: "Dark Hole\nArtifact Moralltach" })).status).toBe(400);
+    expect((await create({ name: "Rollback", importText: "Dark Hole\nArtifact Moralltach" })).status).toBe(500);
     expect(db.prepare("select count(*) n from cubes").get()).toEqual({ n: 1 });
     expect(rows()).toEqual([]);
   });

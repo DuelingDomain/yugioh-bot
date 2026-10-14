@@ -1,3 +1,4 @@
+import { errorResponseBody } from "@yugidraft/shared/observability";
 import type { DuelAnswer, DuelCardInfo, DuelEngineView, DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
 import { botTableOf, choosePracticeBotAnswer, chooseSeatOption, isSeatPick, type BotTable } from "./practice-bot.js";
 import { candidates, pickOne, type PromptSel } from "./prompt-match.js";
@@ -88,7 +89,8 @@ export function chooseScripted(rules: readonly Rule[], prompt: DuelPrompt, view:
     try {
       applies = rule.when(prompt, view, ctx);
     } catch (error) {
-      const reason = `failed in when(): ${error instanceof Error ? error.message : String(error)}`;
+      const { body } = errorResponseBody(error, { tags: { operation: "[duel] scripted bot when" } });
+      const reason = `failed in when(): ${body.error}`;
       ctx.trace?.({ rule: rule.note, matched: false, reason });
       throw new ScriptedBotError(`Rule "${rule.note}" ${reason}`);
     }
@@ -101,7 +103,8 @@ export function chooseScripted(rules: readonly Rule[], prompt: DuelPrompt, view:
       ctx.trace?.({ rule: rule.note, matched: true, answer });
       return { answer, note: rule.note, rule: index };
     } catch (error) {
-      const reason = `failed in do(): ${error instanceof Error ? error.message : String(error)}`;
+      const { body } = errorResponseBody(error, { tags: { operation: "[duel] scripted bot do" } });
+      const reason = `failed in do(): ${body.error}`;
       ctx.trace?.({ rule: rule.note, matched: true, reason });
       throw new ScriptedBotError(`Rule "${rule.note}" ${reason}`);
     }

@@ -1,4 +1,4 @@
-import { report } from "../observability/index.js";
+import { ExpectedError, report } from "../observability/index.js";
 import { randomBytes, randomInt } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer, DraftVisibility } from "../types/index.js";
@@ -238,7 +238,7 @@ export function createDraftService(
     const row = db.prepare("select * from drafts where id = ?").get(draftId);
 
     if (!row) {
-      throw new Error("Draft not found");
+      throw new ExpectedError("Draft not found", 400);
     }
 
     return mapDraft(row);
@@ -281,7 +281,7 @@ export function createDraftService(
     const row = db.prepare("select 1 from players where id = ? and guild_id = ?").get(playerId, guildId);
 
     if (!row) {
-      throw new Error("Player must belong to the same guild as the draft");
+      throw new ExpectedError("Player must belong to the same guild as the draft", 400);
     }
   };
 
@@ -289,7 +289,7 @@ export function createDraftService(
     const row = db.prepare("select 1 from draft_players where draft_id = ? and player_id = ?").get(draftId, playerId);
 
     if (!row) {
-      throw new Error("Player has not joined this draft");
+      throw new ExpectedError("Player has not joined this draft", 400);
     }
   };
 
@@ -379,7 +379,7 @@ export function createDraftService(
     if (draft.config.copyLimit === false) return false;
     if (card && isCapped(heldCopies(draftId, playerId), card.catalog_card_id)) {
       if (draft.config.mode !== "theme" && currentPackOptionsInternal(draftId, playerId, true).some((option) => option.id === draftCardId && option.forced)) return true;
-      throw new Error(`You already have ${MAX_COPIES_PER_PLAYER} copies of this card`);
+      throw new ExpectedError(`You already have ${MAX_COPIES_PER_PLAYER} copies of this card`, 400);
     }
     return false;
   };
@@ -395,7 +395,7 @@ export function createDraftService(
       .get(draftId, playerId) as { seat_index: number | null } | undefined;
 
     if (!row || row.seat_index === null) {
-      throw new Error("Draft seat has not been assigned yet");
+      throw new ExpectedError("Draft seat has not been assigned yet", 400);
     }
 
     return row.seat_index;
@@ -403,7 +403,7 @@ export function createDraftService(
 
   const assertActiveDraft = (draft: Draft) => {
     if (draft.status !== "active") {
-      throw new Error("Draft must be active");
+      throw new ExpectedError("Draft must be active", 400);
     }
   };
 
@@ -488,7 +488,7 @@ export function createDraftService(
     assertJoinedPlayer(draftId, playerId);
     const target = draft.config.mode === "theme" ? totalThemeRounds(draft.config) : totalBoosterCards(draft.config);
     if (draft.status !== "completed" && playerProgress(draftId, playerId).pick_count < target) {
-      throw new Error("Deck is not complete yet");
+      throw new ExpectedError("Deck is not complete yet", 400);
     }
     const rows = db.prepare(`select dc.catalog_card_id, cc.name, cc.type, cc.frame_type, pk.forced
       from draft_picks pk join draft_cards dc on dc.id = pk.draft_card_id
@@ -680,7 +680,7 @@ export function createDraftService(
           : catalogCardIdsForDraft(config);
 
     if (catalogCardIds.length === 0) {
-      throw new Error("Draft pool is empty");
+      throw new ExpectedError("Draft pool is empty", 400);
     }
 
     for (let playerIndex = 0; playerIndex < playerCount; playerIndex += 1) {
@@ -816,18 +816,19 @@ export function createDraftService(
     );
     const foreign = new Set((db.prepare("select id from cubes where guild_id != ?").all(guildId) as Array<{ id: number }>).map((r) => r.id));
     if (requested.some((id) => foreign.has(id))) {
-      throw new Error("Allowed themes must belong to the draft's guild");
+      throw new ExpectedError("Allowed themes must belong to the draft's guild", 400);
     }
     const allowed = requested.filter((id) => existing.has(id));
     if (allowed.length === 0) {
-      throw new Error("Theme draft requires at least one allowed theme");
+      throw new ExpectedError("Theme draft requires at least one allowed theme", 400);
     }
     const uniqueThemes = config.uniqueThemes ?? true;
     const selection = config.themeSelection ?? "player_pick";
 
     if (uniqueThemes && allowed.length < playerIds.length) {
-      throw new Error(
+      throw new ExpectedError(
         `Theme draft needs at least ${playerIds.length} themes for ${playerIds.length} players when uniqueThemes is on, but only ${allowed.length} are allowed.`,
+        400,
       );
     }
 
@@ -843,12 +844,12 @@ export function createDraftService(
         .prepare("select player_id, cube_id from draft_player_cube where draft_id = ?")
         .all(draftId) as Array<{ player_id: number; cube_id: number }>) {
         if (!playerIds.includes(row.player_id) || !allowed.includes(row.cube_id)) {
-          throw new Error("Player claims must reference allowed themes in the draft's guild");
+          throw new ExpectedError("Player claims must reference allowed themes in the draft's guild", 400);
         }
         claims.set(row.player_id, row.cube_id);
       }
       if (uniqueThemes && new Set(claims.values()).size !== claims.size) {
-        throw new Error("Player claims must be distinct when uniqueThemes is enabled");
+        throw new ExpectedError("Player claims must be distinct when uniqueThemes is enabled", 400);
       }
     }
 
@@ -873,7 +874,7 @@ export function createDraftService(
       if (selection === "host_assigned") {
         themeId = config.themeAssignments?.[String(playerId)];
         if (themeId === undefined) {
-          throw new Error(`Host-assigned theme draft is missing an assignment for player ${playerId}`);
+          throw new ExpectedError(`Host-assigned theme draft is missing an assignment for player ${playerId}`, 400);
         }
       } else if (selection === "player_pick" && claims.has(playerId)) {
         themeId = claims.get(playerId);
@@ -902,13 +903,15 @@ export function createDraftService(
     for (const row of rows) {
       const { size: mainSize, reachable: reachableSize } = cubePoolSizes(db, row.cube_id, "main");
       if (mainSize < requiredMain) {
-        throw new Error(
+        throw new ExpectedError(
           `Cube ${row.cube_id} has only ${mainSize} main-pool cards but needs ${requiredMain} to fill a ${cardsPerPlayer}-card main deck.`,
+          400,
         );
       }
       if (config.copyLimit !== false && reachableSize < requiredReachable) {
-        throw new Error(
+        throw new ExpectedError(
           `Cube ${row.cube_id} gives one player only ${reachableSize} main-pool cards (at most ${MAX_COPIES_PER_PLAYER} copies of a card) but needs ${requiredReachable} to fill a ${cardsPerPlayer}-card main deck${burnUnpicked ? " including burned choices (burn on)" : ""}.`,
+          400,
         );
       }
     }
@@ -916,14 +919,14 @@ export function createDraftService(
 
   const startThemeDraft = (draftId: number, draft: Draft, now: Date): Draft => {
     const numberError = themeDraftNumberError(draft.config);
-    if (numberError) throw new Error(numberError);
+    if (numberError) throw new ExpectedError(numberError, 400);
     const playerIds = db
       .prepare("select player_id from draft_players where draft_id = ? order by joined_at asc, rowid asc")
       .all(draftId)
       .map((row: any) => row.player_id as number);
 
     if (playerIds.length < 2) {
-      throw new Error("Draft requires at least two players to start");
+      throw new ExpectedError("Draft requires at least two players to start", 400);
     }
 
     if (draft.config.themeSelection === "host_assigned") {
@@ -932,16 +935,16 @@ export function createDraftService(
       const allowed = draft.config.allowedCubeIds ?? [];
       const validAssignment = (cubeId: number) => Number.isInteger(cubeId) && allowed.includes(cubeId);
       if (!assignedCubeIds.every(validAssignment)) {
-        throw new Error("Host-assigned themes require an allowed theme assignment for every player. Choose Random or Players pick instead.");
+        throw new ExpectedError("Host-assigned themes require an allowed theme assignment for every player. Choose Random or Players pick instead.", 400);
       }
 
       const findCube = db.prepare("select id from cubes where id = ? and guild_id = ?");
       if (assignedCubeIds.some((cubeId) => !findCube.get(cubeId, draft.guildId))) {
-        throw new Error("Host-assigned themes must exist in the draft's guild. Choose valid themes or switch to Random or Players pick.");
+        throw new ExpectedError("Host-assigned themes must exist in the draft's guild. Choose valid themes or switch to Random or Players pick.", 400);
       }
 
       if ((draft.config.uniqueThemes ?? true) && new Set(assignedCubeIds).size !== assignedCubeIds.length) {
-        throw new Error("Host-assigned themes must be distinct when uniqueThemes is enabled.");
+        throw new ExpectedError("Host-assigned themes must be distinct when uniqueThemes is enabled.", 400);
       }
     }
 
@@ -967,7 +970,7 @@ export function createDraftService(
     const draft = findById(draftId);
 
     if (draft.status !== "pending") {
-      throw new Error("Draft must be pending to start");
+      throw new ExpectedError("Draft must be pending to start", 400);
     }
 
     const schedule = db.prepare("select lobby_start_token, lobby_start_revision, lobby_revision from drafts where id = ?")
@@ -988,7 +991,7 @@ export function createDraftService(
       return started;
     }
     const numberError = boosterDraftConfigError(draft.config);
-    if (numberError) throw new Error(numberError);
+    if (numberError) throw new ExpectedError(numberError, 400);
 
     const playerIds = db
       .prepare(
@@ -1002,7 +1005,7 @@ export function createDraftService(
       .map((row: any) => row.player_id);
 
     if (playerIds.length < 2) {
-      throw new Error("Draft requires at least two players to start");
+      throw new ExpectedError("Draft requires at least two players to start", 400);
     }
 
     const assignSeat = db.prepare(
@@ -1027,7 +1030,7 @@ export function createDraftService(
     const cubeCardIds = prepareBoosterPool(poolCardIds, draft.config, players * waves * packSize);
     const analysis = analyzeBoosterDraft(draft.config, players, draft.guildId);
     if (!analysis.ok) {
-      throw new Error(analysis.errors.join(" "));
+      throw new ExpectedError(analysis.errors.join(" "), 400);
     }
 
     const seed = seedSource();
@@ -1233,28 +1236,28 @@ export function createDraftService(
 
     const playerRow = playerProgress(draftId, playerId);
     if (playerRow.finished_at !== null || playerRow.pick_count >= total) {
-      throw new Error("Player has already finished drafting");
+      throw new ExpectedError("Player has already finished drafting", 400);
     }
     if (hasPickedCurrentStep(draftId, playerId, draft.currentPackRound, 1)) {
-      throw new Error("Player has already picked this step");
+      throw new ExpectedError("Player has already picked this step", 400);
     }
 
     const seat = playerSeatIndex(draftId, playerId);
     const pack = currentPackAtSeat(draftId, draft.currentPackRound, seat);
     if (!pack) {
-      throw new Error("Player has no current pack");
+      throw new ExpectedError("Player has no current pack", 400);
     }
     const cardRow = db
       .prepare("select wave_number, draft_pack_id, picked_by_player_id from draft_cards where id = ? and draft_id = ?")
       .get(draftCardId, draftId) as DraftCardRow | undefined;
     if (!cardRow || cardRow.wave_number !== draft.currentPackRound) {
-      throw new Error("Card is not in the current wave");
+      throw new ExpectedError("Card is not in the current wave", 400);
     }
     if (cardRow.draft_pack_id !== pack.id) {
-      throw new Error("Card is not in your current pack");
+      throw new ExpectedError("Card is not in your current pack", 400);
     }
     if (cardRow.picked_by_player_id !== null) {
-      throw new Error("Card has already been picked");
+      throw new ExpectedError("Card has already been picked", 400);
     }
     assertUnderCopyCap(draftId, playerId, draftCardId);
 
@@ -1317,14 +1320,14 @@ export function createDraftService(
     const cardsPerPlayer = boosterDraftPhase(draft.config, draft.currentPackRound) === "extra"
       ? boosterPhaseTarget(draft, playerId) : totalBoosterCards(draft.config);
     if (playerRow.finished_at !== null || playerRow.pick_count >= boosterPhaseTarget(draft, playerId)) {
-      throw new Error("Player has already finished drafting");
+      throw new ExpectedError("Player has already finished drafting", 400);
     }
 
     if (hasPickedCurrentStep(draftId, playerId, draft.currentPackRound, draft.currentPickStep)) {
-      throw new Error("Player has already picked this step");
+      throw new ExpectedError("Player has already picked this step", 400);
     }
     if (hasPassedStep(draftId, playerId, draft.currentPackRound, draft.currentPickStep)) {
-      throw new Error("Player has no card to pick this step");
+      throw new ExpectedError("Player has no card to pick this step", 400);
     }
 
     prepareBoosterPack(draftId, playerId);
@@ -1334,22 +1337,22 @@ export function createDraftService(
       .get(draftCardId, draftId) as DraftCardRow | undefined;
 
     if (!cardRow || cardRow.wave_number !== draft.currentPackRound) {
-      throw new Error("Card is not in the current wave");
+      throw new ExpectedError("Card is not in the current wave", 400);
     }
 
     const seatIndex = playerSeatIndex(draftId, playerId);
     const currentPack = currentPackAtSeat(draftId, draft.currentPackRound, seatIndex);
 
     if (!currentPack) {
-      throw new Error("Player has no current pack");
+      throw new ExpectedError("Player has no current pack", 400);
     }
 
     if (cardRow.draft_pack_id !== currentPack.id) {
-      throw new Error("Card is not in your current pack");
+      throw new ExpectedError("Card is not in your current pack", 400);
     }
 
     if (cardRow.picked_by_player_id !== null) {
-      throw new Error("Card has already been picked");
+      throw new ExpectedError("Card has already been picked", 400);
     }
     const forced = assertUnderCopyCap(draftId, playerId, draftCardId);
 
@@ -1609,7 +1612,7 @@ export function createDraftService(
         const existing = db.prepare("select 1 from draft_players where draft_id = ? and player_id = ?").get(draftId, playerId);
 
         if (existing) {
-          throw new Error("You have already joined this draft");
+          throw new ExpectedError("You have already joined this draft", 400);
         }
 
         const count = (db.prepare("select count(*) as n from draft_players where draft_id = ?").get(draftId) as { n: number }).n;

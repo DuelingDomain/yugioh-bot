@@ -1,4 +1,4 @@
-import { log, report } from "@yugidraft/shared/observability";
+import { ExpectedError, errorResponseBody, log, report } from "@yugidraft/shared/observability";
 import { createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, type StoredDuelBoards } from "@yugidraft/shared/services";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
@@ -157,14 +157,14 @@ interface BugDuelContext {
 function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const limit = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms} ms`)), ms);
+    timer = setTimeout(() => reject(new ExpectedError(`${what} timed out after ${ms} ms`, 503)), ms);
   });
   return Promise.race([work, limit]).finally(() => clearTimeout(timer));
 }
 
-class RequestError extends Error {
-  constructor(message: string, readonly status: number, readonly code?: DuelErrorCode | ReplayBuildErrorCode, readonly finalBoard?: "available" | "none",
-    readonly unverified?: { canOpenUnchecked: boolean; reason: ReplayUnverifiedReason }) { super(message); }
+class RequestError extends ExpectedError {
+  constructor(message: string, status: number, readonly code?: DuelErrorCode | ReplayBuildErrorCode, readonly finalBoard?: "available" | "none",
+    readonly unverified?: { canOpenUnchecked: boolean; reason: ReplayUnverifiedReason }) { super(message, status); }
 }
 
 /** Start checks can fail on a different player's private deck. */
@@ -580,11 +580,7 @@ export function createDuelHost(options: {
   }
 
   function drawRuleOf(state: ReturnType<typeof service.privateState>): boolean {
-    try {
-      return savedFirstTurnDraw(state.setup?.firstTurnDraw, state.session.mode, state.session.masterRule, state.session.format);
-    } catch (error) {
-      throw new RequestError((error as Error).message, 409);
-    }
+    return savedFirstTurnDraw(state.setup?.firstTurnDraw, state.session.mode, state.session.masterRule, state.session.format);
   }
 
   /** Seats the host answers for: practice bots, plus seats that surrendered (they only pass). */
@@ -810,7 +806,7 @@ export function createDuelHost(options: {
       snapshots = await captureSnapshots(game, service.get(slug, guildId).format, winnerSeat, reason);
     } catch (error) {
       await disposeGame(slug);
-      throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
+      throw error;
     }
     service.complete(slug, guildId, winnerSeat, reason, snapshots);
     await disposeGame(slug);
@@ -930,12 +926,7 @@ export function createDuelHost(options: {
 
       let answer: DuelAnswer;
       let note: string | undefined;
-      try {
-        ({ answer, note } = await chooseAutoAnswer(game, entry, seat, prompt, view));
-      } catch (error) {
-        const message = error instanceof PracticeBotError ? error.message : "Practice bot failed to choose";
-        throw new RequestError(message, 500);
-      }
+      ({ answer, note } = await chooseAutoAnswer(game, entry, seat, prompt, view));
       if ((answer as { surrender?: boolean }).surrender) {
         await forfeitSeat(slug, guildId, game, seat, "Surrender", false);
         continue;
@@ -946,7 +937,7 @@ export function createDuelHost(options: {
         await game.answer(seat, prompt.id, answer);
       } catch (error) {
         if (await interruptEngineLoop(slug, guildId, error)) return;
-        throw new RequestError(error instanceof Error ? error.message : "Practice bot made an illegal choice", 500);
+        throw error;
       }
       try {
         await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, newestEventId(view), note);
@@ -1199,9 +1190,10 @@ export function createDuelHost(options: {
     } catch (error) {
       finish();
       if (await interruptEngineLoop(slug, guildId, error)) return { kind: "stop" };
-      report(error, { tags: { operation: "[duel] practice bot answer was rejected" } });
+      const reason = error instanceof EngineAnswerError ? error.message
+        : errorResponseBody(error, { tags: { operation: "[duel] practice bot answer was rejected" } }).body.error;
       const rejectedTrace = entry.traces.get(plan.seat) ?? [];
-      rejectedTrace.push({ rule: plan.note ?? "practice bot", matched: true, answer: plan.answer, rejected: true, reason: error instanceof Error ? error.message : String(error) });
+      rejectedTrace.push({ rule: plan.note ?? "practice bot", matched: true, answer: plan.answer, rejected: true, reason });
       entry.traces.set(plan.seat, rejectedTrace);
       if (!game.running) await disposeGame(slug);
       else await interruptBrokenBot(slug, guildId, "The practice bot could not continue.");
@@ -1262,7 +1254,7 @@ export function createDuelHost(options: {
     try {
       drawRuleOf(state);
     } catch (error) {
-      service.interrupt(slug, guildId, (error as Error).message);
+      service.interrupt(slug, guildId, error instanceof ExpectedError ? error.message : "Something went wrong");
       await emitChange(slug, guildId);
       throw error;
     }
@@ -1295,8 +1287,11 @@ export function createDuelHost(options: {
         throw new RequestError(error.message, 409,
           error.code === "ENGINE_UNAVAILABLE_FOR_SOURCE" ? error.code : undefined);
       }
-      throw new RequestError(fork ? "Replay fork engine is temporarily unavailable" : error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503,
-        fork ? "ENGINE_BUSY" : undefined);
+      if (error instanceof JournalRunnerError) {
+        throw new RequestError(fork ? "Replay fork engine is temporarily unavailable" : "Duel engine is temporarily unavailable", 503,
+          fork ? "ENGINE_BUSY" : undefined);
+      }
+      throw error;
     }
     games.set(slug, {
       game,
@@ -1382,7 +1377,8 @@ export function createDuelHost(options: {
       if (/already eliminated/.test(message)) return true;
       const stillRunning = game.running;
       if (!(error instanceof EngineAnswerError)) await disposeGame(slug);
-      throw new RequestError(message, stillRunning ? 409 : 503);
+      if (error instanceof EngineAnswerError) throw new RequestError(error.message, stillRunning ? 409 : 503, error.code);
+      throw error;
     }
     const command: DuelCommand = { promptId: `${ELIMINATE_PROMPT_PREFIX}${code}`, revision: before.revision, answer: {} };
     try {
@@ -1916,12 +1912,7 @@ export function createDuelHost(options: {
     } else {
       throw new RequestError("Seed must be 4 decimal strings", 400);
     }
-    let compiled: ReturnType<typeof compileBoard>;
-    try {
-      compiled = compileBoard(preset.board, options.dataDirectory);
-    } catch (error) {
-      throw new RequestError(error instanceof Error ? error.message : "Preset board is invalid", 500);
-    }
+    const compiled = compileBoard(preset.board, options.dataDirectory);
     const catalog = loadCardDatabase(options.dataDirectory);
     const blocked = cardBlockIndex(new Map([...catalog.all()].map((card) => [card.code, card])), admissionEntries(compiled.options.mode ?? "normal", preset.format, "pinned"), options.dataDirectory);
     for (const code of compiled.codes) {
@@ -1958,16 +1949,11 @@ export function createDuelHost(options: {
       const resources = await engineResourceCache.get(options.dataDirectory, { mode: state.session.mode, format: preset.format, engine });
       const botPolicies: Record<string, string> = {};
       for (let seat = 1; seat < seatCount; seat += 1) botPolicies[String(seat)] = SCRIPTED_POLICY;
-      let firstView: Awaited<ReturnType<typeof readClockView>>;
-      try {
-        const started = await createStartingWorker(slug, state.session.id,
-          workerCreateOptions(state.session.mode, state.decks, seed, state.session.masterRule, settings, preset.format, scripts, engine, firstTurnDraw, scriptErrorMode, resources),
-          seatCount, performance.now() - checksAt);
-        game = started.game;
-        firstView = started.firstView;
-      } catch (error) {
-        throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
-      }
+      const started = await createStartingWorker(slug, state.session.id,
+        workerCreateOptions(state.session.mode, state.decks, seed, state.session.masterRule, settings, preset.format, scripts, engine, firstTurnDraw, scriptErrorMode, resources),
+        seatCount, performance.now() - checksAt);
+      game = started.game;
+      const firstView = started.firstView;
       const clock = startDecisionClock(firstView, settings.turnSeconds, now(), seatCount);
       service.activateRecorded(slug, guildId, actor, seed, resources.bundleVersion, clock, {
         firstTurnDraw,
@@ -2010,7 +1996,8 @@ export function createDuelHost(options: {
       rememberView(slug, seat, view, game);
       return { view };
     } catch (error) {
-      return { view: null, error: error instanceof Error ? error.message : String(error) };
+      const { body } = errorResponseBody(error, { tags: { operation: "[duel] debug view" } });
+      return { view: null, error: body.error };
     }
   }
 
@@ -2621,7 +2608,6 @@ export function createDuelHost(options: {
         recordDeckStartBlock(slug, error);
         // Nobody retries a start for a table. Give the lobby back to its players, and show them the error.
         service.abortOpening(slug, guildId);
-        const reason = error instanceof Error ? error.message : String(error);
         log("warn", "[duel] duel did not start after the opening");
         await emitChange(slug, guildId);
         throw error;
@@ -2722,7 +2708,6 @@ export function createDuelHost(options: {
     const waitMs = START_BACKOFF_MS[Math.min(failures, START_BACKOFF_MS.length) - 1]!;
     startBackoff.set(slug, { failures, retryAt: now() + waitMs });
     recordDeckStartBlock(slug, error);
-    const reason = error instanceof Error ? error.message : String(error);
     log("warn", "[duel] Series game start deferred", { attempts: failures, retryMs: waitMs });
   }
 
@@ -3180,8 +3165,8 @@ export function createDuelHost(options: {
       if (await interruptEngineLoop(slug, guildId, error)) return project(slug, guildId, actor);
       // A fatal error may have advanced the core before any command could be journaled.
       if (!(error instanceof EngineAnswerError)) await disposeGame(slug);
-      throw new RequestError(error instanceof Error ? error.message : "Invalid engine choice", 400,
-        error instanceof EngineAnswerError ? error.code : undefined);
+      if (error instanceof EngineAnswerError) throw new RequestError(error.message, 400, error.code);
+      throw error;
     }
     try {
       await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt, newestEventId(before));
@@ -3247,7 +3232,8 @@ export function createDuelHost(options: {
       // nothing journaled. Drop the worker whatever the cause; the next request rebuilds the duel from the journal.
       const stillRunning = live.running;
       await disposeGame(slug);
-      throw new RequestError(error instanceof Error ? error.message : "The response switch could not be set", stillRunning ? 409 : 503);
+      if (error instanceof EngineAnswerError) throw new RequestError(error.message, stillRunning ? 409 : 503, error.code);
+      throw error;
     }
     const command: DuelCommand = { promptId: `${CHAIN_MODE_PROMPT_PREFIX}${mode}`, revision: before.revision, answer: {} };
     try {
@@ -3490,19 +3476,18 @@ export function createDuelHost(options: {
             status: 503, headers: { "Retry-After": String(error.retryAfter ?? 1) },
           });
         }
-        const status = error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : 400;
-        const unexpected = !(error instanceof RequestError) && !(error instanceof DeckLegalityError) &&
-          !(error instanceof ReplayAccessError) && !(error instanceof ReplayForkLaunchError) && !(error instanceof ReplayCursorError) && !(error instanceof DuelServiceError) && !(error instanceof TournamentDuelError) &&
-          !(error instanceof Error && "status" in error && status >= 400 && status < 500);
-        if (unexpected) {
-          // Error messages/stacks may contain SQL, private payloads or credentials.
-          report(error, { tags: { operation: "[duel] Unexpected request error", ...(requestOp ? { op: requestOp } : {}) } });
+        const intentional = error instanceof ExpectedError || error instanceof DeckLegalityError ||
+          error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError ||
+          error instanceof DuelServiceError || error instanceof TournamentDuelError || error instanceof ExtraDeckCardError;
+        if (!intentional) {
+          const { body, status } = errorResponseBody(error, { tags: { operation: "[duel] Unexpected request error", ...(requestOp ? { op: requestOp } : {}) } });
+          return Response.json(body, { status });
         }
-        return Response.json({ error: unexpected ? "Duel server error" : error instanceof Error ? error.message : "Duel request failed",
+        return Response.json({ error: error.message,
           ...((error instanceof RequestError || error instanceof ExtraDeckCardError || error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError || error instanceof ReplayForkStorageError) && error.code ? { code: error.code } : {}),
           ...(error instanceof ReplayForkLaunchError ? error.recovery : {}),
           ...(error instanceof RequestError && error.finalBoard ? { finalBoard: error.finalBoard } : {}),
-          ...(error instanceof RequestError ? error.unverified : {}) }, { status: unexpected ? 500 : status });
+          ...(error instanceof RequestError ? error.unverified : {}) }, { status: error instanceof DeckLegalityError ? 400 : error.status });
       } finally { clearTimeout(replayDeadline); }
     },
     async close(): Promise<void> {

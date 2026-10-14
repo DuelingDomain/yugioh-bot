@@ -1,3 +1,4 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { report, log } from "@yugidraft/shared/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -147,15 +148,6 @@ export async function POST(
 
     return NextResponse.json(response);
   } catch (error) {
-    if (error instanceof Error) {
-      log("warn", "[api/drafts/[slug]/pick] Pick rejected");
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    report(error, { tags: { operation: "[api/drafts/[slug]/pick] unexpected error" } });
-    return NextResponse.json(
-      { error: "Failed to pick card" },
-      { status: 500 }
-    );
+    return apiErrorResponse(error, "[api/drafts/[slug]/pick]");
   }
 }

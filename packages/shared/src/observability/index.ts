@@ -26,8 +26,8 @@ export async function flushObservability(timeoutMs = 2000): Promise<void> {
     await Promise.race([adapter.flush(timeoutMs), new Promise<void>(resolve => { timer = setTimeout(resolve, timeoutMs); })]);
   } catch {} finally { clearTimeout(timer); }
 }
-export function errorResponseBody(error: unknown): { status: number; body: { error: string } } {
+export function errorResponseBody(error: unknown, context?: ReportContext): { status: number; body: { error: string } } {
   if (isExpectedError(error)) return { status: error.status, body: { error: error.message } };
-  report(error);
+  report(error, context);
   return { status: 500, body: { error: "Something went wrong" } };
 }

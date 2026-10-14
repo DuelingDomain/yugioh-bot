@@ -1,3 +1,4 @@
+import { ExpectedError } from "../observability/index.js";
 import type { CardIdentityCatalog } from "../duels/pool.js";
 import { routeDeckSections, type DeckSectionMove, type DeckCardType } from "../duels/extra-deck.js";
 import { createDeckTypeLookup, hasKnownDeckCardType } from "./deck-sections.js";
@@ -59,7 +60,7 @@ export function cubePoolSizes(db: Database.Database, cubeId: number, pool: CubeP
 /** Copies of one card in a cube: any whole number from 1 to MAX_CUBE_COPIES. */
 function assertCubeCopies(value: number): number {
   if (!Number.isInteger(value) || value < MIN_CUBE_COPIES || value > MAX_CUBE_COPIES) {
-    throw new Error(`Copies must be a whole number from ${MIN_CUBE_COPIES} to ${MAX_CUBE_COPIES}`);
+    throw new ExpectedError(`Copies must be a whole number from ${MIN_CUBE_COPIES} to ${MAX_CUBE_COPIES}`, 400);
   }
   return value;
 }
@@ -89,9 +90,9 @@ function mapCubeCard(row: any): CubeCard {
 const CUBE_META_KEYS = ["draftType"] as const;
 
 /** A cube in the guild already has this name, ignoring case. */
-export class CubeNameTakenError extends Error {
+export class CubeNameTakenError extends ExpectedError {
   constructor(name: string) {
-    super(`A cube named "${name}" already exists`);
+    super(`A cube named "${name}" already exists`, 409);
     this.name = "CubeNameTakenError";
   }
 }
@@ -103,7 +104,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
   const findCube = (cubeId: number): Cube => {
     const row = db.prepare("select * from cubes where id = ?").get(cubeId);
     if (!row) {
-      throw new Error(`Cube ${cubeId} not found`);
+      throw new ExpectedError(`Cube ${cubeId} not found`, 400);
     }
     return mapCube(row);
   };
@@ -238,7 +239,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         for (const { id, copies, pool } of entries) {
           assertCubeCopies(copies);
           const card = cards.get(id);
-          if (!card || !catalog.hasCatalogRow(id)) throw new Error(`Card ${id} is missing from the catalog`);
+          if (!card || !catalog.hasCatalogRow(id)) throw new ExpectedError(`Card ${id} is missing from the catalog`, 400);
           const previous = totals.get(id);
           const extra = isCubeExtra(card, findType);
           if (pool === "extra" && !extra) movedToMain.add(id);
@@ -278,12 +279,12 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
 
     /** Subtract authored copies from the requested pools in one transaction. Missing rows are harmless. */
     subtractCards(cubeId: number, entries: readonly (CubeImportEntry & { pool: CubePool })[]): void {
-      if (!Array.isArray(entries)) throw new Error("entries must be a list");
-      if (entries.length > 1000) throw new Error("Subtract at most 1000 entries at a time");
+      if (!Array.isArray(entries)) throw new ExpectedError("entries must be a list", 400);
+      if (entries.length > 1000) throw new ExpectedError("Subtract at most 1000 entries at a time", 400);
       for (const entry of entries) {
-        if (!entry || !Number.isSafeInteger(entry.id) || entry.id <= 0) throw new Error("Each entry needs a valid id");
+        if (!entry || !Number.isSafeInteger(entry.id) || entry.id <= 0) throw new ExpectedError("Each entry needs a valid id", 400);
         assertCubeCopies(entry.copies);
-        if (entry.pool !== "main" && entry.pool !== "extra") throw new Error("Each entry needs a main or extra pool");
+        if (entry.pool !== "main" && entry.pool !== "extra") throw new ExpectedError("Each entry needs a main or extra pool", 400);
       }
       db.transaction(() => {
         findCube(cubeId);
@@ -443,7 +444,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     ): void {
       assertCubeCopies(maxCopies);
       const card = catalog.findByIds([catalogCardId])[0];
-      if (!card) throw new Error(`Card ${catalogCardId} is missing from the catalog`);
+      if (!card) throw new ExpectedError(`Card ${catalogCardId} is missing from the catalog`, 400);
       const findType = deckTypes.snapshot();
       upsertCard.run(cubeId, catalogCardId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, source);
       bump(cubeId);

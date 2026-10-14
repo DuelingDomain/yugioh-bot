@@ -1,3 +1,4 @@
+import { apiErrorResponse } from "./api-errors";
 import type Database from "better-sqlite3";
 import { NextResponse } from "next/server";
 import { DRAFT_LOBBY_ERROR_STATUS, type DraftConfig, type DraftLobbyErrorCode } from "@yugidraft/shared/types";
@@ -19,7 +20,7 @@ export function themeDraftMutationResponse(error: unknown) {
   if (error instanceof DraftLobbyServiceError) {
     return NextResponse.json({ error: error.message, code: error.code, ...error.details }, { status: error.status });
   }
-  if (!(error instanceof ThemeDraftMutationError)) throw error;
+  if (!(error instanceof ThemeDraftMutationError)) return apiErrorResponse(error, "[theme draft] mutation failed");
   return NextResponse.json({
     error: error.message, code: error.code,
     ...(error.savedCubeId === undefined ? {} : { savedCubeId: error.savedCubeId }),

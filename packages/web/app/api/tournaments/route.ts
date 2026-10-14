@@ -1,3 +1,4 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { report } from "@yugidraft/shared/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -120,8 +121,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to create tournament";
-    report(error, { tags: { operation: "[api/tournaments POST] error" } });
-    return NextResponse.json({ error: message }, { status: error instanceof TournamentDuelError ? error.status : 400 });
+    if (error instanceof TournamentDuelError) return NextResponse.json({ error: error.message }, { status: error.status });
+    return apiErrorResponse(error, "[api/tournaments POST] error");
   }
 }

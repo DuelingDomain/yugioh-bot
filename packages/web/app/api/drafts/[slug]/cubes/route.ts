@@ -1,3 +1,5 @@
+import { CubeNameTakenError } from "@yugidraft/shared/services";
+import { apiErrorResponse } from "@/lib/api-errors";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
@@ -49,7 +51,8 @@ export async function POST(request: Request, { params }: Context) {
       } catch (error) {
         const failure = cardFetchErrorResponse(error);
         if (failure) return failure;
-        return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to add cube" }, { status: 400 });
+        if (error instanceof CubeNameTakenError) return NextResponse.json({ error: error.message }, { status: 400 });
+        return apiErrorResponse(error, "[api/drafts/[slug]/cubes]");
       }
     }
 
@@ -91,8 +94,7 @@ export async function POST(request: Request, { params }: Context) {
     void broadcaster.draft({ kind: "seats", slug });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
-    // Library name validation remains a 400; unexpected DB/service errors propagate.
-    if (error instanceof Error && error.name === "CubeNameTakenError") return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof CubeNameTakenError) return NextResponse.json({ error: error.message }, { status: 400 });
     return themeDraftMutationResponse(error);
   }
 }

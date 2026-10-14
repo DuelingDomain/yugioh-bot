@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DUEL_SEAT_LEFT_ERROR_CODE } from "@yugidraft/shared/duels";
+import { EngineAnswerError as LegacyEngineAnswerError } from "../src/legacy/prompts.js";
 import { EngineAnswerError } from "../src/prompts.js";
 import { EngineLoopError } from "../src/engine-loop-error.js";
 import { GameWorker } from "../src/worker-client.js";
@@ -43,8 +44,9 @@ describe("answer errors through the engine worker", () => {
     });
   });
 
-  it("keeps a normal invalid answer error without a code", async () => {
-    answer.mockImplementation(() => { throw new EngineAnswerError("Invalid answer"); });
+  it.each([{ engine: "pinned", ErrorType: EngineAnswerError }, { engine: "legacy", ErrorType: LegacyEngineAnswerError }])
+  ("keeps a normal $engine invalid answer error without a code", async ({ ErrorType }) => {
+    answer.mockImplementation(() => { throw new ErrorType("Invalid answer"); });
     const error = await worker.answer(0, "p1", { choice: "invalid" }).catch((error: unknown) => error);
     expect(error).toBeInstanceOf(EngineAnswerError);
     expect(error).toMatchObject({ message: "Invalid answer" });

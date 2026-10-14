@@ -83,3 +83,14 @@ it("stops the pick route's bot loop when cancellation commits after it reads opt
 });
 
 const recording = useRecordingObservability();
+
+it("returns a generic 500 when the pick route cannot read storage", async () => {
+  db = new Database(":memory:");
+  db.close();
+  const { POST } = await import("../app/api/drafts/[slug]/pick/route");
+  const response = await POST(new NextRequest("http://localhost/api/drafts/fixture/pick", {
+    method: "POST", body: JSON.stringify({ cardId: 1 }),
+  }), { params: Promise.resolve({ slug: "fixture" }) });
+  expect(response.status).toBe(500);
+  expect(await response.json()).toEqual({ error: "Something went wrong" });
+});

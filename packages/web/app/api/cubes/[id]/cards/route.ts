@@ -1,3 +1,5 @@
+import { CardListError } from "@/lib/card-list-parser";
+import { apiErrorResponse } from "@/lib/api-errors";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
@@ -126,8 +128,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } catch (error) {
     const fetchFailure = cardFetchErrorResponse(error);
     if (fetchFailure) return fetchFailure;
-    const message = error instanceof Error ? error.message : "Cube update failed";
-    return NextResponse.json({ error: message }, { status: error instanceof CubeArtworkConflict ? 409 : 400 });
+    if (error instanceof CubeArtworkConflict || error instanceof CardListError) {
+      return NextResponse.json({ error: error.message }, { status: error instanceof CubeArtworkConflict ? 409 : 400 });
+    }
+    return apiErrorResponse(error, "[api/cubes/[id]/cards]");
   }
 
   return NextResponse.json(cubeDetail(cubeId, cubes, catalog));
