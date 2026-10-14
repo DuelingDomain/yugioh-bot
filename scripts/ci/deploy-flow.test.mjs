@@ -59,6 +59,7 @@ test("production follows successful main push tests and retains manual rollback 
   assert.deepEqual(prod.concurrency, { group: "deploy-production", "cancel-in-progress": false, queue: "max" });
   for (const job of Object.values(prod.jobs)) assert.equal(job.concurrency, undefined);
   assert.equal(prod.jobs.deploy.environment, "production");
+  assert.equal(prod.jobs.deploy.env.VM_PORT, "${{ vars.VM_PORT || secrets.VM_PORT || '22' }}");
   assert.equal(prod.on.workflow_dispatch.inputs.ref.default, "main");
   assert.equal(prod.on.workflow_dispatch.inputs.force.default, false);
   assert.equal(prod.on.workflow_dispatch.inputs.rollback.default, false);
@@ -304,11 +305,74 @@ test("release images build on native ARM64 with separate registry caches before 
   assert.match(push.with["build-contexts"], /engine=/);
   assert.match(build.steps.find(step => step.name === "Save Next.js cache for the next source revision").with.tags, /:nextcache$/);
   assert.ok(prepare.steps.every(step => !step.run?.includes("ssh ")));
-  assert.equal(deploy.env.DEPLOY_COMMIT, "${{ needs.prepare.outputs.commit }}");
+  assert.equal(deploy.env.DEPLOY_COMMIT, undefined);
   for (const [rollback, expected] of [["false", true], ["true", false]]) {
     assert.equal(value(build.if, {}, {}, {}, { prepare: { outputs: { rollback, superseded: "false" } } }), expected);
   }
   assert.match(deploy.if, /needs.prepare.outputs.rollback == 'true'.*needs.build.result == 'skipped'/s);
+});
+
+test("verified commit artifacts pin build and deploy without random job outputs", t => {
+  const prod = workflow("deploy.yml");
+  for (const [name, job] of Object.entries(prod.jobs)) {
+    const allowed = name === "prepare" ? ["rollback", "superseded"] : [];
+    assert.deepEqual(Object.keys(job.outputs || {}).sort(), allowed,
+      `${name} must not send SHAs or digests through job outputs`);
+  }
+  const prepare = prod.jobs.prepare;
+  const record = prepare.steps.find(step => step.name === "Record checked-out deploy commit");
+  assert.match(record.run, /git rev-parse HEAD/);
+  assert.match(record.run, /RUNNER_TEMP\/deploy-commit/);
+  assert.doesNotMatch(record.run, /GITHUB_OUTPUT/);
+  const upload = prepare.steps.find(step => step.name === "Upload verified deploy commit");
+  assert.match(upload.uses, /^actions\/upload-artifact@[0-9a-f]{40}$/);
+  assert.equal(upload.with.name, "production-commit-${{ github.run_id }}");
+  assert.equal(upload.with.path, "${{ runner.temp }}/deploy-commit");
+  assert.equal(upload.with["if-no-files-found"], "error");
+  assert.equal(upload.with["retention-days"], 1);
+
+  const dir = mkdtempSync(join(tmpdir(), "deploy-commit-artifact-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, "release-commit"));
+  const envFile = join(dir, "github-env");
+  for (const job of [prod.jobs.build, prod.jobs.deploy]) {
+    const steps = job.steps;
+    const download = steps.find(step => step.name === "Download verified deploy commit");
+    const read = steps.find(step => step.name === "Read verified deploy commit");
+    const checkout = steps.find(step => step.name === "Checkout verified deploy commit");
+    assert.match(download.uses, /^actions\/download-artifact@[0-9a-f]{40}$/);
+    assert.equal(download.with.name, upload.with.name);
+    assert.equal(download.with.path, "${{ runner.temp }}/release-commit");
+    assert.ok(steps.indexOf(download) < steps.indexOf(read));
+    assert.ok(steps.indexOf(read) < steps.indexOf(checkout));
+    assert.equal(checkout.with.ref, "${{ env.DEPLOY_COMMIT }}");
+    assert.equal(job.env.DEPLOY_COMMIT, undefined);
+    assert.doesNotMatch(read.run, /GITHUB_OUTPUT/);
+    for (const [sha, valid] of [["a".repeat(40), true], ["a".repeat(40) + "\n", true],
+      ["", false], ["main", false], ["a".repeat(39), false], ["A".repeat(40), false],
+      ["a".repeat(40) + "\nDEPLOY_FORCE=true", false]]) {
+      writeFileSync(join(dir, "release-commit", "deploy-commit"), sha);
+      writeFileSync(envFile, "");
+      const result = spawnSync("bash", ["-e", "-c", read.run], { encoding: "utf8", env: {
+        ...process.env, RUNNER_TEMP: dir, GITHUB_ENV: envFile,
+      } });
+      assert.equal(result.status === 0, valid, result.stderr);
+      assert.equal(readFileSync(envFile, "utf8"), valid ? `DEPLOY_COMMIT=${"a".repeat(40)}\n` : "");
+    }
+    rmSync(join(dir, "release-commit", "deploy-commit"));
+    writeFileSync(envFile, "");
+    const missing = spawnSync("bash", ["-e", "-c", read.run], { encoding: "utf8", env: {
+      ...process.env, RUNNER_TEMP: dir, GITHUB_ENV: envFile,
+    } });
+    assert.notEqual(missing.status, 0);
+    assert.equal(readFileSync(envFile, "utf8"), "");
+  }
+  const bundleName = "production-deploy-${{ github.run_id }}";
+  assert.equal(prepare.steps.find(step => step.name === "Upload verified release controls and bundle").with.name, bundleName);
+  assert.equal(prod.jobs.build.steps.find(step => step.name === "Download verified engine bundle").with.name, bundleName);
+  assert.equal(prod.jobs.deploy.steps.find(step => step.name === "Download verified release controls and bundle").with.name, bundleName);
+  assert.equal(prod.jobs.deploy.steps.find(step => step.name === "Download runtime image digests").with.pattern,
+    "production-image-*-${{ env.DEPLOY_COMMIT }}");
 });
 
 test("production pulls before backup and keeps the drain, migration and health-check sequence without builds", () => {

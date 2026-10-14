@@ -57,7 +57,6 @@ jobs:
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
     outputs:
-      commit: ${{ steps.release.outputs.commit }}
       rollback: ${{ env.DEPLOY_ROLLBACK }}
       superseded: ${{ steps.superseded.outputs.skip }}
 
@@ -134,12 +133,11 @@ jobs:
         run: git fetch origin main && git merge-base --is-ancestor HEAD FETCH_HEAD
 
       - name: Record checked-out deploy commit
-        id: release
         if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         run: |
           commit=$(git rev-parse HEAD)
           echo "DEPLOY_COMMIT=$commit" >> "$GITHUB_ENV"
-          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$commit" > "$RUNNER_TEMP/deploy-commit"
 
       - name: Verify manual deploy commit passed Test
         if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && github.event_name == 'workflow_dispatch' }}
@@ -280,11 +278,22 @@ jobs:
           rm -rf "$RUNNER_TEMP/deploy-bundle-check"
           tar -C "$bundle" -czf "$RUNNER_TEMP/deploy-bundle.tar.gz" .
 
+      # Job outputs can be dropped when a SHA contains a short masked secret.
+      - name: Upload verified deploy commit
+        if: ${{ steps.superseded.outputs.skip != 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: production-commit-${{ github.run_id }}
+          path: ${{ runner.temp }}/deploy-commit
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
       - name: Upload verified release controls and bundle
         if: ${{ steps.superseded.outputs.skip != 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: production-deploy-${{ env.DEPLOY_COMMIT }}
+          name: production-deploy-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/deploy-bundle.tar.gz
             ${{ runner.temp }}/check-prod-activity.py
@@ -316,14 +325,28 @@ jobs:
           - service: ws
             target: ws
     env:
-      DEPLOY_COMMIT: ${{ needs.prepare.outputs.commit }}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
       IMAGE: ghcr.io/duelingdomain/yugioh-bot-${{ matrix.service }}
     steps:
+      - name: Download verified deploy commit
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: production-commit-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-commit
+
+      - name: Read verified deploy commit
+        run: |
+          commit=$(cat "$RUNNER_TEMP/release-commit/deploy-commit")
+          if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid verified deploy commit." >&2
+            exit 1
+          fi
+          printf 'DEPLOY_COMMIT=%s\n' "$commit" >> "$GITHUB_ENV"
+
       - name: Checkout verified deploy commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ needs.prepare.outputs.commit }}
+          ref: ${{ env.DEPLOY_COMMIT }}
 
       - name: Check production public key
         run: |
@@ -336,7 +359,7 @@ jobs:
         if: matrix.service == 'duel'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: production-deploy-${{ needs.prepare.outputs.commit }}
+          name: production-deploy-${{ github.run_id }}
           path: ${{ runner.temp }}/release
 
       - name: Prepare named engine context
@@ -442,8 +465,7 @@ jobs:
       VM_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
       VM_DEPLOY_ENABLED: ${{ secrets.VM_HOST != '' && secrets.VM_USER != '' && secrets.VM_SSH_PRIVATE_KEY != '' && 'true' || 'false' }}
-      VM_PORT: ${{ secrets.VM_PORT || '22' }}
-      DEPLOY_COMMIT: ${{ needs.prepare.outputs.commit }}
+      VM_PORT: ${{ vars.VM_PORT || secrets.VM_PORT || '22' }}
       DEPLOY_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref }}
       DEPLOY_FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force && 'true' || 'false' }}
       DEPLOY_ROLLBACK: ${{ github.event_name == 'workflow_dispatch' && inputs.rollback && 'true' || 'false' }}
@@ -452,27 +474,38 @@ jobs:
       # Public production key only. The secret remains in the protected VM runtime env.
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
 
-    outputs:
-      image-digests: ${{ steps.image-refs.outputs.digests }}
-      confirmed-attempt: ${{ steps.confirmed.outputs.attempt }}
-
     steps:
+      - name: Download verified deploy commit
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: production-commit-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-commit
+
+      - name: Read verified deploy commit
+        run: |
+          commit=$(cat "$RUNNER_TEMP/release-commit/deploy-commit")
+          if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid verified deploy commit." >&2
+            exit 1
+          fi
+          printf 'DEPLOY_COMMIT=%s\n' "$commit" >> "$GITHUB_ENV"
+
       - name: Checkout verified deploy commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ needs.prepare.outputs.commit }}
+          ref: ${{ env.DEPLOY_COMMIT }}
 
       - name: Download verified release controls and bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: production-deploy-${{ needs.prepare.outputs.commit }}
+          name: production-deploy-${{ github.run_id }}
           path: ${{ runner.temp }}/release
 
       - name: Download runtime image digests
         if: needs.prepare.outputs.rollback != 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          pattern: production-image-*-${{ needs.prepare.outputs.commit }}
+          pattern: production-image-*-${{ env.DEPLOY_COMMIT }}
           merge-multiple: true
           path: ${{ runner.temp }}/image-digests
 
@@ -504,7 +537,6 @@ jobs:
           done
 
       - name: Prepare deployment transfer
-        id: image-refs
         run: |
           mkdir -p "$RUNNER_TEMP/deploy-bundle"
           tar -C "$RUNNER_TEMP/deploy-bundle" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
@@ -514,11 +546,6 @@ jobs:
           for service in duel web worker ws; do
             cat "$RUNNER_TEMP/image-digests/$service.digest" >> "$RUNNER_TEMP/release/image-digests"
           done
-          {
-            echo 'digests<<RELEASE_DIGESTS'
-            cat "$RUNNER_TEMP/release/image-digests"
-            echo 'RELEASE_DIGESTS'
-          } >> "$GITHUB_OUTPUT"
 
       - name: Configure SSH key
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -807,7 +834,20 @@ jobs:
       - name: Record healthy deployment attempt
         id: confirmed
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
-        run: echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+        run: printf '%s\n' "$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/release/confirmed-attempt"
+
+      # Upload the exact list pulled by the VM, including resolved rollback digests.
+      # A retention-only retry must not reuse health checks from an older attempt.
+      - name: Upload healthy production image digests
+        if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: production-healthy-images-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/release/image-digests
+            ${{ runner.temp }}/release/confirmed-attempt
+          if-no-files-found: error
+          retention-days: 1
 
   retain:
     name: Retain healthy production images in GHCR
@@ -819,23 +859,32 @@ jobs:
       packages: write
     env:
       GHCR_TOKEN: ${{ github.token }}
-      DEPLOY_IMAGE_DIGESTS: ${{ needs.deploy.outputs.image-digests }}
-      DEPLOY_CONFIRMED_ATTEMPT: ${{ needs.deploy.outputs.confirmed-attempt }}
       RUN_ATTEMPT: ${{ github.run_attempt }}
     steps:
+      - name: Download healthy production image digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: production-healthy-images-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/healthy-release
+
       - name: Tag deployed and previous healthy manifests
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          DEPLOY_RELEASE_PATH: ${{ runner.temp }}/healthy-release
         with:
           script: |
+            const { readFile } = await import('node:fs/promises');
+            const confirmedAttempt = (await readFile(`${process.env.DEPLOY_RELEASE_PATH}/confirmed-attempt`, 'utf8')).trim();
             // A failed-job retry can follow a newer deploy. Require fresh health checks.
             if (!/^[1-9][0-9]*$/.test(process.env.RUN_ATTEMPT || '') ||
-                process.env.DEPLOY_CONFIRMED_ATTEMPT !== process.env.RUN_ATTEMPT) {
+                confirmedAttempt !== process.env.RUN_ATTEMPT) {
               throw new Error('Registry retention requires deploy health checks in the current run attempt. Dispatch a new Deploy run for the intended current release.');
             }
             const { createHash } = await import('node:crypto');
             const services = ["duel", "web", "worker", "ws"];
             const digests = new Map();
-            for (const line of process.env.DEPLOY_IMAGE_DIGESTS.trim().split('\n')) {
+            const digestList = await readFile(`${process.env.DEPLOY_RELEASE_PATH}/image-digests`, 'utf8');
+            for (const line of digestList.trim().split('\n')) {
               const [service, digest, extra] = line.trim().split(/\s+/);
               if (!services.includes(service) || !/^sha256:[0-9a-f]{64}$/.test(digest || '') || extra || digests.has(service)) {
                 throw new Error('Invalid deployed image digest list; no tags were changed.');

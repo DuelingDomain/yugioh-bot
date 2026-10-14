@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { parse } from 'yaml';
 
@@ -39,15 +41,20 @@ async function run({ old = previous, refs = references, failure = () => 0, deplo
   const job = load().jobs.retain;
   assert.ok(job, 'retain healthy release digests in a runner job');
   const script = job.steps.find(step => step.with?.script).with.script;
+  const release = mkdtempSync(join(tmpdir(), 'healthy-release-'));
+  if (refs !== null) writeFileSync(join(release, 'image-digests'), refs);
+  if (deployedAttempt !== null) writeFileSync(join(release, 'confirmed-attempt'), `${deployedAttempt}\n`);
   try {
     await new AsyncFunction('context', 'core', 'fetch', 'process', script)(
       { actor: 'owner', repo: { owner: 'DuelingDomain' } }, { info() {} }, fetch,
-      { env: { GHCR_TOKEN: 'job-token', DEPLOY_IMAGE_DIGESTS: refs,
-        DEPLOY_CONFIRMED_ATTEMPT: deployedAttempt, RUN_ATTEMPT: runAttempt } });
+      { env: { GHCR_TOKEN: 'job-token', DEPLOY_RELEASE_PATH: release, RUN_ATTEMPT: runAttempt } });
     return { writes, reads };
   } catch (error) {
     error.writes = writes;
+    error.reads = reads;
     throw error;
+  } finally {
+    rmSync(release, { recursive: true, force: true });
   }
 }
 
@@ -58,16 +65,34 @@ test('only the successful deploy enables retention with the job package token', 
   assert.match(retain.if, /!cancelled\(\).*needs.deploy.result == 'success'/);
   assert.deepEqual(retain.permissions, { packages: 'write' });
   assert.equal(retain.env.GHCR_TOKEN, '${{ github.token }}');
-  assert.equal(retain.env.DEPLOY_IMAGE_DIGESTS, '${{ needs.deploy.outputs.image-digests }}');
-  assert.equal(deploy.outputs['image-digests'], '${{ steps.image-refs.outputs.digests }}');
-  assert.equal(deploy.outputs['confirmed-attempt'], '${{ steps.confirmed.outputs.attempt }}');
-  assert.equal(retain.env.DEPLOY_CONFIRMED_ATTEMPT, '${{ needs.deploy.outputs.confirmed-attempt }}');
+  assert.equal(retain.env.DEPLOY_IMAGE_DIGESTS, undefined);
+  assert.equal(retain.env.DEPLOY_CONFIRMED_ATTEMPT, undefined);
+  assert.equal(deploy.outputs, undefined, 'digests and attempt confirmation must stay in files');
+  const tag = retain.steps.find(step => step.with?.script);
+  assert.equal(tag.env.DEPLOY_RELEASE_PATH, '${{ runner.temp }}/healthy-release');
   assert.equal(retain.env.RUN_ATTEMPT, '${{ github.run_attempt }}');
   const confirm = deploy.steps.find(step => step.id === 'confirmed');
-  assert.match(confirm.run, /GITHUB_RUN_ATTEMPT.*GITHUB_OUTPUT/);
+  assert.match(confirm.run, /GITHUB_RUN_ATTEMPT.*release\/confirmed-attempt/);
+  assert.doesNotMatch(confirm.run, /GITHUB_OUTPUT/);
   assert.ok(deploy.steps.indexOf(confirm) > deploy.steps.findIndex(step => step.name === 'Deploy over SSH'));
-  const record = deploy.steps.find(step => step.id === 'image-refs');
-  assert.match(record.run, /image-digests.*GITHUB_OUTPUT/s);
+  const record = deploy.steps.find(step => step.name === 'Prepare deployment transfer');
+  assert.doesNotMatch(record.run, /GITHUB_OUTPUT/);
+  const upload = deploy.steps.find(step => step.name === 'Upload healthy production image digests');
+  const download = retain.steps.find(step => step.name === 'Download healthy production image digests');
+  const name = 'production-healthy-images-${{ github.run_id }}-${{ github.run_attempt }}';
+  assert.match(upload.uses, /^actions\/upload-artifact@[0-9a-f]{40}$/);
+  assert.equal(upload.with.name, name);
+  assert.deepEqual(upload.with.path.trim().split('\n'), [
+    '${{ runner.temp }}/release/image-digests', '${{ runner.temp }}/release/confirmed-attempt',
+  ]);
+  assert.equal(upload.with['if-no-files-found'], 'error');
+  assert.equal(upload.with['retention-days'], 1);
+  assert.equal(upload.if, "${{ env.VM_DEPLOY_ENABLED == 'true' }}");
+  assert.ok(deploy.steps.indexOf(upload) > deploy.steps.indexOf(confirm));
+  assert.match(download.uses, /^actions\/download-artifact@[0-9a-f]{40}$/);
+  assert.equal(download.with.name, name);
+  assert.equal(download.with.path, tag.env.DEPLOY_RELEASE_PATH);
+  assert.ok(retain.steps.indexOf(download) < retain.steps.findIndex(step => step.with?.script));
   assert.ok(retain.steps.every(step => !step.run?.includes('ssh')));
 });
 
@@ -98,7 +123,8 @@ test('a repeated healthy deploy does not replace production-prev with itself', a
 
 test('invalid digest input and a failed retained-manifest read stop before any tag changes', async () => {
   for (const refs of ['', references.replace('worker ', 'other '), references.replace(/sha256:[a-f0-9]{64}/, 'latest'),
-    `${references}\n${references.split('\n')[0]}`]) {
+    `${references}\n${references.split('\n')[0]}`, references.split('\n').slice(1).join('\n'),
+    `${references} extra`, references.replace('sha256:', 'SHA256:')]) {
     await assert.rejects(run({ refs }), error => error.writes.length === 0);
   }
   for (const status of [401, 500]) {
@@ -107,6 +133,19 @@ test('invalid digest input and a failed retained-manifest read stop before any t
   }
   await assert.rejects(run({ failure: url => url.includes(`yugioh-bot-ws/manifests/${digest(current)}`) ? 404 : 0 }),
     error => /manifest/.test(error.message) && error.writes.length === 0);
+});
+
+test('missing artifact files stop before registry requests or tag changes', async () => {
+  for (const options of [{ refs: null }, { deployedAttempt: null }]) {
+    await assert.rejects(run(options), error => error.reads.length === 0 && error.writes.length === 0);
+  }
+});
+
+test('invalid attempt confirmation stops before registry requests or tag changes', async () => {
+  for (const attempt of ['', '0', '01', 'latest']) {
+    await assert.rejects(run({ deployedAttempt: attempt, runAttempt: attempt }),
+      error => /health checks/.test(error.message) && error.reads.length === 0 && error.writes.length === 0);
+  }
 });
 
 test('a failed production-prev write cannot move the production tag', async () => {

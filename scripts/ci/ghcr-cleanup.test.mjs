@@ -49,6 +49,10 @@ test('weekly cleanup has only package write permission and uses a pinned action'
   assert.match(job.steps[0].uses, /@[0-9a-f]{40}$/);
 });
 
+test('cleanup does not send random registry data through job outputs', () => {
+  for (const job of Object.values(load().jobs)) assert.equal(job.outputs, undefined);
+});
+
 test('cleanup keeps ten SHA versions, cache and owner tags, recent untagged and referenced children', async () => {
   const versions = Array.from({ length: 12 }, (_, i) => version(i + 1, [(i + 1).toString(16).padStart(40, '0')]));
   versions.push(version(20, ['buildcache']), version(21, ['nextcache']), version(22, ['owner-safety']),

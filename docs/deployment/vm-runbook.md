@@ -55,7 +55,12 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
 - `VM_USER`
 - `VM_SSH_PRIVATE_KEY`
 - `VM_SSH_KNOWN_HOSTS` (pinned VM host keys in OpenSSH known_hosts format)
-- `VM_PORT` (optional, defaults to 22)
+
+Use a repository variable for the optional `VM_PORT`. A port is not secret. The workflow uses
+`vars.VM_PORT` first, then the existing secret, then port 22. After you check the
+variable, remove the old `VM_PORT` secret. A short secret value can mask many
+substrings in random image digests or commit SHAs. GitHub can then drop a job
+output that contains that value. The workflow transfers these values in artifacts.
 
 ## Deployment Pipeline
 
@@ -248,10 +253,18 @@ with Compose; the duel target needs the prepared named engine context described 
    The job copies the original manifest bytes through the registry API to keep each digest.
    A retry of the same digest keeps `production-prev`. The first deploy has no previous GHCR tag.
    Both non-SHA tags protect their versions beyond the ten-release and seven-day limits.
-   This job has no VM secrets. It requires deploy health checks from the current run attempt.
-   Retrying only an old failed retention job fails before any registry request. This prevents
-   an old retry from moving the tags after a newer deploy. If retention fails, check the registry
-   error and dispatch a new Deploy run for the intended current release before cleanup.
+   This job has no VM secrets. After the health checks pass, deploy uploads the final
+   `image-digests` file that the VM pulled. This also applies to rollback deploys.
+   The artifact name includes the run ID and run attempt. It also contains the
+   health-check attempt confirmation. Retention downloads this artifact and checks
+   the exact service set, digest format and run attempt before registry tag writes.
+   If retention fails, production is still healthy. The deploy health checks passed.
+   Only re-run the retention job when its run attempt matches the health-check
+   confirmation and the artifact is still available. GitHub increases the run attempt
+   for **Re-run failed jobs**. A retry of retention alone cannot use the previous
+   attempt's artifact. It fails before any registry tag changes. Dispatch a new
+   **Deploy** run for the intended current release to get new health checks and a
+   matching artifact. Do this before cleanup if the release needs retention tags.
    Add a non-SHA recovery tag to any older registry version that must stay beyond ten releases.
    Cache tags become public with their packages. They contain intermediate build layers and `.next/cache`.
    The build has no secrets. Do not add build-time secrets or private data fetches to these public caches.
