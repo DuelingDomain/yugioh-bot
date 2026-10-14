@@ -169,6 +169,8 @@
 
 .a-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); align-items: center; gap: 24px; }
 .a-form { width: min(100%, 440px); justify-self: start; }
+.identity { display: grid; gap: 8px; margin-bottom: 24px; color: var(--text-3); font-size: 14px; line-height: 1.5; }
+.identity strong { color: var(--text); }
 .scr { animation: enter .34s var(--ease) both; }
 .eyebrow { display: inline-flex; align-items: center; gap: 12px; font-size: 13px; letter-spacing: .22em; text-transform: uppercase; color: var(--gold-soft); margin-bottom: 14px; }
 .eyebrow::before { content: ""; width: 34px; height: 1px; background: linear-gradient(90deg, transparent, var(--gold-soft)); }

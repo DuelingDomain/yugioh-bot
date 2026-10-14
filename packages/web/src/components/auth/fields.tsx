@@ -285,7 +285,7 @@ export function DiscordButton({ onClick, pending, fineId }: { onClick: () => voi
         </svg>
         <span>Continue with Discord</span>
       </button>
-      <p className={shell.fine} id={fineId}>Discord shares your name, avatar and email. We can’t read or send messages as you.</p>
+      <p className={shell.fine} id={fineId}>Authorize on discord.com. Discord shares your name, avatar and email. We can’t read or send messages as you.</p>
     </>
   );
 }
