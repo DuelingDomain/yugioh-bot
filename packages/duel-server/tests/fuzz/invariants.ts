@@ -136,6 +136,8 @@ export class InvariantChecker {
   private firstTurnSeat: number | null = null;
   private turnSeatByTurn = new Map<number, number>();
   private readonly known: [Set<number>, Set<number>, Set<number>] = [new Set(), new Set(), new Set()];
+  /** Public name-change effects teach a name, not the identity of hidden cards with that printed name. */
+  private readonly publicNames: [Set<string>, Set<string>, Set<string>] = [new Set(), new Set(), new Set()];
   private readonly lastLog = [0, 0, 0];
   private readonly lastEvent = [0, 0, 0];
   private readonly codeOwner = new Map<number, 0 | 1>();
@@ -384,6 +386,14 @@ export class InvariantChecker {
       for (const seat of view.seats) {
         for (const card of allCards(seat)) if (card.code !== undefined) known.add(card.code);
         if (seat.deckMaster) known.add(seat.deckMaster.card.code);
+        for (const card of [...seat.monsters, ...seat.spells]) {
+          if (!card || card.code === undefined || (card.position & FACEDOWN) !== 0) continue;
+          // The target reporter uses GetCode(), which includes public name changes (Archfiend's Call).
+          // Board queries keep the printed code. Do not mark the name's separate passcode as known.
+          for (const match of (card.description ?? "").matchAll(/\bThis card's name becomes "([^"]+)"/g)) {
+            this.publicNames[vi]!.add(match[1]!);
+          }
+        }
       }
       const announced = this.announced[vi] as Set<number>;
       for (const link of view.chain) if (link.code !== undefined) { known.add(link.code); announced.add(link.code); }
@@ -462,7 +472,7 @@ export class InvariantChecker {
           if (secret(code)) add("privacy-text", `Viewer ${String(viewer)}: ${where} contains code ${code}`, { text, detail });
         }
         for (const [name, codes] of this.namesIn(text)) {
-          if (COMMON_WORD_NAMES.has(name)) continue;
+          if (COMMON_WORD_NAMES.has(name) || this.publicNames[vi]!.has(name)) continue;
           if (codes.every((code) => secret(code))) add("privacy-text", `Viewer ${String(viewer)}: ${where} names hidden card "${name}"`, { text, detail });
         }
       };

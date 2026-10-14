@@ -4,11 +4,15 @@ import { describeFailure } from "./failures.js";
 import { runAndVerify } from "./run-one.js";
 
 /**
- * Fuzz seeds that found real defects. Each one plays and replays a full duel with every invariant on.
+ * Fuzz seeds that found engine or checker defects. Each one plays and replays with every invariant on.
  * A seed depends on the card pool and the pinned card data: when those change, a seed may stop
  * reaching its old board. Keep the entry, it still plays one more duel.
  */
 const REGRESSIONS: Array<Scenario & { defect: string }> = [
+  {
+    defect: "checker: face-up Archfiend's Call is named Summoned Skull by its public name-change effect",
+    seed: 644659237, mode: "domain", masterRule: 5, maxSteps: 287,
+  },
   {
     defect: "stale reason_effect: a lost-target destroy read a freed effect (core use-after-free, Lua error)",
     seed: 10, mode: "domain", masterRule: 5, maxSteps: 400,
