@@ -38,6 +38,15 @@ function prompt(index: number): PromptTraceEntry {
   };
 }
 
+it("passes the requesting seat with a card search through the worker transport", async () => {
+  const { game, transport } = makeWorker();
+  const send = vi.spyOn(transport as unknown as { postMessage: (message: unknown) => void }, "postMessage");
+  const pending = game.search("eyes blue", 2);
+  transport.emit("message", { id: 1, ok: true, value: [] });
+  await expect(pending).resolves.toEqual([]);
+  expect(send).toHaveBeenCalledWith({ id: 1, op: "search", query: "eyes blue", seat: 2 });
+});
+
 describe("GameWorker prompt history", () => {
   it("starts empty and records prompts in chronological order", () => {
     const { game, transport, emitPrompt } = makeWorker();

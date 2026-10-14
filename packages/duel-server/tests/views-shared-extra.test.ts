@@ -3,7 +3,7 @@ import { DUEL_FORMATS, seatCountFor, type DuelFormat, type DuelMode } from "@yug
 import { OcgLocation, OcgPosition } from "ocgcore-wasm";
 import { createRevealMap, projectView } from "../src/views.js";
 
-function project(format: DuelFormat, mode: DuelMode, viewer: number | null, eliminated = new Set<number>(), leaving = new Set<number>(), ffa4SharedExtraZones = true, tagSharedExtraZones = true) {
+function project(format: DuelFormat, mode: DuelMode, viewer: number | null, eliminated = new Set<number>(), leaving = new Set<number>(), ffa4SharedExtraZones = true, tagSharedExtraZones = true, ffa3SharedExtraZones = true) {
   const count = seatCountFor(format);
   return projectView({
     lib: {
@@ -20,11 +20,18 @@ function project(format: DuelFormat, mode: DuelMode, viewer: number | null, elim
     viewer, revision: 1, turn: 1, turnSeat: 0, phase: "main1",
     lp: Array.from({ length: count }, () => 8000), prompt: null, promptSeat: null,
     log: [], events: [], result: null, reveals: createRevealMap(count), mode, format, eliminated, leaving,
-    coreCapabilities: { ffa4SharedExtraZones, tagSharedExtraZones },
+    coreCapabilities: { ffa3SharedExtraZones, ffa4SharedExtraZones, tagSharedExtraZones },
   });
 }
 
 describe.each<DuelMode>(["normal", "domain"])("%s shared EMZ seat view", (mode) => {
+  it("gates FFA3 pairing on its own capability and never re-pairs survivors", () => {
+    expect(project("ffa3", mode, null, new Set(), new Set(), true, true, false).seats.map(s => s.sharedExtraWith)).toEqual([null, null, null]);
+    expect(project("ffa3", mode, null, new Set([1])).seats.map(s => s.sharedExtraWith)).toEqual([null, null, null]);
+    expect(project("ffa3", mode, null, new Set([2])).seats.map(s => s.sharedExtraWith)).toEqual([1, 0, null]);
+    expect(project("ffa4", mode, null, new Set([1, 3])).seats.map(s => s.sharedExtraWith)).toEqual([null, null, null, null]);
+  });
+
   it("keeps Tag separate on older FFA4-only cores", () => {
     const view = project("tag", mode, 0, new Set(), new Set(), true, false);
     expect(view.seats.map((seat) => seat.sharedExtraWith)).toEqual([null, null, null, null]);
@@ -41,7 +48,7 @@ describe.each<DuelMode>(["normal", "domain"])("%s shared EMZ seat view", (mode) 
   it.each(DUEL_FORMATS)("publishes each seat's sharedExtraWith in %s", (format) => {
     const view = project(format, mode, 0);
     expect(view.seats.map((seat) => seat.sharedExtraWith))
-      .toEqual((format === "ffa4" || format === "tag") ? [1, 0, 3, 2] : Array(seatCountFor(format)).fill(format === "1v1" ? undefined : null));
+      .toEqual((format === "ffa4" || format === "tag") ? [1, 0, 3, 2] : format === "ffa3" ? [1, 0, null] : [undefined, undefined]);
     expect(view.seats.map((seat) => seat.monsters[5]?.controller)).toEqual(Array.from({ length: seatCountFor(format) }, (_, seat) => seat));
   });
 

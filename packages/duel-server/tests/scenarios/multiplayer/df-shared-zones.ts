@@ -1,3 +1,4 @@
+import { sharedExtraSeatOf } from "@yugidraft/shared/duels";
 import { choose, pass, number, attack, position, yes, no, activate, defineScenario, endTurn, normalSummon, expectPickSeats, pickOpponent, expectEliminated, expectNotOffered, expectOffered, expectPickOptions, expectPrompt, select, specialSummon, surrender, zone, type DuelistExpect, type Scenario, type Step, setCard } from "../../support/dsl.js";
 import { domainVariant } from "./domain-variants.js";
 import { everySeat, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
@@ -6,13 +7,13 @@ import { tagColumnReviewScenarios } from "./tag-column-review.js";
 
 const ELF = "Mystical Elf", SPIDER = "Link Spider", IMDUK = "Imduk the World Chalice Dragon";
 const SARYUJA = "Saryuja Skull Dread", KNIGHT = "Mekk-Knight Purple Nightfall";
-const rule = "R-COMMON-EMZ";
+const shared = (format: Format, seat: Seat) => sharedExtraSeatOf(format, Number(seat[1])) !== null;
 const across = (seat: Seat): Seat => `p${Number(seat[1]) ^ 1}` as Seat;
 const slots = (seq: number, card: string) => Array.from({ length: seq + 1 }, (_, i) => i === seq ? card : null);
 function createScenarios(mode: "standard" | "domain"): Scenario[] {
 const openingHand = (): string[] => mode === "domain" ? [ELF] : [];
 const openingDeck = () => mode === "domain" ? 19 : 20;
-function scenario(id: string, format: Format, setup: Scenario["setup"], steps: Step[], rules: string[] = [format === "ffa4" ? "R-FFA-ACROSS-EMZ" : format === "tag" ? "R-TAG-FACING" : rule]): Scenario {
+function scenario(id: string, format: Format, setup: Scenario["setup"], steps: Step[], rules: string[] = [format === "tag" ? "R-TAG-FACING" : "R-FFA-ACROSS-EMZ"]): Scenario {
   const result = defineScenario({ id: `df-shared-zones-${id}`, title: id.replaceAll("-", " "),
     source: rules.length ? `${SOURCE} ${rules.map((id) => `[${id}]`).join(" ")}` : SOURCE, rules, tags: ["multiplayer", format, "link", "column", "ffa-first-draw-included"], setup: { ...setup, format, mode: mode === "domain" ? "domain" : "normal" }, steps });
   return mode === "domain" ? domainVariant(result) : result;
@@ -26,13 +27,13 @@ function state(format: Format, actor: Seat): Record<Seat, DuelistExpect> {
   return result;
 }
 function mirror(format: Format, actor: Seat): Scenario {
-  const other = format === "ffa3" ? "p2" : across(actor);
+  const other = shared(format, actor) ? across(actor) : "p0";
   const setup: Scenario["setup"] = { [actor]: { monsters: [ELF], extra: [SPIDER] }, [other]: { monsters: slots(6, SPIDER) } };
   const board = state(format, actor);
   board[other] = { ...board[other], monsters: [SPIDER], zones: { emz0: null, emz1: SPIDER } };
-  board[actor] = { ...board[actor], monsters: [SPIDER], grave: [ELF], zones: { emz0: (format === "ffa4" || format === "tag") ? null : SPIDER, emz1: (format === "ffa4" || format === "tag") ? SPIDER : null } };
+  board[actor] = { ...board[actor], monsters: [SPIDER], grave: [ELF], zones: { emz0: shared(format, actor) ? null : SPIDER, emz1: shared(format, actor) ? SPIDER : null } };
   return scenario(`${format}-mirror-${actor}`, format, setup, [...turnsBefore(format, actor), specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }),
-    ...((format === "ffa4" || format === "tag") ? [] : [expectPickOptions([{ seat: actor, label: "Extra Monster Zone (left)" }, { seat: actor, label: "Extra Monster Zone (right)" }], actor), zone(actor, "emz0", actor)]),
+    ...(shared(format, actor) ? [] : [expectPickOptions([{ seat: actor, label: "Extra Monster Zone (left)" }, { seat: actor, label: "Extra Monster Zone (right)" }], actor), zone(actor, "emz0", actor)]),
     expectPrompt({ by: actor, context: "action" }), everySeat(format, board)]);
 }
 function arrows(actor: Seat): Scenario {
@@ -45,18 +46,18 @@ function arrows(actor: Seat): Scenario {
     expectPickOptions([{ seat: actor, label: "Extra Monster Zone (left)" }, { seat: actor, label: "Monster Zone 4" }], actor), zone(actor, "m3", actor), everySeat("ffa4", board)]);
 }
 function columns(format: Format, actor: Seat): Scenario {
-  const other = format === "ffa3" ? "p2" : across(actor);
+  const other = shared(format, actor) ? across(actor) : "p0";
   const setup: Scenario["setup"] = {
-    [actor]: (format === "ffa4" || format === "tag") ? { hand: [KNIGHT] } : { hand: [KNIGHT, "Dark Hole"], monsters: [ELF], extra: [SPIDER] },
+    [actor]: shared(format, actor) ? { hand: [KNIGHT] } : { hand: [KNIGHT, "Dark Hole"], monsters: [ELF], extra: [SPIDER] },
     [other]: { monsters: slots(3, ELF), spells: [null, null, null, { card: "Dark Hole", pos: "set" }] },
   };
   const board = state(format, actor);
   board[other] = { ...board[other], monsters: [ELF], spells: ["Dark Hole"] };
-  board[actor] = { ...board[actor], monsters: (format === "ffa4" || format === "tag") ? [KNIGHT] : [SPIDER, KNIGHT],
-    zones: { m1: KNIGHT, ...((format === "ffa4" || format === "tag") ? {} : { emz0: SPIDER, s1: { card: "Dark Hole", pos: "set" as const } }) },
-    ...((format === "ffa4" || format === "tag") ? {} : { grave: [ELF], spells: ["Dark Hole"] }) };
+  board[actor] = { ...board[actor], monsters: shared(format, actor) ? [KNIGHT] : [SPIDER, KNIGHT],
+    zones: { m1: KNIGHT, ...(shared(format, actor) ? {} : { emz0: SPIDER, s1: { card: "Dark Hole", pos: "set" as const } }) },
+    ...(shared(format, actor) ? {} : { grave: [ELF], spells: ["Dark Hole"] }) };
   const steps: Step[] = [...turnsBefore(format, actor)];
-  if ((format !== "ffa4" && format !== "tag")) {
+  if (!shared(format, actor)) {
     // Foreign cards do not make a local column. One local Spell is also not enough.
     steps.push(expectNotOffered("specialSummon", KNIGHT, actor),
       setCard("Dark Hole", actor), zone(actor, "s1", actor),
@@ -69,14 +70,14 @@ function columns(format: Format, actor: Seat): Scenario {
   return scenario(`${format}-across-column-${actor}`, format, setup, steps);
 }
 function geometry(format: Format, actor: Seat): Scenario {
-  const reader = (format === "ffa4" || format === "tag") ? 95200120 : 95200121;
-  const other = format === "ffa3" ? (actor === "p2" ? "p0" : "p2") : across(actor);
+  const reader = shared(format, actor) ? 95200120 : 95200121;
+  const other = shared(format, actor) ? across(actor) : "p0";
   const setup: Scenario["setup"] = { [actor]: { hand: [reader], monsters: [null, IMDUK, null, null, null, SARYUJA] },
     [other]: { monsters: slots(3, IMDUK), spells: [null, null, null, { card: "Dark Hole", pos: "set" }] } };
   const board = state(format, actor);
   board[actor] = { ...board[actor], lp: format === "tag" ? 15500 : 7500, monsters: [IMDUK, SARYUJA], grave: [reader], hand: [...(board[actor].hand as string[]), ELF], deckCount: (board[actor].deckCount ?? 20) - 1 };
   board[other] = { ...board[other], monsters: [IMDUK], spells: ["Dark Hole"] };
-  if ((format === "ffa4" || format === "tag")) for (const seat of SEATS.ffa4.filter((s) => s !== actor && s !== other)) {
+  if (shared(format, actor)) for (const seat of SEATS[format].filter((s) => s !== actor && s !== other)) {
     setup[seat] = { monsters: slots(3, IMDUK), spells: [null, null, null, { card: "Dark Hole", pos: "set" }] };
     board[seat] = { ...board[seat], monsters: [IMDUK], spells: ["Dark Hole"] };
   }
@@ -362,16 +363,16 @@ function ownCostTarget(code: number): Scenario {
 
 function kidbrave(format: Format, caster: Seat): Scenario {
   const kid="Magical Musketeer Kidbrave", musket="Magical Musketeer Caspar", pot="Pot of Greed";
-  const match=format==="tag" || caster==="p0" || (format==="ffa4" && caster==="p1");
-  // R-FFA-THREE-COLUMNS: this trigger only draws own cards. With three live
-  // seats it does not opt into an opponent column or ask for an opponent.
+  const match=caster==="p0" || caster==="p1";
+  // A spell from the fixed facing seat shares this column in every format.
+  // This own-card trigger never asks for a column opponent.
   const board=state(format,caster);
   const ownHand=board.p0.hand as string[];
   board.p0={...board.p0,monsters:[kid],zones:{m1:kid},hand:[...ownHand,...(match ? [ELF,ELF] : [musket])],grave:match ? [musket] : [],deckCount:(board.p0.deckCount ?? 20)-(match ? 2 : 0)};
   if(caster==="p0") board.p0={...board.p0,grave:[musket,pot],hand:[...ownHand,ELF,ELF,ELF,ELF],deckCount:(board.p0.deckCount ?? 20)-2};
   else board[caster]={...board[caster],hand:[ELF,ELF,ELF],grave:[pot],deckCount:17};
   const setup: Scenario["setup"]={p0:{monsters:slots(1,kid),hand:[musket]},[caster]:{...(caster==="p0" ? {monsters:slots(1,kid)} : {}),hand:caster==="p0" ? [musket,pot] : [pot]}};
-  return scenario(`${format}-review3-kidbrave-${caster}-spell-column`,format,setup,[...turnsBefore(format,caster),activate(pot,caster),zone(caster,caster==="p0" ? "s1" : "s3",caster),...(match ? [yes("p0")] : []),expectPrompt({by:caster,context:"action"}),everySeat(format,board)],format === "ffa3" ? ["R-FFA-THREE-COLUMNS"] : undefined);
+  return scenario(`${format}-review3-kidbrave-${caster}-spell-column`,format,setup,[...turnsBefore(format,caster),activate(pot,caster),zone(caster,caster==="p0" ? "s1" : "s3",caster),...(match ? [yes("p0")] : []),expectPrompt({by:caster,context:"action"}),everySeat(format,board)],undefined);
 }
 function impermanence(caster: "p1" | "p2", permanent=false): Scenario {
   const tenki="Fire Formation - Tenki",warwolf="Gene-Warped Warwolf",trap="Infinite Impermanence",rat="Giant Rat",pot="Pot of Greed",remedy="Goblin's Secret Remedy",board=state("ffa4",caster);

@@ -17,8 +17,3 @@ function s.initial_effect(c)
 	mp_initial(c)
 	Card.RegisterEffect=register
 end
-
--- R-FFA-THREE-COLUMNS: choose the column opponent before cards or zones.
-if aux.MPColumnEffects then
-	s.initial_effect=aux.MPColumnEffects(s.initial_effect,{s.activate})
-end

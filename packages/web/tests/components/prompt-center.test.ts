@@ -124,6 +124,14 @@ describe("responseTitle", () => {
     expect(bare.title).toBe('Activate the Quick Effect of "—"?');
   });
 
+  it("names the owner in a replay fork: no Your, no Opponent", () => {
+    const named = (seat: number) => ["Ada", "Bo"][seat] ?? `Player ${seat + 1}`;
+    const p = prompt({ title: 'Activate the Trigger Effect of "%ls" from [%ls]?', options: yesNo, ...({ source } as object) });
+    expect(responseTitle(p, [], 0, named, true).sub).toBe("Mataza the Zapper · Ada's trigger effect · Ada's Graveyard");
+    const theirs = prompt({ title: 'Activate the Trigger Effect of "%ls" from [%ls]?', options: yesNo, ...({ source: { ...source, seat: 1, zone: { ...source.zone, controller: 1 } } } as object) });
+    expect(responseTitle(theirs, [], 0, named, true).sub).toBe("Mataza the Zapper · Bo's trigger effect · Bo's Graveyard");
+  });
+
   it("keeps the chain wording and drops the generic engine title", () => {
     const p = prompt({ title: "Select a chain link or pass", context: { type: "chain", forced: false } });
     expect(responseTitle(p, [{ index: 1, seat: 1, name: "Raigeki" }], 0)).toMatchObject({ title: "You can respond to Raigeki", sub: undefined });

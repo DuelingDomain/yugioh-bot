@@ -1,6 +1,11 @@
 import type { CSSProperties, KeyboardEvent } from "react";
+import type { DuelCardInfo, DuelClock } from "@yugidraft/shared/duels";
+import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
+import { useForkLabels } from "../table/fork-labels";
 import { formatClock } from "../table/holo-lp";
+import { isLowClock } from "../clock-beep";
+import { useLiveClockMs } from "../use-live-clock";
 import type { ResponderState } from "./tag-logic";
 import styles from "./tag-stage.module.css";
 
@@ -16,12 +21,16 @@ export interface PlateMember {
   hand: number;
   deck: number;
   clockMs: number | null;
+  /** The duel clock: with it the chip shows this seat's live time instead of `clockMs`. */
+  clock?: DuelClock | null;
   clockRuns: boolean;
   now: boolean; // on the baton
   response: ResponderState | null; // set while this team answers a chain
   pickable: boolean; // the viewer may choose this rival
   hotkey: number | null;
   locked: boolean; // the attack aims at this member
+  /** A rival's Deck Master (Domain only): a small thumb on the chip. In use, it is an empty well where the return lands. */
+  master?: { card: DuelCardInfo; inUse: boolean; summon: string | null };
 }
 
 export interface TeamPlateProps {
@@ -37,6 +46,7 @@ export interface TeamPlateProps {
   hang?: boolean; // the rival plate hangs from cords above its strip
   reducedMotion: boolean;
   onPick?: (seat: number) => void;
+  onInspectMaster?: (card: DuelCardInfo) => void;
   plateRef?: (node: HTMLDivElement | null) => void;
   style?: CSSProperties;
 }
@@ -69,9 +79,33 @@ function DeckIcon() {
 
 const RESPONSE_TEXT: Record<ResponderState, string> = { choosing: "…", waiting: "·", passed: "✓" };
 
-function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number) => void }) {
+/** What the thumb says: whose master it is, whether it is in use, and what the next summon from the zone costs. */
+function MasterThumb({ member, master, onInspect }: { member: PlateMember; master: NonNullable<PlateMember["master"]>; onInspect?: (card: DuelCardInfo) => void }) {
+  const text = `${member.name}'s Master: ${master.card.name}${master.inUse ? " (in use)" : ""}${master.summon ? `. ${master.summon}` : ""}`;
+  return (
+    <button
+      type="button"
+      className={styles.mthumb}
+      data-master-thumb={member.seat}
+      data-master-dock={member.seat}
+      data-master-source={member.seat}
+      data-in-use={master.inUse ? "true" : undefined}
+      aria-label={text}
+      title={text}
+      onClick={() => onInspect?.(master.card)}
+    >
+      {master.inUse ? null : <img src={cardArtUrl(master.card.code, "small")} alt="" draggable={false} />}
+    </button>
+  );
+}
+
+function Chip({ member, onPick, onInspectMaster }: { member: PlateMember; onPick?: (seat: number) => void; onInspectMaster?: (card: DuelCardInfo) => void }) {
+  const forkLabels = useForkLabels();
   const style = { ["--seat" as string]: member.rgb, ["--seat-ink" as string]: member.ink } as CSSProperties;
-  const clock = formatClock(member.clockMs);
+  const liveMs = useLiveClockMs(member.clock, member.seat);
+  const shownMs = member.clock ? liveMs : member.clockMs;
+  const clock = formatClock(shownMs);
+  const lowClock = shownMs != null && isLowClock(shownMs);
   const pick = () => {
     if (member.pickable) onPick?.(member.seat);
   };
@@ -81,45 +115,50 @@ function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number)
       pick();
     }
   };
+  // The Deck Master thumb is a sibling of the chip, not inside it: a button in a pickable chip would nest controls, and its
+  // Enter key would bubble into the chip and pick the seat.
   return (
-    <div
-      className={styles.mchip}
-      data-lp-seat={member.seat}
-      data-member-seat={member.seat}
-      data-now={member.now ? "true" : undefined}
-      data-pickable={member.pickable ? "true" : undefined}
-      data-locked={member.locked ? "true" : undefined}
-      role={member.pickable ? "button" : undefined}
-      tabIndex={member.pickable ? 0 : undefined}
-      aria-label={member.pickable ? `Choose ${member.name}` : undefined}
-      style={style}
-      onClick={pick}
-      onKeyDown={onKey}
-    >
-      <span className={styles.pickring} aria-hidden="true" />
-      {member.pickable && member.hotkey != null ? <kbd className={styles.keyhint}>{member.hotkey}</kbd> : null}
-      <div className={styles.m1}>
-        <span className={styles.code}>{member.code}</span>
-        <b title={member.name} aria-hidden="true">{member.name.split(" ")[0]}</b>
-        <span className={styles.srOnly}>{member.name}</span>
-        {member.you ? <span className={styles.you}>YOU</span> : null}
-        {member.response ? (
-          <span className={styles.st2} data-k={member.response} title={member.response}>
-            {RESPONSE_TEXT[member.response]}
-          </span>
-        ) : null}
+    <div className={styles.mchipWrap} style={style}>
+      <div
+        className={styles.mchip}
+        data-lp-seat={member.seat}
+        data-member-seat={member.seat}
+        data-now={member.now ? "true" : undefined}
+        data-pickable={member.pickable ? "true" : undefined}
+        data-locked={member.locked ? "true" : undefined}
+        role={member.pickable ? "button" : undefined}
+        tabIndex={member.pickable ? 0 : undefined}
+        aria-label={member.pickable ? `Choose ${member.name}` : undefined}
+        style={style}
+        onClick={pick}
+        onKeyDown={onKey}
+      >
+        <span className={styles.pickring} aria-hidden="true" />
+        {member.pickable && member.hotkey != null ? <kbd className={styles.keyhint}>{member.hotkey}</kbd> : null}
+        <div className={styles.m1}>
+          <span className={styles.code}>{member.code}</span>
+          <b title={member.name} aria-hidden="true">{member.name.split(" ")[0]}</b>
+          <span className={styles.srOnly}>{member.name}</span>
+          {member.you ? <span className={styles.you}>{forkLabels ? "ACTING" : "YOU"}</span> : null}
+          {member.response ? (
+            <span className={styles.st2} data-k={member.response} title={member.response}>
+              {RESPONSE_TEXT[member.response]}
+            </span>
+          ) : null}
+        </div>
+        <div className={styles.m2}>
+          <span title="Hand"><HandIcon />{member.hand}</span>
+          <span title="Deck"><DeckIcon />{member.deck}</span>
+          {clock ? <span className={styles.clk} data-tick={member.clockRuns ? "true" : undefined} data-low={lowClock ? "true" : undefined}>{clock}</span> : null}
+        </div>
       </div>
-      <div className={styles.m2}>
-        <span title="Hand"><HandIcon />{member.hand}</span>
-        <span title="Deck"><DeckIcon />{member.deck}</span>
-        {clock ? <span className={styles.clk} data-tick={member.clockRuns ? "true" : undefined}>{clock}</span> : null}
-      </div>
+      {member.master ? <MasterThumb member={member} master={member.master} onInspect={onInspectMaster} /> : null}
     </div>
   );
 }
 
 /** Team life plate: the shared LP once, then one chip per member. Each chip carries the data-lp-seat hook of its seat. */
-export function TeamLpPlate({ teamName, glyph, near, lp, startLp, state, cracked, damage, members, hang, reducedMotion, onPick, plateRef, style }: TeamPlateProps) {
+export function TeamLpPlate({ teamName, glyph, near, lp, startLp, state, cracked, damage, members, hang, reducedMotion, onPick, onInspectMaster, plateRef, style }: TeamPlateProps) {
   return (
     <div
       ref={plateRef}
@@ -144,7 +183,7 @@ export function TeamLpPlate({ teamName, glyph, near, lp, startLp, state, cracked
       </div>
       <div className={styles.mchips}>
         {members.map((m) => (
-          <Chip key={m.seat} member={m} onPick={onPick} />
+          <Chip key={m.seat} member={m} onPick={onPick} onInspectMaster={onInspectMaster} />
         ))}
       </div>
       {cracked ? (

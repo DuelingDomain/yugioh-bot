@@ -90,7 +90,7 @@ export function ThemeTableLobby({ slug, draft, isCreator, isParticipant, onJoin,
 
   const cubes = draft.allowedCubes ?? [];
   const table = useThemeTable({ slug, lobby, players, config: draft.config, allowedCubes: cubes, controller, onChanged: refetch });
-  const { preview, open: openPreview, close: closePreview } = useCubePreview();
+  const { preview, open: openPreview, close: closePreview } = useCubePreview(slug);
   const [inviteOpen, setInviteOpen] = React.useState(false);
   // A private draft has no link a seated player can pass on: only the host holds the invite.
   const canManageInvite = draft.canManageInvite === true;

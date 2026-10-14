@@ -3,6 +3,8 @@ import type { DuelBestOf, DuelDeck, DuelMasterRule, DuelMode, DuelSettings } fro
 import { DuelSettingsError, NO_BANLIST_ID, normalizeDuelSettings } from "../duels/settings.js";
 import { createDuelSeriesService } from "./duel-series.js";
 import { createMatchService } from "./matches.js";
+import type { DeckTypeEngineSource } from "./deck-sections.js";
+import { createDeckCopyRepairService } from "./deck-copy-repair.js";
 
 export class TournamentDuelError extends Error {
   readonly status: number;
@@ -193,7 +195,9 @@ function copyDeck(deck: DuelDeck): DuelDeck {
   return copy;
 }
 
-export function createTournamentDuelService(db: Database.Database): TournamentDuelService {
+export function createTournamentDuelService(db: Database.Database, engine?: DeckTypeEngineSource): TournamentDuelService {
+  let deckCopies: ReturnType<typeof createDeckCopyRepairService> | undefined;
+  const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(db, engine);
   const selectRules = db.prepare<[number], TournamentRulesRow>(`
     select t.best_of, t.duel_rules_json,
       (select d.id from drafts d where d.tournament_id = t.id order by d.id limit 1) as draft_id
@@ -255,7 +259,7 @@ export function createTournamentDuelService(db: Database.Database): TournamentDu
     where tournament_match_id = ? and status in ('active', 'between_games')
   `);
   const selectLatestGameSlug = db.prepare<[number], { slug: string | null }>(
-    "select web_slug as slug from duels where series_id = ? order by game_number desc, id desc limit 1",
+    "select web_slug as slug from duels where kind = 'play' and series_id = ? order by game_number desc, id desc limit 1",
   );
   const selectPlayerByUser = db.prepare<[string, number], { id: number }>(
     "select id from players where guild_id = ? and user_id = ?",
@@ -393,6 +397,10 @@ export function createTournamentDuelService(db: Database.Database): TournamentDu
       if (input.winnerPlayerId !== slot.player_one_id && input.winnerPlayerId !== slot.player_two_id) {
         throw new TournamentDuelError("Winner must be one of the match players", 400);
       }
+      if (db.prepare(`select 1 from duels d join duel_series s on s.id = d.series_id
+        where s.tournament_match_id = ? and d.kind != 'play' limit 1`).get(slot.id)) {
+        throw new TournamentDuelError("Replay forks cannot be linked to a tournament result", 409);
+      }
       const organizer = selectPlayerByUser.get(tournament.guild_id, input.organizerUserId);
 
       const changedDuelSlugs = new Set<string>();
@@ -443,6 +451,7 @@ export function createTournamentDuelService(db: Database.Database): TournamentDu
     },
 
     registration(tournamentId, playerId) {
+      repairDeckCopies().registration(tournamentId, playerId);
       const row = selectRegistration.get(tournamentId, playerId);
       if (!row || row.deck_json === null || row.deck_registered_at === null) return null;
       return {

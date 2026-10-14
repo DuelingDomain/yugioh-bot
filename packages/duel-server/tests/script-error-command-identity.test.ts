@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { handleWorkerRequest } from "../src/worker.js";
 
 const { create } = vi.hoisted(() => ({ create: vi.fn() }));
+vi.mock("../src/cards.js", () => ({ loadCardDatabase: vi.fn() }));
 vi.mock("../src/engine.js", () => ({ createEngineGame: create }));
 vi.mock("../src/legacy/index.js", () => ({ createLegacyEngineGame: create }));
 const error = { code: 3743515, scriptFile: "c3743515.lua", line: 61, message: "runtime error", index: 1,

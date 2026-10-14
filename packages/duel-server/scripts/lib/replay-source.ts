@@ -56,7 +56,7 @@ export function loadSource(file: string): DuelSource {
       firstTurnDraw: savedFirstTurnDraw(json.setup?.firstTurnDraw, json.mode, json.masterRule, format),
       decks: json.decks,
       seed: json.seed,
-      settings: json.settings == null ? legacyDuelSettings() : normalizeDuelSettings(json.mode, json.settings),
+      settings: json.settings == null ? legacyDuelSettings() : normalizeDuelSettings(json.mode, json.settings, format),
       ...(Array.isArray(json.startupScripts) && json.startupScripts.length > 0
         ? { startupScripts: json.startupScripts as Array<{ name: string; content: string }> }
         : Array.isArray(json.setup?.startupScripts) && json.setup.startupScripts.length > 0

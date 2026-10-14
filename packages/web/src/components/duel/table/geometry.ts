@@ -141,7 +141,13 @@ function compassAndAngle(format: TableFormat, place: number): CompassSlot {
  * Seats of a table in drawing order: the viewer (or seat 0 for a spectator) first, then the others in
  * `placementOrder`. Colours are relative to the viewer, so the viewer is always Violet.
  */
-export function tableLayout(format: TableFormat, engine: Pick<DuelEngineView, "format" | "seats">, viewerSeat: number | null): TableLayout {
+export function tableLayout(
+  format: TableFormat,
+  engine: Pick<DuelEngineView, "format" | "seats">,
+  viewerSeat: number | null,
+  /** The seat that acts, when it is not the seat the table is drawn from (a replay fork). Default: `viewerSeat`. */
+  actingSeat: number | null = viewerSeat,
+): TableLayout {
   const order = placementOrder({ format: engineFormat({ format, seats: engine.seats }), seats: engine.seats }, viewerSeat);
   const seatNumbers = engine.seats.map((view) => view.seat).sort((a, b) => a - b);
   const anchorSeat = viewerSeat ?? order[0] ?? 0;
@@ -151,7 +157,7 @@ export function tableLayout(format: TableFormat, engine: Pick<DuelEngineView, "f
     const { compass, baseAngleDeg } = compassAndAngle(format, place);
     return {
       seat,
-      relation: seatRelation(format, viewerSeat, seat),
+      relation: seatRelation(format, actingSeat, seat),
       tone: (format === "tag" ? TAG_TONES : TONES)[Math.min(place, 3)],
       compass,
       baseAngleDeg,
@@ -161,6 +167,18 @@ export function tableLayout(format: TableFormat, engine: Pick<DuelEngineView, "f
     };
   });
   return { format, viewerSeat, anchorSeat, slots, stage: { width: 1100, height: 860 } };
+}
+
+/**
+ * The layout of a live table. The places follow the camera seat (a replay fork keeps it fixed, whoever acts); what is
+ * yours (the face-up hand, the usable zones) follows the seat that acts.
+ */
+export function controllerLayout(
+  format: TableFormat,
+  engine: Pick<DuelEngineView, "format" | "seats">,
+  controller: { viewerSeat: number | null; cameraSeat?: number | null },
+): TableLayout {
+  return tableLayout(format, engine, controller.cameraSeat ?? controller.viewerSeat, controller.viewerSeat);
 }
 
 function homeTable(format: TableFormat): readonly HomeSlot[] {
@@ -226,7 +244,7 @@ export function slotPlan(layout: TableLayout, camera: CameraView): PoseSlot[] | 
 }
 
 /**
- * Where every seat stands for a camera state. Upright only turns text, so it never moves a field. A lock is
+ * Where every seat stands for a camera state. A lock is
  * not read here: the caller passes the effective camera (see `effectiveCamera`).
  */
 export function seatPoses(
@@ -803,7 +821,7 @@ export function promptRooms(input: {
   const panelMax = Math.min(320, Math.max(220, box.width * 0.27));
   const base = { layout: input.layout, camera: input.camera, poses: input.poses, anchors: input.anchors, spread: input.spread, meFooter: input.meFooter, hint };
   const hub = hubPose(input.layout, input.camera, { box: { width: box.width, height: k * STAGE.height }, meFooter: input.meFooter });
-  const ring = ringPose(input.layout, input.camera, input.spread);
+  const ring = ringPose(input.layout, input.camera);
   const furniture: PromptRoom[] = [
     { x: hub.x - hub.width / 2, y: hub.y - hub.height / 2, width: hub.width, height: hub.height },
     { x: ring.x - 70 * ring.scale, y: ring.y - 70 * ring.scale, width: 140 * ring.scale, height: 154 * ring.scale },
@@ -1121,7 +1139,7 @@ function wideHubPose(
   fallback: HubPose,
   hud?: { width: number; height: number },
 ): HubPose {
-  const ring = ringPose(layout, camera, spread);
+  const ring = ringPose(layout, camera);
   const obstacles = hubObstacles(layout, poses, plates, meFooter, hint, spread, ring);
   if (hud) {
     const right = STAGE.width + spread;

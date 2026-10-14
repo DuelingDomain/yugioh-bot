@@ -1,5 +1,6 @@
 import { duelFxClock } from "./fx-clock";
 import { zoneKey } from "./constants";
+import { zoneCardParts, zoneFrameOf } from "./event-queue";
 
 /**
  * The destroy hand-off: a card that is being destroyed is "being destroyed" from the moment its
@@ -183,9 +184,8 @@ export function reconcileDestroyHides(root: ParentNode | null = typeof document 
     const art = zone?.querySelector<HTMLElement>("[data-card-art]");
     if (!zone || !art) continue;
     if (!holdMatchesCard(hold.code, artCodeOf(art))) continue;
-    const frame = art.parentElement?.parentElement;
-    if (!frame || frame === zone || !zone.contains(frame)) continue;
-    for (const child of Array.from(frame.children)) if (child instanceof HTMLElement) wantHidden.add(child);
+    if (!zoneFrameOf(zone)) continue;
+    for (const part of zoneCardParts(zone)) wantHidden.add(part);
   }
   for (const el of Array.from(hiddenNodes)) if (!wantHidden.has(el)) show(el);
   for (const el of wantHidden) hide(el);

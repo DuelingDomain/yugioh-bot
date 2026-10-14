@@ -187,58 +187,6 @@ test("runtime data preparation refuses a symlinked data directory with trailing 
   assert.ok(!existsSync(join(target, "card-images")));
 });
 
-test("staging prepares its installed data before migration and immediately before start", t => {
-  const f = fixture(t);
-  const workflow = parse(readFileSync(new URL(".github/workflows/deploy-staging.yml", root), "utf8"));
-  const saved = join(f.dir, "controls");
-  mkdirSync(saved);
-  const save = workflow.jobs.staging.steps.find(step => step.name === "Save staging deployment controls");
-  const result = spawnSync("sh", ["-ec", save.run], { cwd: root, env: { ...f.env, RUNNER_TEMP: saved }, encoding: "utf8" });
-  assert.equal(result.status, 0, result.stderr);
-  const remote = readFileSync(join(saved, "staging-remote-deploy.sh"), "utf8");
-  const start = remote.indexOf("# 5. The engine bundle");
-  const end = remote.indexOf("compose ps", start);
-  assert.ok(start > 0 && end > start);
-  const data = join(f.dir, "data-staging");
-  mkdirSync(join(data, "duel-engine"), { recursive: true });
-  for (const core of ["ocgcore.multi", "ocgcore.multi-domain"]) writeFileSync(join(data, "duel-engine", `${core}.SOURCE`), "test");
-  mkdirSync(join(f.dir, "scripts/staging"), { recursive: true });
-  for (const name of ["interrupt-active-duels", "install-staging-bundle", "check-resources"]) {
-    writeFileSync(join(f.dir, `scripts/staging/${name}.sh`), `#!/bin/sh\necho ${name} >> "$TEST_LOG"\n`);
-  }
-  const segment = `compose() { echo "compose $*" >> "$TEST_LOG"; }\nskip_staging() { exit 1; }\n${remote.slice(start, end)}`;
-  const run = failure => spawnSync("sh", ["-ec", segment], { cwd: f.dir, env: { ...f.env, runtime_prepare: join(saved, "prepare-runtime-data.sh"), staging_dir: f.dir, bundle: f.dir, clerk_scrub_marker: join(data, ".clerk-ids-needs-scrub"), TEST_CHOWN_FAIL: failure }, encoding: "utf8" });
-  const success = run("0");
-  assert.equal(success.status, 0, success.stderr);
-  const log = readFileSync(f.log, "utf8");
-  assert.ok(log.indexOf("install-staging-bundle") < log.indexOf(`1000:1000 ${data}`));
-  assert.ok(log.indexOf(`1000:1000 ${data}`) < log.indexOf("compose run"));
-  assert.ok(log.lastIndexOf(`1000:1000 ${data}`) > log.indexOf("check-resources"));
-  assert.ok(log.lastIndexOf(`1000:1000 ${data}`) < log.indexOf("compose up -d"));
-  assert.ok(!log.includes(`1000:1000 ${f.data}\n`));
-  assert.ok(!log.includes(`1000:1000 ${f.data}/`));
-  writeFileSync(f.log, "");
-  const failure = run("1");
-  assert.notEqual(failure.status, 0);
-  assert.match(failure.stderr, /chown: fixture ownership failure/);
-  assert.ok(!readFileSync(f.log, "utf8").includes("compose run"));
-  assert.ok(!readFileSync(f.log, "utf8").includes("compose up"));
-});
-
-test("staging workflow passes the node uid and gid to its remote Compose wrapper", t => {
-  const f = fixture(t);
-  const job = parse(readFileSync(new URL(".github/workflows/deploy-staging.yml", root), "utf8")).jobs.staging;
-  const ssh = join(f.dir, "bin/ssh");
-  writeFileSync(ssh, '#!/bin/sh\nfor arg do command=$arg; done\nexec sh -c "$command"\n');
-  chmodSync(ssh, 0o755);
-  writeFileSync(join(f.dir, "staging-remote-deploy.sh"), '[ "$STAGING_UID" = 1000 ] && [ "$STAGING_GID" = 1000 ]\n');
-  const run = job.steps.find(step => step.name === "Run on the VM");
-  const result = spawnSync("bash", ["-ec", run.run], {
-    cwd: f.dir, encoding: "utf8", env: { ...f.env, RUNNER_TEMP: f.dir, INPUT_ACTION: "stop", INPUT_REF: "main", DEPLOY_COMMIT: "", INPUT_REFRESH_DB: "false", INPUT_IGNORE_PROD_ACTIVITY: "false", STAGING_HOST: "localhost", STAGING_DOMAIN: "", STAGING_HTTP_PORT: "8080", STAGING_CLERK_ENV: "/tmp/staging.env", VM_PORT: "22", VM_USER: "root", VM_HOST: "localhost", STAGING_UID: job.env.STAGING_UID ?? "0", STAGING_GID: job.env.STAGING_GID ?? "0" },
-  });
-  assert.equal(result.status, 0, result.stderr);
-});
-
 test("web image preparation gives node a writable Next cache while leaving app files alone", t => {
   const f = fixture(t);
   const app = join(f.dir, "app");
@@ -258,73 +206,54 @@ test("web image preparation gives node a writable Next cache while leaving app f
   assert.ok(calls.every(call => call.endsWith(`${app}/data`) || call.endsWith(`${app}/packages/web/.next/cache`)));
 });
 
-test("production deploy prepares installed data before the migration container and stops on ownership failure", t => {
+test("production carries the workflow revision's runtime helper through artifacts and SSH for older refs", t => {
   const f = fixture(t);
   const workflow = parse(readFileSync(new URL(".github/workflows/deploy.yml", root), "utf8"));
-  const remote = workflow.jobs.deploy.steps.find(step => step.name === "Deploy over SSH").run;
-  const start = remote.indexOf("docker compose -f docker-compose.yml stop web duel worker ws");
-  const end = remote.indexOf("trap - EXIT", start);
-  assert.ok(start > 0 && end > start);
-  const save = workflow.jobs.deploy.steps.find(step => step.name === "Save deployment activity guard");
+  const { prepare, deploy } = workflow.jobs;
   const saved = join(f.dir, "controls");
-  mkdirSync(saved);
-  const preserved = spawnSync("sh", ["-ec", save.run], { cwd: root, env: { ...f.env, RUNNER_TEMP: saved }, encoding: "utf8" });
+  const release = join(saved, "release");
+  mkdirSync(release, { recursive: true });
+  const env = { ...f.env, RUNNER_TEMP: saved, GITHUB_STEP_SUMMARY: join(f.dir, "summary.md"), TEST_REMOTE_ENTRY: join(f.dir, "remote.sh"), TEST_SAVED_HELPER: join(saved, "prepare-runtime-data.sh"), TEST_DATA: f.data,
+    DEPLOY_COMMIT: "a".repeat(40), VM_PORT: "22", VM_USER: "root", VM_HOST: "localhost", DEPLOY_FORCE: "false", DEPLOY_ROLLBACK: "true", DEPLOY_WAIT_SECONDS: "0", DEPLOY_LIVE_ONLY: "false", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_test" };
+  const save = prepare.steps.find(step => step.name === "Save deployment activity guard");
+  const preserved = spawnSync("sh", ["-ec", save.run], { cwd: root, env, encoding: "utf8" });
   assert.equal(preserved.status, 0, preserved.stderr);
-  for (const path of ["scripts/backup", "packages/duel-server/scripts"]) mkdirSync(join(f.dir, path), { recursive: true });
-  writeFileSync(join(f.dir, "scripts/backup/dueling-backup"), "pass\n");
-  writeFileSync(join(f.dir, "packages/duel-server/scripts/install-engine-bundle.sh"), '#!/bin/sh\nprintf "installed\\n" >> "$TEST_LOG"\n');
-  const docker = join(f.dir, "bin/docker");
-  writeFileSync(docker, '#!/bin/sh\nprintf "docker %s\\n" "$*" >> "$TEST_LOG"\n');
-  chmodSync(docker, 0o755);
-  const segment = remote.slice(start, end).replaceAll("/opt/yugioh-bot/data/duel-engine", join(f.data, "duel-engine"));
-  const run = failure => spawnSync("sh", ["-ec", `cleanup() { :; }\n${segment}`], { cwd: f.dir, env: { ...f.env, DEPLOY_RUNTIME_PREPARE: join(saved, "prepare-runtime-data.sh"), release_dir: f.dir, bundle_src: f.dir, TEST_CHOWN_FAIL: failure }, encoding: "utf8" });
-  const success = run("0");
-  assert.equal(success.status, 0, success.stderr);
-  const log = readFileSync(f.log, "utf8");
-  assert.ok(log.indexOf("installed") < log.indexOf("1000:1000"));
-  assert.ok(log.indexOf("1000:1000") < log.indexOf("docker compose -f docker-compose.yml run"));
-  assert.ok(log.lastIndexOf("1000:1000") > log.indexOf("docker compose -f docker-compose.yml down"));
-  assert.ok(log.lastIndexOf("1000:1000") < log.indexOf("docker compose -f docker-compose.yml up"));
-  writeFileSync(f.log, "");
-  const failure = run("1");
-  assert.notEqual(failure.status, 0);
-  assert.match(failure.stderr, /chown: fixture ownership failure/);
-  assert.ok(!readFileSync(f.log, "utf8").includes("docker compose -f docker-compose.yml run"));
-});
-
-for (const [filename, jobName, saveName, runName, variable] of [
-  ["deploy-staging.yml", "staging", "Save staging deployment controls", "Run on the VM", "STAGING_RUNTIME_PREPARE"],
-  ["deploy.yml", "deploy", "Save deployment activity guard", "Deploy over SSH", "DEPLOY_RUNTIME_PREPARE"],
-]) {
-  test(`${jobName} workflow transfers its preserved runtime helper independently of the selected checkout`, t => {
-    const f = fixture(t);
-    const job = parse(readFileSync(new URL(`.github/workflows/${filename}`, root), "utf8")).jobs[jobName];
-    const saved = join(f.dir, "controls");
-    mkdirSync(saved);
-    const save = job.steps.find(step => step.name === saveName);
-    const env = { ...f.env, RUNNER_TEMP: saved, GITHUB_STEP_SUMMARY: join(f.dir, "summary.md"), TEST_REMOTE_ENTRY: join(f.dir, "remote.sh"), TEST_SAVED_HELPER: join(saved, "prepare-runtime-data.sh"), TEST_DATA: f.data,
-      INPUT_ACTION: "deploy", INPUT_REF: "main", DEPLOY_COMMIT: "a".repeat(40), INPUT_REFRESH_DB: "false", INPUT_IGNORE_PROD_ACTIVITY: "false", STAGING_HOST: "localhost", STAGING_DOMAIN: "", STAGING_HTTP_PORT: "8080", STAGING_CLERK_ENV: "/tmp/staging.env", STAGING_UID: "1000", STAGING_GID: "1000", VM_PORT: "22", VM_USER: "root", VM_HOST: "localhost", DEPLOY_FORCE: "false", DEPLOY_ROLLBACK: "true", DEPLOY_WAIT_SECONDS: "0", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_test" };
-    const preserved = spawnSync("sh", ["-ec", save.run], { cwd: root, env, encoding: "utf8" });
-    assert.equal(preserved.status, 0, preserved.stderr);
-    assert.ok(existsSync(env.TEST_SAVED_HELPER), "runtime helper must be saved before the selected checkout");
-    for (const bundle of ["staging-bundle", "deploy-bundle"]) mkdirSync(join(saved, bundle));
-    writeFileSync(join(f.dir, "bin/ssh"), `#!/bin/sh
+  const expectedHelper = readFileSync(new URL("scripts/deployment/prepare-runtime-data.sh", root), "utf8");
+  mkdirSync(join(saved, "deploy-bundle"));
+  const bundle = spawnSync("tar", ["-C", join(saved, "deploy-bundle"), "-czf", join(saved, "deploy-bundle.tar.gz"), "."], { encoding: "utf8" });
+  assert.equal(bundle.status, 0, bundle.stderr);
+  // Carry only the files declared in the real release artifact, then discard prepare's workspace.
+  const upload = prepare.steps.find(step => step.name === "Upload verified release controls and bundle");
+  for (const path of upload.with.path.trim().split("\n")) {
+    const source = path.replace("${{ runner.temp }}", saved);
+    writeFileSync(join(release, source.split("/").at(-1)), readFileSync(source));
+    rmSync(source);
+  }
+  mkdirSync(join(saved, "image-digests"));
+  for (const service of ["duel", "web", "worker", "ws"]) {
+    writeFileSync(join(saved, "image-digests", `${service}.digest`), `${service} sha256:${"b".repeat(64)}\n`);
+  }
+  const transfer = deploy.steps.find(step => step.name === "Prepare deployment transfer");
+  const restored = spawnSync("sh", ["-ec", transfer.run], { cwd: f.dir, env, encoding: "utf8" });
+  assert.equal(restored.status, 0, restored.stderr);
+  assert.equal(readFileSync(env.TEST_SAVED_HELPER, "utf8"), expectedHelper);
+  assert.ok(!existsSync(join(f.dir, "scripts/deployment/prepare-runtime-data.sh")), "selected checkout predates the helper");
+  writeFileSync(join(f.dir, "bin/ssh"), `#!/bin/sh
 for arg do command=$arg; done
 case "$command" in
   *" sh -s") cat >/dev/null; command=\${command%sh -s}; exec sh -c "$command sh '$TEST_REMOTE_ENTRY'" ;;
   *) exec sh -c "$command" ;;
 esac
 `);
-    writeFileSync(join(f.dir, "bin/scp"), '#!/bin/sh\nprevious=\nfor arg do source=$previous; previous=$arg; done\ncp "$source" "${previous#*:}"\n');
-    for (const name of ["ssh", "scp"]) chmodSync(join(f.dir, `bin/${name}`), 0o755);
-    writeFileSync(env.TEST_REMOTE_ENTRY, `set -eu\nhelper=$${variable}\n[ -f "$helper" ]\ncmp "$helper" "$TEST_SAVED_HELPER"\nsh "$helper" "$TEST_DATA"\necho "$helper" > "$RUNNER_TEMP/received-helper"\n`);
-    const transfer = job.steps.find(step => step.name === runName);
-    const result = spawnSync("bash", ["-ec", transfer.run], { cwd: f.dir, env, encoding: "utf8" });
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(statSync(join(f.data, "ops-reports")).mode & 0o777, 0o700);
-    assert.ok(!existsSync(readFileSync(join(saved, "received-helper"), "utf8").trim()), "transferred helper must be cleaned up");
-  });
-}
+  writeFileSync(join(f.dir, "bin/scp"), '#!/bin/sh\nprevious=\nfor arg do source=$previous; previous=$arg; done\ncp "$source" "${previous#*:}"\n');
+  for (const name of ["ssh", "scp"]) chmodSync(join(f.dir, `bin/${name}`), 0o755);
+  writeFileSync(env.TEST_REMOTE_ENTRY, 'set -eu\nhelper=$DEPLOY_RUNTIME_PREPARE\n[ -f "$helper" ]\ncmp "$helper" "$TEST_SAVED_HELPER"\nsh "$helper" "$TEST_DATA"\necho "$helper" > "$RUNNER_TEMP/received-helper"\n');
+  const ssh = deploy.steps.find(step => step.name === "Deploy over SSH");
+  const result = spawnSync("bash", ["-ec", ssh.run], { cwd: f.dir, env, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(existsSync(join(f.data, "ops-reports")), "the transferred helper runs on the older checkout");
+  assert.ok(!existsSync(readFileSync(join(saved, "received-helper"), "utf8").trim()), "transferred helper must be cleaned up");
+});
 
 for (const user of [undefined, "1000"]) {
   test(`development Compose permits cache writes with ${user ? "explicit" : "default"} uid and gid`, () => {

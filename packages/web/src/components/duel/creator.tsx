@@ -1,11 +1,13 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, Check, Copy, Globe, Info, Lock, Swords } from "lucide-react";
 import {
   defaultDuelSettings,
+  DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT,
+  supportsFirstTurnDrawSetting,
   type DuelBestOf,
   DUEL_BANLIST_OPTIONS,
   duelClockRulesText,
@@ -18,8 +20,9 @@ import {
   type DuelMode,
   type DuelSettings,
 } from "@yugidraft/shared/duels";
-import { createDuel, type DuelPlayerOption } from "./api";
+import { createDuel, DuelRequestError, type DuelPlayerOption } from "./api";
 import { OpponentPicker } from "./opponent-picker";
+import { HostedTableNotice } from "./hosted-table-notice";
 import { TURN_TIMER_CHOICES } from "./turn-timer";
 import { cx, sheetButtonClass, SheetButton, SheetSegmented, SheetSelect, sheetPage, type Choice } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
@@ -57,10 +60,24 @@ const TIMEOUTS: readonly Choice<DuelSettings["timeout"]>[] = [
 ];
 const VALIDATION: readonly Choice<boolean>[] = [{ value: true, label: "Forbid invalid decks" }, { value: false, label: "Allow invalid decks" }];
 const SHUFFLE: readonly Choice<boolean>[] = [{ value: true, label: "Shuffled" }, { value: false, label: "Not shuffled" }];
+const FIRST_TURN_DRAW: readonly Choice<boolean>[] = [{ value: true, label: "On" }, { value: false, label: "Off" }];
 const SERIES_LENGTHS: readonly Choice<DuelBestOf>[] = [
   { value: 1, label: "Best of 1" },
   { value: 3, label: "Best of 3" },
 ];
+/**
+ * The setting set for a new table format: the format sets the default for the window stops, and the first-turn draw
+ * exists only for Domain free-for-all tables (it keeps its value while the table stays one, else it is dropped).
+ */
+function settingsForFormat(current: DuelSettings, mode: DuelMode, format: DuelFormat): DuelSettings {
+  const { firstTurnDraw, ...rest } = current;
+  return {
+    ...rest,
+    stopAtEveryWindow: defaultDuelSettings(mode, format).stopAtEveryWindow,
+    ...(supportsFirstTurnDrawSetting(mode, format) ? { firstTurnDraw: firstTurnDraw ?? DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT } : {}),
+  };
+}
+
 const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label: `Banlist: ${label}` }));
 
 /**
@@ -76,6 +93,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   multiDomainCoreReady?: boolean;
 } = {}) {
   const router = useRouter();
+  const [noticeVersion, setNoticeVersion] = useState(0);
   const [name, setName] = useState("Table");
   const [mode, setMode] = useState<DuelMode>("normal");
   const [format, setFormat] = useState<DuelFormat>("1v1");
@@ -89,12 +107,30 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
+  const creationRequest = useRef<{ fingerprint: string; key: string } | null>(null);
+  const navigatedToRoom = useRef(false);
+  useEffect(() => {
+    const returned = () => {
+      if (!navigatedToRoom.current || window.location.pathname !== "/duels/new") return;
+      navigatedToRoom.current = false;
+      creationRequest.current = null;
+      inFlight.current = false;
+      setCreating(false);
+    };
+    window.addEventListener("pageshow", returned);
+    window.addEventListener("popstate", returned);
+    return () => {
+      window.removeEventListener("pageshow", returned);
+      window.removeEventListener("popstate", returned);
+    };
+  }, []);
   // A challenge room is always private; the server forces it, so the form shows it that way.
   const challenge = opponent != null;
   // A challenge, Best of 3 and Ranked belong to 1v1 tables. Tag and free-for-all tables are open tables, one game.
   const matchLocked = format !== "1v1";
   const visibility = challenge ? "private" : settings.visibility;
   const customDomain = mode === "domain" && isCustomDomain(masterRule, settings);
+  const firstTurnDrawOffered = supportsFirstTurnDrawSetting(mode, format);
   // Domain is offered only where its core exists (see multiDomainBlockReason).
   const domainBlocked = multiDomainBlockReason("domain", format, multiDomainCoreReady);
   const duelTypes = domainBlocked ? FORMATS.filter((choice) => choice.value !== "domain") : FORMATS;
@@ -110,7 +146,12 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
     setCreating(true);
     setError(null);
     try {
+      const fingerprint = JSON.stringify([name.trim(), mode, masterRule, settings, visibility, format, opponent?.id ?? null, bestOf, ranked]);
+      if (creationRequest.current?.fingerprint !== fingerprint) {
+        creationRequest.current = { fingerprint, key: crypto.randomUUID() };
+      }
       const { session, shareUrl } = await createDuel(name.trim(), mode, masterRule, { ...settings, visibility }, {
+        requestKey: creationRequest.current.key,
         // A 1v1 request carries no format: the body stays the one the server has always read.
         ...(format !== "1v1" ? { format } : {}),
         opponentPlayerId: opponent?.id ?? null, bestOf, ranked,
@@ -118,15 +159,29 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
       if (opponent) {
         // Stay on this page so the challenge note and the link can be used; the room is one click away.
         setSent({ slug: session.slug, opponent: opponent.displayName, shareUrl });
+        setNoticeVersion(version => version + 1);
         setCreating(false);
         return;
       }
+      navigatedToRoom.current = true;
       router.push(`/duels/${session.slug}`);
     } catch (cause) {
+      if (cause instanceof DuelRequestError && cause.status === 409) {
+        setNoticeVersion(version => version + 1);
+        creationRequest.current = null;
+      }
       setError(cause instanceof Error ? cause.message : "Could not create the game.");
       inFlight.current = false;
       setCreating(false);
     }
+  }
+
+  function onTableCancelled(slug: string) {
+    if (sent?.slug !== slug) return;
+    setSent(null);
+    setCopied(false);
+    inFlight.current = false;
+    creationRequest.current = null;
   }
 
   async function copyLink() {
@@ -152,6 +207,9 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
     ["Turn clock", settings.turnSeconds === 0 ? "Unlimited" : settings.timeout === "loss" ? "Lose on timeout" : "Play on at zero"],
     ["Deck check", settings.validateDeck ? "Enforced" : "Off"],
     ["Opening order", settings.shuffleDeck ? "Shuffled" : "Not shuffled"],
+    ...(firstTurnDrawOffered
+      ? [["First player draws on turn 1", (settings.firstTurnDraw ?? DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT) ? "On" : "Off"] as [string, string]]
+      : []),
   ];
 
   return (
@@ -164,6 +222,8 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
           <h1 className={ui.title}>Custom game creator</h1>
           <p className={ui.lede}>Set the rules once. They lock when the table opens and stay in match history.</p>
         </header>
+
+        <HostedTableNotice disabled={creating} refreshVersion={noticeVersion} onCancelled={onTableCancelled} />
 
         <div className={styles.layout}>
           <fieldset disabled={creating || sent != null} className={styles.sections}>
@@ -235,7 +295,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 <div className={styles.wide}>
                   <SheetSelect label="Table type" value={format} choices={TABLE_FORMATS.map((choice) => ({ ...choice, disabled: choice.value !== "1v1" && !multiCoreReady }))} onChange={(value) => {
                     setFormat(value);
-                    setSettings((current) => ({ ...current, stopAtEveryWindow: defaultDuelSettings(mode, value).stopAtEveryWindow }));
+                    setSettings((current) => settingsForFormat(current, mode, value));
                     // A challenge, Best of 3 and Ranked need a 1v1 table.
                     if (value !== "1v1") {
                       setOpponent(null);
@@ -287,6 +347,11 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 <div className={styles.wide}>
                   <SheetSegmented label="Opening deck order" value={settings.shuffleDeck} choices={SHUFFLE} onChange={(value) => update("shuffleDeck", value)} />
                 </div>
+                {firstTurnDrawOffered ? (
+                  <div className={styles.wide}>
+                    <SheetSegmented label="First player draws on turn 1" value={settings.firstTurnDraw ?? DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT} choices={FIRST_TURN_DRAW} onChange={(value) => update("firstTurnDraw", value)} />
+                  </div>
+                ) : null}
               </div>
             </section>
 
@@ -327,7 +392,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                         {customDomain ? " — these overrides differ from official Domain rules." : " — 60 singleton Main Deck cards, a separate Deck Master, up to 15 Extra Deck cards, no Side Deck."}
                         {/* The host does not send its 1v1 engine choice to the creator. */}
                         {format !== "1v1"
-                          ? " Tag and free-for-all duels use Master Rule 5. In Domain, every duelist draws on their first turn."
+                          ? ` Tag and free-for-all duels use Master Rule 5. ${firstTurnDrawOffered && settings.firstTurnDraw === false ? "At this table the first player skips the draw on turn 1; every other duelist draws on their first turn." : "In Domain, every duelist draws on their first turn."}`
                           : " In 1v1 Domain, the duelist who goes first skips the draw on their first turn at every Master Rule. The second duelist always draws."}
                       </span>
                     </p>

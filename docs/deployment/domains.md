@@ -24,7 +24,7 @@ MARKETING_URL=https://duelingdomain.com
 NEXTAUTH_URL=https://${SITE_DOMAIN}
 WEB_URL=https://${SITE_DOMAIN}
 ```
-After `.env` edits, run `docker compose -f docker-compose.yml up -d`. After Caddyfile edits, run `docker compose -f docker-compose.yml up -d --no-deps --force-recreate caddy`; `restart` does not refresh the bind mount.
+After `.env` edits, run `docker compose -f docker-compose.yml up -d --no-build`. After Caddyfile edits, run `docker compose -f docker-compose.yml up -d --no-build --no-deps --force-recreate caddy`; `restart` does not refresh the bind mount.
 Discord OAuth redirects to `https://app.duelingdomain.com/api/auth/callback/discord`; the old domain's callback remains registered for rollback.
 
 ## Marketing host behaviour
@@ -71,7 +71,7 @@ curl -sS -i https://duelingdomain.com/api/waitlist -H 'Content-Type: application
 ```
 
 **Rollback:** Restore the pre-cutover `.env` backup; clear `MARKETING_DOMAIN` and `LEGACY_DOMAIN` before restoring the old `SITE_DOMAIN`.
-Run `docker compose -f docker-compose.yml up -d`, then `docker compose -f docker-compose.yml up -d --no-deps --force-recreate caddy`.
+Run `docker compose -f docker-compose.yml up -d --no-build`, then `docker compose -f docker-compose.yml up -d --no-build --no-deps --force-recreate caddy`.
 Do not restore the database; keep the new waitlist signups.
 
 **Waitlist:** SQLite stores unique normalized email, ISO `created_at`, source (default `form`, max 80 characters), and nullable user agent (max 300); no IP is persisted in SQLite or application logs.

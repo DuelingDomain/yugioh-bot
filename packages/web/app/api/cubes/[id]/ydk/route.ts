@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
+import { cubeOwnerAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
@@ -7,7 +8,7 @@ import { serializeYdk, ydkFileName } from "@/lib/ydk-file";
 
 export const runtime = "nodejs";
 
-/** The cube as a `<cube name>.ydk` download. Anyone on the server can read a cube, so anyone can export it. */
+/** Download the owner's cube as a `<cube name>.ydk` file. */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
@@ -21,6 +22,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   }
 
   const db = getDb();
+  const denied = cubeOwnerAccess(db, cubeId, actor);
+  if (denied) return denied;
   const cube = db.prepare("select name from cubes where id = ? and guild_id = ?").get(cubeId, env.discordGuildId) as
     | { name: string }
     | undefined;

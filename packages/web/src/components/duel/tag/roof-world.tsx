@@ -1,7 +1,7 @@
 import { Fragment, type CSSProperties } from "react";
 import { tagSeatCode } from "../table-format";
 import type { BatonStop } from "./tag-logic";
-import { ROOF_FIELD, roofSlots } from "./roof-camera";
+import { ROOF_FIELD, ROOF_STRIP_SPAN, roofSlots } from "./roof-camera";
 import styles from "./tag-stage.module.css";
 
 /**
@@ -15,6 +15,10 @@ const PARAPET = 34;
 /** Strip margin round a field and the helipad scale: the pad is a small mark in the gap between the strips. */
 const STRIP_EDGE = ROOF_FIELD.offsetY - 16;
 const PAD_SCALE = 0.3;
+/** The strip under one team (its two fields with a margin) and how much wider it is than the narrow 653 unit fields it was drawn for. */
+const STRIP_W = ROOF_STRIP_SPAN + 49;
+const STRIP_HALF = STRIP_W / 2;
+const WIDEN = (STRIP_W - 1416) / 2;
 
 interface Tower {
   x: number;
@@ -72,8 +76,8 @@ export function RoofDecor() {
       <div className={styles.wall} style={{ left: 0, top: 0, width: rw, height: PARAPET, transform: `translate3d(${rw / 2}px, ${rh / 2}px, ${PARAPET}px) rotateZ(180deg) rotateX(-90deg)` }} />
       <div className={styles.wall} style={{ left: 0, top: 0, width: rh, height: PARAPET, transform: `translate3d(${-rw / 2}px, ${rh / 2}px, ${PARAPET}px) rotateZ(-90deg) rotateX(-90deg)` }} />
       <div className={styles.wall} style={{ left: 0, top: 0, width: rh, height: PARAPET, transform: `translate3d(${rw / 2}px, ${-rh / 2}px, ${PARAPET}px) rotateZ(90deg) rotateX(-90deg)` }} />
-      <div className={styles.under} style={{ left: -760, top: STRIP_EDGE - 24, width: 1520, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(155 126 255 / 0.7), rgb(92 184 245 / 0.7))" }} />
-      <div className={styles.under} style={{ left: -760, top: -STRIP_EDGE + 24 - 460, width: 1520, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(240 140 196 / 0.7), rgb(143 211 107 / 0.7))" }} />
+      <div className={styles.under} style={{ left: -760 - WIDEN, top: STRIP_EDGE - 24, width: 1520 + 2 * WIDEN, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(155 126 255 / 0.7), rgb(92 184 245 / 0.7))" }} />
+      <div className={styles.under} style={{ left: -760 - WIDEN, top: -STRIP_EDGE + 24 - 460, width: 1520 + 2 * WIDEN, height: 460, transform: "translateZ(0.5px)", background: "linear-gradient(90deg, rgb(240 140 196 / 0.7), rgb(143 211 107 / 0.7))" }} />
       <svg className={styles.pad} data-roof="pad" width={560} height={560} viewBox="-280 -280 560 560" style={{ left: -280, top: -280, transform: `translateZ(1px) scale(${PAD_SCALE})`, transformOrigin: "50% 50%" }} aria-hidden="true">
         <circle r={232} fill="rgb(10 14 26 / 0.8)" stroke="rgb(228 182 79 / 0.55)" strokeWidth={5} />
         <circle r={212} fill="none" stroke="rgb(239 231 213 / 0.28)" strokeWidth={3} strokeDasharray="22 14" />
@@ -117,7 +121,7 @@ export function RoofDecor() {
   );
 }
 
-const AC_BOXES: ReadonlyArray<readonly [number, number]> = [[-940, -380], [930, -330], [-960, 420], [950, 470]];
+const AC_BOXES: ReadonlyArray<readonly [number, number]> = [[-975, -380], [975, -330], [-975, 420], [975, 470]];
 
 const CITY_LIGHTS = [
   "radial-gradient(circle, rgb(255 214 150 / 0.85) 0 2px, transparent 3px)",
@@ -135,7 +139,9 @@ const WINDOWS = [
 /* ---------- baton ---------- */
 
 const NOTCH_Y = Math.round(ROOF_FIELD.offsetY * 0.5);
-const NOTCH: ReadonlyArray<readonly [number, number]> = [[-610, NOTCH_Y], [-610, -NOTCH_Y], [610, NOTCH_Y], [610, -NOTCH_Y]];
+/** The pills sit 73 units inside the outer edge of the fields, as they did on the narrow fields (610 of 683). */
+const NOTCH_X = Math.round(ROOF_STRIP_SPAN / 2 - 73);
+const NOTCH: ReadonlyArray<readonly [number, number]> = [[-NOTCH_X, NOTCH_Y], [-NOTCH_X, -NOTCH_Y], [NOTCH_X, NOTCH_Y], [NOTCH_X, -NOTCH_Y]];
 
 export interface BatonProps {
   stops: readonly BatonStop[];
@@ -145,6 +151,26 @@ export interface BatonProps {
   out: ReadonlySet<number>;
   /** The stage sets --flip on the holder while the camera looks from the rival end, so the pills read upright. */
   holderRef?: (node: HTMLDivElement | null) => void;
+  /**
+   * Makes each pill a button: it zooms the camera onto the field of its seat, and a second press on the zoomed seat zooms
+   * out. Without it the pills are plain labels (the fixtures and the older tests).
+   */
+  zoom?: BatonZoom;
+}
+
+export interface BatonZoom {
+  /** The seat in close-up, or null in any other view. */
+  seat: number | null;
+  /** The camera is free to move; when it is not (an FX lock) a pill does nothing, unless it is a pick. */
+  free: boolean;
+  onToggle: (seat: number) => void;
+  /** Seats the open prompt lets the viewer choose: the prompt wins over the zoom on these pills. */
+  pickSeats?: readonly number[];
+  /** Seats that hold targets for the open prompt or aim while their field is out of view: the pill gets a soft hint, the camera stays. */
+  hintSeats?: readonly number[];
+  /** Reduced motion: the hint stays still. */
+  calm?: boolean;
+  onPick?: (seat: number) => void;
 }
 
 /**
@@ -158,7 +184,7 @@ export function batonNotch(anchorSeat: number, seat: number): number {
 }
 
 /** The bow-tie baton on the helipad: one pill per seat, turn order 1A to 2A to 1B to 2B. */
-export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef }: BatonProps) {
+export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef, zoom }: BatonProps) {
   const notchOf = (seat: number) => batonNotch(anchorSeat, seat);
   const now = stops.find((s) => s.now);
   const next = stops.find((s) => s.next);
@@ -166,24 +192,65 @@ export function Baton({ stops, anchorSeat, nameOf, rgbOf, out, holderRef }: Bato
   const ring = [0, 1, 2, 3].map((k) => NOTCH[k]);
   return (
     <>
-      <svg className={styles.baton} data-roof="baton" width={1400} height={440} viewBox="-700 -220 1400 440" style={{ left: -700, top: -220, transform: "translateZ(1.5px)" }} aria-hidden="true">
+      <svg className={styles.baton} data-roof="baton" width={1400 + 2 * WIDEN} height={440} viewBox={`${-700 - WIDEN} -220 ${1400 + 2 * WIDEN} 440`} style={{ left: -700 - WIDEN, top: -220, transform: "translateZ(1.5px)" }} aria-hidden="true">
         <path d={`M ${ring.map((p) => p.join(",")).join(" L ")} Z`} fill="none" stroke="rgb(239 231 213 / 0.28)" strokeWidth={4} strokeDasharray="18 12" strokeLinejoin="round" />
         {seg ? (
           <line x1={seg[0][0]} y1={seg[0][1]} x2={seg[1][0]} y2={seg[1][1]} stroke={`rgb(${rgbOf(now!.seat)})`} strokeWidth={8} strokeLinecap="round" opacity={0.85} />
         ) : null}
       </svg>
-      <div ref={holderRef} className={styles.bpills} data-roof="baton-pills" style={{ left: 0, top: 0, transform: "translateZ(2px)" }}>
+      <div ref={holderRef} className={styles.bpills} data-roof="baton-pills" style={{ left: 0, top: 0, transform: "translateZ(3px)" }}>
         {[0, 1, 2, 3].map((seat) => {
           const k = notchOf(seat);
           const stop = stops.find((s) => s.seat === seat);
           const isOut = out.has(seat);
           const state = isOut ? "out" : stop?.now ? "now" : stop?.next ? "next" : "";
           const style = { transform: `translate(${NOTCH[k][0]}px, ${NOTCH[k][1]}px) rotate(var(--flip, 0deg))`, ["--c" as string]: rgbOf(seat) } as CSSProperties;
-          return (
-            <div key={seat} className={styles.bpill} data-seat={seat} data-state={state || undefined} data-out={isOut ? "true" : undefined} style={style}>
+          const body = (
+            <>
               <b>{stop?.code ?? tagSeatCode("tag", seat) ?? ""}</b>
               <span title={nameOf(seat)}>{nameOf(seat).split(" ")[0].toUpperCase()}</span>
-            </div>
+            </>
+          );
+          if (!zoom) {
+            return (
+              <div key={seat} className={styles.bpill} data-seat={seat} data-state={state || undefined} data-out={isOut ? "true" : undefined} style={style}>
+                {body}
+              </div>
+            );
+          }
+          // A seat the prompt lets the viewer choose picks on this pill (the prompt wins); any other pill is the zoom toggle.
+          const picks = zoom.pickSeats?.includes(seat) ?? false;
+          const zoomed = zoom.seat === seat;
+          const name = nameOf(seat);
+          const hint = !picks && !zoomed && (zoom.hintSeats?.includes(seat) ?? false);
+          // One stable name that holds the pill text ("1A ASTER"); the zoom state is only aria-pressed. A pick pill does
+          // another thing (it chooses the player), so it has its own name.
+          const text = `${stop?.code ?? tagSeatCode("tag", seat) ?? ""} ${name.split(" ")[0].toUpperCase()}`.trim();
+          const label = picks ? `${text}, choose player` : `${text}, zoom on field`;
+          const tip = picks ? `Choose ${name}` : zoomed ? "Zoom out (Esc)" : hint ? `Zoom in on ${name}'s field (it has targets)` : `Zoom in on ${name}'s field`;
+          return (
+            <button
+              key={seat}
+              type="button"
+              className={styles.bpill}
+              data-seat={seat}
+              data-field-focus={seat}
+              data-state={state || undefined}
+              data-out={isOut ? "true" : undefined}
+              data-zoomed={zoomed ? "true" : undefined}
+              data-pick={picks ? "true" : undefined}
+              data-targets={hint ? "true" : undefined}
+              aria-pressed={picks ? undefined : zoomed}
+              aria-label={label}
+              aria-description={hint ? "has targets" : undefined}
+              title={tip}
+              disabled={!picks && !zoom.free}
+              style={style}
+              onClick={() => (picks ? zoom.onPick?.(seat) : zoom.onToggle(seat))}
+            >
+              {body}
+              {hint ? <i className={styles.bhint} data-targets-hint data-calm={zoom.calm ? "true" : undefined} aria-hidden="true" /> : null}
+            </button>
           );
         })}
       </div>
@@ -204,8 +271,8 @@ export interface TeamStripProps {
 
 /** The strip under one team's two fields: rim lines, the seam between the members, the bond line and the medal. */
 export function TeamStrip({ near, glyph, teamName, out }: TeamStripProps) {
-  const transform = near ? "translateZ(1px)" : `translateZ(1px) rotate(180deg) translate(-708px, ${STRIP_EDGE}px)`;
-  const place = near ? { left: -708, top: STRIP_EDGE } : { left: 0, top: 0 };
+  const transform = near ? "translateZ(1px)" : `translateZ(1px) rotate(180deg) translate(${-STRIP_HALF}px, ${STRIP_EDGE}px)`;
+  const place = near ? { left: -STRIP_HALF, top: STRIP_EDGE } : { left: 0, top: 0 };
   return (
     <div
       className={styles.strip}
@@ -213,15 +280,15 @@ export function TeamStrip({ near, glyph, teamName, out }: TeamStripProps) {
       data-team={near ? 0 : 1}
       data-out={out ? "true" : undefined}
       aria-label={`${teamName} strip`}
-      style={{ ...place, width: 1416, height: 412, transform }}
+      style={{ ...place, width: STRIP_W, height: 412, transform }}
     >
       <span className={styles.rimline} />
       <span className={styles.rimline} data-edge="b" />
-      <span className={styles.bond} style={{ left: 328, width: 760 }} />
-      <span className={styles.seam} style={{ left: 688, width: 40 }}>
+      <span className={styles.bond} style={{ left: STRIP_HALF - 380, width: 760 }} />
+      <span className={styles.seam} style={{ left: STRIP_HALF - 20, width: 40 }}>
         <b>TEAM</b>
       </span>
-      <span className={styles.medal} style={{ left: 708 }}>
+      <span className={styles.medal} style={{ left: STRIP_HALF }}>
         <i>{glyph}</i>
       </span>
     </div>

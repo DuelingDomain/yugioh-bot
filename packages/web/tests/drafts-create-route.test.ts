@@ -96,7 +96,7 @@ describe("POST /api/drafts", () => {
     for (const id of mainIds) insCard.run(id, `Main ${id}`, "Effect Monster", "effect", "i", "i", "[]", "t");
     insCard.run(2000, "Extra 2000", "Fusion Monster", "fusion", "i", "i", "[]", "t");
     const cube = Number(
-      db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', ${fixtureUserId("u")})`).run()
+      db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', ${fixtureUserId("creator-user")})`).run()
         .lastInsertRowid,
     );
     const insCube = db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, ?, ?, ?)");

@@ -5,7 +5,7 @@ import { env } from "@/lib/env";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
 import { draftReadAccess } from "@/lib/draft-access";
 import { themeDraftSetupError } from "@/lib/theme-drafts";
-import { createCardCatalogService, createDraftService, createCubeService, mainDraftPicksPerPlayer, themeDraftNumberError } from "@yugidraft/shared/services";
+import { createCardCatalogService, createDraftService, createCubeService, findDraftReadAccess, mainDraftPicksPerPlayer, themeDraftNumberError } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
 
@@ -30,6 +30,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   if (draft.config.mode !== "theme") {
     const analysis = drafts.analyzeBoosterDraft(draft.config, Math.max(2, drafts.players(draft.id).length), draft.guildId);
     return NextResponse.json({ errors: analysis.errors, warnings: analysis.warnings });
+  }
+  if (draft.createdByUserId !== actor.userId && !findDraftReadAccess(db, draft.id, guildId, actor.userId)?.isSeated) {
+    return NextResponse.json({ error: "Draft not found" }, { status: 404 });
   }
   const closed = themeDraftSetupError(draft);
   if (closed) return NextResponse.json({ error: closed }, { status: 403 });

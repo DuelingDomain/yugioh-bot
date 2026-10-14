@@ -5,12 +5,17 @@ import { createWaitlistService } from "../../src/services/waitlist.js";
 
 let db: Database.Database;
 beforeEach(() => {
+  vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", undefined);
+  vi.stubEnv("DISCORD_JOIN_REQUEST_ALERTS_ENABLED", "1");
   db = new Database(":memory:");
   migrate(db);
 });
 afterEach(() => {
   db.close();
   vi.useRealTimers();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("waitlist", () => {
@@ -38,5 +43,57 @@ describe("waitlist", () => {
     expect(db.prepare("select source from waitlist_signups").all()).toEqual([{ source: "form" }]);
     expect(() => db.prepare("insert into waitlist_signups (email, created_at, source) values (?, ?, ?)")
       .run("player@example.com", new Date().toISOString(), "footer")).toThrow(/UNIQUE/);
+  });
+
+  it("alerts once after a new local join commits, across service instances", async () => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => {
+      expect(db.inTransaction).toBe(false);
+      expect(db.prepare("select email from waitlist_signups").get()).toEqual({ email: "player@example.test" });
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    expect(createWaitlistService(db).join("player@example.test")).toEqual({ status: "joined" });
+    expect(createWaitlistService(db).join(" PLAYER@EXAMPLE.TEST ")).toEqual({ status: "exists" });
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body)).embeds[0].fields[1].value).toBe("marketing waitlist");
+    await Promise.resolve();
+  });
+
+  it("labels app requests without including untrusted source text", async () => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    createWaitlistService(db).join("player@example.test", { source: "app-not-invited" });
+    createWaitlistService(db).join("other@example.test", { source: "@everyone" });
+    const messages = fetcher.mock.calls.map(([, options]) => JSON.parse(String(options!.body)));
+    expect(messages.map(message => message.embeds[0].fields[1].value)).toEqual(["app waitlist", "marketing waitlist"]);
+    expect(JSON.stringify(messages)).not.toContain("@everyone");
+    await Promise.resolve();
+  });
+
+  it("returns joined while Discord is pending, then swallows the timeout", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, options) => new Promise((_resolve, reject) => {
+      options!.signal!.addEventListener("abort", () => reject(new Error("timeout")));
+    }));
+    vi.stubGlobal("fetch", fetcher);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(createWaitlistService(db).join("player@example.test")).toEqual({ status: "joined" });
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0][1]!.signal!.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetcher.mock.calls[0][1]!.signal!.aborted).toBe(true);
+    expect(createWaitlistService(db).join("player@example.test")).toEqual({ status: "exists" });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("still saves a join if the alert database claim fails", () => {
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "https://discord.example.test/webhook-placeholder");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    db.exec("drop table join_request_notifications");
+    expect(createWaitlistService(db).join("player@example.test")).toEqual({ status: "joined" });
+    expect(db.prepare("select email from waitlist_signups").get()).toEqual({ email: "player@example.test" });
   });
 });

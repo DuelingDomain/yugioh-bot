@@ -80,10 +80,9 @@ export function startText(opening: DuelRpsOpeningView, mySeat: number | null, na
   if (choice == null || winner == null) return "Starting the duel…";
   const mine = mySeat != null;
   const who = !mine ? names[winner] : winner === mySeat ? "You" : "Opponent";
-  const verb = who === "You" ? "choose" : "chooses";
   const goes = choice === "first" ? "first" : "second";
-  const base = who === "You" ? `You ${verb} to go ${goes}` : `${who} ${verb} to go ${goes}`;
-  return opening.choiceByTimeout ? `${base} (time ran out)` : base;
+  const base = `${who} chose to go ${goes}${opening.choiceByTimeout ? " (time ran out)" : ""}`;
+  return `${base}. Starting the duel…`;
 }
 
 /** True when a viewer who is not seated has nothing to play. */

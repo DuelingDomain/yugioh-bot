@@ -107,7 +107,7 @@ const game = await createGame({
   seed: journal.seed,
   dataDirectory,
   // A duel stored without settings is a legacy one: the host reads it with `legacyDuelSettings`.
-  settings: journal.settings == null ? legacyDuelSettings() : normalizeDuelSettings(journal.mode, journal.settings),
+  settings: journal.settings == null ? legacyDuelSettings() : normalizeDuelSettings(journal.mode, journal.settings, format),
 });
 let failed = false;
 let failedStep: number | null = null;

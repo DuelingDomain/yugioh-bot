@@ -9,7 +9,14 @@ import { migrate } from "@yugidraft/shared/db";
 import { createSavedDeckService } from "@yugidraft/shared/services";
 import { encodeYdke } from "@yugidraft/shared/decks";
 
-const mocks = vi.hoisted(() => ({ savedActor: vi.fn(), duelActor: vi.fn(), callDuelHost: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getDb: vi.fn(), savedActor: vi.fn(), duelActor: vi.fn(), callDuelHost: vi.fn(),
+  engine: new Map<number, { name: string; type: number }>(),
+}));
+vi.mock("@/lib/db", () => ({ getDb: mocks.getDb }));
+vi.mock("@yugidraft/shared/services", async original => {
+  const actual = await original<typeof import("@yugidraft/shared/services")>();
+  return { ...actual, createDeckTypeLookup: (db: Database.Database) => actual.createDeckTypeLookup(db, mocks.engine) };
+});
 vi.mock("@/lib/saved-decks", async original => ({
   ...await original<typeof import("../src/lib/saved-decks")>(), requireSavedDeckActor: mocks.savedActor,
 }));
@@ -18,6 +25,8 @@ vi.mock("@/lib/duel-host", () => ({ requireDuelActor: mocks.duelActor, callDuelH
 import { POST as preview } from "../app/api/decks/import/preview/route";
 import { POST as bulk } from "../app/api/decks/import/bulk/route";
 import { POST as createDeck } from "../app/api/decks/route";
+
+import { domainDeck, domainEngine, domainYdk } from "./fixtures/domain-engine-deck";
 
 let db: Database.Database;
 let decks: ReturnType<typeof createSavedDeckService>;
@@ -35,8 +44,11 @@ beforeEach(() => {
   vi.spyOn(Date, "now").mockReturnValue(testTime += 3600000);
   db = new Database(":memory:");
   migrate(db);
+  mocks.getDb.mockReturnValue(db);
+  mocks.engine.clear();
+  mocks.engine.set(44508094, { name: "Test Extra", type: 0x41 });
   db.exec("insert into users(id, username, display_name) values (1, 'owner', 'Owner'), (2, 'other', 'Other')");
-  decks = createSavedDeckService(db);
+  decks = createSavedDeckService(db, mocks.engine);
   mocks.savedActor.mockResolvedValue({ ok: true, guildId: "g", ownerUserId: 1, discordUserId: null, decks });
   mocks.duelActor.mockResolvedValue({ ok: true, guildId: "g", playerId: 7 });
   mocks.callDuelHost.mockImplementation(async (input: { op: string; codes?: number[]; lookupLimit: number }) => ({
@@ -48,6 +60,24 @@ beforeEach(() => {
 afterEach(() => { db.close(); vi.restoreAllMocks(); });
 
 describe("backend review fixes", () => {
+  it("previews and saves a 70-card Domain deck with engine-only Extra cards", async () => {
+    for (const [code, card] of domainEngine) mocks.engine.set(code, card);
+    const [shown] = await previewRows([{ ...source(domainYdk), mode: "domain" }]);
+    expect(shown.deck).toEqual({ ...domainDeck, deckMaster: domainDeck.deckMaster });
+    expect(shown.errors).toEqual([]);
+    expect(shown.warnings.filter((warning: { code: string }) => warning.code === "section_moved")).toEqual([]);
+    const response = await bulk(request({ rows: [shown] }));
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.failed).toEqual([]);
+    expect(decks.get(result.created[0].id, "g", 1)?.deck).toEqual(domainDeck);
+  });
+  it("keeps a named unknown-type card in Extra in the import preview", async () => {
+    db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (9999,'Named unknown','','fusion','','','[]','test')");
+    const [shown] = await previewRows([source("#extra\n9999")]);
+    expect(shown.deck.extra).toEqual([9999]);
+    expect(shown.warnings.some((warning: { message: string }) => warning.message.includes("Named unknown"))).toBe(true);
+  });
   const unknownCodes = (offset = 0) => Array.from({ length: 50 }, (_, i) => 91000000 + offset + i);
   function unknownHost() {
     const fetch = vi.fn();
@@ -306,7 +336,7 @@ describe("backend review fixes", () => {
     const shown = JSON.parse(text).rows[0];
     expect(shown.errors).toEqual([]);
     expect(shown.warnings).toHaveLength(21);
-    expect(shown.warnings.at(-1)).toMatchObject({ code: "more_issues", message: "and 9981 more issues", count: 9981 });
+    expect(shown.warnings.at(-1)).toMatchObject({ code: "more_issues", message: "and 9982 more issues", count: 9982 });
   });
 
   it("caps card errors in both preview and bulk", async () => {
@@ -418,6 +448,79 @@ describe("import request boundary", () => {
 });
 
 describe("preview", () => {
+  it.each(["YDK", "YDKE"])("routes resolved %s cards by real type with section_moved warnings and updated counts", async format => {
+    db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','link','','','[]','test'), (902,'Test Trap','Trap Card','fusion','','','[]','test'), (903,'Test Fusion','Fusion Monster','normal','','','[]','test')");
+    const original = { main: [903], extra: [901, 901, 902, 903], side: [901], deckMaster: 904 };
+    const text = format === "YDK" ? "#main\n903\n#extra\n901\n901\n902\n903\n!side\n901\n#deckmaster\n904" : encodeYdke(original);
+    const [shown] = await previewRows([source(text)]);
+    expect(shown.deck).toEqual({ main: [901, 901, 902], extra: [903, 903], side: [901], deckMaster: format === "YDK" ? 904 : null });
+    expect(shown.counts).toEqual({ main: 3, extra: 2, side: 1 });
+    expect(shown.errors).toEqual([]);
+    expect(shown.warnings.filter((issue: { code: string }) => issue.code === "section_moved")).toEqual([
+      { code: "section_moved", message: "3 cards moved from Extra Deck to Main Deck: Test Spell, Test Spell, Test Trap." },
+      { code: "section_moved", message: "1 card moved from Main Deck to Extra Deck: Test Fusion." },
+    ]);
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+
+  it("routes by engine bits when catalog types and frames disagree", async () => {
+    db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Catalog Fusion','Fusion Monster','fusion','','','[]','test'), (903,'Catalog Spell','Spell Card','spell','','','[]','test')");
+    mocks.engine.set(901, { name: "Engine Spell", type: 0x2 });
+    mocks.engine.set(903, { name: "Engine Fusion", type: 0x41 });
+    const [shown] = await previewRows([source("#main\n903\n#extra\n901")]);
+    expect(shown.deck).toEqual({ main: [901], extra: [903], side: [], deckMaster: null });
+    expect(shown.warnings).toContainEqual({ code: "section_moved", message: "1 card moved from Extra Deck to Main Deck: Engine Spell." });
+    expect(shown.errors).toEqual([]);
+  });
+
+  it.each(["main", "extra"] as const)("rechecks storage limits after routing into %s without losing copies", async section => {
+    mocks.engine.set(901, { name: "Test Spell", type: 0x2 });
+    mocks.engine.set(903, { name: "Test Fusion", type: 0x41 });
+    const original = section === "main" ? { main: Array(300).fill(901), extra: [901], side: [] }
+      : { main: [903], extra: Array(300).fill(903), side: [] };
+    const [shown] = await previewRows([source(encodeYdke(original))]);
+    expect(shown.deck[section]).toHaveLength(301);
+    expect(shown.counts[section]).toBe(301);
+    expect(shown.errors).toContainEqual({ code: "invalid_deck", message: `${section === "main" ? "Main" : "Extra"} deck must contain at most 300 cards` });
+    expect(shown.warnings).toContainEqual(expect.objectContaining({ code: "section_moved" }));
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+
+  it("returns a Domain row error after routing overflows Main even when Deck Master validation is unavailable", async () => {
+    mocks.engine.set(901, { name: "Test Spell", type: 0x2 });
+    mocks.callDuelHost.mockImplementation(async (input: { op: string; codes?: number[] }) => {
+      if (input.op === "validate-deck-master") throw new Error("connect ECONNREFUSED");
+      return { ok: true, data: { codes: Object.fromEntries(input.codes!.map(id => [id, id])) } };
+    });
+    const text = `#main\n${"901\n".repeat(300)}#extra\n901\n#deckmaster\n89631139`;
+    const response = await preview(request({ sources: [{ ...source(text), mode: "domain" }] }));
+    expect(response.status).toBe(200);
+    const [shown] = (await response.json()).rows;
+    expect(shown).toMatchObject({ mode: "domain", counts: { main: 301, extra: 0, side: 0 },
+      deck: { main: Array(301).fill(901), extra: [], side: [], deckMaster: 89631139 } });
+    expect(shown.errors).toEqual([{ code: "invalid_deck", message: "Main deck must contain at most 300 cards" }]);
+    expect(shown.warnings).toContainEqual(expect.objectContaining({ code: "section_moved" }));
+    expect(mocks.callDuelHost).not.toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck-master" }));
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+
+  it.each([
+    ["YDK", false], ["YDK", true], ["YDKE", false], ["YDKE", true],
+  ] as const)("keeps every section in an unresolved %s row (lookup limited: %s)", async (format, limited) => {
+    db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','spell','','','[]','test'), (903,'Test Fusion','Fusion Monster','fusion','','','[]','test')");
+    mocks.callDuelHost.mockResolvedValue({ ok: true, data: {
+      codes: { 901: 901, 903: 903, 999: null }, lookupLimited: limited ? [999] : [],
+    } });
+    const original = { main: [903], extra: [999, 999, 901], side: [903], deckMaster: null };
+    const text = format === "YDK" ? "#main\n903\n#extra\n999\n999\n901\n!side\n903" : encodeYdke(original);
+    const [shown] = await previewRows([source(text)]);
+    expect(shown.deck).toEqual(original);
+    expect(shown.counts).toEqual({ main: 1, extra: 3, side: 1 });
+    expect(shown.errors).toEqual([expect.objectContaining({ code: limited ? "lookup_limited" : "unknown_card", passcode: 999 })]);
+    expect(shown.warnings.filter((issue: { code: string }) => issue.code === "section_moved")).toEqual([]);
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+
   it("accepts an omitted source name and defaults to Standard", async () => {
     const response = await preview(request({ sources: [{ id: "paste", text: "#main\n89631139" }] }));
     expect(response.status).toBe(200);
@@ -511,6 +614,14 @@ describe("preview", () => {
     expect(rows[3].duplicateOf).toBeUndefined();
   });
 
+  it("detects a saved duplicate when type routing corrects the imported section", async () => {
+    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','link','','','[]','test')").run();
+    const saved = decks.create("g", 1, { name: "Saved", mode: "normal", deck: { main: [901], extra: [], side: [] } });
+    const [shown] = await previewRows([source("#extra\n901")]);
+    expect(shown.deck).toEqual({ main: [901], extra: [], side: [], deckMaster: null });
+    expect(shown.duplicateOf).toEqual({ kind: "saved", deckId: saved.id, name: "Saved" });
+  });
+
   it("includes Deck Master in duplicate identity and never reveals foreign decks", async () => {
     for (const [guildId, userId] of [["g", 2], ["other", 1]] as const) {
       decks.create(guildId, userId, { name: "Private", mode: "normal", deck: { main: [89631139], extra: [], side: [] } });
@@ -523,7 +634,9 @@ describe("preview", () => {
     const rows = await previewRows([source(`#main\n${"89631139\n".repeat(301)}`), source(`#main\n89631139\n#extra\n${"44508094\n".repeat(16)}!side\n${"14558127\n".repeat(16)}`, "f2")]);
     expect(rows[0].errors).toContainEqual(expect.objectContaining({ code: "invalid_deck" }));
     expect(rows[1].errors).toEqual([]);
-    expect(rows[1].warnings.map((w: { code: string }) => w.code)).toEqual(["main_size", "extra_size", "side_size"]);
+    expect(rows[1].warnings.map((w: { code: string }) => w.code)).toEqual(["extra_size", "unknown_card_type", "unknown_card_type", "main_size", "side_size"]);
+    expect(rows[1].deck.extra).toHaveLength(16);
+    expect(rows[1].warnings[0].message).toContain("15");
   });
 
   it("reports rejected Domain masters using the ordinary save rule", async () => {
@@ -552,6 +665,54 @@ describe("preview", () => {
 });
 
 describe("bulk", () => {
+  it.each([
+    [901, "Spell Card"], [902, "Trap Card"], [904, "Pendulum Effect Monster"], [906, "Ritual Monster"],
+  ])("rejects a forged Extra %s with the normal-save 400 code before writing any row", async (id, type) => {
+    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?,?,?,'fusion','','','[]','test')").run(id, `Test ${type}`, type);
+    const bad = { main: [], extra: [id], side: [] };
+    const expected = await createDeck(request({ name: "Bad", mode: "normal", deck: bad }));
+    expect(expected.status).toBe(400);
+    const response = await bulk(request({ rows: [row("Good"), row("Bad", bad)] }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual(await expected.json());
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+
+  it.each([
+    [901, "Spell Card"], [902, "Trap Card"], [904, "Pendulum Effect Monster"],
+    [905, "Ritual Effect Monster"], [906, "Token"], [907, "Skill Card"], [998, null],
+  ] as const)("rejects a resolved bad Extra card %s before writing any row", async (code, type) => {
+    if (type) db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (?, 'Test Bad Extra', ?, 'link', '', '', '[]', 'test')").run(code, type);
+    const response = await bulk(request({ rows: [row("Good"), row("Bad", { main: [], extra: [code], side: [] })] }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining(type ? "Test Bad Extra" : "card 998") });
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+
+  it("reports an unresolved card before checking a bad Extra card in the same row", async () => {
+    db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','link','','','[]','test')");
+    const response = await bulk(request({ rows: [row("Bad", { main: [999], extra: [901], side: [] })] }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ created: [], failed: [{ index: 0, errors: [{ code: "unknown_card", message: "Unknown card 999", passcode: 999 }] }] });
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+
+  it.each([false, true])("reports an unresolved Extra code per row and saves an independent row (lookup limited: %s)", async limited => {
+    mocks.callDuelHost.mockResolvedValue({ ok: true, data: {
+      codes: { 89631139: 89631139, 999: null }, lookupLimited: limited ? [999] : [],
+    } });
+    const response = await bulk(request({ rows: [row("Good"), row("Unknown Extra", { main: [], extra: [999], side: [] })] }));
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result).toMatchObject({
+      created: [{ id: expect.any(Number), name: "Good" }],
+      failed: [{ index: 1, errors: [{ code: limited ? "lookup_limited" : "unknown_card",
+        message: limited ? "lookup limit reached, try again" : "Unknown card 999", passcode: 999 }] }],
+    });
+    expect(result.warnings).toContainEqual({ index: 0, warnings: [{ code: "unknown_card_type", message: expect.stringContaining("89631139") }] });
+    expect(decks.list("g", 1).map(saved => saved.name)).toEqual(["Good"]);
+  });
+
   it("saves Standard by default, explicit Domain, and unfinished Domain without a master", async () => {
     const response = await bulk(request({ rows: [
       row("Default", { ...deck(), side: [46986414] }),

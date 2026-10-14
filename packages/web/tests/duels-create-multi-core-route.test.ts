@@ -4,7 +4,10 @@ import { MULTI_CORE_UNAVAILABLE_MESSAGE } from "@yugidraft/shared/duels";
 
 const { create, host } = vi.hoisted(() => ({ create: vi.fn(), host: vi.fn() }));
 vi.mock("@/lib/duel-host", () => ({
-  requireDuelActor: vi.fn(async () => ({ ok: true, guildId: "g1", playerId: 1, duels: { create } })),
+  requireDuelActor: vi.fn(async () => ({ ok: true, guildId: "g1", playerId: 1, duels: { create, createRequest: (_input: unknown, action: () => { session: { slug: string } }) => {
+    const result = action();
+    return { ...result, changedSlugs: [result.session.slug], replayed: false };
+  } } })),
   duelErrorResponse: vi.fn(),
   callDuelHost: host,
 }));

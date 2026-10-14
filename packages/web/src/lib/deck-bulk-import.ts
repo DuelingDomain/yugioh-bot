@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { decodeYdke, MAX_DECK_ISSUES, parseYdk, splitImportText, type DeckSections, type FormatIssue } from "@yugidraft/shared/decks";
-import type { DuelDeck, DuelMode } from "@yugidraft/shared/duels";
-import { CARD_LOOKUP_LIMIT, SavedDeckServiceError, validateSavedDeckWrite } from "@yugidraft/shared/services";
+import { assertExtraDeckCards, ExtraDeckCardError, routeDeckSections, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
+import { CARD_LOOKUP_LIMIT, createDeckTypeLookup, SavedDeckServiceError, validateSavedDeckWrite } from "@yugidraft/shared/services";
+import { getDb } from "@/lib/db";
 import { normalizeDraftCardCodes } from "@/lib/draft-deck-codes";
 import { requireDuelActor } from "@/lib/duel-host";
 import { checkSavedDeckMaster, type SavedDeckActor } from "@/lib/saved-decks";
@@ -138,7 +139,7 @@ export function checkImportList(value: unknown): value is unknown[] {
 }
 export const importListError = (label: string) => errorResponse(`Provide between 1 and ${MAX_IMPORT_DECKS} ${label}`);
 
-/** Match prepareDeckImport/importForLibrary: explicit master selects Domain; a lone Domain Side card becomes the master. */
+/** Match importForLibrary: explicit master selects Domain; a lone Domain Side card becomes the master. */
 export function validateImportRow(value: unknown):
   | { ok: true; name: string; mode: DuelMode; deck: DuelDeck }
   | { ok: false; errors: ImportIssue[] } {
@@ -300,6 +301,10 @@ export function importDeckIdentity(deck: DeckSections, codes: ReadonlyMap<number
   return allCodes(deck).map(code => codes.get(code) ?? code).sort((a, b) => a - b).join(",");
 }
 
+const sectionIssues = (messages: string[]): ImportIssue[] => messages.map(message => ({
+  code: message.startsWith("Card type is unknown") ? "unknown_card_type" : message.startsWith("Extra Deck contains") ? "extra_size" : "section_moved", message,
+}));
+
 export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]): Promise<NextResponse> {
   const valid = rows.filter(row => row.errors.length === 0);
   const response = () => {
@@ -312,6 +317,7 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
   if (!resolved.ok) return resolved.response;
   const savedCodes = await resolveImportCodes(actor, saved.map(row => row.deck), true);
   if (!savedCodes.ok) return savedCodes.response;
+  const findCard = createDeckTypeLookup(getDb()).snapshot();
   const duplicates = new Map<string, Duplicate>();
   for (const stored of saved) {
     const key = importDeckIdentity(stored.deck, savedCodes.canonicalCodes);
@@ -321,11 +327,17 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
     const key = importDeckIdentity(row.deck, resolved.canonicalCodes);
     const masterLine = row.deck.deckMaster == null ? undefined : sourceLines.get(row)?.get(row.deck.deckMaster);
     const mapped = resolveImportDeck(row.deck, resolved.codes, resolved.lookupLimitedCodes, sourceLines.get(row));
-    row.deck = mapped.deck;
-    const master = mapped.errors.length ? [] : await masterIssues(mapped.deck);
+    // The engine type takes priority over catalog frames and file section labels.
+    const routed = mapped.errors.length === 0
+      ? routeDeckSections({ ...mapped.deck, deckMaster: mapped.deck.deckMaster ?? undefined }, findCard)
+      : { deck: mapped.deck, messages: [] };
+    row.deck = { ...routed.deck, deckMaster: routed.deck.deckMaster ?? null };
+    row.counts = { main: row.deck.main.length, extra: row.deck.extra.length, side: row.deck.side.length };
+    const final = validateImportRow({ name: row.name, mode: row.mode, deck: row.deck });
+    const master = mapped.errors.length || !final.ok ? [] : await masterIssues(row.deck);
     if (master.some(issue => issue.code === "validation_unavailable")) return errorResponse("Duel engine unavailable, try again", 503);
-    row.errors.push(...mapped.errors, ...master.map(issue => masterLine === undefined ? issue : { ...issue, line: masterLine }));
-    row.warnings.push(...mapped.warnings, ...sizeWarnings(mapped.deck));
+    row.errors.push(...mapped.errors, ...(final.ok ? [] : final.errors), ...master.map(issue => masterLine === undefined ? issue : { ...issue, line: masterLine }));
+    row.warnings.push(...mapped.warnings, ...sectionIssues(routed.messages), ...sizeWarnings(row.deck).filter(issue => issue.code !== "extra_size" || !routed.messages.some(message => message.startsWith("Extra Deck contains"))));
     const duplicate = duplicates.get(key);
     if (duplicate) row.duplicateOf = duplicate;
     else duplicates.set(key, { kind: "row", rowId: row.rowId, name: row.name });
@@ -338,8 +350,10 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
   const valid = checked.filter(row => row.ok);
   const resolved = await resolveImportCodes(actor, valid.map(row => row.deck));
   if (!resolved.ok) return resolved.response;
+  const findCard = createDeckTypeLookup(getDb()).snapshot();
   const created: Array<{ id: number; name: string }> = [];
   const failed: Array<{ index: number; errors: ImportIssue[] }> = [];
+  const warnings: Array<{ index: number; warnings: ImportIssue[] }> = [];
   const prepared: Array<{ index: number; name: string; mode: DuelMode; deck: DuelDeck }> = [];
   for (const [index, row] of checked.entries()) {
     if (!row.ok) {
@@ -347,7 +361,19 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
       continue;
     }
     const mapped = resolveImportDeck(row.deck, resolved.codes, resolved.lookupLimitedCodes);
-    const master = mapped.errors.length ? [] : await masterIssues(mapped.deck);
+    // Recheck resolved preview rows before any writes, with the same 400/code as ordinary saves.
+    if (mapped.errors.length === 0) {
+      try { assertExtraDeckCards(mapped.deck, findCard); }
+      catch (error) {
+        if (error instanceof ExtraDeckCardError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+        throw error;
+      }
+    }
+    // Direct bulk rows must obey the same section rule as preview rows.
+    const routed = mapped.errors.length ? { deck: mapped.deck, messages: [] }
+      : routeDeckSections({ ...mapped.deck, deckMaster: mapped.deck.deckMaster ?? undefined }, findCard);
+    const warning = sectionIssues(routed.messages);
+    const master = mapped.errors.length ? [] : await masterIssues(routed.deck);
     if (master.some(issue => issue.code === "validation_unavailable")) return errorResponse("Duel engine unavailable, try again", 503);
     const errors = [...mapped.errors, ...master];
     if (errors.length > 0) {
@@ -355,12 +381,13 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
       continue;
     }
     // Validate the resolved deck too. The service remains the authority for storage rules.
-    const final = validateImportRow({ name: row.name, deck: mapped.deck, mode: importMode(row.mode) });
+    const final = validateImportRow({ name: row.name, deck: routed.deck, mode: importMode(row.mode) });
     if (!final.ok) {
       failed.push({ index, errors: final.errors });
       continue;
     }
     prepared.push({ index, name: final.name, mode: final.mode, deck: final.deck });
+    if (warning.length) warnings.push({ index, warnings: warning });
   }
   // Finish every host check before writing: a 503 must not hide already-created decks.
   for (const final of prepared) {
@@ -373,5 +400,5 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
       failed.push({ index: final.index, errors: [{ code: "save_failed", message: error.message }] });
     }
   }
-  return NextResponse.json({ created, failed: failed.sort((a, b) => a.index - b.index) });
+  return NextResponse.json({ created, failed: failed.sort((a, b) => a.index - b.index), ...(warnings.length ? { warnings } : {}) });
 }

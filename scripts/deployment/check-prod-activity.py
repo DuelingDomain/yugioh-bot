@@ -13,6 +13,8 @@ def main():
     parser.add_argument("database", type=Path)
     parser.add_argument("--force", choices=("true", "false"), default="false")
     parser.add_argument("--target", choices=("production", "staging"), default="production")
+    parser.add_argument("--live-only", action="store_true",
+                        help="Block production only on live duels/openings and active drafts; report rounds and series")
     parser.add_argument("--wait-seconds", type=int, default=0,
                         help="Wait up to this many seconds for idle gameplay (default: refuse immediately)")
     args = parser.parse_args()
@@ -54,10 +56,13 @@ def main():
             print(f"{label}: cannot read gameplay activity ({error}).", file=sys.stderr)
             return 1
 
-        print("Production activity: " + " ".join(
-            f"{name}={count}" for name, count in zip(names, counts)
-        ), flush=True)
-        if not any(counts):
+        blocking_count = 2 if args.live_only else len(names)
+        activity = [f"{name}={count}" for name, count in zip(names, counts)]
+        summary = " ".join(activity[:blocking_count])
+        if len(activity) > blocking_count:
+            summary += " (not blocking: " + " ".join(activity[blocking_count:]) + ")"
+        print("Production activity: " + summary, flush=True)
+        if not any(counts[:blocking_count]):
             return 0
         remaining = deadline - time.monotonic()
         if remaining > 0:

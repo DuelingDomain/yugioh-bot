@@ -183,7 +183,7 @@ export function DraftManageView({
         setPoolExtra(data.extraCards ?? []);
       })
       .catch(() => setPoolError(true));
-  }, [slug, isTheme]);
+  }, [slug, isTheme, isParticipant]);
   React.useEffect(() => { loadPool(); }, [loadPool]);
   // The newest lobby revision this view saw (set below, after the Seats First state), so a save after the host's own
   // Ready does not send the page's older revision.

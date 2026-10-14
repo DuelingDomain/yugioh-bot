@@ -408,6 +408,7 @@ describe("autocomplete interactions", () => {
     const app = setup();
     app.templates.save("guild-1", "Classic", { setNames: ["Metal Raiders"] }, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
     app.templates.save("guild-1", "Modern", { setNames: ["Duelist Nexus"] }, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000112", displayName: "Host" }).id);
+    app.templates.save("guild-1", "Private Classic", {}, createUserService(app.db).ensureDiscord({ discordUserId: "900000000000000104", displayName: "Other" }).id);
 
     const { interaction, responses } = fakeAutocomplete({
       commandName: "draft",

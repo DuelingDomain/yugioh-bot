@@ -7,6 +7,7 @@ import { buildHistoryView, historyWho, type HistoryEntry } from "../history-entr
 import { emptyHistory, ingestHistory, shouldResetHistory, type HistoryState } from "../history-model";
 import { contextFor, ICONS } from "../history-rail";
 import styles from "./history-strip.module.css";
+import { useForkLabels } from "./fork-labels";
 
 const MAX_TILES = 8;
 
@@ -33,12 +34,13 @@ export function HistoryStrip({ engine, mySeat, playerName, seatTones, onInspectC
   const history = ingestHistory(base, engine.events, contextFor(engine));
   if (history !== stored) setStored(history);
 
+  const fork = useForkLabels();
   const seatCount = engine.seats.length;
-  const names = Array.from({ length: seatCount }, (_, seat) => historyWho(seat, mySeat, playerName, seatCount)).join("\u0000");
+  const names = Array.from({ length: seatCount }, (_, seat) => historyWho(seat, mySeat, playerName, seatCount, fork)).join("\u0000");
   const handlerRef = useRef(playerName);
   handlerRef.current = playerName;
   const view = useMemo(
-    () => buildHistoryView(history.items, { mySeat, who: (seat) => historyWho(seat, mySeat, handlerRef.current, seatCount), seatCount }),
+    () => buildHistoryView(history.items, { mySeat, who: (seat) => historyWho(seat, mySeat, handlerRef.current, seatCount, fork), seatCount }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [history.items, mySeat, names, seatCount],
   );

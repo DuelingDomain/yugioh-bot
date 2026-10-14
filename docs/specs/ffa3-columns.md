@@ -1,5 +1,7 @@
 # FFA3 columns: rule and handoff
 
+> **Superseded (owner, 2026-10-11):** see [R-FFA-ACROSS-EMZ](../adr/0002-multiplayer-duel-rules.md). FFA3 seats 0/1 are a fixed facing pair that share one EMZ row, Link arrows and columns; seat 2 is unpaired. The column-opponent pick and two-survivor regrouping are removed. The engine still sends the ordinary "choose an opponent" prompt for other cards, and the table keeps its pick UI. The text below records the retired implementation.
+
 Owner decision: 2026-10-05. Rule: **R-FFA-THREE-COLUMNS**. Base: `origin/main` at `049a4df7`.
 
 With three living duelists, an activated effect that affects opponent cards selects one living opponent before card or zone choices. With two, all column logic uses the remaining opponent and gives no opponent prompt. Main column `s` faces `4-s`. EMZ sequences 5 and 6 map to columns 1 and 3. FFA3 EMZ remain separate: two independently occupied mirrored EMZ can contribute two cards to one column. Link arrows do not change. FFA4 keeps seats 0/1 and 2/3, without re-facing after a loss. Tag and 1v1 do not change.

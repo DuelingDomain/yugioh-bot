@@ -43,6 +43,20 @@ const baseProps = {
 };
 
 describe("DraftManageView — setup rail", () => {
+  it("reloads the booster pool when the viewer joins", async () => {
+    let joined = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/pool")
+      ? joined ? Response.json({ cards: [] }) : Response.json({}, { status: 404 })
+      : Response.json({ errors: [], warnings: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<DraftManageView {...baseProps} slug="join-pool" isCreator={false} isParticipant={false} />);
+    expect(await screen.findByText("Couldn't load the pool.")).toBeInTheDocument();
+    joined = true;
+    rerender(<DraftManageView {...baseProps} slug="join-pool" isCreator={false} isParticipant />);
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/pool"))).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByText("Couldn't load the pool.")).not.toBeInTheDocument());
+  });
+
   it("shows booster reachability errors on entering the lobby and refreshes them after edits", async () => {
     let errors = ["This pool can give one player at most 24 cards (at most 3 copies of each card), but the deck needs 40."];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/preflight")
@@ -336,9 +350,10 @@ describe("DraftManageView — theme draft", () => {
   });
 
   it("gives the host theme tools: edit link, a menu with Detach and Delete, and the add panel", async () => {
-    stubFetch();
+    stubFetch(url => url === "/api/cubes" ? Response.json({ cubes: [{ ...cubes[0], canEdit: true }, { id: 9, name: "Branded", archetype: null, mainCount: 40, extraCount: 5, canEdit: true }] }) : undefined);
     render(<DraftManageView {...baseProps} slug="s" draft={themeDraft()} isCreator isParticipant />);
-    expect(screen.getByRole("link", { name: "Edit cube Despia" })).toHaveAttribute("href", "/cubes/7?from=%2Fdraft%2Fs");
+    expect(await screen.findByRole("link", { name: "Edit cube Despia" })).toHaveAttribute("href", "/cubes/7?from=%2Fdraft%2Fs");
+    expect(screen.queryByRole("link", { name: "Edit cube Lightsworn" })).not.toBeInTheDocument();
     const more = screen.getByRole("button", { name: "More for Despia" });
     expect(more).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(more);
