@@ -1,4 +1,7 @@
 {$SITE_DOMAIN} {
+    request_body {
+        max_size 1MB
+    }
     # The private app must stay out of search, including on the current host.
     header >X-Robots-Tag "noindex, nofollow"
     header {

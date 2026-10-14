@@ -1,4 +1,6 @@
 import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { setObservabilityAdapter } from "@yugidraft/shared/observability";
+import { consoleAdapter } from "../../shared/dist/observability/console-adapter.js";
 import { readFileSync } from "node:fs";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { createHmac } from "node:crypto";
@@ -45,7 +47,8 @@ function expectRuntimeOccurrences(db: Database.Database, duelId: number) {
 describeWithCores("script errors through host, worker and journal", [needs.standard(DATA), needs.domain(DATA), needs.installedMulti(DATA)], () => {
   it.each(["legacy", "pinned"] as const)("%s: logs fatal Lua diagnostics only on the host and never counts them", async (engine) => {
     const db = new Database(":memory:"); migrate(db);
-    const log = recording.report.mockClear().mockImplementation(() => {});
+    setObservabilityAdapter(consoleAdapter);
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
     const players = [0, 1].map(i => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `fatal${i}`).userId }).playerId);
     const duels = createDuelService(db);
     const options = reproOptions();
@@ -64,7 +67,14 @@ describeWithCores("script errors through host, worker and journal", [needs.stand
       const result = await request(host, { op: "view", slug: session.slug, guildId: "g", playerId: players[0] }, 503);
       expect(JSON.stringify(result)).toContain("Engine script error:");
       expect(JSON.stringify(result)).not.toMatch(/stack overflow|private_lua_diagnostic/);
-      expect(log).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("stack overflow: private_lua_diagnostic"), stack: expect.any(String) }), { tags: { operation: "Card script fatal", table: session.slug } });
+      const events = diagnostic.mock.calls.map(([event]) => event);
+      const fatal = events.filter(event => event.tags?.operation === "Card script fatal");
+      expect(fatal).toEqual([expect.objectContaining({
+        name: "Error", message: expect.stringContaining("stack overflow: private_lua_diagnostic"),
+        stack: expect.stringContaining("/src/host.ts:"),
+        tags: { operation: "Card script fatal", event: "card_script_fatal", table: session.slug },
+      })]);
+      expect(JSON.stringify(events)).not.toMatch(/"(?:guildId|playerId|displayName|deck)"|Fatal diagnostics|fatal0|fatal1/);
       expect(topScriptErrors(db)).toEqual([]);
       expect(db.prepare("SELECT * FROM card_script_error_occurrences").all()).toEqual([]);
     } finally { await host.close(); hosts.splice(hosts.indexOf(host), 1); db.close(); }

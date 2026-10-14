@@ -45,7 +45,7 @@ class Worker implements DuelGameWorker {
   async close() { this.running = false; }
 }
 
-function table(format: DuelFormat, values: number[], botSeat?: number, keepFixtureSeats = false) {
+function table(format: DuelFormat, values: number[], botSeat?: number, keepFixtureSeats = false, hostOptions: Pick<Parameters<typeof createDuelHost>[0], "maxTablesPerPlayer"> = {}) {
   vi.stubEnv("MULTIPLAYER_TABLES", "1");
   const dir = createHostDataFixture(Array.from({ length: 4 }, (_, i) => ({ code: i + 1, name: `Test ${i + 1}` })));
   const db = new Database(":memory:"); migrate(db);
@@ -71,7 +71,7 @@ function table(format: DuelFormat, values: number[], botSeat?: number, keepFixtu
   });
   const workers: Worker[] = [];
   const changes = vi.fn();
-  const host = (keepFixtureSeats ? createTestDuelHost : createDuelHost)({ db, dataDirectory: dir, secret: SECRET, searchCards: () => [],
+  const host = (keepFixtureSeats ? createTestDuelHost : createDuelHost)({ db, dataDirectory: dir, secret: SECRET, searchCards: () => [], ...hostOptions,
     rollDie: keepFixtureSeats ? undefined : rollDie,
     onChange: changes, pollIntervalMs: 60 * 60 * 1000, createWorker: () => { const worker = new Worker(); workers.push(worker); return worker; } });
   resources.push({ host, db, dir });
@@ -88,7 +88,8 @@ function table(format: DuelFormat, values: number[], botSeat?: number, keepFixtu
 
 describe("host FFA dice opening", () => {
   it("restarts descending fixture dice for each FFA opening on the same host", async () => {
-    const t = table("ffa3", [], undefined, true);
+    // Four Tables stay in progress so their seat orders can be compared.
+    const t = table("ffa3", [], undefined, true, { maxTablesPerPlayer: 4 });
     expect((await t.post("start")).data.session.status).toBe("active");
     for (const format of ["ffa3", "ffa4", "ffa3"] as const) {
       const session = t.duels.create({ guildId: "g", organizerPlayerId: t.players[0]!, name: "Next fixture", mode: "normal", format,
@@ -104,6 +105,28 @@ describe("host FFA dice opening", () => {
       expect(result.data.session.seats.map((seat: { playerId: number }) => seat.playerId)).toEqual(t.players.slice(0, count));
       expect(t.workers.at(-1)?.options?.decks.map((deck) => deck.main[0])).toEqual(Array.from({ length: count }, (_, seat) => seat + 1));
     }
+  });
+
+  it("returns 429 when the fourth in-progress Table finishes its dice opening", async () => {
+    const t = table("ffa3", [], undefined, true);
+    expect((await t.post("start")).status).toBe(200);
+    for (let index = 0; index < 3; index++) {
+      const session = t.duels.create({ guildId: "g", organizerPlayerId: t.players[0]!, name: "Next fixture", mode: "normal", format: "ffa3",
+        settings: { validateDeck: false, turnSeconds: 0 } });
+      for (let seat = 0; seat < 3; seat++) {
+        if (seat) t.duels.takeSeat(session.slug, "g", t.players[seat]!, seat);
+        t.duels.setDeck(session.slug, "g", t.players[seat]!, { main: Array(40).fill(seat + 1), extra: [], side: [] });
+      }
+      const result = await t.post("start", t.players[0]!, { slug: session.slug });
+      if (index < 2) expect(result.status).toBe(200);
+      else {
+        expect(result).toEqual({ status: 429, data: { error: "You already have 3 live duels. Finish one first." } });
+        expect(t.duels.get(session.slug, "g").status).toBe("lobby");
+        expect(t.duels.openingState(session.slug, "g")).toBeNull();
+      }
+    }
+    expect(t.workers).toHaveLength(3);
+    expect(t.workers.every((worker) => worker.running)).toBe(true);
   });
 
   it.each(["ffa3", "ffa4"] as const)("starts %s with the rolled player and deck in seat 0 at the last reveal deadline", async (format) => {

@@ -226,14 +226,19 @@ describe("duel Extra Deck safety with competitive checks off", () => {
   it.each(["validation", "inspection"] as const)("keeps room reads available when the optional blocker %s fails", async stage => {
     const session = room();
     duels.setDeck(session.slug, "g", playerId, deck(stage === "validation" ? 903 : 901));
-    const error = new Error("Fixture blocker check failed");
+    const error = new Error("Fixture blocker check failed for private@example.com");
     if (stage === "validation") vi.spyOn(legality, "validateExtraDeckTypes").mockImplementation(() => { throw error; });
     else vi.spyOn(legality, "inspectDeck").mockImplementation(() => { throw error; });
-    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
     const response = await post({ op: "view", slug: session.slug });
     expect(response.status).toBe(200);
     expect(await response.json()).not.toHaveProperty("startBlocked");
-    expect(log).toHaveBeenCalledWith("[duel] could not check the viewer's start blocker", error);
+    const events = diagnostic.mock.calls.map(([event]) => event);
+    expect(events).toEqual([expect.objectContaining({
+      name: "Error", message: "Fixture blocker check failed for [redacted]", stack: expect.any(String),
+      tags: { operation: "[duel] viewer start blocker", table: session.slug },
+    })]);
+    expect(JSON.stringify(events)).not.toMatch(/private@example\.com|"(?:guildId|playerId|deck|cardNames)"|Test room|Test Fusion|Test Spell/);
   });
   it.each(["owner", "opponent"])("returns the private room notice when an expired opening is blocked (viewer=%s)", async viewer => {
     const opponent = seedIdentity(db, { name: "Fixture opponent" }).playerId;

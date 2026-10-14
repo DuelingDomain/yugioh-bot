@@ -107,6 +107,8 @@ describe("current engine identity", () => {
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
     // Version 5 records PR #348's fixed FFA facing pairs, board projection and Domain FFA draw setting.
     // PR #361 refreshed version 5: the Extra Deck type lookup before a duel starts is admission only (no engine/journal change).
+    // PR #344 integration refreshes version 5 for async worker admission, deadlines and structural answer checks.
+    // Successful journals retain the same creation rules, command ordering and board projections.
     // Version 4 includes PR #354's behavior-neutral worker startup instrumentation and cached catalog preload.
     // PR #346 refreshes version 5 for worker error metadata and card-loading fallback reporting.
     // These changes preserve engine command interpretation and replay journal behavior.

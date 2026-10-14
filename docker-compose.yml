@@ -61,6 +61,11 @@ services:
       - DUEL_SNAPSHOT_RETENTION_DAYS=${DUEL_SNAPSHOT_RETENTION_DAYS:-30}
       - DUEL_SNAPSHOT_RETENTION_INTERVAL_MS=${DUEL_SNAPSHOT_RETENTION_INTERVAL_MS:-21600000}
       - DUEL_IDLE_WORKER_MS=${DUEL_IDLE_WORKER_MS:-300000}
+      - DUEL_MAX_WORKERS=${DUEL_MAX_WORKERS:-12}
+      - DUEL_MAX_TABLES_PER_PLAYER=${DUEL_MAX_TABLES_PER_PLAYER:-3}
+      - DUEL_WORKER_HEAP_MB=${DUEL_WORKER_HEAP_MB:-256}
+      - DUEL_OP_TIMEOUT_MS=${DUEL_OP_TIMEOUT_MS:-15000}
+      - DUEL_CREATE_TIMEOUT_MS=${DUEL_CREATE_TIMEOUT_MS:-120000}
       # Tag, 3-player and 4-player tables. Off by default: only 1v1 tables start. The web service needs the same value.
       - MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-1}
       # The global 1v1 choice; Domain uses legacy by default. Standard has its own choice below.

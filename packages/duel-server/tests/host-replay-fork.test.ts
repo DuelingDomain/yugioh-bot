@@ -48,6 +48,8 @@ class ForkWorker extends ReplayWorker {
 
 function startHost(extra: Partial<Parameters<typeof createDuelHost>[0]> = {}) {
   host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000,
+    // Fork quota tests exercise the four-fork storage contract independently of worker admission.
+    maxTablesPerPlayer: 8,
     onChange, createWorker: () => { const w = makeWorker(); workers.push(w); return w; }, ...extra });
 }
 function source(format: DuelFormat = "1v1", mode: "normal" | "domain" = "normal") {
@@ -158,6 +160,47 @@ it("reports accepted answers as activity without changing timestamps on list rea
   const activity = db.prepare("select last_activity_at from duels where web_slug = ?").get(fork) as { last_activity_at: string };
   expect(activity.last_activity_at).not.toBe("2020-01-01 00:00:00");
   expect((await post({ op: "fork-list", slug: undefined })).body.forks[0].lastActivityAt).toBe(activity.last_activity_at);
+});
+it("counts a restarted fork as one in-progress Table for worker admission", async () => {
+  await host.close(); startHost({ maxWorkers: 3, maxTablesPerPlayer: 1 });
+  const input = request();
+  const launched = await post({ op: "replay-fork", ...input });
+  expect(launched.response.status).toBe(200);
+  const forkSlug = launched.body.slug;
+  expect((await post({ op: "fork-restart", slug: forkSlug })).response.status).toBe(200);
+  const limited = await post({ op: "replay-fork", ...input, requestId: "second-table" });
+  expect(limited.response.status).toBe(429);
+  expect(limited.body).toEqual({ error: "You already have 1 live duels. Finish one first." });
+  expect((await post({ op: "fork-list", slug: undefined })).body.forks.map((fork: { slug: string }) => fork.slug)).toEqual([forkSlug]);
+  expect((await post({ op: "fork-cancel", slug: forkSlug })).response.status).toBe(200);
+  expect((await post({ op: "replay-fork", ...input, requestId: "second-table" })).response.status).toBe(200);
+});
+it("removes an expired replay from the shared worker queue before capacity returns", async () => {
+  await host.close(); startHost({ maxWorkers: 1, replayRequestTimeoutMs: 200 });
+  const input = request();
+  const launched = await post({ op: "replay-fork", ...input });
+  expect(launched.response.status).toBe(200);
+  const replay = await post({ op: "owner-replay" });
+  expect(replay.response.status).toBe(503);
+  expect(replay.body.code).toBe("ENGINE_BUSY");
+  expect((await post({ op: "fork-cancel", slug: launched.body.slug })).response.status).toBe(200);
+  expect((await post({ op: "replay-fork", ...input, requestId: "after-timeout" })).response.status).toBe(200);
+  // Only the two successful forks allocate engines; the expired replay never starts later.
+  expect(workers).toHaveLength(2);
+});
+it("rejects malformed acting-seat answers without advancing or journaling a fork", async () => {
+  const launched = await post({ op: "replay-fork", ...request() });
+  expect(launched.response.status).toBe(200);
+  const forkSlug = launched.body.slug;
+  const before = createReplayForkService(db).privateState(forkSlug, owner).commands;
+  const command = { promptId: "p2", revision: 2, answer: { selected: [12] } };
+  const invalid = await post({ op: "respond", slug: forkSlug, as: 0, command });
+  expect(invalid.response.status).toBe(400);
+  expect(invalid.body).toEqual({ error: "Invalid answer" });
+  expect(createReplayForkService(db).privateState(forkSlug, owner).commands).toEqual(before);
+  expect((await post({ op: "view", slug: forkSlug })).body.engine.revision).toBe(2);
+  expect((await post({ op: "respond", slug: forkSlug, as: 0, command: { ...command, answer: { choice: "next" } } })).response.status).toBe(200);
+  expect(createReplayForkService(db).privateState(forkSlug, owner).commands).toHaveLength(before.length + 1);
 });
 it("denies fork listing for unsigned, non-owner, forged, wrong-guild and revoked callers", async () => {
   expect((await post({ op: "fork-list", slug: undefined }, false)).response.status).toBe(401);
