@@ -75,6 +75,7 @@ services:
       target: web
       args:
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required}
+        NEXT_PUBLIC_POSTHOG_KEY: ${NEXT_PUBLIC_POSTHOG_KEY:-}
     restart: unless-stopped
     user: *user
     environment:
@@ -129,6 +130,10 @@ services:
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
       - OWNER_USER_IDS=${OWNER_USER_IDS:-}
+      - POSTHOG_KEY=${POSTHOG_KEY:-}
+      - POSTHOG_PERSONAL_API_KEY=${POSTHOG_PERSONAL_API_KEY:-}
+      - POSTHOG_PROJECT_ID=${POSTHOG_PROJECT_ID:-}
+      - POSTHOG_HOST=${POSTHOG_HOST:-}
       - CARD_IMAGE_CACHE_DIR=/app/data/card-images
       - CARD_IMAGE_CACHE_MAX_BYTES=${CARD_IMAGE_CACHE_MAX_BYTES:-16106127360}
       - WORKER_HEALTH_PATH=/tmp/yugidraft-worker-health.json
@@ -152,6 +157,7 @@ services:
       - SITE_DOMAIN=${SITE_DOMAIN:?Set SITE_DOMAIN in .env (localhost for local dev)}
       - MARKETING_DOMAIN=${MARKETING_DOMAIN:-marketing-disabled.localhost}
       - LEGACY_DOMAIN=${LEGACY_DOMAIN:-legacy-disabled.localhost}
+      - NEXT_PUBLIC_POSTHOG_KEY=${NEXT_PUBLIC_POSTHOG_KEY:-}
     ports:
       - "80:80"
       - "443:443"

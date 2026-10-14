@@ -83,3 +83,16 @@ it("keeps two histories separate and returns the conflict to forced refresh", as
  expect(res.status).toBe(200); expect(await res.json()).toEqual({ user: { id: String(signedIn.id) }, conflict: "both_have_history" });
  expect(users.findById(imported.id)?.clerkUserId).toBeNull(); expect(users.findById(signedIn.id)?.discordUserId).toBeNull(); expect(state.db!.prepare("select created_by_user_id from cubes order by id").all()).toEqual([{ created_by_user_id: imported.id }, { created_by_user_id: signedIn.id }]);
 });
+
+it("records first sign-in once for the resolved user even after outbox cleanup", async () => {
+  const users = createUserService(state.db!);
+  const imported = users.ensureDiscord({ discordUserId: "123", displayName: "Imported" });
+  state.db!.prepare("insert into cubes(guild_id,name,created_by_user_id) values('g','History',?)").run(imported.id);
+  await Promise.all([resolveSessionIdentity(), resolveSessionIdentity()]);
+  expect(state.db!.prepare("select name,user_id,props_json from product_events where name='first_sign_in'").all()).toEqual([
+    { name: "first_sign_in", user_id: imported.id, props_json: "{}" },
+  ]);
+  state.db!.exec("delete from product_events");
+  await resolveSessionIdentity({ forceSync: true });
+  expect(state.db!.prepare("select count(*) as n from product_events where name='first_sign_in'").get()).toEqual({ n: 0 });
+});

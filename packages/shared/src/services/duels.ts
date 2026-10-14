@@ -1,3 +1,4 @@
+import { recordProductEvent, type ProductEventProps } from "../analytics/index.js";
 import { readStoredBoard, freezeStoredBoard, encodeStoredSnapshot, storedTurnCount, type StoredSnapshot } from "./stored-duel-snapshots.js";
 import type { DuelScriptErrorMode } from "../duels/index.js";
 import type Database from "better-sqlite3";
@@ -1079,6 +1080,17 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     return mapSession(row);
   });
 
+  const recordDuelEvent = (row: DuelRow, name: "duel_started" | "duel_finished", props: ProductEventProps["duel_finished"] = {}) => {
+    const player = db.prepare("select user_id from players where id=?").get(row.organizer_player_id) as { user_id: number };
+    const format = rowFormat(row);
+    const setup = parseSetup(row.setup_json, row.kind, format);
+    recordProductEvent(db, name, player.user_id, {
+      mode: row.mode as DuelMode, format, seatCount: seatCountFor(format),
+      engine: setup?.engineIdentity?.coreFamily ?? setup?.engine,
+      ...props,
+    });
+  };
+
   const activateTx = db.transaction(
     (
       slug: string,
@@ -1131,6 +1143,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       ).run(JSON.stringify(seed), bundleVersion, serializeClock(storedClock), storedSetup, row.id);
       const updated = selectDuelById.get(row.id);
       if (!updated || updated.status !== "active") throw new DuelServiceError("Duel is not in lobby", 400);
+      recordDuelEvent(updated, "duel_started");
       series.onActivate(updated, rowSettings(updated));
       const attached = selectDuelById.get(row.id);
       return mapSession(attached ?? updated);
@@ -1231,7 +1244,13 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       );
       const updated = selectDuelById.get(row.id);
       if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
-      if (!isReplayFork(updated)) series.onGameFinished(updated, nextStatus, winnerPlayerId, winnerIsBot);
+      if (!isReplayFork(updated)) {
+        recordDuelEvent(updated, "duel_finished", {
+          endedBy: nextStatus,
+          ...(turnCount === null ? {} : { turnCount }),
+        });
+        series.onGameFinished(updated, nextStatus, winnerPlayerId, winnerIsBot);
+      }
       return mapSession(updated);
     },
   );
@@ -1281,6 +1300,10 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     ).run(row.status === "active" && typeof liveTurn === "number" && Number.isSafeInteger(liveTurn) && liveTurn >= 0 ? liveTurn : storedTurnCount(row), row.id);
     const updated = selectDuelById.get(row.id);
     if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
+    if (row.status === "active" && !isReplayFork(updated)) {
+      const turnCount = (db.prepare("select turn_count from duels where id=?").get(updated.id) as { turn_count: number | null }).turn_count;
+      recordDuelEvent(updated, "duel_finished", { endedBy: "cancelled", ...(turnCount === null ? {} : { turnCount }) });
+    }
     return mapSession(updated);
   });
 

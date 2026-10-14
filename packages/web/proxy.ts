@@ -23,6 +23,12 @@ function unauthorized(request: NextRequest) {
 // Construct Clerk lazily: an E2E request must never initialize its middleware.
 let clerkProxy: NextMiddleware | undefined;
 export default async function proxy(request: NextRequest, event: NextFetchEvent) {
+  const path = request.nextUrl.pathname;
+  if (path === "/ingest" || path.startsWith("/ingest/")) {
+    const headers = new Headers(request.headers);
+    for (const name of ["cookie", "authorization", "referer"]) headers.delete(name);
+    return NextResponse.next({ request: { headers } });
+  }
   // Clerk calls this signed endpoint without a browser session. Do not initialize
   // session middleware here; the route verifies the signature before any writes.
   if (request.method === "POST" && request.nextUrl.pathname === "/api/webhooks/clerk") return NextResponse.next();

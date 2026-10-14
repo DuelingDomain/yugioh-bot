@@ -385,6 +385,7 @@ jobs:
           tags: ${{ env.IMAGE }}:${{ env.DEPLOY_COMMIT }}
           build-args: |
             NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+            NEXT_PUBLIC_POSTHOG_KEY=${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
           build-contexts: |
             engine=${{ runner.temp }}/engine
             ${{ steps.next-cache.outputs.context }}
@@ -426,6 +427,7 @@ jobs:
           tags: ${{ env.IMAGE }}:nextcache
           build-args: |
             NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+            NEXT_PUBLIC_POSTHOG_KEY=${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
           build-contexts: ${{ steps.next-cache.outputs.context }}
           labels: |
             org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot

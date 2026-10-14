@@ -122,7 +122,7 @@ describe("deleteUserAccount", () => {
     // Nothing else changed.
     const after = dump();
     for (const table of Object.keys(before)) {
-      if (["users", "players", "saved_decks", "waitlist_signups"].includes(table)) continue;
+      if (["users", "players", "saved_decks", "waitlist_signups", "product_events"].includes(table)) continue;
       expect(after[table], table).toEqual(before[table]);
     }
     expect(db.pragma("foreign_key_check")).toEqual([]);
@@ -271,4 +271,18 @@ describe("previewUserDeletion", () => {
           insert into saved_decks(guild_id,owner_user_id,name,mode,deck_json) values ('g',3,'Deck','normal','{}')`);
     expect(previewUserDeletion(db, 3).mode).toBe("removed");
   });
+});
+
+it("replaces queued user events with one deletion job in the account transaction", () => {
+  db.prepare("insert into product_events(name,user_id,props_json,occurred_at,event_uuid) values('deck_saved',1,'{}',1,'event-one'),('deck_saved',2,'{}',1,'event-two')").run();
+  db.exec("create trigger reject_event before insert on product_events when new.name='$delete_person' begin select raise(abort, 'record failed'); end");
+  expect(() => deleteUserAccount(db, 1)).toThrow("record failed");
+  expect(db.prepare("select email from users where id=1").get()).toEqual({ email: EMAIL });
+  expect(db.prepare("select count(*) as n from product_events").get()).toEqual({ n: 2 });
+  db.exec("drop trigger reject_event");
+  deleteUserAccount(db, 1); deleteUserAccount(db, 1);
+  expect(db.prepare("select name,user_id,props_json from product_events order by id").all()).toEqual([
+    { name: "deck_saved", user_id: 2, props_json: "{}" },
+    { name: "$delete_person", user_id: 1, props_json: "{}" },
+  ]);
 });

@@ -249,3 +249,25 @@ describe("matches.recordConfirmedResult", () => {
     }
   });
 });
+
+it.each(["round_robin", "single_elim"].flatMap(format => ["approve", "auto", "record"].map(approval => ({ format, approval }))))("records final-match completion atomically for $format via $approval", ({ format, approval }) => {
+  const app = setup();
+  try {
+    const owner = seedUser(app.db, "u1").userId;
+    const tournament = app.tournaments.create("g1", "Private tournament", format as "round_robin" | "single_elim", owner);
+    app.tournaments.join(tournament.id, app.p1); app.tournaments.join(tournament.id, app.p2); app.tournaments.start(tournament.id);
+    const slot = app.tournaments.matches(tournament.id)[0];
+    const pending = approval === "record" ? null : app.tournaments.report(tournament.id, app.p1, app.p2, app.p1);
+    const finish = () => approval === "record" ? app.matches.recordConfirmedResult({ guildId: "g1", playerOneId: app.p1, playerTwoId: app.p2, winnerId: app.p1, source: "tournament", tournamentMatchId: slot.id })
+      : approval === "approve" ? app.matches.approve(pending!.id, app.p2) : app.matches.autoApprove(pending!.id);
+    app.db.exec("create trigger reject_event before insert on product_events when new.name='tournament_finished' begin select raise(abort, 'record failed'); end");
+    expect(finish).toThrow("record failed");
+    expect(app.tournaments.findById(tournament.id).status).toBe("active");
+    if (pending) expect(app.db.prepare("select status from matches where id=?").get(pending.id)).toEqual({ status: "pending" });
+    app.db.exec("drop trigger reject_event"); finish();
+    expect(app.tournaments.findById(tournament.id).status).toBe("completed");
+    expect(app.db.prepare("select name,user_id,props_json from product_events where name='tournament_finished'").all()).toEqual([
+      { name: "tournament_finished", user_id: owner, props_json: JSON.stringify({ format, participantCount: 2 }) },
+    ]);
+  } finally { app.db.close(); }
+});

@@ -591,6 +591,14 @@ After deploy, run `scripts/smoke-test-site.sh <SITE_DOMAIN> <VM IP>` from the re
 
 Manually open `https://<SITE_DOMAIN>` in a browser, exercise email/password and Discord sign-in, invitation ticket + Discord with locked email/required username/consent, email code/resend and password reset. Confirm history recovery, account refresh, channel-free drafts/decks/duels, WS updates, worker deadlines and published legal links; the smoke script cannot verify these checks.
 
+### Product analytics
+
+Leave `NEXT_PUBLIC_POSTHOG_KEY` and `POSTHOG_KEY` empty until the owner-approved privacy policy is live. Create a PostHog EU project and enable cookieless server hash mode. Set repository variable `NEXT_PUBLIC_POSTHOG_KEY` for the Actions web build; changing it requires a new image. Set the same project key as `NEXT_PUBLIC_POSTHOG_KEY` in the VM `.env` for the marketing landing page. Caddy templates omit the script when this key is empty; other marketing pages never include it.
+
+The worker's explicit Compose environment receives `POSTHOG_KEY`, `POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_ID` and `POSTHOG_HOST` (empty uses `https://eu.i.posthog.com`). The personal key needs persons read/write scope and goes only to the worker, with the project ID used by `/api/projects/<id>/persons/`. Default EU persons requests use `https://eu.posthog.com`. No personal API key is a build argument or browser setting. Recreate worker/Caddy after runtime env changes.
+
+Events queue with the domain change and ship in batches of at most 100 every ten seconds. Failed sends back off exponentially with persistent retry timing; ten attempts stops sending. Sent rows are removed after seven days, unsent rows after thirty. Person lookups without a visible matching profile retry within the same ten-attempt budget; verify deletion jobs during rollout. Empty worker project key discards events and deletion jobs without HTTP. Account deletion removes matching Clerk waitlist entries before deleting the Clerk login and erasing email, then queues person/event deletion. The owner `delete-user` command also performs this cleanup; `--skip-clerk` explicitly skips all remote Clerk cleanup.
+
 ### Clerk configuration
 
 Configure production Clerk for `https://app.duelingdomain.com`: waitlist sign-up mode; email/password with email code verification; required username and legal consent; Discord OAuth; passwordless/passkeys/phone off; 30-day maximum session lifetime with no shorter inactivity timeout; bot protection and invitation/waitlist email templates. Consent URLs are `https://duelingdomain.com/privacy` and `https://duelingdomain.com/terms`. Contact is `support@duelingdomain.com`. Apply the exact Clerk dashboard DNS/email records and verify them; do not invent record values. Register the Clerk-provided Discord callback in the Discord app; the app continuation is `/sso-callback`. Keep previous settings for rollback. Owner approval is required before production cutover.

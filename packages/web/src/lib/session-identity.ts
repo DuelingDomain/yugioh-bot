@@ -1,3 +1,4 @@
+import { recordProductEvent } from "@yugidraft/shared/analytics";
 import { auth as clerkAuth } from "@clerk/nextjs/server";
 import { cookies } from "next/headers";
 import { ClerkBackendError } from "@yugidraft/shared/clerk";
@@ -31,11 +32,20 @@ export async function resolveSessionIdentity(opts: { forceSync?: boolean } = {})
   try {
     const { userId } = await clerkAuth();
     if (!userId) return { ok: false, status: 401 };
-    const users = createUserService(getDb());
+    const db = getDb();
+    const users = createUserService(db);
+    const signedIn = (user: User, conflict: SessionIdentity["conflict"] = null): SessionResult => {
+      db.transaction(() => {
+        if (db.prepare("update users set first_sign_in_at=? where id=? and first_sign_in_at is null").run(Date.now(), user.id).changes > 0) {
+          recordProductEvent(db, "first_sign_in", user.id);
+        }
+      }).immediate();
+      return identity(user, conflict);
+    };
     const user = users.findByClerkId(userId);
-    if (!opts.forceSync && !users.needsSync(user)) return identity(user!);
+    if (!opts.forceSync && !users.needsSync(user)) return signedIn(user!);
     const outcome = await syncClerkUser(userId);
-    return outcome?.user ? identity(outcome.user, outcome.conflict) : unavailable("missing_user");
+    return outcome?.user ? signedIn(outcome.user, outcome.conflict) : unavailable("missing_user");
   } catch (error) {
     if (error instanceof ClerkBackendError && error.status === 404) return { ok: false, status: 401 };
     const reason = error instanceof ClerkBackendError

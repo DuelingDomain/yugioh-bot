@@ -1,3 +1,4 @@
+import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 import { isReplayForkSetup } from "../duels/replay-fork.js";
 import { userHistory } from "./user-history.js";
@@ -111,6 +112,8 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     if (Object.keys(userHistory(db, userId)).length === 0) {
       note("players", db.prepare("delete from players where user_id = ?").run(userId).changes);
       note("users", db.prepare("delete from users where id = ?").run(userId).changes);
+      db.prepare("delete from product_events where user_id=?").run(userId);
+      recordProductEvent(db, "$delete_person", userId);
       return { userId, mode: "removed", counts };
     }
 
@@ -152,6 +155,10 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
       where id = ? and (clerk_user_id is not null or email is not null or email_verified <> 0 or discord_user_id is not null
         or username <> ? or display_name <> ? or synced_at is not null)
     `).run(deletedUsername(userId), DELETED_PLAYER_NAME, userId, deletedUsername(userId), DELETED_PLAYER_NAME).changes);
+    if (counts.users) {
+      db.prepare("delete from product_events where user_id=?").run(userId);
+      recordProductEvent(db, "$delete_person", userId);
+    }
     return { userId, mode: "anonymised", counts };
   });
   return run.immediate();

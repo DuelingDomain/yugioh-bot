@@ -38,7 +38,8 @@ FROM build AS web-build
 COPY --from=nextcache /cache/ /app/packages/web/.next/cache/
 # Turbo's strict env filter would drop an undeclared Clerk key.
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
-RUN NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" npm run build --workspace=packages/web
+ARG NEXT_PUBLIC_POSTHOG_KEY=
+RUN NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" NEXT_PUBLIC_POSTHOG_KEY="$NEXT_PUBLIC_POSTHOG_KEY" npm run build --workspace=packages/web
 
 # Export only the incremental build cache, never runtime configuration.
 FROM scratch AS web-cache

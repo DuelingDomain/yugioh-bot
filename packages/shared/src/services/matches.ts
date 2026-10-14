@@ -1,3 +1,4 @@
+import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 import { generateSingleElimFirstRound } from "../tournaments/formats.js";
 import { createScoringService } from "./scoring.js";
@@ -132,6 +133,13 @@ export function createMatchService(db: Database.Database) {
       return;
     }
 
+    const finishTournament = () => {
+      db.prepare("update tournaments set status = 'completed', ended_at = current_timestamp where id = ?").run(match.tournamentId);
+      const participants = db.prepare("select count(*) as n from tournament_participants where tournament_id=?").get(match.tournamentId) as { n: number };
+      recordProductEvent(db, "tournament_finished", tournament.created_by_user_id, { format: tournament.format, participantCount: participants.n });
+      safe(() => scoring.recordTournamentResult(match.tournamentId!), strictScoring);
+    };
+
     if (tournament.format === "round_robin") {
       const remaining = db
         .prepare(
@@ -140,10 +148,7 @@ export function createMatchService(db: Database.Database) {
         .get(match.tournamentId) as { count: number };
 
       if (remaining.count === 0) {
-        db.prepare(
-          "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
-        ).run(match.tournamentId);
-        safe(() => scoring.recordTournamentResult(match.tournamentId!), strictScoring);
+        finishTournament();
       }
       return;
     }
@@ -198,10 +203,7 @@ export function createMatchService(db: Database.Database) {
       .filter((winnerId: unknown): winnerId is number => typeof winnerId === "number");
 
     if (winners.length <= 1) {
-      db.prepare(
-        "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
-      ).run(match.tournamentId);
-      safe(() => scoring.recordTournamentResult(match.tournamentId!), strictScoring);
+      finishTournament();
       return;
     }
 
@@ -285,35 +287,37 @@ export function createMatchService(db: Database.Database) {
     },
 
     approve(matchId: number, approverId: number): Match {
-      const match = findById(matchId);
-      ensureOpponentCanResolve(match, approverId);
-      // A report that waited past the end of its tournament no longer counts: no Elo, no points.
-      if (match.tournamentId !== null) {
-        const tournament = db
-          .prepare("select status from tournaments where id = ?")
-          .get(match.tournamentId) as { status: string } | undefined;
-        if (tournament && (tournament.status === "cancelled" || tournament.status === "completed")) {
-          throw new Error(`Tournament is ${tournament.status}; this report can no longer be confirmed`);
+      return db.transaction(() => {
+        const match = findById(matchId);
+        ensureOpponentCanResolve(match, approverId);
+        // A report that waited past the end of its tournament no longer counts: no Elo, no points.
+        if (match.tournamentId !== null) {
+          const tournament = db
+            .prepare("select status from tournaments where id = ?")
+            .get(match.tournamentId) as { status: string } | undefined;
+          if (tournament && (tournament.status === "cancelled" || tournament.status === "completed")) {
+            throw new Error(`Tournament is ${tournament.status}; this report can no longer be confirmed`);
+          }
         }
-      }
 
-      // Only a still pending report can be approved: a cancel that denied it in the meantime wins.
-      const approved = db.prepare(
-        `
-        update matches
-        set status = 'approved', approver_id = ?, resolved_at = current_timestamp
-        where id = ? and status = 'pending'
-      `,
-      ).run(approverId, matchId);
-      if (approved.changes !== 1) {
-        throw new Error("Match is not pending");
-      }
+        // Only a still pending report can be approved: a cancel that denied it in the meantime wins.
+        const approved = db.prepare(
+          `
+          update matches
+          set status = 'approved', approver_id = ?, resolved_at = current_timestamp
+          where id = ? and status = 'pending'
+        `,
+        ).run(approverId, matchId);
+        if (approved.changes !== 1) {
+          throw new Error("Match is not pending");
+        }
 
-      const approvedMatch = findById(matchId);
-      completeTournamentMatch(approvedMatch);
-      safe(() => scoring.recordMatchResult(matchId));
+        const approvedMatch = findById(matchId);
+        completeTournamentMatch(approvedMatch);
+        safe(() => scoring.recordMatchResult(matchId));
 
-      return findById(matchId);
+        return findById(matchId);
+      }).immediate();
     },
 
     deny(matchId: number, denierId: number): Match {
@@ -419,24 +423,26 @@ export function createMatchService(db: Database.Database) {
     },
 
     autoApprove(matchId: number): Match {
-      const match = findById(matchId);
-      if (match.status !== "pending") {
-        return match;
-      }
+      return db.transaction(() => {
+        const match = findById(matchId);
+        if (match.status !== "pending") {
+          return match;
+        }
 
-      db.prepare(
-        `
-        update matches
-        set status = 'approved', approver_id = null, resolved_at = current_timestamp
-        where id = ?
-      `,
-      ).run(matchId);
+        db.prepare(
+          `
+          update matches
+          set status = 'approved', approver_id = null, resolved_at = current_timestamp
+          where id = ?
+        `,
+        ).run(matchId);
 
-      const approvedMatch = findById(matchId);
-      completeTournamentMatch(approvedMatch);
-      safe(() => scoring.recordMatchResult(matchId));
+        const approvedMatch = findById(matchId);
+        completeTournamentMatch(approvedMatch);
+        safe(() => scoring.recordMatchResult(matchId));
 
-      return findById(matchId);
+        return findById(matchId);
+      }).immediate();
     },
 
     findOverduePendingConfirmations(now: string): Match[] {

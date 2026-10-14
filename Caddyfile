@@ -60,6 +60,25 @@ www.{$SITE_DOMAIN}, http:// {
     handle @waitlist {
         reverse_proxy web:3000
     }
+    handle /ingest/static/* {
+        uri strip_prefix /ingest
+        reverse_proxy https://eu-assets.i.posthog.com {
+            header_up Host {upstream_hostport}
+            header_up -Cookie
+            header_up -Authorization
+            header_up -Referer
+        }
+    }
+    @ingest path /ingest /ingest/*
+    handle @ingest {
+        uri strip_prefix /ingest
+        reverse_proxy https://eu.i.posthog.com {
+            header_up Host {upstream_hostport}
+            header_up -Cookie
+            header_up -Authorization
+            header_up -Referer
+        }
+    }
     handle /login {
         redir https://{$SITE_DOMAIN}/login 302
     }
@@ -75,6 +94,9 @@ www.{$SITE_DOMAIN}, http:// {
         header @fonts Cache-Control "public, max-age=31536000"
         @manifest path /site.webmanifest
         header @manifest Content-Type "application/manifest+json"
+        templates @marketingHome {
+            mime text/html
+        }
         try_files {path} {path}.html {path}/index.html =404
         file_server
     }

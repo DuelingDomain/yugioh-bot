@@ -9,6 +9,11 @@
       "source": "./src/access/owner-access.ts",
       "default": "./dist/access/owner-access.js"
     },
+    "./analytics": {
+      "types": "./dist/analytics/index.d.ts",
+      "source": "./src/analytics/index.ts",
+      "default": "./dist/analytics/index.js"
+    },
     "./duels": {
       "types": "./dist/duels/index.d.ts",
       "source": "./src/duels/index.ts",

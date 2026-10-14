@@ -5,8 +5,8 @@ import { OpsError, withRateLimit, type OpsContext } from "./report.js";
 type ClerkOutcome = "none" | "skipped" | "would_delete" | "deleted" | "failed";
 
 /**
- * Deletes one account the way the self-serve button does: the Clerk user first (a 404 counts as already
- * gone), then the one-transaction database step. Dry-run by default and offline. The report carries the
+ * Deletes one account the way the self-serve button does: the Clerk waitlist, then Clerk user (404 counts as gone),
+ * then the database transaction. Dry-run by default and offline. The report carries the
  * user ID, the mode and row counts only: no email, Clerk ID or Discord ID.
  */
 export async function deleteUser(ctx: OpsContext, userId: number) {
@@ -17,22 +17,22 @@ export async function deleteUser(ctx: OpsContext, userId: number) {
   if (!preview.exists) {
     return { status: "not_found", userId, message: "No user with this ID; nothing to do (already deleted, or the ID is wrong)" };
   }
-  const needsClerk = preview.hasClerkUser && !ctx.skipClerk;
-  const clerkPlan: ClerkOutcome = !preview.hasClerkUser ? "none" : ctx.skipClerk ? "skipped" : "would_delete";
+  const user = createUserService(ctx.db).findById(userId)!;
+  const needsClerk = (preview.hasClerkUser || user.email !== null) && !ctx.skipClerk;
+  const clerkPlan: ClerkOutcome = !preview.hasClerkUser && user.email === null ? "none" : ctx.skipClerk ? "skipped" : "would_delete";
   if (!ctx.apply) {
     return { status: "dry-run", userId, mode: preview.mode, clerk: clerkPlan, message: "Dry run; add --apply to delete" };
   }
 
-  let clerk: ClerkOutcome = clerkPlan === "would_delete" ? "deleted" : clerkPlan;
+  const clerk: ClerkOutcome = clerkPlan === "would_delete" ? "deleted" : clerkPlan;
   if (needsClerk) {
     if (!ctx.backend) fail("CLERK_SECRET_KEY is required to delete the Clerk user (or pass --skip-clerk)", "failed");
-    const clerkUserId = createUserService(ctx.db).findById(userId)?.clerkUserId;
-    if (clerkUserId) {
-      try { await withRateLimit(ctx, () => ctx.backend!.deleteUser(clerkUserId)); }
-      catch (error) {
-        const status = error instanceof ClerkBackendError ? error.status : 0;
-        fail(`Clerk could not delete the user (status ${status}); the database was not changed`, "failed", { clerkStatus: status });
-      }
+    try {
+      if (user.email) await withRateLimit(ctx, () => ctx.backend!.deleteWaitlistEntriesByEmail(user.email!));
+      if (user.clerkUserId) await withRateLimit(ctx, () => ctx.backend!.deleteUser(user.clerkUserId!));
+    } catch (error) {
+      const status = error instanceof ClerkBackendError ? error.status : 0;
+      fail(`Clerk could not finish deletion (status ${status}); the database was not changed`, "failed", { clerkStatus: status });
     }
   }
 

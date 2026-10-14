@@ -197,3 +197,19 @@ describe("saved decks built from a draft pool", () => {
     expect(decks.update(made.id, "g", seedUser(db, "u").userId, { name: "D", mode: "normal", deck: emptyDeck, draftId: null }).draftId).toBeNull();
   });
 });
+
+it("records successful creates and updates without deck text and rolls back failed recording", () => {
+  const { db, decks } = setup();
+  const owner = seedUser(db, "one").userId;
+  const created = decks.create("g", owner, { name: "Private deck", mode: "normal", deck: emptyDeck });
+  decks.update(created.id, "g", owner, { name: "Other deck", mode: "domain", deck: emptyDeck });
+  expect(db.prepare("select name,user_id,props_json from product_events").all()).toEqual([
+    { name: "deck_saved", user_id: owner, props_json: '{"mode":"normal"}' },
+    { name: "deck_saved", user_id: owner, props_json: '{"mode":"domain"}' },
+  ]);
+  db.exec("create trigger reject_event before insert on product_events begin select raise(abort, 'record failed'); end");
+  expect(() => decks.update(created.id, "g", owner, { name: "Failed change", mode: "normal", deck: emptyDeck })).toThrow("record failed");
+  expect(decks.get(created.id, "g", owner).name).toBe("Other deck");
+  expect(() => decks.create("g", owner, { name: "Failed create", mode: "normal", deck: emptyDeck })).toThrow("record failed");
+  expect(decks.list("g", owner)).toHaveLength(1);
+});

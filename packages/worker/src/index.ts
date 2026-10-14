@@ -11,6 +11,7 @@ import {
   createImageCacheCleanup,
 } from "@yugidraft/shared/services";
 import { effectsFromEnv } from "./effects.js";
+import { drainProductEvents } from "./analytics-drain.js";
 import { createLoop } from "./loop.js";
 import { createDraftTimer } from "./draft-timer.js";
 import { createTournamentTimer } from "./tournament-timer.js";
@@ -33,6 +34,12 @@ const writeHealth = () => writeFileSync(healthPath, JSON.stringify({ pid: proces
 const draftTimer = createDraftTimer({ db, drafts: createDraftService(db), effects, startedAt });
 const tournamentTimer = createTournamentTimer({ db, matches: createMatchService(db), tournaments: createTournamentService(db), effects });
 const jobs = [
+  createLoop(() => drainProductEvents(db, {
+    key: process.env.POSTHOG_KEY ?? "",
+    host: process.env.POSTHOG_HOST,
+    personalApiKey: process.env.POSTHOG_PERSONAL_API_KEY ?? "",
+    projectId: process.env.POSTHOG_PROJECT_ID ?? "",
+  }), 10_000),
   createLoop(async () => { await draftTimer.tick(); writeHealth(); }, 1000),
   createLoop(() => tournamentTimer.tick(), 60_000),
   createSetSync({

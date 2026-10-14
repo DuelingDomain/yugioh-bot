@@ -51,6 +51,9 @@ export function fakeClerk() {
       const index = users.findIndex(u => u.id === id);
       if (index >= 0) users.splice(index, 1);
     },
+    async deleteWaitlistEntriesByEmail(email) {
+      for (let i = entries.length - 1; i >= 0; i--) if (entries[i].email_address.trim().toLowerCase() === email.trim().toLowerCase()) entries.splice(i, 1);
+    },
     async createWaitlistEntry(input) { calls.push({ method: "createWaitlistEntry", input }); const e = { id: `entry_${entries.length + 1}`, email_address: input.emailAddress, status: "pending" }; entries.push(e); return e; },
   };
   return { backend, calls, users, entries, failures };

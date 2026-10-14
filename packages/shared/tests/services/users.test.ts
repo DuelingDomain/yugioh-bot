@@ -5,7 +5,7 @@ import { createUserService } from "../../src/services/users.js";
 const db = new Database(":memory:"); migrate(db); db.pragma("foreign_keys=on");
 afterAll(() => db.close());
 const users = createUserService(db);
-afterEach(() => { db.exec("delete from players; delete from users"); });
+afterEach(() => { db.exec("delete from product_events; delete from cubes; delete from players; delete from users"); });
 it("keeps one user, normalizes email, clears stale verification and keeps username", () => {
   const a = users.ensureDiscord({ discordUserId: "900000000000000101", displayName: "Yugi", email: " A@EXAMPLE.COM ", emailVerified: true });
   expect(a).toMatchObject({ email: "a@example.com", emailVerified: true, clerkUserId: null, syncedAt: null });
@@ -87,4 +87,29 @@ it("rolls back profile changes when compatibility synchronization fails", () => 
 it.each(["", "clerk:x", "bot_player_dev_1", "1e3", "-1", " 123", "12345678901234567890123456"])("rejects invalid Discord account %s without allocating a user", discordUserId => {
   expect(() => users.ensureDiscord({ discordUserId, displayName: "Invalid" })).toThrow(/Invalid Discord/);
   expect(db.prepare("select count(*) as n from users").get()).toEqual({ n: 0 });
+});
+
+it("records account creation for the final Clerk identity once and rolls back with the profile", () => {
+  const profile = { clerkUserId: "user_new", username: "new_member", displayName: "Member", email: "member@example.test", emailVerified: true, discordUserId: null, imageUrl: null };
+  const user = users.resolveClerkProfile(profile).user;
+  users.resolveClerkProfile(profile);
+  expect(db.prepare("select name,user_id,props_json from product_events").all()).toEqual([
+    { name: "account_created", user_id: user.id, props_json: "{}" },
+  ]);
+  db.exec("create trigger reject_event before insert on product_events begin select raise(abort, 'record failed'); end");
+  expect(() => users.resolveClerkProfile({ ...profile, clerkUserId: "user_other", username: "other_member" })).toThrow("record failed");
+  expect(users.findByClerkId("user_other")).toBeUndefined();
+  db.exec("drop trigger reject_event; delete from product_events");
+});
+
+it("clears a folded account's analytics, queues its person deletion and preserves first sign-in", () => {
+  const imported = users.ensureDiscord({ discordUserId: "999", displayName: "Imported" });
+  db.prepare("insert into cubes(guild_id,name,created_by_user_id) values('g','History',?)").run(imported.id);
+  const profile = { clerkUserId: "user_folded", username: "member", displayName: "Member", email: "member@example.test", emailVerified: true, discordUserId: null, imageUrl: null };
+  const prior = users.resolveClerkProfile(profile).user;
+  db.prepare("update users set first_sign_in_at=123 where id=?").run(prior.id);
+  const linked = users.resolveClerkProfile({ ...profile, discordUserId: "999" });
+  expect(linked.user.id).toBe(imported.id);
+  expect(db.prepare("select first_sign_in_at from users where id=?").get(imported.id)).toEqual({ first_sign_in_at: 123 });
+  expect(db.prepare("select name,user_id from product_events").all()).toEqual([{ name: "$delete_person", user_id: prior.id }]);
 });
