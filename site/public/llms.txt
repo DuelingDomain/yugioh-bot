@@ -13,6 +13,10 @@ Unofficial fan project. Not affiliated with or endorsed by Konami. Contact: supp
 - [Home](https://duelingdomain.com/): Product overview and closed alpha waitlist.
 - [App sign-in](https://app.duelingdomain.com): Sign in to the invitation-only app. Private app content is not a public source.
 
+## Community
+
+- [Discord](https://discord.gg/sUSmbRbBUm): Join the Dueling Domain community server.
+
 ## Policies
 
 - [Privacy](https://duelingdomain.com/privacy): Information collected, processors, retention and data rights.

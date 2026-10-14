@@ -15,6 +15,10 @@ from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
 
 PUBLIC = Path(__file__).resolve().parents[1] / 'public'
+# Community invite. Use a never-expiring invite (no expiry date, unlimited uses): a default
+# invite dies after 30 days and would leave dead links, JSON-LD sameAs and llms.txt entries.
+# The HTML repeats this URL exactly; change it here and in index.html and llms.txt together.
+DISCORD_INVITE = 'https://discord.gg/sUSmbRbBUm'
 VOID = set('area base br col embed hr img input link meta param source track wbr'.split())
 
 
@@ -187,7 +191,7 @@ def main():
         assert not page.find('style') and not any('style' in e['attrs'] for e in page.elements), (name, 'inline style')
     index = pages['index.html']
     visible = ' '.join(index.text)
-    assert all(text in visible for text in ['Rip it', 'open.', 'Draft night', 'Domain format', 'No install', 'Tag duels', 'Free-for-all', 'Season ladder', 'Behind glass, for now.', 'Join the list', 'Your wave opens', 'Your invite'])
+    assert all(text in visible for text in ['Rip it', 'open.', 'Draft night', 'Domain format', 'No install', 'Tag duels', 'Free-for-all', 'Season ladder', 'Out of the case.', 'Join the list', 'Your wave opens', 'Your invite'])
     assert 150 <= len(index.find('meta', name='description')[0]['attrs']['content']) <= 155
     schema = index.find('script', type='application/ld+json')
     assert len(schema) == 1, 'Homepage must expose its JSON-LD in static HTML'
@@ -199,6 +203,9 @@ def main():
         assert node['url'].startswith('https://'), node
         if 'publisher' in node:
             assert node['publisher']['@id'] == organization['@id'], node
+    trailer_id = index.find(id='case')[0]['attrs']['data-youtube-id']
+    fallback = [e['attrs']['href'] for e in index.find('a') if e['attrs'].get('href', '').startswith('https://www.youtube.com/watch?v=')]
+    assert fallback == ['https://www.youtube.com/watch?v=' + trailer_id], ('no-JS trailer link must use the same ID', fallback, trailer_id)
     assert len(index.find('p', **{'class': 'c-text'})) == 6
     assert len(index.find('div', **{'class': 'face'})) == 3
     assert len(index.find('form', method='post', action='/api/waitlist')) == 2
@@ -236,8 +243,8 @@ def main():
     assert {'https://duelingdomain.com/', 'https://app.duelingdomain.com',
             'https://duelingdomain.com/privacy', 'https://duelingdomain.com/terms'} <= set(links), 'llms.txt required links'
     for link in links:
-        if link == 'https://app.duelingdomain.com':
-            continue  # The public sign-in entry point; private app URLs stay excluded.
+        if link in ('https://app.duelingdomain.com', DISCORD_INVITE):
+            continue  # The public sign-in entry point and community invite; private app URLs stay excluded.
         parsed = urlsplit(link)
         assert parsed.scheme == 'https' and parsed.netloc == 'duelingdomain.com', link
         target = pages[resolve(parsed.path).name]
@@ -250,8 +257,25 @@ def main():
         assert not forbidden.search(file.name), file.name
         if file.suffix in ('.html', '.css', '.js', '.mjs', '.py', '.md', '.svg', '.txt', '.xml', '.webmanifest'):
             assert not forbidden.search(file.read_text()), file
+    # The app's sign-in providers stay off these pages. The homepage may name Discord only in
+    # its four community links (href + visible label), the shared glyph symbol, and the JSON-LD
+    # sameAs. Strip exactly those, then fail on any other "discord" text.
     for name in ('index.html', '404.html', 'terms.html'):
-        assert 'discord' not in pages[name].file.read_text().lower(), name
+        text = pages[name].file.read_text()
+        if name == 'index.html':
+            assert text.count(DISCORD_INVITE) == 5, 'invite expected in four links and sameAs'
+            assert text.count('discord-glyph') == 5, 'glyph symbol id expected once plus four uses'
+            label = '<span>Join our Discord</span><span class="sr-only"> (opens in a new tab)</span>'
+            assert text.count(label) == 4, 'four exact link labels expected'
+            text = text.replace(DISCORD_INVITE, '').replace('discord-glyph', '').replace(label, '')
+        assert 'discord' not in text.lower(), (name, 'unexpected Discord text')
+    homepage_links = [e for e in pages['index.html'].find('a') if e['attrs'].get('href') == DISCORD_INVITE]
+    assert len(homepage_links) == 4, 'Discord invite expected in nav, hero, join section and footer'
+    for link in homepage_links:
+        attrs = link['attrs']
+        assert attrs.get('target') == '_blank' and attrs.get('rel') == 'noopener noreferrer', attrs
+        assert 'aria-label' not in attrs and link['text'].strip() == 'Join our Discord (opens in a new tab)', link['text']
+    assert any(DISCORD_INVITE in node.get('sameAs', []) for node in graph if node['@type'] == 'Organization')
     if google:
         assert 'browser contacts Google' in pages['privacy.html'].file.read_text()
         print('FALLBACK: Google Fonts retained after sandbox DNS failure. Run self-host-fonts.py before launch.')
