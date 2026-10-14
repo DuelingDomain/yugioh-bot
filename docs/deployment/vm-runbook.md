@@ -259,12 +259,12 @@ with Compose; the duel target needs the prepared named engine context described 
    health-check attempt confirmation. Retention downloads this artifact and checks
    the exact service set, digest format and run attempt before registry tag writes.
    If retention fails, production is still healthy. The deploy health checks passed.
-   Only re-run the retention job when its run attempt matches the health-check
-   confirmation and the artifact is still available. GitHub increases the run attempt
+   Do not re-run retention alone. Dispatch a new Deploy run or re-run the failed deploy job.
+   GitHub increases the run attempt
    for **Re-run failed jobs**. A retry of retention alone cannot use the previous
-   attempt's artifact. It fails before any registry tag changes. Dispatch a new
-   **Deploy** run for the intended current release to get new health checks and a
-   matching artifact. Do this before cleanup if the release needs retention tags.
+   attempt's artifact. It fails before any registry tag changes. The deploy job
+   must complete new health checks and save a matching artifact. Do this before
+   cleanup if the release needs retention tags.
    Add a non-SHA recovery tag to any older registry version that must stay beyond ten releases.
    Cache tags become public with their packages. They contain intermediate build layers and `.next/cache`.
    The build has no secrets. Do not add build-time secrets or private data fetches to these public caches.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
 import { parse } from "yaml";
 import { changedLayers } from "./changed-layers.mjs";
@@ -9,6 +9,19 @@ const workflow = parse(readFileSync(new URL("../../.github/workflows/test.yml", 
 const evaluate = (expression, needs) => Function("needs", "always", `return (${expression
   .replace(/^\$\{\{\s*|\s*\}\}$/g, "")
   .replace(/needs\.([\w-]+)/g, 'needs["$1"]')});`)(needs, () => true);
+
+test("all workflows read the VM_PORT variable before the secret and default to port 22", () => {
+  const directory = new URL("../../.github/workflows/", import.meta.url);
+  for (const file of readdirSync(directory).filter(name => /\.ya?ml$/.test(name))) {
+    const source = readFileSync(new URL(file, directory), "utf8");
+    for (const match of source.matchAll(/\bsecrets\.VM_PORT\b/g)) {
+      assert.match(source.slice(0, match.index), /\bvars\.VM_PORT\s*\|\|\s*$/,
+        `${file} must read vars.VM_PORT before secrets.VM_PORT`);
+      assert.match(source.slice(match.index), /^secrets\.VM_PORT\s*\|\|\s*'22'\s*\}\}/,
+        `${file} must use port 22 when the variable and secret are absent`);
+    }
+  }
+});
 
 test("the required unit job runs WS tests alongside shared, bot and worker suites", () => {
   const job = workflow.jobs["unit-packages"];
