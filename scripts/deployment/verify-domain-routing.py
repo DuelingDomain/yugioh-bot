@@ -32,7 +32,8 @@ www.{$SITE_DOMAIN}, http:// {
 }
 """
 
-ROBOTS = "User-agent: *\nDisallow: /"
+# Crawlers must reach app responses to see the host-wide X-Robots-Tag noindex.
+ROBOTS = "User-agent: *\nAllow: /"
 
 
 def check_security(host, headers):
@@ -160,7 +161,7 @@ def main():
                        "privacy.html": "privacy clean URL", "terms.html": "terms clean URL",
                        "style.css": "body{}", "logo.svg": "<svg/>"}.items():
         (public / file).write_text(text)
-    for name in ("sitemap.xml", "site.webmanifest", "robots.txt"):
+    for name in ("sitemap.xml", "site.webmanifest", "robots.txt", "llms.txt"):
         (public / name).write_bytes((ROOT / "site/public" / name).read_bytes())
     (public / "fonts").mkdir()
     (public / "fonts/check.woff2").write_bytes(b"wOF2-cache-fixture")
@@ -224,6 +225,13 @@ def main():
     _, headers, sitemap = check(p, "marketing.localhost", "/sitemap.xml")
     assert headers["content-type"].split(";")[0] in ("application/xml", "text/xml")
     assert headers["cache-control"] == "public, max-age=300, must-revalidate"
+    _, headers, llms = check(p, "marketing.localhost", "/llms.txt")
+    assert headers["content-type"] == "text/plain; charset=utf-8", headers
+    assert headers["cache-control"] == "public, max-age=300, must-revalidate"
+    assert llms == (ROOT / "site/public/llms.txt").read_text()
+    _, headers, _ = check(p, "marketing.localhost", "/llms.txt", extra=["--compressed", "-H", "Accept-Encoding: gzip"])
+    assert headers.get("content-encoding") == "gzip", headers
+    assert "accept-encoding" in {v.strip().lower() for v in headers.get("vary", "").split(",")}, headers
     urls = [node.text for node in ET.fromstring(sitemap).iter("{http://www.sitemaps.org/schemas/sitemap/0.9}loc")]
     assert urls == ["https://duelingdomain.com/", "https://duelingdomain.com/privacy", "https://duelingdomain.com/terms"], urls
     _, headers, manifest = check(p, "marketing.localhost", "/site.webmanifest")
@@ -237,6 +245,10 @@ def main():
     _, headers, _ = check(p, "marketing.localhost", "/fonts/missing.woff2", status=404, body="marketing custom 404")
     assert headers["cache-control"] == "no-store", headers
     check(p, "marketing.localhost", "/missing", status=404, body="marketing custom 404")
+    for missing in ("/404.html", "/404", "/missing/deep/path"):
+        _, headers, _ = check(p, "marketing.localhost", missing, status=404, body="marketing custom 404")
+        assert headers.get("x-robots-tag") == "noindex", headers
+        assert headers["cache-control"] == "no-store", headers
     check(p, "marketing.localhost", "/login", status=302, location="https://app.localhost/login")
     check(p, "marketing.localhost", "/api/waitlist", method="POST", body="web POST /api/waitlist")
     for path in ("/api/anything-else", "/api/waitlist", "/socket.io/", "/api/waitlistx"):

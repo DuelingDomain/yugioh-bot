@@ -84,7 +84,13 @@ export function SignInShell({ children, marketingUrl, packState = "sealed", tone
       </header>
 
       <main className={`${styles["wrap"]} ${styles["a-grid"]}`}>
-        <div className={styles["a-form"]} id="form-zone" tabIndex={-1}>{children}</div>
+        <div className={styles["a-form"]} id="form-zone" tabIndex={-1}>
+          <div className={styles.identity}>
+            <p><strong>Dueling Domain</strong> is an unofficial fan-made tool for trading card game drafts, deck building and browser duels.</p>
+            <p>Sign-in is handled by Clerk for your Dueling Domain account. Not affiliated with or endorsed by Konami or Discord.</p>
+          </div>
+          {children}
+        </div>
 
         <div className={styles["a-stage"]} aria-hidden="true">
           <div className={styles["pack-stage3d"]}>

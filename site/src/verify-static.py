@@ -5,10 +5,12 @@ Uses only Python's standard library; run: python3 site/src/verify-static.py
 This is structural sanity checking, not a browser or full HTML validator.
 """
 from collections import Counter
+from datetime import date
 from html.parser import HTMLParser
 import json
 from pathlib import Path
 import re
+import struct
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
 
@@ -70,13 +72,21 @@ def main():
     google = False
     for name, page in pages.items():
         assert page.find('html', lang='en'), name
+        assert page.find('meta', name='viewport', content='width=device-width, initial-scale=1'), name
         assert len(page.find('h1')) == 1, (name, 'must have one h1')
+        previous_level = 0
+        for heading in (e for e in page.elements if re.fullmatch(r'h[1-6]', e['tag'])):
+            level = int(heading['tag'][1])
+            assert level <= previous_level + 1, (name, 'skipped heading level', heading['tag'])
+            previous_level = level
         assert len(page.ids) == len(set(page.ids)), (name, 'duplicate IDs', Counter(page.ids))
         for tag, attr in [('title', None), ('meta', 'description'), ('link', 'canonical')]:
             nodes = page.find(tag) if attr is None else page.find(tag, **{'name' if tag == 'meta' else 'rel': attr})
             assert len(nodes) == 1, (name, tag, attr)
             value = nodes[0]['text'].strip() if tag == 'title' else nodes[0]['attrs']['content' if tag == 'meta' else 'href']
-            if tag == 'title': titles.append(value)
+            if tag == 'title':
+                assert 0 < len(value) <= 60, (name, 'title length', len(value))
+                titles.append(value)
             if tag == 'meta':
                 assert 0 < len(value) <= 155, (name, 'description length', len(value))
                 descriptions.append(value)
@@ -93,9 +103,34 @@ def main():
         footer_links = [(e['attrs'].get('href'), e['text']) for e in page.find('a')
                         if foot in e['ancestors'] and e['attrs'].get('href') in ('/privacy', '/terms')]
         assert footer_links == [('/privacy', 'Privacy'), ('/terms', 'Terms')], (name, 'footer links', footer_links)
+        support_links = page.find('a', href='mailto:support@duelingdomain.com')
+        assert any(foot in e['ancestors'] for e in support_links), (name, 'footer support contact')
+        assert legal['text'] == 'Unofficial fan project. Not affiliated with or endorsed by Konami.', name
         sponsor = 'ko' + 'nami'
         assert page.file.read_text().lower().count(sponsor) == 1, name
         assert sponsor in legal['text'].lower(), name
+        if name == 'index.html':
+            for attr in ('og:type', 'og:site_name', 'og:title', 'og:description', 'og:url',
+                         'og:image', 'og:image:width', 'og:image:height', 'og:image:alt'):
+                assert len(page.find('meta', property=attr)) == 1, (name, attr)
+            for attr in ('twitter:card', 'twitter:title', 'twitter:description', 'twitter:image', 'twitter:image:alt'):
+                assert len(page.find('meta', name=attr)) == 1, (name, attr)
+            title = page.find('title')[0]['text']
+            canonical = page.find('link', rel='canonical')[0]['attrs']['href']
+            assert page.find('meta', property='og:title', content=title), name
+            assert page.find('meta', name='twitter:title', content=title), name
+            assert page.find('meta', property='og:url', content=canonical), name
+            assert page.find('meta', name='twitter:card', content='summary_large_image'), name
+        if name != '404.html':
+            assert page.find('meta', name='twitter:card', content='summary_large_image'), name
+            image = page.find('meta', property='og:image')[0]['attrs']['content']
+            assert image.startswith('https://duelingdomain.com/'), (name, 'absolute social image URL')
+            assert page.find('meta', name='twitter:image', content=image), name
+            image_bytes = resolve(urlsplit(image).path).read_bytes()
+            assert image_bytes[:8] == b'\x89PNG\r\n\x1a\n', (name, 'expected PNG social image')
+            width, height = struct.unpack('>II', image_bytes[16:24])
+            assert page.find('meta', property='og:image:width', content=str(width)), name
+            assert page.find('meta', property='og:image:height', content=str(height)), name
         for e in page.elements:
             attrs = e['attrs']
             for attr in ('href', 'src', 'action'):
@@ -153,6 +188,17 @@ def main():
     index = pages['index.html']
     visible = ' '.join(index.text)
     assert all(text in visible for text in ['Rip it', 'open.', 'Draft night', 'Domain format', 'No install', 'Tag duels', 'Free-for-all', 'Season ladder', 'Behind glass, for now.', 'Join the list', 'Your wave opens', 'Your invite'])
+    assert 150 <= len(index.find('meta', name='description')[0]['attrs']['content']) <= 155
+    schema = index.find('script', type='application/ld+json')
+    assert len(schema) == 1, 'Homepage must expose its JSON-LD in static HTML'
+    graph = json.loads(schema[0]['text'])['@graph']
+    assert len({node['@id'] for node in graph}) == len(graph), 'Duplicate schema entity IDs'
+    organization = next(node for node in graph if node['@type'] == 'Organization')
+    assert organization['email'] == 'support@duelingdomain.com'
+    for node in graph:
+        assert node['url'].startswith('https://'), node
+        if 'publisher' in node:
+            assert node['publisher']['@id'] == organization['@id'], node
     assert len(index.find('p', **{'class': 'c-text'})) == 6
     assert len(index.find('div', **{'class': 'face'})) == 3
     assert len(index.find('form', method='post', action='/api/waitlist')) == 2
@@ -170,6 +216,7 @@ def main():
         assert loc in canonicals and loc != 'https://duelingdomain.com/404.html', loc
         resolve(urlsplit(loc).path)
         assert re.fullmatch(r'\d{4}-\d{2}-\d{2}', url.find('{*}lastmod').text)
+        assert date.fromisoformat(url.find('{*}lastmod').text) <= date.today(), (loc, 'future lastmod')
     sitemap_urls = [url.find('{*}loc').text for url in sitemap.getroot()]
     assert len(sitemap_urls) == len(set(sitemap_urls)) == 3
     assert set(sitemap_urls) == set(canonicals) - {'https://duelingdomain.com/404.html'}
@@ -181,6 +228,22 @@ def main():
     for value in re.findall(r'url\([\'"]?([^\)\'\"]+)', css):
         if not value.startswith(('data:', '#')): resolve(value)
     assert 'html:not(.js) .step .flip' in css
+    llms = (PUBLIC / 'llms.txt').read_text()
+    assert llms.startswith('# Dueling Domain\n\n> '), 'llms.txt needs a title and summary'
+    links = re.findall(r'\]\((https?://[^)]+)\)', llms)
+    assert links, 'llms.txt needs public source links'
+    assert re.search(r'^## ', llms, re.M), 'llms.txt needs link sections'
+    assert {'https://duelingdomain.com/', 'https://app.duelingdomain.com',
+            'https://duelingdomain.com/privacy', 'https://duelingdomain.com/terms'} <= set(links), 'llms.txt required links'
+    for link in links:
+        if link == 'https://app.duelingdomain.com':
+            continue  # The public sign-in entry point; private app URLs stay excluded.
+        parsed = urlsplit(link)
+        assert parsed.scheme == 'https' and parsed.netloc == 'duelingdomain.com', link
+        target = pages[resolve(parsed.path).name]
+        assert not target.find('meta', name='robots', content='noindex'), link
+        if parsed.fragment:
+            assert parsed.fragment in target.ids, link
     forbidden = re.compile(r'yu[\W_]*gi[\W_]*oh|king' + r'dom|duel\s+monsters', re.I)
     for file in Path(__file__).resolve().parents[1].rglob('*'):
         if not file.is_file(): continue
@@ -202,6 +265,7 @@ def main():
         assert len(list((PUBLIC/'fonts').glob('*OFL.txt'))) == 2
         print('PASS local fonts: five faces, two preloads/page, licenses, no remote font references')
     print('PASS JSON-LD, sitemap, manifest, CSS URLs, consent persistence, IP text rules')
+    print('PASS heading order, sitemap dates, social image metadata, required llms.txt links, support contact')
     for name in ('privacy.html', 'terms.html'):
         for comment in re.findall(r'<!-- OWNER: (.*?) -->', pages[name].file.read_text()):
             print(f'Owner confirmation ({name}):', comment)
