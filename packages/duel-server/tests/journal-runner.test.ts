@@ -145,11 +145,13 @@ describe("journal prefix runner", () => {
     expect(createWorker).not.toHaveBeenCalled();
   });
 
-  it.each(["revision", "prompt"])("closes on a saved %s mismatch before applying input", async (field) => {
+  it.each(["revision", "prompt", "answer"])("closes on a saved %s mismatch before applying input", async (field) => {
     const input = source(); const worker = new TestWorker();
-    if (field === "revision") input.commands[0]!.command.revision = 9; else input.commands[0]!.command.promptId = "wrong";
+    if (field === "revision") input.commands[0]!.command.revision = 9;
+    else if (field === "prompt") input.commands[0]!.command.promptId = "wrong";
+    else input.commands[0]!.command.answer = { selected: [12] } as unknown as DuelAnswer;
     await expect(runJournalPrefix({ source: input, resources: resources(), prefixCount: 1, createWorker: () => worker })).rejects.toMatchObject({ code: "REPLAY_MISMATCH" });
-    expect(worker.running).toBe(false); expect(worker.calls).not.toContainEqual(expect.arrayContaining(["answer"]));
+    expect(worker.running).toBe(false); expect(worker.revision).toBe(1);
   });
 
   it("counts no-op mode changes and keeps the exact loss reason", async () => {
@@ -288,13 +290,17 @@ it("awaits worker commands before returning", async () => {
   release(); await applied; expect(finished).toBe(true); expect(worker.revision).toBe(2);
 });
 
-it("reports worker construction failures while preserving the retryable code", async () => {
+it.each([false, true])("reports worker construction failures while preserving the retryable code (async=%s)", async asynchronous => {
   const { setObservabilityAdapter } = await import("@yugidraft/shared/observability");
   const errors: unknown[] = [];
   setObservabilityAdapter({ report: error => { errors.push(error); }, log() {}, async flush() {} });
   try {
     await expect(runJournalPrefix({ source: source(), resources: resources(), prefixCount: 0,
-      createWorker: () => { throw new TypeError("fixture worker construction detail"); },
+      createWorker: () => {
+        const error = new TypeError("fixture worker construction detail");
+        if (asynchronous) return Promise.reject(error);
+        throw error;
+      },
     })).rejects.toMatchObject({ code: "ENGINE_BUSY", message: "Could not create an engine worker" });
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatchObject({ message: "fixture worker construction detail" });

@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { signToken, verifyToken } from "../internal-auth/index.js";
 
 export const TOURNAMENT_ROOM_TOKEN_TTL_MS = 60_000;
 
@@ -19,17 +19,10 @@ function validClaims(value: unknown): value is TournamentRoomTokenClaims {
     && Number.isSafeInteger(claims.expiresAt);
 }
 
-function signature(payload: Buffer, secret: string): Buffer {
-  // Domain separation prevents room tokens from being used as internal HTTP signatures.
-  const key = createHmac("sha256", secret).update("yugidraft:tournament-room:v2").digest();
-  return createHmac("sha256", key).update(payload).digest();
-}
-
 export function createTournamentRoomToken(claims: TournamentRoomTokenClaims, secret: string): string {
   if (!secret) throw new Error("Missing tournament room secret");
   if (!validClaims(claims)) throw new Error("Invalid tournament room claims");
-  const payload = Buffer.from(JSON.stringify(claims));
-  return `${payload.toString("base64url")}.${signature(payload, secret).toString("base64url")}`;
+  return signToken("tournament-room", claims, secret);
 }
 
 export function verifyTournamentRoomToken(
@@ -38,27 +31,10 @@ export function verifyTournamentRoomToken(
   expected: { slug: string; userId: number },
   now = Date.now(),
 ): TournamentRoomTokenClaims | null {
-  if (!secret || typeof token !== "string" || token.length > 4096) return null;
-  const parts = token.split(".");
-  if (parts.length !== 2 || parts.some((part) => !/^[A-Za-z0-9_-]+$/.test(part))) return null;
-  const payload = Buffer.from(parts[0], "base64url");
-  const received = Buffer.from(parts[1], "base64url");
-  const digest = signature(payload, secret);
-  if (received.length !== digest.length || !timingSafeEqual(received, digest)) return null;
-  let claims: unknown;
-  try {
-    claims = JSON.parse(payload.toString("utf8"), (key, value, context?: { source: string }) => {
-      // Node 22 exposes the raw primitive source: reject exponent/decimal spellings
-      // before JSON parsing normalizes them into an otherwise valid user ID.
-      if (key === "userId" && (typeof value !== "number" || context?.source !== String(value))) {
-        throw new Error("Invalid tournament room user ID");
-      }
-      return value;
-    });
-  } catch {
-    return null;
-  }
-  if (!validClaims(claims) || claims.expiresAt <= now
-    || claims.slug !== expected.slug || claims.userId !== expected.userId) return null;
-  return claims;
+  if (typeof token !== "string") return null;
+  return verifyToken("tournament-room", token, secret, (claims) => {
+    if (!validClaims(claims) || claims.expiresAt <= now
+      || claims.slug !== expected.slug || claims.userId !== expected.userId) return null;
+    return claims;
+  });
 }

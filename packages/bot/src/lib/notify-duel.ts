@@ -1,5 +1,5 @@
 import { log, report } from "@yugidraft/shared/observability";
-import { httpTransport, type SignedPostTransport } from "@yugidraft/shared/notify";
+import { signedTransport, type SignedPostTransport } from "@yugidraft/shared/internal-auth";
 import type Database from "better-sqlite3";
 import { findDuelEventTarget, type DuelEventTarget } from "@yugidraft/shared/services";
 import { isReplayFork } from "@yugidraft/shared/duels";
@@ -32,5 +32,5 @@ export function createNotifyDuelChange(transport: SignedPostTransport,
 }
 
 export function createHttpNotifyDuelChange(db: Database.Database, cfg: { url: string; secret: string }): NotifyDuelChange {
-  return createNotifyDuelChange(httpTransport(cfg), (slug, guildId) => findDuelEventTarget(db, slug, guildId));
+  return createNotifyDuelChange(signedTransport({ ...cfg, purpose: "ws-broadcast" }), (slug, guildId) => findDuelEventTarget(db, slug, guildId));
 }

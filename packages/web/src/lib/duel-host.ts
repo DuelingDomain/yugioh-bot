@@ -1,7 +1,7 @@
 import { errorResponseBody, report, log } from "@yugidraft/shared/observability";
+import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { NextResponse } from "next/server";
 import { ReplayAccessError } from "@yugidraft/shared/access/owner-access";
-import { httpTransport } from "@yugidraft/shared/notify";
 import {
   createDuelService,
   createPlayerService,
@@ -200,7 +200,7 @@ export async function callDuelHost(input: {
     log("warn", "[duel-host] configuration is incomplete");
     return { ok: false, response: failure({ error: configProblem }, 503) };
   }
-  const transport = httpTransport({ ...cfg, ...(input.op === "engine-data-status" ? { timeoutMs: 5000 }
+  const transport = signedTransport({ ...cfg, purpose: "duel-host", ...(input.op === "engine-data-status" ? { timeoutMs: 5000 }
     : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
     : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {

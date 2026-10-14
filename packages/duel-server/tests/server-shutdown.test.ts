@@ -1,4 +1,5 @@
 import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { consoleAdapter } from "../../shared/dist/observability/console-adapter.js";
 import { once } from "node:events";
 import { Agent, IncomingMessage, request, ServerResponse, type Server } from "node:http";
 import { Socket } from "node:net";
@@ -15,7 +16,8 @@ const state = vi.hoisted(() => ({
 // Exercise the entry point without opening production data or binding its configured port.
 vi.mock("dotenv", () => ({ config: vi.fn() }));
 vi.mock("@yugidraft/shared/db", () => ({ openDatabase: () => state.db, applyEngineCardRemaps: () => ({ skipped: true }) }));
-vi.mock("@yugidraft/shared/notify", () => ({ createBroadcaster: vi.fn(), httpTransport: vi.fn() }));
+vi.mock("@yugidraft/shared/notify", () => ({ createBroadcaster: vi.fn() }));
+vi.mock("@yugidraft/shared/internal-auth", () => ({ signedTransport: vi.fn() }));
 vi.mock("../src/cards.js", () => ({ loadCardDatabase: () => state.cards }));
 vi.mock("../src/engine-bundle.js", () => ({ verifyEngineBundle: vi.fn() }));
 vi.mock("../src/host.js", () => ({ createDuelHost: () => state.host }));
@@ -121,12 +123,16 @@ describe("duel server startup", () => {
     ["DUEL_1V1_ENGINE", "pinnned", "legacy", "legacy"],
     ["DUEL_STANDARD_1V1_ENGINE", "pinnned", "pinned", "pinned"],
   ])("warns about invalid %s and logs the fallback engines", async (key, value, standard, domain) => {
+    const { setObservabilityAdapter } = await import("@yugidraft/shared/observability");
+    setObservabilityAdapter(consoleAdapter);
     vi.stubEnv("DUEL_1V1_ENGINE", "pinned");
     vi.stubEnv(key, value);
     await start();
-    expect(console.warn).toHaveBeenCalledExactlyOnceWith(
-      `[duel] Invalid ${key}=${JSON.stringify(value)}; expected legacy or pinned. Using the fallback.`,
-    );
+    const warnings = vi.mocked(console.warn).mock.calls.map(([message, fields]) => ({ message, fields }));
+    expect(warnings).toEqual([{
+      message: "[duel] invalid engine setting; using the fallback", fields: { key },
+    }]);
+    expect(JSON.stringify(warnings)).not.toContain(value);
     expect(console.log).toHaveBeenCalledWith(`[duel] 1v1 engines: Standard=${standard}, Domain=${domain}`);
   });
 });

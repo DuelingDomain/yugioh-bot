@@ -1,5 +1,5 @@
 import { log } from "../observability/index.js";
-import type { SignedPostTransport } from "./signed-post.js";
+import type { SignedPostTransport } from "../internal-auth/index.js";
 import type { AnnouncePayload, AnnounceResult } from "./announce-payload.js";
 
 export type Announcer = {

@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
@@ -51,7 +51,7 @@ for (let run = 1; run <= runs; run++) {
     const raw = JSON.stringify({ op, guildId, slug: table.slug, playerId, ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", {
       method: "POST", body: raw, headers: { "content-type": "application/json",
-        "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") },
+        ...signedRequestHeaders({ url: "http://localhost/internal/duel", method: "POST", body: raw, secret, purpose: "duel-host" }) },
     }));
     const room = await response.json() as DuelRoom;
     if (!response.ok) throw new Error(`Opening benchmark request failed (${response.status}): ${JSON.stringify(room)}`);

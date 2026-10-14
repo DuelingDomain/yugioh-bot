@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,9 +59,9 @@ function lobby(onChange?: () => Promise<void>) {
   resources.push({ host, db, dir });
   const post = async (op: string, playerId = p1) => {
     const raw = JSON.stringify({ op, slug: duel.slug, guildId: "g1", playerId });
-    const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
+
     const response = await host.handle(new Request("http://localhost/internal/duel", {
-      method: "POST", headers: { "x-announce-signature": signature }, body: raw,
+      method: "POST", headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") }, body: raw,
     }));
     return { status: response.status, data: await response.json() as { session?: DuelSession; error?: string } };
   };

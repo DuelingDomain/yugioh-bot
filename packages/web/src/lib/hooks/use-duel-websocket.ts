@@ -234,22 +234,31 @@ export function useDuelWebsocket(
       const recoverSnapshot = !subscribed;
       request = new AbortController();
       let credentials: DuelConnectionResponse | undefined;
+      let tokenRejected = false;
       try {
-        const response = await fetch(`/api/duels/${encodeURIComponent(slug)}/connection${spectate ? "?spectate=1" : ""}`, {
-          cache: "no-store", signal: AbortSignal.any([request.signal, AbortSignal.timeout(8000)]),
-        });
-        if (!response.ok) throw new Error("Room subscription unavailable");
-        credentials = await response.json() as DuelConnectionResponse;
-        if (!isCurrent() || socket.id !== socketId || !socket.connected) return;
-        guildId = credentials.guildId;
-        const token = credentials.token;
-        const result = await new Promise<DuelJoinAck>((resolve, reject) => {
-          socket.timeout(5000).emit("duel:join", { token, visible: document.visibilityState === "visible" }, (error: Error | null, answer: DuelJoinAck) => {
-            if (error) reject(error);
-            else resolve(answer);
+        let result!: DuelJoinAck;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          tokenRejected = false;
+          const response = await fetch(`/api/duels/${encodeURIComponent(slug)}/connection${spectate ? "?spectate=1" : ""}`, {
+            cache: "no-store", signal: AbortSignal.any([request.signal, AbortSignal.timeout(8000)]),
           });
-        });
-        if (!result?.ok) throw new Error("Room subscription rejected");
+          if (!response.ok) throw new Error("Room subscription unavailable");
+          credentials = await response.json() as DuelConnectionResponse;
+          if (!isCurrent() || socket.id !== socketId || !socket.connected) return;
+          guildId = credentials.guildId;
+          const token = credentials.token;
+          result = await new Promise<DuelJoinAck>((resolve, reject) => {
+            socket.timeout(5000).emit("duel:join", { token, visible: document.visibilityState === "visible" }, (error: Error | null, answer: DuelJoinAck) => {
+              if (error) reject(error);
+              else resolve(answer);
+            });
+          });
+          if (!isCurrent() || socket.id !== socketId || !socket.connected) return;
+          if (result?.ok) break;
+          tokenRejected = result?.error === "invalid token" || result?.error === "expired token";
+          if (!tokenRejected || attempt === 1) throw new Error("Room subscription rejected");
+        }
+        if (!result.ok) return;
         if (!isCurrent() || socket.id !== socketId || !socket.connected) return;
         subscribed = true;
         // Visibility can change while the join acknowledgement is in flight.
@@ -267,7 +276,7 @@ export function useDuelWebsocket(
         subscribed = false;
         updateLive(false);
         patch(idle(slug, { syncing: false, recovering: true }));
-        if (socket.connected) renewal = window.setTimeout(() => void join(), 3000);
+        if (socket.connected && !tokenRejected) renewal = window.setTimeout(() => void join(), 3000);
         return;
       } finally {
         joining = false;

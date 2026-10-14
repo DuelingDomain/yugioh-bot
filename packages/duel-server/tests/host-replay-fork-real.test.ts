@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
@@ -101,7 +101,7 @@ function fixture(record: ReturnType<typeof acceptanceSource>, game2 = false) {
   const changes = vi.fn(async (slug: string, guildId: string) => {
     const body = JSON.stringify({ slug, guildId });
     const response = await wsHandler(new Request("http://localhost/internal/duel/changed", { method: "POST", body,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(body).digest("hex") } }));
+      headers: { ...signedRequestHeaders({ url: "http://localhost/internal/duel/changed", method: "POST", body: body, secret: secret, purpose: "ws-broadcast" }) } }));
     expect(response.status).toBe(204);
   });
   const notifyTournament = vi.fn(), network = vi.fn(() => { throw new Error("Unexpected external request"); });
@@ -111,7 +111,7 @@ function fixture(record: ReturnType<typeof acceptanceSource>, game2 = false) {
   async function post<T>(input: Record<string, unknown>, actor = owner, status = 200): Promise<T> {
     const raw = JSON.stringify({ ...actor, ...input });
     const response = await host!.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
+      headers: { ...signedRequestHeaders({ url: "http://localhost/internal/duel", method: "POST", body: raw, secret: secret, purpose: "duel-host" }) } }));
     const body = await response.json(); expect(response.status, JSON.stringify(body)).toBe(status); return body as T;
   }
   async function restartHost() { await host!.close(); start(); }

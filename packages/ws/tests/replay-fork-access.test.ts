@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { canReadDuel, findDuelEventTarget, createDuelService, createDuelAccessReader } from "@yugidraft/shared/services";
 import { createDuelConnectionToken, type DuelConnectionTokenClaims, type DuelJoinAck } from "@yugidraft/shared/ws";
@@ -34,7 +34,7 @@ function server() {
   async function change(slug = app.forkSlug, guildId = app.guildId) {
     const body = JSON.stringify({ slug, guildId });
     return handle(new Request("http://test/internal/duel/changed", { method: "POST", body,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex") } }));
+      headers: { ...signedRequestHeaders({ url: "http://test/internal/duel/changed", method: "POST", body: body, secret: SECRET, purpose: "ws-broadcast" }) } }));
   }
   return { connect, change, events };
 }
@@ -156,7 +156,7 @@ it("returns 503 with a real reader when its DB cannot be opened", async () => {
   const body = JSON.stringify({ slug: app.forkSlug, guildId: app.guildId });
   try {
     const response = await handle(new Request("http://test/internal/duel/changed", { method: "POST", body,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex") } }));
+      headers: { ...signedRequestHeaders({ url: "http://test/internal/duel/changed", method: "POST", body: body, secret: SECRET, purpose: "ws-broadcast" }) } }));
     expect(response.status).toBe(503);
     expect(emit).not.toHaveBeenCalled();
   } finally { reader.close(); }

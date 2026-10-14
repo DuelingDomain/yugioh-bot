@@ -135,6 +135,114 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "{} {} {} kept=1 total_bytes={}".format(backup, size, digest, size))
         self.assertEqual(list(self.destination.glob("*.tmp")), [])
 
+    def test_live_sidecars_inherit_database_owner_after_connection_closes(self):
+        real_connect = sqlite3.connect
+        real_stat = os.stat
+        real_chown = os.chown
+        for fail in (False, True):
+            with self.subTest(copy_connection_fails=fail):
+                namespace = self.namespace()
+                connections = []
+
+                def connect(*args, **kwargs):
+                    if fail and connections:
+                        raise RuntimeError("copy connection failed")
+                    connection = real_connect(*args, **kwargs)
+                    connections.append(connection)
+                    return connection
+
+                def source_stat(path, *args, **kwargs):
+                    result = real_stat(path, *args, **kwargs)
+                    if os.fspath(path) == str(self.source):
+                        values = list(result)
+                        values[4:6] = [1001, 1002]
+                        return os.stat_result(values)
+                    return result
+
+                def chown(path, uid, gid, **kwargs):
+                    with self.assertRaises(sqlite3.ProgrammingError):
+                        connections[0].execute("SELECT 1")
+                    # The test process keeps its own filesystem identity; only the privileged call is substituted.
+                    real_chown(path, os.getuid(), os.getgid(), **kwargs)
+
+                with mock.patch.object(namespace["sqlite3"], "connect", side_effect=connect), \
+                     mock.patch.object(namespace["os"], "stat", side_effect=source_stat), \
+                     mock.patch.object(namespace["os"], "chown", side_effect=chown) as ownership, \
+                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    status = namespace["main"]()
+                self.assertEqual(status, 1 if fail else 0)
+                ownership.assert_has_calls([
+                    mock.call(Path(str(self.source) + "-wal"), 1001, 1002, follow_symlinks=False),
+                    mock.call(Path(str(self.source) + "-shm"), 1001, 1002, follow_symlinks=False),
+                ])
+                self.assertEqual(ownership.call_count, 2)
+
+    def test_live_sidecar_ownership_skips_non_regular_entries(self):
+        self.writer.close()
+        namespace = self.namespace()
+        target = self.root / "outside"
+        target.write_text("unchanged")
+        before = target.stat()
+        wal = Path(str(self.source) + "-wal")
+        shm = Path(str(self.source) + "-shm")
+        for kind in ("symlink", "dangling", "directory", "fifo"):
+            with self.subTest(kind=kind):
+                def connect(*args, **kwargs):
+                    if kind == "symlink":
+                        wal.symlink_to(target)
+                    elif kind == "dangling":
+                        wal.symlink_to(self.root / "missing")
+                    elif kind == "directory":
+                        wal.mkdir()
+                    else:
+                        os.mkfifo(wal)
+                    shm.symlink_to(target)
+                    raise RuntimeError("connection unavailable")
+
+                stderr = io.StringIO()
+                with mock.patch.object(namespace["sqlite3"], "connect", side_effect=connect), \
+                     mock.patch.object(namespace["os"], "chown", wraps=os.chown) as ownership, \
+                     contextlib.redirect_stderr(stderr):
+                    self.assertEqual(namespace["main"](), 1)
+                ownership.assert_not_called()
+                self.assertIn("WARNING", stderr.getvalue())
+                self.assertIn(str(wal), stderr.getvalue())
+                self.assertIn(str(shm), stderr.getvalue())
+                self.assertEqual((target.stat().st_uid, target.stat().st_gid), (before.st_uid, before.st_gid))
+                self.assertEqual(target.read_text(), "unchanged")
+                if wal.is_dir() and not wal.is_symlink():
+                    wal.rmdir()
+                else:
+                    wal.unlink()
+                shm.unlink()
+
+    def test_live_sidecar_replaced_after_inspection_does_not_change_target_owner(self):
+        self.writer.close()
+        namespace = self.namespace()
+        wal = Path(str(self.source) + "-wal")
+        wal.write_text("sidecar")
+        target = self.root / "outside"
+        target.write_text("unchanged")
+        real_lstat = os.lstat
+        calls = []
+
+        def lstat(path, *args, **kwargs):
+            result = real_lstat(path, *args, **kwargs)
+            if os.fspath(path) == str(wal):
+                wal.unlink()
+                wal.symlink_to(target)
+            return result
+
+        def chown(path, uid, gid, **kwargs):
+            calls.append((path, kwargs.get("follow_symlinks", True)))
+
+        with mock.patch.object(namespace["sqlite3"], "connect", side_effect=RuntimeError("connection unavailable")), \
+             mock.patch.object(namespace["os"], "lstat", side_effect=lstat), \
+             mock.patch.object(namespace["os"], "chown", side_effect=chown), \
+             contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(namespace["main"](), 1)
+        self.assertEqual(calls, [(wal, False)])
+
     def seed_retention(self, ages):
         self.destination.mkdir()
         names = {}

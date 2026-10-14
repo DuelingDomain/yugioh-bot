@@ -1,5 +1,5 @@
-import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
-import { createHmac } from "node:crypto";
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -21,7 +21,7 @@ vi.mock("../src/worker-client.js", async original => ({
     const worker = new FakeWorker(); worker.onError = onError; worker.onFatal = onFatal; workers.push(worker); return worker;
   },
 }));
-const recording = useRecordingObservability();
+const output = useConsoleObservability();
 const SECRET = "fork-isolation-fixture";
 const DATA = createHostDataFixture([1, 2, 3].map(code => ({ code, name: `Fixture ${code}` })));
 afterAll(() => rmSync(DATA, { recursive: true, force: true }));
@@ -89,7 +89,7 @@ function fixture(format: DuelFormat = "1v1", pendingLoss = false) {
 async function post(app: ReturnType<typeof fixture>, host: DuelHost, op: string, body: Record<string, unknown> = {}) {
   const raw = JSON.stringify({ op, slug: app.fork.slug, guildId: app.guildId, playerId: app.owner.playerId, ...body });
   const response = await host.handle(new Request("http://local/internal/duel", { method: "POST",
-    headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") }, body: raw }));
+    headers: { "content-type": "application/json", ...signedRequestHeaders({ url: "http://local/internal/duel", method: "POST", body: raw, secret: SECRET, purpose: "duel-host" }) }, body: raw }));
   return { status: response.status, data: await response.json() as any };
 }
 function realRows(app: ReturnType<typeof fixture>) {
@@ -142,13 +142,12 @@ describe("host fork isolation", () => {
   });
 
   it("skips prefix diagnostics and tags only errors from later fork commands", async () => {
-    const records: Record<string, unknown>[] = [];
-    recording.log.mockImplementation((_level, _message, fields) => { records.push(fields); });
+    const records = () => output.warnings.map(({ fields }) => fields);
     const app = fixture(), host = app.openHost();
     expect((await post(app, host, "view")).status).toBe(200);
-    expect(records).toEqual([]);
+    expect(records()).toEqual([]);
     expect((await post(app, host, "respond", { command: { promptId: "p1", revision: 1, answer: { choice: "pass" } } })).status).toBe(200);
-    expect(records).toContainEqual(expect.objectContaining({ event: "replay_fork_script_error", duelKind: "replay-fork", duelId: app.fork.id }));
+    expect(records()).toContainEqual(expect.objectContaining({ event: "replay_fork_script_error", duelKind: "replay-fork", duelId: app.fork.id }));
     expect(app.db.prepare("select * from card_script_errors").all()).toEqual([]);
     expect(app.db.prepare("select * from card_script_error_occurrences").all()).toEqual([]);
   });

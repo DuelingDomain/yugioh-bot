@@ -11,7 +11,7 @@ import type {
 } from "../../src/types/index.js";
 import type { AnnouncePayload } from "../../src/notify/announce-payload.js";
 import { createAnnouncer } from "../../src/notify/announcer.js";
-import { recordingTransport } from "../../src/notify/signed-post.js";
+import { recordingTransport } from "../../src/internal-auth/index.js";
 
 // Artwork backfill is unrelated to lobby columns and probes engine resources.
 // Keep this migration suite independent of those resources.

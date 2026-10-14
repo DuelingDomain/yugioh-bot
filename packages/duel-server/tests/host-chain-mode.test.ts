@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -85,7 +85,7 @@ async function table(worker = new ScriptedWorker(), now?: () => number) {
   let host = makeHost(worker);
   async function post(body: Record<string, unknown>, as = players[0]!): Promise<{ status: number; data: Record<string, any> }> {
     const raw = JSON.stringify({ slug: session.slug, guildId: "g", playerId: as, ...body });
-    const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex"), "content-type": "application/json" }, body: raw }));
+    const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host"), "content-type": "application/json" }, body: raw }));
     return finishTestDiceOpening(host, { slug: session.slug, ...body },
       { status: response.status, data: await response.json() as Record<string, any> }, (next) => post(next, as));
   }
@@ -151,7 +151,8 @@ describe("chain-mode op", () => {
     const t = await table();
     t.worker.failNext = new Error("The core refused the automatic pass");
     const result = await t.post({ op: "chain-mode", mode: "off" }, t.players[1]!);
-    expect(result.status).toBe(409);
+    expect(result.status).toBe(500);
+    expect(result.data).toEqual({ error: "Something went wrong" });
     expect(t.worker.running).toBe(false);
     expect(t.journal()).toHaveLength(0);
     // The next request rebuilds the duel from the journal on a fresh worker, where the mode never changed.

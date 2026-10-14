@@ -7,3 +7,9 @@ export declare function useRecordingObservability(): {
   flush: Mock<ObservabilityAdapter["flush"]>;
   install(): Promise<void>;
 };
+
+export declare function useConsoleObservability(): {
+  errors: Array<{ name: string; message: string; stack?: string; tags?: Record<string, string>; extra?: Record<string, unknown> }>;
+  warnings: Array<{ message: string; fields: Record<string, unknown> }>;
+  install(): Promise<void>;
+};

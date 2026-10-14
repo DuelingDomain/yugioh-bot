@@ -1,6 +1,6 @@
-import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
@@ -76,10 +76,10 @@ afterEach(async () => {
 
 async function post(host: DuelHost, body: Record<string, unknown>) {
   const raw = JSON.stringify(body);
-  const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
+
   const response = await host.handle(new Request("http://localhost/internal/duel", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-announce-signature": signature },
+    headers: { "content-type": "application/json", ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") },
     body: raw,
   }));
   return { status: response.status, data: (await response.json()) as Record<string, unknown> };
@@ -117,7 +117,7 @@ async function setup(options: { botStepDelayMs?: number | ((prompt: DuelPrompt) 
 describe("practice bot pacing", () => {
   it.each([0, 500])("interrupts a bot core loop with a clear reason at %sms pacing", async botStepDelayMs => {
     vi.useFakeTimers();
-    recording.report.mockClear().mockImplementation(() => {});
+    output.errors.length = 0;
     const t = await setup({ botStepDelayMs });
     t.worker.onBotAnswer = () => { throw new EngineLoopError(); };
     const result = await t.respond();
@@ -230,7 +230,7 @@ describe("practice bot pacing", () => {
 
   it("accepts a function of the prompt and never lets a failing bot crash the process", async () => {
     vi.useFakeTimers();
-    const warn = recording.report.mockClear().mockImplementation(() => {});
+    output.errors.length = 0;
     const seen: string[] = [];
     const { worker, respond, duels, slug } = await setup({
       botStepDelayMs: (prompt) => { seen.push(prompt.id); return 250; },
@@ -246,7 +246,7 @@ describe("practice bot pacing", () => {
     await vi.advanceTimersByTimeAsync(250);
     expect(seen).toEqual(["p2"]);
     expect(duels.get(slug, "g1").status).toBe("interrupted");
-    expect(warn).toHaveBeenCalled();
+    expect(output.errors).toContainEqual(expect.objectContaining({ message: "illegal choice" }));
     await vi.advanceTimersByTimeAsync(5000);
     expect(worker.answers).toEqual([0]);
   });
@@ -272,4 +272,4 @@ describe("practice bot pacing", () => {
   });
 });
 
-const recording = useRecordingObservability();
+const output = useConsoleObservability();

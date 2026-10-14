@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { forkEventFixture } from "../helpers/replay-fork-events.js";
 import { createAnnounceHandlers } from "../../src/announce/handlers.js";
 import { createAnnounceServer } from "../../src/announce/server.js";
@@ -35,9 +35,8 @@ it("refuses a signed invite without a stored target reference before dispatch", 
   const server = createAnnounceServer({ secret: "test", handlers: { ...handlers(), onDuelInvite } });
   const { duelId: _id, slug: _slug, ...unbound } = invite(false);
   const body = JSON.stringify(unbound);
-  const signature = "sha256=" + createHmac("sha256", "test").update(body).digest("hex");
   const response = await server.handle(new Request("http://test/internal/announce/duel-invite", { method: "POST", body,
-    headers: { "x-announce-signature": signature } }));
+    headers: { ...signedRequestHeaders({ url: "http://test/internal/announce/duel-invite", method: "POST", body, secret: "test", purpose: "bot-announce" }) } }));
   expect(response.status).toBe(400); expect(onDuelInvite).not.toHaveBeenCalled();
 });
 it("refuses bot-origin fork changes and keeps ordinary changes", async () => {
@@ -53,9 +52,8 @@ it("returns 409 for a signed fork invite refused by the real handler", async () 
   try {
     const server = createAnnounceServer({ secret: "test", handlers: handlers() });
     const body = JSON.stringify(invite());
-    const signature = "sha256=" + createHmac("sha256", "test").update(body).digest("hex");
     const response = await server.handle(new Request("http://test/internal/announce/duel-invite", { method: "POST", body,
-      headers: { "x-announce-signature": signature } }));
+      headers: { ...signedRequestHeaders({ url: "http://test/internal/announce/duel-invite", method: "POST", body, secret: "test", purpose: "bot-announce" }) } }));
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ code: "DUEL_INVITE_REFUSED" });
     expect(warn).toHaveBeenCalled();

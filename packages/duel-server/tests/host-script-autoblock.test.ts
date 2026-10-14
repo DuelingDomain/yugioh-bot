@@ -1,5 +1,5 @@
-import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
-import { createHmac } from "node:crypto";
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -19,7 +19,8 @@ import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 
 // Keep the host's real worker callbacks and recorder; replace only the core transport.
 // One deterministic accepted answer reproduces an error on recovery and replay.
-vi.mock("../src/worker-client.js", () => ({
+vi.mock("../src/worker-client.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/worker-client.js")>(),
   GameWorker: class implements DuelGameWorker {
     running = true;
     private step = 0;
@@ -70,7 +71,7 @@ const secret = "auto-block-test";
 async function request(host: DuelHost, body: Record<string, unknown>, status = 200): Promise<any> {
   const raw = JSON.stringify(body);
   const response = await host.handle(new Request("http://local/internal/duel", { method: "POST", body: raw,
-    headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
+    headers: { "content-type": "application/json", ...await signedHeaders(raw, secret, "http://local/internal/duel", "duel-host") } }));
   const result = await response.json(); expect(response.status, JSON.stringify(result)).toBe(status); return result;
 }
 describe("automatic blocks through host and replay", () => {
@@ -78,7 +79,7 @@ describe("automatic blocks through host and replay", () => {
     vi.stubEnv("DUEL_DATA_DIR", DATA);
     vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "2");
     vi.stubEnv("DUEL_1V1_ENGINE", engine);
-    const log = recording.log.mockClear().mockImplementation(() => {});
+    output.warnings.length = 0;
     const db = new Database(":memory:"); migrate(db);
     const players = [0, 1].map(i => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `auto${i}`).userId }).playerId);
     const duels = createDuelService(db);
@@ -148,8 +149,8 @@ describe("automatic blocks through host and replay", () => {
       await host.close(); host = makeHost();
       expect(await request(host, { ...base, op: "replay", playerId: players[0] })).toEqual(replay);
       expect(topScriptErrors(db)[0]!.count).toBe(count);
-    } finally { await host.close(); db.close(); log.mockRestore(); vi.unstubAllEnvs(); }
+    } finally { await host.close(); db.close(); vi.unstubAllEnvs(); }
   }, 30000);
 });
 
-const recording = useRecordingObservability();
+const output = useConsoleObservability();

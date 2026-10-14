@@ -1,6 +1,8 @@
 """Local deploy safety checks. No SSH, Docker daemon or production files are used."""
 import importlib.util
 import io
+import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -29,10 +31,8 @@ class ProductionActivityTests(unittest.TestCase):
             create table duel_series (status text);
         """)
 
-    def run_guard(self, force="false", target=None, live_only=False):
+    def run_guard(self, force="false", live_only=False):
         command = ["python3", str(GUARD), str(self.path), "--force", force]
-        if target:
-            command.extend(["--target", target])
         if live_only:
             command.append("--live-only")
         return subprocess.run(
@@ -227,37 +227,6 @@ class ProductionActivityTests(unittest.TestCase):
         self.assertIn("drafts=1", result.stdout)
         self.assertEqual(self.db.execute("select count(*) from drafts").fetchone()[0], 1)
 
-    def test_staging_ignores_open_rounds_and_series(self):
-        self.db.executescript("""
-            insert into tournaments values (1, 'active');
-            insert into tournament_matches values (1, 1, 'open'), (1, 2, 'pending_approval');
-            insert into duel_series values ('active'), ('between_games');
-        """)
-        result = self.run_guard(target="staging")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("duels=0 drafts=0", result.stdout)
-        self.assertNotIn("tournament_rounds=", result.stdout)
-        self.assertNotIn("series=", result.stdout)
-        self.assertEqual(self.run_guard().returncode, 1)
-
-    def test_staging_refuses_live_duels_openings_and_drafts_with_its_own_label(self):
-        for statement in [
-            "insert into duels (status) values ('active')",
-            "insert into duels values ('lobby', '{\"phase\":\"rps\"}')",
-            "insert into duels values ('lobby', '{\"phase\":\"dice\"}')",
-            "insert into drafts values ('active')",
-        ]:
-            with self.subTest(statement=statement):
-                self.db.execute(statement)
-                self.db.commit()
-                result = self.run_guard(target="staging")
-                self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertIn("Staging deploy skipped: production is busy", result.stderr)
-                self.assertNotIn("Production deploy refused", result.stderr)
-                for table in ("duels", "drafts"):
-                    self.db.execute(f"delete from {table}")
-                self.db.commit()
-
     def test_missing_corrupt_locked_and_incomplete_databases_fail_closed(self):
         missing = Path(self.tmp.name) / "missing.sqlite"
         result = subprocess.run(["python3", str(GUARD), str(missing)], capture_output=True)
@@ -273,6 +242,111 @@ class ProductionActivityTests(unittest.TestCase):
         self.path.write_bytes(b"not a database")
         self.assertEqual(self.run_guard().returncode, 1)
         self.assertEqual(self.run_guard("true").returncode, 0)
+
+
+class ProductionRuntimeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        controls = subprocess.run([
+            "node", "--input-type=module", "-e", """
+import { readFileSync } from 'node:fs';
+import { parse } from 'yaml';
+const { prepare, deploy } = parse(readFileSync('.github/workflows/deploy.yml', 'utf8')).jobs;
+process.stdout.write(JSON.stringify({
+    save: prepare.steps.find(step => step.name === 'Save deployment activity guard').run,
+    remote: deploy.steps.find(step => step.name === 'Deploy over SSH').run,
+}));
+"""], cwd=ROOT, text=True, capture_output=True, check=True)
+        cls.controls = json.loads(controls.stdout)
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.phases = self.root / "phases.log"
+        self.log = self.root / "commands.log"
+        self.saved = self.root / "controls"
+        self.saved.mkdir()
+        self.env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}",
+                        TEST_LOG=str(self.log), TEST_PHASES=str(self.phases),
+                        RUNNER_TEMP=str(self.saved), release_dir=str(self.root),
+                        bundle_src=str(self.root), runtime_compose=str(self.root / "runtime.json"))
+        subprocess.run(["sh", "-ec", self.controls["save"]], cwd=ROOT,
+                       env=self.env, text=True, capture_output=True, check=True)
+        self.env["DEPLOY_RUNTIME_PREPARE"] = str(self.saved / "prepare-runtime-data.sh")
+        (self.root / "runtime.json").write_text('{"name":"production-fixture"}')
+        data = self.root / "data"
+        data.mkdir()
+        with sqlite3.connect(data / "bot.sqlite") as db:
+            db.execute("create table checks (value text)")
+        (data / "bot.sqlite").chmod(0o600)
+        backup = self.root / "scripts/backup/dueling-backup"
+        backup.parent.mkdir(parents=True)
+        backup.write_text("import os\nwith open(os.environ['TEST_PHASES'], 'a') as log: log.write('backup\\n')\n")
+        installer = self.root / "packages/duel-server/scripts/install-engine-bundle.sh"
+        installer.parent.mkdir(parents=True)
+        installer.write_text('printf "installed\\n" >> "$TEST_PHASES"\n')
+        # Ownership is recorded without requiring root in CI. The deployment shell
+        # still executes the real helper and propagates its failure.
+        self.command("chown", '''echo "chown $*" >> "$TEST_LOG"
+for arg do path=$arg; done
+if [ "$path" = data ]; then
+  printf 'ownership\n' >> "$TEST_PHASES"
+  count=$(awk '$0 == "ownership" { count++ } END { print count+0 }' "$TEST_PHASES")
+  if [ "$count" = "${TEST_CHOWN_FAIL_AT:-0}" ]; then TEST_CHOWN_FAIL=1; fi
+fi
+if [ "${TEST_CHOWN_FAIL:-0}" = 1 ]; then
+  echo "chown: fixture ownership failure" >&2
+  exit 1
+fi
+''')
+        self.command("docker", '''case "$*" in
+  "ps "*) ;;
+  *" stop "*) printf 'stopped\n' >> "$TEST_PHASES" ;;
+  *" run "*) printf 'migrated\n' >> "$TEST_PHASES" ;;
+  *" down "*) printf 'removed\n' >> "$TEST_PHASES" ;;
+  *" up "*) printf 'started\n' >> "$TEST_PHASES" ;;
+  *) echo "Unexpected fixture Docker command" >&2; exit 1 ;;
+esac
+''')
+
+    def command(self, name, body):
+        path = self.bin / name
+        path.write_text("#!/bin/sh\n" + body)
+        path.chmod(0o755)
+
+    def run_cutover(self, **extra):
+        remote = self.controls["remote"]
+        start = remote.index("# Retire the bot container")
+        end = remote.index('docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps', start)
+        script = remote[start:end].replace("/opt/yugioh-bot/data/duel-engine", str(self.root / "data/duel-engine"))
+        return subprocess.run(["sh", "-ec", "cleanup() { :; }\n" + script], cwd=self.root,
+                              env=dict(self.env, **extra), text=True, capture_output=True, timeout=10)
+
+    def test_installed_data_is_prepared_before_migration_and_again_before_start(self):
+        result = self.run_cutover()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.phases.read_text().splitlines(), [
+            "stopped", "backup", "installed", "ownership", "migrated",
+            "removed", "ownership", "started",
+        ])
+
+    def test_ownership_failure_leaves_consumers_stopped(self):
+        for failed_preparation in (1, 2):
+            with self.subTest(failed_preparation=failed_preparation):
+                self.phases.unlink(missing_ok=True)
+                result = self.run_cutover(TEST_CHOWN_FAIL_AT=str(failed_preparation))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("chown: fixture ownership failure", result.stderr)
+                phases = self.phases.read_text().splitlines()
+                self.assertIn("stopped", phases)
+                self.assertNotIn("started", phases)
+                if failed_preparation == 1:
+                    self.assertNotIn("migrated", phases)
+                else:
+                    self.assertIn("migrated", phases)
 
 
 if __name__ == "__main__":

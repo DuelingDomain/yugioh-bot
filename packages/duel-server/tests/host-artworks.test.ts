@@ -1,6 +1,6 @@
-import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { signedHeaders } from "./helpers/signed-request.js";
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,15 +45,15 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
   const post = async (body: object, playerId = players[0]) => {
     const raw = JSON.stringify({ guildId: "g", playerId, slug: room.slug, ...body });
     return host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": `sha256=${createHmac("sha256",secret).update(raw).digest("hex")}` } }));
+      headers: { ...await signedHeaders(raw, secret, "http://localhost/internal/duel", "duel-host") } }));
   };
   try {
-    const warning = recording.log.mockClear().mockImplementation(() => {});
-    try {
-      expect(loadCardDatabase(dir).artworkScriptFallbacks()).toEqual([{ passcode: 30, main: 10, requested: 30 }, { passcode: 50, main: 10, requested: 50 }]);
-      expect(loadCardDatabase(dir).readScript("c50.lua")).toBe("-- canonical script");
-      expect(warning).toHaveBeenCalledWith("warn", "[cards] Using an artwork script fallback; validate this engine bundle before deployment.", {});
-    } finally { warning.mockRestore(); }
+    output.warnings.length = 0;
+    expect(loadCardDatabase(dir).artworkScriptFallbacks()).toEqual([{ passcode: 30, main: 10, requested: 30 }, { passcode: 50, main: 10, requested: 50 }]);
+    expect(loadCardDatabase(dir).readScript("c50.lua")).toBe("-- canonical script");
+    expect(output.warnings).toContainEqual({
+      message: "[cards] Using an artwork script fallback; validate this engine bundle before deployment.", fields: {},
+    });
     expect(loadCardDatabase(dir).readScript("c99.lua")).toBeNull();
     expect((await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: "{}" }))).status).toBe(401);
     expect(await (await post({ op: "card-artworks", codes: [50] })).json()).toEqual({ passcode: 10, artworks: [
@@ -77,4 +77,4 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
   } finally { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-const recording = useRecordingObservability();
+const output = useConsoleObservability();
