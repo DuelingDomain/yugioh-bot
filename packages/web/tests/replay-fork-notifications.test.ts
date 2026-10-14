@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { NextResponse } from "next/server";
+import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 import { verifyDuelConnectionToken } from "@yugidraft/shared/ws";
 import { forkEventFixture } from "../../shared/tests/helpers/replay-fork-events.js";
 
-const mocks = vi.hoisted(() => ({ db: vi.fn(), actor: vi.fn(), host: vi.fn(), announce: vi.fn(), post: vi.fn() }));
+const mocks = vi.hoisted(() => ({ db: vi.fn(), actor: vi.fn(), host: vi.fn(), announce: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb: mocks.db }));
 vi.mock("@/lib/env", () => ({ env: { discordBotEnabled: true, webUrl: "https://duel.example", wsInternalSecret: "fork-test", wsInternalUrl: "https://ws.example" } }));
 vi.mock("@/lib/notify", () => ({ announcer: { announce: mocks.announce } }));
-vi.mock("@yugidraft/shared/notify", async importOriginal => ({ ...await importOriginal<object>(), httpTransport: () => ({ post: mocks.post }) }));
 vi.mock("@/lib/duel-host", () => ({ requireDuelActor: mocks.actor, callDuelHost: mocks.host,
   duelErrorResponse: (error: { status?: number }) => NextResponse.json({ error: "Denied" }, { status: error.status ?? 400 }) }));
 import { sendDuelInvite, announceDuelInvite } from "../src/lib/announce-bot";
@@ -17,10 +17,10 @@ import { GET } from "../app/api/duels/[slug]/connection/route";
 let app: ReturnType<typeof forkEventFixture>;
 beforeEach(() => {
   vi.clearAllMocks(); app = forkEventFixture(); vi.stubEnv("OWNER_USER_IDS", "101,102"); mocks.db.mockReturnValue(app.db);
-  mocks.announce.mockResolvedValue({ ok: true }); mocks.post.mockResolvedValue({ ok: true });
+  mocks.announce.mockResolvedValue({ ok: true });
   mocks.actor.mockResolvedValue({ ok: true, ...app.owner, duels: app.duels });
 });
-afterEach(() => { app.db.close(); vi.unstubAllEnvs(); });
+afterEach(() => { app.db.close(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 const invite = (slug: string) => ({ slug, guildId: app.guildId, opponentDiscordUserId: "fixture-recipient", challengerName: "Test",
   duelName: "Test", bestOf: 1 as const, ranked: false, tournamentName: null });
 const connection = (query = "") => GET(new Request(`https://duel.example/api/duels/${app.forkSlug}/connection${query}`),
@@ -38,12 +38,18 @@ it("sends a stored reference for a normal duel", async () => {
   expect(mocks.announce).toHaveBeenCalledWith(expect.objectContaining({ kind: "duel-invite", duelId: app.source.id, slug: app.source.slug,
     url: `https://duel.example/duels/${app.source.slug}` }));
 });
-it("routes fork change messages only to the stored fork slug", async () => {
+it("delivers an authenticated fork change only for its stored guild and slug", async () => {
+  const received: unknown[] = [];
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    const result = await readSignedRequest(new Request(url, init), { secret: "fork-test", purpose: "ws-broadcast" });
+    if (!result.ok) return new Response(null, { status: result.status });
+    received.push(result.body);
+    return new Response(null, { status: 204 });
+  });
   await notifyDuelChange(app.forkSlug, app.guildId);
-  expect(mocks.post.mock.calls).toEqual([["/internal/duel/changed", JSON.stringify({ slug: app.forkSlug, guildId: app.guildId })]]);
   await notifyDuelChange(app.forkSlug, "other-guild");
   await notifyDuelChange("missing", app.guildId);
-  expect(mocks.post).toHaveBeenCalledTimes(1);
+  expect(received).toEqual([{ slug: app.forkSlug, guildId: app.guildId }]);
 });
 it("keeps the fork token at creator seat 0 and returns no-store headers", async () => {
   const response = await connection();

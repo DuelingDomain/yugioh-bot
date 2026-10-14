@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,7 +48,7 @@ function fixture() {
   const post = async (body: Record<string, unknown>) => {
     const raw = JSON.stringify({ slug: session.slug, guildId: "g", playerId: players[0], ...body });
     const response = await host!.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+      headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") } }));
     return { status: response.status, data: await response.json() as any };
   };
   return { worker, spawn, changes, service, slug: session.slug, post };

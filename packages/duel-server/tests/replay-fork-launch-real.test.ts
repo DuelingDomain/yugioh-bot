@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -51,7 +51,7 @@ describeWithCores("real fork launch and copied-prefix restart", [needs.cards(DAT
     async function post<T>(input: Record<string, unknown>, expectedStatus = 200): Promise<T> {
       const raw = JSON.stringify({ ...owner, ...input });
       const response = await host!.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-        headers: { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
+        headers: { ...signedRequestHeaders({ url: "http://localhost/internal/duel", method: "POST", body: raw, secret: secret, purpose: "duel-host" }) } }));
       const data = await response.json(); expect(response.status, JSON.stringify(data)).toBe(expectedStatus); return data as T;
     }
     try {

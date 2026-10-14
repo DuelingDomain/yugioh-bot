@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
@@ -41,7 +41,7 @@ describeWithCores("long stored journals", [needs.cards(DATA), needs.scripts(DATA
     async function request<T>(input: Record<string, unknown>) {
       const raw = JSON.stringify({ ...owner, ...input });
       const response = await host!.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-        headers: { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
+        headers: { ...signedRequestHeaders({ url: "http://localhost/internal/duel", method: "POST", body: raw, secret: secret, purpose: "duel-host" }) } }));
       const text = await response.text();
       return { response, data: JSON.parse(text) as T, bytes: Buffer.byteLength(text) };
     }

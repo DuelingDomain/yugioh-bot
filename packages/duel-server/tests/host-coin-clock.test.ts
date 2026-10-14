@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -118,7 +118,7 @@ async function table(options: {
   const post = async (body: Record<string, unknown>, seat = 0): Promise<DuelRoom> => {
     const raw = JSON.stringify({ slug: session.slug, guildId: "g", playerId: players[seat], ...body });
     const response = await host.handle(new Request("http://localhost/internal/duel", {
-      method: "POST", body: raw, headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") },
+      method: "POST", body: raw, headers: { "content-type": "application/json", ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") },
     }));
     const data = await response.json() as DuelRoom;
     expect(response.status, JSON.stringify(data)).toBe(200);

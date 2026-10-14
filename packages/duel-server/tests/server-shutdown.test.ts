@@ -16,7 +16,8 @@ const state = vi.hoisted(() => ({
 // Exercise the entry point without opening production data or binding its configured port.
 vi.mock("dotenv", () => ({ config: vi.fn() }));
 vi.mock("@yugidraft/shared/db", () => ({ openDatabase: () => state.db, applyEngineCardRemaps: () => ({ skipped: true }) }));
-vi.mock("@yugidraft/shared/notify", () => ({ createBroadcaster: vi.fn(), httpTransport: vi.fn() }));
+vi.mock("@yugidraft/shared/notify", () => ({ createBroadcaster: vi.fn() }));
+vi.mock("@yugidraft/shared/internal-auth", () => ({ signedTransport: vi.fn() }));
 vi.mock("../src/cards.js", () => ({ loadCardDatabase: () => state.cards }));
 vi.mock("../src/engine-bundle.js", () => ({ verifyEngineBundle: vi.fn() }));
 vi.mock("../src/host.js", () => ({ createDuelHost: () => state.host }));

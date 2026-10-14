@@ -1,5 +1,5 @@
-import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
-import { createHmac } from "node:crypto";
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { rmSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -78,7 +78,7 @@ function table(format: DuelFormat, values: number[], botSeat?: number, keepFixtu
   const post = async (op: string, playerId = players[0]!, extra: Record<string, unknown> = {}): Promise<{ status: number; data: Record<string, any> }> => {
     const raw = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId, ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+      headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") } }));
     const result = { status: response.status, data: await response.json() as Record<string, any> };
     return keepFixtureSeats ? finishTestDiceOpening(host, JSON.parse(raw), result,
       (body) => post(String(body.op), playerId, body)) : result;
@@ -193,7 +193,7 @@ describe("host FFA dice opening", () => {
 
   it("frees a failed start and rolls fresh dice on the next attempt", async () => {
     vi.useFakeTimers();
-    recording.log.mockClear().mockImplementation(() => {});
+    output.warnings.length = 0;
     const t = table("ffa3", [1, 2, 6]);
     await t.post("start");
     vi.spyOn(Worker.prototype, "create").mockRejectedValueOnce(new Error("Test start failed"));
@@ -224,4 +224,4 @@ describe("host FFA dice opening", () => {
   });
 });
 
-const recording = useRecordingObservability();
+const output = useConsoleObservability();

@@ -1,11 +1,12 @@
 // Runs in the built duel image, without opening a port or reading the application database.
 // Add --smoke to start Standard and Domain FFA3, FFA4 and Tag games on the installed files.
 import assert from "node:assert/strict";
-import { createHash, createHmac } from "node:crypto";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { verifyEngineBundle } from "../dist/engine-bundle.js";
 import { multiCoreAvailable } from "../dist/presets/index.js";
 import { multiDomainCoreAvailable, multiStartProblem } from "../dist/multi-domain-guard.js";
@@ -31,9 +32,10 @@ const secret = "deploy-core-check";
 const host = createDuelHost({ db, dataDirectory, secret, searchCards: () => [] });
 try {
   const body = JSON.stringify({ op: "capabilities", guildId: "verify", playerId: 1 });
-  const response = await host.handle(new Request("http://localhost/internal/duel", {
+  const url = "http://localhost/internal/duel";
+  const response = await host.handle(new Request(url, {
     method: "POST", body,
-    headers: { "x-announce-signature": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` },
+    headers: signedRequestHeaders({ url, method: "POST", body, secret, purpose: "duel-host" }),
   }));
   assert.equal(response.status, 200);
   const capabilities = await response.json();

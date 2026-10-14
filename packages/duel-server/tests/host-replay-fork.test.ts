@@ -1,6 +1,6 @@
 import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
+import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -85,7 +85,7 @@ function request(prefixCount = 1) {
 async function post(input: Record<string, unknown>, signed = true) {
   const raw = JSON.stringify({ slug, ...owner, ...input });
   const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-    headers: { "x-announce-signature": signed ? "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") : "bad" } }));
+    headers: { ...(signed ? signedRequestHeaders({ url: "http://localhost/internal/duel", method: "POST", body: raw, secret: secret, purpose: "duel-host" }) : { "x-internal-signature": "bad" }) } }));
   return { response, body: await response.json() as any };
 }
 const sourceRows = () => [db.prepare("select * from duels where web_slug = ?").get(slug),
