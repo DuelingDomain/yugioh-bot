@@ -212,3 +212,26 @@ describe("tournaments complete (manual early finish)", () => {
     expect(() => tournaments.complete(t.id)).toThrow(/cannot be completed/i);
   });
 });
+
+it.each(["manual", "deadline"])("records tournament creation, joins and %s completion atomically", finish => {
+  const { db, tournaments } = setup();
+  try {
+    const player = insertPlayer(db, "g", "one", "One");
+    const other = insertPlayer(db, "g", "two", "Two");
+    const owner = seedUser(db, "one").userId;
+    const t = tournaments.create("g", "Private tournament", "round_robin", owner);
+    tournaments.join(t.id, player); tournaments.join(t.id, other); tournaments.start(t.id);
+    db.exec("create trigger reject_event before insert on product_events when new.name='tournament_finished' begin select raise(abort, 'record failed'); end");
+    const complete = () => finish === "manual" ? tournaments.complete(t.id) : tournaments.closeForDeadline(t.id);
+    expect(complete).toThrow("record failed");
+    expect(tournaments.findById(t.id).status).toBe("active");
+    db.exec("drop trigger reject_event"); complete();
+    if (finish === "deadline") complete();
+    expect(db.prepare("select name,user_id,props_json from product_events order by id").all()).toEqual([
+      { name: "tournament_created", user_id: owner, props_json: '{"format":"round_robin","participantCount":0}' },
+      { name: "tournament_joined", user_id: owner, props_json: '{"format":"round_robin","participantCount":1}' },
+      { name: "tournament_joined", user_id: seedUser(db, "two").userId, props_json: '{"format":"round_robin","participantCount":2}' },
+      { name: "tournament_finished", user_id: owner, props_json: '{"format":"round_robin","participantCount":2}' },
+    ]);
+  } finally { db.close(); }
+});

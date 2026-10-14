@@ -141,3 +141,14 @@ describe("bug_reports table", () => {
     expect(db.prepare("select name from sqlite_master where type = 'index' and name in ('bug_reports_player_idx', 'bug_reports_duel_idx')").all()).toHaveLength(2);
   });
 });
+
+it("records the reporter's application identity without report text in the report transaction", () => {
+  const { db, reports } = setup();
+  reports.create(base);
+  expect(db.prepare("select name,user_id,props_json from product_events").all()).toEqual([
+    { name: "bug_reported", user_id: seedUser(db, "u1").userId, props_json: "{}" },
+  ]);
+  db.exec("create trigger reject_event before insert on product_events begin select raise(abort, 'record failed'); end");
+  expect(() => reports.create(base)).toThrow("record failed");
+  expect(db.prepare("select count(*) as n from bug_reports").get()).toEqual({ n: 1 });
+});

@@ -1283,3 +1283,23 @@ describe("terminal turn counts", () => {
     app.db.close();
   });
 });
+
+it.each(["completed", "interrupted"] as const)("records a live duel ending %s with application identity and bounded props once", endedBy => {
+  const app = setup();
+  try {
+    const { slug } = readyDuel(app);
+    app.db.exec("create trigger reject_event before insert on product_events when new.name='duel_started' begin select raise(abort, 'record failed'); end");
+    expect(() => start(app, slug)).toThrow("record failed");
+    expect(app.duels.get(slug, "g1").status).toBe("lobby");
+    app.db.exec("drop trigger reject_event");
+    app.duels.setSetup(slug, "g1", { engine: "pinned" });
+    start(app, slug);
+    const finish = () => endedBy === "completed" ? app.duels.complete(slug, "g1", 0, "Private reason", { public: board(null) })
+      : app.duels.interrupt(slug, "g1", "Private reason", { public: board(null) });
+    finish(); finish();
+    expect(app.db.prepare("select name,user_id,props_json from product_events order by id").all()).toEqual([
+      { name: "duel_started", user_id: seedUser(app.db, "u1").userId, props_json: '{"mode":"normal","format":"1v1","seatCount":2,"engine":"pinned"}' },
+      { name: "duel_finished", user_id: seedUser(app.db, "u1").userId, props_json: JSON.stringify({ mode: "normal", format: "1v1", seatCount: 2, engine: "pinned", endedBy, turnCount: 1 }) },
+    ]);
+  } finally { app.db.close(); }
+});

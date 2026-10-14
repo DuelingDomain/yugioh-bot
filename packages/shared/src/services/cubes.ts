@@ -1,3 +1,4 @@
+import { recordProductEvent } from "../analytics/index.js";
 import { ExpectedError } from "../observability/index.js";
 import type { CardIdentityCatalog } from "../duels/pool.js";
 import { routeDeckSections, type DeckSectionMove, type DeckCardType } from "../duels/extra-deck.js";
@@ -125,6 +126,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       )
       .run(guildId, name, archetype, banlist, createdByUserId, now, now);
     if (result.changes === 0) throw new CubeNameTakenError(name);
+    recordProductEvent(db, "cube_created", createdByUserId);
     return Number(result.lastInsertRowid);
   };
 
@@ -305,7 +307,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     },
 
     createBlank(guildId: string, name: string, createdByUserId: number): Cube {
-      return findCube(insertCubeRow(guildId, name, createdByUserId, null, null));
+      return db.transaction(() => findCube(insertCubeRow(guildId, name, createdByUserId, null, null))).immediate();
     },
 
     async createFromArchetype(
@@ -327,17 +329,19 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
 
       const { main, extra } = await catalog.syncByArchetype(archetype, { banlist });
       const findType = deckTypes.snapshot();
-      const cubeId = insertCubeRow(guildId, name, createdByUserId, archetype, banlist ?? null);
+      return db.transaction(() => {
+        const cubeId = insertCubeRow(guildId, name, createdByUserId, archetype, banlist ?? null);
 
-      for (const card of main) {
-        upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
-      }
-      for (const card of extra) {
-        upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
-      }
+        for (const card of main) {
+          upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
+        }
+        for (const card of extra) {
+          upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
+        }
 
-      bump(cubeId);
-      return findCube(cubeId);
+        bump(cubeId);
+        return findCube(cubeId);
+      }).immediate();
     },
 
     /**
@@ -610,34 +614,37 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     // draft-template service; owner arguments are application user IDs) -----
 
     save(guildId: string, name: string, config: DraftConfig, createdByUserId: number): Cube {
-      const trimmed = name.trim();
-      // Saving over an existing cube replaces its draft config but keeps what the cube is for.
-      const previous = db.prepare("select config_json from cubes where guild_id = ? and name = ? and created_by_user_id = ?").get(guildId, trimmed, createdByUserId) as
-        | { config_json: string | null }
-        | undefined;
-      if (previous) {
-        let old: Record<string, unknown> = {};
-        try {
-          old = JSON.parse(previous.config_json ?? "{}") as Record<string, unknown>;
-        } catch {
-          // An unreadable old config has nothing to keep.
+      return db.transaction(() => {
+        const trimmed = name.trim();
+        // Saving over an existing cube replaces its draft config but keeps what the cube is for.
+        const previous = db.prepare("select config_json from cubes where guild_id = ? and name = ? and created_by_user_id = ?").get(guildId, trimmed, createdByUserId) as
+          | { config_json: string | null }
+          | undefined;
+        if (previous) {
+          let old: Record<string, unknown> = {};
+          try {
+            old = JSON.parse(previous.config_json ?? "{}") as Record<string, unknown>;
+          } catch {
+            // An unreadable old config has nothing to keep.
+          }
+          const kept: Record<string, unknown> = {};
+          for (const key of CUBE_META_KEYS) if (old[key] !== undefined && !(key in config)) kept[key] = old[key];
+          config = { ...kept, ...config };
         }
-        const kept: Record<string, unknown> = {};
-        for (const key of CUBE_META_KEYS) if (old[key] !== undefined && !(key in config)) kept[key] = old[key];
-        config = { ...kept, ...config };
-      }
-      const result = db.prepare(
-        `
-          insert into cubes (guild_id, name, config_json, created_by_user_id)
-          values (?, ?, ?, ?)
-          on conflict(guild_id, created_by_user_id, name) do update set
-            config_json = excluded.config_json,
-            updated_at = current_timestamp
-        `,
-      ).run(guildId, trimmed, JSON.stringify(config), createdByUserId);
-      if (result.changes === 0) throw new CubeNameTakenError(trimmed);
-      const row = db.prepare("select * from cubes where guild_id = ? and created_by_user_id = ? and name = ?").get(guildId, createdByUserId, trimmed);
-      return mapCube(row);
+        const result = db.prepare(
+          `
+            insert into cubes (guild_id, name, config_json, created_by_user_id)
+            values (?, ?, ?, ?)
+            on conflict(guild_id, created_by_user_id, name) do update set
+              config_json = excluded.config_json,
+              updated_at = current_timestamp
+          `,
+        ).run(guildId, trimmed, JSON.stringify(config), createdByUserId);
+        if (result.changes === 0) throw new CubeNameTakenError(trimmed);
+        if (!previous) recordProductEvent(db, "cube_created", createdByUserId);
+        const row = db.prepare("select * from cubes where guild_id = ? and created_by_user_id = ? and name = ?").get(guildId, createdByUserId, trimmed);
+        return mapCube(row);
+      }).immediate();
     },
 
     findByName(guildId: string, name: string, userId: number): Cube | undefined {

@@ -389,6 +389,7 @@ jobs:
           tags: ${{ env.IMAGE }}:${{ env.DEPLOY_COMMIT }}
           build-args: |
             NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+            NEXT_PUBLIC_POSTHOG_KEY=${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
             NEXT_PUBLIC_SENTRY_DSN=${{ matrix.service == 'web' && vars.NEXT_PUBLIC_SENTRY_DSN || '' }}
             SENTRY_ORG=${{ matrix.service == 'web' && vars.SENTRY_ORG || '' }}
             SENTRY_PROJECT=${{ matrix.service == 'web' && vars.SENTRY_PROJECT || '' }}
@@ -438,6 +439,7 @@ jobs:
           tags: ${{ env.IMAGE }}:nextcache
           build-args: |
             NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+            NEXT_PUBLIC_POSTHOG_KEY=${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
             NEXT_PUBLIC_SENTRY_DSN=${{ matrix.service == 'web' && vars.NEXT_PUBLIC_SENTRY_DSN || '' }}
             SENTRY_ORG=${{ matrix.service == 'web' && vars.SENTRY_ORG || '' }}
             SENTRY_PROJECT=${{ matrix.service == 'web' && vars.SENTRY_PROJECT || '' }}

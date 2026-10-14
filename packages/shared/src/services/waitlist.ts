@@ -1,3 +1,4 @@
+import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 import { notifyJoinRequest } from "../notify/join-request.js";
 
@@ -18,12 +19,16 @@ export function createWaitlistService(db: Database.Database) {
     join(email: string, meta: WaitlistMeta = {}): { status: "joined" | "exists" } {
       const normalizedEmail = email.trim().toLowerCase();
       const createdAt = new Date().toISOString();
-      const result = insert.run(
-        normalizedEmail,
-        createdAt,
-        meta.source?.trim().slice(0, 80) || "form",
-        meta.userAgent?.slice(0, 300) ?? null,
-      );
+      const result = db.transaction(() => {
+        const result = insert.run(
+          normalizedEmail,
+          createdAt,
+          meta.source?.trim().slice(0, 80) || "form",
+          meta.userAgent?.slice(0, 300) ?? null,
+        );
+        if (result.changes !== 0) recordProductEvent(db, "waitlist_joined", null);
+        return result;
+      }).immediate();
       if (result.changes !== 0) {
         void notifyJoinRequest(db, {
           email: normalizedEmail, createdAt,

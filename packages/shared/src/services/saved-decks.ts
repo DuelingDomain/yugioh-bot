@@ -1,3 +1,4 @@
+import { recordProductEvent } from "../analytics/index.js";
 import { assertExtraDeckCards, ExtraDeckCardError, isExtraDeckCard, type DeckSectionMove } from "../duels/extra-deck.js";
 import { createDeckTypeLookup, hasKnownDeckCardType } from "./deck-sections.js";
 import type { CardIdentityCatalog } from "../duels/pool.js";
@@ -276,40 +277,46 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
     },
 
     create(guildId: string, ownerUserId: number, input: SavedDeckWrite): SavedDeck {
-      const { name, mode, deck } = validateSavedDeckWrite(input);
-      validateExtra(deck);
-      const draftId = normalizeDraftId(input.draftId) ?? null;
-      let result;
-      try {
-        result = insertRow.run(guildId, ownerUserId, name, mode, JSON.stringify(deck), draftId);
-      } catch (error) {
-        rethrowDraftConstraint(error);
-      }
-      if (draftId !== null) markDraftDeckSaved.run(draftId, guildId, ownerUserId);
-      return loadOwned(Number(result.lastInsertRowid), guildId, ownerUserId);
+      return db.transaction(() => {
+        const { name, mode, deck } = validateSavedDeckWrite(input);
+        validateExtra(deck);
+        const draftId = normalizeDraftId(input.draftId) ?? null;
+        let result;
+        try {
+          result = insertRow.run(guildId, ownerUserId, name, mode, JSON.stringify(deck), draftId);
+        } catch (error) {
+          rethrowDraftConstraint(error);
+        }
+        if (draftId !== null) markDraftDeckSaved.run(draftId, guildId, ownerUserId);
+        recordProductEvent(db, "deck_saved", ownerUserId, { mode });
+        return loadOwned(Number(result.lastInsertRowid), guildId, ownerUserId);
+      }).immediate();
     },
 
     update(id: number, guildId: string, ownerUserId: number, input: SavedDeckWrite): SavedDeck {
-      const existing = loadOwned(id, guildId, ownerUserId);
-      const { name, mode, deck } = validateSavedDeckWrite(input);
-      validateExtra(deck);
-      const draftId = normalizeDraftId(input.draftId);
-      try {
-        updateRow.run(
-          name,
-          mode,
-          JSON.stringify(deck),
-          draftId === undefined ? (existing.draftId ?? null) : draftId,
-          id,
-          guildId,
-          ownerUserId,
-        );
-      } catch (error) {
-        rethrowDraftConstraint(error);
-      }
-      const linkedDraftId = draftId === undefined ? (existing.draftId ?? null) : draftId;
-      if (linkedDraftId !== null) markDraftDeckSaved.run(linkedDraftId, guildId, ownerUserId);
-      return loadOwned(id, guildId, ownerUserId);
+      return db.transaction(() => {
+        const existing = loadOwned(id, guildId, ownerUserId);
+        const { name, mode, deck } = validateSavedDeckWrite(input);
+        validateExtra(deck);
+        const draftId = normalizeDraftId(input.draftId);
+        try {
+          updateRow.run(
+            name,
+            mode,
+            JSON.stringify(deck),
+            draftId === undefined ? (existing.draftId ?? null) : draftId,
+            id,
+            guildId,
+            ownerUserId,
+          );
+        } catch (error) {
+          rethrowDraftConstraint(error);
+        }
+        const linkedDraftId = draftId === undefined ? (existing.draftId ?? null) : draftId;
+        if (linkedDraftId !== null) markDraftDeckSaved.run(linkedDraftId, guildId, ownerUserId);
+        recordProductEvent(db, "deck_saved", ownerUserId, { mode });
+        return loadOwned(id, guildId, ownerUserId);
+      }).immediate();
     },
 
     delete(id: number, guildId: string, ownerUserId: number): void {

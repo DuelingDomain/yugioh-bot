@@ -105,12 +105,12 @@ describe("delete-user command", () => {
     expect(f.db.prepare("select username from users where id=1").get()).toEqual({ username: "deleted-1" });
   });
 
-  it("requires the Clerk secret only when the row still has a Clerk user", async () => {
+  it("requires the Clerk secret only when the row still has a Clerk user or waitlist email", async () => {
     seed();
     const missing = await run(["--user-id", "1", "--apply"]);
     expect(missing.code).toBe(1);
     expect(f.db.prepare("select clerk_user_id from users where id=1").get()).toEqual({ clerk_user_id: CLERK_ID });
-    f.db.exec("update users set clerk_user_id=null where id=1");
+    f.db.exec("update users set clerk_user_id=null,email=null,email_verified=0 where id=1");
     const ok = await run(["--user-id", "1", "--apply"]);
     expect(ok.code).toBe(0);
     expect(ok.json()).toMatchObject({ clerk: "none" });
