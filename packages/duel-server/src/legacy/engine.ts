@@ -62,7 +62,7 @@ import {
   type StoredDuelEvent,
 } from "./views.js";
 import { createDomainCore } from "../domain-core.js";
-import { destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleLogCardCodes, visibleTargetCardCodes, type TargetQueryCache } from "../log-lines.js"; // LEGACY-1V1: per-viewer hint identity redaction
+import { createLogCardVisibility, destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleTargetCardCodes, type TargetQueryCache } from "../log-lines.js"; // LEGACY-1V1: per-viewer hint identity redaction
 import type { TargetDescription } from "../target-names.js";
 import type { EngineViewHistory } from "../engine.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -389,6 +389,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let sawRetry = false;
 
   const deckMasters = options.mode === "domain" ? options.decks.flatMap((deck) => deck.deckMaster ? [deck.deckMaster] : []) : []; // LEGACY-1V1: public Deck Master identities
+  const hintVisibility = createLogCardVisibility({ lib, handle, format: "1v1", reveals, deckMasters, queryCache: targetQueryCache });
   const appendLog = (text: string, audience: "all" | number = "all", privateText?: Record<number, string>): LogEntry => { // LEGACY-1V1: viewer-specific hint text
     const entry = { id: nextLogId++, text, audience, ...(privateText ? { privateText } : {}) }; // LEGACY-1V1: freeze eligible names at message time
     log.push(entry);
@@ -509,7 +510,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     nextEventId += 1;
     markDestroyedLine(stored);
     events.push(stored);
-    if (events.length > 400) events.splice(0, events.length - 400);
+    hintVisibility.addEvent(stored);
+    if (events.length > 400) {
+      for (const expired of events.splice(0, events.length - 400)) hintVisibility.removeEvent(expired);
+    }
   };
 
   const flushDeferredDestroys = () => {
@@ -527,7 +531,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
           // Placeholders are filled when the prompt is built, against the card the prompt names.
           lastSelectHint = cards.resolveLabel(message.hint) || cards.system(Number(message.hint));
         } else if (message.hint_type === OcgHintType.EVENT || message.hint_type === OcgHintType.MESSAGE) {
-          const line = hintLogLine(message.hint, lastHintCard, cards, visibleLogCardCodes({ lib, handle, format: "1v1", reveals, events, deckMasters })); // LEGACY-1V1: redact literal names as well as placeholders
+          const line = hintLogLine(message.hint, lastHintCard, cards, hintVisibility); // LEGACY-1V1: redact literal names as well as placeholders
           if (line) appendLog(line.text, line.audience, line.privateText); // LEGACY-1V1: preserve public card names
         } else if (message.hint_type === OcgHintType.CARD) {
           lastHintCard = Number(message.hint) || undefined;

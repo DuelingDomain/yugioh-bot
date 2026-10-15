@@ -69,7 +69,7 @@ import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, MSG_S
 import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
 import { firstTurnDrawFor } from "./first-turn-draw.js";
 import { attackTargetQueryScript, mergeAttackTargetPick, readAttackTargetQuery, type AttackTargetQuery } from "./attack-target-pick.js";
-import { destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleLogCardCodes, visibleTargetCardCodes, type TargetQueryCache } from "./log-lines.js";
+import { createLogCardVisibility, destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleTargetCardCodes, type TargetQueryCache } from "./log-lines.js";
 import type { TargetDescription } from "./target-names.js";
 
 /** A wasm the engine loaded: the bytes, the file name and the sha256 of the bytes (core identity for reports). */
@@ -621,6 +621,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let sawRetry = false;
 
   const deckMasters = options.mode === "domain" ? options.decks.flatMap((deck) => deck.deckMaster ? [deck.deckMaster] : []) : [];
+  const hintVisibility = createLogCardVisibility({ lib, handle, format, reveals, deckMasters, queryCache: targetQueryCache });
   const appendLog = (text: string, audience: "all" | number = "all", privateText?: Record<number, string>): LogEntry => {
     const entry = { id: nextLogId++, text, audience, ...(privateText ? { privateText } : {}) };
     log.push(entry);
@@ -741,7 +742,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     nextEventId += 1;
     markDestroyedLine(stored);
     events.push(stored);
-    if (events.length > 400) events.splice(0, events.length - 400);
+    hintVisibility.addEvent(stored);
+    if (events.length > 400) {
+      for (const expired of events.splice(0, events.length - 400)) hintVisibility.removeEvent(expired);
+    }
   };
 
   const flushDeferredDestroys = () => {
@@ -766,13 +770,15 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           // Placeholders are filled when the prompt is built, against the card the prompt names.
           lastSelectHint = cards.resolveLabel(message.hint) || cards.system(Number(message.hint));
         } else if (message.hint_type === OcgHintType.EVENT || message.hint_type === OcgHintType.MESSAGE) {
-          const line = hintLogLine(message.hint, lastHintCard, cards, visibleLogCardCodes({ lib, handle, format, reveals, events, deckMasters }));
           const duplicateRecipient = logHintRecipientsLeft > 0 && loggedHintCall;
           if (logHintRecipientsLeft > 0) {
             logHintRecipientsLeft -= 1;
             loggedHintCall = true;
           }
-          if (line && !duplicateRecipient) appendLog(line.text, line.audience, line.privateText);
+          if (!duplicateRecipient) {
+            const line = hintLogLine(message.hint, lastHintCard, cards, hintVisibility);
+            if (line) appendLog(line.text, line.audience, line.privateText);
+          }
         } else if (message.hint_type === OcgHintType.CARD) {
           lastHintCard = Number(message.hint) || undefined;
         }

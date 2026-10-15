@@ -90,6 +90,53 @@ async function open(format: DuelFormat, messages: OcgMessage[], create = createE
 
 const log = (game: EngineGame, viewer: number | null) => game.view(viewer).log.map((entry) => entry.text);
 
+it.each([
+  { engine: "pinned FFA4", format: "ffa4" as const, create: createEngineGame },
+  { engine: "legacy", format: "1v1" as const, create: createLegacyEngineGame },
+])("does no board queries for 1,500 $engine hints without card names", async ({ format, create }) => {
+  fake.hintLabels.set(502n, "  Choose  an effect (100%%).  ");
+  const game = await open(format, [
+    { type: OcgMessageType.HINT, hint_type: OcgHintType.CARD, player: 0, hint: 70781052n },
+    ...Array.from({ length: 1_500 }, (_, index) => ({
+      type: OcgMessageType.HINT,
+      hint_type: index % 2 ? OcgHintType.EVENT : OcgHintType.MESSAGE,
+      player: 0, hint: 502n,
+    } as OcgMessage)),
+  ], create);
+  try {
+    // Check before view() performs its own board projection queries.
+    expect(fake.locationQueries).toHaveLength(0);
+    for (const viewer of [...Array.from({ length: seatCountFor(format) }, (_, seat) => seat), null]) {
+      expect(log(game, viewer)).toEqual(Array(400).fill("Choose an effect (100%)."));
+    }
+  } finally { game.close(); }
+});
+
+it.each([
+  { engine: "pinned FFA4", format: "ffa4" as const, create: createEngineGame },
+  { engine: "legacy", format: "1v1" as const, create: createLegacyEngineGame },
+])("caches named $engine hint queries per process while freezing each line's visibility", async ({ format, create }) => {
+  fake.hintLabels.set(70781052n, "Summoned Skull");
+  const key = `0:${OcgLocation.HAND}`;
+  fake.queries.set(key, [{ code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE }]);
+  const hints = Array.from({ length: 100 }, () => ({ type: OcgMessageType.HINT, hint_type: OcgHintType.MESSAGE,
+    player: 0, hint: 70781052n } as OcgMessage));
+  let processCount = 0;
+  fake.onProcess = () => {
+    if (processCount++ === 0) return true;
+    fake.queries.set(key, [{ code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE, isPublic: true }]);
+    fake.messages = [...hints, fake.messages.at(-1)!];
+    return false;
+  };
+  const game = await open(format, hints, create);
+  try {
+    // First process scans all locations; the second stops at the now-public hand in location 2.
+    expect(fake.locationQueries).toHaveLength(seatCountFor(format) * 7 + 2);
+    expect(log(game, null)).toEqual([...Array(100).fill("a card"), ...Array(100).fill("Summoned Skull")]);
+    expect(log(game, 0)).toEqual(Array(200).fill("Summoned Skull"));
+  } finally { game.close(); }
+});
+
 describe.each<DuelFormat>(["ffa3", "ffa4", "tag"])("%s direct attack log", (format) => {
   const actor = seatCountFor(format) - 1;
 
@@ -204,6 +251,36 @@ it.each([
 describe.each([
   { engine: "pinned", create: createEngineGame }, { engine: "legacy", create: createLegacyEngineGame },
 ])("$engine hint identity privacy", ({ create }) => {
+  it("retains repeated private reveals until their last event expires from the history ring", async () => {
+    fake.hintLabels.set(70781052n, "Summoned Skull");
+    const confirm = { type: OcgMessageType.CONFIRM_CARDS, player: 1,
+      cards: [{ code: 70781052, ...place(0, OcgLocation.DECK, OcgPosition.FACEDOWN_DEFENSE) }] } as OcgMessage;
+    const set = { type: OcgMessageType.SET, code: 2, ...place(0, OcgLocation.SZONE, OcgPosition.FACEDOWN_DEFENSE) } as OcgMessage;
+    const hint = { type: OcgMessageType.HINT, hint_type: OcgHintType.MESSAGE, player: 0, hint: 70781052n } as OcgMessage;
+    const game = await open("1v1", [confirm, confirm, ...Array<OcgMessage>(398).fill(set), hint, set, hint, set, hint], create);
+    try {
+      expect(log(game, 1).slice(-5)).toEqual([
+        "Summoned Skull", "Player 1 Sets a card", "Summoned Skull", "Player 1 Sets a card", "a card",
+      ]);
+      expect(log(game, null).slice(-5)).toEqual([
+        "a card", "Player 1 Sets a card", "a card", "Player 1 Sets a card", "a card",
+      ]);
+    } finally { game.close(); }
+  });
+
+  it("does no board queries for repeated hints naming a publicly announced card", async () => {
+    fake.hintLabels.set(70781052n, "Summoned Skull");
+    const game = await open("1v1", [
+      { type: OcgMessageType.SUMMONING, code: 70781052, ...place(0) } as OcgMessage,
+      ...Array.from({ length: 100 }, () => ({ type: OcgMessageType.HINT, hint_type: OcgHintType.MESSAGE,
+        player: 0, hint: 70781052n } as OcgMessage)),
+    ], create);
+    try {
+      expect(fake.locationQueries).toHaveLength(0);
+      for (const viewer of [0, 1, null]) expect(log(game, viewer).slice(1)).toEqual(Array(100).fill("Summoned Skull"));
+    } finally { game.close(); }
+  });
+
   it.each([OcgHintType.EVENT, OcgHintType.MESSAGE])("redacts a direct card-name hint (%i), without relying on placeholders", async (hint_type) => {
     // CardDatabase.resolveLabel resolves a passcode straight to the card name.
     fake.hintLabels.set(70781052n, "Summoned Skull");

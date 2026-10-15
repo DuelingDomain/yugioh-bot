@@ -2,7 +2,7 @@ import { partnerSeatOf, seatCountFor, type DuelFormat, type DuelSummonKind, type
 import { OcgLocation, OcgMessageType, OcgPosition, OcgQueryFlags, type OcgCoreSync, type OcgDuelHandle, type OcgMessage, type OcgQueryFlags as OcgQueryFlagsValue } from "ocgcore-wasm";
 import type { CardDatabase } from "./cards.js";
 import { cardIsVisible, isNoDuelist, playerLabel, slotRevealed, type RevealMap, type StoredDuelEvent } from "./views.js";
-import { fillPlaceholders } from "./text.js";
+import { fillPlaceholders, hasPlaceholders } from "./text.js";
 import type { TargetVisibility } from "./target-names.js";
 
 /**
@@ -37,28 +37,36 @@ const TARGET_QUERY_LOCATIONS: ReadonlySet<number> = new Set([
 /** Raw queries only: viewer-scoped confirmations can still change between messages in a process batch. */
 export type TargetQueryCache = Map<string, ReturnType<OcgCoreSync["duelQueryLocation"]>>;
 
-/** Freeze the independently visible code at the target's slot before a delayed Lua note can name it. */
-export function visibleTargetCardCodes(args: {
+interface LogQueryContext {
   lib: OcgCoreSync;
   handle: OcgDuelHandle;
-  format: DuelFormat;
-  reveals: RevealMap;
   /** Clear before every core process or other core mutation. */
   queryCache?: TargetQueryCache;
+}
+
+function queryLogLocation(args: LogQueryContext, controller: number, location: number): ReturnType<OcgCoreSync["duelQueryLocation"]> {
+  const key = `${controller}:${location}`;
+  let queries = args.queryCache?.get(key);
+  if (!queries) {
+    queries = args.lib.duelQueryLocation(args.handle, {
+      controller: controller as 0 | 1, location: location as OcgLocation,
+      flags: (OcgQueryFlags.CODE | OcgQueryFlags.POSITION | OcgQueryFlags.IS_PUBLIC | OcgQueryFlags.IS_HIDDEN) as OcgQueryFlagsValue,
+    });
+    args.queryCache?.set(key, queries);
+  }
+  return queries;
+}
+
+/** Freeze the independently visible code at the target's slot before a delayed Lua note can name it. */
+export function visibleTargetCardCodes(args: LogQueryContext & {
+  format: DuelFormat;
+  reveals: RevealMap;
 }, zone: DuelZoneRef): TargetVisibility {
   const visible = new Map<number | null, number>();
   if (zone.controller < 0 || zone.controller >= seatCountFor(args.format)) return visible;
   // Overlay coordinates and Domain's serialized location 0 are not ordinary queryable card slots.
   if (!TARGET_QUERY_LOCATIONS.has(zone.location)) return visible;
-  const key = `${zone.controller}:${zone.location}`;
-  let queries = args.queryCache?.get(key);
-  if (!queries) {
-    queries = args.lib.duelQueryLocation(args.handle, {
-      controller: zone.controller as 0 | 1, location: zone.location as OcgLocation,
-      flags: (OcgQueryFlags.CODE | OcgQueryFlags.POSITION | OcgQueryFlags.IS_PUBLIC | OcgQueryFlags.IS_HIDDEN) as OcgQueryFlagsValue,
-    });
-    args.queryCache?.set(key, queries);
-  }
+  const queries = queryLogLocation(args, zone.controller, zone.location);
   const query = queries[zone.sequence];
   if (!query?.code) return visible;
   const viewers = [...Array.from({ length: seatCountFor(args.format) }, (_, seat) => seat), null];
@@ -74,44 +82,54 @@ export function visibleTargetCardCodes(args: {
   return visible;
 }
 
-/** Identities visible now or explicitly announced to this viewer in the event history. */
-export function visibleLogCardCodes(args: {
-  lib: OcgCoreSync;
-  handle: OcgDuelHandle;
+export interface HintVisibility {
+  viewers: readonly (number | null)[];
+  isKnown(viewer: number | null, code: number): boolean;
+}
+
+/** Incremental event-ring identities; live visibility is queried only for a requested code/viewer. */
+export function createLogCardVisibility(args: LogQueryContext & {
   format: DuelFormat;
   reveals: RevealMap;
-  events: readonly StoredDuelEvent[];
   deckMasters: readonly number[];
-}): Map<number | null, Set<number>> {
+}): HintVisibility & { addEvent(event: StoredDuelEvent): void; removeEvent(event: StoredDuelEvent): void } {
   const viewers = [...Array.from({ length: seatCountFor(args.format) }, (_, seat) => seat), null];
-  const known = new Map(viewers.map((viewer) => [viewer, new Set(args.deckMasters)]));
-  for (const event of args.events) {
-    if (!event.card) continue;
+  const deckMasters = new Set(args.deckMasters);
+  const known = new Map(viewers.map((viewer) => [viewer, new Map<number, number>()]));
+  const updateEvent = (event: StoredDuelEvent, delta: number) => {
+    if (!event.card) return;
     const audience = event.revealCardTo;
     for (const [viewer, codes] of known) {
-      if (audience === "all" || (viewer != null && (typeof audience === "number" ? audience === viewer : audience.includes(viewer)))) codes.add(event.card.code);
+      if (audience !== "all" && (viewer == null || !(typeof audience === "number" ? audience === viewer : audience.includes(viewer)))) continue;
+      const count = (codes.get(event.card.code) ?? 0) + delta;
+      if (count > 0) codes.set(event.card.code, count);
+      else codes.delete(event.card.code);
     }
-  }
-  for (let controller = 0; controller < seatCountFor(args.format); controller++) {
-    for (const location of [OcgLocation.DECK, OcgLocation.HAND, OcgLocation.MZONE, OcgLocation.SZONE, OcgLocation.GRAVE, OcgLocation.REMOVED, OcgLocation.EXTRA]) {
-      const queries = args.lib.duelQueryLocation(args.handle, {
-        controller: controller as 0 | 1, location,
-        flags: (OcgQueryFlags.CODE | OcgQueryFlags.POSITION | OcgQueryFlags.IS_PUBLIC | OcgQueryFlags.IS_HIDDEN) as OcgQueryFlagsValue,
-      });
-      queries.forEach((query, sequence) => {
-        if (!query?.code) return;
-        for (const [viewer, codes] of known) {
-          if (cardIsVisible({
-            viewer, controller, location, position: query.position || OcgPosition.FACEDOWN_DEFENSE,
-            isPublic: query.isPublic, isHidden: query.isHidden,
-            revealed: slotRevealed(args.reveals, viewer, controller, location, sequence, query.code),
-            partner: viewer != null && partnerSeatOf(args.format, viewer) === controller,
-          })) codes.add(query.code);
+  };
+  return {
+    viewers,
+    addEvent: (event) => updateEvent(event, 1),
+    removeEvent: (event) => updateEvent(event, -1),
+    isKnown(viewer, code) {
+      if (deckMasters.has(code) || known.get(viewer)?.has(code)) return true;
+      for (let controller = 0; controller < seatCountFor(args.format); controller++) {
+        for (const location of TARGET_QUERY_LOCATIONS) {
+          const queries = queryLogLocation(args, controller, location);
+          for (let sequence = 0; sequence < queries.length; sequence++) {
+            const query = queries[sequence];
+            if (query?.code !== code) continue;
+            if (cardIsVisible({
+              viewer, controller, location, position: query.position || OcgPosition.FACEDOWN_DEFENSE,
+              isPublic: query.isPublic, isHidden: query.isHidden,
+              revealed: slotRevealed(args.reveals, viewer, controller, location, sequence, code),
+              partner: viewer != null && partnerSeatOf(args.format, viewer) === controller,
+            })) return true;
+          }
         }
-      });
-    }
-  }
-  return known;
+      }
+      return false;
+    },
+  };
 }
 
 /** Hints may resolve to a literal card name, a card-string fallback, or a template with HINT_CARD. */
@@ -119,27 +137,41 @@ export function hintLogLine(
   hint: bigint,
   hintCard: number | undefined,
   cards: CardDatabase,
-  known: ReadonlyMap<number | null, ReadonlySet<number>>,
+  visibility: HintVisibility,
 ): LogLine | undefined {
   const template = cards.resolveLabel(hint) || cards.system(Number(hint)) || "";
   if (!template) return undefined;
   const direct = hint > 0n && hint <= 0xffffffffn ? Number(hint) : undefined;
   const source = direct != null && cards.get(direct) ? direct : Number(hint >> 20n);
-  const render = (codes: ReadonlySet<number> | undefined) => {
+  const names = new Map<number, string>();
+  for (const code of [source, hintCard]) {
+    if (!code || names.has(code)) continue;
+    const name = cards.get(code)?.name;
+    if (name) names.set(code, name);
+  }
+  const hintName = hintCard ? names.get(hintCard) : undefined;
+  const placeholders = hasPlaceholders(template.replaceAll("%%", "\u0000"));
+  const needsVisibility = [...names.values()].some((name) => template.includes(name)) || (placeholders && !!hintName);
+  // Still normalize whitespace and escaped percent signs exactly as the full renderer does.
+  if (!needsVisibility) return { text: fillPlaceholders(template, ["a card"]), audience: "all" };
+  const render = (viewer: number | null) => {
+    const known = new Map<number, boolean>();
+    const isKnown = (code: number) => {
+      if (!known.has(code)) known.set(code, visibility.isKnown(viewer, code));
+      return known.get(code)!;
+    };
     let text = template;
-    for (const code of new Set([source, hintCard])) {
-      if (!code || codes?.has(code)) continue;
-      const name = cards.get(code)?.name;
-      if (name) text = text.replaceAll(name, "a card");
+    for (const [code, name] of names) {
+      if (text.includes(name) && !isKnown(code)) text = text.replaceAll(name, "a card");
     }
-    const name = hintCard && codes?.has(hintCard) ? cards.get(hintCard)?.name : undefined;
+    const name = hintCard && hintName && hasPlaceholders(text.replaceAll("%%", "\u0000")) && isKnown(hintCard) ? hintName : undefined;
     return fillPlaceholders(text, [name ?? "a card"]);
   };
-  const text = render(known.get(null));
+  const text = render(null);
   const privateText: Record<number, string> = {};
-  for (const [viewer, codes] of known) {
+  for (const viewer of visibility.viewers) {
     if (viewer == null) continue;
-    const named = render(codes);
+    const named = render(viewer);
     if (named !== text) privateText[viewer] = named;
   }
   return { text, audience: "all", ...(Object.keys(privateText).length ? { privateText } : {}) };

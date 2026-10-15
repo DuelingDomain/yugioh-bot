@@ -110,6 +110,8 @@ describe("current engine identity", () => {
     // Its performance follow-up caches raw target queries per process and shares sparse target descriptions;
     // replay history cursors skip projecting/transferring old history before the existing frame delta filter.
     // Frozen announcement audiences, projected text/labels and full final verification views are unchanged.
+    // Hint visibility is now lazy and code-specific, with a reference-counted index of the same event ring;
+    // raw queries share the per-process target cache. Card-name rendering and event expiry stay identical.
     // Version 5 records PR #348's fixed FFA facing pairs, board projection and Domain FFA draw setting.
     // PR #361 refreshed version 5: the Extra Deck type lookup before a duel starts is admission only (no engine/journal change).
     // PR #344 integration refreshes version 5 for async worker admission, deadlines and structural answer checks.
