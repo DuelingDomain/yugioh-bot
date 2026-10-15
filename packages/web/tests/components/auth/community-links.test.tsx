@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,6 +15,8 @@ import { SignInFootLinks } from "@/components/auth/sign-in-step";
 import {
   DISCORD_INVITE_URL,
   TRAILER_EMBED_URL,
+  TRAILER_SANDBOX,
+  TRAILER_TITLE,
   TRAILER_POSTER_SRC,
   TRAILER_WATCH_URL,
   TRAILER_YOUTUBE_ID,
@@ -27,40 +31,46 @@ const shell = () => (
   <SignInShell marketingUrl="https://duelingdomain.com">
     <section>
       <h1>Sign in</h1>
-      <div data-testid="oauth"><DiscordButton onClick={() => {}} pending={false} fineId="fine" /></div>
+      <DiscordButton onClick={() => {}} pending={false} fineId="fine" />
       <SignInFootLinks marketingUrl="https://duelingdomain.com" />
     </section>
   </SignInShell>
 );
 
 describe("sign-in community links", () => {
-  it("keeps the ids in one place", () => {
+  it("keeps the ids in one place and in step with the marketing site", () => {
     expect(DISCORD_INVITE_URL).toBe("https://discord.gg/sUSmbRbBUm");
-    expect(TRAILER_YOUTUBE_ID).toBe("9CahDbFr0jA");
-    expect(TRAILER_WATCH_URL).toBe("https://www.youtube.com/watch?v=9CahDbFr0jA");
-    expect(TRAILER_EMBED_URL).toBe("https://www.youtube-nocookie.com/embed/9CahDbFr0jA?autoplay=1&rel=0&playsinline=1");
+    expect(TRAILER_YOUTUBE_ID).toMatch(/^[A-Za-z0-9_-]{11}$/);
+    expect(TRAILER_WATCH_URL).toBe(`https://www.youtube.com/watch?v=${TRAILER_YOUTUBE_ID}`);
+    expect(TRAILER_EMBED_URL).toBe(`https://www.youtube-nocookie.com/embed/${TRAILER_YOUTUBE_ID}?autoplay=1&rel=0&playsinline=1`);
+    const site = readFileSync(resolve(__dirname, "../../../../../site/public/index.html"), "utf8");
+    expect(site.match(/data-youtube-id="([^"]*)"/)?.[1]).toBe(TRAILER_YOUTUBE_ID);
+    expect(site).toContain(`https://www.youtube.com/watch?v=${TRAILER_YOUTUBE_ID}`);
+    const invites = new Set(site.match(/https:\/\/discord\.gg\/[A-Za-z0-9]+/g));
+    expect([...invites]).toEqual([DISCORD_INVITE_URL]);
   });
 
   it("offers a Discord invite that opens in a new tab and says so", () => {
     render(shell());
-    const link = screen.getByRole("link", { name: /Join our Discord/ });
+    const link = screen.getByRole("link", { name: /Join the Dueling Domain Discord server/ });
     expect(link).toHaveAttribute("href", DISCORD_INVITE_URL);
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    expect(link).toHaveTextContent("Join our Discord (opens in a new tab)");
+    expect(link).toHaveTextContent("Join the Dueling Domain Discord server (opens in a new tab)");
     expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("keeps the community link out of the OAuth group so it does not read as a sign-in route", () => {
-    render(shell());
-    const oauth = screen.getByTestId("oauth");
-    const community = screen.getByRole("link", { name: /Join our Discord/ });
-    expect(within(oauth).getByRole("button", { name: "Continue with Discord" })).toBeInTheDocument();
-    expect(oauth).not.toContainElement(community);
-    expect(community.closest("button")).toBeNull();
+  it("puts the community link after the form and outside any OAuth control", () => {
+    const { container } = render(shell());
+    const oauth = screen.getByRole("button", { name: "Continue with Discord" });
+    const community = screen.getByRole("link", { name: /Join the Dueling Domain Discord server/ });
+    expect(oauth.compareDocumentPosition(community) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Sign in" }).compareDocumentPosition(community) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(community.closest("button, form, [data-clerk], [data-slot=\"form\"]")).toBeNull();
+    expect(community.closest("section")).toBeNull();
     expect(community).not.toHaveAttribute("data-clerk");
-    // One "Join our Discord" link only, and it is a link, not a second OAuth button.
-    expect(screen.getAllByRole("link", { name: /Join our Discord/ })).toHaveLength(1);
+    expect(container.querySelectorAll("[data-clerk]")).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: /Join the Dueling Domain Discord server/ })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: /Discord/ })).toHaveLength(1);
   });
 
@@ -87,7 +97,10 @@ describe("sign-in community links", () => {
     const frame = container.querySelector("iframe");
     expect(frame).not.toBeNull();
     expect(frame).toHaveAttribute("src", "https://www.youtube-nocookie.com/embed/9CahDbFr0jA?autoplay=1&rel=0&playsinline=1");
-    expect(frame).toHaveAttribute("title", "Launch trailer");
+    expect(frame).toHaveAttribute("title", "Dueling Domain launch trailer (YouTube)");
+    expect(TRAILER_TITLE).toBe("Dueling Domain launch trailer (YouTube)");
+    expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox");
+    expect(TRAILER_SANDBOX).not.toContain("allow-top-navigation");
     expect(frame).toHaveAttribute("allow", "autoplay; encrypted-media; picture-in-picture; fullscreen");
     expect(frame).toHaveAttribute("allowfullscreen");
     expect(frame).toHaveAttribute("referrerpolicy", "strict-origin-when-cross-origin");

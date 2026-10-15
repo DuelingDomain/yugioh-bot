@@ -260,6 +260,9 @@
 .trailer-disc { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 35% 30%, rgba(40, 46, 82, .95), rgba(10, 14, 26, .95)); border: 2px solid var(--gold); box-shadow: 0 0 26px rgba(245, 158, 11, .35), inset 0 0 14px rgba(245, 158, 11, .14); transition: transform .2s var(--ease), box-shadow .3s var(--ease); }
 .trailer-play:hover .trailer-disc { transform: scale(1.08); box-shadow: 0 0 38px rgba(245, 158, 11, .55), inset 0 0 14px rgba(245, 158, 11, .2); }
 .trailer-play:active .trailer-disc { transform: scale(.96); }
+/* The button fills the clipped window, so the ring is drawn inside it and the disc glows. */
+.trailer-play:focus-visible { outline-offset: -4px; }
+.trailer-play:focus-visible .trailer-disc { transform: scale(1.08); box-shadow: 0 0 38px rgba(245, 158, 11, .55), inset 0 0 14px rgba(245, 158, 11, .2); }
 .trailer-play svg { width: 22px; height: 22px; margin-left: 3px; color: var(--gold-hi); }
 .trailer-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
 

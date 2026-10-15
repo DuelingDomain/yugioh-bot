@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { TRAILER_EMBED_URL, TRAILER_POSTER_SRC } from "./community-links";
+import { TRAILER_EMBED_URL, TRAILER_POSTER_SRC, TRAILER_SANDBOX, TRAILER_TITLE } from "./community-links";
 import styles from "./sign-in-shell.module.css";
 
 /** Click-to-load launch trailer. The poster is a local file; nothing is requested from YouTube until the play button is used. */
@@ -22,7 +22,8 @@ export function TrailerFacade() {
             ref={frameRef}
             className={styles["trailer-frame"]}
             src={TRAILER_EMBED_URL}
-            title="Launch trailer"
+            title={TRAILER_TITLE}
+            sandbox={TRAILER_SANDBOX}
             allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
             allowFullScreen
             referrerPolicy="strict-origin-when-cross-origin"

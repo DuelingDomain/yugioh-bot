@@ -14,7 +14,7 @@ export function SignInCommunity() {
         <span>Chat with other duelists?</span>{" "}
         <a className={styles["community-link"]} href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
           <DiscordGlyph />
-          <span>Join our Discord</span>
+          <span>Join the Dueling Domain Discord server</span>
           <span className={styles.sr}> (opens in a new tab)</span>
         </a>
       </p>

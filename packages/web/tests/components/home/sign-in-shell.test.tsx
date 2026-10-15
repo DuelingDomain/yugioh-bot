@@ -9,6 +9,7 @@ vi.mock("next/font/local", () => ({
 
 import { SignInShell } from "@/components/auth/sign-in-shell";
 import { PackTilt } from "@/components/auth/pack-tilt";
+import { TRAILER_POSTER_SRC } from "@/components/auth/community-links";
 import styles from "@/components/auth/sign-in-shell.module.css";
 
 let matches = false;
@@ -38,8 +39,13 @@ describe("SignInShell", () => {
     expect(renderToString(shell)).toBe(first);
     const doc = new DOMParser().parseFromString(first, "text/html");
     expect(doc.querySelectorAll(`.${styles.dust} i`)).toHaveLength(14);
-    // The trailer poster is a real image with its own alt text; only the decorative card backs are hidden.
-    const images = Array.from(doc.querySelectorAll("img")).filter((image) => !image.closest("section[aria-labelledby]"));
+    // The trailer poster is a real image with its own alt text and is not hidden; only the card backs are decoration.
+    const all = Array.from(doc.querySelectorAll("img"));
+    const poster = all.filter((image) => image.getAttribute("src") === TRAILER_POSTER_SRC);
+    expect(poster).toHaveLength(1);
+    expect(poster[0]!.getAttribute("alt")).toMatch(/Poster for the launch trailer/);
+    expect(poster[0]!.closest('[aria-hidden="true"]')).toBeNull();
+    const images = all.filter((image) => image.getAttribute("src") !== TRAILER_POSTER_SRC);
     expect(images).toHaveLength(3);
     for (const image of images) {
       expect(image.getAttribute("src")).toMatch(/^\/sign-in\/card-back-(main|extra)-hd\.webp$/);
