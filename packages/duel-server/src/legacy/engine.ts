@@ -64,8 +64,7 @@ import {
   type StoredDuelEvent,
 } from "./views.js";
 import { createDomainCore } from "../domain-core.js";
-import { fillPlaceholders } from "../text.js";
-import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines } from "../log-lines.js";
+import { destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleLogCardCodes } from "../log-lines.js"; // LEGACY-1V1: per-viewer hint identity redaction
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -387,8 +386,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let synchroSummon: MapPromptExtras["synchroSummon"];
   let sawRetry = false;
 
-  const appendLog = (text: string, audience: "all" | number = "all"): LogEntry => {
-    const entry = { id: nextLogId++, text, audience };
+  const deckMasters = options.mode === "domain" ? options.decks.flatMap((deck) => deck.deckMaster ? [deck.deckMaster] : []) : []; // LEGACY-1V1: public Deck Master identities
+  const appendLog = (text: string, audience: "all" | number = "all", privateText?: Record<number, string>): LogEntry => { // LEGACY-1V1: viewer-specific hint text
+    const entry = { id: nextLogId++, text, audience, ...(privateText ? { privateText } : {}) }; // LEGACY-1V1: freeze eligible names at message time
     log.push(entry);
     if (log.length > 400) log.splice(0, log.length - 400);
     return entry;
@@ -427,6 +427,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     const link = event.chainIndex != null ? chainMemory.find((entry) => entry.index === event.chainIndex) : undefined;
     if (!link || !event.targetAnnouncement) return;
     const snapshot = snapshotLinkTargets(link);
+    // CHAINING publicly announces its source, even when the effect activates from a hidden zone.
     const source = cards.get(link.code)?.name ?? `Card ${link.code}`;
     const lines: Array<{ entry: LogEntry; text: (phrase: string) => string }> = [];
     const add = (text: (phrase: string) => string, audience: "all" | number) => {
@@ -516,9 +517,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
           // Placeholders are filled when the prompt is built, against the card the prompt names.
           lastSelectHint = cards.resolveLabel(message.hint) || cards.system(Number(message.hint));
         } else if (message.hint_type === OcgHintType.EVENT || message.hint_type === OcgHintType.MESSAGE) {
-          // LEGACY-1V1: HINT_CARD has no source zone to establish visibility for a public log.
-          const text = fillPlaceholders(cards.resolveLabel(message.hint) || cards.system(Number(message.hint)) || "", ["a card"]); // LEGACY-1V1
-          if (text) appendLog(text);
+          const line = hintLogLine(message.hint, lastHintCard, cards, visibleLogCardCodes({ lib, handle, format: "1v1", reveals, events, deckMasters })); // LEGACY-1V1: redact literal names as well as placeholders
+          if (line) appendLog(line.text, line.audience, line.privateText); // LEGACY-1V1: preserve public card names
         } else if (message.hint_type === OcgHintType.CARD) {
           lastHintCard = Number(message.hint) || undefined;
         }
@@ -619,7 +619,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         return;
       case OcgMessageType.MOVE:
         moveReveals(reveals, message.from, message.to, message.card);
-        for (const line of moveLogLines(message, cards)) {
+        for (const line of moveLogLines(message, cards, undefined, deckMasters)) { // LEGACY-1V1: distinguish Deck Masters from unplaced cards
           const entry = appendLog(line.text, line.audience);
           // Parsed overlay locations name the host's field zone, but the material itself was not on the field.
           if (line.leftField && message.from.overlay_sequence == null) {

@@ -69,10 +69,9 @@ import { readCoreCapabilities } from "./core-capabilities.js";
 import { chooseSurrenderedAnswer } from "./practice-bot.js";
 import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, MSG_SURRENDER_WINDOW_CLOSED, parseDuelistMessages, rawMessageCapture, withoutDuelistParseWarnings, type RawDuelistMessage } from "./raw-messages.js";
 import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
-import { fillPlaceholders } from "./text.js";
 import { firstTurnDrawFor } from "./first-turn-draw.js";
 import { attackTargetQueryScript, mergeAttackTargetPick, readAttackTargetQuery, type AttackTargetQuery } from "./attack-target-pick.js";
-import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines } from "./log-lines.js";
+import { destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleLogCardCodes } from "./log-lines.js";
 
 /** A wasm the engine loaded: the bytes, the file name and the sha256 of the bytes (core identity for reports). */
 export interface LoadedWasm {
@@ -614,8 +613,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let synchroSummon: MapPromptExtras["synchroSummon"];
   let sawRetry = false;
 
-  const appendLog = (text: string, audience: "all" | number = "all"): LogEntry => {
-    const entry = { id: nextLogId++, text, audience };
+  const deckMasters = options.mode === "domain" ? options.decks.flatMap((deck) => deck.deckMaster ? [deck.deckMaster] : []) : [];
+  const appendLog = (text: string, audience: "all" | number = "all", privateText?: Record<number, string>): LogEntry => {
+    const entry = { id: nextLogId++, text, audience, ...(privateText ? { privateText } : {}) };
     log.push(entry);
     if (log.length > 400) log.splice(0, log.length - 400);
     return entry;
@@ -654,6 +654,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     const link = event.chainIndex != null ? chainMemory.find((entry) => entry.index === event.chainIndex) : undefined;
     if (!link || !event.targetAnnouncement) return;
     const snapshot = snapshotLinkTargets(link);
+    // CHAINING publicly announces its source, even when the effect activates from a hidden zone.
     const source = cards.get(link.code)?.name ?? `Card ${link.code}`;
     const lines: Array<{ entry: LogEntry; text: (phrase: string) => string }> = [];
     const add = (text: (phrase: string) => string, audience: "all" | number) => {
@@ -750,14 +751,13 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           // Placeholders are filled when the prompt is built, against the card the prompt names.
           lastSelectHint = cards.resolveLabel(message.hint) || cards.system(Number(message.hint));
         } else if (message.hint_type === OcgHintType.EVENT || message.hint_type === OcgHintType.MESSAGE) {
-          // HINT_CARD has no source zone to establish visibility for a public log.
-          const text = fillPlaceholders(cards.resolveLabel(message.hint) || cards.system(Number(message.hint)) || "", ["a card"]);
+          const line = hintLogLine(message.hint, lastHintCard, cards, visibleLogCardCodes({ lib, handle, format, reveals, events, deckMasters }));
           const duplicateRecipient = logHintRecipientsLeft > 0 && loggedHintCall;
           if (logHintRecipientsLeft > 0) {
             logHintRecipientsLeft -= 1;
             loggedHintCall = true;
           }
-          if (text && !duplicateRecipient) appendLog(text);
+          if (line && !duplicateRecipient) appendLog(line.text, line.audience, line.privateText);
         } else if (message.hint_type === OcgHintType.CARD) {
           lastHintCard = Number(message.hint) || undefined;
         }
@@ -776,6 +776,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       case OcgMessageType.CHAINING:
         startedChainLinks.delete(message.chain_size);
         liveChainSize = message.chain_size;
+        // The core publicly announces the activation's code; this is an explicit reveal.
         appendLog(`${playerLabel(format, activator ?? message.controller)}'s ${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
         return;
       case OcgMessageType.SPSUMMONED:
@@ -898,7 +899,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         return;
       case OcgMessageType.MOVE:
         moveReveals(reveals, message.from, message.to, message.card);
-        for (const line of moveLogLines(message, cards, format)) {
+        for (const line of moveLogLines(message, cards, format, deckMasters)) {
           const entry = appendLog(line.text, line.audience);
           // Parsed overlay locations name the host's field zone, but the material itself was not on the field.
           if (line.leftField && message.from.overlay_sequence == null) {

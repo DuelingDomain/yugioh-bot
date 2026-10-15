@@ -26,8 +26,8 @@ export const ENGINE_HOST_RULE_FILES = [
  * Comments and other behavior-neutral edits may refresh that baseline with a stated reason.
  * Live play recovery deliberately does not gate on this version.
  */
-// Version 5 adds fixed FFA facing pairs and the configurable Domain FFA first-turn draw rule.
-export const ENGINE_HOST_RULE_VERSION = "duel-rules-5";
+// Version 6 redacts viewer log identities, including literal hints, and requires proven public move sources.
+export const ENGINE_HOST_RULE_VERSION = "duel-rules-6";
 
 export class EngineResourceUnavailableError extends Error {
   readonly code = "ENGINE_UNAVAILABLE_FOR_SOURCE";

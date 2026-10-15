@@ -37,6 +37,8 @@ export interface LogEntry {
   id: number;
   text: string;
   audience: "all" | number;
+  /** Safe public text with identity-bearing alternatives frozen for eligible seats. */
+  privateText?: Record<number, string>;
   eventId?: number;
 }
 
@@ -710,7 +712,7 @@ function clearSummonMaterials(ctx: EventContext): void {
 function destroyEvent(id: number, code: number, from: PendingMove["from"], cards: CardDatabase, detail?: DestroyDetail | true, format?: DuelFormat): StoredDuelEvent {
   const info = code ? cards.get(code) : undefined;
   const name = info?.name ?? (code ? `Card ${code}` : "A card");
-  const hidden = isFacedownPosition(from.position);
+  const hidden = !cardIsVisible({ viewer: null, controller: from.controller, location: from.location, position: from.position || OcgPosition.FACEDOWN_DEFENSE });
   const text = `${name} was destroyed`;
   const event: StoredDuelEvent = {
     id,
@@ -1057,7 +1059,7 @@ function moveEndVisible(viewer: number, place: { controller: number; location: n
     viewer,
     controller: place.controller,
     location: place.location,
-    position: place.position ?? OcgPosition.FACEUP,
+    position: place.position || OcgPosition.FACEDOWN_DEFENSE,
     partner,
   });
 }
@@ -1078,7 +1080,7 @@ function moveAudience(
   // Both seats know the card. A spectator knows it only if it is public at one end. A face-down
   // card that changes control is known to both players and to nobody else.
   const spectatorSees = [from, to].some((end) =>
-    cardIsVisible({ viewer: null, controller: end.controller, location: end.location, position: end.position ?? OcgPosition.FACEUP }),
+    cardIsVisible({ viewer: null, controller: end.controller, location: end.location, position: end.position || OcgPosition.FACEDOWN_DEFENSE }),
   );
   return spectatorSees ? "all" : seats;
 }
@@ -1277,7 +1279,7 @@ export function observeDuelEvent(
       const format = ctx?.format;
       const who = playerLabel(format, message.controller);
       const text = `${who} ${verb} ${info?.name ?? `Card ${message.code}`}`;
-      const hidden = (message.position & OcgPosition.FACEDOWN) !== 0;
+      const hidden = (message.position & OcgPosition.FACEUP) === 0 || isFacedownPosition(message.position);
       let summonKind: DuelSummonKind =
         message.type === OcgMessageType.SUMMONING ? "normal" : message.type === OcgMessageType.SPSUMMONING ? "special" : "flip";
       if (summonKind === "normal") {
@@ -1308,8 +1310,8 @@ export function observeDuelEvent(
       const info = cards.get(message.code);
       const from = message.prev_position as number;
       const to = message.position as number;
-      const wasUp = !isFacedownPosition(from);
-      const isUp = !isFacedownPosition(to);
+      const wasUp = (from & OcgPosition.FACEUP) !== 0 && !isFacedownPosition(from);
+      const isUp = (to & OcgPosition.FACEUP) !== 0 && !isFacedownPosition(to);
       const name = info?.name ?? `Card ${message.code}`;
       const flip = !wasUp && isUp;
       const text = flip
@@ -1773,7 +1775,7 @@ export function projectView(args: {
     }),
     log: args.log
       .filter((entry) => entry.audience === "all" || entry.audience === args.viewer)
-      .map(({ id, text, eventId }) => ({ id, text, ...(eventId != null ? { eventId } : {}) })),
+      .map(({ id, text, privateText, eventId }) => ({ id, text: args.viewer == null ? text : privateText?.[args.viewer] ?? text, ...(eventId != null ? { eventId } : {}) })),
     result: args.result,
   };
   if (multi) view.format = format;

@@ -35,6 +35,7 @@ export interface LogEntry {
   id: number;
   text: string;
   audience: "all" | number;
+  privateText?: Record<number, string>; // LEGACY-1V1: freeze per-viewer hint identity redaction
   eventId?: number;
 }
 
@@ -638,7 +639,7 @@ function clearSummonMaterials(ctx: EventContext): void {
 function destroyEvent(id: number, code: number, from: PendingMove["from"], cards: CardDatabase, detail?: DestroyDetail | true): StoredDuelEvent {
   const info = code ? cards.get(code) : undefined;
   const name = info?.name ?? (code ? `Card ${code}` : "A card");
-  const hidden = isFacedownPosition(from.position);
+  const hidden = !cardIsVisible({ viewer: null, controller: from.controller, location: from.location, position: from.position || OcgPosition.FACEDOWN_DEFENSE }); // LEGACY-1V1: destruction alone does not reveal a hidden source
   const text = `${name} was destroyed`;
   const event: StoredDuelEvent = {
     id,
@@ -972,7 +973,7 @@ function moveEndVisible(viewer: number, place: { controller: number; location: n
     viewer,
     controller: place.controller,
     location: place.location,
-    position: place.position ?? OcgPosition.FACEUP,
+    position: place.position || OcgPosition.FACEDOWN_DEFENSE, // LEGACY-1V1: unknown positions are private
   });
 }
 
@@ -982,7 +983,11 @@ function moveEndVisible(viewer: number, place: { controller: number; location: n
  */
 function moveAudience(from: PendingMove["from"], to: { controller: number; location: number; position?: number }): "all" | number | readonly number[] {
   const seats = [0, 1].filter((seat) => moveEndVisible(seat, from) || moveEndVisible(seat, to));
-  return seats.length === 2 ? "all" : seats.length === 1 ? seats[0]! : [];
+  if (seats.length < 2) return seats.length === 1 ? seats[0]! : []; // LEGACY-1V1: retain per-viewer move visibility
+  const spectatorSees = [from, to].some((end) => cardIsVisible({ // LEGACY-1V1: both players knowing a card does not reveal it to spectators
+    viewer: null, controller: end.controller, location: end.location, position: end.position || OcgPosition.FACEDOWN_DEFENSE, // LEGACY-1V1
+  })); // LEGACY-1V1
+  return spectatorSees ? "all" : seats; // LEGACY-1V1
 }
 
 function defaultMoveReason(from: number, to: number): DuelMoveReason {
@@ -1176,7 +1181,7 @@ export function observeDuelEvent(
             : "Flip Summons";
       const info = cards.get(message.code);
       const text = `Player ${message.controller + 1} ${verb} ${info?.name ?? `Card ${message.code}`}`;
-      const hidden = (message.position & OcgPosition.FACEDOWN) !== 0;
+      const hidden = (message.position & OcgPosition.FACEUP) === 0 || isFacedownPosition(message.position); // LEGACY-1V1: unknown positions do not reveal identities
       let summonKind: DuelSummonKind =
         message.type === OcgMessageType.SUMMONING ? "normal" : message.type === OcgMessageType.SPSUMMONING ? "special" : "flip";
       if (summonKind === "normal") {
@@ -1205,8 +1210,8 @@ export function observeDuelEvent(
       const info = cards.get(message.code);
       const from = message.prev_position as number;
       const to = message.position as number;
-      const wasUp = !isFacedownPosition(from);
-      const isUp = !isFacedownPosition(to);
+      const wasUp = (from & OcgPosition.FACEUP) !== 0 && !isFacedownPosition(from); // LEGACY-1V1: require explicit face-up visibility
+      const isUp = (to & OcgPosition.FACEUP) !== 0 && !isFacedownPosition(to); // LEGACY-1V1
       const name = info?.name ?? `Card ${message.code}`;
       const flip = !wasUp && isUp;
       const text = flip
@@ -1596,7 +1601,7 @@ export function projectView(args: {
     }),
     log: args.log
       .filter((entry) => entry.audience === "all" || entry.audience === args.viewer)
-      .map(({ id, text, eventId }) => ({ id, text, ...(eventId != null ? { eventId } : {}) })),
+      .map(({ id, text, privateText, eventId }) => ({ id, text: args.viewer == null ? text : privateText?.[args.viewer] ?? text, ...(eventId != null ? { eventId } : {}) })), // LEGACY-1V1: per-viewer hint redaction
     result: args.result,
   };
 }

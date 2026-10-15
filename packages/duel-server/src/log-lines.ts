@@ -1,10 +1,12 @@
-import type { DuelFormat, DuelSummonKind } from "@yugidraft/shared/duels";
-import { OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
+import { partnerSeatOf, seatCountFor, type DuelFormat, type DuelSummonKind } from "@yugidraft/shared/duels";
+import { OcgLocation, OcgMessageType, OcgPosition, OcgQueryFlags, type OcgCoreSync, type OcgDuelHandle, type OcgMessage, type OcgQueryFlags as OcgQueryFlagsValue } from "ocgcore-wasm";
 import type { CardDatabase } from "./cards.js";
-import { isNoDuelist, playerLabel } from "./views.js";
+import { cardIsVisible, isNoDuelist, playerLabel, slotRevealed, type RevealMap, type StoredDuelEvent } from "./views.js";
+import { fillPlaceholders } from "./text.js";
 
 /**
- * Text log lines for summons and card moves. Pure: engine.ts appends what these return.
+ * Text log lines for hints, summons and card moves. Hint visibility is read once and frozen in the line;
+ * summon and move formatting is pure. engine.ts appends what these return.
  *
  * Privacy: a line goes to everyone ("all") only when it names nothing the table cannot already see. A card's
  * name is public when it lands face-up (a face-up summon, the Graveyard, a face-up banish) or when it leaves a
@@ -14,6 +16,8 @@ import { isNoDuelist, playerLabel } from "./views.js";
 export interface LogLine {
   text: string;
   audience: "all" | number;
+  /** Viewer-specific names, frozen when the line is written. `text` is safe for spectators. */
+  privateText?: Record<number, string>;
   /**
    * A card publicly left the field for the Graveyard, banishment, Deck or Extra Deck, so it may have been
    * destroyed. Xyz materials are excluded even though their parsed location is the host's field zone.
@@ -22,6 +26,77 @@ export interface LogLine {
    * is built).
    */
   leftField?: true;
+}
+
+/** Identities visible now or explicitly announced to this viewer in the event history. */
+export function visibleLogCardCodes(args: {
+  lib: OcgCoreSync;
+  handle: OcgDuelHandle;
+  format: DuelFormat;
+  reveals: RevealMap;
+  events: readonly StoredDuelEvent[];
+  deckMasters: readonly number[];
+}): Map<number | null, Set<number>> {
+  const viewers = [...Array.from({ length: seatCountFor(args.format) }, (_, seat) => seat), null];
+  const known = new Map(viewers.map((viewer) => [viewer, new Set(args.deckMasters)]));
+  for (const event of args.events) {
+    if (!event.card) continue;
+    const audience = event.revealCardTo;
+    for (const [viewer, codes] of known) {
+      if (audience === "all" || (viewer != null && (typeof audience === "number" ? audience === viewer : audience.includes(viewer)))) codes.add(event.card.code);
+    }
+  }
+  for (let controller = 0; controller < seatCountFor(args.format); controller++) {
+    for (const location of [OcgLocation.DECK, OcgLocation.HAND, OcgLocation.MZONE, OcgLocation.SZONE, OcgLocation.GRAVE, OcgLocation.REMOVED, OcgLocation.EXTRA]) {
+      const queries = args.lib.duelQueryLocation(args.handle, {
+        controller: controller as 0 | 1, location,
+        flags: (OcgQueryFlags.CODE | OcgQueryFlags.POSITION | OcgQueryFlags.IS_PUBLIC | OcgQueryFlags.IS_HIDDEN) as OcgQueryFlagsValue,
+      });
+      queries.forEach((query, sequence) => {
+        if (!query?.code) return;
+        for (const [viewer, codes] of known) {
+          if (cardIsVisible({
+            viewer, controller, location, position: query.position || OcgPosition.FACEDOWN_DEFENSE,
+            isPublic: query.isPublic, isHidden: query.isHidden,
+            revealed: slotRevealed(args.reveals, viewer, controller, location, sequence, query.code),
+            partner: viewer != null && partnerSeatOf(args.format, viewer) === controller,
+          })) codes.add(query.code);
+        }
+      });
+    }
+  }
+  return known;
+}
+
+/** Hints may resolve to a literal card name, a card-string fallback, or a template with HINT_CARD. */
+export function hintLogLine(
+  hint: bigint,
+  hintCard: number | undefined,
+  cards: CardDatabase,
+  known: ReadonlyMap<number | null, ReadonlySet<number>>,
+): LogLine | undefined {
+  const template = cards.resolveLabel(hint) || cards.system(Number(hint)) || "";
+  if (!template) return undefined;
+  const direct = hint > 0n && hint <= 0xffffffffn ? Number(hint) : undefined;
+  const source = direct != null && cards.get(direct) ? direct : Number(hint >> 20n);
+  const render = (codes: ReadonlySet<number> | undefined) => {
+    let text = template;
+    for (const code of new Set([source, hintCard])) {
+      if (!code || codes?.has(code)) continue;
+      const name = cards.get(code)?.name;
+      if (name) text = text.replaceAll(name, "a card");
+    }
+    const name = hintCard && codes?.has(hintCard) ? cards.get(hintCard)?.name : undefined;
+    return fillPlaceholders(text, [name ?? "a card"]);
+  };
+  const text = render(known.get(null));
+  const privateText: Record<number, string> = {};
+  for (const [viewer, codes] of known) {
+    if (viewer == null) continue;
+    const named = render(codes);
+    if (named !== text) privateText[viewer] = named;
+  }
+  return { text, audience: "all", ...(Object.keys(privateText).length ? { privateText } : {}) };
 }
 
 type SummonMessage = Extract<OcgMessage, { type: OcgMessageType.SUMMONING | OcgMessageType.SPSUMMONING | OcgMessageType.FLIPSUMMONING }>;
@@ -44,6 +119,10 @@ function isFaceDown(position: number): boolean {
   return (position & OcgPosition.FACEDOWN) !== 0;
 }
 
+function isFaceUp(position: number): boolean {
+  return (position & OcgPosition.FACEUP) !== 0 && !isFaceDown(position);
+}
+
 function nameOf(cards: CardDatabase, code: number): string {
   return cards.get(code)?.name ?? `Card ${code}`;
 }
@@ -58,8 +137,9 @@ export function summonLogLines(message: SummonMessage, cards: CardDatabase, summ
   const plain = message.type === OcgMessageType.SUMMONING ? "Normal Summons"
     : message.type === OcgMessageType.SPSUMMONING ? "Special Summons" : "Flip Summons";
   const name = nameOf(cards, message.code);
-  if (isFaceDown(message.position)) {
-    const lines: LogLine[] = [{ text: `${player} ${plain} a face-down monster`, audience: "all" }];
+  if (!isFaceUp(message.position)) {
+    const monster = isFaceDown(message.position) ? "a face-down monster" : "a monster";
+    const lines: LogLine[] = [{ text: `${player} ${plain} ${monster}`, audience: "all" }];
     // Nobody owns a monster of "no duelist"; no seat may see its name.
     if (!isNoDuelist(format, message.controller)) lines.push({ text: `${player} ${plain} ${name}`, audience: message.controller });
     return lines;
@@ -73,13 +153,14 @@ const FIELD = new Set<number>([OcgLocation.MZONE, OcgLocation.SZONE]);
 const FACE_UP_PUBLIC = new Set<number>([OcgLocation.MZONE, OcgLocation.SZONE, OcgLocation.REMOVED, OcgLocation.EXTRA]);
 
 /** Domain's Deck Master Zone: the core reports it as location 0 (views.ts LOCATION_DECKMASTER is 0x4000). */
-function fromDeckMaster(location: number): boolean {
-  return location === 0 || location === 0x4000;
+function fromDeckMaster(location: number, code: number, deckMasters: readonly number[]): boolean {
+  // Location 0 also describes an unplaced card. Only a configured Deck Master makes it public.
+  return location === 0x4000 || (location === 0 && deckMasters.includes(code));
 }
 
-function leavesPublicly(from: MoveMessage["from"]): boolean {
-  if (from.location === OcgLocation.GRAVE || fromDeckMaster(from.location)) return true;
-  return FACE_UP_PUBLIC.has(from.location) && !isFaceDown(from.position);
+function leavesPublicly(from: MoveMessage["from"], code: number, deckMasters: readonly number[]): boolean {
+  if (from.location === OcgLocation.GRAVE || fromDeckMaster(from.location, code, deckMasters)) return true;
+  return FACE_UP_PUBLIC.has(from.location) && isFaceUp(from.position);
 }
 
 /** The text a leftField line becomes when the card turns out to have been destroyed. Public, like the line. */
@@ -112,7 +193,7 @@ export function destroyedAndBanishedLogText(cards: CardDatabase, code: number, c
  * to a different owner's pile.
  * Passing the format opts into controller labels. Omitting it preserves the legacy engine's pinned wording.
  */
-export function moveLogLines(message: MoveMessage, cards: CardDatabase, format?: DuelFormat): LogLine[] {
+export function moveLogLines(message: MoveMessage, cards: CardDatabase, format?: DuelFormat, deckMasters: readonly number[] = []): LogLine[] {
   const { from, to } = message;
   if (!to.location) return [];
   if (from.controller === to.controller && from.location === to.location) return [];
@@ -126,7 +207,7 @@ export function moveLogLines(message: MoveMessage, cards: CardDatabase, format?:
       return [line];
     }
     case OcgLocation.REMOVED: {
-      if (isFaceDown(to.position)) return [];
+      if (!isFaceUp(to.position)) return [];
       const line: LogLine = { text: `${player}${name()} was banished`, audience: "all" };
       if (fromField) line.leftField = true;
       return [line];
@@ -136,7 +217,7 @@ export function moveLogLines(message: MoveMessage, cards: CardDatabase, format?:
       const owner = to.controller;
       const who = playerLabel(format, owner);
       const hand = `${who}'s hand`;
-      if (leavesPublicly(from)) {
+      if (leavesPublicly(from, message.card, deckMasters)) {
         return [{ text: fromField ? `${name()} returned to ${hand}` : `${name()} was added to ${hand}`, audience: "all" }];
       }
       if (!message.card) return [{ text: fromField ? `A face-down card returned to ${hand}` : `${who} added a card to their hand`, audience: "all" }];
@@ -152,7 +233,7 @@ export function moveLogLines(message: MoveMessage, cards: CardDatabase, format?:
     }
     case OcgLocation.DECK:
     case OcgLocation.EXTRA: {
-      if (!leavesPublicly(from)) return [];
+      if (!leavesPublicly(from, message.card, deckMasters)) return [];
       const line: LogLine = { text: `${name()} returned to the ${to.location === OcgLocation.DECK ? "Deck" : "Extra Deck"}`, audience: "all" };
       if (fromField) line.leftField = true;
       return [line];

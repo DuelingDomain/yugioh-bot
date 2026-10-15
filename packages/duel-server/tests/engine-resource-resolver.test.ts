@@ -105,6 +105,7 @@ describe("current engine identity", () => {
       hash.update(`shared/${name}\0`).update(fingerprintSource(readFileSync(new URL(`../../shared/src/duels/${name}.ts`, import.meta.url), "utf8")));
     }
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
+    // Version 6 changes viewer-visible log text and hidden-card event audiences, so it requires a rule bump.
     // Version 5 records PR #348's fixed FFA facing pairs, board projection and Domain FFA draw setting.
     // PR #361 refreshed version 5: the Extra Deck type lookup before a duel starts is admission only (no engine/journal change).
     // PR #344 integration refreshes version 5 for async worker admission, deadlines and structural answer checks.

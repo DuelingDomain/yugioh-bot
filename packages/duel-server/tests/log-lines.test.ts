@@ -58,6 +58,12 @@ describe("summon log lines", () => {
       expect(lines.map((line) => line.text).join(" ")).not.toMatch(/Synchro|Xyz|Ritual/);
     }
   });
+
+  it("does not publish a summon identity when the position is unknown", () => {
+    const lines = summonLogLines(summon(OcgMessageType.SPSUMMONING, 0 as OcgPosition), cards, "fusion");
+    for (const viewer of [1, null]) expect(seen(lines, viewer)).toEqual(["Player 1 Special Summons a monster"]);
+    expect(seen(lines, 0)).toContain("Player 1 Special Summons Stardust Dragon");
+  });
 });
 
 describe("move log lines", () => {
@@ -137,6 +143,7 @@ describe("move log lines", () => {
   it("says banished for a face-up banish and nothing for a face-down one", () => {
     expect(seen(moveLogLines(move(1, field, at(0, OcgLocation.REMOVED, 0, OcgPosition.FACEUP_ATTACK)), cards, "1v1"), 1)).toEqual(["Player 1's Stardust Dragon was banished"]);
     expect(moveLogLines(move(1, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.REMOVED, 0, OcgPosition.FACEDOWN_ATTACK)), cards, "1v1")).toEqual([]);
+    expect(moveLogLines(move(1, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.REMOVED, 0, 0 as OcgPosition)), cards, "1v1")).toEqual([]);
   });
 
   it("marks only public banished field departures for a possible destruction rewrite", () => {
@@ -182,9 +189,22 @@ describe("move log lines", () => {
 
   it("names a Deck Master leaving the Deck Master Zone, which the core reports as location 0", () => {
     const master = at(0, 0 as OcgLocation, 0);
-    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.GRAVE, 0)), cards, "1v1"), 1)).toEqual(["Player 1's Stardust Dragon was sent to the Graveyard"]);
-    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.REMOVED, 0)), cards, "1v1"), null)).toEqual(["Player 1's Stardust Dragon was banished"]);
-    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.HAND, 0)), cards, "1v1"), 1)).toEqual(["Stardust Dragon was added to Player 1's hand"]);
+    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.GRAVE, 0)), cards, "1v1", [1]), 1)).toEqual(["Player 1's Stardust Dragon was sent to the Graveyard"]);
+    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.REMOVED, 0)), cards, "1v1", [1]), null)).toEqual(["Player 1's Stardust Dragon was banished"]);
+    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.HAND, 0)), cards, "1v1", [1]), 1)).toEqual(["Stardust Dragon was added to Player 1's hand"]);
+  });
+
+  it("does not treat an unplaced card as a public Deck Master just because its source is 0", () => {
+    const unplaced = at(0, 0 as OcgLocation, 0);
+    const lines = moveLogLines(move(4, unplaced, at(0, OcgLocation.HAND, 0)), cards, "1v1", [1]);
+    expect(seen(lines, 0)).toContain("You added Man-Eater Bug to your hand");
+    for (const viewer of [1, null]) expect(seen(lines, viewer)).toEqual(["Player 1 added a card to their hand"]);
+    expect(moveLogLines(move(4, unplaced, at(0, OcgLocation.DECK, 0)), cards, "1v1", [1])).toEqual([]);
+  });
+
+  it.each([OcgLocation.MZONE, OcgLocation.SZONE, OcgLocation.REMOVED, OcgLocation.EXTRA])("requires an explicit face-up position before naming a source in %i", (location) => {
+    const lines = moveLogLines(move(4, at(0, location, 0, 0 as OcgPosition), at(0, OcgLocation.HAND, 0)), cards, "1v1");
+    for (const viewer of [1, null]) expect(seen(lines, viewer).join(" ")).not.toContain("Man-Eater Bug");
   });
 
   it("says nothing for field arrivals and moves within one place", () => {
