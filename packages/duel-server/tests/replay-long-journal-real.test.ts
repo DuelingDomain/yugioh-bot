@@ -61,7 +61,7 @@ describeWithCores("long stored journals", [needs.cards(DATA), needs.scripts(DATA
         metrics[`${label}P99Ms`] = delay.percentile(99) / 1e6;
         metrics[`${label}MaxMs`] = delay.max / 1e6;
         metrics[`${label}PeakRssBytes`] = peakRss; metrics[`${label}RssDeltaBytes`] = peakRss - startRss;
-        expect(result.response.status).toBe(status);
+        expect(result.response.status, `${label}: ${JSON.stringify(result.data).slice(0, 500)}`).toBe(status);
         expect(metrics[`${label}Ms`]).toBeLessThan(28_000);
         return result.data;
       } finally { clearInterval(sample); delay.disable(); }
