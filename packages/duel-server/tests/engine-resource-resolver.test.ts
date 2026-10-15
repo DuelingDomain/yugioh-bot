@@ -107,6 +107,9 @@ describe("current engine identity", () => {
     const baselines = JSON.parse(readFileSync(new URL("./support/host-rule-fingerprints.json", import.meta.url), "utf8"));
     // Version 6 changes viewer-visible log text and hidden-card event audiences, so it requires a rule bump.
     // PR #372 refreshes unreleased version 6 for frozen target visibility and per-viewer target text/labels.
+    // Its performance follow-up caches raw target queries per process and shares sparse target descriptions;
+    // replay history cursors skip projecting/transferring old history before the existing frame delta filter.
+    // Frozen announcement audiences, projected text/labels and full final verification views are unchanged.
     // Version 5 records PR #348's fixed FFA facing pairs, board projection and Domain FFA draw setting.
     // PR #361 refreshed version 5: the Extra Deck type lookup before a duel starts is admission only (no engine/journal change).
     // PR #344 integration refreshes version 5 for async worker admission, deadlines and structural answer checks.

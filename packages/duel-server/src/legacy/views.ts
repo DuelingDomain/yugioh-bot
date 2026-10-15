@@ -18,7 +18,7 @@ import {
 import { raceLabel, type CardDatabase } from "../cards.js";
 import { fillPlaceholders, locationLabel } from "../text.js";
 import { HandIdentities } from "../hand-identities.js";
-import { chainTargetPhrase, parseTargetCardNote, publicTargetLabel, targetLabelFor, TARGET_CARD_NOTE_LUA, TARGET_CARD_NOTE_PREFIX, type TargetCardNote, type TargetLabel, type TargetVisibility } from "../target-names.js"; // LEGACY-1V1: shared target naming
+import { chainTargetPhrase, describeTargets, parseTargetCardNote, publicTargetLabel, targetLabelFor, TARGET_CARD_NOTE_LUA, TARGET_CARD_NOTE_PREFIX, type TargetCardNote, type TargetDescription, type TargetLabel, type TargetVisibility } from "../target-names.js"; // LEGACY-1V1: shared target naming
 
 export const LOCATION_DECKMASTER = 0x4000;
 export const DOMAIN_LEAVE_TAX_STEP = 500;
@@ -824,9 +824,8 @@ export function nameLinkTargets(ctx: EventContext, link: StoredChainLink, cards:
     // Require the same code in the visibility snapshot taken for this announcement's original slot.
     target.label = publicTargetLabel({ location: note.location, position: note.position,
       name: target.visibleCodes?.get(null) === note.code ? name : undefined });
-    target.privateLabels = {};
     for (const [viewer, code] of target.visibleCodes ?? []) {
-      if (viewer != null && code === note.code && name) target.privateLabels[viewer] = name;
+      if (viewer != null && code === note.code && name && name !== target.label) (target.privateLabels ??= {})[viewer] = name;
     }
   }
   return complete;
@@ -847,12 +846,21 @@ export function targetEventText(link: StoredChainLink, viewer: number | null = n
 }
 
 /** Apply the same frozen audience to event text and structured target labels. */
-export function updateTargetEvent(event: StoredDuelEvent, link: StoredChainLink): void {
-  event.text = event.publicText = targetEventText(link);
-  event.targetLabels = targetEventLabels(link);
-  const viewers = new Set(Object.values(link.targetLabels ?? {}).flatMap((target) => Object.keys(target.privateLabels ?? {}).map(Number)));
-  event.privateText = Object.fromEntries([...viewers].map((viewer) => [viewer, targetEventText(link, viewer)]));
-  event.privateTargetLabels = Object.fromEntries([...viewers].map((viewer) => [viewer, targetEventLabels(link, viewer)]));
+export function updateTargetEvent(event: StoredDuelEvent, link: StoredChainLink): TargetDescription {
+  const description = describeTargets(link.targets.map((zone) => link.targetLabels?.[zoneKeyOf(zone)]));
+  const text = (phrase: string) => `Chain Link ${link.index} targets ${phrase}`;
+  event.text = event.publicText = text(description.phrase);
+  event.targetLabels = description.labels;
+  if (event.privateText) delete event.privateText;
+  if (event.privateTargetLabels) delete event.privateTargetLabels;
+  if (!description.private) return description;
+  for (const [viewer, named] of Object.entries(description.private)) {
+    if (named.phrase !== description.phrase) (event.privateText ??= {})[Number(viewer)] = text(named.phrase);
+    if (named.labels.some((label, index) => label !== description.labels[index])) {
+      (event.privateTargetLabels ??= {})[Number(viewer)] = named.labels;
+    }
+  }
+  return description;
 }
 
 function targetEvent(link: StoredChainLink, id: number, announcement = false): StoredDuelEvent {

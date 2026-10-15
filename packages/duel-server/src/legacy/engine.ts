@@ -42,7 +42,6 @@ import {
   drainDeferredDestroys,
   moveReveals,
   nextBattleStep,
-  linkTargetPhrase,
   nameLinkTargets,
   noteChainTargetLog,
   noteDestroyLog,
@@ -63,7 +62,9 @@ import {
   type StoredDuelEvent,
 } from "./views.js";
 import { createDomainCore } from "../domain-core.js";
-import { destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleLogCardCodes, visibleTargetCardCodes } from "../log-lines.js"; // LEGACY-1V1: per-viewer hint identity redaction
+import { destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleLogCardCodes, visibleTargetCardCodes, type TargetQueryCache } from "../log-lines.js"; // LEGACY-1V1: per-viewer hint identity redaction
+import type { TargetDescription } from "../target-names.js";
+import type { EngineViewHistory } from "../engine.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -101,7 +102,7 @@ export interface EngineGameOptions {
 
 export interface EngineGame {
   diagnostics(): EngineDiagnostic[]; // LEGACY-1V1: private display error diagnostics
-  view(seat: number | null): DuelEngineView;
+  view(seat: number | null, history?: EngineViewHistory): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
   searchCards(query: string, seat?: number): DuelCardInfo[]; // LEGACY-1V1: seat-scoped card announcement search
   /** LEGACY-1V1: set a seat's chain response mode; true when it passed the open window. See ../engine.ts EngineGame.setChainMode. */
@@ -377,7 +378,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     lib.duelSetResponse(handle, response); // LEGACY-1V1: public chosen chain options
   }; // LEGACY-1V1: public chosen chain options
   const reveals = createRevealMap();
-  eventContext.targetVisibility = (zone) => visibleTargetCardCodes({ lib, handle, format: "1v1", reveals }, zone);
+  const targetQueryCache: TargetQueryCache = new Map();
+  eventContext.targetVisibility = (zone) => visibleTargetCardCodes({ lib, handle, format: "1v1", reveals, queryCache: targetQueryCache }, zone);
   let nextLogId = 1;
   let nextEventId = 1;
   let lastSelectHint: string | undefined;
@@ -423,13 +425,14 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   // target message, so the lines are written now and their text is completed by settleTargetNames.
   type TargetLogLine = { entry: LogEntry; text: (phrase: string) => string };
   const unnamedTargets: Array<{ link: StoredChainLink; event: StoredDuelEvent; lines: TargetLogLine[] }> = [];
-  const updateTargetLines = (lines: TargetLogLine[], link: StoredChainLink) => {
+  const updateTargetLines = (lines: TargetLogLine[], description: TargetDescription) => {
     for (const line of lines) {
-      line.entry.text = line.text(linkTargetPhrase(link));
-      line.entry.privateText = {};
-      for (let viewer = 0; viewer < options.decks.length; viewer++) {
-        const text = line.text(linkTargetPhrase(link, viewer));
-        if (text !== line.entry.text) line.entry.privateText[viewer] = text;
+      line.entry.text = line.text(description.phrase);
+      if (line.entry.privateText) delete line.entry.privateText;
+      if (!description.private) continue;
+      for (const [viewer, named] of Object.entries(description.private)) {
+        const text = line.text(named.phrase);
+        if (text !== line.entry.text) (line.entry.privateText ??= {})[Number(viewer)] = text;
       }
     }
   };
@@ -442,7 +445,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     const source = cards.get(link.code)?.name ?? `Card ${link.code}`;
     const lines: TargetLogLine[] = [];
     const add = (text: (phrase: string) => string, audience: "all" | number) => {
-      lines.push({ entry: appendLog(text(linkTargetPhrase(snapshot)), audience), text });
+      lines.push({ entry: appendLog("", audience), text });
     };
     add((phrase) => `Chain Link ${link.index}: ${source} targets ${phrase}`, "all");
     if (autoPickSeat === link.seat) {
@@ -450,8 +453,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       autoPickSeat = null;
     }
     const complete = nameLinkTargets(eventContext, snapshot, cards);
-    updateTargetEvent(event, snapshot);
-    updateTargetLines(lines, snapshot);
+    updateTargetLines(lines, updateTargetEvent(event, snapshot));
     if (!complete) {
       unnamedTargets.push({ link: snapshot, event, lines });
       // Match the event ring's bound even if a broken reporter never supplies the missing notes.
@@ -462,8 +464,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     for (let index = unnamedTargets.length - 1; index >= 0; index -= 1) {
       const pending = unnamedTargets[index]!;
       if (!nameLinkTargets(eventContext, pending.link, cards)) continue;
-      updateTargetEvent(pending.event, pending.link);
-      updateTargetLines(pending.lines, pending.link);
+      updateTargetLines(pending.lines, updateTargetEvent(pending.event, pending.link));
       unnamedTargets.splice(index, 1);
     }
   };
@@ -666,6 +667,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     while (!result) {
       if (processCalls++ >= CORE_PROCESS_CALL_LIMIT) throw new EngineLoopError();
       scriptErrors.enterProcess();
+      targetQueryCache.clear();
       let status: ReturnType<typeof lib.duelProcess>;
       try { status = lib.duelProcess(handle); }
       finally { scriptErrors.leaveProcess(); } // LEGACY-1V1: only runtime process errors are tolerable
@@ -752,8 +754,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   }
 
   const game: EngineGame = {
-    view(seat) {
+    view(seat, history) {
       if (closed) throw new Error("Engine is closed");
+      const logAfter = history?.logAfter, eventsAfter = history?.eventsAfter;
       if (seat != null && seat !== 0 && seat !== 1) throw new Error("Invalid seat");
       const projected = scriptErrors.query(() => projectView({
         lib,
@@ -768,8 +771,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         lp,
         prompt: pending?.prompt ?? null,
         promptSeat: pending?.seat ?? null,
-        log,
-        events,
+        log: logAfter == null ? log : log.filter((entry) => entry.id > logAfter),
+        events: eventsAfter == null ? events : events.filter((entry) => entry.id > eventsAfter),
         chain: chainMemory,
         result,
         reveals,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
-import { chainTargetPhrase, parseTargetCardNote, publicTargetLabel, TARGET_CARD_NOTE_PREFIX, type TargetVisibility } from "../src/target-names.js";
+import { chainTargetPhrase, describeTargets, parseTargetCardNote, publicTargetLabel, targetLabelFor, TARGET_CARD_NOTE_PREFIX, type TargetLabel, type TargetVisibility } from "../src/target-names.js";
 import { isNegatedOnField as isNegatedMulti } from "../src/views.js";
 import { isNegatedOnField as isNegatedLegacy } from "../src/legacy/views.js";
 import * as mainViews from "../src/views.js";
@@ -43,6 +43,27 @@ describe("target names", () => {
     expect(chainTargetPhrase(["A", undefined], 2)).toBe("A and a card");
   });
 
+  it("preserves every audience's phrase and structured labels when sharing formatted descriptions", () => {
+    const zone = { controller: 0, location: OcgLocation.MZONE, sequence: 0 };
+    const states: Array<TargetLabel | undefined> = [
+      undefined, { zone }, { zone, label: "Public" },
+      { zone, label: "Public", privateLabels: { 0: "Public", 1: "Public", 2: "Public", 3: "Public" } },
+      { zone, label: "a face-down card", privateLabels: { 0: "Private 0", 2: "Private 2" } },
+      { zone, label: "a card", privateLabels: { 1: "Private 1", 3: "Private 3" } },
+    ];
+    for (const first of states) for (const second of states) for (const third of states) {
+      const targets = [first, second, third];
+      const description = describeTargets(targets);
+      for (const viewer of [0, 1, 2, 3, null]) {
+        const labels = targets.map((target) => targetLabelFor(target, viewer));
+        const projected = viewer == null ? description : description.private?.[viewer] ?? description;
+        expect(projected.phrase).toBe(chainTargetPhrase(labels, targets.length));
+        expect(projected.labels).toEqual(labels.map((label) => label ?? "a card"));
+      }
+    }
+    expect(describeTargets([])).toEqual({ phrase: "0 cards", labels: [] });
+  });
+
   it("does not treat mixed face-up and face-down target flags as public", () => {
     expect(publicTargetLabel({
       location: OcgLocation.MZONE,
@@ -80,6 +101,32 @@ function targetTrackingTests<Context>(name: string, views: {
     const grave = (sequence: number) => ({ controller: 0 as const, location: OcgLocation.GRAVE, sequence });
     const field = (sequence: number) => ({ controller: 0 as const, location: OcgLocation.MZONE, sequence });
     const link = (): mainViews.StoredChainLink => ({ index: 1, seat: 0, code: 83764718, zone: field(0), targets: [] });
+
+    it("stores no private overrides when all viewers have the same target text", () => {
+      const ctx = context(), chain = [link()];
+      views.noteTargetCardLog(ctx, `${TARGET_CARD_NOTE_PREFIX}0:4:0:46986414:1`);
+      const [event] = views.observeChainTargetEvents({ type: OcgMessageType.BECOME_TARGET,
+        cards: [{ ...field(0), position: OcgPosition.FACEUP_ATTACK }],
+      }, chain, 1, ctx, cards);
+      views.updateTargetEvent(event!, chain[0]!);
+      expect(chain[0]!.targetLabels!["0:4:0"]).not.toHaveProperty("privateLabels");
+      expect(event).not.toHaveProperty("privateText");
+      expect(event).not.toHaveProperty("privateTargetLabels");
+      for (const viewer of [0, 1, null]) expect(views.projectStoredEvent(event!, viewer)).toMatchObject({
+        text: "Chain Link 1 targets Dark Magician", targetLabels: ["Dark Magician"],
+      });
+    });
+
+    it("stores no empty private maps while a target note is pending", () => {
+      const ctx = context(), chain = [link()];
+      const [event] = views.observeChainTargetEvents({ type: OcgMessageType.BECOME_TARGET,
+        cards: [{ ...field(0), position: OcgPosition.FACEUP_ATTACK }],
+      }, chain, 1, ctx, cards);
+      views.updateTargetEvent(event!, chain[0]!);
+      expect(event).not.toHaveProperty("privateText");
+      expect(event).not.toHaveProperty("privateTargetLabels");
+      expect(views.projectStoredEvent(event!, null)).toMatchObject({ text: "Chain Link 1 targets 1 card", targetLabels: ["a card"] });
+    });
 
     it("keeps each target's name through graveyard compaction, a move and a swap", () => {
       const ctx = context();

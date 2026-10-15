@@ -34,21 +34,32 @@ const TARGET_QUERY_LOCATIONS: ReadonlySet<number> = new Set([
   OcgLocation.GRAVE, OcgLocation.REMOVED, OcgLocation.EXTRA,
 ]);
 
+/** Raw queries only: viewer-scoped confirmations can still change between messages in a process batch. */
+export type TargetQueryCache = Map<string, ReturnType<OcgCoreSync["duelQueryLocation"]>>;
+
 /** Freeze the independently visible code at the target's slot before a delayed Lua note can name it. */
 export function visibleTargetCardCodes(args: {
   lib: OcgCoreSync;
   handle: OcgDuelHandle;
   format: DuelFormat;
   reveals: RevealMap;
+  /** Clear before every core process or other core mutation. */
+  queryCache?: TargetQueryCache;
 }, zone: DuelZoneRef): TargetVisibility {
   const visible = new Map<number | null, number>();
   if (zone.controller < 0 || zone.controller >= seatCountFor(args.format)) return visible;
   // Overlay coordinates and Domain's serialized location 0 are not ordinary queryable card slots.
   if (!TARGET_QUERY_LOCATIONS.has(zone.location)) return visible;
-  const query = args.lib.duelQueryLocation(args.handle, {
-    controller: zone.controller as 0 | 1, location: zone.location as OcgLocation,
-    flags: (OcgQueryFlags.CODE | OcgQueryFlags.POSITION | OcgQueryFlags.IS_PUBLIC | OcgQueryFlags.IS_HIDDEN) as OcgQueryFlagsValue,
-  })[zone.sequence];
+  const key = `${zone.controller}:${zone.location}`;
+  let queries = args.queryCache?.get(key);
+  if (!queries) {
+    queries = args.lib.duelQueryLocation(args.handle, {
+      controller: zone.controller as 0 | 1, location: zone.location as OcgLocation,
+      flags: (OcgQueryFlags.CODE | OcgQueryFlags.POSITION | OcgQueryFlags.IS_PUBLIC | OcgQueryFlags.IS_HIDDEN) as OcgQueryFlagsValue,
+    });
+    args.queryCache?.set(key, queries);
+  }
+  const query = queries[zone.sequence];
   if (!query?.code) return visible;
   const viewers = [...Array.from({ length: seatCountFor(args.format) }, (_, seat) => seat), null];
   for (const viewer of viewers) {

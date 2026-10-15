@@ -7,6 +7,8 @@ import { createReplayCursorCodec, replaySourceVersion } from "../src/replay-curs
 import { multiScriptsFolderHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { ReplayWorker, replaySource } from "./support/replay-fixtures.js";
 import { replayForkTimeoutMs } from "../src/replay-fork.js";
+import type { EngineViewHistory } from "../src/engine.js";
+import type { DuelEngineView } from "@yugidraft/shared/duels";
 
 const codec = createReplayCursorCodec("builder-test-secret");
 const dirs: string[] = [];
@@ -25,6 +27,50 @@ function input(format: "1v1" | "tag" | "ffa3" | "ffa4" = "1v1") {
 }
 
 describe("replay frame builder", () => {
+  it("projects and transfers only new history during a 1,500-command FFA4 rebuild", async () => {
+    const options = input("ffa4");
+    options.source.commands = Array.from({ length: 1500 }, (_, index) => ({ storedSeq: index + 1, seat: 0,
+      command: { revision: index + 1, promptId: `p${index + 1}`, answer: { choice: "next" } },
+    }));
+    options.sourceVersion = replaySourceVersion(options.source);
+    const encodeView = async (view: DuelEngineView) => {
+      const json = JSON.stringify(view); return { json, bytes: Buffer.byteLength(json) };
+    };
+    const legacy = new ReplayWorker(), legacyView = legacy.view.bind(legacy);
+    let legacyTransferredLogs = 0;
+    // Model the existing 400-entry engine rings and a worker that projects the whole ring every time.
+    legacy.view = async (seat) => {
+      const view = await legacyView(seat);
+      view.log = view.log.slice(-400);
+      legacyTransferredLogs += view.log.length;
+      return view;
+    };
+    const expected = await buildReplayData({ ...options, dataSeat: null, createWorker: () => legacy, encodeView });
+    const worker = new ReplayWorker(), originalView = worker.view.bind(worker);
+    const historyRequests: Array<EngineViewHistory | undefined> = [];
+    let transferredLogs = 0;
+    worker.view = async (seat, history?: EngineViewHistory) => {
+      historyRequests.push(history);
+      const view = await originalView(seat);
+      view.log = view.log.slice(-400);
+      if (history?.logAfter != null) view.log = view.log.filter((entry) => entry.id > history.logAfter!);
+      if (history?.eventsAfter != null) view.events = view.events.filter((entry) => entry.id > history.eventsAfter!);
+      transferredLogs += view.log.length;
+      return view;
+    };
+    const data = await buildReplayData({ ...options, dataSeat: null, createWorker: () => worker, encodeView });
+    expect(data).toEqual(expected);
+    expect(data.frames).toHaveLength(1502);
+    expect(data.frames.flatMap((frame) => frame.view.log.map((entry) => entry.id)))
+      .toEqual(Array.from({ length: 1501 }, (_, index) => index + 1));
+    expect(historyRequests.filter((history) => history?.logAfter === Number.MAX_SAFE_INTEGER)).toHaveLength(1500);
+    expect(historyRequests.filter((history) => history === undefined)).toHaveLength(5);
+    // Each log once for checkpoints, plus the five full final rings used for verification.
+    expect(legacyTransferredLogs).toBe(1_042_800);
+    expect(transferredLogs).toBe(1501 + 400 * 5);
+    expect(worker.closed).toBe(1);
+  });
+
   it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("uses stable %s frame IDs, exact prefixes and independent projection deltas", async format => {
     const options = input(format);
     const workers: ReplayWorker[] = [];

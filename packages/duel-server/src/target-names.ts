@@ -85,3 +85,32 @@ export function chainTargetPhrase(labels: ReadonlyArray<string | undefined>, cou
   if (known.length === 0) return `${count} card${count === 1 ? "" : "s"}`;
   return joinNames(labels.map((label) => label ?? "a card"));
 }
+
+export interface TargetDescription {
+  phrase: string;
+  labels: string[];
+  private?: Record<number, { phrase: string; labels: string[] }>;
+}
+
+/** Format an announcement once for events and log lines. Only differing audiences need another pass. */
+export function describeTargets(targets: readonly (TargetLabel | undefined)[]): TargetDescription {
+  const labels = targets.map((target) => target?.label);
+  const description: TargetDescription = {
+    phrase: chainTargetPhrase(labels, targets.length), labels: labels.map((label) => label ?? "a card"),
+  };
+  let viewers: Set<number> | undefined;
+  for (const target of targets) {
+    if (!target?.privateLabels) continue;
+    for (const [viewer, label] of Object.entries(target.privateLabels)) {
+      if (label !== target.label) (viewers ??= new Set()).add(Number(viewer));
+    }
+  }
+  if (!viewers) return description;
+  for (const viewer of viewers) {
+    const named = targets.map((target) => targetLabelFor(target, viewer));
+    (description.private ??= {})[viewer] = {
+      phrase: chainTargetPhrase(named, targets.length), labels: named.map((label) => label ?? "a card"),
+    };
+  }
+  return description;
+}

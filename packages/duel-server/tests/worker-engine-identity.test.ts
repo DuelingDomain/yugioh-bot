@@ -64,4 +64,18 @@ describe("worker resource identity gate", () => {
     expect(await handleWorkerRequest({ id: 1, op: "create", options: { ...input, firstTurnDraw: false } })).toMatchObject({ ok: true });
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ engineIdentity: input.engineIdentity, firstTurnDraw: false }));
   });
+
+  it("passes replay history cursors through the client and worker without changing default views", async () => {
+    const view = vi.fn(() => ({ revision: 1 }));
+    create.mockResolvedValueOnce({ view, close: vi.fn() });
+    const worker = new GameWorker();
+    try {
+      await worker.create(options());
+      const history = { logAfter: 100, eventsAfter: 200 };
+      await expect(worker.view(0, history)).resolves.toEqual({ revision: 1 });
+      expect(view).toHaveBeenLastCalledWith(0, history);
+      await worker.view(null);
+      expect(view).toHaveBeenLastCalledWith(null, undefined);
+    } finally { await worker.close(); }
+  });
 });

@@ -14,6 +14,7 @@ const fake = vi.hoisted(() => ({
   hintLabels: new Map<bigint, string>(),
   queries: new Map<string, Array<{ code: number; position: OcgPosition; isPublic?: boolean; isHidden?: boolean }>>(),
   targetNotes: [] as string[],
+  locationQueries: [] as string[],
   onProcess: undefined as (() => boolean) | undefined,
   report: (_type: number, _text: string) => undefined,
 }));
@@ -33,7 +34,11 @@ vi.mock("ocgcore-wasm", async (importOriginal) => {
     },
     duelGetMessage: () => fake.messages,
     duelQueryField: () => ({ players: [{ deck_size: 0 }, { deck_size: 0 }], chain: [] }),
-    duelQueryLocation: (_handle: unknown, query: { controller: number; location: number }) => fake.queries.get(`${query.controller}:${query.location}`) ?? [],
+    duelQueryLocation: (_handle: unknown, query: { controller: number; location: number }) => {
+      const key = `${query.controller}:${query.location}`;
+      fake.locationQueries.push(key);
+      return fake.queries.get(key) ?? [];
+    },
     duelQueryCount: () => 0,
   }) };
 });
@@ -53,7 +58,7 @@ vi.mock("../src/raw-messages.js", async (importOriginal) => ({
   rawMessageCapture: () => ({ take: () => fake.buffers.splice(0) }),
 }));
 
-beforeEach(() => { fake.messages = []; fake.buffers = []; fake.destroyNote = ""; fake.hintLabels.clear(); fake.queries.clear(); fake.targetNotes = []; fake.onProcess = undefined; });
+beforeEach(() => { fake.messages = []; fake.buffers = []; fake.destroyNote = ""; fake.hintLabels.clear(); fake.queries.clear(); fake.targetNotes = []; fake.locationQueries = []; fake.onProcess = undefined; });
 
 registerDomainCoreFactory(async (ctx) => {
   const lib = await ctx.createStockCore({ sync: true });
@@ -329,6 +334,49 @@ describe.each([
           text: "Chain Link 1 targets Summoned Skull", targetLabels: ["Summoned Skull"],
         });
       }
+    } finally { game.close(); }
+  });
+
+  it("filters replay history before projection without changing any retained audience", async () => {
+    fake.targetNotes = [`${TARGET_CARD_NOTE_PREFIX}0:4:0:70781052:1`];
+    fake.queries.set(`0:${OcgLocation.MZONE}`, [{ code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE }]);
+    const game = await open("1v1", [chain(0, 1, 2), { type: OcgMessageType.BECOME_TARGET, cards: [place(0)] } as OcgMessage], create);
+    try {
+      for (const viewer of [0, 1, null]) {
+        const full = game.view(viewer);
+        const logAfter = full.log[0]!.id, eventsAfter = full.events[0]!.id;
+        expect(game.view(viewer, { logAfter, eventsAfter })).toEqual({ ...full,
+          log: full.log.filter((entry) => entry.id > logAfter), events: full.events.filter((entry) => entry.id > eventsAfter),
+        });
+        expect(game.view(viewer)).toEqual(full);
+        expect(game.view(viewer, { logAfter: Number.MAX_SAFE_INTEGER, eventsAfter: Number.MAX_SAFE_INTEGER }))
+          .toEqual({ ...full, log: [], events: [] });
+      }
+    } finally { game.close(); }
+  });
+
+  it("queries each target location once per core process, then refreshes its visibility", async () => {
+    const key = `0:${OcgLocation.MZONE}`;
+    const targets = [0, 1, 5].map((sequence) => ({ ...place(0), sequence }));
+    fake.queries.set(key, Array.from({ length: 6 }, () => ({ code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE })));
+    fake.targetNotes = targets.map(({ sequence }) => `${TARGET_CARD_NOTE_PREFIX}0:4:${sequence}:70781052:1`);
+    let processCount = 0;
+    fake.onProcess = () => {
+      if (processCount++ === 0) return true;
+      fake.queries.set(key, Array.from({ length: 6 }, () => ({ code: 70781052, position: OcgPosition.FACEUP_ATTACK })));
+      fake.messages = [chain(0, 2, 2), { type: OcgMessageType.BECOME_TARGET, cards: targets } as OcgMessage, fake.messages.at(-1)!];
+      return false;
+    };
+    const game = await open("1v1", [chain(0, 1, 2), ...targets.map((target) => ({
+      type: OcgMessageType.BECOME_TARGET, cards: [target],
+    }) as OcgMessage)], create);
+    try {
+      // Three announcements in process 1, three targets in process 2: two full-zone reads, not six.
+      expect(fake.locationQueries.filter((query) => query === key)).toHaveLength(2);
+      const events = game.view(null).events.filter((event) => event.kind === "target");
+      expect(events[0]!.text).toBe("Chain Link 1 targets a card");
+      expect(events.at(-1)!.targetLabels).toEqual(Array(3).fill("Summoned Skull"));
+      expect(game.view(0).events.filter((event) => event.kind === "target")[0]!.targetLabels).toEqual(["Summoned Skull"]);
     } finally { game.close(); }
   });
 

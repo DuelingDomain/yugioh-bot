@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { seatCountFor, type DuelCardInfo, type DuelFormat, type DuelSummonKind } from "@yugidraft/shared/duels";
 import { OcgLocation, OcgMessageType, OcgPosition, type OcgCardQueryInfo, type OcgCoreSync, type OcgDuelHandle, type OcgMessage } from "ocgcore-wasm";
 import type { CardDatabase } from "../src/cards.js";
@@ -65,6 +65,28 @@ describe("target slot visibility", () => {
       expect([...snapshot(hidden, location, "tag")]).toEqual([[0, 70781052], [2, 70781052]]);
     }
     expect([...snapshot(hidden, OcgLocation.EXTRA, "tag")]).toEqual([[0, 70781052]]);
+  });
+
+  it("caches raw zone queries while freezing each announcement's own reveal audience", () => {
+    const duelQueryLocation = vi.fn(() => Array.from({ length: 6 }, () => ({
+      code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE,
+    })));
+    const lib = { duelQueryLocation } as unknown as OcgCoreSync;
+    const reveals = createRevealMap(4);
+    const queryCache = new Map();
+    const args = { lib, handle: {} as OcgDuelHandle, format: "ffa4" as const, reveals, queryCache };
+    const before = visibleTargetCardCodes(args, zone);
+    noteReveal(reveals, 3, 0, zone.location, zone.sequence, 70781052);
+    const after = visibleTargetCardCodes(args, zone);
+    expect([...before]).toEqual([[0, 70781052]]);
+    expect([...after]).toEqual([[0, 70781052], [3, 70781052]]);
+    expect(duelQueryLocation).toHaveBeenCalledTimes(1);
+    queryCache.clear();
+    duelQueryLocation.mockReturnValue([]);
+    expect([...visibleTargetCardCodes(args, zone)]).toEqual([]);
+    expect([...visibleTargetCardCodes(args, zone)]).toEqual([]);
+    expect(duelQueryLocation).toHaveBeenCalledTimes(2);
+    expect([...after]).toEqual([[0, 70781052], [3, 70781052]]);
   });
 });
 
