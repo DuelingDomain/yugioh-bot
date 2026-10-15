@@ -14,6 +14,7 @@ const fake = vi.hoisted(() => ({
   hintLabels: new Map<bigint, string>(),
   queries: new Map<string, Array<{ code: number; position: OcgPosition; isPublic?: boolean; isHidden?: boolean }>>(),
   targetNotes: [] as string[],
+  onProcess: undefined as (() => boolean) | undefined,
   report: (_type: number, _text: string) => undefined,
 }));
 
@@ -25,9 +26,10 @@ vi.mock("ocgcore-wasm", async (importOriginal) => {
     destroyDuel: () => undefined, startDuel: () => undefined,
     duelNewCard: () => undefined, loadScript: () => true,
     duelProcess: () => {
+      const continuing = fake.onProcess?.();
       if (fake.destroyNote) fake.report(0, fake.destroyNote);
       for (const note of fake.targetNotes) fake.report(0, note);
-      return actual.OcgProcessResult.WAITING;
+      return continuing ? actual.OcgProcessResult.CONTINUE : actual.OcgProcessResult.WAITING;
     },
     duelGetMessage: () => fake.messages,
     duelQueryField: () => ({ players: [{ deck_size: 0 }, { deck_size: 0 }], chain: [] }),
@@ -51,7 +53,7 @@ vi.mock("../src/raw-messages.js", async (importOriginal) => ({
   rawMessageCapture: () => ({ take: () => fake.buffers.splice(0) }),
 }));
 
-beforeEach(() => { fake.messages = []; fake.buffers = []; fake.destroyNote = ""; fake.hintLabels.clear(); fake.queries.clear(); fake.targetNotes = []; });
+beforeEach(() => { fake.messages = []; fake.buffers = []; fake.destroyNote = ""; fake.hintLabels.clear(); fake.queries.clear(); fake.targetNotes = []; fake.onProcess = undefined; });
 
 registerDomainCoreFactory(async (ctx) => {
   const lib = await ctx.createStockCore({ sync: true });
@@ -263,6 +265,73 @@ describe.each([
     } finally { game.close(); }
   });
 
+  it("does not trust a face-up target note over the hidden MZONE 5 view", async () => {
+    fake.targetNotes = [`${TARGET_CARD_NOTE_PREFIX}0:${OcgLocation.MZONE}:5:70781052:${OcgPosition.FACEUP_ATTACK}`];
+    fake.queries.set(`0:${OcgLocation.MZONE}`, Array.from({ length: 6 }, (_, sequence) => ({
+      code: sequence === 5 ? 70781052 : 0,
+      position: OcgPosition.FACEDOWN_DEFENSE,
+    })));
+    const game = await open("1v1", [chain(0, 1, 2), {
+      type: OcgMessageType.BECOME_TARGET, cards: [{ ...place(0), sequence: 5 }],
+    } as OcgMessage], create);
+    try {
+      expect(game.view(0).seats[0]!.monsters[5]!.name).toBe("Summoned Skull");
+      for (const viewer of [1, null]) {
+        const view = game.view(viewer);
+        expect(view.seats[0]!.monsters[5]!.code).toBeUndefined();
+        expect(log(game, viewer).join(" ")).not.toContain("Summoned Skull");
+        const target = view.events.find((event) => event.kind === "target");
+        expect(target?.text).not.toContain("Summoned Skull");
+        expect(target?.targetLabels?.join(" ")).not.toContain("Summoned Skull");
+      }
+      expect(log(game, 0)).toContain("Chain Link 1: Mirror Force targets Summoned Skull");
+      expect(game.view(0).events.find((event) => event.kind === "target")?.targetLabels).toEqual(["Summoned Skull"]);
+    } finally { game.close(); }
+  });
+
+  it("keeps a late target note private after a subsequent public reveal", async () => {
+    fake.queries.set(`0:${OcgLocation.MZONE}`, [{ code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE }]);
+    let process = 0;
+    fake.onProcess = () => {
+      if (process++ === 0) return true;
+      fake.messages = [fake.messages.at(-1)!];
+      fake.targetNotes = [`${TARGET_CARD_NOTE_PREFIX}0:4:0:70781052:1`];
+      fake.queries.set(`0:${OcgLocation.MZONE}`, [{ code: 70781052, position: OcgPosition.FACEUP_ATTACK }]);
+      return false;
+    };
+    const game = await open("1v1", [chain(0, 1, 2), { type: OcgMessageType.BECOME_TARGET, cards: [place(0)] } as OcgMessage], create);
+    try {
+      for (const viewer of [1, null]) {
+        expect(log(game, viewer)).toContain("Chain Link 1: Mirror Force targets a card");
+        expect(game.view(viewer).events.find((event) => event.kind === "target")).toMatchObject({
+          text: "Chain Link 1 targets a card", targetLabels: ["a card"],
+        });
+      }
+      expect(log(game, 0)).toContain("Chain Link 1: Mirror Force targets Summoned Skull");
+      expect(game.view(0).events.find((event) => event.kind === "target")).toMatchObject({
+        text: "Chain Link 1 targets Summoned Skull", targetLabels: ["Summoned Skull"],
+      });
+    } finally { game.close(); }
+  });
+
+  it("retains a genuinely public Extra Monster Zone target's name", async () => {
+    fake.targetNotes = [`${TARGET_CARD_NOTE_PREFIX}0:4:5:70781052:1`];
+    fake.queries.set(`0:${OcgLocation.MZONE}`, Array.from({ length: 6 }, (_, sequence) => ({
+      code: sequence === 5 ? 70781052 : 0, position: OcgPosition.FACEUP_ATTACK,
+    })));
+    const game = await open("1v1", [chain(0, 1, 2), {
+      type: OcgMessageType.BECOME_TARGET, cards: [{ ...place(0), sequence: 5 }],
+    } as OcgMessage], create);
+    try {
+      for (const viewer of [0, 1, null]) {
+        expect(log(game, viewer)).toContain("Chain Link 1: Mirror Force targets Summoned Skull");
+        expect(game.view(viewer).events.find((event) => event.kind === "target")).toMatchObject({
+          text: "Chain Link 1 targets Summoned Skull", targetLabels: ["Summoned Skull"],
+        });
+      }
+    } finally { game.close(); }
+  });
+
   it("names an explicitly announced hand activation in later hints", async () => {
     fake.hintLabels.set(70781052n, "Summoned Skull");
     const game = await open("1v1", [
@@ -345,5 +414,30 @@ it("names public Domain Deck Masters without exposing unrelated hidden cards", a
       "Dark Magician", "Dark Magician was added to Player 1's hand", "Player 1 Sets a card", "a card",
     ]);
     expect(log(game, 0).at(-1)).toBe("Summoned Skull");
+  } finally { game.close(); }
+});
+
+it("keeps a hidden Domain MR5 MZONE 5 target distinct from the public Deck Masters", async () => {
+  fake.targetNotes = [`${TARGET_CARD_NOTE_PREFIX}0:4:5:70781052:1`];
+  fake.queries.set(`0:${OcgLocation.MZONE}`, Array.from({ length: 6 }, (_, sequence) => ({
+    code: sequence === 5 ? 70781052 : 0, position: OcgPosition.FACEDOWN_DEFENSE,
+  })));
+  const game = await open("1v1", [chain(0, 1, 2), {
+    type: OcgMessageType.BECOME_TARGET, cards: [{ ...place(0), sequence: 5 }],
+  } as OcgMessage], createEngineGame, {
+    mode: "domain", masterRule: 5,
+    decks: [1, 2].map((deckMaster) => ({ main: [], extra: [], side: [], deckMaster })),
+  });
+  try {
+    for (const viewer of [1, null]) {
+      const view = game.view(viewer);
+      expect(view.seats.map((seat) => seat.deckMaster?.card.code)).toEqual([1, 2]);
+      expect(view.seats[0]!.monsters[5]!.code).toBeUndefined();
+      expect(log(game, viewer)).toContain("Chain Link 1: Mirror Force targets a card");
+      expect(view.events.find((event) => event.kind === "target")).toMatchObject({
+        text: "Chain Link 1 targets a card", targetLabels: ["a card"],
+      });
+    }
+    expect(log(game, 0)).toContain("Chain Link 1: Mirror Force targets Summoned Skull");
   } finally { game.close(); }
 });

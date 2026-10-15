@@ -26,7 +26,7 @@ export const ENGINE_HOST_RULE_FILES = [
  * Comments and other behavior-neutral edits may refresh that baseline with a stated reason.
  * Live play recovery deliberately does not gate on this version.
  */
-// Version 6 redacts viewer log identities, including literal hints, and requires proven public move sources.
+// Version 6 redacts viewer log identities, including hints and target names, and requires proven public move sources.
 export const ENGINE_HOST_RULE_VERSION = "duel-rules-6";
 
 export class EngineResourceUnavailableError extends Error {

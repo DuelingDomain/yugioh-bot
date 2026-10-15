@@ -1,8 +1,9 @@
-import { partnerSeatOf, seatCountFor, type DuelFormat, type DuelSummonKind } from "@yugidraft/shared/duels";
+import { partnerSeatOf, seatCountFor, type DuelFormat, type DuelSummonKind, type DuelZoneRef } from "@yugidraft/shared/duels";
 import { OcgLocation, OcgMessageType, OcgPosition, OcgQueryFlags, type OcgCoreSync, type OcgDuelHandle, type OcgMessage, type OcgQueryFlags as OcgQueryFlagsValue } from "ocgcore-wasm";
 import type { CardDatabase } from "./cards.js";
 import { cardIsVisible, isNoDuelist, playerLabel, slotRevealed, type RevealMap, type StoredDuelEvent } from "./views.js";
 import { fillPlaceholders } from "./text.js";
+import type { TargetVisibility } from "./target-names.js";
 
 /**
  * Text log lines for hints, summons and card moves. Hint visibility is read once and frozen in the line;
@@ -26,6 +27,40 @@ export interface LogLine {
    * is built).
    */
   leftField?: true;
+}
+
+const TARGET_QUERY_LOCATIONS: ReadonlySet<number> = new Set([
+  OcgLocation.DECK, OcgLocation.HAND, OcgLocation.MZONE, OcgLocation.SZONE,
+  OcgLocation.GRAVE, OcgLocation.REMOVED, OcgLocation.EXTRA,
+]);
+
+/** Freeze the independently visible code at the target's slot before a delayed Lua note can name it. */
+export function visibleTargetCardCodes(args: {
+  lib: OcgCoreSync;
+  handle: OcgDuelHandle;
+  format: DuelFormat;
+  reveals: RevealMap;
+}, zone: DuelZoneRef): TargetVisibility {
+  const visible = new Map<number | null, number>();
+  if (zone.controller < 0 || zone.controller >= seatCountFor(args.format)) return visible;
+  // Overlay coordinates and Domain's serialized location 0 are not ordinary queryable card slots.
+  if (!TARGET_QUERY_LOCATIONS.has(zone.location)) return visible;
+  const query = args.lib.duelQueryLocation(args.handle, {
+    controller: zone.controller as 0 | 1, location: zone.location as OcgLocation,
+    flags: (OcgQueryFlags.CODE | OcgQueryFlags.POSITION | OcgQueryFlags.IS_PUBLIC | OcgQueryFlags.IS_HIDDEN) as OcgQueryFlagsValue,
+  })[zone.sequence];
+  if (!query?.code) return visible;
+  const viewers = [...Array.from({ length: seatCountFor(args.format) }, (_, seat) => seat), null];
+  for (const viewer of viewers) {
+    if (cardIsVisible({
+      viewer, controller: zone.controller, location: zone.location,
+      position: query.position || OcgPosition.FACEDOWN_DEFENSE,
+      isPublic: query.isPublic, isHidden: query.isHidden,
+      revealed: slotRevealed(args.reveals, viewer, zone.controller, zone.location, zone.sequence, query.code),
+      partner: viewer != null && partnerSeatOf(args.format, viewer) === zone.controller,
+    })) visible.set(viewer, query.code);
+  }
+  return visible;
 }
 
 /** Identities visible now or explicitly announced to this viewer in the event history. */

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { DuelCardInfo, DuelFormat, DuelSummonKind } from "@yugidraft/shared/duels";
-import { OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
+import { seatCountFor, type DuelCardInfo, type DuelFormat, type DuelSummonKind } from "@yugidraft/shared/duels";
+import { OcgLocation, OcgMessageType, OcgPosition, type OcgCardQueryInfo, type OcgCoreSync, type OcgDuelHandle, type OcgMessage } from "ocgcore-wasm";
 import type { CardDatabase } from "../src/cards.js";
-import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines, type LogLine } from "../src/log-lines.js";
+import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines, visibleTargetCardCodes, type LogLine } from "../src/log-lines.js";
+import { createRevealMap, noteReveal } from "../src/views.js";
 
 const NAMES: Record<number, string> = { 1: "Stardust Dragon", 2: "Mystical Space Typhoon", 3: "Pot of Greed", 4: "Man-Eater Bug" };
 const info = (code: number): DuelCardInfo => ({
@@ -25,6 +26,47 @@ const summon = (type: OcgMessageType.SUMMONING | OcgMessageType.SPSUMMONING | Oc
 function seen(lines: LogLine[], viewer: number | null): string[] {
   return lines.filter((line) => line.audience === "all" || line.audience === viewer).map((line) => line.text);
 }
+
+describe("target slot visibility", () => {
+  const zone = { controller: 0, location: OcgLocation.MZONE, sequence: 5 };
+  function snapshot(query: Partial<OcgCardQueryInfo> | null, location: number = OcgLocation.MZONE, format: DuelFormat = "1v1", revealTo?: number) {
+    const queries = Array.from({ length: 6 }, (_, sequence) => sequence === 5 ? query : null);
+    const lib = { duelQueryLocation: () => queries } as unknown as OcgCoreSync;
+    const reveals = createRevealMap(seatCountFor(format));
+    if (revealTo != null) noteReveal(reveals, revealTo, 0, location, 5, 70781052);
+    return visibleTargetCardCodes({ lib, handle: {} as OcgDuelHandle, format, reveals }, { ...zone, location });
+  }
+
+  it("names an MR5 Extra Monster Zone target only for viewers who can see its query", () => {
+    expect([...snapshot({ code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE })]).toEqual([[0, 70781052]]);
+    expect([...snapshot({ code: 70781052, position: OcgPosition.FACEUP_ATTACK })]).toEqual([[0, 70781052], [1, 70781052], [null, 70781052]]);
+  });
+
+  it.each([0, OcgPosition.FACEUP_ATTACK | OcgPosition.FACEDOWN_DEFENSE])("keeps unproven query position %i private", (position) => {
+    expect([...snapshot({ code: 70781052, position: position as OcgPosition })]).toEqual([[0, 70781052]]);
+  });
+
+  it("fails closed for missing cards and non-queryable Domain or overlay locations", () => {
+    expect([...snapshot(null)]).toEqual([]);
+    for (const location of [0, 0x4000, OcgLocation.MZONE | OcgLocation.OVERLAY]) {
+      expect([...snapshot({ code: 70781052, position: OcgPosition.FACEUP_ATTACK }, location)]).toEqual([]);
+    }
+  });
+
+  it("honors public queries and viewer-scoped confirmations", () => {
+    const hidden = { code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE };
+    expect([...snapshot({ ...hidden, isPublic: true })]).toEqual([[0, 70781052], [1, 70781052], [null, 70781052]]);
+    expect([...snapshot(hidden, OcgLocation.MZONE, "1v1", 1)]).toEqual([[0, 70781052], [1, 70781052]]);
+  });
+
+  it("gives Tag partners Set and hand identities while keeping the Extra Deck private", () => {
+    const hidden = { code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE };
+    for (const location of [OcgLocation.MZONE, OcgLocation.HAND]) {
+      expect([...snapshot(hidden, location, "tag")]).toEqual([[0, 70781052], [2, 70781052]]);
+    }
+    expect([...snapshot(hidden, OcgLocation.EXTRA, "tag")]).toEqual([[0, 70781052]]);
+  });
+});
 
 describe("summon log lines", () => {
   it.each<[DuelSummonKind, string]>([

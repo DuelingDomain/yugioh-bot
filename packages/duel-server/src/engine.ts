@@ -57,8 +57,7 @@ import {
   projectView,
   resetEventBatch,
   snapshotLinkTargets,
-  targetEventLabels,
-  targetEventText,
+  updateTargetEvent,
   type DomainSeatState,
   type LogEntry,
   type StoredChainLink,
@@ -71,7 +70,7 @@ import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, MSG_S
 import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
 import { firstTurnDrawFor } from "./first-turn-draw.js";
 import { attackTargetQueryScript, mergeAttackTargetPick, readAttackTargetQuery, type AttackTargetQuery } from "./attack-target-pick.js";
-import { destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleLogCardCodes } from "./log-lines.js";
+import { destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleLogCardCodes, visibleTargetCardCodes } from "./log-lines.js";
 
 /** A wasm the engine loaded: the bytes, the file name and the sha256 of the bytes (core identity for reports). */
 export interface LoadedWasm {
@@ -600,6 +599,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     lib.duelSetResponse(handle, response);
   };
   const reveals = createRevealMap(seatCount);
+  eventContext.targetVisibility = (zone) => visibleTargetCardCodes({ lib, handle, format, reveals }, zone);
   let nextLogId = 1;
   let nextEventId = 1;
   let lastSelectHint: string | undefined;
@@ -648,7 +648,18 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let autoPickSeat: number | null = null;
   // Target lines whose names have not all arrived: the core can deliver a card's note in a later process call than the
   // target message, so the lines are written now and their text is completed by settleTargetNames.
-  const unnamedTargets: Array<{ link: StoredChainLink; event: StoredDuelEvent; lines: Array<{ entry: LogEntry; text: (phrase: string) => string }> }> = [];
+  type TargetLogLine = { entry: LogEntry; text: (phrase: string) => string };
+  const unnamedTargets: Array<{ link: StoredChainLink; event: StoredDuelEvent; lines: TargetLogLine[] }> = [];
+  const updateTargetLines = (lines: TargetLogLine[], link: StoredChainLink) => {
+    for (const line of lines) {
+      line.entry.text = line.text(linkTargetPhrase(link));
+      line.entry.privateText = {};
+      for (let viewer = 0; viewer < options.decks.length; viewer++) {
+        const text = line.text(linkTargetPhrase(link, viewer));
+        if (text !== line.entry.text) line.entry.privateText[viewer] = text;
+      }
+    }
+  };
   /** The log lines of a chain link's target: the public line, and a private note when the player had no choice. */
   const logChainTarget = (event: StoredDuelEvent) => {
     const link = event.chainIndex != null ? chainMemory.find((entry) => entry.index === event.chainIndex) : undefined;
@@ -656,7 +667,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     const snapshot = snapshotLinkTargets(link);
     // CHAINING publicly announces its source, even when the effect activates from a hidden zone.
     const source = cards.get(link.code)?.name ?? `Card ${link.code}`;
-    const lines: Array<{ entry: LogEntry; text: (phrase: string) => string }> = [];
+    const lines: TargetLogLine[] = [];
     const add = (text: (phrase: string) => string, audience: "all" | number) => {
       lines.push({ entry: appendLog(text(linkTargetPhrase(snapshot)), audience), text });
     };
@@ -666,8 +677,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       autoPickSeat = null;
     }
     const complete = nameLinkTargets(eventContext, snapshot, cards);
-    event.text = event.publicText = targetEventText(snapshot);
-    event.targetLabels = targetEventLabels(snapshot);
+    updateTargetEvent(event, snapshot);
+    updateTargetLines(lines, snapshot);
     if (!complete) {
       unnamedTargets.push({ link: snapshot, event, lines });
       // Match the event ring's bound even if a broken reporter never supplies the missing notes.
@@ -678,10 +689,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     for (let index = unnamedTargets.length - 1; index >= 0; index -= 1) {
       const pending = unnamedTargets[index]!;
       if (!nameLinkTargets(eventContext, pending.link, cards)) continue;
-      pending.event.text = pending.event.publicText = targetEventText(pending.link);
-      pending.event.targetLabels = targetEventLabels(pending.link);
-      const phrase = linkTargetPhrase(pending.link);
-      for (const line of pending.lines) line.entry.text = line.text(phrase);
+      updateTargetEvent(pending.event, pending.link);
+      updateTargetLines(pending.lines, pending.link);
       unnamedTargets.splice(index, 1);
     }
   };
