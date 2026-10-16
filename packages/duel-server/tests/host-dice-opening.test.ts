@@ -200,7 +200,6 @@ describe("host FFA dice opening", () => {
   });
 });
 
-const output = useConsoleObservability();
 
 
 describe("lobby resource preparation", () => {
