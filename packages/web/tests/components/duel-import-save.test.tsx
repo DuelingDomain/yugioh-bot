@@ -56,7 +56,8 @@ describe("saving an imported deck to My Decks", () => {
 
   it("saves imports from a Genesys room with the room's cap", async () => {
     render(<DeckEditor slug="table-1" mode="normal" settings={{ ...settings, genesys: { pointCap: 0 } }} initial={null} busy={false} onReady={vi.fn()} />);
-    await waitFor(() => expect(screen.getByLabelText("Use a saved deck")).not.toBeDisabled());
+    // A Genesys room lists the saved decks as rows with their points, not as a select.
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
     importFile("Genesys.ydk", YDK);
     await waitFor(() => expect(createSavedDeck).toHaveBeenCalledWith(expect.objectContaining({ genesys: { pointCap: 0 } }), expect.any(AbortSignal)));
   });
