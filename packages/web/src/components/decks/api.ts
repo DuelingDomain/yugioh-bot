@@ -1,6 +1,6 @@
 import type { CardAdmissionContext } from "@/lib/card-admission-context";
 import type { DraftDeckPool } from "./pool-model";
-import type { CardFacets, CardQuery, CardQueryResult, DeckArtworkSwapRequest, DeckCardInfo, DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
+import type { CardFacets, CardQuery, CardQueryResult, DeckArtworkSwapRequest, DeckCardInfo, DuelDeck, DuelMode, GenesysSettings, SavedDeck } from "@yugidraft/shared/duels";
 import type { DeckRegistrationMark } from "@yugidraft/shared/services";
 
 export type { SavedDeck, DeckRegistrationMark };
@@ -67,6 +67,8 @@ export async function createSavedDeck(input: {
   name: string;
   mode: DuelMode;
   deck: DuelDeck;
+  /** Omitted: the deck is not tagged Genesys. */
+  genesys?: GenesysSettings | null;
 }, signal?: AbortSignal): Promise<SavedDeck> {
   return readDeck(await parseBody(await fetch("/api/decks", {
     method: "POST",
@@ -78,7 +80,8 @@ export async function createSavedDeck(input: {
 
 export async function updateSavedDeck(
   id: number,
-  input: { name: string; mode: DuelMode; deck: DuelDeck },
+  /** `genesys` omitted keeps the saved tag; null removes it. */
+  input: { name: string; mode: DuelMode; deck: DuelDeck; genesys?: GenesysSettings | null },
 ): Promise<SavedDeckView> {
   return readDeck(await parseBody(await fetch(`/api/decks/${id}`, {
     method: "PUT",
