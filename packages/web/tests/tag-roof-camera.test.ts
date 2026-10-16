@@ -11,6 +11,8 @@ import {
   easeFly,
   fitSeatPose,
   liftView,
+  dropPose,
+  isLiftedPose,
   roofFitCorners,
   initialRoofCamera,
   phaseHubSizes,
@@ -597,6 +599,43 @@ describe("clearing the hands", () => {
       // The origin is the lifted box centre, so the middle of the close-up is `lift` px below it: the middle of the old box.
       const ys = roofFitCorners(0, 0).corners.map((corner) => projectRoof(dropped, fit, corner).y);
       expect((Math.min(...ys) + Math.max(...ys)) / 2).toBeCloseTo(lifted.lift, 3);
+    });
+  });
+  describe("the overview after the lift", () => {
+    // Measured stage boxes (root px) of the Tag preview: the free box before the lift, the top of the hands and the far plate.
+    const BOXES = [
+      { name: "1366x768", base: { left: 8, right: 1330, top: 6, bottom: 514 }, handTop: 514.5, farTop: 46 },
+      { name: "1920x1080", base: { left: 8, right: 1884, top: 6, bottom: 780 }, handTop: 780, farTop: 55 },
+      { name: "2560x1440", base: { left: 8, right: 2524, top: 6, bottom: 1112 }, handTop: 1111.5, farTop: 60 },
+    ];
+    const fieldYs = (pose: typeof ROOF_PRESETS.overview, view: { top: number; bottom: number }, fit: number) => {
+      const mid = (view.top + view.bottom) / 2;
+      const outer = [0, 1, 2, 3].map((seat) => mid + projectRoof(pose, fit, { x: 0, y: roofFitCorners(0, seat).outer, z: ROOF_FIELD_Z }).y);
+      return { far: Math.min(...outer), near: Math.max(...outer) };
+    };
+
+    it.each(BOXES)("keeps all four fields between the far plate and the hands at $name", ({ base, handTop, farTop }) => {
+      const lifted = liftView(0, base, handTop - 2, farTop);
+      const view = clearHands(0, lifted.view, handTop - 2);
+      const fit = roofFit(view);
+      const drop = (base.top + base.bottom) / 2 - (view.top + view.bottom) / 2;
+      expect(drop).toBeGreaterThan(0);
+      // Without the correction the far field rides up under the plate and off the top.
+      expect(fieldYs(ROOF_PRESETS.overview, view, fit).far).toBeLessThan(0);
+      const pose = dropPose(0, ROOF_PRESETS.overview, fit, drop);
+      const { far, near } = fieldYs(pose, view, fit);
+      expect(far).toBeGreaterThanOrEqual(base.top);
+      expect(near).toBeLessThanOrEqual(handTop);
+      // The far field starts under the plate row: at most the air the plane keeps around its zones (20px) above it.
+      expect(far).toBeGreaterThanOrEqual(farTop - 40);
+    });
+
+    it("moves only the poses that are not the home or rival pose", () => {
+      expect(isLiftedPose(ROOF_PRESETS.home)).toBe(true);
+      expect(isLiftedPose(ROOF_PRESETS.rival)).toBe(true);
+      expect(isLiftedPose(ROOF_PRESETS.overview)).toBe(false);
+      expect(isLiftedPose({ ...ROOF_PRESETS.home, zoom: 1.3 })).toBe(false);
+      expect(dropPose(0, ROOF_PRESETS.overview, 0.5, 0)).toBe(ROOF_PRESETS.overview);
     });
   });
 });

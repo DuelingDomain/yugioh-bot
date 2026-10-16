@@ -19,6 +19,8 @@ import {
   clampCenter,
   clearHands,
   liftView,
+  isLiftedPose,
+  dropPose,
   easeCam,
   easeFly,
   lockLabel,
@@ -366,9 +368,15 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     return { w, h, view, fit, base, drop };
   };
 
-  /** The pose the world ends on: a close-up is fitted to the free box so the whole field shows; any other pose is as it is. */
-  const resolvePose = (pose: RoofPose, m: { fit: number; base: RoofView; drop: number }): RoofPose =>
-    modeRef.current === "focus" && focusSeatRef.current != null ? fitSeatPose(anchorRef.current, focusSeatRef.current, m.fit, m.base, m.drop) : pose;
+  /**
+   * The pose the world ends on. A close-up is fitted to the free box so the whole field shows. The home and rival poses
+   * ride up with the lifted view (that is what the lift is for). Every other pose (the overview, the fly-in end, a free
+   * camera) is slid back down by the lift, so all four fields stay between the far plate and the hands.
+   */
+  const resolvePose = (pose: RoofPose, m: { fit: number; base: RoofView; drop: number }): RoofPose => {
+    if (modeRef.current === "focus" && focusSeatRef.current != null) return fitSeatPose(anchorRef.current, focusSeatRef.current, m.fit, m.base, m.drop);
+    return isLiftedPose(pose) ? pose : dropPose(anchorRef.current, pose, m.fit, m.drop);
+  };
 
   const apply = useCallback(() => {
     const root = rootRef.current;
@@ -376,8 +384,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     if (!root || !world) return;
     const m = measure(root);
     if (!m) return;
-    const { view, fit } = m;
+    const { fit } = m;
     fitRef.current = fit;
+    const { view } = m;
     const cx = (view.left + view.right) / 2;
     const cy = (view.top + view.bottom) / 2;
     root.style.setProperty("--cx", `${cx.toFixed(1)}px`);
@@ -405,7 +414,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const hub = hubRef.current;
     const phases = phaseHubRef.current;
     const padAt = pad ? { x: pad.left - box.left, y: pad.top - box.top } : null;
-    const padSeen = padAt != null && padAt.x >= view.left && padAt.x <= view.right && padAt.y >= view.top && padAt.y <= view.bottom;
+    // The helipad rides with the lifted view in the home and rival poses; in any other pose it sits in the box before the lift.
+    const hubView = isLiftedPose(targetRef.current) ? view : m.base;
+    const padSeen = padAt != null && padAt.x >= hubView.left && padAt.x <= hubView.right && padAt.y >= hubView.top && padAt.y <= hubView.bottom;
     if (phases && pad && padAt) {
       // The phase hub sits in the gap between the two strips, on the helipad. The size comes from the gap the camera
       // ends on (so it does not flip during a tween): the biggest strip that fits the gap, with the chain hub stacked
@@ -429,7 +440,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       }
       if (fitted) {
         phases.removeAttribute("data-off");
-        const at = clampCenter(padAt, { w: Math.max(phases.offsetWidth, hub?.offsetWidth ?? 0), h: stackH }, view);
+        const at = clampCenter(padAt, { w: Math.max(phases.offsetWidth, hub?.offsetWidth ?? 0), h: stackH }, hubView);
         const top = at.y - stackH / 2;
         place(phases, at.x, top + phases.offsetHeight / 2);
         if (hub) place(hub, at.x, top + phases.offsetHeight + PHASE_HUB_GAP + hub.offsetHeight / 2);
@@ -438,11 +449,11 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         placedRef.current.delete(phases);
       }
       if (!fitted && hub) {
-        const at = clampCenter(padAt, { w: hub.offsetWidth, h: hub.offsetHeight }, view);
+        const at = clampCenter(padAt, { w: hub.offsetWidth, h: hub.offsetHeight }, hubView);
         place(hub, at.x, at.y);
       }
     } else if (hub && pad) {
-      const at = clampCenter({ x: pad.left - box.left, y: pad.top - box.top }, { w: hub.offsetWidth, h: hub.offsetHeight }, view);
+      const at = clampCenter({ x: pad.left - box.left, y: pad.top - box.top }, { w: hub.offsetWidth, h: hub.offsetHeight }, hubView);
       place(hub, at.x, at.y);
     }
     const plate = farPlateRef.current;

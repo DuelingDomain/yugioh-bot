@@ -599,6 +599,30 @@ export function liftView(anchorSeat: number, view: RoofView, handTop: number, fa
   return { view: { ...view, top: view.top - lift, bottom: view.bottom - lift }, lift };
 }
 
+/** True for the two poses the lift is made for: the near-team home pose and the far-team rival pose. */
+export function isLiftedPose(pose: RoofPose): boolean {
+  return [ROOF_PRESETS.home, ROOF_PRESETS.rival].some((p) => p.yaw === pose.yaw && p.tilt === pose.tilt && p.zoom === pose.zoom && p.fx === pose.fx && p.fy === pose.fy && p.oy === pose.oy);
+}
+
+/**
+ * Slides a pose DOWN on the screen by `drop` px, so a pose that is not the home pose (the overview, the fly-in end,
+ * a free camera) lands where it would in the box the stage had before `liftView`: the origin of the projection is the
+ * lifted box centre, and only the home and rival poses are meant to ride up with it. The perspective scales a plain
+ * offset, so the middle of all four fields is corrected in a short loop (same as `fitSeatPose`).
+ */
+export function dropPose(anchorSeat: number, pose: RoofPose, fit: number, drop: number): RoofPose {
+  if (!(drop > 0) || !(fit > 0)) return pose;
+  const corners = [0, 1, 2, 3].flatMap((seat) => roofFitCorners(anchorSeat, seat).corners);
+  const middle = (p: RoofPose) => {
+    const ys = corners.map((corner) => projectRoof(p, fit, corner).y);
+    return (Math.min(...ys) + Math.max(...ys)) / 2;
+  };
+  const want = middle(pose) + drop;
+  const out: RoofPose = { ...pose, oy: pose.oy + drop / fit };
+  for (let i = 0; i < 3; i += 1) out.oy += (want - middle(out)) / fit;
+  return out;
+}
+
 /** Centre of a HUD box that is pushed back into the view. A box wider than the view is centred on it. */
 export function clampCenter(
   at: { x: number; y: number },
