@@ -18,6 +18,7 @@ import { OwnHand, PartnerHand } from "./tag-hand";
 import {
   clampCenter,
   clearHands,
+  liftView,
   easeCam,
   easeFly,
   lockLabel,
@@ -296,7 +297,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   };
 
   /** Measures the stage box: the free view rect (above the hands, under the plates) and the overview fit. Null for an empty box. */
-  const measure = (root: HTMLElement): { w: number; h: number; view: RoofView; fit: number } | null => {
+  const measure = (root: HTMLElement): { w: number; h: number; view: RoofView; fit: number; base: RoofView; drop: number } | null => {
     const w = root.clientWidth;
     const h = root.clientHeight;
     if (w <= 0 || h <= 0) return null;
@@ -343,23 +344,31 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     root.style.setProperty("--rail-top", `${railTop}px`);
     const viewTop = narrow ? railTop : 6;
     let view: RoofView = { left: 8, right: w - 8, top: Math.min(viewTop + railRow, bottom - 40), bottom };
+    const base = view;
     if (!narrow) {
       // The home pose is fitted to the free box and its near edge can end below it: the hand dock and the partner's
-      // hand are in that row. Lower the box until your Spell/Trap row and piles stay above both.
+      // hand are in that row. First lift the whole box (same size, same fit) as far as the far field has room under the
+      // far plate; only what is still too low shrinks the box until your Spell/Trap row and piles stay above both.
       const rootTop = root.getBoundingClientRect().top;
       const handTops = [dock, root.querySelector<HTMLElement>("[data-partner-hand]")]
         .filter((node): node is HTMLElement => node != null)
         .map((node) => node.getBoundingClientRect().top - rootTop);
-      if (handTops.length > 0) view = clearHands(anchorRef.current, view, Math.min(...handTops) - 2);
+      if (handTops.length > 0) {
+        const handTop = Math.min(...handTops) - 2;
+        // The far edge may rise to 8px under the far plate (the plate hangs from the top edge, 6px down).
+        const farTop = 6 + plateH + 8;
+        view = clearHands(anchorRef.current, liftView(anchorRef.current, view, handTop, farTop).view, handTop);
+      }
     }
     const fit = roofFit(view) || 1;
     fitRef.current = fit;
-    return { w, h, view, fit };
+    const drop = (base.top + base.bottom) / 2 - (view.top + view.bottom) / 2;
+    return { w, h, view, fit, base, drop };
   };
 
   /** The pose the world ends on: a close-up is fitted to the free box so the whole field shows; any other pose is as it is. */
-  const resolvePose = (pose: RoofPose, m: { fit: number; view: RoofView }): RoofPose =>
-    modeRef.current === "focus" && focusSeatRef.current != null ? fitSeatPose(anchorRef.current, focusSeatRef.current, m.fit, m.view) : pose;
+  const resolvePose = (pose: RoofPose, m: { fit: number; base: RoofView; drop: number }): RoofPose =>
+    modeRef.current === "focus" && focusSeatRef.current != null ? fitSeatPose(anchorRef.current, focusSeatRef.current, m.fit, m.base, m.drop) : pose;
 
   const apply = useCallback(() => {
     const root = rootRef.current;

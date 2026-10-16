@@ -10,6 +10,7 @@ import {
   easeCam,
   easeFly,
   fitSeatPose,
+  liftView,
   roofFitCorners,
   initialRoofCamera,
   phaseHubSizes,
@@ -553,5 +554,49 @@ describe("clearing the hands", () => {
   it("leaves a view that already clears the hands as it is", () => {
     const view = { left: 8, right: 1358, top: 6, bottom: 591 };
     expect(clearHands(0, view, 2000)).toBe(view);
+  });
+
+  describe("lifting the view first", () => {
+    const view = { left: 8, right: 1358, top: 6, bottom: 591 };
+    const edge = (v: typeof view, seat: number) =>
+      (v.top + v.bottom) / 2 + projectRoof(ROOF_PRESETS.home, roofFit(v), { x: 0, y: roofFitCorners(0, seat).outer, z: ROOF_FIELD_Z }).y;
+
+    it("moves the box up without changing the fit when the far field has room above it", () => {
+      expect(edge(view, 0)).toBeGreaterThan(591);
+      const lifted = liftView(0, view, 591, 6);
+      expect(lifted.lift).toBeGreaterThan(0);
+      expect(roofFit(lifted.view)).toBeCloseTo(roofFit(view), 10);
+      expect(lifted.view.bottom - lifted.view.top).toBeCloseTo(view.bottom - view.top, 10);
+      expect(edge(lifted.view, 0)).toBeLessThanOrEqual(591 + 0.5);
+      // Nothing is left for clearHands: the fit of the final view is the original fit.
+      expect(clearHands(0, lifted.view, 591)).toBe(lifted.view);
+    });
+
+    it("stops when the far edge reaches the far plate and leaves the rest to clearHands", () => {
+      const farTop = edge(view, 1) - 30;
+      const lifted = liftView(0, view, 591, farTop);
+      expect(lifted.lift).toBeCloseTo(30, 5);
+      expect(edge(lifted.view, 1)).toBeCloseTo(farTop, 5);
+      expect(edge(lifted.view, 0)).toBeGreaterThan(591);
+      const rest = clearHands(0, lifted.view, 591);
+      expect(rest.bottom).toBeLessThan(lifted.view.bottom);
+      expect(edge(rest, 0)).toBeLessThanOrEqual(591 + 0.5);
+    });
+
+    it("leaves a view alone that clears the hands, or has no room above", () => {
+      expect(liftView(0, view, 2000, 6).view).toBe(view);
+      expect(liftView(0, view, 591, 10_000).view).toBe(view);
+    });
+
+    it("lets the close-up keep the box it had before the lift: same size, still centred", () => {
+      const lifted = liftView(0, view, 591, 6);
+      const fit = roofFit(lifted.view);
+      const plain = fitSeatPose(0, 0, fit, view);
+      const dropped = fitSeatPose(0, 0, fit, view, lifted.lift);
+      expect(dropped.zoom).toBeCloseTo(plain.zoom, 10);
+      // The origin is the lifted box centre, so the middle of the close-up is `lift` px below it: the middle of the old box.
+      const ys = roofFitCorners(0, 0).corners.map((corner) => projectRoof(dropped, fit, corner).y);
+      expect((Math.min(...ys) + Math.max(...ys)) / 2).toBeCloseTo(lifted.lift, 3);
+    });
   });
 });
