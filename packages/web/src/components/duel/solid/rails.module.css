@@ -40,7 +40,9 @@
   --lh: var(--hand-h);
   --lhcw: calc(var(--lh) * 0.686);
   --lhg: 10px;
-  height: var(--you-h);
+  /* --you-ov: the hand reaches up into the padding under the table (desktop only, 0 on phones). */
+  height: calc(var(--you-h) + var(--you-ov, 0px));
+  margin-top: calc(var(--you-ov, 0px) * -1);
   align-items: end;
 }
 

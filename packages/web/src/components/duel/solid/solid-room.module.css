@@ -83,7 +83,8 @@
   --vpad: 6px;
   --opp-h: 72px;
   --hand-h: clamp(100px, 13vh, 150px);
-  --you-h: calc(var(--hand-h) + 14px);
+  --you-ov: 0px;
+  --you-h: calc(var(--hand-h) + 14px - var(--you-ov));
   --phase-h: 40px;
   --rr: 5.04;
   --lift-k: 0.35;
@@ -130,6 +131,19 @@
     var(--ink-0);
 }
 .root[data-view="flat"] { --tilt: 0deg; --rr: 5.36; --lift-k: 0; }
+
+/* Desktop: a bigger hand and a shorter opponent strip. The near hand reaches --you-ov into the empty padding under the
+   bottom row (the cells are taller than their cards, so no card or zone centre is covered), and the opponent's backs
+   reach into the same padding above the far row. Both only buy height for the table. Phones keep the sizes below. */
+@media (min-width: 901px) {
+  .root {
+    --opp-h: 56px;
+    --hand-h: clamp(100px, 15.5vh, 190px);
+    --you-ov: 16px;
+  }
+  /* The flat view has no recession, so the near row sits lower: reach less far. */
+  .root[data-view="flat"] { --you-ov: 6px; }
+}
 
 .root ::selection { background: rgb(143 118 242 / 0.45); color: #fff; }
 .root :focus { outline: none; }
