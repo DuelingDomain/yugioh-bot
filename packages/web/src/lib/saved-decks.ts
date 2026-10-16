@@ -51,7 +51,7 @@ export function parseSavedDeckId(raw: string): number | NextResponse {
 
 export async function readSavedDeckBody(
   request: Request,
-): Promise<{ ok: true; name: unknown; mode: unknown; deck: unknown } | { ok: false; response: NextResponse }> {
+): Promise<{ ok: true; name: unknown; mode: unknown; deck: unknown; genesys?: unknown } | { ok: false; response: NextResponse }> {
   let body: unknown;
   try {
     body = await request.json();
@@ -61,8 +61,9 @@ export async function readSavedDeckBody(
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, response: NextResponse.json({ error: "Expected a deck object" }, { status: 400 }) };
   }
-  const record = body as { name?: unknown; mode?: unknown; deck?: unknown };
-  return { ok: true, name: record.name, mode: record.mode, deck: record.deck };
+  const record = body as { name?: unknown; mode?: unknown; deck?: unknown; genesys?: unknown };
+  // An absent `genesys` stays absent: an update then keeps the saved tag, and null removes it.
+  return { ok: true, name: record.name, mode: record.mode, deck: record.deck, ...("genesys" in record ? { genesys: record.genesys } : {}) };
 }
 
 /** Check Extra types on every write, then check the Domain Deck Master type. */

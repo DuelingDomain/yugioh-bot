@@ -1,5 +1,6 @@
 import type { SavedDeck } from "@yugidraft/shared/duels";
-import { guidanceNotes, modeLabel } from "./model";
+import { guidanceNotes } from "./model";
+import { formatLabel } from "./genesys";
 
 export interface DeckStatus {
   ok: boolean;
@@ -12,10 +13,10 @@ export interface DeckStatus {
 }
 
 /** One status line for a library row, built from the editor's own size notes. */
-export function deckStatus(deck: Pick<SavedDeck, "mode" | "deck">): DeckStatus {
+export function deckStatus(deck: Pick<SavedDeck, "mode" | "deck"> & { genesys?: SavedDeck["genesys"] }): DeckStatus {
   const notes = guidanceNotes(deck.mode, deck.deck);
   if (notes.length === 0) {
-    return { ok: true, head: `Sizes fit a ${modeLabel(deck.mode)} table`, rest: null, more: 0 };
+    return { ok: true, head: `Sizes fit a ${formatLabel(deck.mode, deck.genesys)} table`, rest: null, more: 0 };
   }
   const first = notes[0]!;
   const match = /^(.+?)(?:; |\. )(.+)$/.exec(first);
