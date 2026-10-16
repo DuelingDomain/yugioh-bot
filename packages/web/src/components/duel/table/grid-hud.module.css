@@ -862,6 +862,8 @@
 }
 :global([data-edge-hud="true"]) .corner > nav { width: auto; }
 /* The station track is a shared part: its compact stack (a column of three rows) becomes one row here. */
+/* The button size rule names the button element: a bare [class*="primary"] also matched the label span (primaryLabel) and gave it the
+   button height and padding, so the text sat at the top and off center. */
 :global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="actions"] {
   flex-direction: row;
   align-items: center;
@@ -875,8 +877,8 @@
   align-items: center;
   gap: 8px;
 }
-:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="primary"],
-:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="secondary"] {
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) button[class*="primary"],
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) button[class*="secondary"] {
   width: auto;
   min-height: 34px;
   height: 34px;
