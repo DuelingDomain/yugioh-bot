@@ -197,7 +197,8 @@ export function CardBrowser({
     return () => observer.disconnect();
   }, [hasMore, view]);
 
-  const chips = useMemo(() => filterChips(query, archetypes), [query, archetypes]);
+  // In Genesys the Link and Pendulum filter is always on, so it is a rule of the format and not a chip to clear.
+  const chips = useMemo(() => filterChips(genesys ? { ...query, excludeGenesysForbidden: false } : query, archetypes), [query, archetypes, genesys]);
   const stale = loading || (results != null && results.key !== key);
 
   function onTileKey(event: KeyboardEvent, card: DeckCardInfo) {
@@ -412,7 +413,7 @@ export function CardBrowser({
                     <button type="button" className={styles.rowMain} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} {...handlers}>
                       <span className={styles.rowArt}>
                         <CardArt code={card.code} name={card.name} />
-                        {genesys && !pool ? <GenesysBadge card={card} /> : <LimitBadge limit={limit} />}
+                        {genesys && !pool ? <GenesysBadge card={card} variant="row" /> : <LimitBadge limit={limit} />}
                       </span>
                       <span className={styles.rowText}>
                         <strong>{card.name}</strong>{" "}

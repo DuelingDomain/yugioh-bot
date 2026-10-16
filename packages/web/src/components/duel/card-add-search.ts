@@ -58,10 +58,12 @@ export function useCardNameSearch(
   /** Skip the pause: the player pressed Enter or Add and is waiting for the answer. */
   immediate = false,
   context: CardAdmissionContext = {},
+  /** A Genesys room: Link and Pendulum Monsters are left out of the results, because they cannot be played. */
+  genesys = false,
 ): { search: CardNameSearch | null; pending: boolean } {
   const trimmed = query.trim();
   const { mode, slug } = context;
-  const scope = `${mode ?? "normal"}:${slug ?? ""}`;
+  const scope = `${mode ?? "normal"}:${slug ?? ""}${genesys ? ":genesys" : ""}`;
   const [search, setSearch] = useState<CardNameSearch | null>(null);
   const reqId = useRef(0);
   const latest = useRef(search);
@@ -74,10 +76,10 @@ export function useCardNameSearch(
     if (latest.current?.query === trimmed && latest.current?.scope === scope) return undefined;
     const controller = new AbortController();
     const timeout = setTimeout(() => {
-      const request = { ...emptyCardQuery(), text: trimmed, scope: "name" as const, sort: "match" as const, limit: ADD_RESULT_LIMIT };
+      const request = { ...emptyCardQuery(), text: trimmed, scope: "name" as const, sort: "match" as const, limit: ADD_RESULT_LIMIT, ...(genesys ? { excludeGenesysForbidden: true } : {}) };
       queryDeckCards(request, controller.signal, { mode, slug }).then(
         ({ cards }) => {
-          if (myReq === reqId.current) setSearch({ query: trimmed, scope, cards: cards.slice(0, ADD_RESULT_LIMIT) });
+          if (myReq === reqId.current) setSearch({ query: trimmed, scope, cards: (genesys ? cards.filter((card) => !isGenesysForbiddenType(card)) : cards).slice(0, ADD_RESULT_LIMIT) });
         },
         (error: unknown) => {
           if (myReq !== reqId.current || controller.signal.aborted) return;
@@ -89,7 +91,7 @@ export function useCardNameSearch(
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [trimmed, immediate, scope, mode, slug]);
+  }, [trimmed, immediate, scope, mode, slug, genesys]);
 
   const current = trimmed && search?.query === trimmed && search.scope === scope ? search : null;
   return { search: current, pending: trimmed !== "" && current === null };

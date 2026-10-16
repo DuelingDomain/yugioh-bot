@@ -392,7 +392,7 @@ describe("deck editor add card by name", () => {
 });
 
 
-it("shows synced Genesys points and blocks Link/Pendulum additions in the room", async () => {
+it("shows synced Genesys points and leaves Link/Pendulum out of the room search", async () => {
   queryDeckCards.mockResolvedValue(answer([
     { ...BLUE_EYES, genesysPoints: 30 },
     { ...BLUE_EYES, code: 20, name: "Link test", type: 0x4000001, genesysPoints: 0 },
@@ -400,7 +400,7 @@ it("shows synced Genesys points and blocks Link/Pendulum additions in the room",
   ]));
   renderEditor(normalSettings({ genesys: { pointCap: 100 }, banlist: "none" }));
   const options = await search("test");
+  expect(options).toHaveLength(1);
   expect(options[0].textContent).toContain("30");
-  expect(options[1]).toHaveAttribute("aria-disabled", "true");
-  expect(options[2]).toHaveAttribute("aria-disabled", "true");
+  expect(queryDeckCards.mock.calls[0][0]).toMatchObject({ excludeGenesysForbidden: true });
 });

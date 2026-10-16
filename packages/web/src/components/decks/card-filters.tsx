@@ -299,7 +299,7 @@ export function CardFilters({ query, archetypes, onChange, hideLimits = false, g
 
       {genesys ? <Section title="Genesys">
         <RangeField label="Genesys points" range={query.genesysPoints ?? { min: null, max: null }} max={1000} onChange={(range) => set("genesysPoints", range)} />
-        <Toggle pressed={query.excludeGenesysForbidden === true} onClick={() => set("excludeGenesysForbidden", !query.excludeGenesysForbidden)}>Hide Link and Pendulum Monsters</Toggle>
+        <p className={styles.fNote}>Link and Pendulum Monsters are not allowed in Genesys, so they are left out of the results.</p>
       </Section> : null}
 
       <Section title="Archetype">

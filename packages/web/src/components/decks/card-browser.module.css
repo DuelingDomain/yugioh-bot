@@ -173,6 +173,7 @@
 }
 
 .fBody { display: grid; }
+.fNote { margin: 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.45; }
 .fSection { display: grid; gap: 9px; padding: 14px 0; border-bottom: 1px solid rgb(181 153 99 / 0.1); }
 .fSection:last-child { border-bottom: 0; }
 .fHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 26px; }
