@@ -8,6 +8,7 @@ import { deckEngineDataDirectory, loadArtworkIdentityCatalog, mainArtworkId, typ
 import { CardDataError, CardFetchError, CardFetchLimitError, fetchCardResource, isCardFetchError } from "./card-fetch.js";
 import { createCardLookupBudget, takeCardLookup, type CardLookupBudget } from "./card-lookup-budget.js";
 import { createImportedCardNameMatcher, normalizeImportedCardName, straightenCardQuotes } from "./card-name-match.js";
+import { createGenesysPointsReader, parseGenesysPointsSnapshot, publishGenesysPointsSnapshot, type GenesysSnapshotOptions } from "./genesys-points.js";
 
 type CardSet = {
   set_name: string;
@@ -116,12 +117,12 @@ function isExtraDeckCard(card: YgoprodeckCard) {
   return isExtraDeckFrame(card);
 }
 
-function mapCard(row: any): CardCatalogCard {
+function mapCard(row: any, activeGenesysRevision?: string): CardCatalogCard {
   return {
     ygoprodeckId: row.ygoprodeck_id,
     canonicalCardId: row.card_id ?? row.ygoprodeck_id,
-    genesysPoints: row.genesys_points ?? null,
-    genesysRevision: row.genesys_revision ?? null,
+    genesysPoints: activeGenesysRevision && row.genesys_revision === activeGenesysRevision ? row.genesys_points ?? null : null,
+    genesysRevision: activeGenesysRevision && row.genesys_revision === activeGenesysRevision ? row.genesys_revision : null,
     name: row.name,
     type: row.type,
     frameType: row.frame_type,
@@ -144,6 +145,7 @@ export function createCardCatalogService(
   options: { fetch?: FetchLike; identityCatalog?: CardIdentityCatalog; memberId?: number } = {},
 ) {
   const fetchImpl = options.fetch ?? globalThis.fetch;
+  const genesys = createGenesysPointsReader(db);
   let identity = options.identityCatalog;
   const engineIdentity = () => identity ??= loadArtworkIdentityCatalog(deckEngineDataDirectory(db.name));
   const mainId = (card: YgoprodeckCard): number | undefined => {
@@ -169,7 +171,7 @@ export function createCardCatalogService(
     return Math.min(card.id, ...card.card_images.map((art) => art.id ?? card.id));
   };
 
-  const fetchCardsWith = (params: Record<string, string>, lookupBudget?: CardLookupBudget): Promise<YgoprodeckCard[]> => {
+  const fetchCardsWith = (params: Record<string, string>, lookupBudget?: CardLookupBudget, genesysOptions?: GenesysSnapshotOptions): Promise<YgoprodeckCard[]> => {
     if (lookupBudget && !takeCardLookup(lookupBudget)) return Promise.resolve([]);
     const url = new URL(YGOPRODECK_API_URL);
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
@@ -184,6 +186,7 @@ export function createCardCatalogService(
         throw new CardFetchError(1, 400);
       }
       const payload = await response.json() as { data?: YgoprodeckCard[] };
+      if (params.format === "genesys") parseGenesysPointsSnapshot(payload, genesysOptions);
       if (!Array.isArray(payload.data) || payload.data.some((card) =>
         !Number.isSafeInteger(card.id) || card.id <= 0 || typeof card.name !== "string" || typeof card.type !== "string"
         || typeof card.frameType !== "string" || !Array.isArray(card.card_images)
@@ -364,7 +367,8 @@ export function createCardCatalogService(
         `,
       )
       .all(...lookupIds);
-    const cardsById = new Map(rows.map((row: any) => [row.ygoprodeck_id, mapCard(row)]));
+    const activeGenesysRevision = genesys.list()?.revision;
+    const cardsById = new Map(rows.map((row: any) => [row.ygoprodeck_id, mapCard(row, activeGenesysRevision)]));
 
     return ids.map((id): CardCatalogCard | undefined => {
       const resolved = canonicalId(id);
@@ -443,6 +447,14 @@ export function createCardCatalogService(
   };
 
   return {
+    /** The entire unpaginated TCG points list, published atomically after validation. */
+    async syncGenesysPoints(options: { effectiveDate?: string; expectedRevision?: string } = {}) {
+      const validation = { ...options, minimumCards: genesys.cardCount(), previousList: genesys.list() };
+      const cards = await fetchCardsWith({ format: "genesys", misc: "yes" }, undefined, validation);
+      const snapshot = parseGenesysPointsSnapshot({ data: cards }, validation);
+      return publishGenesysPointsSnapshot(db, snapshot, { cacheCards: () => { upsertCards(cards); }, canonicalId });
+    },
+
     /** One full API dump, one transaction per existing family; callback runs only after commit. */
     async backfillExistingArtworks(options: { afterId?: number; dryRun?: boolean; onProgress?: (id: number) => void } = {}) {
       const rows = db.prepare("select ygoprodeck_id, name, type from card_catalog").all() as Array<{ ygoprodeck_id: number; name: string; type: string }>;
