@@ -27,7 +27,7 @@ export function startingVariant(room: Pick<DuelRoom, "starting" | "opening" | "e
 /** A calm loading state between the opening result and the field. Fixed over the page, so nothing under it moves. */
 export function StartingDuel({ room, variant, reducedMotion = false }: { room: Pick<DuelRoom, "session">; variant: StartingVariant; reducedMotion?: boolean }) {
   const { session } = room;
-  const names = session.seats.filter((seat) => seat.playerId != null).map((seat) => seat.displayName ?? `Player ${seat.seat + 1}`);
+  const names = session.seats.filter((seat) => seat.playerId != null || seat.isBot).map((seat) => seat.displayName ?? `Player ${seat.seat + 1}`);
   if (variant === "banner") {
     return (
       <div className={cx(styles.banner, duelFontClasses)} data-testid="starting-duel" data-variant="banner" data-reduced={reducedMotion ? "true" : undefined}>

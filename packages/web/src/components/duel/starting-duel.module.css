@@ -9,7 +9,7 @@
   --s-pen: #9b7eff;
   position: fixed; inset: 0; z-index: calc(var(--duel-z-modal, 150) + 1);
   color: var(--s-ink); color-scheme: dark; -webkit-font-smoothing: antialiased;
-  animation: fade-in 260ms ease-out both;
+  animation: fade-in 180ms ease-out both;
 }
 .banner *, .card * { box-sizing: border-box; }
 .banner :where(p, h2, ul), .card :where(p, h2, ul) { margin: 0; padding: 0; }
@@ -36,7 +36,7 @@
 /* Over the lobby: a dim, blurred sheet so the lobby stays as the backdrop and nothing flashes. */
 .card {
   display: grid; place-items: center; padding: 24px; text-align: center;
-  background: rgb(5 8 15 / 0.82); backdrop-filter: blur(6px);
+  background: rgb(5 8 15 / 0.9); backdrop-filter: blur(8px);
 }
 .panel { display: grid; justify-items: center; gap: 12px; width: min(100%, 420px); }
 .kicker { color: var(--s-ink-3); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; }
