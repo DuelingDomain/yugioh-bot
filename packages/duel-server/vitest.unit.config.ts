@@ -20,14 +20,8 @@ const NEEDS_ENGINE = [
   "tests/ffa-attack-target-pick.test.ts",
   // cards.cdb (card data, deck legality, scenario names)
   "tests/card-data-abi.test.ts",
-  "tests/card-search.test.ts",
-  "tests/deck-import.test.ts",
-  "tests/deck-legality-multiplayer.test.ts",
-  "tests/deck-legality-settings.test.ts",
   "tests/deck-legality.test.ts",
   "tests/domain-format-deck-rules.test.ts",
-  "tests/scenarios/registry.test.ts",
-  "tests/scenarios/multiplayer/catalog.test.ts",
   // the engine bundle manifest (the host reads it when it is made; the identity test hashes the legacy files)
   "tests/host-bug-context.test.ts",
   "tests/host-chain-mode.test.ts",
@@ -36,14 +30,9 @@ const NEEDS_ENGINE = [
   "tests/host-multiplayer-flag.test.ts",
   "tests/legacy-engine-identity.test.ts",
   // cards.cdb and card scripts through a real duel (every test in these files loads the card database or starts an engine game)
-  "tests/chain-targets.test.ts",
   "tests/replay-chain-mode-surrender.test.ts",
   "tests/material-count.test.ts",
-  "tests/xyz-detach-prompt.test.ts",
-  "tests/xyz-material-prompts.test.ts",
-  "tests/legacy-xyz-material-prompt.test.ts",
   "tests/target-response.test.ts",
-  "tests/c6-geometry-audit.test.ts",
   // a wasm core (engine, host, summons, presets, scenarios, fuzz, differential)
   "tests/battle-card-effects.test.ts",
   "tests/deck-reveal.test.ts",
@@ -58,7 +47,6 @@ const NEEDS_ENGINE = [
   "tests/domain-recall-kind.test.ts",
   "tests/engine-eliminate.test.ts",
   "tests/engine-elimination-order.test.ts",
-  "tests/engine-multi-scripts.test.ts",
   "tests/engine-artwork-start.test.ts",
   "tests/engine-events.test.ts",
   "tests/engine-first-seat.test.ts",
@@ -67,7 +55,6 @@ const NEEDS_ENGINE = [
   "tests/engine-nseat.test.ts",
   "tests/engine-settings.test.ts",
   "tests/engine.test.ts",
-  "tests/failure-to-scenario.test.ts",
   "tests/host-bot-pacing.test.ts",
   "tests/host-bot-turn-limit.test.ts",
   "tests/host-eliminate.test.ts",
@@ -76,11 +63,6 @@ const NEEDS_ENGINE = [
   "tests/host-report-replay.test.ts",
   "tests/host-table-legality.test.ts",
   "tests/host.test.ts",
-  "tests/multi-scripts-table.test.ts",
-  "tests/ocgcore-wrapper-abi.test.ts",
-  "tests/practice-bot.test.ts",
-  "tests/presets.test.ts",
-  "tests/scripted-bot.test.ts",
   "tests/summons.test.ts",
   "tests/differential/differential-extended.test.ts",
   "tests/differential/differential.test.ts",
@@ -106,7 +88,7 @@ const NEEDS_ENGINE = [
 
 export default defineConfig({
   test: {
-    exclude: [...configDefaults.exclude, "domain-core/**", "tests/support/fixtures/**", ...NEEDS_ENGINE],
+    exclude: [...configDefaults.exclude, "domain-core/**", ...NEEDS_ENGINE],
     setupFiles: ["./tests/support/setup.ts"],
   },
 });
