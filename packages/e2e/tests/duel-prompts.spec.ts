@@ -56,7 +56,7 @@ test("a card-name prompt for one duelist and a card pick for the other both work
 
   // Alice names a card by search.
   await alice.page.getByLabel("Search card name").fill("Celtic Guardian");
-  await alice.page.getByRole("button", { name: "Celtic Guardian" }).click();
+  await alice.page.getByRole("option", { name: /Celtic Guardian/ }).click();
 
   // Bob picks one of the two copies from his deck. It is mandatory, so there is no cancel.
   const pick = bob.page.getByRole("group", { name: "Select the card(s) to add to your hand" });
