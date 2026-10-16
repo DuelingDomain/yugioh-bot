@@ -36,7 +36,7 @@ No request body or query parameters. Success: HTTP 200, exactly one of:
   eliminations (LP, deck-out, and losing Tag teammates) are saved in private
   `setup_json.eliminatedSeats` and excluded too. Retired `eliminate-eot:` commands,
   including their legacy `surrenderedSeats` flags, keep the seat guarded until the
-  engine confirms elimination, since it may still answer chain prompts.
+  duel ends; recovery of such a journal interrupts the duel.
 - A room before its opening/game starts is `lobby`. RPS/dice openings, active
   games, and unfinished matches between games or awaiting a later game's start
   are `playing`. The latest game slug remains the destination during sideboarding.
