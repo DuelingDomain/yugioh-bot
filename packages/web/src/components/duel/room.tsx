@@ -54,6 +54,7 @@ import {
 } from "./api";
 import { ReplayForkBar, ReplayForkResult, sourceReplayHref } from "./replay-fork-bar";
 import { ForkSearchContext, followSeat, forkRoomState, forkViewSettled, livingSeats, useForkViewState } from "./replay-fork-control";
+import { RoomEdgeLayer } from "./room-edge-layer";
 import { RoomLobby } from "./room-lobby";
 import { ReportButton } from "./report-button";
 import { OpeningScreen } from "./opening";
@@ -77,7 +78,7 @@ import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import hudStyles from "./table/grid-hud.module.css";
 import { hudPreview } from "./table/hud-preview";
-import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./table/hud-layer";
+import { RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./table/hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./table/hud-shared";
 import { SEAT_TONE_HEX } from "./table/types";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
@@ -503,7 +504,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const hudState = useHudPane();
   const closeHud = hudState.close;
   const closePrivateHud = hudState.closePrivate;
-  useHudEscape(hudState, hud, Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen);
+  // The panes are edge drawers that close themselves (Esc, a press outside, the tab). Only the pinned peek goes through the HUD's own dismiss.
+  useHudEscape({ ...hudState, pane: null }, hud, Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen);
   usePinSync(hudState, data?.engine?.seats);
   // A new prompt for this seat lets the pinned peek go: it must not cover the cards the prompt asks for.
   const promptId = prompt?.id ?? null;
@@ -1786,6 +1788,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           seriesBanner={seriesBanner}
           noticesNode={noticesNode}
           inspectorNode={inspectorNode}
+          logUnread={logUnread}
           promptDockNode={promptDockNode}
           masterRail={masterRail}
           legalActionsFor={legalActionsFor}
@@ -1816,7 +1819,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={preferences.reducedMotion ? "true" : "false"} style={tableTextStyle(textSize)}>
       {hud ? (
-        <header className={hudStyles.top} data-testid="hud-top">
+        <header className={`${hudStyles.top} ${styles.hudBar}`} data-testid="hud-top">
           <div className={hudStyles.topLeft}>{headerIdentity}</div>
           {hudClockBank(shownClock, data.session, preferences.reducedMotion)}
           <div className={hudStyles.topMid}>{headerTurn}</div>
@@ -1875,7 +1878,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       )}
       <div className={styles.mobileBar}>{mobileTabs}</div>
       {hud && engine ? (
-        <HudLayer
+        <RoomEdgeLayer
           hud={hudState}
           panels={{ card: cardPanel, log: logPanel(true), settings: settingsPanel }}
           chain={engine.chain}

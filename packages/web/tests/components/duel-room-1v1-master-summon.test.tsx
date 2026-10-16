@@ -87,6 +87,10 @@ for (const mode of ["classic", "3d"] as const) {
     it("gives the move layer a move out of the Deck Master Zone, and a source for it", async () => {
       const view = open();
       await waitFor(() => expect(moveFx).toHaveBeenCalled());
+      // The plate sits in the Deck Master drawer. A shut drawer is no place a card can leave from (the summon then
+      // shows at its zone), so the card flies out of the plate only while the drawer is out.
+      const tab = document.querySelector<HTMLElement>('[data-edge-drawer="Deck Master"] button[aria-expanded]');
+      await act(async () => { tab?.click(); });
       await act(async () => { state.room = roomOf(false, batch.events, 2); view.rerender(<DuelRoomView slug="game-1" windowed />); });
       const flight = lastEvents(moveFx)?.find((event) => event.kind === "move" && event.from?.location === LOCATION_DMZONE);
       expect(flight).toBeTruthy();

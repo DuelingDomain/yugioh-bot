@@ -160,8 +160,23 @@ const menuPrompt: DuelPrompt = {
 };
 const sent = () => sendDuelAction.mock.calls.map((call) => (call as unknown as [string, DuelCommand])[1]);
 
-const flyout = () => screen.getByTestId("hud-flyout");
-const isOpen = () => flyout().getAttribute("data-open") === "true";
+// The panes are edge drawers: a small tab on the screen edge, a panel that slides out only when asked for.
+const DRAWER = '[data-edge-drawer][data-state="open"]';
+const flyout = () => {
+  const open = document.querySelector<HTMLElement>(DRAWER);
+  if (!open) throw new Error("no edge drawer is open");
+  return open;
+};
+const isOpen = () => document.querySelector(DRAWER) !== null;
+const openLabel = () => flyout().getAttribute("data-edge-drawer");
+const drawerTab = (label: string) => {
+  const drawer = document.querySelector<HTMLElement>(`[data-edge-drawer="${label}"]`);
+  const tab = drawer && [...drawer.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")][0];
+  if (!tab) throw new Error(`no ${label} tab`);
+  return tab;
+};
+const clickTab = (label: string) => fireEvent.click(drawerTab(label));
+const TAB_LABEL: Record<string, string> = { log: "Log", settings: "Settings", card: "Card", master: "Deck Master", other: "Rival Master" };
 
 beforeEach(() => {
   sendDuelAction.mockClear();
@@ -175,7 +190,7 @@ afterEach(() => {
 });
 
 describe("the floating HUD of the 1v1 room", () => {
-  it("swaps the bars and the side columns for the pills and the dock", () => {
+  it("swaps the bars and the side columns for the pills and the edge tabs", () => {
     const { container } = mount();
     expect(container.querySelector("[data-hud='room']")).not.toBeNull();
     expect(screen.getByTestId("hud-top").tagName).toBe("HEADER");
@@ -187,9 +202,11 @@ describe("the floating HUD of the 1v1 room", () => {
     // back on for an open prompt dock there.
     expect(corner.hasAttribute("data-hud-corner")).toBe(true);
     expect(screen.queryByRole("complementary", { name: "Duel panels" })).toBeNull();
-    for (const id of ["log", "settings"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
-    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
-    expect(screen.queryByTestId("hud-dock-history")).toBeNull();
+    for (const label of ["Log", "Settings", "Card"]) expect(drawerTab(label)).toBeTruthy();
+    expect(document.querySelector('[data-edge-drawer="Chain"]')).toBeNull();
+    expect(document.querySelector('[data-edge-drawer="History"]')).toBeNull();
+    // Nothing is open in normal play: every panel is shut and out of the tab order.
+    for (const drawer of document.querySelectorAll("[data-edge-drawer]")) expect(drawer.getAttribute("data-state")).toBe("closed");
     expect(isOpen()).toBe(false);
   });
 
@@ -199,7 +216,7 @@ describe("the floating HUD of the 1v1 room", () => {
     expect(top.getByRole("button", { name: "Report bug" })).toBeTruthy();
     expect(top.getByRole("button", { name: /Sound effects/ })).toBeTruthy();
     expect(top.getByRole("link", { name: "Dueling Domain" })).toBeTruthy();
-    fireEvent.click(screen.getByTestId("hud-dock-settings"));
+    clickTab("Settings");
     expect(within(flyout()).getByRole("button", { name: "Surrender" })).toBeTruthy();
   });
 
@@ -207,43 +224,43 @@ describe("the floating HUD of the 1v1 room", () => {
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("max-width"), media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
     const narrow = mount();
     expect(narrow.container.querySelector("[data-hud]")).toBeNull();
-    expect(screen.queryByTestId("hud-dock")).toBeNull();
+    expect(document.querySelector("[data-edge-drawer]")).toBeNull();
     cleanup();
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
     const solid = mount({}, { viewOverride: "3d" });
     expect(solid.container.querySelector("[data-hud]")).toBeNull();
-    expect(screen.queryByTestId("hud-dock")).toBeNull();
+    expect(document.querySelector("[data-edge-drawer]")).toBeNull();
     cleanup();
     const watching = mount({ spectator: true, domain: true }, { spectate: true });
     expect(watching.container.querySelector("[data-hud='room']")).not.toBeNull();
-    expect(screen.getByTestId("hud-dock")).toBeTruthy();
+    expect(drawerTab("Log")).toBeTruthy();
   });
 
   it("opens a pane from its icon and closes it with the same icon", () => {
     mount();
-    fireEvent.click(screen.getByTestId("hud-dock-settings"));
+    clickTab("Settings");
     expect(isOpen()).toBe(true);
-    expect(flyout().getAttribute("data-pane")).toBe("settings");
-    expect(screen.getByTestId("hud-dock-settings").getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    expect(flyout().getAttribute("data-pane")).toBe("log");
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    expect(openLabel()).toBe("Settings");
+    expect(drawerTab("Settings").getAttribute("aria-expanded")).toBe("true");
+    clickTab("Log");
+    expect(openLabel()).toBe("Log");
+    clickTab("Log");
     expect(isOpen()).toBe(false);
   });
 
   it("closes with Esc, the close button and a click outside, but not with a click inside", () => {
     mount();
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    fireEvent.pointerDown(within(flyout()).getByTestId("hud-tab-settings"));
+    clickTab("Log");
+    fireEvent.pointerDown(within(flyout()).getByTestId("hud-close"));
     expect(isOpen()).toBe(true);
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
     expect(isOpen()).toBe(false);
 
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    fireEvent.click(screen.getByTestId("hud-close"));
+    clickTab("Log");
+    fireEvent.click(within(flyout()).getByTestId("hud-close"));
     expect(isOpen()).toBe(false);
 
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    clickTab("Log");
     fireEvent.pointerDown(document.body);
     expect(isOpen()).toBe(false);
   });
@@ -251,11 +268,21 @@ describe("the floating HUD of the 1v1 room", () => {
   it("shows the chain tower while a chain is live, with the flyout open or shut", () => {
     mount({ chain: true });
     expect(screen.getByTestId("chain-tower").getAttribute("data-links")).toBe("1");
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    clickTab("Log");
     expect(screen.getByTestId("chain-tower")).toBeTruthy();
-    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
-    expect(within(flyout()).queryByTestId("hud-tab-chain")).toBeNull();
+    expect(document.querySelector('[data-edge-drawer="Chain"]')).toBeNull();
     expect(within(screen.getByTestId("chain-tower")).queryByRole("button", { name: /Chain/ })).toBeNull();
+  });
+
+  it("opens a drawer with its key and closes it with Esc, and keeps one drawer open at a time", () => {
+    mount({ domain: true });
+    fireEvent.keyDown(document.body, { key: "l" });
+    expect(openLabel()).toBe("Log");
+    fireEvent.keyDown(document.body, { key: "m" });
+    expect(openLabel()).toBe("Deck Master");
+    expect(document.querySelectorAll(DRAWER)).toHaveLength(1);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(isOpen()).toBe(false);
   });
 
   it("has no chain tower when no chain is open", () => {
@@ -282,23 +309,42 @@ describe("the Deck Master plates of the 1v1 room", () => {
 
   it("opens the details in a flyout and closes them with the token, Esc or a click outside", () => {
     mount({ domain: true });
+    // The plates live in edge drawers: your master slides out from the left, the rival's from the right.
+    expect(document.querySelector('[data-edge-drawer="Deck Master"]')?.getAttribute("data-state")).toBe("closed");
+    clickTab("Deck Master");
+    expect(openLabel()).toBe("Deck Master");
     fireEvent.click(screen.getByTestId("hud-master-token"));
     expect(screen.getByTestId("hud-master-flyout")).toBeTruthy();
     expect(screen.getByTestId("hud-master-returns").textContent).toBe("0");
     fireEvent.click(screen.getByTestId("hud-master-token"));
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
+    clickTab("Deck Master");
+    expect(isOpen()).toBe(false);
 
+    clickTab("Rival Master");
+    expect(openLabel()).toBe("Rival Master");
     fireEvent.click(screen.getByTestId("hud-other-token"));
     expect(screen.getByTestId("hud-other-flyout")).toBeTruthy();
     expect(screen.getByTestId("hud-other-returns").textContent).toBe("1");
     expect(screen.getByTestId("hud-other-cost").textContent).toBe("500 LP");
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(isOpen()).toBe(false);
     expect(screen.queryByTestId("hud-other-flyout")).toBeNull();
 
-    fireEvent.click(screen.getByTestId("hud-master-inspect"));
+    // A press outside shuts the drawer, and the plate's details go with it.
+    clickTab("Deck Master");
+    fireEvent.click(screen.getByTestId("hud-master-token"));
     expect(screen.getByTestId("hud-master-flyout")).toBeTruthy();
     fireEvent.pointerDown(document.body);
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
+    expect(isOpen()).toBe(false);
+  });
+
+  it("glows the Deck Master tab only while something new waits, and shuts the drawers by default", () => {
+    mount({ domain: true });
+    for (const label of ["Log", "Settings", "Card", "Deck Master", "Rival Master"]) {
+      expect(drawerTab(label).getAttribute("data-attention")).toBe("false");
+    }
   });
 });
 
@@ -320,7 +366,7 @@ describe("the hover preview of the 1v1 room", () => {
 
   it("stays out of the way while a flyout is open", () => {
     mount();
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    clickTab("Log");
     fireEvent.mouseEnter(screen.getByTestId("field-card"));
     expect(screen.queryByTestId("hover-preview")).toBeNull();
   });
@@ -375,11 +421,11 @@ describe("the pinned card peek of the 1v1 room", () => {
     mount({ prompt: chainPrompt });
     pin();
     expect(peek().getAttribute("data-pinned")).toBe("true");
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
     act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
     expect(peek().getAttribute("data-open")).toBe("false");
     expect(sent()).toEqual([]);
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
     expect(sent()).toHaveLength(1);
   });
 
@@ -431,7 +477,7 @@ describe("the pinned card peek of the 1v1 room", () => {
     mount({ hiddenSecond: true });
     fireEvent.click(screen.getByTestId("field-other"));
     expect(isOpen()).toBe(true);
-    expect(flyout().getAttribute("data-pane")).toBe("card");
+    expect(openLabel()).toBe("Card");
     expect(peeks().filter((node) => node.getAttribute("data-pinned") === "true")).toHaveLength(0);
   });
 
@@ -440,7 +486,7 @@ describe("the pinned card peek of the 1v1 room", () => {
     mount();
     pin();
     fireEvent.click(screen.getByTestId("field-pile"));
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
     act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
     expect(peek().getAttribute("data-open")).toBe("false");
   });
@@ -969,11 +1015,11 @@ describe("the pinned card peek of the 1v1 room", () => {
     vi.useFakeTimers();
     mount();
     pin();
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    clickTab("Log");
     expect(isOpen()).toBe(true);
     act(() => { vi.advanceTimersByTime(PREVIEW_HIDE_MS + 20); });
     expect(peek().getAttribute("data-open")).toBe("false");
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    clickTab("Log");
     expect(isOpen()).toBe(false);
     expect(peek().getAttribute("data-open")).toBe("false");
   });
@@ -1086,25 +1132,25 @@ describe("the hover preview while a card action menu is open", () => {
 describe("the HUD with a prompt", () => {
   it("Esc closes an open flyout and does not answer the prompt", () => {
     mount({ prompt: chainPrompt });
-    fireEvent.click(screen.getByTestId("hud-dock-settings"));
+    clickTab("Settings");
     expect(isOpen()).toBe(true);
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
     expect(isOpen()).toBe(false);
     expect(sent()).toEqual([]);
   });
 
   it("Esc with no flyout open still declines the prompt", () => {
     mount({ prompt: chainPrompt });
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
     expect(sent()).toHaveLength(1);
   });
 
   it("a hover after a log click does not swap the open flyout for the Card flyout", () => {
     mount();
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    clickTab("Log");
     fireEvent.mouseEnter(screen.getByTestId("field-card"));
     expect(isOpen()).toBe(true);
-    expect(flyout().getAttribute("data-pane")).toBe("log");
+    expect(openLabel()).toBe("Log");
   });
 
   it("shows the card of a hovered prompt row in the hover preview, not in the Card flyout", () => {
@@ -1126,11 +1172,11 @@ describe("the HUD with a prompt", () => {
 
   it("with the Log open, N still answers and Esc only closes the flyout", () => {
     mount({ prompt: chainPrompt });
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    fireEvent.keyDown(window, { key: "Escape" });
+    clickTab("Log");
+    fireEvent.keyDown(document.body, { key: "Escape" });
     expect(isOpen()).toBe(false);
     expect(sent()).toEqual([]);
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    clickTab("Log");
     fireEvent.keyDown(window, { key: "n" });
     expect(isOpen()).toBe(true);
     expect(sent()).toHaveLength(1);
@@ -1138,7 +1184,7 @@ describe("the HUD with a prompt", () => {
 
   it("Surrender in the Settings flyout closes the flyout and opens the confirm", () => {
     mount();
-    fireEvent.click(screen.getByTestId("hud-dock-settings"));
+    clickTab("Settings");
     fireEvent.click(within(flyout()).getByRole("button", { name: "Surrender" }));
     expect(isOpen()).toBe(false);
     expect(document.querySelector('[aria-modal="true"]')).not.toBeNull();
@@ -1195,8 +1241,10 @@ describe("the 1v1 HUD corner in the stylesheet", () => {
   });
 
   it("keeps the board left of the corner stack on narrow or nearly square screens, but never under 660px", () => {
-    expect(css).toMatch(/--hud-right-need: calc\(var\(--hud-left\) \+ 364px \+ 105\.6dvh - 100vw\);/);
+    expect(css).toMatch(/--hud-board-w: 117dvh;/);
+    expect(css).toMatch(/--hud-right-need: calc\(var\(--hud-left\) \+ 364px \+ var\(--hud-board-w\) - 100vw\);/);
     expect(css).toMatch(/--hud-right-max: min\(calc\(var\(--hud-corner-w\) \+ 28px\), calc\(100vw - var\(--hud-left\) - 660px\)\);/);
-    expect(css).toMatch(/padding: var\(--hud-top\) clamp\(14px, var\(--hud-right-need\), var\(--hud-right-max\)\)/);
+    expect(css).toMatch(/--hud-pr: clamp\(14px, var\(--hud-right-need\), var\(--hud-right-max\)\);/);
+    expect(css).toMatch(/padding: var\(--hud-top\) var\(--hud-pr\)/);
   });
 });

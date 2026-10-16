@@ -552,6 +552,32 @@ export function roofFit(view: RoofView): number {
   return Math.min(w / ROOF_WORLD.width, h / ROOF_WORLD.depth);
 }
 
+/**
+ * The view with its bottom lowered, when needed, so the home pose ends above the hands: the near edge of your own field
+ * (its Spell/Trap row and piles) stays above `handTop` (stage px) and no hand or hand panel covers a zone. The home
+ * pose is fitted to the free box and its near edge can end below the box; that grows with the fit, so the box is
+ * shrunk (bisection: the near edge only moves up when the bottom does) until the edge clears the hands.
+ */
+export function clearHands(anchorSeat: number, view: RoofView, handTop: number, floor = 120): RoofView {
+  const { outer } = roofFitCorners(anchorSeat, anchorSeat);
+  if (!(handTop > view.top)) return view;
+  const edgeAt = (bottom: number) => {
+    const v = { ...view, bottom };
+    const fit = roofFit(v) || 1;
+    return (v.top + v.bottom) / 2 + projectRoof(ROOF_PRESETS.home, fit, { x: 0, y: outer, z: ROOF_FIELD_Z }).y;
+  };
+  if (edgeAt(view.bottom) <= handTop) return view;
+  let lo = Math.min(view.bottom, view.top + floor);
+  let hi = view.bottom;
+  if (edgeAt(lo) > handTop) return { ...view, bottom: lo };
+  for (let i = 0; i < 24; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (edgeAt(mid) <= handTop) lo = mid;
+    else hi = mid;
+  }
+  return { ...view, bottom: lo };
+}
+
 /** Centre of a HUD box that is pushed back into the view. A box wider than the view is centred on it. */
 export function clampCenter(
   at: { x: number; y: number },

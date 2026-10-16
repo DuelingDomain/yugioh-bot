@@ -807,3 +807,86 @@
 }
 .masterUsable[data-state="picked"] { background: #5733d1; color: #fff; }
 .masterUsable svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- edge drawers of the 4-way grid (grid-edge.tsx) ---------- */
+/* The log, settings, Deck Master, chain and card panels slide out from tabs at the left edge. They stand between the two bars, so the header
+   and the turn controls stay in view. Nothing of them shows at rest but the 26px tab column, which the board keeps clear (--hud-left). */
+.edgeDrawer.edgeDrawer[data-side="left"] {
+  top: var(--hud-top, 46px);
+  bottom: var(--hud-bottom, 46px);
+  --bf-drawer-z: 45;
+}
+.edgePanel {
+  border-radius: 0 14px 14px 0;
+  background: rgb(9 15 29 / 0.97);
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink);
+}
+.edgeBody {
+  --hud-master-art-h: clamp(150px, 24dvh, 250px);
+  --hud-master-ability-h: clamp(80px, 14dvh, 150px);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 10px 12px;
+  overflow: hidden auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(155 126 255 / 0.55) transparent;
+}
+.edgeBody[data-pane="log"] { --ft: 1; padding: 6px; overflow: hidden; }
+.edgeBody > * { min-width: 0; }
+.edgeBody .tower,
+.edgeBody .masterWrap,
+.edgeBody .masterWrap[data-form="wide"] {
+  position: static;
+  width: 100%;
+}
+.edgeBody .tower { box-sizing: border-box; }
+
+/* The card peek slides out from the tabs (34px), not from the right of a dock (72px). */
+.preview[data-edge="true"] { left: 34px; }
+.preview[data-edge="true"]:not([data-open="true"]) { transform: translateX(calc(-100% - 34px)); }
+
+/* ---------- edge HUD bars: the turn controls in a slim row at the bottom right ---------- */
+/* The header pills ride 3px higher and the controls make a row of their own under the hand, so the board gets the whole height
+   between two 46px bars. A prompt opens above the row, over the board (it is a floating panel that appears for a decision only). */
+:global([data-edge-hud="true"]) .top { top: 5px; }
+:global([data-edge-hud="true"]) .corner {
+  bottom: 4px;
+  width: auto;
+  max-width: calc(100% - 44px);
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+:global([data-edge-hud="true"]) .corner > nav { width: auto; }
+/* The station track is a shared part: its compact stack (a column of three rows) becomes one row here. */
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="actions"] {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 3px 6px;
+}
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="chainSlot"],
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="chainSlot"] > * {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="primary"],
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="secondary"] {
+  width: auto;
+  min-height: 34px;
+  height: 34px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="chainSlot"] [class*="option"] {
+  min-height: 26px;
+  height: 26px;
+  font-size: calc(13px * var(--tt, 1));
+  min-width: 48px;
+  padding: 0 9px;
+}

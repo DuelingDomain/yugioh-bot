@@ -16,7 +16,7 @@ import roomStyles from "../room.module.css";
 import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNarrow } from "../side-panel";
 import { MatchSheetLog } from "../text-log";
 import { HistoryStrip } from "../table/history-strip";
-import { HudLayer, type HudPaneState } from "../table/hud-layer";
+import type { HudPaneState } from "../table/hud-layer";
 import { hudPreview } from "../table/hud-preview";
 import { hudMasterProps } from "../table/hud-shared";
 import { controllerLayout } from "../table/geometry";
@@ -29,6 +29,7 @@ import type { TableShellProps } from "../table/table-shell";
 import { useForkLabels } from "../table/fork-labels";
 import { pileSideForSeat } from "./live-tag";
 import { firstInspectCard } from "./tag-logic";
+import { TagDrawers } from "./tag-drawers";
 import styles from "./tag-side.module.css";
 
 /** The slice of `useTableUi` that the side panels read and write. The room passes the whole `TableUi`. */
@@ -52,8 +53,8 @@ function useSeatTones(controller: TableController) {
 }
 
 /**
- * The floating HUD of the wide Rooftop (`table/hud-layer.tsx`). With it, `TagSide` renders no columns: the HUD layer
- * (dock, flyouts, Deck Master plates, hover preview) and the prompt tray as a floating card. `camera` is the camera dock,
+ * The floating HUD of the wide Rooftop (`tag-drawers.tsx`). With it, `TagSide` renders no columns: the edge drawers
+ * (log, card, settings, camera, chain, Deck Masters; the hover preview) and the prompt tray as a floating card. `camera` is the camera dock,
  * a fourth dock icon.
  */
 export type TagSideHud = {
@@ -213,7 +214,7 @@ export function TagSide({
     return (
       <>
         <div className={styles.hudTray} data-tone={prompt?.context?.type === "chain" ? "chain" : "action"} data-empty={hud.trayVisible ? undefined : "true"} data-prompt-surface={prompt ? "" : undefined}>{trayNode}</div>
-        <HudLayer
+        <TagDrawers
           hud={hud.state}
           panels={{ card: cardPanel, log: logPanel, settings: settingsPanel, camera: hud.camera }}
           chain={engine.chain}

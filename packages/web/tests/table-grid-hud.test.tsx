@@ -59,69 +59,74 @@ function masterState(): TableFixtureState {
   return state;
 }
 
-const flyout = () => screen.getByTestId("hud-flyout");
-const isOpen = () => flyout().getAttribute("data-open") === "true";
+/** The side content is a set of left-edge drawers (bigger-field contract): a tab each, closed at rest, one open at most. */
+const drawer = (name: string) => document.querySelector<HTMLElement>(`[data-edge-drawer="${name}"]`)!;
+const tab = (name: string) => drawer(name).querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+const openNames = () => [...document.querySelectorAll<HTMLElement>('[data-edge-drawer][data-state="open"]')].map((node) => node.dataset.edgeDrawer);
+const isOpen = () => openNames().length > 0;
+const openName = () => openNames()[0] ?? null;
+const openTab = (name: string) => fireEvent.click(tab(name));
 
 describe("the floating HUD of the 4-way grid", () => {
-  it("shows the dock instead of the side columns, and nothing open at rest", () => {
+  it("shows the edge tabs instead of the dock and the side columns, and nothing open at rest", () => {
     const { container } = render(<Shell state={stateOf("main")} />);
     expect(container.querySelector("[data-hud='true']")).not.toBeNull();
+    expect(container.querySelector("[data-edge-hud='true']")).not.toBeNull();
     expect(screen.getByTestId("hud-top")).toBeTruthy();
     // No full-width bottom bar: the turn controls sit in the corner cluster.
     expect(screen.queryByTestId("hud-bottom")).toBeNull();
     expect(screen.getByTestId("hud-corner")).toBeTruthy();
-    for (const id of ["log", "settings"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
-    // The chain shows by itself (tower, strip and its sheet), so the dock has no Chain icon and the flyout no Chain tab.
-    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
-    // The old History pane only repeated the Log pane, so the dock has no History icon.
-    expect(screen.queryByTestId("hud-dock-history")).toBeNull();
+    for (const name of ["Log", "Settings", "Deck Master", "Inspect"]) expect(tab(name).getAttribute("aria-expanded")).toBe("false");
+    // The dock and its flyout are gone, and so is the History pane that only repeated the Log.
+    expect(screen.queryByTestId("hud-dock-log")).toBeNull();
+    expect(screen.queryByTestId("hud-flyout")).toBeNull();
+    // The Chain tab shows only while a chain is live.
+    expect(document.querySelector('[data-edge-drawer="Chain"]')).toBeNull();
     expect(isOpen()).toBe(false);
   });
 
-  it("opens a pane from its dock icon and closes it with the same icon", () => {
+  it("opens a drawer from its tab, swaps to another one, and closes with the same tab", () => {
     render(<Shell state={stateOf("main")} />);
-    fireEvent.click(screen.getByTestId("hud-dock-settings"));
-    expect(isOpen()).toBe(true);
-    expect(flyout().getAttribute("data-pane")).toBe("settings");
-    expect(screen.getByTestId("hud-dock-settings").getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    expect(flyout().getAttribute("data-pane")).toBe("log");
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    openTab("Settings");
+    expect(openName()).toBe("Settings");
+    expect(tab("Settings").getAttribute("aria-expanded")).toBe("true");
+    openTab("Log");
+    expect(openNames()).toEqual(["Log"]);
+    openTab("Log");
     expect(isOpen()).toBe(false);
   });
 
-  it("closes with Esc, with the close button and with a click outside, but not with a click inside", () => {
+  it("closes with Esc and with a click outside, but not with a click inside", () => {
     render(<Shell state={stateOf("main")} />);
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    fireEvent.pointerDown(within(flyout()).getByTestId("hud-tab-settings"));
+    openTab("Log");
+    fireEvent.pointerDown(within(drawer("Log")).getByRole("dialog", { name: "Log" }));
     expect(isOpen()).toBe(true);
+    // A press and click on another tab swaps to it.
+    fireEvent.pointerDown(tab("Settings"));
+    fireEvent.click(tab("Settings"));
+    expect(openNames()).toEqual(["Settings"]);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(isOpen()).toBe(false);
 
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    fireEvent.click(screen.getByTestId("hud-close"));
-    expect(isOpen()).toBe(false);
-
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    openTab("Log");
     fireEvent.pointerDown(document.body);
     expect(isOpen()).toBe(false);
   });
 
-  it("keeps the chain tower in view during a chain, with the flyout open or closed", () => {
+  it("keeps the chain tower in a Chain drawer during a chain, and glows its tab", () => {
     render(<Shell state={stateOf("chain-2")} />);
-    const tower = screen.getByTestId("chain-tower");
+    expect(tab("Chain").getAttribute("data-attention")).toBe("true");
+    const tower = within(drawer("Chain")).getByTestId("chain-tower");
     expect(tower.getAttribute("data-links")).toBe("2");
     // Newest link on top: link 2 is the card that resolves first.
     expect(within(tower).getAllByTestId("chain-row").map((row) => row.getAttribute("data-link"))).toEqual(["2", "1"]);
     expect(within(tower).getByText("Mystical Space Typhoon")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    expect(isOpen()).toBe(true);
-    expect(flyout().getAttribute("data-chain")).toBe("true");
-    expect(screen.getByTestId("chain-tower")).toBeTruthy();
-    expect(within(flyout()).queryByTestId("hud-tab-chain")).toBeNull();
-    expect(within(flyout()).queryByTestId("chain-row")).toBeNull();
+    expect(isOpen()).toBe(false);
+    openTab("Chain");
+    expect(openName()).toBe("Chain");
+    openTab("Log");
+    expect(openNames()).toEqual(["Log"]);
   });
-
 
   it("opens every link's details from the chain strip, as the tower has no Chain button", () => {
     render(<Shell state={stateOf("chain-2")} />);
@@ -158,6 +163,7 @@ describe("the Deck Master token", () => {
 
   it("shows short labels on the buttons and keeps the full option text as the accessible name", () => {
     render(<Shell state={masterState()} />);
+    openTab("Deck Master");
     const [summon, set] = screen.getAllByTestId("hud-master-action");
     expect(summon.textContent).toBe("Summon · 1,000 LP");
     expect(summon.getAttribute("aria-label")).toBe("Normal Summon Sage with Eyes of Blue · 1,000 LP");
@@ -185,11 +191,19 @@ describe("the Deck Master token", () => {
     expect(direct.getAttribute("title")).toBe("Attack directly with Sage with Eyes of Blue");
   });
 
-  it("starts as the compact plate with the small card", () => {
+  it("shows the wide plate in its drawer, closed at rest, with the whole card", () => {
     render(<Shell state={masterState()} />);
-    expect(screen.getByTestId("hud-master").dataset.form).toBe("compact");
-    const art = screen.getByTestId("hud-master-token").querySelector("span[aria-hidden]") as HTMLElement;
-    expect(art.style.backgroundImage).toMatch(/size=small/);
+    expect(isOpen()).toBe(false);
+    expect(screen.getByTestId("hud-master").dataset.form).toBe("wide");
+    expect(within(drawer("Deck Master")).getByTestId("hud-master-ability")).toBeTruthy();
+  });
+
+  it("glows the Deck Master tab only when a Deck Master action is open to you", () => {
+    const { unmount } = render(<Shell state={stateOf("main")} />);
+    expect(tab("Deck Master").getAttribute("data-attention")).toBe("false");
+    unmount();
+    render(<Shell state={masterState()} />);
+    expect(tab("Deck Master").getAttribute("data-attention")).toBe("true");
   });
 
   it("is tall only on a large screen with room for a card of 195px or more, never between the two forms", () => {
@@ -203,23 +217,27 @@ describe("the Deck Master token", () => {
 
   it("opens the details flyout from the token or from Inspect, and closes it", () => {
     render(<Shell state={stateOf("main")} />);
+    openTab("Deck Master");
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
     fireEvent.click(screen.getByTestId("hud-master-token"));
     const details = screen.getByTestId("hud-master-flyout");
     expect(within(details).getByTestId("hud-master-returns").textContent).toBe("1");
     expect(within(details).getByTestId("hud-master-cost").textContent).toBe("1000 LP");
     expect(within(details).getByTestId("hud-master-status").textContent).toBe("Elsewhere");
-    // The dock flyout stays closed: the details open beside the token, in the free margin.
-    expect(isOpen()).toBe(false);
+    expect(openName()).toBe("Deck Master");
+    // Esc shuts the drawer, and the details with it.
     fireEvent.keyDown(window, { key: "Escape" });
+    expect(isOpen()).toBe(false);
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
 
+    openTab("Deck Master");
     fireEvent.click(screen.getByTestId("hud-master-inspect"));
     expect(screen.getByTestId("hud-master-flyout")).toBeTruthy();
-    // Card view opens the full card in the dock flyout.
+    // Card view opens the full card in the Inspect drawer.
     fireEvent.click(screen.getByTestId("hud-master-card"));
-    expect(flyout().getAttribute("data-pane")).toBe("card");
-    expect(within(flyout()).getAllByText(/Black Luster Soldier/).length).toBeGreaterThan(0);
+    expect(openNames()).toEqual(["Inspect"]);
+    expect(within(drawer("Inspect")).getAllByText(/Black Luster Soldier/).length).toBeGreaterThan(0);
+    openTab("Deck Master");
     fireEvent.click(screen.getByTestId("hud-master-token"));
     fireEvent.click(screen.getByTestId("hud-master-close"));
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
@@ -231,6 +249,7 @@ describe("the Deck Master token", () => {
     // In the zone: the next summon is the engine cost (out of the zone the panel shows the post-recall cost).
     seat.deckMaster = { ...seat.deckMaster!, inZone: true, returns: 0, nextCost: 0 };
     render(<Shell state={state} />);
+    openTab("Deck Master");
     fireEvent.click(screen.getByTestId("hud-master-token"));
     expect(screen.getByTestId("hud-master-cost").textContent).toBe("Free");
   });
@@ -256,7 +275,7 @@ describe("the hover card preview", () => {
     expect(within(preview()).getByText("Celtic Guardian")).toBeTruthy();
     expect(within(preview()).getByText("1400 / 1200")).toBeTruthy();
     expect(within(preview()).getByText("Aster")).toBeTruthy();
-    // No Card flyout opens on a hover.
+    // No Inspect drawer opens on a hover.
     expect(isOpen()).toBe(false);
 
     fireEvent.mouseLeave(card);
@@ -354,7 +373,7 @@ describe("the pinned card peek of the 4-way grid", () => {
     const { container } = render(<Shell state={richState()} />);
     fireEvent.click(screen.getByRole("button", { name: /Graveyard \(2\)/ }));
     fireEvent.click(within(screen.getByRole("dialog")).getAllByRole("button", { name: /Grave \d/ })[0]);
-    expect(isOpen()).toBe(true);
+    expect(openName()).toBe("Inspect");
     expect(container.querySelectorAll("[data-testid='hover-preview'][data-pinned='true']")).toHaveLength(0);
   });
 
@@ -428,7 +447,7 @@ describe("the HUD of the 4-way grid with a prompt", () => {
   it("Esc closes an open flyout and does not answer the prompt", () => {
     const onAnswer = vi.fn();
     render(<Shell state={stateOf("chain-2")} onAnswer={onAnswer} />);
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    openTab("Log");
     expect(isOpen()).toBe(true);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(isOpen()).toBe(false);
@@ -438,7 +457,7 @@ describe("the HUD of the 4-way grid with a prompt", () => {
   it("an open flyout does not hold the other prompt keys: N still says no", () => {
     const onAnswer = vi.fn();
     render(<Shell state={stateOf("chain-2")} onAnswer={onAnswer} />);
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    openTab("Log");
     fireEvent.keyDown(window, { key: "n" });
     expect(isOpen()).toBe(true);
     expect(onAnswer).toHaveBeenCalledTimes(1);
@@ -446,7 +465,7 @@ describe("the HUD of the 4-way grid with a prompt", () => {
 
   it("leaves Esc to a modal dialog, and the flyout stays", () => {
     render(<Shell state={stateOf("main")} />);
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    openTab("Log");
     const modal = document.createElement("div");
     modal.setAttribute("aria-modal", "true");
     document.body.appendChild(modal);

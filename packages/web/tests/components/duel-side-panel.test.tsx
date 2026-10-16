@@ -209,11 +209,14 @@ describe("DuelHistoryRail unread rows", () => {
   });
 });
 
-describe("DuelRoomView panes (wide: the HUD flyout)", () => {
+describe("DuelRoomView panes (wide: the edge drawers)", () => {
+  const DRAWER = '[data-edge-drawer][data-state="open"]';
+  const drawer = (label: string) => document.querySelector<HTMLElement>(`[data-edge-drawer="${label}"]`)!;
+  const tab = (label: string) => drawer(label).querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+  const flyout = () => document.querySelector<HTMLElement>(DRAWER)!;
   function setup(events: DuelEvent[] = [summon(1, "Kaiba")]) {
     swr.data = makeRoom(events);
     const view = render(<DuelRoomView slug="abc" windowed />);
-    const flyout = () => screen.getByTestId("hud-flyout");
     const again = (next: DuelEvent[]) => {
       swr.data = makeRoom(next);
       view.rerender(<DuelRoomView slug="abc" windowed />);
@@ -221,16 +224,14 @@ describe("DuelRoomView panes (wide: the HUD flyout)", () => {
     return { flyout, again };
   }
 
-  it("has no side column, and the flyout is shut until a dock icon opens it", () => {
-    const { flyout } = setup();
+  it("has no side column, and every drawer is shut until its edge tab opens it", () => {
+    setup();
     expect(screen.queryByRole("complementary", { name: "Duel panels" })).toBeNull();
-    expect(flyout()).toHaveAttribute("data-open", "false");
-    expect(within(screen.getByTestId("hud-dock")).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Log", "Settings"]);
-    // The history list is mounted but hidden, so it keeps its rows.
-    const log = flyout().querySelector("#hud-panel-log");
-    expect(log).toHaveAttribute("hidden");
-    expect(log).toHaveAttribute("aria-labelledby", "hud-tab-log");
-    expect(log).toHaveTextContent("Kaiba");
+    expect(document.querySelector(DRAWER)).toBeNull();
+    expect([...document.querySelectorAll("[data-edge-drawer]")].map((el) => el.getAttribute("data-edge-drawer")).sort()).toEqual(["Card", "Log", "Settings"]);
+    // The history list stays mounted while its drawer is shut, so it keeps its rows.
+    expect(drawer("Log")).toHaveTextContent("Kaiba");
+    expect(drawer("Log").querySelector("[role='dialog']")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("has no Options gear in the header", () => {
@@ -238,12 +239,12 @@ describe("DuelRoomView panes (wide: the HUD flyout)", () => {
     expect(screen.queryByRole("button", { name: "Options" })).toBeNull();
   });
 
-  it("shows the settings in the Settings flyout", () => {
+  it("shows the settings in the Settings drawer", () => {
     window.localStorage.setItem(KEY, JSON.stringify({ v: 1, soundEnabled: true, motion: "system", volume: 0.4 }));
-    const { flyout } = setup();
-    fireEvent.click(screen.getByTestId("hud-dock-settings"));
-    expect(flyout()).toHaveAttribute("data-open", "true");
-    const panel = within(flyout()).getByRole("tabpanel", { name: "Settings" });
+    setup();
+    fireEvent.click(tab("Settings"));
+    expect(flyout()).toHaveAttribute("data-edge-drawer", "Settings");
+    const panel = within(flyout()).getByRole("region", { name: "Settings" });
     expect(within(panel).getByRole("heading", { name: "Presentation" })).toBeInTheDocument();
     const sound = within(panel).getByRole("switch", { name: "Sound effects" }) as HTMLInputElement;
     expect(sound.checked).toBe(true);
@@ -257,31 +258,34 @@ describe("DuelRoomView panes (wide: the HUD flyout)", () => {
     expect(JSON.parse(window.localStorage.getItem(KEY) ?? "{}").soundEnabled).toBe(false);
   });
 
-  it("opens a card clicked in the log in the Card flyout, and the log keeps its rows", () => {
-    const { flyout } = setup();
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+  it("opens a card clicked in the log in the Card drawer, and the log keeps its rows", () => {
+    setup();
+    fireEvent.click(tab("Log"));
     expect(screen.queryByLabelText("Pinned card")).toBeNull();
     fireEvent.click(within(flyout()).getByRole("button", { name: "Inspect Kaiba" }));
-    expect(within(flyout()).getByRole("tab", { name: "Card" })).toHaveAttribute("aria-selected", "true");
-    expect(within(flyout()).getByRole("tabpanel", { name: "Card" })).toHaveTextContent("Kaiba");
-    fireEvent.click(within(flyout()).getByRole("tab", { name: "Log" }));
+    expect(flyout()).toHaveAttribute("data-edge-drawer", "Card");
+    expect(within(flyout()).getByRole("region", { name: "Card" })).toHaveTextContent("Kaiba");
+    fireEvent.click(tab("Log"));
+    expect(flyout()).toHaveAttribute("data-edge-drawer", "Log");
     expect(within(flyout()).getByRole("button", { name: "Inspect Kaiba" })).toBeInTheDocument();
   });
 
-  it("badges the Log icon for rows that arrive while it is shut, and clears it on open", () => {
+  it("glows and counts the Log tab for rows that arrive while it is shut, and clears it on open", () => {
     const { again } = setup([summon(1, "Kaiba")]);
-    expect(screen.queryByTestId("hud-badge-log")).toBeNull();
+    expect(tab("Log")).toHaveAttribute("data-attention", "false");
     act(() => again([summon(1, "Kaiba"), summon(2, "Joey")]));
-    expect(screen.getByTestId("hud-badge-log")).toHaveTextContent("1");
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    expect(screen.queryByTestId("hud-badge-log")).toBeNull();
-    // Reading the log: a new row does not badge.
+    expect(tab("Log")).toHaveAttribute("data-attention", "true");
+    expect(tab("Log")).toHaveTextContent("1");
+    fireEvent.click(tab("Log"));
+    expect(tab("Log")).toHaveAttribute("data-attention", "false");
+    // Reading the log: a new row does not glow.
     act(() => again([summon(1, "Kaiba"), summon(2, "Joey"), summon(3, "Mai")]));
-    expect(screen.queryByTestId("hud-badge-log")).toBeNull();
+    expect(tab("Log")).toHaveAttribute("data-attention", "false");
     // Leaving the Log pane starts counting again.
-    fireEvent.click(screen.getByTestId("hud-dock-settings"));
+    fireEvent.click(tab("Settings"));
     act(() => again([summon(1, "Kaiba"), summon(2, "Joey"), summon(3, "Mai"), summon(4, "Tea")]));
-    expect(screen.getByTestId("hud-badge-log")).toHaveTextContent("1");
+    expect(tab("Log")).toHaveAttribute("data-attention", "true");
+    expect(tab("Log")).toHaveTextContent("1");
   });
 });
 
@@ -295,7 +299,7 @@ describe("DuelRoomView left column (narrow: the old tabs)", () => {
   it("keeps the phone layout and has no HUD", () => {
     swr.data = makeRoom([summon(1, "Kaiba")]);
     render(<DuelRoomView slug="abc" windowed />);
-    expect(screen.queryByTestId("hud-dock")).toBeNull();
+    expect(document.querySelector("[data-edge-drawer]")).toBeNull();
     expect(screen.queryByTestId("hud-top")).toBeNull();
   });
 });

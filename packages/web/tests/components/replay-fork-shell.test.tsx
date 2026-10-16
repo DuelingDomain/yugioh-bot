@@ -118,20 +118,16 @@ describe("a fork table keeps its camera when the acting seat changes", () => {
 });
 
 describe("a seat switch in a HUD layout", () => {
-  it("FFA4: keeps the open Log flyout", () => {
+  it("FFA4: keeps the open Log drawer", () => {
     const { container, rerender } = render(<ForkTable set={FFA4_FIXTURES} acting={0} resetKey="0:true" />);
-    const dock = container.querySelector("[data-testid='hud-dock']");
-    expect(dock).not.toBeNull();
-    const tabs = Array.from(dock!.querySelectorAll("button"));
-    const named = (re: RegExp) => tabs.find((tab) => re.test(tab.getAttribute("aria-label") ?? tab.textContent ?? ""));
-    const flyout = () => container.querySelector("[data-testid='hud-flyout']");
-    const log = named(/log/i)!;
-    expect(log).toBeTruthy();
-    if (log.getAttribute("aria-pressed") !== "true") fireEvent.click(log);
-    expect(flyout()).not.toBeNull();
+    const drawer = () => container.querySelector<HTMLElement>("[data-edge-drawer='Log']");
+    expect(drawer()).not.toBeNull();
+    const tab = () => drawer()!.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    if (tab().getAttribute("aria-expanded") !== "true") fireEvent.click(tab());
+    expect(drawer()!.getAttribute("data-state")).toBe("open");
     rerender(<ForkTable set={FFA4_FIXTURES} acting={1} resetKey="1:true" />);
-    expect(flyout()).not.toBeNull();
-    expect(named(/log/i)!.getAttribute("aria-pressed")).toBe("true");
+    expect(drawer()!.getAttribute("data-state")).toBe("open");
+    expect(tab().getAttribute("aria-expanded")).toBe("true");
   });
 });
 

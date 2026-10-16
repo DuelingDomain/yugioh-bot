@@ -239,10 +239,13 @@
  * column and the turn track give way to glass pills; the camera dock is the fourth dock icon. The board takes the rest.
  */
 .shell[data-hud="true"] {
-  --hud-top: 52px;
-  --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
-  /* The card peek always stands in the left column, right of the dock: the board starts right of it (see --pv-col-w in table/grid-hud.module.css). */
-  --hud-left: calc(72px + clamp(220px, 14vw, 284px) + 12px);
+  /* Slim bars: the header pills (36px, the clock block 44px) and the turn controls keep their rows; the board takes everything
+     else. The left column is gone: the log, settings, camera, card and Deck Master panels are edge drawers (tag-drawers.tsx),
+     closed until the viewer opens one, so nothing but the field stands left of the board. */
+  --hud-top: 48px;
+  --tag-th: clamp(48px, 4.6dvh, 56px);
+  --hud-bottom: calc(var(--tag-th) + 12px);
+  --hud-left: 14px;
 }
 .shell[data-hud="true"] .main {
   grid-template-columns: minmax(0, 1fr);
@@ -255,12 +258,13 @@
 }
 .hudNotices { top: var(--hud-top); z-index: 29; }
 /* A check note (unchecked banner, "checked" note, saved-board note) adds one row (about 26px and a gap) to the transport: the board keeps clear of it too. */
-.shell[data-hud="true"]:has([data-replay-unchecked], [data-replay-verified], [data-replay-saved-board]) { --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px + 32px); }
+.shell[data-hud="true"]:has([data-replay-unchecked], [data-replay-verified], [data-replay-saved-board]) { --hud-bottom: calc(var(--tag-th) + 12px + 32px); }
 
 /* ---------- bottom bar (floating HUD) ----------
    The phases live on the helipad now, so the bar keeps the hint of the phase and the turn controls, together at the
    bottom right. The empty seat block and the left of the bar stay clear of glass. */
 .tagBottom > nav[data-phases="hub"] {
+  --th: var(--tag-th);
   justify-content: flex-end;
   padding: 0;
 }

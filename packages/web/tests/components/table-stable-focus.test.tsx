@@ -351,7 +351,7 @@ describe("3-way: a click on a field never moves the camera; the button, E and En
   it("Esc while an attack is being aimed (no confirm dialog open) does not leave the enlarged field", () => {
     const { container } = render(<Table state={FFA3_FIXTURES.states["battle-aim"]} camera={{ mode: "focus", focusSeat: RYO }} />);
     expect(document.body.querySelector("[data-attack-confirm]")).toBeNull();
-    expect(document.querySelector("[role='dialog']:not([hidden]), [role='menu']:not([hidden])")).toBeNull();
+    expect(document.querySelector("[role='dialog']:not([hidden]):not([inert]), [role='menu']:not([hidden])")).toBeNull();
     // Whichever listener runs first, the camera must not rely on defaultPrevented: it has to know the aim owns the key.
     vi.spyOn(Event.prototype, "preventDefault").mockImplementation(() => {});
     fireEvent.keyDown(window, { key: "Escape" });
@@ -365,7 +365,7 @@ describe("3-way: a click on a field never moves the camera; the button, E and En
       engine.prompt = { ...source, cancelable: true } as typeof engine.prompt;
     });
     const { container } = render(<Table state={cancelable} camera={{ mode: "focus", focusSeat: RYO }} />);
-    expect(document.querySelector("[role='dialog']:not([hidden]), [role='menu']:not([hidden])")).toBeNull();
+    expect(document.querySelector("[role='dialog']:not([hidden]):not([inert]), [role='menu']:not([hidden])")).toBeNull();
     vi.spyOn(Event.prototype, "preventDefault").mockImplementation(() => {});
     fireEvent.keyDown(window, { key: "Escape" });
     const answers = info.mock.calls.filter((call) => call[0] === "[table-preview] answer").map((call) => (call[1] as { answer: unknown }).answer);

@@ -96,24 +96,38 @@
   --hud-master-bottom: 14px;
 }
 
-/* The 3-way plaza in the floating HUD: the board runs from edge to edge (the plaza keeps its fields clear of the dock,
-   the Deck Master plate and the corner itself, see `HUD_KEEP` in geometry.ts). The camera chip and its cue stand right
-   of the Deck Master plate, not under it. */
-.shell.shell[data-hud="true"][data-plaza-hud="true"] {
-  --hud-left: 14px;
-  /* The wide Deck Master plate (grid-master.tsx, data-form="wide") at the bottom left: 14px from the edge, this wide. */
-  --hud-master-w: clamp(208px, 16vw, 340px);
-  /* Its card and its ability box, at most this high. The dock flyouts (a sibling of the plate) read them to stop above it. */
-  --hud-master-art-h: clamp(120px, 18dvh, 250px);
-  --hud-master-ability-h: clamp(64px, 9dvh, 132px);
+/* The 4-way grid (edge drawers, grid-edge.tsx): no left column. The side panels are drawers behind 26px tabs at the left edge, and the turn
+   controls sit in a slim bar under the board, so the fields take the whole width and the height between two 46px bars. */
+.shell.shell[data-hud="true"][data-edge-hud="true"] {
+  --hud-top: 46px;
+  --hud-bottom: 50px;
+  --hud-left: 30px;
+  --hud-right: 14px;
 }
-@media (max-height: 599px) {
-  .shell.shell[data-hud="true"][data-plaza-hud="true"] { --hud-master-art-h: 100px; }
+/* A prompt for you opens right above the turn controls row, over the board's bottom right. */
+.shell.shell[data-hud="true"][data-edge-hud="true"] :global([data-testid="hud-corner"]) .hudPrompt[data-mode="float"],
+.shell.shell[data-hud="true"][data-edge-hud="true"] :global([data-testid="hud-corner"]) .hudPrompt[data-mode="flow"] {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  width: max-content;
+  min-width: 220px;
+}
+
+/* The 3-way plaza: the board runs edge to edge and top to bottom (bigger field). The header pills float over the stage's
+   empty top band and the rival fields keep clear of that band (`PLAZA_HUD_KEEP` in geometry.ts); the side content is in
+   edge drawers (plaza-drawers.tsx), so no margin is reserved for a dock, a chain tower or a Deck Master plate. The vars
+   stay set (to 0) because the field cracks and the turn glow read them. */
+.shell.shell[data-hud="true"][data-plaza-hud="true"] {
+  --hud-top: 0px;
+  --hud-bottom: 0px;
+  --hud-left: 0px;
+  --hud-right: 0px;
 }
 
 .shell.shell[data-plaza-hud="true"] :global([data-camera-chip]),
 .shell.shell[data-plaza-hud="true"] :global([data-camera-cue]) {
-  left: calc(14px + var(--hud-master-w) + 12px);
+  left: 14px;
 }
 
 .shell.shell[data-hud="true"] .hudLayout {
@@ -315,9 +329,10 @@
   container-type: inline-size;
   pointer-events: auto;
 }
-/* The plaza keeps its Deck Master plate at the bottom left: the strip starts right of it. */
+/* The plaza has no margin at the left: the strip starts 14px in. */
 .shell.shell[data-plaza-hud="true"] .replayStrip {
-  left: calc(14px + var(--hud-master-w) + 12px);
+  left: 14px;
+  right: 14px;
 }
 /* Every other layout: a full-width row between the board and the station track. */
 .replayBar {

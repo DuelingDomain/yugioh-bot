@@ -41,29 +41,42 @@ function TagMain() {
   return <TagShell controller={controller} teamNames={[...TAG_TEAM_NAMES] as [string, string]} fxActive={false} />;
 }
 
-const flyout = () => screen.getByTestId("hud-flyout");
+/** The 3-way plaza, the 4-way grid and the Tag Rooftop keep their side content in closed edge drawers (a tab each). */
+const drawer = (name: string) => document.querySelector<HTMLElement>(`[data-edge-drawer="${name}"]`)!;
+const tabOf = (name: string) => drawer(name).querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+const tagTab = (id: string) => screen.getByTestId(`hud-drawer-${id}`).querySelector("button[aria-controls]") as HTMLElement;
+const openDrawer = () => document.querySelector("[data-edge-drawer][data-state='open']") as HTMLElement;
+type Kind = "grid" | "tag";
+/** Opens the history and returns the element that holds it. */
+function openLog(kind: Kind) {
+  if (kind === "tag") fireEvent.click(tagTab("log"));
+  else fireEvent.click(tabOf("Log"));
+  return kind === "tag" ? openDrawer() : drawer("Log");
+}
 
-const MODES: Array<{ name: string; ui: () => React.ReactElement; rivals: string[]; hidden: string; camera: boolean }> = [
-  { name: "3-way free-for-all", ui: () => <TableMain set={FFA3_FIXTURES} />, rivals: ["Ryo Sato", "Mika Hana"], hidden: TABLE_CARDS.mirrorForce.name, camera: true },
-  { name: "4-way free-for-all", ui: () => <TableMain set={FFA4_FIXTURES} />, rivals: ["Rook", "Juniper", "Mirelle"], hidden: TABLE_CARDS.mirrorForce.name, camera: false },
-  { name: "2v2 Tag", ui: () => <TagMain />, rivals: ["Mirelle Quay", "Juniper Rook"], hidden: TABLE_CARDS.torrential.name, camera: true },
+const MODES: Array<{ name: string; ui: () => React.ReactElement; rivals: string[]; hidden: string; camera: boolean; kind: Kind; cardDrawer: string }> = [
+  { name: "3-way free-for-all", ui: () => <TableMain set={FFA3_FIXTURES} />, rivals: ["Ryo Sato", "Mika Hana"], hidden: TABLE_CARDS.mirrorForce.name, camera: true, kind: "grid", cardDrawer: "Card" },
+  { name: "4-way free-for-all", ui: () => <TableMain set={FFA4_FIXTURES} />, rivals: ["Rook", "Juniper", "Mirelle"], hidden: TABLE_CARDS.mirrorForce.name, camera: false, kind: "grid", cardDrawer: "Inspect" },
+  { name: "2v2 Tag", ui: () => <TagMain />, rivals: ["Mirelle Quay", "Juniper Rook"], hidden: TABLE_CARDS.torrential.name, camera: true, kind: "tag", cardDrawer: "Card" },
 ];
 
-describe.each(MODES)("the duel log on the $name table", ({ ui, rivals, hidden, camera }) => {
-  it("has a Log icon in the dock, next to Settings and Camera, that opens the history", () => {
+describe.each(MODES)("the duel log on the $name table", ({ ui, rivals, hidden, camera, kind, cardDrawer }) => {
+  it("has a Log control next to Settings (and Camera), that opens the history", () => {
     render(ui());
-    for (const id of ["log", "settings", ...(camera ? ["camera"] : [])]) expect(screen.getByTestId(`hud-dock-${id}`), id).toBeTruthy();
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    expect(flyout().getAttribute("data-pane")).toBe("log");
-    const tabs = within(flyout()).getAllByRole("tab").map((tab) => tab.textContent);
-    expect(tabs).toEqual(expect.arrayContaining(["Log", "Settings", ...(camera ? ["Camera"] : [])]));
-    expect(within(flyout()).getByRole("region", { name: "Duel history events" })).toBeTruthy();
+    if (kind === "grid") {
+      for (const name of ["Log", "Settings", camera ? "Camera" : "Inspect"]) expect(tabOf(name), name).toBeTruthy();
+    } else {
+      for (const id of ["log", "settings", ...(camera ? ["camera"] : [])]) expect(screen.getByTestId(`hud-drawer-${id}`), id).toBeTruthy();
+    }
+    const panel = openLog(kind);
+    expect(panel.getAttribute("data-edge-drawer")).toBe("Log");
+    expect(panel.getAttribute("data-state")).toBe("open");
+    expect(within(panel).getByRole("region", { name: "Duel history events" })).toBeTruthy();
   });
 
   it("names the player on each entry, rivals included, and marks you as YOU", () => {
     render(ui());
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    const history = within(flyout()).getByRole("region", { name: "Duel history events" });
+    const history = within(openLog(kind)).getByRole("region", { name: "Duel history events" });
     expect(within(history).getAllByText(/^you$/i).length).toBeGreaterThan(0);
     const text = history.textContent?.toLowerCase() ?? "";
     for (const name of rivals) expect(text, name).toContain(name.toLowerCase().split(" ")[0]);
@@ -71,8 +84,7 @@ describe.each(MODES)("the duel log on the $name table", ({ ui, rivals, hidden, c
 
   it("writes the seat colour marker and the player name in the Text log", () => {
     const { container } = render(ui());
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    fireEvent.click(within(flyout()).getByText("Text log"));
+    fireEvent.click(within(openLog(kind)).getByText("Text log"));
     const seats = [...container.querySelectorAll("details b[data-seat]")];
     expect(seats.length).toBeGreaterThan(0);
     expect(seats.some((node) => node.getAttribute("data-seat") !== "0")).toBe(true);
@@ -86,22 +98,30 @@ describe.each(MODES)("the duel log on the $name table", ({ ui, rivals, hidden, c
 
   it("keeps a face-down card hidden in both logs", () => {
     const { container } = render(ui());
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    fireEvent.click(within(flyout()).getByText("Text log"));
+    fireEvent.click(within(openLog(kind)).getByText("Text log"));
     expect(container.textContent).not.toContain(hidden);
   });
 
-  it("opens a card clicked in the log in the Card tab, and the log keeps its rows", () => {
+  it("opens a card clicked in the log in the Card view, and the log keeps its rows", () => {
     render(ui());
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    const thumb = within(flyout()).getAllByRole("button").find((node) => /^Inspect (?!card$)/.test(node.getAttribute("aria-label") ?? ""))!;
+    const panel = openLog(kind);
+    const thumb = within(panel).getAllByRole("button").find((node) => /^Inspect (?!card$)/.test(node.getAttribute("aria-label") ?? ""))!;
     expect(thumb).toBeTruthy();
     const name = (thumb.getAttribute("aria-label") ?? "").replace(/^Inspect /, "");
     fireEvent.click(thumb);
-    expect(within(flyout()).getByRole("tab", { name: "Card" }).getAttribute("aria-selected")).toBe("true");
-    expect(within(flyout()).getByRole("tabpanel", { name: "Card" }).textContent).toContain(name);
-    fireEvent.click(within(flyout()).getByRole("tab", { name: "Log" }));
-    expect(within(flyout()).getByRole("region", { name: "Duel history events" })).toBeTruthy();
+    if (kind === "grid") {
+      // The card opens in its own drawer, which takes the place of the Log drawer.
+      expect(drawer(cardDrawer).getAttribute("data-state")).toBe("open");
+      expect(drawer(cardDrawer).textContent).toContain(name);
+      fireEvent.click(tabOf("Log"));
+      expect(within(drawer("Log")).getByRole("region", { name: "Duel history events" })).toBeTruthy();
+      return;
+    }
+    // Tag: the Card drawer takes over from the Log drawer, and the Log drawer keeps its rows once reopened.
+    expect(openDrawer().getAttribute("data-edge-drawer")).toBe("Card");
+    expect(openDrawer().textContent).toContain(name);
+    fireEvent.click(tagTab("log"));
+    expect(within(openDrawer()).getByRole("region", { name: "Duel history events" })).toBeTruthy();
   });
 });
 

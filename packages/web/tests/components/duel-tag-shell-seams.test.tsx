@@ -115,7 +115,7 @@ describe("TagShell seams for the room", () => {
 
   it("shows the settings tools in the Settings tab", () => {
     const { container, getByTestId } = render(<Shell settingsTools={<button type="button">Archive table</button>} />);
-    act(() => void fireEvent.click(getByTestId("hud-dock-settings")));
+    act(() => void fireEvent.click(getByTestId("hud-drawer-settings").querySelector("button[aria-controls]") as HTMLElement));
     expect(container.textContent).toContain("Archive table");
   });
 
@@ -181,7 +181,7 @@ describe("TagShell seams for the room", () => {
 
   it("uses one preferences object for the header toggle and the Settings tab", () => {
     const { container, getByTestId } = render(<Shell />);
-    act(() => void fireEvent.click(getByTestId("hud-dock-settings")));
+    act(() => void fireEvent.click(getByTestId("hud-drawer-settings").querySelector("button[aria-controls]") as HTMLElement));
     const toggle = container.querySelector("[data-sound-toggle]") as HTMLElement;
     const sw = () => container.querySelector("input[role='switch']") as HTMLInputElement;
     const before = sw().checked;

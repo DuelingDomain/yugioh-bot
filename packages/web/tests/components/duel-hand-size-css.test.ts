@@ -16,7 +16,7 @@ describe("your hand is drawn larger than the strip reserves", () => {
 
   it("sizes the strip and its lift reserve from the reserved height, not the drawn height", () => {
     expect(css).toMatch(/--bot-res: calc\(var\(--lh-rest\)/);
-    expect(css).toMatch(/--bot-h: max\(var\(--tally-h\), calc\(var\(--lh-rest\)/);
+    expect(css).toMatch(/--bot-h: max\(var\(--strip-floor\), calc\(var\(--lh-rest\)/);
     expect(css).toMatch(/--bot-h: calc\(var\(--tally-h\) \+ var\(--gs\) \+ var\(--lh-rest\)/);
     expect(css).toMatch(/grid-template-rows: var\(--tally-h\) calc\(var\(--lh-rest\)/);
   });
@@ -27,12 +27,15 @@ describe("your hand is drawn larger than the strip reserves", () => {
     expect(css).toMatch(/\.handLocal \{\s*--cardw: var\(--lhcw\);/);
   });
 
-  it("keeps the HUD room hand inside its strip so it barely reaches the Spell/Trap row", () => {
-    // --lk 0.89 + the 0.95 drawn size leave a small part of a zone height of overlap; no lift reserve (cards that lift
-    // rise over the row), and the strip has no bottom reserve because the room has no station track.
-    expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lk: 0\.89;/);
+  it("keeps the HUD room hand resting at the bottom edge of the screen, clear of the Spell/Trap row", () => {
+    // The strip (--lk 0.55 of a zone) holds the top of the cards; the rest of each card hangs below the screen edge
+    // (--hand-sink), so no resting card covers a zone. No lift reserve (cards that lift rise over the row), and the strip
+    // has no bottom reserve because the room has no station track.
+    expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lk: 0\.55;/);
+    expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--hand-sink: max\(0px, calc\(var\(--lh\) - var\(--lh-rest\) - var\(--hpad\)\)\);/);
     expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lift-k: 0;[^}]*--mark-k: 0;/);
-    expect(css).not.toMatch(/@media \(hover: none\) \{\s*:global\(\[data-hud="room"\]\)/);
+    // Touch screens (no hover) rest legal and selected cards raised by --hand-sink, so the ATK/DEF plate shows.
+    expect(css).toMatch(/@media \(hover: none\) \{\s*:global\(\[data-hud="room"\]\) \.handLocal \.handCard \.zone\[data-legal="true"\] \.frame \{\s*transform: translateY\(calc\(var\(--lh\) \* -0\.05 - var\(--hand-sink, 0px\)\)\);/);
   });
 
   it("lets only the resting box of a HUD room hand card take the pointer, never the grown hover picture", () => {
@@ -43,15 +46,15 @@ describe("your hand is drawn larger than the strip reserves", () => {
     expect(css).toMatch(/\.zone\[data-selected="true"\] \.zoneHit::before \{\s*height: calc\(var\(--lh\) \* 0\.12\);/);
   });
 
-  it("draws the rival's HUD room hand about 30% larger and keeps its peek under the header pills", () => {
-    // 0.47 / 0.36 = 1.31 times the old backs. The part above the board (--ohk x --top-hide = 0.18 zone) is what it was
-    // (0.36 x 0.5), so the cards grow downward into the strip the LP tally holds open and never reach the pills.
+  it("hangs the rival's HUD room hand from the top edge of the screen, with the same backs or larger than the old 0.36", () => {
+    // Most of each back is hidden above the board (--top-hide); the bar in the top margin is slim and stands beside the
+    // board, so the visible part (--ohk x --top-hide) peeks about a fifth of a zone.
     const hud = /\[data-hud="room"\]\) \.playmat \{([^}]*)\}/.exec(css)?.[1] ?? "";
     const ohk = Number(/--ohk: ([\d.]+);/.exec(hud)?.[1]);
     const hide = Number(/--top-hide: ([\d.]+);/.exec(hud)?.[1]);
-    expect(ohk / 0.36).toBeGreaterThanOrEqual(1.25);
+    expect(ohk / 0.36).toBeGreaterThanOrEqual(1.2);
     expect(ohk / 0.36).toBeLessThanOrEqual(1.4);
-    expect(ohk * hide).toBeLessThanOrEqual(0.36 * 0.5 + 0.005);
+    expect(ohk * hide).toBeLessThanOrEqual(0.25);
     // The layout reserve (--ohkr = ohk x (1 - hide + 0.05)) stays near the old 0.198, so the board frame does not shrink.
     expect(ohk * (1 - hide + 0.05)).toBeLessThanOrEqual(0.33);
   });
@@ -70,7 +73,7 @@ describe("your hand is drawn larger than the strip reserves", () => {
     expect(strip).toMatch(/height: calc\(var\(--lh\) \* 1\.12 \+ 6px\);/);
     expect(strip).not.toMatch(/transform|scale|translate/);
     // The hover zoom reads one variable (2x elsewhere); the 3-way table zooms less because its card is already larger.
-    expect(css.match(/scale\(var\(--hand-hover, 2\)\)/g)).toHaveLength(3);
+    expect(css.match(/scale\(var\(--hand-hover, 2\)\)/g)).toHaveLength(6);
     expect(Number(/--hand-hover: ([\d.]+);/.exec(block)?.[1])).toBeGreaterThanOrEqual(1.5);
     // The 4-way grid keeps its own size (--sf-lh) and the default hand stays 0.76.
     expect(css).toMatch(/--lh: var\(--sf-lh, calc\(var\(--z\) \* 0\.76\)\);/);

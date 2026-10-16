@@ -50,6 +50,7 @@ import { tributeState } from "./tribute-pick";
 import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place";
 import base from "./prompts.module.css";
 import baseStyles from "./prompt-center.module.css";
+import { anyEdgeDrawerOpen } from "./edge-drawer";
 import { useSkinExtra, useSkinStyles } from "./skin";
 import { useForkLabels } from "./table/fork-labels";
 import { useMedia } from "@/components/draft/room/use-media";
@@ -1708,7 +1709,8 @@ export function PromptCenter(props: PromptCenterProps) {
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       if (event.metaKey || event.ctrlKey || event.altKey || menuRef.current) return;
-      if (event.key === "Escape" && escapeHeldRef.current) return;
+      // An open edge drawer owns Escape too (it closes on it).
+      if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen())) return;
       // A menu owns its keys: Escape closes it, and n / y in it must not answer the prompt behind.
       if (event.target instanceof Element && event.target.closest("[data-duel-menu],[role='menu']")) return;
       if (kindRef.current == null || barRef.current) return;

@@ -1374,6 +1374,26 @@ button.bpill[data-targets="true"] { border-color: rgb(240 192 96 / 0.85); }
   pointer-events: none;
 }
 
+/* ---------- slim bars (wide screens) ----------
+   The bigger field: a team plate is one slim row (team, state and life points on one line, then the two member chips, each on one line),
+   so the plates take less height and the roof gets the room. The hands are a little larger, and the field takes the
+   rest of the stage (see measure() in tag-stage.tsx). */
+@media (min-width: 901px) {
+  .plate { gap: calc(8 * var(--u)); padding: calc(3 * var(--u)) calc(6 * var(--u)) calc(3 * var(--u)) calc(9 * var(--u)); }
+  .pmain { display: flex; align-items: center; gap: calc(10 * var(--u)); min-width: 0; }
+  .pr1 { height: auto; gap: 6px; }
+  .pr1 .glyph { font-size: calc(14 * var(--u)); }
+  .tstate { margin-left: 0; }
+  .pr2 { margin: 0; --lp-size: calc(21 * var(--u)); }
+  .mchip { display: flex; align-items: center; gap: calc(8 * var(--u)); }
+  .m2 { margin-top: 0; }
+  .clk { margin-left: 0; }
+  .mthumb { top: calc(-4 * var(--u)); right: calc(-3 * var(--u)); width: calc(17 * var(--u)); height: calc(25 * var(--u)); }
+  .handDock { height: calc(117 * var(--u)); }
+  .hcard { width: calc(65 * var(--u)); }
+  .pcd { width: calc(49 * var(--u)); }
+}
+
 /* ---------- narrow screens: the plate, the own hand and the partner hand stack at the bottom ----------
    No room for them side by side. The plate takes the bottom row; --plate-h and --hand-h come from apply() in tag-stage.tsx. */
 @media (max-width: 900px) {

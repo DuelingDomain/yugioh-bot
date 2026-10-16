@@ -64,14 +64,21 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("[data-dim], [data-dimmed]")).toBeNull();
   });
 
-  it("shows the floating HUD of the 4-way grid: the dock with Log, Settings and Camera, no Chain, no rail and no bottom bar", () => {
+  it("keeps the side content in closed edge drawers: Log, Settings and Camera, no Chain, no rail and no bottom bar", () => {
     const { container } = render(<Shell id="main" />);
     expect(container.querySelector("[data-hud='true'][data-plaza-hud='true']")).not.toBeNull();
     expect(container.querySelector("nav[aria-label='Duel phases']")).not.toBeNull();
     expect(container.querySelectorAll("[aria-label='Turn order'] li")).toHaveLength(3);
     expect(container.querySelector("[data-testid='seat-strip']")).not.toBeNull();
-    for (const id of ["log", "settings", "camera"]) expect(container.querySelector(`[data-testid='hud-dock-${id}']`), id).not.toBeNull();
-    expect(container.querySelector("[data-testid='hud-dock-chain']")).toBeNull();
+    for (const label of ["Deck Master", "Card", "Log", "Settings", "Camera"]) {
+      const drawer = container.querySelector(`[data-edge-drawer='${label}']`);
+      expect(drawer, label).not.toBeNull();
+      expect(drawer!.getAttribute("data-state"), `${label} starts closed`).toBe("closed");
+    }
+    expect(container.querySelector("[data-edge-drawer='Chain']")).toBeNull();
+    // No dock and no floating flyout: nothing stands on the field at rest.
+    expect(container.querySelector("[data-testid^='hud-dock-']")).toBeNull();
+    expect(container.querySelector("[data-testid='hud-flyout']")).toBeNull();
     expect(container.querySelector("[data-testid='table-rail']")).toBeNull();
     expect(container.querySelector("[data-testid='table-drawer']")).toBeNull();
     // The turn controls sit in the bottom-right corner cluster, not in a full-width bottom bar.
@@ -103,9 +110,10 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
   it("has the Log pane of the 1v1 duel behind the dock, and no history strip", () => {
     const { container } = render(<Shell id="main" />);
     expect(container.querySelector("[data-testid='history-strip']")).toBeNull();
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    expect(container.querySelector("[data-testid='hud-tab-log']")).not.toBeNull();
-    expect(within(screen.getByTestId("hud-flyout")).getByRole("region", { name: "Duel history events" })).toBeTruthy();
+    const drawer = container.querySelector("[data-edge-drawer='Log']") as HTMLElement;
+    fireEvent.click(within(drawer).getByRole("button", { name: /Log/ }));
+    expect(drawer.getAttribute("data-state")).toBe("open");
+    expect(within(drawer).getByRole("region", { name: "Duel history events" })).toBeTruthy();
   });
 
   it("lists who may answer an open chain, in order, on the chain panel; no chain, no list", () => {
@@ -127,14 +135,16 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(sheet.querySelectorAll("[data-chain-row]")).toHaveLength(2);
   });
 
-  it("puts rival Deck Masters on the holo panels, your own on the HUD plate, and the camera panel behind the Camera dock icon", () => {
+  it("puts rival Deck Masters on the holo panels, your own on the HUD plate, and the camera panel in the Camera drawer", () => {
     const { container } = render(<Shell id="main" />);
     expect(container.querySelector("[data-testid='hud-master']")).not.toBeNull();
     expect(container.querySelector("[data-docks]")).toBeNull();
     const thumbs = [...container.querySelectorAll("[data-master-thumb]")].map((node) => node.getAttribute("data-master-thumb")).sort();
     expect(thumbs).toEqual(["1", "2"]);
-    act(() => void fireEvent.click(container.querySelector("[data-testid='hud-dock-camera']")!));
-    expect(container.querySelector("[data-testid='hud-flyout'] [data-camera-panel]")).not.toBeNull();
+    const drawer = container.querySelector("[data-edge-drawer='Camera']") as HTMLElement;
+    act(() => void fireEvent.click(within(drawer).getByRole("button", { name: /Camera/ })));
+    expect(drawer.getAttribute("data-state")).toBe("open");
+    expect(drawer.querySelector("[data-camera-panel]")).not.toBeNull();
   });
 
   it("marks the duelist who left and keeps playing on", () => {

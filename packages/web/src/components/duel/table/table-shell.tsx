@@ -57,6 +57,7 @@ import { CAPTION_TEXT, useFinalDuel } from "./final-duel-caption";
 import { finaleBoard } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { hudPreview } from "./hud-preview";
+import { PlazaDrawers } from "./plaza-drawers";
 import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./hud-shared";
 import { gridCells, usesGridLayout } from "./grid-layout";
@@ -626,6 +627,9 @@ function TableShellBody({
   </div>
   );
 
+  // The 3-way plaza keeps its side content in edge drawers (plaza-drawers.tsx); the grid and the other tables keep the floating HUD.
+  const HudLayerView = plazaHud ? PlazaDrawers : HudLayer;
+
   return (
     <div
       ref={rootRef}
@@ -639,6 +643,7 @@ function TableShellBody({
       data-fit="true"
       data-grid={grid ? "true" : undefined}
       data-hud={hud ? "true" : undefined}
+      data-edge-hud={hud && grid ? "true" : undefined}
       data-plaza-hud={plazaHud ? "true" : undefined}
       data-replay={replay ? "true" : undefined}
       data-phase={battle ? "battle" : undefined}
@@ -927,7 +932,7 @@ function TableShellBody({
         </>
       )}
       {hud ? (
-        <HudLayer
+        <HudLayerView
           hud={hudState}
           panels={{
             card: cardPanel,
@@ -957,6 +962,7 @@ function TableShellBody({
           reducedMotion={controller.reducedMotion}
           hoverAnchor={ui.hover?.anchor ?? null}
           ownSeats={[viewerSeat ?? layout.anchorSeat]}
+          edge={grid}
         />
       ) : null}
       {narrow ? <TablePhonePanes domain={domain} pane={ui.pane} open={sheetOpen} unread={logUnread}

@@ -60,11 +60,15 @@ function Shell({ id = "main", domain = false, fx = false, tweak }: { id?: StateI
   return <TagShell controller={tweak ? tweak(shown) : shown} teamNames={[...TAG_TEAM_NAMES] as [string, string]} fxActive={fx} />;
 }
 
-const flyout = () => screen.getByTestId("hud-flyout");
-const isOpen = () => flyout().getAttribute("data-open") === "true";
+/** The side panels are edge drawers (tag/tag-drawers.tsx): a wrapper per drawer, the tab inside it, the open state on the drawer root. */
+const drawer = (id: string) => screen.getByTestId(`hud-drawer-${id}`);
+const tabOf = (id: string) => drawer(id).querySelector("button[aria-controls]") as HTMLElement;
+const rootOf = (id: string) => drawer(id).querySelector("[data-edge-drawer]") as HTMLElement;
+const openNames = () => [...document.querySelectorAll("[data-edge-drawer][data-state='open']")].map((node) => node.getAttribute("data-edge-drawer"));
+const isOpen = () => openNames().length > 0;
 
 describe("the floating HUD of the Tag Rooftop", () => {
-  it("swaps the header, the side columns and the camera column for the pills and the dock", () => {
+  it("swaps the header, the side columns and the camera column for the pills and the edge tabs", () => {
     media(false);
     const { container } = render(<Shell />);
     expect(container.querySelector("[data-hud='true']")).not.toBeNull();
@@ -72,10 +76,12 @@ describe("the floating HUD of the Tag Rooftop", () => {
     expect(screen.getByTestId("hud-top").hasAttribute("data-tag-header")).toBe(true);
     expect(screen.getByTestId("hud-bottom")).toBeTruthy();
     expect(container.querySelector("[aria-label='Camera'][class*='right']")).toBeNull();
-    for (const id of ["log", "settings", "camera"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
-    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
-    expect(screen.queryByTestId("hud-dock-history")).toBeNull();
+    for (const id of ["log", "card", "settings", "camera"]) expect(tabOf(id)).toBeTruthy();
+    expect(screen.queryByTestId("hud-drawer-chain")).toBeNull();
+    expect(screen.queryByTestId("hud-dock")).toBeNull();
+    // Closed by default: nothing but the thin tabs stands beside the field.
     expect(isOpen()).toBe(false);
+    expect(rootOf("log").getAttribute("data-side")).toBe("left");
   });
 
   it("keeps the turn, the team and the turn order in the top pill", () => {
@@ -88,34 +94,46 @@ describe("the floating HUD of the Tag Rooftop", () => {
     expect(top.getByRole("button", { name: /Sound effects/ })).toBeTruthy();
   });
 
-  it("opens a pane from its icon and closes it with the same icon, Esc or a click outside", () => {
+  it("opens a pane from its tab and closes it with the same tab, its X, Esc or a click outside", () => {
     media(false);
     render(<Shell />);
-    fireEvent.click(screen.getByTestId("hud-dock-settings"));
-    expect(flyout().getAttribute("data-pane")).toBe("settings");
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
-    expect(flyout().getAttribute("data-pane")).toBe("log");
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.click(tabOf("settings"));
+    expect(openNames()).toEqual(["Settings"]);
+    fireEvent.click(tabOf("log"));
+    expect(openNames()).toEqual(["Log"]);
+    fireEvent.click(tabOf("log"));
     expect(isOpen()).toBe(false);
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.click(tabOf("log"));
+    fireEvent.click(within(drawer("log")).getByTestId("hud-close"));
+    expect(isOpen()).toBe(false);
+    fireEvent.click(tabOf("log"));
     fireEvent.keyDown(window, { key: "Escape" });
     expect(isOpen()).toBe(false);
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.click(tabOf("log"));
     fireEvent.pointerDown(document.body);
     expect(isOpen()).toBe(false);
   });
 
-  it("holds the camera dock in the fourth flyout, with the seat buttons", () => {
+  it("opens the log with its key and keeps a press inside an open drawer from closing it", () => {
     media(false);
-    const { container } = render(<Shell />);
-    fireEvent.click(screen.getByTestId("hud-dock-camera"));
-    expect(flyout().getAttribute("data-pane")).toBe("camera");
-    expect(within(flyout()).getByRole("tabpanel").querySelector("[data-camera-dock]")).not.toBeNull();
-    expect(container.querySelectorAll("[data-camera-dock]")).toHaveLength(1);
-    expect(within(flyout()).getByRole("tabpanel").querySelector("[data-seat-btn='2']")).not.toBeNull();
+    render(<Shell />);
+    fireEvent.keyDown(document, { key: "l" });
+    expect(openNames()).toEqual(["Log"]);
+    fireEvent.pointerDown(within(drawer("log")).getByTestId("hud-close"));
+    expect(openNames()).toEqual(["Log"]);
   });
 
-  it("keeps the camera keys working while the camera flyout is shut", () => {
+  it("holds the camera dock in the camera drawer, with the seat buttons", () => {
+    media(false);
+    const { container } = render(<Shell />);
+    fireEvent.click(tabOf("camera"));
+    expect(openNames()).toEqual(["Camera"]);
+    expect(drawer("camera").querySelector("[data-camera-dock]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-camera-dock]")).toHaveLength(1);
+    expect(drawer("camera").querySelector("[data-seat-btn='2']")).not.toBeNull();
+  });
+
+  it("keeps the camera keys working while the camera drawer is shut", () => {
     media(false);
     const { container } = render(<Shell />);
     const seat = () => container.querySelector("[data-seat-btn='2']")?.getAttribute("aria-pressed");
@@ -124,11 +142,15 @@ describe("the floating HUD of the Tag Rooftop", () => {
     expect(seat()).toBe("true");
   });
 
-  it("shows the chain tower under the dock while a chain is live", () => {
+  it("keeps the chain tower in a gold edge drawer while a chain is live, shut until opened", () => {
     media(false);
     render(<Shell id="chain-2" />);
     expect(screen.getByTestId("chain-tower").getAttribute("data-links")).toBe("2");
-    expect(screen.queryByTestId("hud-dock-chain")).toBeNull();
+    expect(rootOf("chain").getAttribute("data-state")).toBe("closed");
+    expect(tabOf("chain").getAttribute("data-tone")).toBe("gold");
+    expect(tabOf("chain").getAttribute("data-attention")).toBe("true");
+    fireEvent.click(tabOf("chain"));
+    expect(openNames()).toEqual(["Chain"]);
   });
 
   it("opens every link's details from the chain strip, as the tower has no Chain button", () => {
@@ -145,6 +167,7 @@ describe("the floating HUD of the Tag Rooftop", () => {
     media(false);
     render(<Shell />);
     expect(screen.queryByTestId("chain-tower")).toBeNull();
+    expect(screen.queryByTestId("hud-drawer-chain")).toBeNull();
   });
 
   it("keeps the prompt tray in the floating card: a prompt another seat owns shows there", () => {
@@ -175,11 +198,11 @@ describe("the floating HUD of the Tag Rooftop", () => {
     expect(container.querySelector("[data-phase-hub-slot]")).toBeNull();
   });
 
-  it("keeps the old layout on a narrow screen: no dock, no pills", () => {
+  it("keeps the old layout on a narrow screen: no edge drawers, no pills", () => {
     media(true);
     const { container } = render(<Shell />);
     expect(container.querySelector("[data-hud]")).toBeNull();
-    expect(screen.queryByTestId("hud-dock")).toBeNull();
+    expect(screen.queryByTestId("hud-drawers")).toBeNull();
     expect(screen.queryByTestId("hud-top")).toBeNull();
     expect(container.querySelector("[aria-label='Mobile duel panels']")).not.toBeNull();
   });
@@ -193,27 +216,36 @@ describe("the Deck Master plates of the Tag Rooftop", () => {
     expect(screen.queryByTestId("hud-other")).toBeNull();
   });
 
-  it("shows your master on the left and your partner's on the right, with their real cards", () => {
+  it("holds your master and your partner's in one gold drawer on the right, with their real cards", () => {
     media(false);
     render(<Shell domain />);
+    expect(rootOf("masters").getAttribute("data-side")).toBe("right");
+    expect(rootOf("masters").getAttribute("data-state")).toBe("closed");
     expect(screen.getByTestId("hud-master-token").getAttribute("aria-label")).toContain("Dark Magician");
     expect(screen.getByTestId("hud-other-token").getAttribute("aria-label")).toContain("Blue-Eyes");
     expect(screen.getByTestId("hud-other").getAttribute("data-slot")).toBe("other");
     expect(screen.queryAllByTestId("hud-other-action")).toHaveLength(0);
+    fireEvent.click(tabOf("masters"));
+    expect(openNames()).toEqual(["Deck Master"]);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(isOpen()).toBe(false);
   });
 
-  it("opens the details in a flyout and closes them with the token or Esc", () => {
+  it("has no Deck Master drawer outside the Domain format", () => {
+    media(false);
+    render(<Shell />);
+    expect(screen.queryByTestId("hud-drawer-masters")).toBeNull();
+  });
+
+  it("opens the Card drawer from a plate's token or Inspect, and closes it with Esc", () => {
     media(false);
     render(<Shell domain />);
     fireEvent.click(screen.getByTestId("hud-master-token"));
-    expect(screen.getByTestId("hud-master-flyout")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("hud-master-token"));
-    expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
-    fireEvent.click(screen.getByTestId("hud-other-token"));
-    expect(screen.getByTestId("hud-other-returns").textContent).toBe("1");
-    expect(screen.getByTestId("hud-other-cost").textContent).toBe("500 LP");
+    expect(openNames()).toEqual(["Card"]);
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByTestId("hud-other-flyout")).toBeNull();
+    expect(isOpen()).toBe(false);
+    fireEvent.click(screen.getByTestId("hud-other-inspect"));
+    expect(openNames()).toEqual(["Card"]);
   });
 
   it("offers Summon or Set on your plate only when the engine lists it", () => {
@@ -225,7 +257,7 @@ describe("the Deck Master plates of the Tag Rooftop", () => {
 });
 
 describe("the hover preview of the Tag Rooftop", () => {
-  it("slides in for a hovered card and hides after a short delay, without opening a flyout", () => {
+  it("slides in for a hovered card and hides after a short delay, without opening a drawer", () => {
     vi.useFakeTimers();
     media(false);
     const { container } = render(<Shell />);
@@ -240,29 +272,29 @@ describe("the hover preview of the Tag Rooftop", () => {
     expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("false");
   });
 
-  it("never opens the Card flyout on its own: not by a hover, not by a focus", () => {
+  it("never opens the Card drawer on its own: not by a hover, not by a focus", () => {
     media(false);
     const { container } = render(<Shell />);
     const card = container.querySelector("[data-hand-seat='0'] [data-zones]") as HTMLElement;
     fireEvent.mouseEnter(card);
     fireEvent.focus(card);
     expect(isOpen()).toBe(false);
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.click(tabOf("log"));
     fireEvent.mouseEnter(card);
-    expect(flyout().getAttribute("data-pane")).toBe("log");
+    expect(openNames()).toEqual(["Log"]);
   });
 
-  it("stays out of the way while a flyout is open", () => {
+  it("stays out of the way while a drawer is open", () => {
     media(false);
     const { container } = render(<Shell />);
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.click(tabOf("log"));
     fireEvent.mouseEnter(container.querySelector("[data-hand-seat='0'] [data-zones]") as HTMLElement);
     expect(screen.queryByTestId("hover-preview")).toBeNull();
   });
 });
 
 describe("the pinned card peek of the Tag Rooftop", () => {
-  it("a click on a face-up monster pins the peek, with no Card flyout and no second panel", () => {
+  it("a click on a face-up monster pins the peek, with no Card drawer and no second panel", () => {
     vi.useFakeTimers();
     media(false);
     const { container } = render(<Shell />);
@@ -331,22 +363,35 @@ describe("the Tag HUD with a prompt", () => {
     return { ...controller, onAnswer, prompt, engine: { ...controller.engine, prompt } };
   };
 
-  it("Esc closes an open flyout and does not answer the prompt", () => {
+  it("Esc closes an open drawer and does not answer the prompt", () => {
     media(false);
     const onAnswer = vi.fn();
     render(<Shell id="chain-2" tweak={answering(onAnswer)} />);
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.click(tabOf("log"));
     expect(isOpen()).toBe(true);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(isOpen()).toBe(false);
     expect(onAnswer).not.toHaveBeenCalled();
   });
 
-  it("an open flyout does not hold the other prompt keys: N still says no", () => {
+  it("Esc closes the open Chain drawer first, and the next Esc declines the prompt", () => {
     media(false);
     const onAnswer = vi.fn();
     render(<Shell id="chain-2" tweak={answering(onAnswer)} />);
-    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.click(tabOf("chain"));
+    expect(openNames()).toEqual(["Chain"]);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(openNames()).toEqual([]);
+    expect(onAnswer).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("an open drawer does not hold the other prompt keys: N still says no", () => {
+    media(false);
+    const onAnswer = vi.fn();
+    render(<Shell id="chain-2" tweak={answering(onAnswer)} />);
+    fireEvent.click(tabOf("log"));
     fireEvent.keyDown(window, { key: "n" });
     expect(isOpen()).toBe(true);
     expect(onAnswer).toHaveBeenCalledTimes(1);

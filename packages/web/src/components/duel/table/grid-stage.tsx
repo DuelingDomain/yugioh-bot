@@ -347,6 +347,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   // In the floating HUD the board runs to the right edge of the screen, under the corner of turn controls: the layout
   // keeps that corner clear of every field (HUD_CORNER in grid-layout.ts).
   const [hud, setHud] = useState(false);
+  // The edge-drawer HUD keeps its turn controls in a slim bar under the board, so no corner of the board is reserved.
+  const [edgeHud, setEdgeHud] = useState(false);
 
   useLayoutEffect(() => {
     const node = rootRef.current;
@@ -357,6 +359,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     });
     read();
     setHud(node.closest('[data-hud="true"]') != null);
+    setEdgeHud(node.closest('[data-edge-hud="true"]') != null);
     const observer = new ResizeObserver(read);
     observer.observe(node);
     window.addEventListener("resize", read);
@@ -411,10 +414,10 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     return gridFocusLayout(world, box, focusCell, {
       homeColumn,
       drawerRow: drawerKey.split("").map(Number) as [0 | 1, 0 | 1],
-      corner: hud ? HUD_CORNER : null,
+      corner: hud && !edgeHud ? HUD_CORNER : null,
       finale: bottom && top ? { bottom, top, homeHand: bottom.home } : null,
     });
-  }, [box, cells, drawerKey, finaleKey, focusCell, homeColumn, world, hud]);
+  }, [box, cells, drawerKey, finaleKey, focusCell, homeColumn, world, hud, edgeHud]);
   const placed = layoutBox;
 
   // The pair frames (see `pairFrameRect`): the live fields of each column, or on the face-off the frame round both fields

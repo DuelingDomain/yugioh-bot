@@ -434,9 +434,10 @@ describe("FFA replay: read only", () => {
       if (visibility === "public") release = respond; else respond();
     })));
     await open();
-    // The Log flyout stays mounted when closed, so the dock button says whether it is open.
-    const logOpen = () => screen.getByTestId("hud-dock-log").getAttribute("aria-pressed");
-    if (logOpen() !== "true") fireEvent.click(screen.getByTestId("hud-dock-log"));
+    // The Log drawer stays mounted when closed, so its tab says whether it is open.
+    const logTab = () => document.querySelector<HTMLElement>('[data-edge-drawer="Log"] button[aria-expanded]')!;
+    const logOpen = () => logTab().getAttribute("aria-expanded");
+    if (logOpen() !== "true") fireEvent.click(logTab());
     expect(logOpen()).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Public" }));
     expect(document.querySelector("[data-replay-busy='true']")).not.toBeNull();

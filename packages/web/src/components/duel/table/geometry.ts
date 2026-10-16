@@ -404,14 +404,15 @@ export function plazaView(fit: { width: number; height: number }): PlazaView {
 }
 
 /**
- * The floating HUD's left column over a 3-way plaza (the HUD runs to the edge there, see `[data-plaza-hud]` in
- * table-shell.module.css), in screen px from the top left of the table box, air included: the dock, then the chain tower
- * under it (up to six links). The rival fields keep clear of it. The Deck Master plate in the bottom left corner and the
- * turn controls in the bottom right corner sit level with your own field, which never reaches them.
+ * What the rival fields of a 3-way plaza keep clear of, in screen px from the top left of the table box, air included.
+ * The board runs under the header (no top margin, see `[data-plaza-hud]` in table-shell.module.css), so the corner of the
+ * header where the pills are is kept clear (the clock bank and the status pills, each about 540px wide; 40px plus the 12px air reaches the pills' lower edge).
+ * Only the left rival is checked, and its mirror covers the right one. The side content is in edge
+ * drawers (plaza-drawers.tsx) that cover nothing while they are closed, so no column is kept for a dock, a chain tower
+ * or a Deck Master plate. The turn controls in the bottom right corner sit level with your own field, which never reaches them.
  */
 export const PLAZA_HUD_KEEP: readonly { x: number; y: number; width: number; height: number }[] = [
-  { x: 0, y: 0, width: 60, height: 170 },
-  { x: 0, y: 170, width: 162, height: 356 },
+  { x: 0, y: 0, width: 540, height: 40 },
 ];
 
 /**

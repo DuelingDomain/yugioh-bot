@@ -41,15 +41,15 @@ export async function enterDuelRoom(page: Page): Promise<void> {
 
 /**
  * Opens the Settings pane (Surrender and the table options live there). Main replaced the old Options gear with tabs.
- * The 4-way grid keeps its tabs in a hidden flyout: its dock button (`hud-dock-settings`) opens the flyout on the Settings tab.
+ * The 4-way grid keeps its settings in a closed left-edge drawer: its Settings tab opens it.
  */
 export async function openOptions(page: Page): Promise<void> {
-  const dock = page.getByTestId("hud-dock-settings");
+  const edge = page.locator('[data-edge-drawer="Settings"] button[aria-expanded]');
   const tab = page.getByRole("tab", { name: "Settings" });
-  await expect(dock.or(tab)).toBeVisible();
-  if (await dock.isVisible()) {
-    if ((await dock.getAttribute("aria-pressed")) !== "true") await dock.click();
-    await expect(page.getByTestId("hud-tab-settings")).toHaveAttribute("aria-selected", "true");
+  await expect(edge.or(tab)).toBeVisible();
+  if (await edge.isVisible()) {
+    if ((await edge.getAttribute("aria-expanded")) !== "true") await edge.click();
+    await expect(edge).toHaveAttribute("aria-expanded", "true");
     return;
   }
   if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();

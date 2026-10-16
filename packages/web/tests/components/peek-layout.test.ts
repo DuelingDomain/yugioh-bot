@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { EDGE_LEFT_PX, FLOOR_WIDTH_PX, GAP_PX, MAX_WIDTH_PX, MIN_WIDTH_PX, measureObstacles, obstaclesKey, peekColumnRight, peekPlaces, peekWidth, type Box } from "@/components/duel/table/peek-layout";
+import { EDGE_LEFT_PX, EDGE_LEFT_TABS_PX, FLOOR_WIDTH_PX, GAP_PX, MAX_WIDTH_PX, MIN_WIDTH_PX, measureObstacles, obstaclesKey, peekColumnRight, peekPlaces, peekWidth, type Box } from "@/components/duel/table/peek-layout";
 
 const layer = (width: number, height: number): Box => ({ left: 0, top: 0, right: width, bottom: height });
 const box = (left: number, top: number, right: number, bottom: number): Box => ({ left, top, right, bottom });
@@ -94,6 +94,15 @@ describe("the card peek column", () => {
     // The same plate as a kept part cuts the band: the panel would stop above it.
     const [cut] = peekPlaces(l, { board, keep: [box(14, 170, 162, 330), box(14, 756, 320, 1066)] });
     expect(cut.top + cut.maxH).toBeLessThanOrEqual(756 - GAP_PX);
+  });
+
+  it("starts right of the edge tabs when the HUD has drawers instead of a dock (the 4-way grid)", () => {
+    expect(EDGE_LEFT_TABS_PX).toBeLessThan(EDGE_LEFT_PX);
+    const own = box(400, 500, 1350, 740);
+    const [dock] = peekPlaces(layer(1920, 1080), { board: [own], keep: [], own: [own] });
+    const [tabs] = peekPlaces(layer(1920, 1080), { board: [own], keep: [], own: [own] }, EDGE_LEFT_TABS_PX);
+    expect(dock.width).toBe(400 - GAP_PX - EDGE_LEFT_PX);
+    expect(tabs.width).toBe(400 - GAP_PX - EDGE_LEFT_TABS_PX);
   });
 
   it("gives no place for a layer with no size (the CSS places the panel)", () => {
@@ -192,8 +201,7 @@ describe("the CSS keeps the peek column free", () => {
     expect(css).not.toContain("--pv-right");
   });
 
-  it("makes the card panel of the 1v1 3D mode 268 to 420 px wide, and its art grows with the pane", () => {
-    expect(read("solid/solid-room.module.css")).toContain("--insp-w: clamp(268px, 25vw, 420px)");
+  it("lets the card art of the Card panel grow with the pane (the 3D mode now shows it in an edge drawer)", () => {
     expect(read("inspector.module.css")).toContain("min(calc(170 * var(--duel-unit, 1px)), 44%)");
   });
 
@@ -203,9 +211,12 @@ describe("the CSS keeps the peek column free", () => {
     expect(css).not.toContain("--hud-right-need: calc(520px");
   });
 
-  it("keeps the board of the 4-way table, the Tag table and the 1v1 table right of the column", () => {
-    for (const file of ["table/table-shell.module.css", "tag/tag-shell.module.css", "room.module.css"]) {
-      expect(read(file), file).toContain(`--hud-left: ${COLUMN}`);
+  it("keeps the board of the generic floating HUD right of the column, while the edge-drawer shells reserve none", () => {
+    expect(read("table/table-shell.module.css")).toContain(`--hud-left: ${COLUMN}`);
+    // The 1v1 room, the Tag table, the 3-way plaza and the 4-way grid keep the card peek in a drawer or over the board.
+    for (const file of ["tag/tag-shell.module.css", "room.module.css"]) {
+      expect(read(file), file).toContain("--hud-left: 14px");
     }
+    expect(read("table/table-shell.module.css")).toContain("--hud-left: 30px");
   });
 });

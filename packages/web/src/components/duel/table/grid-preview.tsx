@@ -6,7 +6,7 @@ import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardTextStyle, useCardTextSize } from "../card-text-size";
 import { cardArtUrl, cardDetailsText, cardStatsText, isDefenseAt, isHiddenCard } from "../constants";
 import styles from "./grid-hud.module.css";
-import { coveredArea, measureObstacles, obstaclesKey, peekPlaces, type Box, type Place } from "./peek-layout";
+import { coveredArea, EDGE_LEFT_PX, EDGE_LEFT_TABS_PX, measureObstacles, obstaclesKey, peekPlaces, type Box, type Place } from "./peek-layout";
 
 /** The preview lingers this long after the pointer leaves, so a move between two cards does not flicker. */
 export const PREVIEW_HIDE_MS = 220;
@@ -53,7 +53,7 @@ const place = (aside: HTMLElement, spot: Place, layer: Box | null) => {
  * It never goes to the other side. When the column is cut into short bands, the best one wins (the clicked card, the parts
  * kept clear and the board first).
  */
-export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, extras = [], avoid = null, hoverAnchor = null, ownSeats, onClose }: {
+export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, extras = [], avoid = null, hoverAnchor = null, ownSeats, edge = false, onClose }: {
   /** A board card, or the card of a prompt row (`DuelCardInfo`: no position, no owner). */
   card: DuelCard | DuelCardInfo | null;
   owner: { name: string; main: string; ink: string } | null;
@@ -68,6 +68,8 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   hoverAnchor?: HTMLElement | null;
   /** The seats of the viewer (and the partner in Tag): the panel is as wide as the free room up to the field zones of these seats. Absent: every board part limits it. */
   ownSeats?: readonly number[];
+  /** The HUD has edge drawers (the 4-way grid): the panel slides out from the tabs at the left edge, not from the right of a dock. */
+  edge?: boolean;
   /** The X button was pressed. `byKeyboard`: Enter or Space, so focus should go back to the card (a mouse click would show the card's hover peek again). */
   onClose?: (byKeyboard: boolean) => void;
 }) {
@@ -193,7 +195,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     const obstacles = measureObstacles(aside, frozen, own);
     if (hasTarget) obstacles.target = { left: target.left, top: target.top, right: target.right, bottom: target.bottom };
     const text = textRef.current;
-    const candidates = peekPlaces(layer, obstacles);
+    const candidates = peekPlaces(layer, obstacles, edge ? EDGE_LEFT_TABS_PX : EDGE_LEFT_PX);
     if (candidates.length === 0) {
       // Nothing to measure (no layout yet): the CSS places the panel.
       place(aside, FIRST_PLACE, null);
@@ -253,7 +255,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       setSqueezed("");
       setSpot(chosen);
     }
-  }, [placing, frozen, anchorOf, current, textSize, resizeTick, watch, own]);
+  }, [placing, frozen, anchorOf, current, textSize, resizeTick, watch, own, edge]);
   if (!current) return null;
 
   const stats = cardStatsText(current);
@@ -268,6 +270,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       data-motion={reducedMotion ? "none" : "slide"}
       aria-hidden={open ? undefined : "true"}
       data-pinned={frozen ? "true" : undefined}
+      data-edge={edge ? "true" : undefined}
       data-side={spot.side}
       data-hud-keep={frozen ? "" : undefined}
       aria-label={frozen ? "Pinned card" : undefined}

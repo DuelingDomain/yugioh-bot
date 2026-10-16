@@ -17,6 +17,7 @@ import { HelipadHub, type HubSeatTone } from "./helipad-hub";
 import { OwnHand, PartnerHand } from "./tag-hand";
 import {
   clampCenter,
+  clearHands,
   easeCam,
   easeFly,
   lockLabel,
@@ -304,7 +305,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       root.querySelector<HTMLElement>("[data-partner-hand]")?.offsetHeight ?? 0,
     );
     const narrow = narrowRef.current;
-    let hudH = Math.max(ownPlateRef.current?.offsetHeight ?? 0, handH) + 10;
+    // A wide screen keeps slim gaps around the field (the bigger field); a phone keeps its roomier ones.
+    const gap = narrow ? { hand: 10, bottom: 8, plate: 8 } : { hand: 4, bottom: 4, plate: 4 };
+    let hudH = Math.max(ownPlateRef.current?.offsetHeight ?? 0, handH) + gap.hand;
     if (narrow) {
       // A phone has no room for the plate and the hands side by side: the plate takes the bottom row, the own hand sits
       // above it and the partner hand above that (see the narrow block in the CSS). The band is as tall as the stack.
@@ -318,15 +321,37 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         .map((node) => node.getBoundingClientRect().top - rootTop);
       if (tops.length > 0) hudH = Math.max(hudH, h - Math.min(...tops) + 4);
     }
+    // The own plate and the own hand share the bottom row. The hand sits at the middle of the stage, and slides right only as far as
+    // the plate needs, never into the partner hand (the hand count stands right of the dock, 64px).
+    const dock = root.querySelector<HTMLElement>("[data-hand-dock]");
+    const ownPlate = ownPlateRef.current;
+    if (narrow || !dock || !ownPlate) root.style.removeProperty("--hx");
+    else {
+      const half = dock.offsetWidth / 2;
+      const partnerHand = root.querySelector<HTMLElement>("[data-partner-hand]");
+      const clear = ownPlate.offsetLeft + ownPlate.offsetWidth + 14 + half;
+      const limit = (partnerHand ? partnerHand.offsetLeft : w) - 10 - 64 - half;
+      root.style.setProperty("--hx", `${Math.min(Math.max(w / 2, clear), Math.max(w / 2, limit)).toFixed(1)}px`);
+    }
     // The far team plate hangs from the top edge: its height is not free space for the fields.
     const plateH = farPlateRef.current?.offsetHeight ?? 0;
-    const bottom = Math.max(60, h - hudH - 8);
+    const bottom = Math.max(60, h - hudH - gap.bottom);
     // A narrow screen has no side room for the camera rail: it takes its own row under the plate, kept in every mode so
     // the fit does not jump when a focus starts.
     const railRow = w < RAIL_COLUMN_MIN ? RAIL_ROW : 0;
-    const railTop = 6 + (plateH > 0 ? plateH + 8 : 0);
+    const railTop = 6 + (plateH > 0 ? plateH + gap.plate : 0);
     root.style.setProperty("--rail-top", `${railTop}px`);
-    const view = { left: 8, right: w - 8, top: Math.min(railTop + railRow, bottom - 40), bottom };
+    const viewTop = narrow ? railTop : 6;
+    let view: RoofView = { left: 8, right: w - 8, top: Math.min(viewTop + railRow, bottom - 40), bottom };
+    if (!narrow) {
+      // The home pose is fitted to the free box and its near edge can end below it: the hand dock and the partner's
+      // hand are in that row. Lower the box until your Spell/Trap row and piles stay above both.
+      const rootTop = root.getBoundingClientRect().top;
+      const handTops = [dock, root.querySelector<HTMLElement>("[data-partner-hand]")]
+        .filter((node): node is HTMLElement => node != null)
+        .map((node) => node.getBoundingClientRect().top - rootTop);
+      if (handTops.length > 0) view = clearHands(anchorRef.current, view, Math.min(...handTops) - 2);
+    }
     const fit = roofFit(view) || 1;
     fitRef.current = fit;
     return { w, h, view, fit };

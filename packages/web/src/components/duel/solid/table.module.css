@@ -55,6 +55,9 @@
   --n3: clamp(9px, calc(var(--ch) * 0.13), 19px);
   --n4: clamp(9.5px, calc(var(--ch) * 0.104), 15px);
   position: relative;
+  /* Tilted, the far edge recedes toward the middle of the field wrap and leaves a blank band under the opponent's hand:
+     lift the layout box (not the transform, which the FX sync reads) so the table uses it. Flat and phone: 0. */
+  top: calc(var(--s) * var(--lift-k, 0) * -1);
   display: grid;
   grid-template-columns: var(--pile) repeat(5, var(--s)) var(--pile);
   grid-template-rows: repeat(5, var(--s));

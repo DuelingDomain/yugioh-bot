@@ -6,6 +6,7 @@ import {
   ROOF_WORLD,
   cameraLabel,
   clampCenter,
+  clearHands,
   easeCam,
   easeFly,
   fitSeatPose,
@@ -532,5 +533,25 @@ describe("phase hub sizing", () => {
     expect(gap.gapPx).toBeGreaterThan(0);
     expect(gap.gapPx).toBeLessThanOrEqual(2 * ROOF_FIELD.offsetY * 0.5);
     expect(roofGap(ROOF_PRESETS.overview, 1).gapPx).toBeGreaterThan(gap.gapPx);
+  });
+});
+
+describe("clearing the hands", () => {
+  const nearEdge = (view: { left: number; right: number; top: number; bottom: number }) => {
+    const { outer } = roofFitCorners(0, 0);
+    return (view.top + view.bottom) / 2 + projectRoof(ROOF_PRESETS.home, roofFit(view), { x: 0, y: outer, z: ROOF_FIELD_Z }).y;
+  };
+
+  it("keeps the home pose's near edge above the hands", () => {
+    const view = { left: 8, right: 1358, top: 6, bottom: 591 };
+    expect(nearEdge(view)).toBeGreaterThan(591);
+    const cleared = clearHands(0, view, 591);
+    expect(cleared.bottom).toBeLessThan(view.bottom);
+    expect(nearEdge(cleared)).toBeLessThanOrEqual(591 + 0.5);
+  });
+
+  it("leaves a view that already clears the hands as it is", () => {
+    const view = { left: 8, right: 1358, top: 6, bottom: 591 };
+    expect(clearHands(0, view, 2000)).toBe(view);
   });
 });
