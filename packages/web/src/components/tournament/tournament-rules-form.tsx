@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { DuelRulesFields } from "./duel-rules-fields";
 import {
   buildRulesPayload,
+  duelRulesProblem,
   isDraftTournament,
   rulesValueFromTournament,
   type DuelRulesValue,
@@ -45,7 +46,7 @@ export function TournamentRulesForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (locked) return;
+    if (locked || (!draft && duelRulesProblem(value))) return;
     setError(null);
     setSaved(false);
     setSaving(true);
@@ -94,7 +95,7 @@ export function TournamentRulesForm({
           Locked. The first online game has started, or the event is over.
         </p>
       ) : (
-        <Button type="submit" loading={saving} size="sm">
+        <Button type="submit" loading={saving} size="sm" disabled={!draft && duelRulesProblem(value) != null}>
           {saved ? "Saved" : "Save duel rules"}
         </Button>
       )}

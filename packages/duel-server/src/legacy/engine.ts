@@ -148,12 +148,15 @@ const MASTER_RULE_FLAGS: Record<DuelMasterRule, bigint> = {
   5: OcgDuelMode.MODE_MR5,
 };
 
-function duelFlagsFor(masterRule?: DuelMasterRule): bigint {
+function duelFlagsFor(masterRule?: DuelMasterRule, genesys = false): bigint {
   const rule = masterRule ?? 5;
   if (rule !== 1 && rule !== 2 && rule !== 3 && rule !== 4 && rule !== 5) {
     throw new Error(`Unknown master rule ${String(rule)}`);
   }
-  return MASTER_RULE_FLAGS[rule];
+  // Keep the selected Master Rule's timing/summon rules; Genesys changes only field geometry.
+  // In particular, do not switch multiplayer to MR1-4: their old-rule flags are rejected by SetupDuelists.
+  const flags = MASTER_RULE_FLAGS[rule];
+  return genesys ? flags & ~(OcgDuelMode.EMZONE | OcgDuelMode.PZONE | OcgDuelMode.SEPARATE_PZONE) : flags;
 }
 
 function engineStartConfig(settings?: DuelSettings): {
@@ -220,7 +223,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const start = engineStartConfig(options.settings);
   // LEGACY-1V1: Domain skips the turn-1 draw at every Master Rule; preserve saved rules on replay.
   const firstTurnDraw = options.firstTurnDraw ?? firstTurnDrawFor(options.mode, options.masterRule);
-  const flags = (duelFlagsFor(options.masterRule) & ~OcgDuelMode.FIRST_TURN_DRAW)
+  const flags = (duelFlagsFor(options.masterRule, options.settings?.genesys != null) & ~OcgDuelMode.FIRST_TURN_DRAW)
     | (firstTurnDraw ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
   const seed = parseSeed(options.seed);
   const cards = loadCardDatabase(options.dataDirectory);
@@ -701,6 +704,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         reveals,
         handIdentities: eventContext.handIdentities,
         mode: options.mode,
+        genesys: options.settings?.genesys != null,
         domainState: readDomainState(),
       }));
       if (seat != null) projected.chainMode = chainModes[seat]; // LEGACY-1V1: private to the seat

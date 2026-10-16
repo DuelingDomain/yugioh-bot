@@ -22,6 +22,7 @@ import {
 } from "./commands/handlers.js";
 import {
   createCardCatalogService,
+  createGenesysPointsSync,
   createCubeService,
   createDraftImageService,
   createDraftLobbyService,
@@ -480,6 +481,16 @@ client.once("ready", () => {
   };
   cleanSandboxDuels();
   cron.schedule("* * * * *", cleanSandboxDuels, { timezone: "UTC" });
+
+  const genesysSync = createGenesysPointsSync({
+    cards: createCardCatalogService(db),
+    schedule: cron.schedule,
+    expression: process.env.GENESYS_SYNC_CRON,
+    timezone: process.env.GENESYS_SYNC_TIMEZONE,
+    effectiveDate: process.env.GENESYS_LIST_EFFECTIVE_DATE,
+    expectedRevision: process.env.GENESYS_LIST_REVISION,
+  });
+  void genesysSync.start().catch(error => console.error("[genesys] scheduler startup failed", error));
 
   const notifyCleanup = createNotifyCleanupService({
     db,

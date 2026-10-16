@@ -382,6 +382,17 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "card_catalog", "attribute", "text");
   addColumnIfMissing(db, "card_catalog", "level", "integer");
   addColumnIfMissing(db, "card_catalog", "archetype", "text");
+  // Unknown until a successful TCG Genesys snapshot. Zero is a real, known value.
+  addColumnIfMissing(db, "card_catalog", "genesys_points",
+    "integer check (genesys_points is null or (typeof(genesys_points) = 'integer' and genesys_points >= 0))");
+  addColumnIfMissing(db, "card_catalog", "genesys_revision", "text");
+  db.exec(`create table if not exists genesys_points_meta (
+    id integer primary key check (id = 1),
+    revision text not null,
+    effective_date text not null,
+    source_url text not null,
+    synced_at text not null
+  );`);
   backfillMainArtworkRows(db);
   addColumnIfMissing(db, "card_sets", "card_count", "integer");
   addColumnIfMissing(db, "card_sets", "set_code", "text");
@@ -945,6 +956,8 @@ export function migrate(db: Database.Database) {
   db.exec("create index if not exists card_script_error_revision_idx on card_script_error_occurrences (resolved_code, script_hash, created_at)");
   migrateConfigPoolsToCubeCards(db);
   migrateCubeOwnerNames(db);
+  // Local Discord identities do not rebuild saved_decks; add the tag after existing migrations.
+  addColumnIfMissing(db, "saved_decks", "genesys_json", "text");
 }
 
 /**

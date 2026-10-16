@@ -6,6 +6,7 @@ import {
   MONSTER_TYPE_BITS,
   cardLimit,
   cardTypeRank,
+  isGenesysForbiddenType,
   foldCardText,
   inArchetype,
   parseCardSearchTerms,
@@ -153,8 +154,14 @@ const LIMIT_STATUS: Record<0 | 1 | 2 | 3, CardLimitStatus> = {
 
 type Matcher = (entry: Entry) => boolean;
 
-function compile(query: CardQuery, index: Index): Matcher[] {
+function compile(query: CardQuery, index: Index, genesysPoints?: ReadonlyMap<number, number | null>): Matcher[] {
   const checks: Matcher[] = [];
+  if (query.excludeGenesysForbidden) checks.push(entry => !isGenesysForbiddenType(entry.card));
+  const range = query.genesysPoints;
+  if (range && (range.min != null || range.max != null)) checks.push(entry => {
+    const points = genesysPoints?.get(entry.card.canonicalPasscode ?? entry.card.code);
+    return points != null && (range.min == null || points >= range.min) && (range.max == null || points <= range.max);
+  });
   if (query.kind !== "any") checks.push((entry) => entry.kind === query.kind);
 
   const monsterOnly = query.monsterTypes.length > 0 || query.attributes.length > 0 || query.races.length > 0
@@ -289,15 +296,15 @@ function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null): 
 }
 
 /** Runs a validated deck-editor query over the engine catalog. */
-export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[]): CardQueryResult {
+export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>): CardQueryResult {
   const index = indexFor(cards);
   const blocked = blocksFor(cards, entries);
-  const checks = compile(query, index);
+  const checks = compile(query, index, genesysPoints);
   const passes = (entry: Entry) => checks.every((check) => check(entry));
 
   const trimmed = query.text.trim();
   const exact = /^\d+$/.test(trimmed) ? index.byCode.get(Number(trimmed)) : undefined;
-  const exactPasses = exact != null && compile({ ...query, text: "" }, index).every((check) => check(exact));
+  const exactPasses = exact != null && compile({ ...query, text: "" }, index, genesysPoints).every((check) => check(exact));
 
   const exactFamily = exact && exactPasses ? cardArtworkFamily(cards, exact.card.code)?.passcode : undefined;
   const found: Entry[] = [];
@@ -313,6 +320,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   if (exact && exactPasses) sorted.unshift(exact);
   return {
     cards: sorted.slice(query.offset, query.offset + query.limit).map((entry) => ({ ...entry.card,
+      genesysPoints: genesysPoints?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? null,
       ...(blocked.has(entry.card.code) ? { unavailableReason: blocked.get(entry.card.code)!.reason } : {}),
       altArtCount: cardArtworkFamily(cards, entry.card.code)!.artworks.length - 1 })),
     total: sorted.length,

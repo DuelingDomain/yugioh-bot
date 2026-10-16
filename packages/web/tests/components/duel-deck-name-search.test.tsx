@@ -189,7 +189,7 @@ describe("deck editor add card by name", () => {
     expect(cardsIn("Main")).toHaveLength(1);
     // The row says why the card did not go where it was chosen.
     // (once in the polite status for screen readers, once in view)
-    expect(screen.getAllByText(/went to main, not extra\. Spell and Trap cards cannot go in the Extra Deck\./)).toHaveLength(2);
+    expect(screen.getAllByText(/went to main, not extra\. Pot of Greed: Spell and Trap cards cannot go in the Extra Deck\./)).toHaveLength(2);
     // The note goes with the next search.
     type("x");
     expect(screen.queryByText(/went to main, not extra/)).toBeNull();
@@ -389,4 +389,18 @@ describe("deck editor add card by name", () => {
     fireEvent.click(option);
     expect(cardsIn("Main")).toHaveLength(0);
   });
+});
+
+
+it("shows synced Genesys points and blocks Link/Pendulum additions in the room", async () => {
+  queryDeckCards.mockResolvedValue(answer([
+    { ...BLUE_EYES, genesysPoints: 30 },
+    { ...BLUE_EYES, code: 20, name: "Link test", type: 0x4000001, genesysPoints: 0 },
+    { ...BLUE_EYES, code: 21, name: "Pendulum test", type: 0x1000011, genesysPoints: 0 },
+  ]));
+  renderEditor(normalSettings({ genesys: { pointCap: 100 }, banlist: "none" }));
+  const options = await search("test");
+  expect(options[0].textContent).toContain("30");
+  expect(options[1]).toHaveAttribute("aria-disabled", "true");
+  expect(options[2]).toHaveAttribute("aria-disabled", "true");
 });

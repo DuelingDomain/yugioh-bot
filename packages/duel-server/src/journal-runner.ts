@@ -151,6 +151,7 @@ function creationOptions({ source, resources, prefixCount, checkpointSeat, targe
   return {
     ...(manualBoundary !== undefined ? { manualLossAnswersAfter: manualBoundary } : {}),
     mode: session.mode, decks: structuredClone(source.decks), seed: [...source.seed], dataDirectory: resources.dataDirectory,
+    // Preserve Genesys along with the other saved settings across recovery, replay and forks.
     masterRule: session.masterRule, settings: structuredClone(session.settings), firstTurnDraw, scriptErrorMode,
     ...(resources.engineIdentity ? { engineIdentity: resources.engineIdentity } : {}),
     ...(engine ? { engine } : { format: session.format, multiScriptsDirectory }),

@@ -85,6 +85,14 @@ function room(format: DuelFormat, mode: DuelMode = "normal") {
 const FORBIDDEN_AT_TABLE = /is forbidden in /;
 
 describe("host deck check uses the real table format", () => {
+  it.each(["tag", "ffa3", "ffa4"] as const)("check-deck also applies the %s table's rules", async format => {
+    const t = room(format);
+    const checked = await t.post({ op: "check-deck", mode: "normal", format,
+      deck: deckWith("normal", DESTINY_BOARD), settings: NO_BANLIST });
+    expect(checked.status).toBe(200);
+    expect(checked.data.report.issues[0].message).toMatch(/^Destiny Board is forbidden in /);
+  });
+
   it.each(["ffa3", "ffa4", "tag"] as const)("refuses an alt-win card (Destiny Board) at %s", async (format) => {
     const t = room(format);
     const result = await t.post({ op: "deck", deck: deckWith("normal", DESTINY_BOARD) });

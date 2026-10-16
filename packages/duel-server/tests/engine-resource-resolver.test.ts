@@ -112,6 +112,7 @@ describe("current engine identity", () => {
     // PR #361 changes Extra Deck admission before play. It does not change engine or journal rules.
     // Keep the local version 3 identity and refresh only its local fingerprint, as in PR #363.
     // Include the existing card-name-search and domain-action-prompts dependencies in coverage. Their code is unchanged.
+    // Genesys refreshes local v3 for opt-in field geometry. Missing/null settings preserve historical rules and replay hashes.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 

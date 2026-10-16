@@ -54,6 +54,13 @@ describe("saving an imported deck to My Decks", () => {
   });
   afterEach(() => vi.clearAllMocks());
 
+  it("saves imports from a Genesys room with the room's cap", async () => {
+    render(<DeckEditor slug="table-1" mode="normal" settings={{ ...settings, genesys: { pointCap: 0 } }} initial={null} busy={false} onReady={vi.fn()} />);
+    await waitFor(() => expect(screen.getByLabelText("Use a saved deck")).not.toBeDisabled());
+    importFile("Genesys.ydk", YDK);
+    await waitFor(() => expect(createSavedDeck).toHaveBeenCalledWith(expect.objectContaining({ genesys: { pointCap: 0 } }), expect.any(AbortSignal)));
+  });
+
   it("saves a file under its name without .ydk and lists it at once", async () => {
     renderEditor();
     await waitFor(() => expect(screen.getByLabelText("Use a saved deck")).not.toBeDisabled());

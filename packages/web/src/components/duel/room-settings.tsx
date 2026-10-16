@@ -5,6 +5,7 @@ import { DUEL_BANLIST_OPTIONS, duelClockRulesText, isCustomDomain, startingLpFor
 import { Check, Link2 } from "lucide-react";
 import { SheetButton } from "./sheet-ui";
 import { formatLabel } from "./table-format";
+import { genesysModeName, genesysOf } from "./genesys";
 import styles from "./room.module.css";
 import own from "./room-settings.module.css";
 import clockStyles from "./room-clock.module.css";
@@ -12,11 +13,13 @@ import { LOW_CLOCK_MS, clockReceivedAt, clockSeconds } from "./clock-beep";
 
 export function DuelSettingsSummary({ session }: { session: DuelSession }) {
   const { settings } = session;
+  const genesys = genesysOf(session);
   const values = [
-    ["Format", `${session.mode === "domain" ? (isCustomDomain(session.masterRule, settings) ? "Custom Domain" : "Domain") : "Standard"} · ${formatLabel(session.format)}`],
+    ["Format", `${genesysModeName(session.mode, genesys, session.mode === "domain" && isCustomDomain(session.masterRule, settings)) ?? (session.mode === "domain" ? (isCustomDomain(session.masterRule, settings) ? "Custom Domain" : "Domain") : "Standard")} · ${formatLabel(session.format)}`],
+    ...(genesys ? [["Point cap", `${genesys.pointCap} points per duelist`]] : []),
     ["Visibility", settings.visibility === "private" ? "Invite only" : "Discord server members"],
     ["Engine", `Automatic · Master Rule ${session.masterRule}`],
-    ["Banlist", DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist],
+    ["Banlist", genesys ? "None (Genesys)" : DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist],
     ["Card pool", settings.cardPool === "both" ? "TCG + OCG" : settings.cardPool.toUpperCase()],
     ["Turn timer", settings.turnSeconds === 0 ? "Unlimited" : duelClockRulesText(settings.turnSeconds)],
     [session.format === "tag" ? "Team LP (shared)" : "Starting LP", startingLpFor(session.format ?? "1v1", settings).toLocaleString("en-US")],

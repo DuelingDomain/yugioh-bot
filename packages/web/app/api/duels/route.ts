@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     name?: unknown;
     mode?: unknown;
     masterRule?: unknown;
-    /** settings.firstTurnDraw: boolean, Domain ffa3/ffa4 only; omission defaults ON. */
+    /** Includes host-settable genesys: { pointCap: 0..1000 } and Domain FFA firstTurnDraw. */
     settings?: unknown;
     format?: unknown;
     opponentPlayerId?: unknown;

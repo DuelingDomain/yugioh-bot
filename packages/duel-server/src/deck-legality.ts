@@ -15,7 +15,7 @@ import type {
   DuelMode,
   DuelSettings,
 } from "@yugidraft/shared/duels";
-import { assertExtraDeckCards, ExtraDeckCardError as SharedExtraDeckCardError, isExtraDeckCard, canonicalCardCode, checkDeckAgainstPool, mapDeckCodes } from "@yugidraft/shared/duels";
+import { assertExtraDeckCards, ExtraDeckCardError as SharedExtraDeckCardError, isExtraDeckCard, canonicalCardCode, checkDeckAgainstPool, checkGenesysDeck, mapDeckCodes } from "@yugidraft/shared/duels";
 import { banlistLimitsFor, type BanlistLimit } from "./banlists/index.js";
 import { MULTIPLAYER_TABLE_LABEL, multiplayerForbiddenFor, type MultiplayerTable } from "./banlists/multiplayer.js";
 import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
@@ -27,6 +27,10 @@ export interface InspectDeckOptions {
   cardBlocks?: readonly CardBlockEntry[];
   /** Table the deck is for. Default "1v1" adds no multiplayer rule. */
   table?: MultiplayerTable;
+  /** Points from the active TCG snapshot only. Missing values fail closed in Genesys. */
+  genesysPoints?: ReadonlyMap<number, number | null>;
+  /** Host verified the same card multiset against the match's admitted base deck. Type bans still apply. */
+  genesysPointsAdmitted?: boolean;
   /** Server-loaded picks only. Each forced pick adds one copy to the draft limit. */
   draftPool?: { counts: ReadonlyMap<number, number>; forcedCopies: ReadonlyMap<number, number> };
 }
@@ -833,7 +837,7 @@ export function inspectDeck(
   const issues: DuelDeckIssue[] = [];
   const competitive = settings ? settings.validateDeck : true;
   let limits: Record<number, BanlistLimit> | null = null;
-  if (settings) {
+  if (settings && !settings.genesys) {
     try {
       limits = banlistLimitsFor(settings.banlist);
     } catch {
@@ -858,6 +862,16 @@ export function inspectDeck(
 
   const catalog = loadCatalog(dataDirectory);
   collectBlockedIssues(deck, catalog, issues, dataDirectory, options.cardBlocks);
+  // These format rules apply even when optional base-mode deck validation is off.
+  if (settings?.genesys) {
+    const cards = new Map([...catalog.cards].map(([code, card]) => [code, {
+      ...card, genesysPoints: options.genesysPoints?.get(code) ?? null,
+    }]));
+    for (const problem of checkGenesysDeck(deck, cards, settings.genesys).problems) {
+      if (options.genesysPointsAdmitted && (problem.kind === "over-cap" || problem.kind === "unknown-points")) continue;
+      issues.push({ message: problem.message, cards: problem.kind === "over-cap" ? [] : problem.cards });
+    }
+  }
   const identities = identityIndex(catalog);
   const main = resolveSection(catalog, "main", deck.main, issues);
   const extra = resolveSection(catalog, "extra", deck.extra, issues);

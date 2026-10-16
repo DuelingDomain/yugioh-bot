@@ -27,6 +27,7 @@ export const ENGINE_HOST_RULE_FILES = [
 // Version 2 includes the fork-only Manual pending-loss boundary in journal runs and recovery.
 // Version 3 includes local sandbox prompt handling and raw snapshot worker support.
 export const ENGINE_HOST_RULE_VERSION = "duel-rules-3";
+// Genesys opts into new field geometry through saved settings. Preserve local rule identity for existing replay forks.
 
 export class EngineResourceUnavailableError extends Error {
   readonly code = "ENGINE_UNAVAILABLE_FOR_SOURCE";

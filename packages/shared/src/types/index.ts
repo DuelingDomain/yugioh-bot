@@ -138,6 +138,9 @@ export interface TournamentMatch {
 export interface Card {
   ygoprodeckId: number;
   canonicalCardId?: number;
+  /** Current TCG Genesys points; null or absent is unknown. */
+  genesysPoints?: number | null;
+  genesysRevision?: string | null;
   name: string;
   type: string;
   frameType: string;

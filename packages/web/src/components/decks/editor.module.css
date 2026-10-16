@@ -73,6 +73,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-flag[data-s="ok"] { color: var(--chain-ink); }
 .de-tools { display: inline-flex; gap: 2px; }
 .de-dbar > .de-tools { margin-left: auto; }
+.de-dbar[data-gx] { flex-wrap: wrap; row-gap: 4px; }
 .de-sec-b { display: grid; gap: 10px; }
 .de-sh { display: flex; align-items: center; gap: 12px; min-height: 38px; padding-bottom: 8px; border-bottom: 1px solid var(--rule-lo); }
 .de-st { color: var(--ink); font: 600 19px/1 var(--f-display); }
@@ -104,6 +105,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-c[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--pen), 0 0 0 5px rgb(155 126 255 / 0.2); }
 .de-c[data-over] { box-shadow: 0 0 0 2px var(--loss); }
 .de-c[data-over] img { opacity: 0.5; }
+.de-c[data-gx="forbidden"] { box-shadow: 0 0 0 2px var(--loss); }
 .de-lim { position: absolute; left: 3px; top: 3px; display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 4px; background: rgb(5 8 15 / 0.9); color: var(--chain-ink); font: 600 11.5px/1 var(--f-num); box-shadow: 0 0 0 1px rgb(228 182 79 / 0.5); }
 .de-lim[data-l="0"] { color: var(--loss-ink); box-shadow: 0 0 0 1px rgb(228 90 77 / 0.6); }
 .de-lim svg { width: 11px; height: 11px; stroke-width: 2.4; }

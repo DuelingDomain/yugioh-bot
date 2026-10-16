@@ -53,6 +53,17 @@ describe("the grid needs the facing Extra Monster pairing", () => {
     expect(usesGridLayout("ffa4", seatsOf("facing", [1, 2]))).toBe(true);
   });
 
+  it("draws the grid at a Genesys table, where the engine shares no Extra Monster Zones", () => {
+    // The engine reports sharedExtraWith: null for every seat of a Genesys board (no EMZ exist to share).
+    const seats = seatsOf("none");
+    expect(usesGridLayout("ffa4", seats)).toBe(false);
+    expect(usesGridLayout("ffa4", seats, { genesys: true })).toBe(true);
+    expect(gridExtraZonesFit(seats, { genesys: true })).toBe(true);
+    expect(usesGridLayout("ffa4", seatsOf("none", [3]), { genesys: true })).toBe(true);
+    expect(usesGridLayout("ffa4", seats, { genesys: false })).toBe(false);
+    expect(usesGridLayout("ffa3", seats.slice(0, 3), { genesys: true })).toBe(false);
+  });
+
   it("does not count a seat view without sharedExtraWith (fixtures, older views)", () => {
     const seats = [0, 1, 2, 3].map((seat) => ({ seat }));
     expect(usesGridLayout("ffa4", seats)).toBe(true);

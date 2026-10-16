@@ -34,6 +34,7 @@ import { PositionFx } from "../../position-fx";
 import { SummonFx } from "../../summon-fx";
 import { SOLID_CARDS } from "./cards";
 import { SOLID_STATE_IDS, SOLID_STATE_LABEL, solidFixture, type SolidStateId } from "./states";
+import { sessionBoardRule } from "../../genesys";
 import styles from "./preview-room.module.css";
 
 const noop = () => {};
@@ -283,7 +284,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card, activate, lp, l
           </>
         }
         fieldProps={{
-          engine, mySeat, masterRule: room.session.masterRule, reducedMotion: reduced, priorityLive: true,
+          engine, mySeat, masterRule: sessionBoardRule(room.session, engine), reducedMotion: reduced, priorityLive: true,
           legalKeys, selectedKeys: NO_KEYS, onActivate: noop, onInspect: noop,
           bottomName: playerName(mySeat ?? 0), topName: playerName(1 - (mySeat ?? 0)),
         }}

@@ -157,6 +157,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       playerId: player.id,
       deck: saved.deck,
       mode: rules.mode,
+      format: "1v1",
       masterRule: rules.masterRule,
       settings: rules.settings,
       draftId: rules.draftId,
@@ -168,7 +169,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
     // Draft rules check the stored pool and forced-copy allowance as well as structure.
     if (report.issues.length > 0) {
-      return NextResponse.json({ error: "This deck is not legal for the tournament.", report }, { status: 400 });
+      return NextResponse.json({ error: report.issues[0]!.message, report }, { status: 400 });
     }
 
     if (rules.draftId !== null) {

@@ -46,6 +46,7 @@ import { usePromptDodge } from "./prompt-dodge";
 import zoomStyles from "./view-zoom.module.css";
 import type { TableStageViewProps } from "./table-stage";
 import { useForkLabels } from "./fork-labels";
+import { sessionBoardRule } from "../genesys";
 import styles from "./grid-stage.module.css";
 
 /**
@@ -365,7 +366,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     };
   }, []);
 
-  const masterRule = room.session.masterRule;
+  // A Genesys board has no Extra Monster Zones and no Pendulum Zones: it is drawn with the original layout rule.
+  const masterRule = sessionBoardRule(room.session, engine);
   const world = useMemo(() => gridWorld(masterRule), [masterRule]);
   const cells = useMemo(() => gridCells(layout), [layout]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);

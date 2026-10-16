@@ -329,8 +329,8 @@ it("transports draft pool context and artwork-preserving normalization", async (
   vi.stubGlobal("fetch", fetchMock);
   try {
     const { callDuelHost } = await loadHost();
-    await callDuelHost({ ...call, op: "check-deck", draftId: 7 });
-    expect(JSON.parse(fetchMock.mock.calls[0]![1].body as string)).toMatchObject({ draftId: 7 });
+    await callDuelHost({ ...call, op: "check-deck", draftId: 7, format: "tag", settings: { genesys: { pointCap: 101 } } });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body as string)).toMatchObject({ draftId: 7, format: "tag", settings: { genesys: { pointCap: 101 } } });
     await callDuelHost({ ...call, op: "normalize-codes", codes: [10], preserveArtwork: true, lookupLimit: 50, includeCanonical: true });
     expect(JSON.parse(fetchMock.mock.calls[1]![1].body as string)).toMatchObject({ preserveArtwork: true, codes: [10], lookupLimit: 50, includeCanonical: true });
     await callDuelHost({ ...call, op: "normalize-codes", codes: [10], lookupLimit: 0, cacheOnly: true });

@@ -1,4 +1,4 @@
-import type { DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
+import type { DuelDeck, DuelMode, GenesysSettings, SavedDeck } from "@yugidraft/shared/duels";
 import { MAX_NAME_LENGTH, cutName, importForLibrary } from "../decks/model";
 
 function sameCodes(a: number[], b: number[]): boolean {
@@ -17,8 +17,8 @@ export function sameDeckCards(a: DuelDeck, b: DuelDeck): boolean {
 }
 
 /** The saved deck of this format that holds exactly these cards, if the player has one. */
-export function findSavedDuplicate(saved: SavedDeck[], mode: DuelMode, deck: DuelDeck): SavedDeck | undefined {
-  return saved.find((entry) => entry.mode === mode && sameDeckCards(entry.deck, deck));
+export function findSavedDuplicate(saved: SavedDeck[], mode: DuelMode, deck: DuelDeck, genesys?: GenesysSettings | null): SavedDeck | undefined {
+  return saved.find((entry) => entry.mode === mode && (entry.genesys?.pointCap ?? null) === (genesys?.pointCap ?? null) && sameDeckCards(entry.deck, deck));
 }
 
 /** The name for a pasted deck: "Imported deck" plus the local date and time. */

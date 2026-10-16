@@ -71,6 +71,7 @@ import { useLiveTableController } from "./table/use-live-table-controller";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { duelActionErrorText } from "@/lib/duel/action-errors";
 import { MultiSeatStage } from "./multi-seat-stage";
+import { genesysLabel, genesysOf, sessionBoardRule } from "./genesys";
 import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, isOpponentPick, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds, seatPickFor, seatNamer, winnerLabel } from "./multi-seat";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
@@ -1533,7 +1534,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const spectatorTag = spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
     <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
   </strong> : null;
-  const formatText = `${domain ? isCustomDomain(data.session.masterRule, data.session.settings) ? "Custom Domain" : "Domain" : `MR${data.session.masterRule}`} · ${formatLabel(format)}`;
+  const modeText = genesysLabel(data.session.mode, genesysOf(data.session), domain && isCustomDomain(data.session.masterRule, data.session.settings))
+    ?? (domain ? isCustomDomain(data.session.masterRule, data.session.settings) ? "Custom Domain" : "Domain" : `MR${data.session.masterRule}`);
+  const formatText = `${modeText} · ${formatLabel(format)}`;
   const headerIdentity = (
     <div className={styles.identity}>
       {wordmark}
@@ -1642,7 +1645,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     />
   ) : null;
   const fieldProps = engine ? {
-    engine, mySeat: data.mySeat, bottomSeat: cameraSeat, masterRule: data.session.masterRule,
+    engine, mySeat: data.mySeat, bottomSeat: cameraSeat, masterRule: sessionBoardRule(data.session, engine),
     reducedMotion: preferences.reducedMotion,
     priorityLive: !busy && !error && !realtime.recovering && !catchingUp &&
       (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed),
@@ -1849,7 +1852,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board} ref={boardRef} data-deal-wait={startBeats.waiting ? "true" : undefined}>
             {renderBoard(multi ? (
-              <MultiSeatStage key={slug} engine={engine!} mySeat={data.mySeat} masterRule={data.session.masterRule}
+              <MultiSeatStage key={slug} engine={engine!} mySeat={data.mySeat} masterRule={sessionBoardRule(data.session, engine)}
                 reducedMotion={preferences.reducedMotion}
                 legalKeys={fieldLegalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                 onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}

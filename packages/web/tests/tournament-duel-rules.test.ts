@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { defaultDuelSettings as defaultDuelSettingsForTest } from "@yugidraft/shared/duels";
 import {
   buildRulesPayload,
   defaultDuelRulesValue,
+  duelRulesProblem,
   isSeriesOpen,
   rulesLocked,
   rulesValueFromTournament,
   seriesScoreLabel,
   startDuelErrorText,
   turnSecondsChoices,
+  withGenesys,
+  withGenesysCapText,
   withMode,
 } from "../src/components/tournament/duel-rules";
 import { deckSummaryText, parseMyDeckState, registerErrorText } from "../src/components/tournament/my-deck-model";
@@ -33,10 +37,31 @@ describe("duel rules payload", () => {
   });
 
   it("builds the bestOf + duelRules body", () => {
-    expect(buildRulesPayload({ bestOf: 1, mode: "domain", banlist: "none", turnSeconds: 0 })).toEqual({
+    expect(buildRulesPayload({ bestOf: 1, mode: "domain", banlist: "none", turnSeconds: 0, genesys: null })).toEqual({
       bestOf: 1,
       duelRules: { mode: "domain", masterRule: 5, settings: { banlist: "none", turnSeconds: 0 } },
     });
+  });
+
+  it("sends the old shape without Genesys and the cap with it, banlist forced to none", () => {
+    expect(JSON.stringify(buildRulesPayload(defaultDuelRulesValue()))).not.toContain("genesys");
+    const on = withGenesys(defaultDuelRulesValue(), true);
+    expect(on.banlist).toBe("none");
+    expect(buildRulesPayload(on).duelRules.settings).toEqual({ banlist: "none", turnSeconds: 240, genesys: { pointCap: 100 } });
+    expect(withMode(on, "domain").banlist).toBe("none");
+    const off = withGenesys(on, false);
+    expect(off.genesys).toBeNull();
+    expect(off.banlist).toBe("tcg-2026-09");
+  });
+
+  it("keeps an invalid typed cap as a problem", () => {
+    const on = withGenesys(defaultDuelRulesValue(), true);
+    expect(duelRulesProblem(on)).toBeNull();
+    expect(duelRulesProblem(withGenesysCapText(on, "abc"))).toMatch(/whole number/);
+    const typed = withGenesysCapText(on, "0");
+    expect(typed.genesys).toEqual({ pointCap: 0 });
+    expect(duelRulesProblem(typed)).toBeNull();
+    expect(rulesValueFromTournament({ duelRules: { bestOf: 1, mode: "normal", masterRule: 5, draftId: null, settings: { ...defaultDuelSettingsForTest("normal"), genesys: { pointCap: 40 } } } }).genesys).toEqual({ pointCap: 40 });
   });
 
   it("moves the banlist to the mode default when the mode changes", () => {

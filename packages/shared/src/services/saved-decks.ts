@@ -3,6 +3,7 @@ import { createDeckTypeLookup, hasKnownDeckCardType } from "./deck-sections.js";
 import type { CardIdentityCatalog } from "../duels/pool.js";
 import type Database from "better-sqlite3";
 import type { DuelDeck, DuelMode, SavedDeck } from "../duels/index.js";
+import { DuelSettingsError, normalizeGenesysSettings, type GenesysSettings } from "../duels/settings.js";
 
 const MAX_NAME_LENGTH = 100;
 const MAX_SECTION_CARDS = 300;
@@ -22,6 +23,8 @@ export interface SavedDeckWrite {
   name: unknown;
   mode: unknown;
   deck: unknown;
+  /** null disables; {} enables the default cap. Omitted on update keeps the stored tag. */
+  genesys?: unknown;
   /**
    * CONTRACT: a positive draft id marks a deck built from the owner's pool in
    * that draft (stored in saved_decks.draft_id; one per owner per draft, a
@@ -49,6 +52,7 @@ type SavedDeckRow = {
   created_at: string;
   updated_at: string;
   draft_id: number | null;
+  genesys_json: string | null;
 };
 
 function isDuelMode(value: unknown): value is DuelMode {
@@ -115,8 +119,14 @@ function normalizeDeck(deck: unknown): DuelDeck {
 }
 
 /** Validate storage rules without a write, so previews and saves use the same limits. */
-export function validateSavedDeckWrite(input: SavedDeckWrite): { name: string; mode: DuelMode; deck: DuelDeck } {
-  return { name: normalizeName(input.name), mode: normalizeMode(input.mode), deck: normalizeDeck(input.deck) };
+export function validateSavedDeckWrite(input: SavedDeckWrite): { name: string; mode: DuelMode; deck: DuelDeck; genesys: GenesysSettings | null } {
+  let genesys: GenesysSettings | null;
+  try { genesys = normalizeGenesysSettings(input.genesys); }
+  catch (error) {
+    if (error instanceof DuelSettingsError) throw new SavedDeckServiceError(error.message, 400);
+    throw error;
+  }
+  return { name: normalizeName(input.name), mode: normalizeMode(input.mode), deck: normalizeDeck(input.deck), genesys };
 }
 
 /** undefined stays undefined (callers decide the default); null clears. */
@@ -142,8 +152,10 @@ function rethrowDraftConstraint(error: unknown): never {
 
 function mapSavedDeck(row: SavedDeckRow): SavedDeck {
   let parsed: unknown;
+  let genesys: GenesysSettings | null;
   try {
     parsed = JSON.parse(row.deck_json);
+    genesys = normalizeGenesysSettings(row.genesys_json == null ? null : JSON.parse(row.genesys_json));
   } catch {
     throw new SavedDeckServiceError("Saved deck is corrupt", 500);
   }
@@ -163,6 +175,7 @@ function mapSavedDeck(row: SavedDeckRow): SavedDeck {
     id: row.id,
     name: row.name,
     mode: row.mode,
+    genesys,
     deck: mapped,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -205,27 +218,27 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
     return { saved, repairedJson: JSON.stringify({ ...JSON.parse(row.deck_json), ...saved.deck, extraDeckRepair: saved.extraDeckRepair }) };
   };
   const selectOwned = db.prepare<[number, string, string], SavedDeckRow>(
-    `select id, name, mode, deck_json, created_at, updated_at, draft_id
+    `select id, name, mode, deck_json, created_at, updated_at, draft_id, genesys_json
      from saved_decks
      where id = ? and guild_id = ? and owner_user_id = ?`,
   );
   const selectList = db.prepare<[string, string], SavedDeckRow>(
-    `select id, name, mode, deck_json, created_at, updated_at, draft_id
+    `select id, name, mode, deck_json, created_at, updated_at, draft_id, genesys_json
      from saved_decks
      where guild_id = ? and owner_user_id = ?
      order by updated_at desc, id desc`,
   );
   const insertRow = db.prepare(
-    `insert into saved_decks (guild_id, owner_user_id, name, mode, deck_json, draft_id)
-     values (?, ?, ?, ?, ?, ?)`,
+    `insert into saved_decks (guild_id, owner_user_id, name, mode, deck_json, draft_id, genesys_json)
+     values (?, ?, ?, ?, ?, ?, ?)`,
   );
   const updateRow = db.prepare(
     `update saved_decks
-     set name = ?, mode = ?, deck_json = ?, draft_id = ?, updated_at = current_timestamp
+     set name = ?, mode = ?, deck_json = ?, draft_id = ?, genesys_json = ?, updated_at = current_timestamp
      where id = ? and guild_id = ? and owner_user_id = ?`,
   );
   const selectByDraft = db.prepare<[string, string, number], SavedDeckRow>(
-    `select id, name, mode, deck_json, created_at, updated_at, draft_id
+    `select id, name, mode, deck_json, created_at, updated_at, draft_id, genesys_json
      from saved_decks
      where guild_id = ? and owner_user_id = ? and draft_id = ?`,
   );
@@ -276,12 +289,12 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
     },
 
     create(guildId: string, ownerUserId: string, input: SavedDeckWrite): SavedDeck {
-      const { name, mode, deck } = validateSavedDeckWrite(input);
+      const { name, mode, deck, genesys } = validateSavedDeckWrite(input);
       validateExtra(deck);
       const draftId = normalizeDraftId(input.draftId) ?? null;
       let result;
       try {
-        result = insertRow.run(guildId, ownerUserId, name, mode, JSON.stringify(deck), draftId);
+        result = insertRow.run(guildId, ownerUserId, name, mode, JSON.stringify(deck), draftId, genesys ? JSON.stringify(genesys) : null);
       } catch (error) {
         rethrowDraftConstraint(error);
       }
@@ -291,7 +304,9 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
 
     update(id: number, guildId: string, ownerUserId: string, input: SavedDeckWrite): SavedDeck {
       const existing = loadOwned(id, guildId, ownerUserId);
-      const { name, mode, deck } = validateSavedDeckWrite(input);
+      const { name, mode, deck, genesys } = validateSavedDeckWrite({
+        ...input, genesys: input.genesys === undefined ? existing.genesys : input.genesys,
+      });
       validateExtra(deck);
       const draftId = normalizeDraftId(input.draftId);
       try {
@@ -300,6 +315,7 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
           mode,
           JSON.stringify(deck),
           draftId === undefined ? (existing.draftId ?? null) : draftId,
+          genesys ? JSON.stringify(genesys) : null,
           id,
           guildId,
           ownerUserId,

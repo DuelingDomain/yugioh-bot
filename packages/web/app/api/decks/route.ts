@@ -57,6 +57,7 @@ export async function POST(request: Request) {
         deck = actor.decks.create(actor.guildId, actor.ownerUserId, {
           name: body.name,
           mode: body.mode,
+          ...("genesys" in body ? { genesys: body.genesys } : {}),
           deck: checked.deck,
           draftId: draftId.draftId,
         });
@@ -76,6 +77,7 @@ export async function POST(request: Request) {
     const deck = actor.decks.create(actor.guildId, actor.ownerUserId, {
       name: body.name,
       mode: body.mode,
+      ...("genesys" in body ? { genesys: body.genesys } : {}),
       deck: body.deck,
     });
     return NextResponse.json({ deck: withRegistration(deck, []) }, { status: 201 });

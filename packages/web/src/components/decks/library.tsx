@@ -10,7 +10,8 @@ import { useCopyYdke } from "./copy-ydke";
 import { DeckImportPanel } from "./import-panel";
 import { useBulkImport } from "./use-bulk-import";
 import { deckFanCodes, deckStatus } from "./library-status";
-import { formatWhen, modeLabel } from "./model";
+import { formatWhen } from "./model";
+import { formatLabel } from "./genesys";
 import { PageFrame } from "./page-frame";
 import { RegistrationMark } from "./registration";
 import styles from "./library.module.css";
@@ -64,7 +65,7 @@ function DeckRow({
           <Link className={styles.openLink} href={`/decks/${deck.id}`}>
             {deck.name}
           </Link>
-          <span className={styles.mode}>{modeLabel(deck.mode)}</span>
+          <span className={styles.mode}>{formatLabel(deck.mode, deck.genesys)}</span>
         </p>
         <p className={styles.counts}>
           <span>Main <b>{deck.deck.main.length}</b></span>

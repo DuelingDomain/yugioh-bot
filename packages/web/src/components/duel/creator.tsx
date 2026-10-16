@@ -15,6 +15,7 @@ import {
   DUEL_FORMATS,
   MULTI_CORE_UNAVAILABLE_MESSAGE,
   multiDomainBlockReason,
+  NO_BANLIST_ID,
   type DuelFormat,
   type DuelMasterRule,
   type DuelMode,
@@ -28,6 +29,7 @@ import { cx, sheetButtonClass, SheetButton, SheetSegmented, SheetSelect, sheetPa
 import ui from "./sheet-ui.module.css";
 import styles from "./creator.module.css";
 import { FORMAT_LABELS, FORMAT_RULES, formatSeatCount, formatStartingLp } from "./table-format";
+import { DEFAULT_GENESYS_POINT_CAP, genesysCapShort, genesysModeName, MAX_GENESYS_POINT_CAP, parseGenesysCap } from "./genesys";
 
 const MASTER_RULES: readonly Choice<DuelMasterRule>[] = [
   { value: 5, label: "Master Rules 5 (2020)" },
@@ -78,6 +80,15 @@ function settingsForFormat(current: DuelSettings, mode: DuelMode, format: DuelFo
   };
 }
 
+/**
+ * The preset of a duel type: its defaults, with the organizer's visibility and the Genesys choice kept. Genesys has no
+ * Forbidden & Limited list (the server forces `none`), so a Genesys table always shows it that way.
+ */
+function presetFor(current: DuelSettings, mode: DuelMode, format: DuelFormat): DuelSettings {
+  const preset = { ...defaultDuelSettings(mode, format), visibility: current.visibility };
+  return current.genesys ? { ...preset, banlist: NO_BANLIST_ID, genesys: current.genesys } : preset;
+}
+
 const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label: `Banlist: ${label}` }));
 
 /**
@@ -97,6 +108,8 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const [format, setFormat] = useState<DuelFormat>("1v1");
   const [masterRule, setMasterRule] = useState<DuelMasterRule>(5);
   const [settings, setSettings] = useState(() => defaultDuelSettings("normal"));
+  // The point cap field keeps what the organizer types; `settings.genesys` keeps the last valid number.
+  const [capText, setCapText] = useState(String(DEFAULT_GENESYS_POINT_CAP));
   const [opponent, setOpponent] = useState<DuelPlayerOption | null>(null);
   const [bestOf, setBestOf] = useState<DuelBestOf>(1);
   const [ranked, setRanked] = useState(false);
@@ -128,6 +141,9 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const matchLocked = format !== "1v1";
   const visibility = challenge ? "private" : settings.visibility;
   const customDomain = mode === "domain" && isCustomDomain(masterRule, settings);
+  const genesys = settings.genesys ?? null;
+  const cap = parseGenesysCap(capText);
+  const capInvalid = genesys != null && !cap.ok;
   const firstTurnDrawOffered = supportsFirstTurnDrawSetting(mode, format);
   // Domain is offered only where its core exists (see multiDomainBlockReason).
   const domainBlocked = multiDomainBlockReason("domain", format, multiDomainCoreReady);
@@ -137,9 +153,21 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
     setSettings((current) => ({ ...current, [key]: value }));
   }
 
+  function toggleGenesys(on: boolean) {
+    setSettings((current) => on
+      ? { ...current, banlist: NO_BANLIST_ID, genesys: { pointCap: cap.ok ? cap.value : DEFAULT_GENESYS_POINT_CAP } }
+      : { ...current, banlist: defaultDuelSettings(mode, format).banlist, genesys: null });
+  }
+
+  function changeCap(text: string) {
+    setCapText(text);
+    const next = parseGenesysCap(text);
+    if (next.ok) setSettings((current) => current.genesys ? { ...current, genesys: { pointCap: next.value } } : current);
+  }
+
   async function onCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (inFlight.current) return;
+    if (inFlight.current || capInvalid) return;
     inFlight.current = true;
     setCreating(true);
     setError(null);
@@ -193,14 +221,15 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   }
 
   const timerShort = settings.turnSeconds === 0 ? "Unlimited" : `${settings.turnSeconds / 60} min`;
-  const formatName = mode === "domain" ? (customDomain ? "Custom Domain" : "Domain") : "Standard";
+  const formatName = genesysModeName(mode, genesys, customDomain) ?? (mode === "domain" ? (customDomain ? "Custom Domain" : "Domain") : "Standard");
   const banlistLabel = DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist;
   const summaryRows: [string, string][] = [
     ["Table", `${FORMAT_LABELS[format]} · ${formatSeatCount(format)} seats`],
     ["Match", `${bestOf === 3 ? "Best of 3" : "Best of 1"} · ${ranked ? "Ranked" : "Unranked"}`],
     ["Opponent", opponent ? opponent.displayName : "Open table"],
     ["Visibility", visibility === "private" ? "Invite only" : "Public"],
-    ["Banlist", banlistLabel],
+    ...(genesys ? [["Point cap", `${genesysCapShort(genesys)} per duelist`] as [string, string]] : []),
+    ["Banlist", genesys ? "None (Genesys)" : banlistLabel],
     ["Card pool", settings.cardPool === "both" ? "TCG + OCG" : settings.cardPool.toUpperCase()],
     ["Turn clock", settings.turnSeconds === 0 ? "Unlimited" : settings.timeout === "loss" ? "Lose on timeout" : "Play on at zero"],
     ["Deck check", settings.validateDeck ? "Enforced" : "Off"],
@@ -303,7 +332,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                     // Use the host status when changing the table format.
                     if (mode === "domain" && multiDomainBlockReason("domain", value, multiDomainCoreReady)) {
                       setMode("normal");
-                      setSettings((current) => ({ ...defaultDuelSettings("normal", value), visibility: current.visibility }));
+                      setSettings((current) => presetFor(current, "normal", value));
                     }
                     // Tag and free-for-all tables run on Master Rule 5 only.
                     if (value !== "1v1") setMasterRule(5);
@@ -320,13 +349,35 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                   <SheetSegmented label="Duel type" value={mode} choices={duelTypes} onChange={(value) => {
                     setMode(value);
                     setMasterRule(5);
-                    // Visibility is the organizer's choice, not part of a format preset.
-                    setSettings((current) => ({ ...defaultDuelSettings(value, format), visibility: current.visibility }));
+                    // Visibility and Genesys are the organizer's choices, not part of a format preset.
+                    setSettings((current) => presetFor(current, value, format));
                   }} />
                   {domainBlocked ? (
                     <p className={cx(ui.hint, styles.below)} data-testid="domain-blocked">{domainBlocked}</p>
                   ) : null}
                 </div>
+                <div className={styles.wide}>
+                  <label className={styles.toggle}>
+                    <input type="checkbox" checked={genesys != null} onChange={(event) => toggleGenesys(event.target.checked)} data-testid="genesys-toggle" />
+                    <span>
+                      Genesys
+                      <small>Every card has a point cost and each duelist&apos;s deck has a point cap. Works with Standard and Domain. No Link or Pendulum monsters, no Forbidden &amp; Limited list.</small>
+                    </span>
+                  </label>
+                </div>
+                {genesys ? (
+                  <div className={styles.wide}>
+                    <label>
+                      <span className={ui.label}>Point cap per deck</span>
+                      <input className={ui.input} type="number" inputMode="numeric" min={0} max={MAX_GENESYS_POINT_CAP} step={1}
+                        value={capText} onChange={(event) => changeCap(event.target.value)} aria-invalid={capInvalid}
+                        aria-describedby="genesys-cap-hint" data-testid="genesys-cap" />
+                    </label>
+                    <p id="genesys-cap-hint" className={cx(ui.hint, styles.below)} role={capInvalid ? "alert" : undefined}>
+                      {cap.ok ? `Main, Extra and Side count, each copy once${mode === "domain" ? ", and the Deck Master too" : ""}. Each duelist is checked alone; Tag teams do not share a total. 0 allows only 0-point cards.` : cap.message}
+                    </p>
+                  </div>
+                ) : null}
                 <SheetSelect label="Master Rules" value={masterRule} choices={format === "1v1" ? MASTER_RULES : MULTIPLAYER_MASTER_RULES} onChange={setMasterRule} disabled={format !== "1v1"} />
                 <SheetSelect label="Game engine" value="automatic" choices={[{ value: "automatic", label: "Automatic" }]} disabled />
               </div>
@@ -338,7 +389,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 <p className={ui.hint}>Card legality and how the duel opens.</p>
               </div>
               <div className={styles.fields}>
-                <SheetSelect label="Forbidden & Limited list" value={settings.banlist} choices={BANLISTS} onChange={(value) => update("banlist", value)} />
+                <SheetSelect label="Forbidden & Limited list" value={settings.banlist} choices={BANLISTS} onChange={(value) => update("banlist", value)} disabled={genesys != null} />
                 <SheetSegmented label="Card pool" value={settings.cardPool} choices={CARD_POOLS} onChange={(value) => update("cardPool", value)} full />
                 <SheetSelect label="Starting hand" value={settings.startingHand} choices={OPENING_HANDS} onChange={(value) => update("startingHand", value)} />
                 <SheetSelect label="Draw Phase" value={settings.drawPerTurn} choices={DRAWS} onChange={(value) => update("drawPerTurn", value)} />
@@ -404,10 +455,22 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                       </span>
                     </p>
                   )}
+                  {genesys ? (
+                    <p className={styles.note} role="status" data-testid="genesys-note">
+                      <Info size={16} strokeWidth={1.6} aria-hidden />
+                      <span>
+                        <strong>{genesysModeName(mode, genesys, customDomain)}</strong>
+                        {` — decks may total up to ${genesys.pointCap} points. Link and Pendulum monsters are not allowed${mode === "domain" ? ", also as the Deck Master" : ""}. The board has no Extra Monster Zones and no Pendulum Zones.`}
+                      </span>
+                    </p>
+                  ) : null}
                   {!settings.validateDeck ? (
                     <p className={cx(styles.note, styles.noteWarn)}>
                       <AlertTriangle size={16} strokeWidth={1.6} aria-hidden />
-                      <span>Format and copy-limit checks are off. Card-pool restrictions and engine-safety checks still apply.</span>
+                      <span>
+                        Format and copy-limit checks are off. Card-pool restrictions and engine-safety checks still apply.
+                        {genesys ? " The point cap and the Link and Pendulum ban still apply." : ""}
+                      </span>
                     </p>
                   ) : null}
                   <p className={styles.note}>
@@ -453,7 +516,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 </div>
               ) : (
                 <div className={styles.actions}>
-                  <SheetButton type="submit" kind="primary" size="lg" block loading={creating} disabled={creating || !name.trim()}>
+                  <SheetButton type="submit" kind="primary" size="lg" block loading={creating} disabled={creating || !name.trim() || capInvalid}>
                     {creating ? "Creating game…" : <>{opponent ? "Send challenge" : "Create game"}<Swords size={17} strokeWidth={1.6} aria-hidden /></>}
                   </SheetButton>
                   <Link href="/duels" className={sheetButtonClass("quiet", "md", true)}>Back</Link>

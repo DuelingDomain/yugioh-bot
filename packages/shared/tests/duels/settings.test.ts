@@ -25,6 +25,34 @@ import {
 } from "../../src/duels/settings.js";
 
 describe("normalizeDuelSettings", () => {
+  it.each(["normal", "domain"] as const)("normalizes Genesys for every %s table format", (mode) => {
+    for (const format of DUEL_FORMATS) {
+      for (const pointCap of [0, 100, 1000]) {
+        const settings = normalizeDuelSettings(mode, { genesys: { pointCap }, banlist: PINNED_TCG_BANLIST_ID }, format);
+        expect(settings.genesys).toEqual({ pointCap });
+        expect(settings.banlist).toBe("none");
+        expect(parseStoredDuelSettings(JSON.stringify(settings))).toEqual(settings);
+      }
+      expect(normalizeDuelSettings(mode, { genesys: {} }, format).genesys).toEqual({ pointCap: 100 });
+      expect(normalizeDuelSettings(mode, { genesys: null }, format).genesys).toBeNull();
+      expect(defaultDuelSettings(mode, format).genesys).toBeNull();
+    }
+  });
+
+  it.each([false, true, [], 100, "genesys", { pointCap: -1 }, { pointCap: 1001 },
+    { pointCap: 0.5 }, { pointCap: "100" }, { pointCap: null }, { pointCap: NaN },
+    { pointCap: Infinity }, { pointCap: 100, typo: true }].map(genesys => [genesys]))("rejects malformed Genesys settings: %j", (genesys) => {
+    expect(() => normalizeDuelSettings("normal", { genesys })).toThrow(/genesys/i);
+    expect(() => parseStoredDuelSettings(JSON.stringify({ genesys }))).toThrow(/corrupt/);
+  });
+
+  it("keeps old rows off and forces no banlist when reading Genesys rows", () => {
+    expect(parseStoredDuelSettings(null).genesys).toBeNull();
+    expect(parseStoredDuelSettings("{}").genesys).toBeNull();
+    expect(parseStoredDuelSettings(JSON.stringify({ banlist: PINNED_TCG_BANLIST_ID })).banlist).toBe(PINNED_TCG_BANLIST_ID);
+    expect(parseStoredDuelSettings(JSON.stringify({ genesys: {}, banlist: PINNED_TCG_BANLIST_ID })).banlist).toBe("none");
+  });
+
   it("fills omitted fields and rejects unknown or illegal values", () => {
     const filled = normalizeDuelSettings("domain", { startingLP: 1 });
     expect(filled.startingLP).toBe(1);

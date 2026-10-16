@@ -67,6 +67,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       const deck = ctx.actor.decks.update(ctx.id, ctx.actor.guildId, ctx.actor.ownerUserId, {
         name: body.name,
         mode: body.mode,
+        ...("genesys" in body ? { genesys: body.genesys } : {}),
         deck: checked.deck,
         draftId,
       });
@@ -77,6 +78,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     const deck = ctx.actor.decks.update(ctx.id, ctx.actor.guildId, ctx.actor.ownerUserId, {
       name: body.name,
       mode: body.mode,
+      ...("genesys" in body ? { genesys: body.genesys } : {}),
       deck: body.deck,
     });
     return NextResponse.json({ deck: withRegistration(deck, loadDeckRegistrations(ctx.actor.guildId, ctx.actor.ownerUserId)) });

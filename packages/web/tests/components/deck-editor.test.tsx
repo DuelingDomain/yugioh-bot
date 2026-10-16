@@ -174,7 +174,7 @@ describe("SavedDeckEditor", () => {
     render(<SavedDeckEditor />);
     await screen.findByRole("button", { name: "Pot of Greed" });
 
-    fireEvent.change(screen.getByLabelText("Banlist"), { target: { value: "tcg-2026-09" } });
+    fireEvent.change(screen.getByLabelText("Banlist or Genesys points"), { target: { value: "tcg-2026-09" } });
     const pot = await screen.findByRole("button", { name: "Pot of Greed, Forbidden" });
     fireEvent.doubleClick(pot);
 
@@ -357,7 +357,7 @@ describe("SavedDeckEditor", () => {
     stored = savedDeck([POT.code, BLUE_EYES.code, BLUE_EYES.code, BLUE_EYES.code]);
     render(<SavedDeckEditor deckId="7" />);
     await screen.findByRole("button", { name: /Pot of Greed, Main Deck card/ });
-    fireEvent.change(screen.getByLabelText("Banlist"), { target: { value: "tcg-2026-09" } });
+    fireEvent.change(screen.getByLabelText("Banlist or Genesys points"), { target: { value: "tcg-2026-09" } });
     const details = screen.getByRole("complementary", { name: "Card details" });
     const problem = await within(details).findByRole("button", { name: "Pot of Greed 1 copy, Forbidden" });
     expect(within(details).getByText("3 copies, 2 allowed on TCG September 2026")).toBeInTheDocument();
@@ -854,7 +854,7 @@ describe("deck card copy", () => {
     stored = savedDeck([BLUE_EYES.code, BLUE_EYES.code]);
     render(<SavedDeckEditor deckId="7" />);
     await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
-    fireEvent.change(screen.getByLabelText("Banlist"), { target: { value: "tcg-2026-09" } });
+    fireEvent.change(screen.getByLabelText("Banlist or Genesys points"), { target: { value: "tcg-2026-09" } });
     await screen.findByRole("button", { name: "Pot of Greed, Forbidden" });
     rightClick(mainCards()[0]!, { ctrlKey: true });
     expect(mainCards()).toHaveLength(2);
