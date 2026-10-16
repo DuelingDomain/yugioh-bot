@@ -53,6 +53,9 @@ describe("Genesys storage contract", () => {
     const catalog = createCardCatalogService(db, { identityCatalog: new Map([
       [1, { name: "Same", type: 0x21 }], [2, { name: "Same", type: 0x21, alias: 1 }],
     ]) });
+    // Per-card values are unknown until their revision is published as active.
+    expect(catalog.findByIds([1, 2]).map(card => card.genesysPoints)).toEqual([null, null]);
+    db.exec(`insert into genesys_points_meta values (1, 'test-list', '2026-10-05', 'https://example.test/tcg', current_timestamp)`);
     expect(catalog.findByIds([1, 2, 3])).toMatchObject([
       { ygoprodeckId: 1, genesysPoints: 25, genesysRevision: "test-list" },
       { ygoprodeckId: 2, genesysPoints: 25, genesysRevision: "test-list" },

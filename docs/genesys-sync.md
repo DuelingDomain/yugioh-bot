@@ -18,8 +18,9 @@ late older response from replacing a newer list.
 
 ## Scheduling
 
-Bot startup after Discord login starts the shared `createGenesysPointsSync` job,
-before optional reminder configuration. It runs immediately and weekly:
+The production worker starts the shared `createGenesysPointsSync` job at startup,
+even when the Discord bot is disabled. The bot also starts the job after login.
+Both run immediately and weekly; worker shutdown drains the job before closing the DB.
 
 | Environment variable | Default |
 | --- | --- |
@@ -30,12 +31,6 @@ before optional reminder configuration. It runs immediately and weekly:
 
 The shared job coalesces overlapping ticks, reports failures, retries on the next
 cron tick, and exposes `stop()` to drain work before database shutdown.
-
-The bot's existing `DISCORD_BOT_ENABLED=1` gate still applies. This base revision
-moved set sync to `packages/worker`; production runs that worker with the bot
-normally disabled. The worker owner can add the same job to its `jobs` array,
-passing `createCardCatalogService(db)`, `cron.schedule`, and the environment values
-above. Its existing shutdown calls each job's `stop()`.
 
 ## Checking a list update
 
@@ -66,10 +61,10 @@ requires investigation and a deliberate adjustment of the completeness guard.
 
 The duel-server's `cards.ts` and `deck-legality.ts` load engine `cards.cdb`; that
 file does not contain the application catalog's points. Both operate on
-engine identity maps. The companion legality commit `2a55bf18f` already supplies
+engine identity maps. The duel host supplies
 a fresh active-revision points map from the application DB to `inspectDeck`,
-including artwork identity bridging. Its column contract matches this sync. No
-legality-owned file changes are needed here. The shared reader also exposes a
+including artwork identity bridging. Its column contract matches this sync. Card search and detail responses use that same map, including canonical artwork
+points and unknown values. The shared reader also exposes a
 reusable adapter without changing engine card types or engine data:
 
 ```ts
@@ -90,12 +85,7 @@ requests, but attach points again for each admission/query so cron changes are
 visible. The service tests exercise this adapter with the shared authoritative
 Genesys admission helper, including unknown and stale points.
 
-## openIssues
+## Operational limits
 
-- The only existing shared export edit is two lines in `services/index.ts`; no
-  schema, duel settings, or existing shared type contract changed.
-- Worker entrypoint is outside the assigned file ownership. Bot startup/cron is
-  wired as requested; running sync in the normally deployed worker still needs
-  that owner to add the reusable job. The production bot is disabled by default.
-- Duel admission access was verified against companion legality commit
-  `2a55bf18f`; this branch does not edit legality or engine files.
+An unfamiliar future points mapping needs a verified official date and exact revision
+as described above. Earlier engine binaries cannot replay Genesys journals.

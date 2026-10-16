@@ -12,7 +12,7 @@ import { createDraftService, createPlayerService } from "@yugidraft/shared/servi
 
 function startWorker(root: string, extra: NodeJS.ProcessEnv = {}, imports: string[] = []) {
   const health = join(root, "health.json");
-  const child = spawn(process.execPath, [...imports.flatMap(path => ["--import", path]), fileURLToPath(new URL("../dist/index.js", import.meta.url))], {
+  const child = spawn(process.execPath, ["--import", fileURLToPath(new URL("./helpers/genesys-fetch.mjs", import.meta.url)), ...imports.flatMap(path => ["--import", path]), fileURLToPath(new URL("../dist/index.js", import.meta.url))], {
     cwd: root,
     env: {
       PATH: process.env.PATH, DATABASE_PATH: join(root, "test.sqlite"),
@@ -159,5 +159,28 @@ it("SIGTERM waits for an in-flight signed broadcast and starts no new tick", asy
     await new Promise<void>(resolve => server.close(() => resolve()));
     db.close();
     rmSync(root, {recursive: true, force: true});
+  }
+}, 10000);
+
+
+it("publishes verified Genesys points at worker startup with the Discord bot disabled", async () => {
+  const root = mkdtempSync(join(tmpdir(), "worker-genesys-"));
+  const db = openDatabase(join(root, "test.sqlite"));
+  db.prepare("insert into card_sets(set_name,synced_at) values('Seed',current_timestamp)").run();
+  const worker = startWorker(root);
+  try {
+    await until(() => !!db.prepare("select revision from genesys_points_meta").get() || worker.stopped());
+    expect(db.prepare("select effective_date, source_url from genesys_points_meta").get(), worker.output()).toEqual({
+      effective_date: "2026-10-05", source_url: "https://db.ygoprodeck.com/api/v7/cardinfo.php?format=genesys&misc=yes",
+    });
+    expect(db.prepare("select count(*) as n from card_catalog where genesys_points > 0").get()).toEqual({ n: 750 });
+    worker.child.kill("SIGTERM");
+    await until(worker.stopped);
+    expect(await worker.exit).toEqual({ code: 0 });
+  } finally {
+    if (!worker.stopped()) worker.child.kill("SIGKILL");
+    await worker.exit;
+    db.close();
+    rmSync(root, { recursive: true, force: true });
   }
 }, 10000);
