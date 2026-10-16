@@ -72,3 +72,16 @@ it("treats warmup failures as advisory and lets the real start try again", async
   writeFileSync(join(dir, "cards.cdb"), "repaired cards");
   expect((await cache.get(dir, { mode: "normal" })).identity.cardDatabaseHash).toMatch(/^[a-f0-9]{64}$/);
 });
+
+
+it("keeps the worker byte gate when startup overlaps a warmup", async () => {
+  const dir = bundle();
+  const cache = new EngineResourceCache(); caches.push(cache);
+  const options = { mode: "normal" as const, engine: "pinned" as const };
+  cache.warm(dir, options);
+  const starting = cache.get(dir, options);
+  const resources = await starting;
+  writeFileSync(join(dir, "ocgcore.standard.wasm"), "changed before worker creation");
+  expect(() => verifyWorkerEngineIdentity(dir, options, resources.identity)).toThrowError(
+    expect.objectContaining({ code: "ENGINE_UNAVAILABLE_FOR_SOURCE" }));
+});

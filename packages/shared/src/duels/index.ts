@@ -632,6 +632,8 @@ export interface DuelRoom {
   stale?: boolean;
   /** Rock-paper-scissors or FFA dice rolls before the game starts; null when there is none. */
   opening?: DuelOpeningView | null;
+  /** The host is starting this lobby's engine. Transient, absent after activation or failure. */
+  starting?: true;
   /** Only for the authorized replay-fork creator. mySeat remains the stored identity seat. */
   fork?: ReplayForkControl;
 }

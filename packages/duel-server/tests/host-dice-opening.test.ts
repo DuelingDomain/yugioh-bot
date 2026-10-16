@@ -82,7 +82,7 @@ function table(format: DuelFormat, values: number[], botSeat?: number, keepFixtu
     return keepFixtureSeats ? finishTestDiceOpening(host, JSON.parse(raw), result,
       (body) => post(String(body.op), playerId, body)) : result;
   };
-  return { duels, players, slug: session.slug, workers, rollDie, changes, post };
+  return { db, duels, players, slug: session.slug, workers, rollDie, changes, post };
 }
 
 describe("host FFA dice opening", () => {
@@ -216,5 +216,63 @@ describe("lobby resource preparation", () => {
       engine: format === "1v1" ? "legacy" : undefined });
     await t.post("view");
     expect(get).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("startup room signal", () => {
+  it.each(["ffa4", "ffa3", "tag", "1v1"] as const)("reports a pending %s start without waiting or exposing other decks", async (format) => {
+    vi.useFakeTimers();
+    const t = table(format, [6, 4, 2, 1]);
+    t.db.prepare("update duels set settings_json = json_set(settings_json, '$.visibility', 'private') where web_slug = ?").run(t.slug);
+    let release!: () => void, entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const creating = new Promise<void>(resolve => { entered = resolve; });
+    const create = Worker.prototype.create;
+    vi.spyOn(Worker.prototype, "create").mockImplementation(async function(this: Worker, options) {
+      entered(); await gate; await create.call(this, options);
+    });
+    const start = t.post("start");
+    if (format === "ffa3" || format === "ffa4") await start;
+    try {
+      await vi.advanceTimersByTimeAsync(3000);
+      await creating;
+      let seen: Awaited<ReturnType<typeof t.post>> | undefined;
+      const read = t.post("view").then(value => { seen = value; });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(seen?.status).toBe(200);
+      expect(seen?.data).toMatchObject({ starting: true, engine: null, session: { status: "lobby" },
+        myDeck: { main: Array(40).fill(1), extra: [], side: [] } });
+      expect(JSON.stringify(seen?.data)).not.toContain("seed");
+      const otherSeat = await t.post("view", t.players[1]!);
+      expect(otherSeat.data.myDeck.main).toEqual(Array(40).fill(2));
+      expect((await t.post("view", t.players[0]!, { guildId: "other" })).status).toBe(404);
+      expect((await t.post("view", t.players.at(-1)!)).status).toBe(403);
+      let spectatorDone = false;
+      const spectator = t.post("view", t.players[0]!, { spectate: true }).then(value => { spectatorDone = true; return value; });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(spectatorDone).toBe(false);
+      release(); await start; await read;
+      expect((await spectator).status).toBe(409);
+      const active = await t.post("view");
+      expect(active.data.session.status).toBe("active");
+      expect(active.data.starting).toBeUndefined();
+      expect(t.workers).toHaveLength(1);
+    } finally { release(); await start; }
+  });
+
+  it.each(["ffa3", "tag"] as const)("clears the %s signal and notifies readers after a failed worker start", async (format) => {
+    vi.useFakeTimers();
+    const t = table(format, [6, 4, 2]);
+    vi.spyOn(Worker.prototype, "create").mockRejectedValueOnce(new Error("Test start failed"));
+    const start = await t.post("start");
+    if (format === "ffa3") {
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.waitFor(() => expect(t.duels.openingState(t.slug, "g")).toBeNull());
+    } else expect(start.status).toBe(500);
+    const view = await t.post("view");
+    expect(view.data.starting).toBeUndefined();
+    expect(view.data.session.status).toBe("lobby");
+    expect(t.changes.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });

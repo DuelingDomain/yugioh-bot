@@ -427,8 +427,8 @@ export function createDuelHost(options: {
   const advanceTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** One timer per duel with a running opening: it fires at the phase deadline. */
   const openingTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Engine starts remain queued; reads can show the saved choice while they run. */
-  const startingOpenings = new Set<string>();
+  /** Engine starts remain queued; authenticated reads can show startup progress. */
+  const startingGames = new Set<string>();
   const random = options.random ?? Math.random;
   /** Series games whose last start failed: the tick sweep skips a slug until `retryAt`. */
   const startBackoff = new Map<string, {
@@ -2659,6 +2659,20 @@ export function createDuelHost(options: {
 
   /** Starts a lobby game. `organizer` null is a system start, which the duel service only allows for a series game. */
   async function startGame(slug: string, guildId: string, organizer: number | null): Promise<DuelGameWorker> {
+    startingGames.add(slug);
+    try {
+      await emitChange(slug, guildId);
+      return await startGameNow(slug, guildId, organizer);
+    } catch (error) {
+      startingGames.delete(slug);
+      await emitChange(slug, guildId);
+      throw error;
+    } finally {
+      startingGames.delete(slug);
+    }
+  }
+
+  async function startGameNow(slug: string, guildId: string, organizer: number | null): Promise<DuelGameWorker> {
     const checksAt = performance.now();
     const { state, settings, seatCount } = await assertStartable(slug, guildId);
     const bytes = randomBytes(32);
@@ -2681,6 +2695,7 @@ export function createDuelHost(options: {
       deckStartBlocks.delete(slug);
       startBackoff.delete(slug);
       games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), manualSeats: new Set(), traces: new Map() });
+      startingGames.delete(slug);
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, game);
       return game;
@@ -2804,9 +2819,7 @@ export function createDuelHost(options: {
     // After a failed start, a room view or a poll must not start the duel again before the backoff ends.
     if ((startBackoff.get(slug)?.retryAt ?? 0) > now()) return;
     clearOpeningTimer(slug);
-    startingOpenings.add(slug);
     try {
-      await emitChange(slug, guildId);
       // The seats are in their final order. A failed start of a series game is retried by the tick sweep.
       await startGame(slug, guildId, state.startedBy);
       startBackoff.delete(slug);
@@ -2824,23 +2837,21 @@ export function createDuelHost(options: {
       noteStartFailure(slug, error);
       await emitChange(slug, guildId);
       if (error instanceof DeckLegalityError || error instanceof RequestError) throw error;
-    } finally {
-      startingOpenings.delete(slug);
     }
   }
 
-  /** A read of saved lobby state never asks the engine to work or changes the opening. */
-  function startingOpeningRoom(body: Record<string, unknown>): DuelRoom | null {
+  /** A read during startup never asks the engine to work or changes the opening. */
+  function startingRoom(body: Record<string, unknown>): DuelRoom | null {
     if (body.op !== "view") return null;
     const { guildId, playerId, slug } = body;
     if (typeof guildId !== "string" || !guildId || !Number.isSafeInteger(playerId) || (playerId as number) <= 0) {
       throw new RequestError("Authenticated guild and player are required", 400);
     }
     if (typeof slug !== "string" || !slug || slug.length > 128) throw new RequestError("Duel slug is required", 400);
-    if (!startingOpenings.has(slug) || body.spectate === true) return null;
+    if (!startingGames.has(slug) || body.spectate === true) return null;
     // service.room applies guild scoping and returns only this actor's own deck and pick.
     const room = service.room(slug, guildId, playerId as number);
-    return room.session.status === "lobby" && room.opening?.phase === "start" ? stampRoomClock(room, now()) : null;
+    return room.session.status === "lobby" ? stampRoomClock({ ...room, starting: true }, now()) : null;
   }
 
   /**
@@ -3754,8 +3765,9 @@ export function createDuelHost(options: {
         const fork = typeof body.slug === "string" && typeof body.guildId === "string"
           && options.db.prepare<[string, string], { kind: string }>("select kind from duels where web_slug = ? and guild_id = ?")
             .get(body.slug, body.guildId)?.kind === "replay-fork";
-        const openingRoom = startingOpeningRoom(body);
-        if (openingRoom && !fork) return Response.json(openingRoom, { headers: { "cache-control": "no-store" } });
+        // Fork reads stay queued and pass both access checks, even if a saved opening exists.
+        const startupRoom = fork ? null : startingRoom(body);
+        if (startupRoom) return Response.json(startupRoom, { headers: { "cache-control": "no-store" } });
         // Start and restart share the actor queue so the active and rate limits cannot race.
         // They can acquire old duel queues for cancellation without holding another duel queue.
         const key = body.op === SANDBOX_OPS.start || body.op === SANDBOX_OPS.restart
