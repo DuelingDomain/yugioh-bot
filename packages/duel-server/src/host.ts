@@ -37,7 +37,7 @@ import type {
   ReplayErrorCode,
 } from "@yugidraft/shared/duels";
 import {
-  CardQueryError, duel1v1EngineForMode, isFirstChoice, isReplayFork, isReplaySeed, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
+  CardQueryError, DuelSettingsError, duel1v1EngineForMode, isFirstChoice, isReplayFork, isReplaySeed, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
   COIN_TIMING, COIN_CHAIN_BEAT_MAX_MS, MIN_DUEL_FX_SPEED, coinTossDurationMs,
   CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_OPENING_REVEAL_MS, DUEL_RPS_MOVES,
 } from "@yugidraft/shared/duels";
@@ -510,14 +510,49 @@ export function createDuelHost(options: {
     return startedMatch ? loadCardBlockList(undefined, options.dataDirectory) : admissionEntries(session.mode, session.format);
   }
 
+  const currentGenesysPoints = options.db.prepare<[], { code: number; points: number | null }>(`
+    select c.ygoprodeck_id as code,
+      case when c.genesys_revision = m.revision then c.genesys_points else null end as points
+    from card_catalog c left join genesys_points_meta m on m.id = 1
+  `);
+  async function genesysAdmissionPoints(settings: DuelSettings): Promise<InspectDeckOptions["genesysPoints"]> {
+    if (!settings.genesys) return undefined;
+    // Read each admission afresh: a new sync must invalidate stale per-card revisions immediately.
+    const rows = currentGenesysPoints.all();
+    const points = new Map(rows.map(row => [row.code, row.points]));
+    const bridged = new Map<number, number | null>();
+    const bridge = (code: number, value: number | null) => {
+      // Exact canonical rows, even unknown ones, take precedence over all fallback identities.
+      if (!points.has(code)) bridged.set(code, bridged.has(code) && bridged.get(code) !== value ? null : value);
+    };
+    for (const row of rows) {
+      const code = remaps.get(row.code);
+      if (code !== undefined) bridge(code, row.points);
+    }
+    const engine = repairEngine();
+    const external = rows.filter(row => row.points !== null && !engine.has(remaps.get(row.code) ?? row.code));
+    if (external.length) {
+      // Imported API passcodes can resolve by name to a different installed engine passcode.
+      const normalized = await normalizeCardCodes(external.map(row => row.code), options.dataDirectory, options.db, { cacheOnly: true });
+      for (const row of external) {
+        const code = normalized.get(row.code);
+        // Engine-known artwork rows never supply canonical fallback points.
+        if (code != null) bridge(code, row.points);
+      }
+    }
+    for (const [code, value] of bridged) points.set(code, value);
+    return points;
+  }
+
   async function sessionDeckOptions(session: DuelSession, playerId: number): Promise<InspectDeckOptions> {
     const table = session.format;
     const cardBlocks = sessionCardEntries(session);
+    const genesysPoints = await genesysAdmissionPoints(session.settings);
     const tournamentId = session.seriesId ? series.get(session.seriesId, session.guildId).tournamentId : null;
     const draftId = tournamentId === null ? null : createTournamentDuelService(options.db).rules(tournamentId).draftId;
-    if (draftId === null) return { table, cardBlocks };
+    if (draftId === null) return { table, cardBlocks, genesysPoints };
     const draftPool = await loadDraftDeckPool({ draftId, playerId, guildId: session.guildId, dataDirectory: options.dataDirectory, db: options.db });
-    return { table, draftPool, cardBlocks };
+    return { table, draftPool, cardBlocks, genesysPoints };
   }
 
   function cardRequestEntries(body: Record<string, unknown>, guildId: string, playerId: number): readonly CardBlockEntry[] {
@@ -531,7 +566,8 @@ export function createDuelHost(options: {
   const findDeckType = createDeckTypeLookup(options.db, () => loadArtworkIdentityCatalog(options.dataDirectory));
 
   async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
-    const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format, cardBlocks: admissionEntries(mode, format) };
+    const checks = context ? await sessionDeckOptions(context.session, context.playerId)
+      : { table: format, cardBlocks: admissionEntries(mode, format), genesysPoints: await genesysAdmissionPoints(settings) };
     validateExtraDeckTypes(deck, options.dataDirectory, findDeckType);
     validateDeck(mode, deck, options.dataDirectory, settings, checks);
   }
@@ -2960,14 +2996,21 @@ export function createDuelHost(options: {
         throw new RequestError("Unknown master rule", 400);
       }
       const format = body.format === "tag" || body.format === "ffa3" || body.format === "ffa4" ? body.format : "1v1";
-      const settings = normalizeDuelSettings(mode, body.settings, format);
+      let settings: DuelSettings;
+      try { settings = normalizeDuelSettings(mode, body.settings, format); }
+      catch (error) {
+        if (error instanceof DuelSettingsError) throw new RequestError(error.message, 400);
+        throw error;
+      }
       const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
       let draftPool: InspectDeckOptions["draftPool"];
       if (body.draftId !== undefined && body.draftId !== null) {
         if (!Number.isSafeInteger(body.draftId) || (body.draftId as number) < 1 || mode !== "normal") throw new RequestError("Invalid draft deck context", 400);
         draftPool = await loadDraftDeckPool({ draftId: body.draftId as number, playerId: actor, guildId, dataDirectory: options.dataDirectory, db: options.db });
       }
-      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, { draftPool, cardBlocks: admissionEntries(mode, format) }) };
+      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, {
+        table: format, draftPool, cardBlocks: admissionEntries(mode, format), genesysPoints: await genesysAdmissionPoints(settings),
+      }) };
     }
     if (op === "card-query") {
       try {

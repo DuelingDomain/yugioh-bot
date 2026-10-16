@@ -77,4 +77,15 @@ describe("lobby deck validation lifecycle", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(report);
   });
+
+  it.each(formats)("passes authoritative Genesys settings and the %s table to validation", async format => {
+    const session = actor(format);
+    Object.assign(session, { mode: "domain", settings: { genesys: { pointCap: 0 }, banlist: "none" } });
+    const report = { issues: [{ message: "Deck uses 1 Genesys points; the cap is 0.", cards: [] }] };
+    host.callDuelHost.mockResolvedValue({ ok: true, data: report });
+    const response = await POST(request(), params);
+    expect(await response.json()).toEqual(report);
+    expect(host.callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck", format,
+      settings: { genesys: { pointCap: 0 }, banlist: "none" } }));
+  });
 });
