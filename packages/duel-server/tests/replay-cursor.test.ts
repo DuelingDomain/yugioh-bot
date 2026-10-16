@@ -43,6 +43,18 @@ describe("sealed replay cursors", () => {
       expect(replaySourceVersion(changed)).not.toBe(before);
     }
   });
+  it("binds Genesys rules and keeps absent/null off sources compatible", () => {
+    const source = replaySource(), off = replaySourceVersion(source);
+    delete source.session.settings.genesys;
+    expect(replaySourceVersion(source)).toBe(off);
+    source.session.settings.genesys = { pointCap: 100 };
+    const enabled = replaySourceVersion(source);
+    expect(enabled).not.toBe(off);
+    source.session.settings.genesys = { pointCap: 0 };
+    expect(replaySourceVersion(source)).not.toBe(enabled);
+    source.session.settings.genesys = null;
+    expect(replaySourceVersion(source)).toBe(off);
+  });
   it("binds the source, rules, sequence IDs and journal; it grants no access", () => {
     const source = replaySource();
     const cursor = codec.seal({ sourceId: 1, sourceSlug: source.session.slug, guildId: source.session.guildId,

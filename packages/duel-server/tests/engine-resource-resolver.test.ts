@@ -114,7 +114,10 @@ describe("current engine identity", () => {
     // These changes preserve engine command interpretation and replay journal behavior.
     // Stream E integration refreshes version 5 for safe error classification/reporting with async admission.
     // Successful engine commands and replay journals are unchanged.
-    // Historical baselines remain unchanged.
+    // Genesys refreshes version 5 for opt-in field geometry carried in saved settings. Missing/null Genesys
+    // retains identical flags, views and replay source hashes (real-worker coverage includes all core variants).
+    // Preserve the identity of historical sources, including active replay forks; earlier binaries cannot run Genesys.
+    // Baselines for versions 1-4 remain unchanged.
     expect(hash.digest("hex"), "Runtime fingerprint changed (comments/formatting/type-only edits are ignored). Bump ENGINE_HOST_RULE_VERSION and add its fingerprint; behavior-neutral refreshes must explain why").toBe(baselines[ENGINE_HOST_RULE_VERSION]);
   });
 

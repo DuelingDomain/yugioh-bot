@@ -538,6 +538,8 @@ export interface DuelChainLink {
 }
 
 export interface DuelEngineView {
+  /** Original Genesys field: no Extra Monster or Pendulum Zones. Missing/false means the existing Master Rule layout. */
+  field?: { genesys: boolean };
   revision: number;
   /** Seat and team layout. Absent means `1v1`. In Tag both partners' `lp` is the shared team LP. */
   format?: DuelFormat;
