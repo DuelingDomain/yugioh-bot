@@ -9,7 +9,8 @@ import { VisibilityChoice } from "@/components/draft/visibility/visibility-choic
 import { VISIBILITY_LABEL, type Visibility } from "@/lib/invite-link";
 import { DuelRulesFields } from "./duel-rules-fields";
 import { DeadlinePicker } from "./deadline-picker";
-import { buildRulesPayload, defaultDuelRulesValue } from "./duel-rules";
+import { buildRulesPayload, defaultDuelRulesValue, duelRulesProblem } from "./duel-rules";
+import { genesysCapShort, genesysModeName } from "../duel/genesys";
 import { formatClosesAt, formatName, sizeTable, type TournamentFormat } from "./create-tournament-model";
 import styles from "./create-tournament-form.module.css";
 
@@ -54,6 +55,7 @@ export function CreateTournamentForm() {
       return;
     }
     setNameError(null);
+    if (duelRulesProblem(rules)) return;
 
     setSubmitting(true);
     try {
@@ -89,7 +91,8 @@ export function CreateTournamentForm() {
   };
 
   const table = sizeTable(format);
-  const banlistLabel = DUEL_BANLIST_OPTIONS.find((o) => o.id === rules.banlist)?.label ?? rules.banlist;
+  const banlistLabel = rules.genesys ? "No banlist" : DUEL_BANLIST_OPTIONS.find((o) => o.id === rules.banlist)?.label ?? rules.banlist;
+  const modeLabel = genesysModeName(rules.mode, rules.genesys) ?? (rules.mode === "domain" ? "Domain" : "Normal");
   const turnLabel = rules.turnSeconds === 0 ? "Unlimited" : rules.turnSeconds % 60 === 0 ? `${rules.turnSeconds / 60} min` : `${rules.turnSeconds} sec`;
   const hoursLabel = confirmHours.trim() ? `${confirmHours.trim()} hours` : "24 hours";
 
@@ -245,8 +248,14 @@ export function CreateTournamentForm() {
               </div>
               <div>
                 <dt>Duel mode</dt>
-                <dd>{rules.mode === "domain" ? "Domain" : "Normal"}</dd>
+                <dd>{modeLabel}</dd>
               </div>
+              {rules.genesys ? (
+                <div>
+                  <dt>Point cap</dt>
+                  <dd>{genesysCapShort(rules.genesys)}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>Banlist</dt>
                 <dd>{banlistLabel}</dd>
@@ -276,7 +285,7 @@ export function CreateTournamentForm() {
                 </StatusLine>
               </div>
             )}
-            <SvButton type="submit" variant="primary" big wide disabled={submitting} aria-busy={submitting || undefined}>
+            <SvButton type="submit" variant="primary" big wide disabled={submitting || duelRulesProblem(rules) != null} aria-busy={submitting || undefined}>
               Create tournament
             </SvButton>
            </div>

@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
 import { Eye, Film, Radio, Volume2, VolumeX } from "lucide-react";
 import { isCustomDomain, teamOfSeat, type DuelEngineView, type DuelSession } from "@yugidraft/shared/duels";
+import { genesysLabel, genesysOf } from "../genesys";
 import { connectionLabel as labelForConnection } from "../connection-label";
 import { isBattlePhase, phaseTitle } from "../constants";
 import type { DuelPreferences } from "../preferences";
@@ -45,8 +46,10 @@ export interface TagHeaderProps {
   replay?: { tools?: ReactNode };
 }
 
-/** The mode label of the pill: "Domain", "Custom Domain" or "MR5". */
+/** The mode label of the pill: "Domain", "Custom Domain", "MR5", or "Genesys · 100 pts" for a Genesys table. */
 export function tagModeLabel(session: Pick<DuelSession, "mode" | "masterRule" | "settings">): string {
+  const genesys = genesysLabel(session.mode, genesysOf(session), session.mode === "domain" && isCustomDomain(session.masterRule, session.settings));
+  if (genesys) return genesys;
   if (session.mode === "domain") return isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain";
   return `MR${session.masterRule}`;
 }

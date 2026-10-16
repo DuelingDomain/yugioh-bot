@@ -44,6 +44,45 @@ describe("TournamentRulesForm", () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 
+  it("PATCHes the Genesys cap, forces no banlist and blocks an invalid cap", async () => {
+    const fetchMock = vi.fn(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<TournamentRulesForm tournament={base} tournamentSlug="cup" onSaved={() => {}} />);
+    expect(screen.queryByLabelText(/point cap/i)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/genesys format/i), { target: { value: "on" } });
+    expect((screen.getByLabelText(/banlist/i) as HTMLSelectElement).value).toBe("none");
+    expect(screen.getByLabelText(/banlist/i)).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/point cap/i), { target: { value: "1001" } });
+    expect(screen.getByLabelText(/point cap/i).getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByRole("button", { name: /save duel rules/i })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/point cap/i), { target: { value: "60" } });
+    fireEvent.click(screen.getByRole("button", { name: /save duel rules/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toEqual({
+      bestOf: 3,
+      duelRules: { mode: "normal", masterRule: 5, settings: { banlist: "none", turnSeconds: 240, genesys: { pointCap: 60 } } },
+    });
+  });
+
+  it("reads a stored Genesys tournament and turning Genesys off sends the old shape", async () => {
+    const fetchMock = vi.fn(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    const stored = { bestOf: 3, mode: "domain", masterRule: 5, draftId: null, settings: { banlist: "none", turnSeconds: 120, genesys: { pointCap: 75 } } } as never;
+    render(<TournamentRulesForm tournament={{ ...base, duelRules: stored }} tournamentSlug="cup" onSaved={() => {}} />);
+    expect((screen.getByLabelText(/point cap/i) as HTMLInputElement).value).toBe("75");
+    fireEvent.change(screen.getByLabelText(/genesys format/i), { target: { value: "off" } });
+    expect(screen.queryByLabelText(/point cap/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /save duel rules/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(body.duelRules.settings).toEqual({ banlist: "none", turnSeconds: 120 });
+  });
+
+  it("draft tournament: no Genesys option", () => {
+    render(<TournamentRulesForm tournament={{ ...base, draftId: 4, draftSlug: "d" }} tournamentSlug="cup" onSaved={() => {}} />);
+    expect(screen.queryByLabelText(/genesys/i)).toBeNull();
+  });
+
   it("draft tournament: shows the fixed rules note and sends only bestOf", async () => {
     const fetchMock = vi.fn(async () => Response.json({}));
     vi.stubGlobal("fetch", fetchMock);

@@ -10,6 +10,7 @@ import { isCustomDomain, type DuelDeck, type DuelRoom, type DuelSeat } from "@yu
 import type { DuelPresencePayload } from "@yugidraft/shared/ws";
 import { DeckCardPreview } from "./deck-card-preview";
 import { DeckEditor } from "./deck-editor";
+import { genesysLabel, genesysOf } from "./genesys";
 import { formatLabel as tableFormatLabel, formatSeatCount, seatGroups, tagSeatCode } from "./table-format";
 import { shouldCheckDeck, startButtonLabel } from "./start-flow";
 import { SeriesBadges } from "./series-banner";
@@ -155,9 +156,10 @@ export function RoomLobby({
   const groups = seatGroups(session.format);
   const everyoneWord = seatCount === 2 ? "Both seats" : `All ${seatCount} seats`;
 
-  const formatLabel = session.mode === "domain"
+  const genesys = genesysOf(session);
+  const formatLabel = genesysLabel(session.mode, genesys, session.mode === "domain" && isCustomDomain(session.masterRule, session.settings)) ?? (session.mode === "domain"
     ? isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : (session.format && session.format !== "1v1" ? "Domain · singleton" : "Domain 1v1 · singleton")
-    : `Master Rule ${session.masterRule}`;
+    : `Master Rule ${session.masterRule}`);
   const isPrivate = session.settings.visibility === "private";
   const series = room.series;
   const seatsLocked = session.status !== "lobby" || starting || room.opening != null || session.seriesId != null || series != null;

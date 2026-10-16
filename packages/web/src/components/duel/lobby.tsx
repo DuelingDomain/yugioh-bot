@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { focusDuelWindowOnClick } from "./duel-window";
 import { formatLabel, formatSeatCount, tagSeatCode } from "./table-format";
+import { genesysLabel, genesysOf } from "./genesys";
 import {
   DUEL_LIST_KEY, cancelDuel, duelHistoryKey, leaveDuel, listDuels, surrenderDuel, takeDuelSeat,
   type DuelListPage,
@@ -34,6 +35,9 @@ function statusLabel(status: DuelListItem["status"]): string {
 }
 
 function modeLabel(duel: DuelListItem): string {
+  const custom = duel.mode === "domain" && isCustomDomain(duel.masterRule, duel.settings);
+  const genesys = genesysLabel(duel.mode, genesysOf(duel), custom);
+  if (genesys) return genesys;
   if (duel.mode === "domain") return isCustomDomain(duel.masterRule, duel.settings) ? "Custom Domain" : duel.format && duel.format !== "1v1" ? "Domain" : "Domain 1v1";
   return `Master Rule ${duel.masterRule}`;
 }

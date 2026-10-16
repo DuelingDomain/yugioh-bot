@@ -42,6 +42,7 @@ import { SharedExtraBand } from "./shared-band";
 import { batonOrder, lastTeamDamage, responseWindow, rivalPickOptions, teamGlyph, teamLoss, teamLp } from "./tag-logic";
 import { useForkLabels } from "../table/fork-labels";
 import { plateState, TeamLpPlate, type PlateMember } from "./team-lp-plate";
+import { sessionBoardRule } from "../genesys";
 import styles from "./tag-stage.module.css";
 
 export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
@@ -634,7 +635,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   // ---------- fields ----------
   // A facing pair (1A-2A, 1B-2B) draws one band of two Extra Monster Zones between its fields (Master Rule 4 and 5 only; an
   // older core without `sharedExtraWith`, or a pair holding both mirrored cells, keeps the rows of its fields).
-  const sharedPairs = useMemo(() => (room.session.masterRule >= 4 ? sharedExtraPairs(engine) : []), [engine, room.session.masterRule]);
+  // A Genesys table has no Extra Monster Zones, so it has nothing to share.
+  const boardRule = sessionBoardRule(room.session);
+  const sharedPairs = useMemo(() => (boardRule >= 4 ? sharedExtraPairs(engine) : []), [engine, boardRule]);
   const sharedSeats = useMemo(() => new Set(sharedPairs.flatMap((pair) => pair.map((view) => view.seat))), [sharedPairs]);
   sharedRef.current = sharedPairs.length > 0;
   const relationOf = (seat: number) =>
@@ -650,7 +653,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       engine,
       seat,
       viewerSeat,
-      masterRule: room.session.masterRule,
+      masterRule: boardRule,
       side: near ? "you" : "opp",
       // `data-side="you"` is the viewer's own field only (e2e own-zone locators); a spectator has none.
       dataSide: relation === "self" ? "you" : relation === "partner" ? "partner" : "opp",
