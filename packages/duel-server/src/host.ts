@@ -38,7 +38,7 @@ import type {
   ReplayErrorCode,
 } from "@yugidraft/shared/duels";
 import {
-  CardQueryError, DuelSettingsError, duel1v1EngineForMode, isFirstChoice, isReplayFork, isReplaySeed, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
+  CardQueryError, DuelSettingsError, deckCardCounts, duel1v1EngineForMode, isFirstChoice, isReplayFork, isReplaySeed, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
   COIN_TIMING, COIN_CHAIN_BEAT_MAX_MS, MIN_DUEL_FX_SPEED, coinTossDurationMs,
   CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_OPENING_REVEAL_MS, DUEL_RPS_MOVES,
 } from "@yugidraft/shared/duels";
@@ -503,12 +503,34 @@ export function createDuelHost(options: {
   }
   let stopped = false;
 
-  /** Check one deck against the real table format, so a Tag or FFA table also refuses the cards that do not work there. */
-  function sessionCardEntries(session: DuelSession): readonly CardBlockEntry[] {
-    const startedMatch = session.seriesId != null && (
+  function startedMatch(session: DuelSession): boolean {
+    return session.seriesId != null && (
       (session.gameNumber ?? 1) > 1 || session.status !== "lobby" || series.get(session.seriesId, session.guildId).tournamentId !== null
     );
-    return startedMatch ? loadCardBlockList(undefined, options.dataDirectory) : admissionEntries(session.mode, session.format);
+  }
+
+  /** Check one deck against the real table format, so a Tag or FFA table also refuses the cards that do not work there. */
+  function sessionCardEntries(session: DuelSession): readonly CardBlockEntry[] {
+    return startedMatch(session) ? loadCardBlockList(undefined, options.dataDirectory) : admissionEntries(session.mode, session.format);
+  }
+
+  const admittedMatchDeck = options.db.prepare<[number, number, number, number], { deck: string | null }>(`
+    select case when player0_id = ? then base_deck0_json
+      when player1_id = ? or (vs_bot = 1 and ? is null) then base_deck1_json end as deck
+    from duel_series where id = ?
+  `);
+  function hasAdmittedGenesysPoints(session: DuelSession, playerId: number, deck?: DuelDeck): boolean {
+    if (!session.settings.genesys || !deck || !startedMatch(session)) return false;
+    // Base decks are captured on game 1 activation or copied from admitted tournament registrations.
+    // They survive host restarts. Side swaps and artworks preserve the points-bearing multiset,
+    // including every copy and the Deck Master; new identities still require live admission.
+    const stored = admittedMatchDeck.get(playerId, playerId, playerId, session.seriesId!)?.deck;
+    if (!stored) return false;
+    const base = JSON.parse(stored) as DuelDeck;
+    const resolve = (code: number) => canonicalEngineCardCode(code, options.dataDirectory);
+    const admitted = deckCardCounts(base, resolve);
+    const proposed = deckCardCounts(deck, resolve);
+    return admitted.size === proposed.size && [...admitted].every(([code, count]) => proposed.get(code) === count);
   }
 
   const currentGenesysPoints = options.db.prepare<[], { code: number; points: number | null }>(`
@@ -550,15 +572,16 @@ export function createDuelHost(options: {
     return cards.map(card => ({ ...card, genesysPoints: points?.get(card.canonicalPasscode ?? card.code) ?? null }));
   }
 
-  async function sessionDeckOptions(session: DuelSession, playerId: number): Promise<InspectDeckOptions> {
+  async function sessionDeckOptions(session: DuelSession, playerId: number, deck?: DuelDeck): Promise<InspectDeckOptions> {
     const table = session.format;
     const cardBlocks = sessionCardEntries(session);
-    const genesysPoints = await genesysAdmissionPoints(session.settings);
+    const genesysPointsAdmitted = hasAdmittedGenesysPoints(session, playerId, deck);
+    const genesysPoints = genesysPointsAdmitted ? undefined : await genesysAdmissionPoints(session.settings);
     const tournamentId = session.seriesId ? series.get(session.seriesId, session.guildId).tournamentId : null;
     const draftId = tournamentId === null ? null : createTournamentDuelService(options.db).rules(tournamentId).draftId;
-    if (draftId === null) return { table, cardBlocks, genesysPoints };
+    if (draftId === null) return { table, cardBlocks, genesysPoints, genesysPointsAdmitted };
     const draftPool = await loadDraftDeckPool({ draftId, playerId, guildId: session.guildId, dataDirectory: options.dataDirectory, db: options.db });
-    return { table, draftPool, cardBlocks, genesysPoints };
+    return { table, draftPool, cardBlocks, genesysPoints, genesysPointsAdmitted };
   }
 
   function cardRequestEntries(body: Record<string, unknown>, guildId: string, playerId: number): readonly CardBlockEntry[] {
@@ -572,7 +595,7 @@ export function createDuelHost(options: {
   const findDeckType = createDeckTypeLookup(options.db, () => loadArtworkIdentityCatalog(options.dataDirectory));
 
   async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
-    const checks = context ? await sessionDeckOptions(context.session, context.playerId)
+    const checks = context ? await sessionDeckOptions(context.session, context.playerId, deck)
       : { table: format, cardBlocks: admissionEntries(mode, format), genesysPoints: await genesysAdmissionPoints(settings) };
     validateExtraDeckTypes(deck, options.dataDirectory, findDeckType);
     validateDeck(mode, deck, options.dataDirectory, settings, checks);
@@ -1699,7 +1722,7 @@ export function createDuelHost(options: {
             { session: room.session, playerId });
         } catch (error) {
           if (!(error instanceof DeckLegalityError)) throw error;
-          const checks = await sessionDeckOptions(room.session, playerId);
+          const checks = await sessionDeckOptions(room.session, playerId, pendingDeck);
           const report = inspectDeck(room.session.mode, pendingDeck, options.dataDirectory, room.session.settings, checks);
           room.startBlocked = { reason: error.message,
             cardNames: [...new Set(report.issues.flatMap(issue => issue.cards.map(card => card.name ?? `card ${card.code}`)))] };
@@ -3207,7 +3230,7 @@ export function createDuelHost(options: {
         keepUnresolved: true,
       });
       if (op === "validate-deck") {
-        return inspectDeck(room.session.mode, deck, options.dataDirectory, settings, await sessionDeckOptions(room.session, actor));
+        return inspectDeck(room.session.mode, deck, options.dataDirectory, settings, await sessionDeckOptions(room.session, actor, deck));
       }
       await validateSessionDeck(room.session.mode, deck, settings, room.session.format, { session: room.session, playerId: actor });
       const session = service.setDeck(slug, guildId, actor, deck);

@@ -29,6 +29,8 @@ export interface InspectDeckOptions {
   table?: MultiplayerTable;
   /** Points from the active TCG snapshot only. Missing values fail closed in Genesys. */
   genesysPoints?: ReadonlyMap<number, number | null>;
+  /** Host verified the same card multiset against the match's admitted base deck. Type bans still apply. */
+  genesysPointsAdmitted?: boolean;
   /** Server-loaded picks only. Each forced pick adds one copy to the draft limit. */
   draftPool?: { counts: ReadonlyMap<number, number>; forcedCopies: ReadonlyMap<number, number> };
 }
@@ -866,6 +868,7 @@ export function inspectDeck(
       ...card, genesysPoints: options.genesysPoints?.get(code) ?? null,
     }]));
     for (const problem of checkGenesysDeck(deck, cards, settings.genesys).problems) {
+      if (options.genesysPointsAdmitted && (problem.kind === "over-cap" || problem.kind === "unknown-points")) continue;
       issues.push({ message: problem.message, cards: problem.kind === "over-cap" ? [] : problem.cards });
     }
   }

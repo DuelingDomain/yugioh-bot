@@ -4,9 +4,10 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { seatCountFor, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
-import { createDuelService } from "@yugidraft/shared/services";
+import { seatCountFor, type DuelEngineView, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
+import { createDuelSeriesService, createDuelService, createTournamentDuelService, createTournamentService, publishGenesysPointsSnapshot } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
+import type { DuelGameWorker } from "../src/worker-client.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { signedHeaders } from "./helpers/signed-request.js";
 import { GENESYS_ART, GENESYS_LINK, GENESYS_MASTER, GENESYS_PENDULUM, genesysDeck, genesysFixture, seedGenesysPoints } from "./helpers/genesys-fixture.js";
@@ -19,8 +20,15 @@ afterEach(async () => {
   }
 });
 
-function room(mode: DuelMode, format: DuelFormat, pointCap = 100, passcodeRemaps?: Record<number, number>) {
+function room(mode: DuelMode, format: DuelFormat, pointCap = 100, passcodeRemaps?: Record<number, number>, createWorker?: () => DuelGameWorker) {
   const fixture = genesysFixture();
+  if (createWorker) {
+    // Only the resource identity reader opens these; the injected worker never loads a core.
+    for (const file of ["ocgcore.standard.wasm", "ocgcore.domain.wasm", "ocgcore.domain.legacy.wasm"]) {
+      writeFileSync(join(fixture.directory, file), "fixture");
+    }
+    for (const file of ["domain.lua", "domain.legacy.lua"]) writeFileSync(join(fixture.directory, "card-scripts", file), "-- fixture");
+  }
   if (passcodeRemaps) {
     const artifact = JSON.stringify({ version: 1, remaps: passcodeRemaps });
     writeFileSync(join(fixture.directory, "card-remaps.json"), artifact);
@@ -39,7 +47,7 @@ function room(mode: DuelMode, format: DuelFormat, pointCap = 100, passcodeRemaps
     settings: { genesys: { pointCap }, validateDeck: false } });
   players.slice(1).forEach(player => duels.takeSeat(session.slug, "g", player));
   const host = createDuelHost({ db, dataDirectory: fixture.directory, secret: SECRET, searchCards: () => [],
-    pollIntervalMs: 60_000, createWorker: () => { throw new Error("No engine should start"); } });
+    pollIntervalMs: 60_000, createWorker: createWorker ?? (() => { throw new Error("No engine should start"); }) });
   cleanups.push({ host, db, directory: fixture.directory });
   async function post(body: Record<string, unknown>, playerId = players[0]!) {
     const raw = JSON.stringify({ slug: session.slug, guildId: "g", playerId, ...body });
@@ -50,7 +58,56 @@ function room(mode: DuelMode, format: DuelFormat, pointCap = 100, passcodeRemaps
   const points = (code: number, value: number | null, revision = "tcg-2026-10-05") => {
     db.prepare("update card_catalog set genesys_points = ?, genesys_revision = ? where ygoprodeck_id = ?").run(value, revision, code);
   };
-  return { db, duels, session, players, post, points };
+  return { db, duels, session, players, post, points, fixture };
+}
+
+async function matchRoom(mode: DuelMode, kind: "challenge" | "tournament") {
+  const workers: Array<DuelGameWorker & { result: DuelEngineView["result"] }> = [];
+  const t = room(mode, "1v1", 100, undefined, () => {
+    const worker = {
+      running: true, result: null as DuelEngineView["result"],
+      async create() {}, async answer() {}, async search() { return []; },
+      async close() { this.running = false; },
+      async view(): Promise<DuelEngineView> {
+        return { revision: 1, turn: 1, turnSeat: 0, phase: "main1", prompt: null, chain: [], events: [], log: [], result: this.result,
+          seats: [0, 1].map(seat => ({ seat, lp: 8000, hand: [], deckCount: 35, extraCount: 0, extra: [], monsters: [], spells: [], graveyard: [], banished: [] })) };
+      },
+    };
+    workers.push(worker);
+    return worker;
+  });
+  const series = createDuelSeriesService(t.db);
+  const deck = { ...genesysDeck(mode), side: mode === "normal" ? [1041] : [] };
+  let started;
+  if (kind === "tournament") {
+    const tournaments = createTournamentService(t.db);
+    const registrations = createTournamentDuelService(t.db);
+    const tournament = tournaments.create("g", "Genesys cup", "single_elim", seedUser(t.db, "organizer").userId,
+      { bestOf: 3, duelRules: { mode, settings: t.session.settings } });
+    for (const playerId of t.players) {
+      tournaments.join(tournament.id, playerId);
+      expect((await t.post({ op: "check-deck", mode, deck, settings: t.session.settings }, playerId)).data.report.issues).toEqual([]);
+      registrations.registerDeck({ tournamentId: tournament.id, playerId, savedDeckId: null, deck });
+    }
+    tournaments.start(tournament.id);
+    const slot = t.db.prepare("select id from tournament_matches where tournament_id = ?").get(tournament.id) as { id: number };
+    started = series.startTournamentMatch({ guildId: "g", tournamentMatchId: slot.id, actorPlayerId: t.players[0]! });
+    for (const playerId of t.players) expect((await t.post({ op: "ready", slug: started.duel.slug }, playerId)).status).toBe(200);
+  } else {
+    started = series.createChallenge({ guildId: "g", challengerPlayerId: t.players[0]!, opponentPlayerId: t.players[1]!,
+      bestOf: 3, ranked: false, mode, settings: t.session.settings });
+    for (const playerId of t.players) expect((await t.post({ op: "deck", slug: started.duel.slug, deck }, playerId)).status).toBe(200);
+  }
+  expect(t.duels.get(started.duel.slug, "g").status).toBe("active");
+  workers[0]!.result = { winnerSeat: 0, reason: "test" };
+  expect((await t.post({ op: "view", slug: started.duel.slug })).data.session.status).toBe("completed");
+  const publish = (points: number | null) => publishGenesysPointsSnapshot(t.db, {
+    revision: "new-list", effectiveDate: "2027-01-01",
+    cards: t.fixture.cards.filter(card => points !== null || card.id !== 1001).map(card => ({
+      id: card.id, name: card.name, points: card.id === 1001 ? points! : 0, artworkIds: [card.id],
+    })),
+  }, { cacheCards: () => {}, canonicalId: code => code });
+  return { ...t, series, started, deck, workers, publish };
 }
 
 const variants = (["normal", "domain"] as const).flatMap(mode =>
@@ -158,6 +215,40 @@ describe("host Genesys admission", () => {
     expect(started.status).toBe(400);
     expect(started.data.error).toMatch(/101.*points; the cap is 100/);
     expect(t.duels.get(t.session.slug, "g").status).toBe("lobby");
+  });
+
+  it.each((["normal", "domain"] as const).flatMap(mode =>
+    (["challenge", "tournament"] as const).flatMap(kind => [101, null].map(points => ({ mode, kind, points })))))(
+    "starts game 2 of a $mode $kind after points become $points in a new revision", async ({ mode, kind, points }) => {
+      const t = await matchRoom(mode, kind);
+      if (points === null) {
+        // Keep the source count stable while replacing a card, as a new list can do.
+        t.fixture.cards.push({ id: 2001, name: "New card", type: 17 });
+      }
+      t.publish(points);
+      const next = t.series.createNextGame(t.started.series.id, "g");
+      const response = await t.post({ op: "start", slug: next.slug });
+      expect(response.status).toBe(200);
+      expect(response.data.session).toMatchObject({ status: "active", gameNumber: 2 });
+      expect(t.workers).toHaveLength(2);
+    });
+
+  it("allows side swaps after a list update but checks new card identities and copies", async () => {
+    const t = await matchRoom("normal", "challenge");
+    t.publish(101);
+    const sided = { ...t.deck, main: [1041, ...t.deck.main.slice(1)], side: [1001] };
+    expect((await t.post({ op: "series-side", slug: t.started.duel.slug, deck: sided })).status).toBe(200);
+    for (const changed of [
+      { ...sided, side: [1001, 1001] },
+      { ...sided, main: [1042, ...sided.main.slice(1)] },
+      { ...sided, deckMaster: GENESYS_MASTER },
+    ]) {
+      const checked = await t.post({ op: "series-side", slug: t.started.duel.slug, deck: changed });
+      expect(checked.status).toBe(400);
+      expect(checked.data.error).toMatch(/Genesys points/);
+    }
+    const next = t.series.createNextGame(t.started.series.id, "g");
+    expect((await t.post({ op: "start", slug: next.slug })).data.session.status).toBe("active");
   });
 
   it("returns a player-fixable error for invalid check-deck caps", async () => {
