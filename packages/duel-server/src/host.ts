@@ -606,6 +606,12 @@ export function createDuelHost(options: {
     return hasStartupScripts ? "pinned" : duel1v1EngineForMode(mode);
   }
 
+  function warmLobbyResources(session: DuelSession): void {
+    if (session.status !== "lobby" || isReplayFork(session)) return;
+    engineResourceCache.warm(options.dataDirectory, { mode: session.mode, format: session.format,
+      engine: engineForNewTable(session.format, session.mode) });
+  }
+
   /** Lift the recorded identity; keep clocks and private fork metadata outside the runner. */
   function journalSourceOf(state: DuelPrivateState): ReplaySource {
     if (!isReplaySeed(state.seed)) throw new JournalRunnerError("Saved seed must contain four nonzero decimal uint64 words", "REPLAY_MISMATCH");
@@ -1601,6 +1607,7 @@ export function createDuelHost(options: {
 
   async function project(slug: string, guildId: string, playerId: number, game?: DuelGameWorker, spectate = false, sandboxView: SandboxViewOptions = {}): Promise<DuelRoom> {
     const room = stampRoomClock(service.room(slug, guildId, playerId, { includeStoredBoard: false }), now()) as ReturnType<typeof service.room>;
+    warmLobbyResources(room.session);
     if (isReplayFork(room.session)) {
       const state = service.privateState(slug, guildId);
       const saved = game?.running && room.session.status === "active" ? undefined : savedReplayBoards(slug, guildId);
@@ -2850,6 +2857,9 @@ export function createDuelHost(options: {
       }
       const { session } = await assertStartable(slug, guildId);
       if (isReplayFork(session)) throw new RequestError("Replay forks use their own start and restart path", 409);
+      // Automatic series starts may have no earlier lobby read. Warm during the
+      // opening without waiting for file I/O or changing the opening deadline.
+      warmLobbyResources(session);
       const dice = session.format === "ffa3" || session.format === "ffa4";
       const rps = options.openingRps && session.format === "1v1" && (session.gameNumber ?? 1) === 1;
       if (!dice && !rps) return await startGame(slug, guildId, actor);

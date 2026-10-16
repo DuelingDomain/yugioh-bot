@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import { seatCountFor, type DuelAnswer, type DuelEngineView, type DuelFormat } from "@yugidraft/shared/duels";
+import { EngineResourceCache } from "../src/engine-resource-cache.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import { createTestDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
@@ -196,5 +197,24 @@ describe("host FFA dice opening", () => {
       await vi.advanceTimersByTimeAsync(3000);
       await vi.waitFor(() => expect(t.duels.get(t.slug, "g").status).toBe("active"));
     }
+  });
+});
+
+const output = useConsoleObservability();
+
+
+describe("lobby resource preparation", () => {
+  it.each(["ffa4", "ffa3", "tag", "1v1"] as const)("returns a %s lobby while resource preparation is pending", async (format) => {
+    const t = table(format, [6, 4, 2, 1]);
+    const get = vi.spyOn(EngineResourceCache.prototype, "get").mockReturnValue(new Promise(() => {}));
+    const room = await t.post("view");
+    expect(room.status).toBe(200);
+    expect(room.data.session.status).toBe("lobby");
+    expect(room.data.engine).toBeNull();
+    expect(t.workers).toHaveLength(0);
+    expect(get).toHaveBeenCalledWith(resources.at(-1)!.dir, { mode: "normal", format,
+      engine: format === "1v1" ? "legacy" : undefined });
+    await t.post("view");
+    expect(get).toHaveBeenCalledTimes(1);
   });
 });
