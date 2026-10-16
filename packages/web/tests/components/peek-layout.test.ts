@@ -207,7 +207,7 @@ describe("the CSS keeps the peek column free", () => {
 
   it("keeps the 1v1 board clear of the corner stack by --hud-left, not by a fixed number", () => {
     const css = read("room.module.css");
-    expect(css).toContain("--hud-right-need: calc(var(--hud-left) + 364px + 105.6dvh - 100vw)");
+    expect(css).toContain("--hud-corner-need: calc(var(--hud-left) + 384px + var(--hud-board-w) - 100vw)");
     expect(css).not.toContain("--hud-right-need: calc(520px");
   });
 

@@ -1242,8 +1242,11 @@ describe("the 1v1 HUD corner in the stylesheet", () => {
 
   it("keeps the board left of the corner stack on narrow or nearly square screens, but never under 660px", () => {
     expect(css).toMatch(/--hud-board-w: 117dvh;/);
-    expect(css).toMatch(/--hud-right-need: calc\(var\(--hud-left\) \+ 364px \+ var\(--hud-board-w\) - 100vw\);/);
-    expect(css).toMatch(/--hud-right-max: min\(calc\(var\(--hud-corner-w\) \+ 28px\), calc\(100vw - var\(--hud-left\) - 660px\)\);/);
+    expect(css).toMatch(/--hud-corner-need: calc\(var\(--hud-left\) \+ 384px \+ var\(--hud-board-w\) - 100vw\);/);
+    expect(css).toMatch(/--hud-right-need: max\(var\(--hud-corner-need\), var\(--hud-clock-need\)\);/);
+    expect(css).toMatch(/--hud-right-max: min\(max\(calc\(var\(--hud-corner-w\) \+ 28px\), var\(--hud-clock-room\)\), calc\(100vw - var\(--hud-left\) - 660px\)\);/);
+    // A short screen also keeps the board left of the clock pill in the right margin.
+    expect(css).toMatch(/--hud-clock-need: calc\(var\(--hud-left\) \+ 524px \+ var\(--hud-board-w\) - 100vw\);/);
     expect(css).toMatch(/--hud-pr: clamp\(14px, var\(--hud-right-need\), var\(--hud-right-max\)\);/);
     expect(css).toMatch(/padding: var\(--hud-top\) var\(--hud-pr\)/);
   });
