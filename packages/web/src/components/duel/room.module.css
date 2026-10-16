@@ -697,8 +697,15 @@
      (100vw + --hud-left - p + W) / 2. Keeping that 182px (the stack's width plus its gap) left of the screen edge gives
      p = --hud-left + 2 x 182px + W - 100vw. */
   --hud-board-w: 117dvh;
-  --hud-right-need: calc(var(--hud-left) + 364px + var(--hud-board-w) - 100vw);
-  --hud-right-max: min(calc(var(--hud-corner-w) + 28px), calc(100vw - var(--hud-left) - 660px));
+  --hud-corner-need: calc(var(--hud-left) + 384px + var(--hud-board-w) - 100vw);
+  /* On a short screen the clock pill also stands in the right margin, at the board's top-right corner (see the max-height
+     rule below), and would cover the rival's Extra pile label, which stands about 80px inside the board's edge. Same math as the
+     corner stack with the pill's 262px (219px wide, 14px edge, a gap, 16px for the board being a little wider than
+     --hud-board-w). Off elsewhere (a very negative need). */
+  --hud-clock-need: -1000px;
+  --hud-clock-room: 0px;
+  --hud-right-need: max(var(--hud-corner-need), var(--hud-clock-need));
+  --hud-right-max: min(max(calc(var(--hud-corner-w) + 28px), var(--hud-clock-room)), calc(100vw - var(--hud-left) - 660px));
   --hud-pr: clamp(14px, var(--hud-right-need), var(--hud-right-max));
   /* Each LP tally stands outside the board's left edge (field.module.css .strip > .tally): its width plus 12px and the 26px
      edge tab column (a little slack too).
@@ -786,6 +793,10 @@
 /* A short screen: the top strip is too low for the clocks beside the identity pill (they would cover the rival's Deck label),
    so they go to the right margin under the tools, a little smaller. */
 @media (max-height: 820px) {
+  .shell[data-hud="room"] .boardColumn {
+    --hud-clock-need: calc(var(--hud-left) + 524px + var(--hud-board-w) - 100vw);
+    --hud-clock-room: 268px;
+  }
   .shell[data-hud="room"] .hudBar > [data-testid="hud-clocks"] {
     grid-column: 3;
     grid-row: 2;
