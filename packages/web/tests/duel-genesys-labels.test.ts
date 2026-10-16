@@ -34,14 +34,15 @@ describe("Genesys labels", () => {
 
 describe("Genesys board layout rule", () => {
   it("draws a Genesys board without Extra Monster Zones or Pendulum Zones", () => {
-    for (const rule of [3, 4, 5] as const) expect(boardMasterRule(rule, cap)).toBe(2);
+    for (const rule of [3, 4, 5] as const) expect(boardMasterRule(rule, { genesys: true })).toBe(2);
   });
 
   it("leaves other boards alone", () => {
     for (const rule of [1, 2, 3, 4, 5] as const) expect(boardMasterRule(rule, null)).toBe(rule);
-    expect(boardMasterRule(1, cap)).toBe(1);
-    expect(sessionBoardRule({ masterRule: 5, settings: { ...defaultDuelSettings("normal"), genesys: cap } })).toBe(2);
-    expect(sessionBoardRule({ masterRule: 5, settings: defaultDuelSettings("normal") })).toBe(5);
+    expect(boardMasterRule(1, { genesys: true })).toBe(1);
+    expect(sessionBoardRule({ masterRule: 5 }, { field: { genesys: true } })).toBe(2);
+    expect(sessionBoardRule({ masterRule: 5 }, {})).toBe(5);
+    expect(sessionBoardRule({ masterRule: 5 }, { field: { genesys: false } })).toBe(5);
   });
 });
 

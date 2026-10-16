@@ -116,7 +116,7 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp
           <section className={roomStyles.boardColumn} aria-label="Duel field">
             <div className={roomStyles.board}>
               <DuelField
-                engine={engine} mySeat={mySeat} masterRule={sessionBoardRule(room.session)} reducedMotion={reduced} priorityLive
+                engine={engine} mySeat={mySeat} masterRule={sessionBoardRule(room.session, engine)} reducedMotion={reduced} priorityLive
                 legalKeys={legalKeys} selectedKeys={NO_KEYS} onActivate={noop} onInspect={noop}
                 bottomName={playerName(mySeat ?? 0)} topName={playerName(1 - (mySeat ?? 0))}
                 hub={

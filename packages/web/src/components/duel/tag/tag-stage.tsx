@@ -636,7 +636,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   // A facing pair (1A-2A, 1B-2B) draws one band of two Extra Monster Zones between its fields (Master Rule 4 and 5 only; an
   // older core without `sharedExtraWith`, or a pair holding both mirrored cells, keeps the rows of its fields).
   // A Genesys table has no Extra Monster Zones, so it has nothing to share.
-  const boardRule = sessionBoardRule(room.session);
+  const boardRule = sessionBoardRule(room.session, engine);
   const sharedPairs = useMemo(() => (boardRule >= 4 ? sharedExtraPairs(engine) : []), [engine, boardRule]);
   const sharedSeats = useMemo(() => new Set(sharedPairs.flatMap((pair) => pair.map((view) => view.seat))), [sharedPairs]);
   sharedRef.current = sharedPairs.length > 0;

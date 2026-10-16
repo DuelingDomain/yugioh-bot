@@ -367,7 +367,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   }, []);
 
   // A Genesys board has no Extra Monster Zones and no Pendulum Zones: it is drawn with the original layout rule.
-  const masterRule = sessionBoardRule(room.session);
+  const masterRule = sessionBoardRule(room.session, engine);
   const world = useMemo(() => gridWorld(masterRule), [masterRule]);
   const cells = useMemo(() => gridCells(layout), [layout]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);

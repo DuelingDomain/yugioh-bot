@@ -284,7 +284,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card, activate, lp, l
           </>
         }
         fieldProps={{
-          engine, mySeat, masterRule: sessionBoardRule(room.session), reducedMotion: reduced, priorityLive: true,
+          engine, mySeat, masterRule: sessionBoardRule(room.session, engine), reducedMotion: reduced, priorityLive: true,
           legalKeys, selectedKeys: NO_KEYS, onActivate: noop, onInspect: noop,
           bottomName: playerName(mySeat ?? 0), topName: playerName(1 - (mySeat ?? 0)),
         }}

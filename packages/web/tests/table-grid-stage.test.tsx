@@ -109,13 +109,14 @@ describe("GridStage", () => {
   it("draws no Extra Monster Zones and no Pendulum marks at a Genesys table", () => {
     function GenesysShell() {
       const state = FFA4_FIXTURES.states.main;
-      const genesysState = { ...state, room: { ...state.room, session: { ...state.room.session, settings: { ...state.room.session.settings, banlist: "none", genesys: { pointCap: 100 } } } } };
+      const genesysState = { ...state, room: { ...state.room, engine: { ...state.room.engine!, field: { genesys: true } }, session: { ...state.room.session, settings: { ...state.room.session.settings, banlist: "none", genesys: { pointCap: 100 } } } } };
       const controller = useFixtureController(genesysState, { reducedMotion: true });
       return <TableShell controller={controller} />;
     }
     const { container } = render(<GenesysShell />);
     for (const seat of [0, 1, 2, 3]) {
       const field = cellOf(container, seat).querySelector("[data-seat-field]")!;
+      expect(field.getAttribute("data-emz")).toBe("none");
       const keys = [...field.querySelectorAll("[data-zones]")].map((node) => node.getAttribute("data-zones") ?? "");
       expect(keys.some((key) => /:4:[56]\b/.test(key))).toBe(false);
     }

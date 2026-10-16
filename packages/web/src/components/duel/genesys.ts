@@ -2,6 +2,7 @@ import {
   DEFAULT_GENESYS_POINT_CAP,
   MAX_GENESYS_POINT_CAP,
   type DuelMasterRule,
+  type DuelEngineView,
   type DuelSettings,
   type GenesysSettings,
 } from "@yugidraft/shared/duels";
@@ -36,17 +37,13 @@ export function genesysLabel(mode: "normal" | "domain", genesys: GenesysSettings
   return name && genesys ? `${name} · ${genesysCapShort(genesys)}` : null;
 }
 
-/**
- * The Master Rule a board is drawn with. Genesys keeps the original layout: no Extra Monster Zones and no Pendulum
- * Zones. Those exist from Master Rule 3, so a Genesys board is drawn like Master Rule 2 whatever the table's rule is.
- */
-export function boardMasterRule(masterRule: DuelMasterRule, genesys: GenesysSettings | null | undefined): DuelMasterRule {
-  return genesys && masterRule >= 3 ? 2 : masterRule;
+/** Draw the zones reported by the engine, including rebuilt replay views. */
+export function boardMasterRule(masterRule: DuelMasterRule, field: DuelEngineView["field"] | null | undefined): DuelMasterRule {
+  return field?.genesys === true && masterRule >= 3 ? 2 : masterRule;
 }
 
-/** The layout rule of a session. */
-export function sessionBoardRule(session: { masterRule: DuelMasterRule } & WithSettings): DuelMasterRule {
-  return boardMasterRule(session.masterRule, genesysOf(session));
+export function sessionBoardRule(session: { masterRule: DuelMasterRule }, view: Pick<DuelEngineView, "field"> | null | undefined): DuelMasterRule {
+  return boardMasterRule(session.masterRule, view?.field);
 }
 
 export type CapParse = { ok: true; value: number } | { ok: false; message: string };

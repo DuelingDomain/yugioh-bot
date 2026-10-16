@@ -67,7 +67,7 @@ describe("Tag shared Extra Monster Zones", () => {
 
   it("draws no shared band and no Extra Monster cell at a Genesys table", () => {
     const state = variant(main, 0);
-    const genesys = { ...state, room: { ...state.room, session: { ...state.room.session, settings: { ...state.room.session.settings, banlist: "none", genesys: { pointCap: 100 } } } } };
+    const genesys = { ...state, room: { ...state.room, engine: { ...state.room.engine!, field: { genesys: true } }, session: { ...state.room.session, settings: { ...state.room.session.settings, banlist: "none", genesys: { pointCap: 100 } } } } };
     render(<Stage state={genesys} />);
     expect(screen.queryAllByTestId(/^shared-emz-pair-/)).toHaveLength(0);
     expect(document.querySelectorAll('[data-kind="emz"]')).toHaveLength(0);

@@ -3,13 +3,11 @@
 import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { DuelDeck, DuelMode, GenesysSettings, SavedDeck } from "@yugidraft/shared/duels";
+import { formatLabel } from "../decks/genesys";
 import { listSavedDecks } from "../decks/api";
 import { SheetButton, SheetSelect, sheetButtonClass } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./deck-editor.module.css";
-
-/** The names Manage decks and the room settings use for each format. */
-const MODE_NAME: Record<DuelMode, string> = { domain: "Domain", normal: "Standard" };
 
 /** The tag a saved deck carries in a list: "Genesys, cap 100". Empty for a deck without the tag. */
 export function savedDeckTag(saved: Pick<SavedDeck, "genesys">): string {
@@ -88,7 +86,7 @@ export function SavedDeckPicker({ mode, genesys = null, disabled, list, onLoad }
   const placeholder = error ? "Saved decks unavailable"
     : !decks ? "Loading saved decks…"
     : matching.length ? "Choose a deck"
-    : `No saved ${MODE_NAME[mode]} decks`;
+    : `No saved ${formatLabel(mode, genesys)} decks`;
 
   return (
     <section className={styles.head} aria-label="Saved decks">
@@ -106,7 +104,7 @@ export function SavedDeckPicker({ mode, genesys = null, disabled, list, onLoad }
             }),
             ...otherFormat.map((saved) => ({
               value: String(saved.id),
-              label: `${saved.name} · Saved as ${MODE_NAME[saved.mode]}. Not usable in a ${MODE_NAME[mode]} room.`,
+              label: `${saved.name} · Saved as ${formatLabel(saved.mode, saved.genesys)}. Not usable in a ${formatLabel(mode, genesys)} room.`,
               disabled: true,
             })),
           ]} />
@@ -119,7 +117,7 @@ export function SavedDeckPicker({ mode, genesys = null, disabled, list, onLoad }
           {otherFormat.length > 0
             ? `${otherFormat.length === 1 ? "1 saved deck uses" : `${otherFormat.length} saved decks use`} another format and can't be loaded here. `
             : ""}
-          {matching.length === 0 || otherFormat.length > 0 ? `In Manage decks, save a deck as ${MODE_NAME[mode]} to use it at this table. ` : ""}
+          {matching.length === 0 || otherFormat.length > 0 ? `In Manage decks, save a deck as ${formatLabel(mode, genesys)} to use it at this table. ` : ""}
           {untagged > 0 ? `${untagged === 1 ? "1 deck is" : `${untagged} decks are`} not tagged Genesys. ${untagged === 1 ? "It" : "They"} can load here, and the table checks the points before you ready up.` : ""}
         </p>
       ) : null}

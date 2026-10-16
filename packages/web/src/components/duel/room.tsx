@@ -1634,7 +1634,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     />
   ) : null;
   const fieldProps = engine ? {
-    engine, mySeat: data.mySeat, bottomSeat: cameraSeat, masterRule: sessionBoardRule(data.session),
+    engine, mySeat: data.mySeat, bottomSeat: cameraSeat, masterRule: sessionBoardRule(data.session, engine),
     reducedMotion: preferences.reducedMotion,
     priorityLive: !busy && !error && !realtime.recovering && !catchingUp &&
       (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed),
@@ -1841,7 +1841,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board} ref={boardRef} data-deal-wait={startBeats.waiting ? "true" : undefined}>
             {renderBoard(multi ? (
-              <MultiSeatStage key={slug} engine={engine!} mySeat={data.mySeat} masterRule={sessionBoardRule(data.session)}
+              <MultiSeatStage key={slug} engine={engine!} mySeat={data.mySeat} masterRule={sessionBoardRule(data.session, engine)}
                 reducedMotion={preferences.reducedMotion}
                 legalKeys={fieldLegalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                 onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}

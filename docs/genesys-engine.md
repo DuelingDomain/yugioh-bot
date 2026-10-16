@@ -73,11 +73,12 @@ all 32 Genesys real-worker cases. The shared build, duel-server typecheck and
 `git diff --check` passed. Read-only code review found no critical or important
 issues; its compatibility finding led to preserving the historical host-rule identity.
 
-## openIssues
+## Integration status
 
-- Minimal shared contract change: `packages/shared/src/duels/index.ts` adds
-  optional `DuelEngineView.field?: { genesys: boolean }`. Table UI work should
-  consume that flag; this branch does not change UI files.
+- Shared view contract: `packages/shared/src/duels/index.ts` adds
+  optional `DuelEngineView.field?: { genesys: boolean }`. Live, replay, Tag and FFA
+  boards now consume that flag. FFA fields also mark the layout as having no EMZ
+  and refresh crack geometry when its zone layout changes.
 - Forward compatibility is covered. Earlier binaries do not implement Genesys;
   the preserved host-rule version does not distinguish them during rollback.
   Running newly recorded Genesys journals on those binaries is unsupported.

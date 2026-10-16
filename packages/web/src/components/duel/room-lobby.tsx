@@ -354,7 +354,7 @@ export function RoomLobby({
               <section className={cx(styles.panel, styles.bot)} aria-label="Practice bot">
                 <h2 className={ui.sectionTitle}>Practice bot</h2>
                 <p className={ui.hint}>
-                  Fill an empty seat with a basic bot and a supplied {session.mode === "domain" ? "Domain" : "40-card"} deck.
+                  Fill an empty seat with a basic bot and a supplied {genesys ? (session.mode === "domain" ? "Genesys Domain" : "Genesys") : session.mode === "domain" ? "Domain" : "40-card"} deck.
                   It makes legal moves automatically; it is not a competitive AI.
                 </p>
                 <SheetButton loading={busy} disabled={busy} onClick={() => onAddBot()}>

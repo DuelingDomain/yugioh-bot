@@ -406,7 +406,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
             <MoveSourceBoundary events={engine.events} duelKey={`${slug}:replay:${epoch}`} root={boardRef}>
             {/* A replay shows the cracks of the seek position and never animates them. */}
             <FieldCracksScope duelKey={slug} format={session.format} settings={session.settings} replay>
-            <ReplayBoard key={`${slug}:${camera}:${focusSeat}`} table={table} masterRule={sessionBoardRule(session)}
+            <ReplayBoard key={`${slug}:${camera}:${focusSeat}`} table={table} masterRule={sessionBoardRule(session, engine)}
               camera={camera} focusSeat={focusSeat} mySeat={model.mySeat} playerName={playerName} />
             </FieldCracksScope>
             <DuelFeedback events={engine.events} duelKey={`${slug}:replay:${epoch}`} attackToast
