@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { DeckCardInfo, DuelSettings, DuelMode } from "@yugidraft/shared/duels";
 import { Plus } from "lucide-react";
+import { GenesysBadge } from "../decks/genesys-ui";
 import { defaultAddSection, placementBlock } from "../decks/model";
 import { cardArtUrl, cardKindText } from "./constants";
 import { cardAddBlock, useBanlistLimits, useCardNameSearch } from "./card-add-search";
@@ -16,7 +17,7 @@ type AddSection = "main" | "extra" | "side";
 export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError }: {
   mode?: DuelMode;
   slug?: string;
-  settings: Pick<DuelSettings, "cardPool" | "validateDeck" | "banlist">;
+  settings: Pick<DuelSettings, "cardPool" | "validateDeck" | "banlist" | "genesys">;
   sideAllowed: boolean;
   onAdd: (code: number, section: AddSection) => void;
   onError: (message: string) => void;
@@ -38,7 +39,7 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
   const trimmed = query.trim();
   const isPasscode = /^\d+$/.test(trimmed);
   const { search, pending } = useCardNameSearch(query, waitingFor === query.trim(), { mode, slug });
-  const limits = useBanlistLimits(settings.banlist, settings.validateDeck, trimmed !== "");
+  const limits = useBanlistLimits(settings.banlist, settings.validateDeck && !settings.genesys, trimmed !== "");
   const cards = search?.cards ?? [];
   const blocks = cards.map((card) => cardAddBlock(card, settings, limits));
   const firstEnabled = blocks.findIndex((block) => block === null);
@@ -235,6 +236,7 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
                         <strong>{card.name}</strong>
                         <span>{cardKindText(card) || "Card"}</span>
                       </span>
+                      {settings.genesys ? <GenesysBadge card={card} /> : null}
                       {block ? <span className={styles.addReason}>{block}</span> : null}
                     </li>
                   );

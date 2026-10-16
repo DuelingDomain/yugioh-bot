@@ -458,7 +458,7 @@ export function CardBrowser({
               </button>
             </div>
             <div className={styles.filtersScroll}>
-              <CardFilters query={query} archetypes={archetypes} onChange={onQueryChange} hideLimits={pool != null} />
+              <CardFilters query={query} archetypes={archetypes} onChange={onQueryChange} hideLimits={pool != null || genesys} genesys={genesys} />
             </div>
             <div className={styles.filtersFoot}>
               <DeckButton kind="quiet" size="sm" disabled={chips.length === 0} onClick={() => onQueryChange(clearFilters(query))}>

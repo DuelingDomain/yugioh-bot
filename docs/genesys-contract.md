@@ -38,6 +38,12 @@ and artwork lookups use the canonical card's values. `DuelCardInfo` exposes
 `genesysPoints?: number | null`, inherited by `DeckCardInfo` / `CardQueryResult.cards`.
 Optional fields preserve older transports; absence always means unknown.
 
+The host attaches fresh active-revision canonical points to card search, structured
+card queries and card details using the same identity bridge as admission.
+`CardQuery.genesysPoints?: CardRange` filters known points before pagination;
+`excludeGenesysForbidden?: boolean` excludes Link/Pendulum types, including exact
+passcode searches. Both are optional so older queries retain their behavior.
+
 `genesys_points_meta` has zero rows before sync, then one row with `id = 1`:
 
 | SQL column | `GenesysPointsList` field | Meaning |

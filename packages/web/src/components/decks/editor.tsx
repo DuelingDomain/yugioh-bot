@@ -525,7 +525,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   // Genesys points replace the banlist, so a Genesys deck is built with no banlist. The chosen banlist stays in `query` for when Genesys goes off.
   const banlistOff = pool != null || genesysOn || query.banlist === "none";
-  const browserQuery = useMemo<CardQuery>(() => (genesysOn ? { ...query, banlist: "none", limits: [] } : query), [genesysOn, query]);
+  const browserQuery = useMemo<CardQuery>(() => (genesysOn ? { ...query, banlist: "none", limits: [] } : { ...query, genesysPoints: undefined, excludeGenesysForbidden: false }), [genesysOn, query]);
   const limits = banlistOff ? null : facets?.banlists[query.banlist] ?? null;
   const limitsPending = !banlistOff && facets == null && !facetsError;
   const banlistName = banlistOff ? null : banlistLabel(query.banlist);

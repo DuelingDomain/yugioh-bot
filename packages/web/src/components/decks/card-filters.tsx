@@ -278,12 +278,13 @@ function ArchetypePicker({ query, archetypes, onChange }: {
   );
 }
 
-export function CardFilters({ query, archetypes, onChange, hideLimits = false }: {
+export function CardFilters({ query, archetypes, onChange, hideLimits = false, genesys = false }: {
   query: CardQuery;
   archetypes: readonly CardArchetype[];
   onChange: (query: CardQuery) => void;
   /** A draft pool has no banlist, so it has no banlist status. */
   hideLimits?: boolean;
+  genesys?: boolean;
 }) {
   const monsters = query.kind === "any" || query.kind === "monster";
   const spells = query.kind === "any" || query.kind === "spell";
@@ -295,6 +296,11 @@ export function CardFilters({ query, archetypes, onChange, hideLimits = false }:
       <Section title="Card">
         <DeckSegmented label="Card kind" hideLabel full value={query.kind} choices={KIND_CHOICES} onChange={(kind) => set("kind", kind)} />
       </Section>
+
+      {genesys ? <Section title="Genesys">
+        <RangeField label="Genesys points" range={query.genesysPoints ?? { min: null, max: null }} max={1000} onChange={(range) => set("genesysPoints", range)} />
+        <Toggle pressed={query.excludeGenesysForbidden === true} onClick={() => set("excludeGenesysForbidden", !query.excludeGenesysForbidden)}>Hide Link and Pendulum Monsters</Toggle>
+      </Section> : null}
 
       <Section title="Archetype">
         <ArchetypePicker query={query} archetypes={archetypes} onChange={onChange} />

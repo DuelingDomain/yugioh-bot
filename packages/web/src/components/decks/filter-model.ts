@@ -166,6 +166,12 @@ export function filterChips(query: CardQuery, archetypes: readonly CardArchetype
     if (!rangeActive(query[key])) continue;
     chips.push({ key, label: rangeLabel(name, query[key]), clear: (q) => ({ ...q, [key]: EMPTY_RANGE }) });
   }
+  if (query.genesysPoints && rangeActive(query.genesysPoints)) {
+    chips.push({ key: "genesysPoints", label: rangeLabel("Genesys points", query.genesysPoints), clear: q => ({ ...q, genesysPoints: EMPTY_RANGE }) });
+  }
+  if (query.excludeGenesysForbidden) {
+    chips.push({ key: "genesysTypes", label: "No Link/Pendulum", clear: q => ({ ...q, excludeGenesysForbidden: false }) });
+  }
   if (query.arrows !== 0) {
     const names = LINK_ARROWS.filter((arrow) => (query.arrows & arrow.bit) !== 0).map((arrow) => arrow.label);
     const suffix = names.length > 1 ? (query.arrowMatch === "all" ? " (all)" : " (any)") : "";

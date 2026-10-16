@@ -17,6 +17,7 @@ import { createGithubCardDataStatus } from "./github-card-data-status.js";
 import { CARD_LOOKUP_LIMIT, createCardLookupBudget, loadArtworkIdentityCatalog, createDeckCopyRepairService, findDuelEventTarget, createDuelSeriesService, createDeckTypeLookup, createDuelService, createReplayForkService, createTournamentDuelService, ReplayForkStorageError, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots, type DuelPrivateState } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
+  DuelCardInfo,
   DuelCommand,
   DuelDeck,
   DuelEngineChoice,
@@ -308,7 +309,7 @@ export function createDuelHost(options: {
   db: Database.Database;
   dataDirectory: string;
   secret: string;
-  searchCards: (query: string) => unknown;
+  searchCards: (query: string) => DuelCardInfo[];
   onChange?: (slug: string, guildId: string) => void | Promise<void>;
   /** A finished game moved a tournament bracket slot (`match-updated`) or finished the tournament (`completed`). */
   notifyTournament?: (notice: TournamentNotice) => void | Promise<void>;
@@ -515,8 +516,8 @@ export function createDuelHost(options: {
       case when c.genesys_revision = m.revision then c.genesys_points else null end as points
     from card_catalog c left join genesys_points_meta m on m.id = 1
   `);
-  async function genesysAdmissionPoints(settings: DuelSettings): Promise<InspectDeckOptions["genesysPoints"]> {
-    if (!settings.genesys) return undefined;
+  async function genesysAdmissionPoints(settings?: Pick<DuelSettings, "genesys">): Promise<InspectDeckOptions["genesysPoints"]> {
+    if (settings && !settings.genesys) return undefined;
     // Read each admission afresh: a new sync must invalidate stale per-card revisions immediately.
     const rows = currentGenesysPoints.all();
     const points = new Map(rows.map(row => [row.code, row.points]));
@@ -542,6 +543,11 @@ export function createDuelHost(options: {
     }
     for (const [code, value] of bridged) points.set(code, value);
     return points;
+  }
+
+  async function withGenesysPoints<T extends DuelCardInfo>(cards: T[]): Promise<T[]> {
+    const points = await genesysAdmissionPoints();
+    return cards.map(card => ({ ...card, genesysPoints: points?.get(card.canonicalPasscode ?? card.code) ?? null }));
   }
 
   async function sessionDeckOptions(session: DuelSession, playerId: number): Promise<InspectDeckOptions> {
@@ -2951,13 +2957,14 @@ export function createDuelHost(options: {
       }
       const catalog = loadCardDatabase(options.dataDirectory);
       const entries = cardRequestEntries(body, guildId, actor);
+      const points = await genesysAdmissionPoints();
       const cards = [];
       const missing: number[] = [];
       for (const code of new Set<number>(body.codes)) {
         const card = catalog.deckCard(code);
         if (card) {
           const unavailableReason = deckCardUnavailableReason(catalog, code, entries);
-          cards.push({ ...card, ...(unavailableReason ? { unavailableReason } : {}), altArtCount: (cardArtworkFamily(catalog, code)?.artworks.length ?? 1) - 1 });
+          cards.push({ ...card, genesysPoints: points?.get(card.canonicalPasscode ?? card.code) ?? null, ...(unavailableReason ? { unavailableReason } : {}), altArtCount: (cardArtworkFamily(catalog, code)?.artworks.length ?? 1) - 1 });
         }
         else missing.push(code);
       }
@@ -3014,7 +3021,7 @@ export function createDuelHost(options: {
     }
     if (op === "card-query") {
       try {
-        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery), cardRequestEntries(body, guildId, actor));
+        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery), cardRequestEntries(body, guildId, actor), await genesysAdmissionPoints());
       } catch (error) {
         if (error instanceof CardQueryError) throw new RequestError(error.message, 400);
         throw error;
@@ -3043,9 +3050,9 @@ export function createDuelHost(options: {
         if (view.prompt?.kind !== "announce-card") throw new RequestError("No card announcement is waiting", 409);
         const cards = await live.search(body.query, seat);
         assertDuelForkAccess(options.db, body.slug, accessActor);
-        return { cards };
+        return { cards: await withGenesysPoints(cards) };
       }
-      return { cards: options.searchCards(body.query) };
+      return { cards: await withGenesysPoints(options.searchCards(body.query)) };
     }
     if (typeof body.slug !== "string" || !body.slug || body.slug.length > 128) throw new RequestError("Duel slug is required", 400);
     const slug = body.slug;

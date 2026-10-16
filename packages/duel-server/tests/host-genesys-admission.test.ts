@@ -168,3 +168,36 @@ describe("host Genesys admission", () => {
     expect(result.data.error).toMatch(/pointCap/);
   });
 });
+
+
+describe("Genesys card transport", () => {
+  it("returns fresh canonical points through details and paginated queries", async () => {
+    const t = room("normal", "1v1");
+    t.points(GENESYS_MASTER, 30);
+    t.points(GENESYS_ART, 999);
+    for (const op of ["card-details", "card-query"]) {
+      const body = op === "card-details" ? { codes: [GENESYS_ART] } : { cardQuery: { text: String(GENESYS_ART) } };
+      const result = await t.post({ op, ...body });
+      expect(result.status).toBe(200);
+      expect(result.data.cards[0]).toMatchObject({ code: GENESYS_ART, genesysPoints: 30 });
+      t.points(GENESYS_MASTER, 0, "stale");
+      expect((await t.post({ op, ...body })).data.cards[0].genesysPoints).toBeNull();
+      t.points(GENESYS_MASTER, 30);
+    }
+  });
+
+  it("filters points and forbidden types before pagination, including exact passcodes", async () => {
+    const t = room("normal", "1v1");
+    t.points(GENESYS_MASTER, 30);
+    t.points(1001, null);
+    const result = await t.post({ op: "card-query", cardQuery: {
+      genesysPoints: { min: 0, max: 0 }, excludeGenesysForbidden: true, limit: 120,
+    } });
+    expect(result.data.cards.every((card: any) => card.genesysPoints === 0)).toBe(true);
+    expect(result.data.cards.map((card: any) => card.code)).not.toContain(GENESYS_MASTER);
+    expect(result.data.cards.map((card: any) => card.code)).not.toContain(1001);
+    expect(result.data.cards.map((card: any) => card.code)).not.toContain(GENESYS_LINK);
+    const exact = await t.post({ op: "card-query", cardQuery: { text: String(GENESYS_LINK), excludeGenesysForbidden: true } });
+    expect(exact.data.cards.map((card: any) => card.code)).not.toContain(GENESYS_LINK);
+  });
+});

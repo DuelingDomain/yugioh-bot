@@ -5,6 +5,7 @@ import {
   CARD_POOL_OCG,
   CARD_POOL_TCG,
   cardLimit,
+  isGenesysForbiddenType,
   emptyCardQuery,
   NO_BANLIST_ID,
   type DeckCardInfo,
@@ -34,14 +35,15 @@ export type BanlistLimits = Readonly<Record<number, 0 | 1 | 2>>;
  */
 export function cardAddBlock(
   card: DeckCardInfo,
-  settings: Pick<DuelSettings, "cardPool" | "validateDeck">,
+  settings: Pick<DuelSettings, "cardPool" | "validateDeck" | "genesys">,
   limits?: BanlistLimits,
 ): string | null {
+  if (settings.genesys && isGenesysForbiddenType(card)) return "Link and Pendulum Monsters are not allowed in Genesys.";
   if (card.unavailableReason) return `Unavailable: ${card.unavailableReason}`;
   if ((card.ot & (CARD_POOL_OCG | CARD_POOL_TCG)) === 0 || (card.ot & OT_UNPLAYABLE) !== 0) return "Not playable";
   if (settings.cardPool === "tcg" && (card.ot & CARD_POOL_TCG) === 0) return "Not TCG legal";
   if (settings.cardPool === "ocg" && (card.ot & CARD_POOL_OCG) === 0) return "Not OCG legal";
-  if (settings.validateDeck && limits && cardLimit(limits, card) === 0) return "Forbidden";
+  if (!settings.genesys && settings.validateDeck && limits && cardLimit(limits, card) === 0) return "Forbidden";
   return null;
 }
 
