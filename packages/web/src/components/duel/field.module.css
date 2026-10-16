@@ -170,7 +170,7 @@
   --g: calc(var(--z) * 0.075);
   --gy: calc(var(--z) * 0.04);
   --r: calc(var(--z) * 0.035);
-  --pk: 0.86;
+  --pk: 1;
   --pile-col: var(--cw);
 
   /* Both hands are whole rows beside the LP tallies. Spare height (tall or narrow boards) grows them
@@ -1128,15 +1128,32 @@
   justify-content: flex-end;
 }
 
+/* A pile is as big as a zone card, so its label sits on a small plate over the card's edge (the near edge: the bottom of
+   your piles, the top of the rival's) and takes no room of its own. */
 .pileLabel {
+  position: absolute;
+  bottom: calc(var(--z) * 0.02);
+  left: 50%;
+  z-index: 3;
   display: inline-flex;
   align-items: baseline;
   gap: 0.3em;
+  max-width: 100%;
+  padding: 0.1em 0.45em;
+  border-radius: 4px;
+  background: rgb(6 8 14 / 0.86);
+  box-shadow: inset 0 0 0 1px rgb(200 165 95 / 0.22);
   font-size: var(--n4);
   line-height: 1.15;
   color: var(--ink-2);
   white-space: nowrap;
   pointer-events: none;
+  translate: -50% 0;
+}
+
+.zone[data-side="opp"] .pileLabel {
+  top: calc(var(--z) * 0.02);
+  bottom: auto;
 }
 
 .plShort {
@@ -1410,7 +1427,7 @@
 
 .openChip {
   position: absolute;
-  bottom: calc(var(--z) * 0.03 + var(--n4) * 1.15 + 3px);
+  bottom: calc(var(--z) * 0.02 + var(--n4) * 1.5 + 6px);
   left: 50%;
   z-index: 8;
   display: inline-flex;
@@ -1969,7 +1986,7 @@
     --lift-k: 0.16;
     --mark-k: 0.085;
     --res-top-px: 6px;
-    --pk: 0.8;
+    --pk: 1;
     --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad));
     /* Both tallies sit above their hands (full width rows), so the hands can be wide and barely overlap. */
     --fixed-h: calc(2 * var(--tally-h) + 2 * var(--gs) + var(--res-top-px) + var(--res-bot-px));
@@ -2170,7 +2187,7 @@
   --g: calc(var(--z) * 0.075);
   --gy: calc(var(--z) * 0.071);
   --r: calc(var(--z) * 0.035);
-  --pk: 0.86;
+  --pk: 1;
   --pile-col: var(--cw);
   --pad: calc(var(--z) * 0.125);
   --ts: var(--sf-ts, 1);
