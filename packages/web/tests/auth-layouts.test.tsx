@@ -6,6 +6,7 @@ vi.mock("@/components/layout/app-shell", () => ({ AppShell: ({ children }: { chi
 vi.mock("next/navigation", () => ({ redirect: (path: string) => { throw new Error(`redirect:${path}`); } }));
 vi.mock("next/server", () => ({ connection: state.connection }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ DuelNavigationGuard: () => null }));
+vi.mock("@/components/duel/active-game-guard", () => ({ ActiveGameGuard: () => null }));
 vi.mock("@clerk/nextjs", () => ({ useAuth: state.auth, useClerk: () => ({ signOut: vi.fn() }), ClerkProvider: (props: { children: React.ReactNode }) => { state.provider(props); return <>{props.children}</>; } }));
 import RootLayout from "../app/layout";
 import AppLayout from "../app/(app)/layout";
