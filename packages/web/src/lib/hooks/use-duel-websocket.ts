@@ -291,7 +291,11 @@ export function useDuelWebsocket(
     const onFocus = () => { void refresh(live ? { quiet: true } : { recovery: true }).catch(() => {}); };
     const onVisibility = () => {
       if (socket.connected && subscribed) socket.emit("duel:visibility", { visible: document.visibilityState === "visible" });
-      if (document.visibilityState === "visible") recoverBoard(true);
+      if (document.visibilityState !== "visible") return;
+      // Coming back to the tab is a catch-up read, as a window focus is: on a live socket it stays quiet. Raising
+      // `recovering` here shut every prompt button until the read ended, and the first click after alt-tabbing back was lost.
+      if (live && subscribed && socket.connected) void refresh({ quiet: true }).catch(() => {});
+      else recoverBoard(true);
     };
     const onOnline = () => recoverBoard(true);
     const onPageShow = (event: PageTransitionEvent) => {

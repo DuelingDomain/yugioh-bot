@@ -121,6 +121,50 @@ describe("useDuelWebsocket window focus", () => {
   });
 });
 
+describe("useDuelWebsocket tab visibility", () => {
+  const setVisibility = (value: "hidden" | "visible") => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => value });
+    document.dispatchEvent(new Event("visibilitychange"));
+  };
+  afterEach(() => { delete (document as { visibilityState?: unknown }).visibilityState; });
+
+  it("re-reads the room when the tab comes back without raising a flag while the socket is live", async () => {
+    const read = gate();
+    const onChange = vi.fn(async () => {});
+    const { result } = await connected(onChange);
+    const before = onChange.mock.calls.length;
+    onChange.mockImplementation(() => read.promise);
+    act(() => { setVisibility("hidden"); setVisibility("visible"); });
+    expect(onChange.mock.calls.length).toBe(before + 1);
+    // A raised flag disables every prompt button, and the first click after alt-tabbing back was lost to it.
+    expect(result.current.recovering).toBe(false);
+    expect(result.current.syncing).toBe(false);
+    expect(result.current.connected).toBe(true);
+    await act(async () => { read.open(); await read.promise; });
+    expect(result.current.recovering).toBe(false);
+  });
+
+  it("a read after the tab comes back that fails still raises the recovering flag", async () => {
+    const onChange = vi.fn(async () => {});
+    const { result } = await connected(onChange);
+    onChange.mockImplementation(async () => { throw new Error("down"); });
+    await act(async () => { setVisibility("hidden"); setVisibility("visible"); });
+    await waitFor(() => expect(result.current.recovering).toBe(true));
+  });
+
+  it("recovers loudly when the socket is not live as the tab comes back", async () => {
+    const read = gate();
+    const onChange = vi.fn(async () => {});
+    const { result } = await connected(onChange);
+    sockets[0].connected = false;
+    sockets[0].handlers.get("disconnect")?.();
+    onChange.mockImplementation(() => read.promise);
+    act(() => { setVisibility("visible"); });
+    expect(result.current.recovering).toBe(true);
+    await act(async () => { read.open(); await read.promise; });
+  });
+});
+
 it("requests fresh credentials and rejoins after the dice opening moves the player's seat", async () => {
   const fetch = vi.fn()
     .mockResolvedValueOnce(Response.json({ guildId: "g1", token: "lobby-seat-2", expiresAt: Date.now() + 300_000 }))
