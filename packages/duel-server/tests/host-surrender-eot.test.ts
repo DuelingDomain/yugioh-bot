@@ -10,7 +10,7 @@ import { afterEach, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { seatCountFor, type DuelAnswer, type DuelEngineView, type DuelFormat, type DuelMode, type DuelRoom, type DuelReplay } from "@yugidraft/shared/duels";
-import { createDuelService } from "@yugidraft/shared/services";
+import { createActiveDuelService, createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { GameWorker, type GameOptions } from "../src/worker-client.js";
 import { buildPracticeBotDeck, chooseSurrenderedAnswer } from "../src/practice-bot.js";
@@ -144,6 +144,43 @@ function legacyFirstBattleWindow(mode: DuelMode): boolean {
 for (const mode of ["normal", "domain"] as const) {
   describeWithCores(`${mode} host immediate surrender`, [needs.cards(DATA),
     mode === "domain" ? needs.domainMulti(DATA, `${DATA}/ocgcore.multi-domain.wasm`) : needs.installedMulti(DATA)], () => {
+    it.each([
+      ["ffa3", "LP", "Duel.SetLP(1,0)"],
+      ["ffa4", "LP", "Duel.SetLP(1,0)"],
+      ...(mode === "normal" ? [
+        ["ffa3", "deck-out", "Duel.Draw(1,60,REASON_EFFECT)"] as const,
+        ["ffa4", "deck-out", "Duel.Draw(1,60,REASON_EFFECT)"] as const,
+      ] : []),
+    ] as const)("%s releases an engine %s loser from the active guard while other seats keep playing", async (format, _reason, loss) => {
+      const t = await table(mode, format, false, [`local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_PHASE_START+PHASE_MAIN1)
+e:SetCountLimit(1)
+e:SetOperation(function()
+  Duel.SelectOption(0,30,31)
+  ${loss}
+end)
+Duel.RegisterEffect(e,0)`]);
+      const active = createActiveDuelService(t.db);
+      await t.view();
+      expect(active.forPlayer("g", t.players[1]!)).toMatchObject({ slug: t.session.slug, state: "playing" });
+      const after = await t.answer(0, { choice: "opt:0" });
+      expect(after.engine!.seats[1]!.eliminated).toBe(true);
+      expect(after.engine!.result).toBeNull();
+      expect(t.service.get(t.session.slug, "g").status).toBe("active");
+      expect(t.service.privateState(t.session.slug, "g").setup).toMatchObject({ eliminatedSeats: [1], firstTurnDraw: mode === "domain" });
+      for (let seat = 0; seat < t.count; seat++) {
+        if (seat === 1) expect(active.forPlayer("g", t.players[seat]!)).toBeNull();
+        else expect(active.forPlayer("g", t.players[seat]!)).toMatchObject({ slug: t.session.slug, state: "playing" });
+      }
+      // Older journals have no persisted loss metadata. A recovery must fill it from the core.
+      t.db.prepare("update duels set setup_json=json_remove(setup_json,'$.eliminatedSeats') where id=?").run(t.session.id);
+      await t.recover();
+      expect(t.service.privateState(t.session.slug, "g").setup?.eliminatedSeats).toEqual([1]);
+      expect(active.forPlayer("g", t.players[1]!)).toBeNull();
+      expect(active.forPlayer("g", t.players[0]!)).toMatchObject({ slug: t.session.slug, state: "playing" });
+    }, 60_000);
+
     it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s another-turn surrender removes the seat before any answer", async (format) => {
       const t = await table(mode, format);
       const before = await t.view();
@@ -340,6 +377,8 @@ end)
 Duel.RegisterEffect(e,0)`]);
       const before = await t.view();
       expect(before.seats[1]!.lp).toBe(0);
+      expect(createActiveDuelService(t.db).forPlayer("g", t.players[1]!)).toMatchObject({ state: "playing" });
+      expect(t.service.privateState(t.session.slug, "g").setup?.eliminatedSeats ?? []).not.toContain(1);
       const leaver = t.count - 1;
       await t.post("surrender", leaver);
       const after = await t.view();

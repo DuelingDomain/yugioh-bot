@@ -120,6 +120,8 @@ export interface DuelSetup {
   scenarioId?: string;
   /** Seats that gave up (or ran out of time) in a table with more than two seats; the host plays them on autopilot. */
   surrenderedSeats?: number[];
+  /** Seats whose elimination the engine confirmed, including LP and deck-out losses and Tag teammates. */
+  eliminatedSeats?: number[];
   /** Dev scenario presets (DUEL_SCENARIOS=1): the preset the table was made from. The host rebuilds the bot rules from it. */
   presetId?: string;
   /** Seat number (as text) to bot policy name, for example `{ "1": "scripted" }`. */
@@ -434,6 +436,9 @@ function parseSetup(raw: string | null | undefined, kind: DuelKind, format: Duel
     if (Array.isArray(input.surrenderedSeats) && input.surrenderedSeats.every((entry) => Number.isInteger(entry) && entry >= 0)) {
       setup.surrenderedSeats = input.surrenderedSeats as number[];
     }
+    if (Array.isArray(input.eliminatedSeats) && input.eliminatedSeats.every((entry) => Number.isInteger(entry) && entry >= 0)) {
+      setup.eliminatedSeats = input.eliminatedSeats as number[];
+    }
     if (typeof input.presetId === "string" && input.presetId) setup.presetId = input.presetId;
     if (isPolicyMap(input.botPolicies)) setup.botPolicies = input.botPolicies;
     if (isDuelEngineChoice(input.engine)) setup.engine = input.engine;
@@ -449,7 +454,7 @@ export function validateSetup(setup: unknown, recorded?: DuelSetup): DuelSetup {
     throw new DuelServiceError("Duel setup must be an object", 400);
   }
   const input = setup as Record<string, unknown>;
-  const extra = Object.keys(input).find((key) => key !== "scriptErrorMode" && key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "presetId" && key !== "botPolicies" && key !== "engine"
+  const extra = Object.keys(input).find((key) => key !== "scriptErrorMode" && key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "eliminatedSeats" && key !== "presetId" && key !== "botPolicies" && key !== "engine"
     && !(key === "replayFork" && recorded?.replayFork) && !(key === "engineIdentity" && recorded?.engineIdentity));
   if (extra) throw new DuelServiceError(`Unknown duel setup field: ${extra}`, 400);
   const out: DuelSetup = {};
@@ -493,6 +498,12 @@ export function validateSetup(setup: unknown, recorded?: DuelSetup): DuelSetup {
       throw new DuelServiceError("surrenderedSeats must be a list of seat numbers", 400);
     }
     out.surrenderedSeats = input.surrenderedSeats as number[];
+  }
+  if (input.eliminatedSeats !== undefined) {
+    if (!Array.isArray(input.eliminatedSeats) || input.eliminatedSeats.some((entry) => !Number.isInteger(entry) || entry < 0)) {
+      throw new DuelServiceError("eliminatedSeats must be a list of seat numbers", 400);
+    }
+    out.eliminatedSeats = input.eliminatedSeats as number[];
   }
   if (input.presetId !== undefined) {
     if (typeof input.presetId !== "string" || !input.presetId || input.presetId.length > 100) {
@@ -810,6 +821,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         ...(setup.botPolicies ? { botPolicies: Object.fromEntries(Object.entries(setup.botPolicies)
           .map(([seat, policy]) => [String(newSeat(Number(seat))), policy])) } : {}),
         ...(setup.surrenderedSeats ? { surrenderedSeats: setup.surrenderedSeats.map(newSeat) } : {}),
+        ...(setup.eliminatedSeats ? { eliminatedSeats: setup.eliminatedSeats.map(newSeat) } : {}),
       }), duelId);
       // Dice history deliberately retains the original lobby indices for every round.
       return after;

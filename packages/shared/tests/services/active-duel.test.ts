@@ -156,6 +156,23 @@ describe("active duel lookup", () => {
     expect(active.forPlayer("g", guest)).toBeNull();
   });
 
+  it.each(["ffa3", "ffa4", "tag"] as const)("releases confirmed engine eliminations in %s while other seats keep playing", format => {
+    const duel = room(format, true);
+    const count = format === "ffa3" ? 3 : 4;
+    while (duels.get(duel.slug, "g").seats.length < count) duels.addPracticeBot(duel.slug, "g", host, deck);
+    start(duel.slug);
+    const setup = { firstTurnDraw: false, eliminatedSeats: format === "tag" ? [0, 2] : [2] };
+    duels.setSetup(duel.slug, "g", setup);
+    expect(duels.privateState(duel.slug, "g").setup).toEqual(setup);
+    expect(duels.get(duel.slug, "g").status).toBe("active");
+    expect(active.forPlayer("g", guest)).toBeNull();
+    if (format === "tag") {
+      expect(active.forPlayer("g", host)).toBeNull();
+    } else {
+      expect(active.forPlayer("g", host)).toMatchObject({ slug: duel.slug, state: "playing" });
+    }
+  });
+
   it("keeps best-of-3 active between games and targets only the latest game, retaining organizer role across swaps", () => {
     const match = challenge();
     expect(active.forPlayer("g", host)).toMatchObject({ state: "lobby" });
