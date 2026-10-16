@@ -183,6 +183,23 @@ describe("SavedDeckEditor", () => {
     expect(screen.getByRole("status")).toHaveTextContent("is Forbidden");
   });
 
+  it("hides Link and Pendulum cards from search in Genesys and shows the total against the cap", async () => {
+    render(<SavedDeckEditor />);
+    await screen.findByRole("button", { name: "Pot of Greed" });
+    expect(queries.at(-1)?.excludeGenesysForbidden).not.toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Banlist or Genesys points"), { target: { value: "genesys" } });
+    await waitFor(() => expect(queries.at(-1)?.excludeGenesysForbidden).toBe(true));
+    const meter = screen.getByRole("group", { name: "Genesys points" });
+    expect(meter).toHaveTextContent(/^Points0\/.*pts$/);
+    expect(within(meter).getByLabelText("Point cap")).toHaveValue(100);
+    // The rule cannot be cleared as a filter chip.
+    expect(screen.queryByText("No Link/Pendulum")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Banlist or Genesys points"), { target: { value: "none" } });
+    await waitFor(() => expect(queries.at(-1)?.excludeGenesysForbidden).not.toBe(true));
+  });
+
   it("shows card text and deck controls for the selected card", async () => {
     render(<SavedDeckEditor />);
     fireEvent.click(await screen.findByRole("button", { name: "Blue-Eyes White Dragon" }));
@@ -748,6 +765,19 @@ describe("deck card clicks", () => {
       expect(screen.queryByRole("dialog")).toBeNull();
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("shows the Deck Master points in a Genesys Domain deck, 0 pts included, and counts them in the total", async () => {
+    const before = BLUE_EYES.genesysPoints;
+    BLUE_EYES.genesysPoints = 0;
+    try {
+      stored = { ...savedDeck([POT.code]), mode: "domain", genesys: { pointCap: 100 }, deck: { main: [POT.code], extra: [], side: [], deckMaster: BLUE_EYES.code } } as SavedDeck;
+      render(<SavedDeckEditor deckId="7" />);
+      const slot = await screen.findByRole("button", { name: "Deck Master: Blue-Eyes White Dragon" });
+      await waitFor(() => expect(within(slot).getByTitle("0 Genesys points")).toHaveTextContent("0pts"));
+    } finally {
+      BLUE_EYES.genesysPoints = before;
     }
   });
 

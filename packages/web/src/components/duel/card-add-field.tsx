@@ -38,7 +38,7 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
 
   const trimmed = query.trim();
   const isPasscode = /^\d+$/.test(trimmed);
-  const { search, pending } = useCardNameSearch(query, waitingFor === query.trim(), { mode, slug });
+  const { search, pending } = useCardNameSearch(query, waitingFor === query.trim(), { mode, slug }, settings.genesys != null);
   const limits = useBanlistLimits(settings.banlist, settings.validateDeck && !settings.genesys, trimmed !== "");
   const cards = search?.cards ?? [];
   const blocks = cards.map((card) => cardAddBlock(card, settings, limits));
@@ -236,7 +236,7 @@ export function CardAddField({ mode, slug, settings, sideAllowed, onAdd, onError
                         <strong>{card.name}</strong>
                         <span>{cardKindText(card) || "Card"}</span>
                       </span>
-                      {settings.genesys ? <GenesysBadge card={card} /> : null}
+                      {settings.genesys ? <GenesysBadge card={card} variant="inline" /> : null}
                       {block ? <span className={styles.addReason}>{block}</span> : null}
                     </li>
                   );
