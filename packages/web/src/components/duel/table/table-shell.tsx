@@ -244,7 +244,7 @@ function TableShellBody({
   // plaza stage. A core that shares the Extra Monster Zones another way than the grid draws them (the facing pairs are
   // fixed for the whole duel) keeps the plaza stage for the whole duel (see useLatch).
   const trackedFormat = engineFormat(tracked.engine) as TableFormat;
-  const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats);
+  const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats, tracked.engine.field);
   const gridRefused = useLatch(trackedFormat === "ffa4" && !gridFits);
   const grid = gridFits && !gridRefused;
   // The 3-way plaza on a wide screen keeps its stage and gets the same floating HUD (Log, Settings and Camera).

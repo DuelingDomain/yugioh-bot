@@ -109,7 +109,7 @@ describe("GridStage", () => {
   it("draws no Extra Monster Zones and no Pendulum marks at a Genesys table", () => {
     function GenesysShell() {
       const state = FFA4_FIXTURES.states.main;
-      const genesysState = { ...state, room: { ...state.room, engine: { ...state.room.engine!, field: { genesys: true } }, session: { ...state.room.session, settings: { ...state.room.session.settings, banlist: "none", genesys: { pointCap: 100 } } } } };
+      const genesysState = { ...state, room: { ...state.room, engine: { ...state.room.engine!, field: { genesys: true }, seats: state.room.engine!.seats.map((seat) => ({ ...seat, sharedExtraWith: null })) }, session: { ...state.room.session, settings: { ...state.room.session.settings, banlist: "none", genesys: { pointCap: 100 } } } } };
       const controller = useFixtureController(genesysState, { reducedMotion: true });
       return <TableShell controller={controller} />;
     }
