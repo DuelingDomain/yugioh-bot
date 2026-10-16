@@ -112,7 +112,7 @@ function sourceMatches(current: DuelPrivateState, source: ReplaySource): boolean
 function forkSetup(source: ReplaySource, replayFork: ReplayForkSetup): DuelSetup {
   // Admission/bot/scenario metadata is not engine creation input. Final host losses do not describe this earlier prefix.
   const { engineIdentity: _identity, replayFork: _fork, botPolicies: _bots, presetId: _preset, scenarioId: _scenario,
-    surrenderedSeats: _losses, ...rules } = (source.setup ?? {}) as DuelSetup;
+    surrenderedSeats: _losses, eliminatedSeats: _eliminated, ...rules } = (source.setup ?? {}) as DuelSetup;
   const checked = validateSetup(rules);
   if (source.engineIdentity !== null && !isEngineIdentity(source.engineIdentity)) mismatch("Invalid source engine identity");
   return { ...checked, ...(source.engineIdentity ? { engineIdentity: source.engineIdentity } : {}), replayFork };

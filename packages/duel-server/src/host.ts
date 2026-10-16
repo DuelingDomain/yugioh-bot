@@ -915,6 +915,17 @@ export function createDuelHost(options: {
     return finish(firstTurn, null);
   }
 
+  /** Persist only confirmed losses; LP zero and pending surrender can still leave a response window open. */
+  function persistEliminatedSeats(slug: string, guildId: string, state: DuelPrivateState, view: DuelEngineView): void {
+    if (state.session.format === "1v1" || isReplayFork(state.session)) return;
+    const eliminated = new Set(state.setup?.eliminatedSeats ?? []);
+    const previousCount = eliminated.size;
+    for (const seat of view.seats) if (seat.eliminated) eliminated.add(seat.seat);
+    if (eliminated.size !== previousCount) {
+      service.setSetup(slug, guildId, { ...state.setup, eliminatedSeats: [...eliminated].sort((a, b) => a - b) });
+    }
+  }
+
   async function persistAcceptedCommand(
     slug: string,
     guildId: string,
@@ -951,6 +962,7 @@ export function createDuelHost(options: {
     // The journal keeps the reason of a scripted bot in `note`. Replay reads only promptId, revision and answer.
     options.db.transaction(() => {
       service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock);
+      persistEliminatedSeats(slug, guildId, state, after);
     })();
     if (entry) {
       // An engine chain-end can precede its visible end. Track that backlog even
@@ -1630,6 +1642,8 @@ export function createDuelHost(options: {
     };
     if (game && game.running && room.session.status === "active") {
       room.engine = await game.view(room.mySeat);
+      // This also backfills older journals when recovery confirms an engine loss.
+      if (setup) persistEliminatedSeats(slug, guildId, setup, room.engine);
       // A scenario table has no response switch: its seats keep the duel setting.
       if (games.get(slug)?.presetId) delete room.engine.chainMode;
       if (room.engine.result) {
