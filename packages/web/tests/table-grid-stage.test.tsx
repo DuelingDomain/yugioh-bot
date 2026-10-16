@@ -106,6 +106,22 @@ describe("GridStage", () => {
     expect(container.querySelector("[data-column-link]")).toBeNull();
   });
 
+  it("draws no Extra Monster Zones and no Pendulum marks at a Genesys table", () => {
+    function GenesysShell() {
+      const state = FFA4_FIXTURES.states.main;
+      const genesysState = { ...state, room: { ...state.room, session: { ...state.room.session, settings: { ...state.room.session.settings, banlist: "none", genesys: { pointCap: 100 } } } } };
+      const controller = useFixtureController(genesysState, { reducedMotion: true });
+      return <TableShell controller={controller} />;
+    }
+    const { container } = render(<GenesysShell />);
+    for (const seat of [0, 1, 2, 3]) {
+      const field = cellOf(container, seat).querySelector("[data-seat-field]")!;
+      const keys = [...field.querySelectorAll("[data-zones]")].map((node) => node.getAttribute("data-zones") ?? "");
+      expect(keys.some((key) => /:4:[56]\b/.test(key))).toBe(false);
+    }
+    expect(container.querySelector("[data-emz-zones]")?.getAttribute("data-emz-zones")).toBe("false");
+  });
+
   it("puts a life box for every seat in the middle bands, mine first on the left", () => {
     const { container } = render(<Shell id="main" />);
     const lps = [0, 1, 2, 3].map((seat) => container.querySelector(`[data-grid-lp="${seat}"]`));
