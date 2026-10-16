@@ -362,6 +362,9 @@ describe("4-way camera places", () => {
     // It stays inside the 829 px field and the hand row block is as wide as it plus air.
     expect(wide[1].width).toBeLessThan(SEAT_BOX_FULL_DEF);
     expect(HAND_ROW_WIDTH).toBeGreaterThan(wide[1].width);
+    // The classic 3-way field keeps the 605 width, but your hand is as deep as the wide one (field.module.css, ffa3 .sfHand).
+    expect(seatObstacles(pose, true, true)[1]).toMatchObject({ width: 605, height: 160, y: pose.y + 190 + 80 - 15 });
+    expect(seatObstacles(pose, false, true)[1]).toMatchObject({ width: 420, height: 100 });
     // A rival's hand and a wide rival are not changed.
     expect(seatObstacles({ ...pose, width: SEAT_BOX_FULL_DEF }, false)[1]).toMatchObject({ width: 420, height: 100 });
   });

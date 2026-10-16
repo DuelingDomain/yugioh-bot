@@ -16,11 +16,11 @@ import type { Arrangement, CameraState, Compass, FlyPose, PoseSlot, SeatPose, Se
 
 export const STAGE = { width: 1100, height: 860 } as const;
 /**
- * The canvas is the stage plus the row under it that your hand hangs into, in stage px. A 3-way table needs 56 (its hand is
- * 160 deep and hangs 15 over the field); the 4-way grid and Tag keep 96. A shorter canvas scales the whole table up.
+ * The canvas is the stage plus the row under it that your hand hangs into, in stage px. A 3-way table needs 60 (its hand is
+ * 160 deep and hangs 15 over the field, so it ends at about stage y 917, above the hint pill that starts at 920 - 4 less its height); the 4-way grid and Tag keep 96. A shorter canvas scales the whole table up.
  */
 export function canvasHeightOf(format: string | undefined): number {
-  return STAGE.height + (format === "ffa3" ? 56 : 96);
+  return STAGE.height + (format === "ffa3" ? 60 : 96);
 }
 /** Centre of the plaza, in stage px. Turn ring, attack lines and tethers measure from here. */
 export const ARENA_CENTER = { x: 550, y: 410 } as const;
@@ -329,7 +329,7 @@ export const SEAT_BOX_FULL_DEF = 829;
  */
 const OWN_HAND_WIDE = { width: 762, height: 160, rise: 15 } as const;
 /** The least spread (stage px beyond each side) that has room for the wide 3-way fields; every floating-HUD screen has it. */
-const FULL_DEF_SPREAD = 200;
+export const FULL_DEF_SPREAD = 200;
 /** Most spread (stage px at each side) the plaza uses. A wider box keeps the extra room as empty floor. */
 export const MAX_SPREAD = 450;
 /** How far a rival's hand fan reaches beyond the outer edge of its board, at scale 1 (measured: about 76 px). */
@@ -611,7 +611,7 @@ export function wideHoloAnchors(
   const homeSlot = plan[0] === "home" ? layout.slots[0] : undefined;
   const homePose = homeSlot ? poses.get(homeSlot.seat) : undefined;
   if (homePose && !homePose.hidden) {
-    for (const r of seatObstacles(homePose, true).slice(1)) taken.push({ l: r.x - r.width / 2, r: r.x + r.width / 2, t: r.y - r.height / 2, b: r.y + r.height / 2 });
+    for (const r of seatObstacles(homePose, true, layout.format === "ffa3").slice(1)) taken.push({ l: r.x - r.width / 2, r: r.x + r.width / 2, t: r.y - r.height / 2, b: r.y + r.height / 2 });
   }
   // The camera hint pill lives in the bottom left corner of the table area.
   if (corner) taken.push({ l: left - 6, r: left + corner.hint.width, t: (canvasHeightOf(layout.format) - 4) - corner.hint.height, b: (canvasHeightOf(layout.format) - 4) });
@@ -1109,7 +1109,7 @@ export function hubObstacles(
   layout.slots.forEach((slot, place) => {
     const pose = poses.get(slot.seat);
     if (!pose || pose.hidden) return;
-    for (const rect of seatObstacles(pose, place === 0)) out.push(grow(rect, HUB_AIR.seat));
+    for (const rect of seatObstacles(pose, place === 0, layout.format === "ffa3")) out.push(grow(rect, HUB_AIR.seat));
   });
   for (const anchor of plates.values()) {
     // The plate is drawn as yours when its anchor says so (`me`; in the look view your own plate is a rival-sized one).
@@ -1226,11 +1226,11 @@ export interface StageRect {
 
 /**
  * Everything one seat draws, as rectangles on the stage: the 653 x 380 field, the hand hanging off its back edge
- * (your face-up hand is 605 wide and 116 deep, with room to grow, or 762 by 160 at a wide 3-way table, `OWN_HAND_WIDE`; a
- * rival's backs about 420 by 100 with their hover lift)
+ * (your face-up hand is 605 wide and 116 deep, with room to grow, or 762 by 160 at a wide 3-way table, `OWN_HAND_WIDE`;
+ * `deepHand`: the classic 3-way field keeps the 605 width but is 160 deep as well; a rival's backs about 420 by 100 with their hover lift)
  * and the name label under the field's left side. The phase hub keeps clear of all three, so it never lands on cards.
  */
-export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotateDeg" | "width">, own: boolean): StageRect[] {
+export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotateDeg" | "width">, own: boolean, deepHand = false): StageRect[] {
   const boxWidth = pose.width ?? SEAT_BOX.width;
   const r = (pose.rotateDeg * Math.PI) / 180;
   const cos = Math.cos(r);
@@ -1245,10 +1245,12 @@ export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotate
   });
   const wide = own && pose.width != null;
   const handW = wide ? OWN_HAND_WIDE.width : own ? 605 : 420;
-  const handH = wide ? OWN_HAND_WIDE.height : own ? 116 : 100;
+  // The 3-way table draws your hand as deep as the wide one even on the classic (narrow) field: `deepHand` (field.module.css).
+  const deep = own && (wide || deepHand);
+  const handH = deep ? OWN_HAND_WIDE.height : own ? 116 : 100;
   return [
     rect(0, 0, boxWidth, 380),
-    rect(0, 190 + handH / 2 - (wide ? OWN_HAND_WIDE.rise : 2), handW, handH),
+    rect(0, 190 + handH / 2 - (deep ? OWN_HAND_WIDE.rise : 2), handW, handH),
     // Your name label stands left of the field at a wide 3-way table (field.module.css), else under its left side.
     wide ? rect(-boxWidth / 2 - 75, 190 + 14, 150, 28) : rect(-boxWidth / 2 + 0.17 * boxWidth, 190 + 14, 150, 28),
   ];

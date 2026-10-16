@@ -15,7 +15,7 @@ import { watchMeasure } from "./measure-watch";
 import { BAR_HUD, promptUnit } from "./grid-stage";
 import { planPickBarRoom } from "./pick-bar-room";
 import { isChainStripPrompt } from "../prompt-center";
-import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, canvasHeightOf, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
+import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, canvasHeightOf, FULL_DEF_SPREAD, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -717,6 +717,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-fly={fly ? "true" : "false"}
       data-stage-scale={k.toFixed(3)}
       data-stage-spread={spread}
+      data-wide-fields={spread >= FULL_DEF_SPREAD ? "true" : undefined}
       data-ready={k > 0 ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
       data-chain-room={rooms?.chain ? `${rooms.chain.x},${rooms.chain.y},${rooms.chain.width},${rooms.chain.height}` : undefined}
