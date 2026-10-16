@@ -246,6 +246,9 @@ describe("startup room signal", () => {
       expect(JSON.stringify(seen?.data)).not.toContain("seed");
       const otherSeat = await t.post("view", t.players[1]!);
       expect(otherSeat.data.myDeck.main).toEqual(Array(40).fill(2));
+      for (const override of [{ as: 0 }, { reveal: true }]) {
+        expect((await t.post("view", t.players[0]!, override)).status).toBe(400);
+      }
       expect((await t.post("view", t.players[0]!, { guildId: "other" })).status).toBe(404);
       expect((await t.post("view", t.players.at(-1)!)).status).toBe(403);
       let spectatorDone = false;

@@ -2851,6 +2851,10 @@ export function createDuelHost(options: {
     if (!startingGames.has(slug) || body.spectate === true) return null;
     // service.room applies guild scoping and returns only this actor's own deck and pick.
     const room = service.room(slug, guildId, playerId as number);
+    // Replay forks never use this shortcut. Keep the normal play-table request
+    // contract while the engine queue is busy, including rejected overrides.
+    if (body.reveal !== undefined) throw new RequestError("Reveal is only available in replay fork views", 400);
+    if (body.as !== undefined) throw new RequestError("Acting seats are only available in replay fork views and controls", 400);
     return room.session.status === "lobby" ? stampRoomClock({ ...room, starting: true }, now()) : null;
   }
 
