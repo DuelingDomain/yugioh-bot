@@ -138,11 +138,24 @@ describe("active duel lookup", () => {
     expect(active.forPlayer("g", host)?.slug).toBe(newer.slug);
   });
 
-  it.each(["eliminate:0", "eliminate:3", "eliminate-eot:0"])("ignores a surrendered seat journaled with %s", promptId => {
+  it.each(["eliminate:0", "eliminate:3"])("ignores a surrendered seat journaled with %s", promptId => {
     const duel = room("ffa3", true);
     duels.addPracticeBot(duel.slug, "g", host, deck);
     start(duel.slug);
     duels.recordCommand(duel.slug, "g", 2, { promptId, revision: 1, answer: {} }, null);
+    expect(active.forPlayer("g", guest)).toBeNull();
+    expect(active.forPlayer("g", host)).toMatchObject({ slug: duel.slug, state: "playing" });
+  });
+
+  it.each([false, true])("keeps a turn-end surrender guarded until confirmed by the engine (legacy setup: %s)", legacySetup => {
+    const duel = room("ffa3", true);
+    duels.addPracticeBot(duel.slug, "g", host, deck);
+    start(duel.slug);
+    const setup = legacySetup ? { surrenderedSeats: [2] } : {};
+    duels.setSetup(duel.slug, "g", setup);
+    duels.recordCommand(duel.slug, "g", 2, { promptId: "eliminate-eot:0", revision: 1, answer: {} }, null);
+    expect(active.forPlayer("g", guest)).toMatchObject({ slug: duel.slug, state: "playing" });
+    duels.setSetup(duel.slug, "g", { ...setup, eliminatedSeats: [2] });
     expect(active.forPlayer("g", guest)).toBeNull();
     expect(active.forPlayer("g", host)).toMatchObject({ slug: duel.slug, state: "playing" });
   });
