@@ -58,6 +58,8 @@ export { createTournamentRegistrationService, deckRegistrationMark } from "./tou
 export type { DeckRegistration, DeckRegistrationMark, DeckRegistrationTournament, TournamentRegistrationService } from "./tournament-registrations.js";
 export { createLiveNowService } from "./live-now.js";
 export type { LiveNow, LiveNowService, LiveDuelState, LiveOpponent } from "./live-now.js";
+export { createActiveDuelService } from "./active-duel.js";
+export type { ActiveDuel, ActiveDuelService } from "./active-duel.js";
 export { createOpenNowService } from "./open-now.js";
 export type { OpenNowResult, OpenNowService } from "./open-now.js";
 export type { TournamentDuelService, TournamentDuelRules, TournamentDeckRegistration } from "./tournament-duels.js";

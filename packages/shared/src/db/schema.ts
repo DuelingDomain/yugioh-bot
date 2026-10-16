@@ -982,6 +982,10 @@ export function migrate(db: Database.Database) {
 
   db.exec(`
     create index if not exists duels_guild_archived_created_idx on duels (guild_id, archived_at, created_at);
+    create index if not exists duel_seats_player_idx on duel_seats (player_id, duel_id) where is_bot = 0;
+    create index if not exists duel_commands_eliminated_idx on duel_commands (duel_id, seat)
+      where json_extract(command_json, '$.promptId') glob 'eliminate:*'
+        or json_extract(command_json, '$.promptId') glob 'eliminate-eot:*';
     create index if not exists duels_play_history_idx
       on duels (guild_id, julianday(coalesce(ended_at, created_at)) desc, id desc)
       where kind = 'play';
