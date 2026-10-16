@@ -269,10 +269,10 @@
 }
 .plane .zone[data-zones][data-kind="emz"] .zoneHit::before { border-color: rgb(200 165 95 / 0.14); }
 
-/* Piles and the Field zone: portrait guide of 0.8 pile x 1.458 (a card). */
+/* Piles and the Field zone: portrait guide of a card (x 1.458), never smaller than a card on a zone (--cw). */
 .plane .zone[data-zones]:is([data-kind="deck"], [data-kind="gy"], [data-kind="banish"], [data-kind="extra"], [data-kind="field"]) .frame {
-  width: calc(var(--pile) * 0.8);
-  height: calc(var(--pile) * 0.8 * 1.458);
+  width: max(var(--cw), calc(var(--pile) * 0.8));
+  height: calc(max(var(--cw), var(--pile) * 0.8) * 1.458);
 }
 
 /* A card on a zone: the concept field card (black hairline, soft drop shadow). */
@@ -294,6 +294,7 @@
 /* Pile label: "Deck 32" on a small plate over the bottom edge of the cell. */
 .plane .zone[data-zones] .pileLabel {
   position: absolute;
+  top: auto;
   bottom: 3px;
   left: 50%;
   z-index: 3;
