@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { DuelDeck } from "@yugidraft/shared/duels";
+import type { DuelDeck, DuelSession } from "@yugidraft/shared/duels";
 import { assertNormalDuelRequest, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
@@ -9,14 +9,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!actor.ok) return actor.response;
   const { slug } = await params;
 
-  const inLobby = () => {
+  const lobbySession = () => {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
     assertNormalDuelRequest(request, room);
-    return room.session.status === "lobby";
+    return room.session.status === "lobby" ? room.session : null;
   };
   const skipped = () => NextResponse.json({ skipped: true });
   try {
-    if (!inLobby()) return skipped();
+    if (!lobbySession()) return skipped();
   } catch (error) {
     return duelErrorResponse(error);
   }
@@ -29,8 +29,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   // Parsing the request yields to Start in another window. Recheck before asking the host.
+  let session: DuelSession | null;
   try {
-    if (!inLobby()) return skipped();
+    session = lobbySession();
+    if (!session) return skipped();
   } catch (error) {
     return duelErrorResponse(error);
   }
@@ -41,10 +43,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     guildId: actor.guildId,
     playerId: actor.playerId, ...(actor.userId !== undefined ? { userId: actor.userId } : {}),
     deck,
+    format: session.format,
+    settings: session.settings,
   });
   // A check can finish after the room moves on. Its result is then obsolete in every format.
   try {
-    if (!inLobby()) return skipped();
+    if (!lobbySession()) return skipped();
   } catch (error) {
     return duelErrorResponse(error);
   }
