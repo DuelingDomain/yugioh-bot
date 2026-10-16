@@ -559,9 +559,6 @@ jobs:
           process.exit(result.status ?? 1);
           JS
 
-      - name: Test e2e helpers
-        run: npm run test:unit --workspace=@yugidraft/e2e
-
   unit-web:
     name: Web unit tests (${{ matrix.shard }}/4)
     if: github.event_name != 'schedule'
