@@ -79,7 +79,7 @@ function Section({
                   data-invalid={problem ? "true" : undefined}
                 >
                   <img src={cardArtUrl(code, "small")} alt="" loading="lazy" />
-                  <GenesysBadge card={genesysCard?.(code)} />
+                  <GenesysBadge card={genesysCard?.(code)} lift={Boolean(problem)} />
                   {problem ? (
                     <span className={styles.invalidTag}><AlertTriangle size={11} strokeWidth={1.8} aria-hidden />Invalid</span>
                   ) : null}
