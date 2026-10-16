@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Circle, Diamond, Eye, Film, Radio, Volume2, VolumeX } from "lucide-react";
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { isCustomDomain } from "@yugidraft/shared/duels";
+import { genesysLabel, genesysOf } from "../genesys";
 import { BattleFx } from "../battle-fx";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
@@ -533,7 +534,7 @@ function TableShellBody({
         </strong>
       ) : null}
       <span className={roomStyles.format}>
-        {domain ? (isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain") : `MR${session.masterRule}`} · {formatLabel(format)}
+        {genesysLabel(session.mode, genesysOf(session), domain && isCustomDomain(session.masterRule, session.settings)) ?? (domain ? (isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain") : `MR${session.masterRule}`)} · {formatLabel(format)}
       </span>
     </div>
   );
