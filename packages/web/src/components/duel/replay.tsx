@@ -41,6 +41,7 @@ import { ReplayStatus } from "./replay-status";
 import { ReplayVerificationNote } from "./replay-verification";
 import { buildReplayTimeline, type ReplayLogEntry } from "./replay-timeline";
 import { formatLabel } from "./table-format";
+import { genesysLabel, genesysOf, sessionBoardRule } from "./genesys";
 import type { TableController } from "./table/types";
 import styles from "./room.module.css";
 import replayStyles from "./replay.module.css";
@@ -307,9 +308,10 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const focusSeat = resolveFocusSeat(session, camera, null);
   const playerName = (seat: number) =>
     session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;
-  const modeText = domain
-    ? isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain"
-    : `MR${session.masterRule}`;
+  const modeText = genesysLabel(session.mode, genesysOf(session), domain && isCustomDomain(session.masterRule, session.settings))
+    ?? (domain
+      ? isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain"
+      : `MR${session.masterRule}`);
   const atEnd = index >= last;
   const result = atEnd ? (engine.result ?? (session.resultReason ? { winnerSeat: session.winnerSeat, reason: session.resultReason } : null)) : null;
   const newLines = timeline.newLogAt(index);
@@ -404,7 +406,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
             <MoveSourceBoundary events={engine.events} duelKey={`${slug}:replay:${epoch}`} root={boardRef}>
             {/* A replay shows the cracks of the seek position and never animates them. */}
             <FieldCracksScope duelKey={slug} format={session.format} settings={session.settings} replay>
-            <ReplayBoard key={`${slug}:${camera}:${focusSeat}`} table={table} masterRule={session.masterRule}
+            <ReplayBoard key={`${slug}:${camera}:${focusSeat}`} table={table} masterRule={sessionBoardRule(session)}
               camera={camera} focusSeat={focusSeat} mySeat={model.mySeat} playerName={playerName} />
             </FieldCracksScope>
             <DuelFeedback events={engine.events} duelKey={`${slug}:replay:${epoch}`} attackToast
