@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pastedDeckName, prepareImportSave, sameDeckCards, uniqueDeckName } from "../../src/components/duel/import-save";
+import { findSavedDuplicate, pastedDeckName, prepareImportSave, sameDeckCards, uniqueDeckName } from "../../src/components/duel/import-save";
 
 describe("import save names and matching", () => {
   it("formats a paste name", () => {
@@ -35,4 +35,12 @@ describe("import save names and matching", () => {
     expect(sameDeckCards({ main: [1], extra: [], side: [] }, { main: [1], extra: [], side: [3] })).toBe(false);
     expect(sameDeckCards({ main: [1], extra: [], side: [], deckMaster: 5 }, { main: [1], extra: [], side: [] })).toBe(false);
   });
+});
+
+
+it("keeps imports tagged for different Genesys caps separate", () => {
+  const deck = { main: [1], extra: [], side: [] };
+  const saved = { id: 1, name: "Standard", mode: "normal" as const, deck, createdAt: "", updatedAt: "" };
+  expect(findSavedDuplicate([saved], "normal", deck, { pointCap: 0 })).toBeUndefined();
+  expect(findSavedDuplicate([{ ...saved, genesys: { pointCap: 0 } }], "normal", deck, { pointCap: 0 })?.id).toBe(1);
 });

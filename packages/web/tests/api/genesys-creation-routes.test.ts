@@ -105,3 +105,24 @@ describe("Genesys creation API settings", () => {
     }
   });
 });
+
+
+describe("Genesys saved-deck API", () => {
+  it("persists, preserves, changes and clears the tag through create/update", async () => {
+    const { POST } = await import("../../app/api/decks/route");
+    const { PUT } = await import("../../app/api/decks/[id]/route");
+    const deck = { main: [], extra: [], side: [] };
+    const created = await POST(request({ name: "Genesys library", mode: "normal", deck, genesys: { pointCap: 0 } }));
+    expect(created.status).toBe(201);
+    const saved = (await created.json()).deck;
+    expect(saved.genesys).toEqual({ pointCap: 0 });
+    const params = { params: Promise.resolve({ id: String(saved.id) }) };
+    for (const [tag, expected] of [[undefined, { pointCap: 0 }], [{ pointCap: 1000 }, { pointCap: 1000 }], [null, null]] as const) {
+      const updated = await PUT(request({ name: "Updated", mode: "normal", deck, ...(tag !== undefined ? { genesys: tag } : {}) }, "PUT"), params);
+      expect(updated.status).toBe(200);
+      expect((await updated.json()).deck.genesys).toEqual(expected);
+    }
+    const invalid = await PUT(request({ name: "Invalid", mode: "normal", deck, genesys: { pointCap: -1 } }, "PUT"), params);
+    expect(invalid.status).toBe(400);
+  });
+});

@@ -244,13 +244,13 @@ export function DeckEditor({
         return;
       }
       const existing = savedList.latest.current ?? await listSavedDecks(AbortSignal.timeout(SAVE_TIMEOUT_MS));
-      const duplicate = findSavedDuplicate(existing, prepared.mode, prepared.deck);
+      const duplicate = findSavedDuplicate(existing, prepared.mode, prepared.deck, settings.genesys);
       if (duplicate) {
         note({ text: `Already in your decks: ${duplicate.name}` });
         return;
       }
       const name = uniqueDeckName(baseName, existing.map((entry) => entry.name));
-      const created = await createSavedDeck({ name, mode: prepared.mode, deck: prepared.deck }, AbortSignal.timeout(SAVE_TIMEOUT_MS));
+      const created = await createSavedDeck({ name, mode: prepared.mode, deck: prepared.deck, ...(settings.genesys ? { genesys: settings.genesys } : {}) }, AbortSignal.timeout(SAVE_TIMEOUT_MS));
       savedList.add(created);
       note({
         text: prepared.mode === mode
