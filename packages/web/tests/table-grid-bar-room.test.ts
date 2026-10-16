@@ -123,14 +123,45 @@ describe("pickBarRoom and the other zones", () => {
 });
 
 describe("restBarRoom", () => {
-  it("docks at the bottom, beside the hand and off the HUD, when the pair has no free room", () => {
+  it("stays in the pair, over empty zones and other cards, when no target is covered", () => {
     const pair = rect(0, 0, 1200, 900);
-    // A full band of zones over the middle of the pair: no clear pair room.
-    const zones = [rect(0, 0, 1200, 900)];
+    const box = { width: 1900, height: 1080 };
+    // Zones that are not targets fill the pair: the bar still sits in the pair, not at the dock.
+    const spot = room(restBarRoom(pair, box, [], [rect(0, 0, 1200, 900)]))!;
+    expect(spot[1] + spot[3]).toBeLessThanOrEqual(900);
+    expect(spot[0] + spot[2] / 2).toBeCloseTo(600, 0);
+    // A target elsewhere in the pair is still kept clear.
+    const target = rect(0, 0, 400, 900);
+    const kept = room(restBarRoom(pair, box, [target], [rect(400, 0, 800, 900)]))!;
+    expect(hits(kept, target)).toBe(false);
+  });
+  it("prefers the own field to the rest of the pair when it has a clear place", () => {
+    const pair = rect(0, 0, 780, 900);
+    const own = rect(0, 450, 780, 450);
+    // Targets only in the lower half of the own field: the bar goes to the own field's free part, not the pair middle.
+    const targets = [rect(0, 640, 780, 260)];
+    const spot = room(restBarRoom(pair, { width: 1900, height: 1080 }, targets, [], [], [], own))!;
+    expect(spot[1]).toBeGreaterThanOrEqual(450);
+    expect(hits(spot, targets[0])).toBe(false);
+    // A target band across the whole own field: the search falls back to the pair and keeps off the target.
+    const wide = [rect(0, 450, 780, 450)];
+    const back = room(restBarRoom(pair, { width: 1900, height: 1080 }, wide, [], [], [], own))!;
+    expect(hits(back, wide[0])).toBe(false);
+  });
+  it("keeps off the phase chips when a place without them exists", () => {
+    const pair = rect(0, 0, 1000, 600);
+    const chip = rect(440, 250, 120, 100);
+    const spot = room(restBarRoom(pair, { width: 1900, height: 1080 }, [], [], [], [chip]))!;
+    expect(hits(spot, chip)).toBe(false);
+  });
+  it("docks at the bottom, beside the hand and off the HUD, when targets fill the pair", () => {
+    const pair = rect(0, 0, 1200, 900);
+    // Targets over all of the pair: no clear pair room.
+    const targets = [rect(0, 0, 1200, 900)];
     const box = { width: 1900, height: 1080 };
     const hand = rect(600, 920, 400, 104);
     const plate = rect(200, 920, 215, 105);
-    const dock = room(restBarRoom(pair, box, [], [...zones, hand], [plate]))!;
+    const dock = room(restBarRoom(pair, box, targets, [hand], [plate]))!;
     expect(dock[1]).toBe(1080 - 92 - 12);
     expect(hits(dock, hand) || hits(dock, plate)).toBe(false);
     expect(freeDockRoom(box, [rect(0, 900, 1900, 180)])).toBeUndefined();
