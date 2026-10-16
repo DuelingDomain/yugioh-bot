@@ -120,6 +120,8 @@ function mapCard(row: any): CardCatalogCard {
   return {
     ygoprodeckId: row.ygoprodeck_id,
     canonicalCardId: row.card_id ?? row.ygoprodeck_id,
+    genesysPoints: row.genesys_points ?? null,
+    genesysRevision: row.genesys_revision ?? null,
     name: row.name,
     type: row.type,
     frameType: row.frame_type,

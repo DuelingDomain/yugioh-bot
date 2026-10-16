@@ -1,9 +1,10 @@
-import type { DuelClock, DuelFormat, DuelSettings } from "./settings.js";
+import type { DuelClock, DuelFormat, DuelSettings, GenesysSettings } from "./settings.js";
 import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
 import type { DuelKind } from "./duel-kind.js";
 import type { ReplayForkControl } from "./replay-fork.js";
 
 export * from "./duel-kind.js";
+export * from "./genesys.js";
 export * from "./replay.js";
 export * from "./replay-fork.js";
 export { isUnknownEngineChoice, sourceEngineChoice } from "./source-engine-choice.js";
@@ -23,11 +24,17 @@ export type {
   DuelClockState,
   DuelFormat,
   DuelSettings,
+  GenesysSettings,
   DuelTimeout,
   DuelVisibility,
 } from "./settings.js";
 export {
   DEFAULT_DUEL_FORMAT,
+  DEFAULT_GENESYS_POINT_CAP,
+  MAX_GENESYS_POINT_CAP,
+  normalizeGenesysSettings,
+  DuelSettingsError,
+  parseStoredDuelSettings,
   DUEL_FORMATS,
   MAX_DUEL_SEATS,
   isDuelFormat,
@@ -104,6 +111,8 @@ export interface SavedDeck {
   id: number;
   name: string;
   mode: DuelMode;
+  /** Library tag only; omission/null means off. */
+  genesys?: GenesysSettings | null;
   deck: DuelDeck;
   createdAt: string;
   updatedAt: string;
@@ -191,6 +200,8 @@ export interface DuelDeckValidation {
 }
 
 export interface DuelCardInfo {
+  /** Current TCG Genesys points. null or absent means unknown, never zero. */
+  genesysPoints?: number | null;
   /** Search result belongs to the requesting seat's own main, extra or side deck. */
   inDeck?: boolean;
   /** Preview data from BabelCDB; available to search and card-info consumers. */
