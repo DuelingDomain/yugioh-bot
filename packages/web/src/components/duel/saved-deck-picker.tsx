@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import type { DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
+import type { DuelDeck, DuelMode, GenesysSettings, SavedDeck } from "@yugidraft/shared/duels";
 import { listSavedDecks } from "../decks/api";
 import { SheetButton, SheetSelect, sheetButtonClass } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
@@ -10,6 +10,11 @@ import styles from "./deck-editor.module.css";
 
 /** The names Manage decks and the room settings use for each format. */
 const MODE_NAME: Record<DuelMode, string> = { domain: "Domain", normal: "Standard" };
+
+/** The tag a saved deck carries in a list: "Genesys, cap 100". Empty for a deck without the tag. */
+export function savedDeckTag(saved: Pick<SavedDeck, "genesys">): string {
+  return saved.genesys ? `Genesys, cap ${saved.genesys.pointCap}` : "";
+}
 
 /** The player's saved decks. `add` puts a new deck in the list at once, with no reload. */
 export function useSavedDecks() {
@@ -54,8 +59,10 @@ export type SavedDeckList = ReturnType<typeof useSavedDecks>;
  * stays a Standard list, so the two formats never mix here. Decks of the other format stay in the list,
  * after the usable ones, disabled and with the reason, so a deck is never missing without a sign.
  */
-export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
+export function SavedDeckPicker({ mode, genesys = null, disabled, list, onLoad }: {
   mode: DuelMode;
+  /** The room's Genesys setting. In a Genesys room the decks tagged Genesys come first; the other decks stay usable. */
+  genesys?: GenesysSettings | null;
   disabled: boolean;
   list: SavedDeckList;
   /** Loads the chosen deck. Returns false when the player keeps the current deck. */
@@ -65,7 +72,9 @@ export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
   const [selected, setSelected] = useState("");
   const hintId = useId();
 
-  const matching = decks?.filter((saved) => saved.mode === mode) ?? [];
+  const sameMode = decks?.filter((saved) => saved.mode === mode) ?? [];
+  // A stable sort: inside each group the list keeps its order.
+  const matching = genesys ? [...sameMode].sort((a, b) => Number(Boolean(b.genesys)) - Number(Boolean(a.genesys))) : sameMode;
   const otherFormat = decks?.filter((saved) => saved.mode !== mode) ?? [];
   const current = matching.find((saved) => String(saved.id) === selected);
 
@@ -74,7 +83,8 @@ export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
     if (!saved || onLoad(saved.deck)) setSelected(value);
   }
 
-  const showHint = Boolean(decks) && (matching.length === 0 || otherFormat.length > 0);
+  const untagged = genesys ? matching.filter((saved) => !saved.genesys).length : 0;
+  const showHint = Boolean(decks) && (matching.length === 0 || otherFormat.length > 0 || untagged > 0);
   const placeholder = error ? "Saved decks unavailable"
     : !decks ? "Loading saved decks…"
     : matching.length ? "Choose a deck"
@@ -87,7 +97,13 @@ export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
           value={current ? selected : ""} disabled={disabled || !decks} onChange={choose}
           choices={[
             { value: "", label: placeholder },
-            ...matching.map((saved) => ({ value: String(saved.id), label: `${saved.name} · ${saved.deck.main.length} Main / ${saved.deck.extra.length} Extra / ${saved.deck.side.length} Side` })),
+            ...matching.map((saved) => {
+              const tag = savedDeckTag(saved) || (genesys ? "Not tagged Genesys" : "");
+              return {
+                value: String(saved.id),
+                label: `${saved.name} · ${saved.deck.main.length} Main / ${saved.deck.extra.length} Extra / ${saved.deck.side.length} Side${tag ? ` · ${tag}` : ""}`,
+              };
+            }),
             ...otherFormat.map((saved) => ({
               value: String(saved.id),
               label: `${saved.name} · Saved as ${MODE_NAME[saved.mode]}. Not usable in a ${MODE_NAME[mode]} room.`,
@@ -103,7 +119,8 @@ export function SavedDeckPicker({ mode, disabled, list, onLoad }: {
           {otherFormat.length > 0
             ? `${otherFormat.length === 1 ? "1 saved deck uses" : `${otherFormat.length} saved decks use`} another format and can't be loaded here. `
             : ""}
-          In Manage decks, save a deck as {MODE_NAME[mode]} to use it at this table.
+          {matching.length === 0 || otherFormat.length > 0 ? `In Manage decks, save a deck as ${MODE_NAME[mode]} to use it at this table. ` : ""}
+          {untagged > 0 ? `${untagged === 1 ? "1 deck is" : `${untagged} decks are`} not tagged Genesys. ${untagged === 1 ? "It" : "They"} can load here, and the table checks the points before you ready up.` : ""}
         </p>
       ) : null}
       <p className={styles.muted}>Choosing a deck loads a copy. Editing it here won&apos;t change your saved deck; this room&apos;s rules are checked before you ready up.</p>
