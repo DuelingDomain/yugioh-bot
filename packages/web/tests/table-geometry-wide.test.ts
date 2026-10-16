@@ -8,6 +8,7 @@ import {
   PLAZA_HUD_KEEP,
   SEAT_BOX_FULL_DEF,
   plazaView,
+  canvasHeightOf,
   polygonGap,
   seatQuad,
   chainBandRooms,
@@ -52,6 +53,9 @@ const WIDE = { width: 1848, height: 950 };
 // The tightest case: 1366 by 768 with the drawer closed.
 const TIGHT = { width: 1294, height: 649 };
 
+/** The box of the table area fitted for a layout: the stage fills it less the hand row (`canvasHeightOf`). */
+const fitOf = (box: { width: number; height: number }, format: string) => ({ ...box, height: (box.height * 860) / canvasHeightOf(format) });
+
 describe("the wide plaza", () => {
   const four = tableLayout("ffa4", engine("ffa4", 4), 0);
   const three = tableLayout("ffa3", engine("ffa3", 3), 0);
@@ -91,12 +95,12 @@ describe("the wide plaza", () => {
   // 5px below and 14px at each side; the stage fits in it above the 96px hand row.
   const HUD_SCREENS = [[2000, 967], [1920, 1080], [1680, 1050], [1440, 900], [1280, 800]].map(([w, h]) => {
     const box = { width: w - 28, height: h - 57 };
-    return { name: `${w}x${h}`, box, fit: { ...box, height: (box.height * 860) / 956 } };
+    return { name: `${w}x${h}`, box, fit: fitOf(box, "ffa3") };
   });
 
   it("keeps the 3-way rivals clear of each other, the ring, your field and the HUD column, in screen px", () => {
     for (const { name, fit } of HUD_SCREENS) {
-      const { k, top } = plazaView(fit);
+      const { k, top } = plazaView(fit, "ffa3");
       const spread = stageSpread(fit);
       const poses = seatPoses(three, camera(), fit);
       // Every field is the wide one (full-size Defense cards): SEAT_BOX_FULL_DEF.
@@ -141,7 +145,7 @@ describe("the wide plaza", () => {
     // The five HUD screens plus short ones (1280 x 609 puts your plate under your field, where the wide hand is).
     const short = [[1280, 609], [1280, 650], [1030, 660], [1100, 620]].map(([w, h]) => {
       const box = { width: w - 28, height: h - 57 };
-      return { name: `${w}x${h}`, fit: { ...box, height: (box.height * 860) / 956 } };
+      return { name: `${w}x${h}`, fit: fitOf(box, "ffa3") };
     });
     for (const { name, fit } of [...HUD_SCREENS, ...short]) {
       const poses = seatPoses(three, camera(), fit);
@@ -202,25 +206,26 @@ describe("the wide plaza", () => {
     { name: "1440 open", box: { width: 988, height: 776 } },
     { name: "1366 open", box: { width: 914, height: 649 } },
     { name: "1366 closed", box: { width: 1294, height: 649 } },
-  ].map(({ name, box }) => ({ name, box, fit: { width: box.width, height: (box.height * 860) / 956 } }));
+  ].map(({ name, box }) => ({ name, box }));
   const gap = (a: { l: number; r: number; t: number; b: number }, b: { l: number; r: number; t: number; b: number }) =>
     Math.max(0, a.l - b.r, b.l - a.r, a.t - b.b, b.t - a.b);
   const overlap = (a: { l: number; r: number; t: number; b: number }, b: { l: number; r: number; t: number; b: number }) =>
     a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
 
   it("keeps every plate attached to its own board (within 16 stage px) and off the camera hint corner", () => {
-    for (const { name, fit } of BOXES) {
-      const k = stageFit(fit);
-      const spread = stageSpread(fit);
-      const hint = { width: 250 / k, height: 40 / k };
+    for (const { name, box } of BOXES) {
       for (const layout of [four, three]) {
+        const fit = fitOf(box, layout.format);
+        const k = stageFit(fit);
+        const spread = stageSpread(fit);
+        const hint = { width: 250 / k, height: 40 / k };
         const poses = seatPoses(layout, camera(), fit);
         const anchors = wideHoloAnchors(layout, camera(), poses, spread, true, { hint })!;
         for (const [seat, a] of anchors) {
           const r = { l: a.x, t: a.y, r: a.x + (a.me ? 270 : 196), b: a.y + (a.me ? 171 : 92) };
           const own = boardBounds(poses.get(seat)!);
           expect(gap(r, own), `${layout.format} ${name}: plate ${seat} is ${gap(r, own).toFixed(0)} px from its board`).toBeLessThanOrEqual(16);
-          const corner = { l: -spread, r: -spread + hint.width, t: 952 - hint.height, b: 952 };
+          const corner = { l: -spread, r: -spread + hint.width, t: canvasHeightOf(layout.format) - 4 - hint.height, b: canvasHeightOf(layout.format) - 4 };
           expect(overlap(r, corner), `${layout.format} ${name}: plate ${seat} vs the camera hint`).toBe(false);
         }
       }
@@ -230,11 +235,11 @@ describe("the wide plaza", () => {
   it("never settles a plate on a field when the search runs out (a tall, narrow home board, and a sweep of odd sizes)", () => {
     const sizes = [{ width: 914, height: 781 }, ...[640, 760, 914, 1100, 1400].flatMap((width) => [520, 650, 781, 900].map((height) => ({ width, height })))];
     for (const box of sizes) {
-      const fit = { width: box.width, height: (box.height * 860) / 956 };
-      const k = stageFit(fit);
-      const spread = stageSpread(fit);
-      const hint = { width: 250 / k, height: 40 / k };
       for (const layout of [four, three]) {
+        const fit = fitOf(box, layout.format);
+        const k = stageFit(fit);
+        const spread = stageSpread(fit);
+        const hint = { width: 250 / k, height: 40 / k };
         const poses = seatPoses(layout, camera(), fit);
         const anchors = wideHoloAnchors(layout, camera(), poses, spread, true, { hint });
         if (!anchors) continue;
@@ -249,15 +254,16 @@ describe("the wide plaza", () => {
   });
 
   it("finds the prompts a room clear of every board, plate, the ring, your hand and the hint", () => {
-    for (const { name, box, fit } of BOXES) {
-      const k = stageFit(fit);
-      const spread = stageSpread(fit);
+    for (const { name, box } of BOXES) {
       for (const layout of [four, three]) {
+        const fit = fitOf(box, layout.format);
+        const k = stageFit(fit);
+        const spread = stageSpread(fit);
         const poses = seatPoses(layout, camera(), fit);
         const wide = wideHoloAnchors(layout, camera(), poses, spread, true, { hint: { width: 250 / k, height: 40 / k } });
         const anchors = new Map(layout.slots.map((slot) => [slot.seat, wide?.get(slot.seat) ?? holoAnchor(layout, slot.seat, camera())] as const));
         const rooms = promptRooms({ layout, camera: camera(), poses, anchors, spread, meFooter: true, box, k });
-        const hint = { l: -spread - 6, r: -spread + 6 + 250 / k, t: 952 - 40 / k, b: 952 };
+        const hint = { l: -spread - 6, r: -spread + 6 + 250 / k, t: canvasHeightOf(layout.format) - 4 - 40 / k, b: canvasHeightOf(layout.format) - 4 };
         for (const kind of ["panel", "bar"] as const) {
           const room = rooms[kind];
           expect(room, `${layout.format} ${name}: a room for the ${kind}`).not.toBeNull();
@@ -284,7 +290,7 @@ describe("the wide plaza", () => {
   });
 
   it("falls back to a room that covers your name plate when no other room is free (never a card)", () => {
-    const fit = { width: TIGHT.width, height: (TIGHT.height * 860) / 956 };
+    const fit = fitOf(TIGHT, "ffa3");
     const k = stageFit(fit);
     const spread = stageSpread(fit);
     const poses = seatPoses(three, camera(), fit);
@@ -314,11 +320,12 @@ describe("the wide plaza", () => {
 
   it("reserves the measured chain strip before allocating prompt rooms", () => {
     const extra = [{ name: "1920 open", box: { width: 1468, height: 950 } }, { name: "1440 closed", box: { width: 1368, height: 776 } }]
-      .map(({ name, box }) => ({ name, box, fit: { width: box.width, height: box.height * 860 / 956 } }));
-    for (const { name, box, fit } of [...BOXES, ...extra]) {
-      const k = stageFit(fit);
-      const spread = stageSpread(fit);
+      .map(({ name, box }) => ({ name, box }));
+    for (const { name, box } of [...BOXES, ...extra]) {
       for (const layout of [four, three]) {
+        const fit = fitOf(box, layout.format);
+        const k = stageFit(fit);
+        const spread = stageSpread(fit);
         const poses = seatPoses(layout, camera(), fit);
         const anchors = wideHoloAnchors(layout, camera(), poses, spread, true)!;
         const rooms = promptRooms({ layout, camera: camera(), poses, anchors, spread, meFooter: true, box, k, chainSize: { width: 300, height: 88 } });

@@ -15,7 +15,7 @@ import { watchMeasure } from "./measure-watch";
 import { BAR_HUD, promptUnit } from "./grid-stage";
 import { planPickBarRoom } from "./pick-bar-room";
 import { isChainStripPrompt } from "../prompt-center";
-import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
+import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, canvasHeightOf, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -212,7 +212,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     observePanels();
     return () => { observer.disconnect(); mutations.disconnect(); };
   }, [portrait, promptCenter]);
-  const canvasHeight = portrait?.height ?? STAGE.height + 96;
+  const canvasHeight = portrait?.height ?? canvasHeightOf(layout.format);
   const chainInset = useMemo(() => portrait && chainSize ? chainSize.height + 12 : chainStripInset({ layout: play, camera, box, chainSize, meFooter: masterChip != null }), [play, camera, box, chainSize, masterChip != null, portrait]);
   // The seat switcher and camera status belong to the phone chrome, outside the fitted table.
   const stageTop = chainInset + (portrait ? 44 : 0);

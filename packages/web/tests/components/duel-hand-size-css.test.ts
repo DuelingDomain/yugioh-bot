@@ -59,12 +59,12 @@ describe("your hand is drawn larger than the strip reserves", () => {
     // The layout reserve (--ohkr = ohk x (1 - hide + 0.05)) stays near the old 0.198, so the board frame does not shrink.
     expect(ohk * (1 - hide + 0.05)).toBeLessThanOrEqual(0.33);
   });
-  it("draws your 3-way hand about 1.45x larger than before, on a tall table only, and keeps its element honest", () => {
-    // The 3-way stage (not the phone layout) sets the size of your seat field: 1.1 zone heights (was 0.76).
+  it("draws your 3-way hand about 1.6x larger than before, on a tall table only, and keeps its element honest", () => {
+    // The 3-way stage (not the phone layout) sets the size of your seat field: 1.22 zone heights (was 0.76).
     const block = /:global\(\[data-table-stage="ffa3"\]:not\(\[data-portrait\]\)\) \.seatField \{([^}]*)\}/.exec(css)?.[1] ?? "";
     const lh = Number(/--lh: calc\(var\(--z\) \* ([\d.]+)\);/.exec(block)?.[1]);
     expect(lh).toBeGreaterThanOrEqual(1.0);
-    expect(lh).toBeLessThanOrEqual(1.15);
+    expect(lh).toBeLessThanOrEqual(1.25);
     // It rises over the field's bottom pad (0.125 zone) only, so no zone is covered at rest.
     const rise = Number(/--hand-rise: calc\(var\(--z\) \* ([\d.]+)\);/.exec(block)?.[1]);
     expect(rise).toBeGreaterThan(0);

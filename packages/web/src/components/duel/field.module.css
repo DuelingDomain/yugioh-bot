@@ -2651,12 +2651,12 @@
   pointer-events: none;
 }
 
-/* 3-way table: your hand is drawn as large as a board card (1.1 zone sizes tall, was 0.76), because the lane under your
+/* 3-way table: your hand is drawn as large as a board card (1.22 zone sizes tall, was 0.76), because the lane under your
    field is free. It rises over the field's bottom pad only (no zone), and its box is only as tall as the cards need, so it
    ends above the camera hint of a short screen. Real sizes, no transform: the stage and the prompt room measure this
    element. Hovering zooms less (1.7x of a card that is already 1.45x larger). A phone keeps the small hand. */
 :global([data-table-stage="ffa3"]:not([data-portrait])) .seatField {
-  --lh: calc(var(--z) * 1.1);
+  --lh: calc(var(--z) * 1.22);
   --hand-rise: calc(var(--z) * 0.12);
   --hand-hover: 1.7;
 }

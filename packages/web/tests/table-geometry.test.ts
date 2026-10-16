@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 import {
+  canvasHeightOf,
   ARENA_CENTER,
   aliveLayout,
   controllerLayout,
@@ -357,7 +358,7 @@ describe("4-way camera places", () => {
     const classic = seatObstacles(pose, true);
     expect(classic[1]).toMatchObject({ width: 605, height: 116 });
     const wide = seatObstacles({ ...pose, width: SEAT_BOX_FULL_DEF }, true);
-    expect(wide[1]).toMatchObject({ width: 762, height: 144 });
+    expect(wide[1]).toMatchObject({ width: 762, height: 160 });
     // It stays inside the 829 px field and the hand row block is as wide as it plus air.
     expect(wide[1].width).toBeLessThan(SEAT_BOX_FULL_DEF);
     expect(HAND_ROW_WIDTH).toBeGreaterThan(wide[1].width);
@@ -514,14 +515,15 @@ describe("hubPose", () => {
     ["1920 x 1080, drawer open", { width: 1500, height: 950 }],
     ["2560 x 1440", { width: 2488, height: 1290 }],
   ];
-  const fitOf = (box: { width: number; height: number }) => ({ ...box, height: (box.height * 860) / 956 });
+  const fitOf = (box: { width: number; height: number }, format: string) => ({ ...box, height: (box.height * 860) / canvasHeightOf(format) });
 
   describe.each(boxes)("%s", (_boxLabel, rawBox) => {
-    const area = rawBox ? fitOf(rawBox) : undefined;
     it.each([...cases, ["ffa3 fly", "ffa3", 3, { mode: "fly" }] as (typeof cases)[number], ["ffa4 fly", "ffa4", 4, { mode: "fly" }] as (typeof cases)[number]])(
       "%s: the strip overlaps no seat field, hand, name label or LP panel, not the ARENA 07 sign, the ring, your hand's row or the camera hint",
       (_label, format, count, over) => {
         const layout = tableLayout(format as "ffa3", engine(format, count), 0);
+        const area = rawBox ? fitOf(rawBox, format) : undefined;
+        const canvas = canvasHeightOf(format);
         const view = camera(over);
         // The fly-in keeps the home place, so it is checked against the home boards and plates.
         const seen = view.mode === "fly" ? camera() : view;
@@ -559,17 +561,17 @@ describe("hubPose", () => {
         expect(Math.hypot(dx, dy)).toBeGreaterThan(62 * ring.scale);
         if (area && spread > 0) {
           // A wide table: your hand's row under the stage and the camera hint pill in the bottom left corner stay clear too.
-          expect(overlaps(card, box(550, (860 - 4 + 960) / 2, HAND_ROW_WIDTH, 960 - 856))).toBe(false);
+          expect(overlaps(card, box(550, (860 - 4 + canvas + 4) / 2, HAND_ROW_WIDTH, canvas + 4 - 856))).toBe(false);
           const k = stageFit(area);
           const hintW = 250 / k;
           const hintH = 40 / k;
-          expect(overlaps(card, box(-spread + 6 - 6 + hintW / 2, 952 - hintH / 2, hintW, hintH))).toBe(false);
+          expect(overlaps(card, box(-spread + 6 - 6 + hintW / 2, canvas - 4 - hintH / 2, hintW, hintH))).toBe(false);
         }
         // The card stays inside the visible stage: 1100 x 860 plus the spread at each side, and above the hand row.
         expect(at.x - at.width / 2).toBeGreaterThanOrEqual(-spread);
         expect(at.x + at.width / 2).toBeLessThanOrEqual(1100 + spread);
         expect(at.y - at.height / 2).toBeGreaterThanOrEqual(0);
-        expect(at.y + at.height / 2).toBeLessThanOrEqual(area && spread > 0 ? 952 : 860);
+        expect(at.y + at.height / 2).toBeLessThanOrEqual(area && spread > 0 ? canvas - 4 : 860);
       },
     );
   });
@@ -578,7 +580,7 @@ describe("hubPose", () => {
   // wide fields face to face, docked plates, the ring at the left. A narrower box keeps the classic poses, plates and strip place.
   // Its boards, plates and the strip must stay clear of each other at every table box (the stage is sized from the same box as 3-way).
   describe.each(boxes)("face-off, %s", (_boxLabel, rawBox) => {
-    const area = rawBox ? fitOf(rawBox) : undefined;
+    const area = rawBox ? fitOf(rawBox, "ffa3") : undefined;
     it.each([[1], [2], [0]])("seat %i out: the strip overlaps no board, plate, hand row, camera hint or the ring", (outSeat) => {
       const full = tableLayout("ffa3", engine("ffa3", 3), 0);
       const duo = aliveLayout(full, [outSeat]);
@@ -627,7 +629,7 @@ describe("hubPose", () => {
   });
 
   describe.each(boxes)("face-off far hand, %s", (_boxLabel, rawBox) => {
-    const area = rawBox ? fitOf(rawBox) : undefined;
+    const area = rawBox ? fitOf(rawBox, "ffa3") : undefined;
     it.each([[1], [2], [0]])("seat %i out: the hand backs of the far seat start at or below the top of the table box", (outSeat) => {
       const duo = aliveLayout(tableLayout("ffa3", engine("ffa3", 3), 0), [outSeat]);
       const poses = seatPoses(duo, camera(), area);
