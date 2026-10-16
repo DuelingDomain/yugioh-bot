@@ -34,8 +34,9 @@ describe("your hand is drawn larger than the strip reserves", () => {
     expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lk: 0\.55;/);
     expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--hand-sink: max\(0px, calc\(var\(--lh\) - var\(--lh-rest\) - var\(--hpad\)\)\);/);
     expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lift-k: 0;[^}]*--mark-k: 0;/);
-    // Touch screens (no hover) rest legal and selected cards raised by --hand-sink, so the ATK/DEF plate shows.
-    expect(css).toMatch(/@media \(hover: none\) \{\s*:global\(\[data-hud="room"\]\) \.handLocal \.handCard \.zone\[data-legal="true"\] \.frame \{\s*transform: translateY\(calc\(var\(--lh\) \* -0\.05 - var\(--hand-sink, 0px\)\)\);/);
+    // Touch screens (no hover) draw the hand at the strip's size (no sink) and rest no card raised, so none rises over the row.
+    expect(css).toMatch(/@media \(hover: none\) \{\s*:global\(\[data-hud="room"\]\) \.playmat \{\s*--lh: var\(--lh-rest\);/);
+    expect(css).toMatch(/@media \(hover: none\) \{\s*:global\(\[data-hud="room"\]\) \.handLocal \.handCard \.zone\[data-legal="true"\] \.frame,[^{]*\.zone\[data-selected="true"\] \.frame \{\s*transform: none;/);
   });
 
   it("lets only the resting box of a HUD room hand card take the pointer, never the grown hover picture", () => {

@@ -245,6 +245,15 @@
     --hand-sink: max(0px, calc(var(--lh) - var(--lh-rest) - var(--hpad)));
   }
 
+  /* A touch screen has no hover to raise a card to full size, so a hand card drawn larger than its strip would hang below
+     the screen edge for good, and the legal ones would have to rest raised over the Spell/Trap row. There the hand is drawn
+     at the size the strip keeps for it: --hand-sink is 0, nothing sticks out of the strip. */
+  @media (hover: none) {
+    :global([data-hud="room"]) .playmat {
+      --lh: var(--lh-rest);
+    }
+  }
+
   /* The strips hold only the hands. Each tally stands outside the board's left edge, level with the rows of its own
      half: the rival's below the top strip, yours above the bottom strip. That needs a margin as wide as the tally, so it
      is only for screens that are wide enough and wide against their height (room.module.css gives the margin with the same
@@ -680,15 +689,18 @@
   }
 }
 
-/* Touch screens without hover (a wide tablet gets this room too): nothing lifts a card on hover, so the cards you can act
-   on rest lifted by the part that hangs below the screen edge, with their ATK / DEF plate in view. The lift is not scaled up. */
+/* Touch screens without hover (a wide tablet gets this room too): the hand is drawn at the size of its strip (see
+   --lh above), and a legal or selected card does not rest raised either, so no hand card rises over the Spell/Trap row.
+   The usable-card glow and the selected ring show the state. */
 @media (hover: none) {
-  :global([data-hud="room"]) .handLocal .handCard .zone[data-legal="true"] .frame {
-    transform: translateY(calc(var(--lh) * -0.05 - var(--hand-sink, 0px)));
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-legal="true"] .frame,
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .frame {
+    transform: none;
   }
 
-  :global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .frame {
-    transform: translateY(calc(var(--lh) * -0.12 - var(--hand-sink, 0px)));
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-legal="true"] .zoneHit::before,
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+    content: none;
   }
 }
 
