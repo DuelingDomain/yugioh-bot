@@ -18,6 +18,7 @@ import { promptLegalKeys, type PromptDraft } from "@/components/duel/prompts";
 import roomStyles from "@/components/duel/room.module.css";
 import { hasNoLegalMoves, resolveBattleStep, StationTrack } from "@/components/duel/station-track";
 import { parseAttackParam } from "@/components/duel/table/fixtures/preview-harness";
+import { sessionBoardRule } from "@/components/duel/genesys";
 import { SOLID_STATE_IDS, SOLID_STATE_LABEL, solidFixture, type SolidStateId } from "@/components/duel/solid/fixtures/states";
 import { useDuelAnimationSpeed } from "@/components/duel/animation-speed-control";
 
@@ -115,7 +116,7 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp
           <section className={roomStyles.boardColumn} aria-label="Duel field">
             <div className={roomStyles.board}>
               <DuelField
-                engine={engine} mySeat={mySeat} masterRule={room.session.masterRule} reducedMotion={reduced} priorityLive
+                engine={engine} mySeat={mySeat} masterRule={sessionBoardRule(room.session)} reducedMotion={reduced} priorityLive
                 legalKeys={legalKeys} selectedKeys={NO_KEYS} onActivate={noop} onInspect={noop}
                 bottomName={playerName(mySeat ?? 0)} topName={playerName(1 - (mySeat ?? 0))}
                 hub={
