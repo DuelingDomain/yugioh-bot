@@ -7,6 +7,8 @@ import { canBeDeckMaster } from "@/components/duel/deck-card-types";
 import { cn } from "@/lib/utils";
 import { DeckButton } from "./controls";
 import { cardArchetypes } from "./filter-model";
+import { GENESYS_FORBIDDEN_MESSAGE, genesysMark } from "./genesys";
+import { GenesysCardLine } from "./genesys-ui";
 import { limitName } from "./limit-badge";
 import { defaultAddSection, placementBlock, type DeckSection } from "./model";
 import styles from "./editor.module.css";
@@ -40,6 +42,7 @@ export function CardActions({
   onArchetype,
   artwork,
   hideSummary = false,
+  genesys = false,
 }: {
   card: DeckCardInfo;
   deck: DuelDeck;
@@ -62,6 +65,8 @@ export function CardActions({
   /** The art picker for this card; it renders nothing for a card with one art. */
   artwork?: ReactNode;
   hideSummary?: boolean;
+  /** Genesys on: the card shows its points, and Link and Pendulum Monsters cannot be added. */
+  genesys?: boolean;
 }) {
   const home = defaultAddSection(card);
   const sections: DeckSection[] = [home, "side"];
@@ -73,6 +78,7 @@ export function CardActions({
   const own = cardArchetypes(card.setcodes, archetypes);
   const isMaster = deck.deckMaster === card.code;
   const canMaster = mode === "domain" && canBeDeckMaster(card.type);
+  const genesysRefusal = genesys && genesysMark(card)?.kind === "forbidden" ? GENESYS_FORBIDDEN_MESSAGE : null;
 
   return (
     <div className={styles["de-acts-c"]}>
@@ -84,6 +90,7 @@ export function CardActions({
             {status}
           </span>
         ) : null}
+        {genesys ? <GenesysCardLine card={card} /> : null}
       </div>}
 
       <ul className={styles.steppers}>
@@ -91,7 +98,7 @@ export function CardActions({
           const count = deck[section].filter((code) => code === card.code).length;
           const label = SECTION_LABELS[section];
           // A section that does not take this card (it shows only when an old save left a copy there) says why Add is off.
-          const refusal = placementBlock(card, section);
+          const refusal = placementBlock(card, section) ?? genesysRefusal;
           return (
             <li key={section} className={styles["de-step"]}>
               <span>{label}</span>

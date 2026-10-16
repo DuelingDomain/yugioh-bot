@@ -67,6 +67,8 @@
 .de-t:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.32), 0 12px 20px -14px #000; }
 .de-t:active { cursor: grabbing; }
 .de-t[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--pen), 0 0 0 5px var(--pen-soft); }
+.de-t[data-gx="forbidden"] { box-shadow: 0 0 0 2px var(--loss); }
+.de-t[data-gx="forbidden"] img { opacity: 0.55; }
 .de-list :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .de-view { flex: none; }
 @container de-list (max-width: 350px) { .head { padding: 12px 12px 10px; } .results { padding-inline: 12px; } :global(.ms) .de-fbtn { padding-inline: 8px; } }
