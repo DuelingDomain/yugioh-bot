@@ -18,13 +18,19 @@ import styles from "./genesys.module.css";
 
 type MarkCard = Pick<DeckCardInfo, "type" | "genesysPoints">;
 
-/** The points on a card tile (top left): a number, a ban sign for Link and Pendulum, or "?" when the points are not known. */
-export function GenesysBadge({ card }: { card: MarkCard | null | undefined }) {
-  const mark = genesysMark(card);
+/**
+ * The points on a card tile (bottom left, clear of the name and the other marks): a bold number with "pts", a ban sign
+ * for Link and Pendulum, or "?" when the points are not known. `row` is the strip on a list thumbnail, `inline` a chip
+ * in a search result row, and `lift` raises the chip above a strip across the foot of the card. `zero` also shows a
+ * 0-point card (the Deck Master slot).
+ */
+export function GenesysBadge({ card, variant = "tile", lift, zero }: { card: MarkCard | null | undefined; variant?: "tile" | "row" | "inline"; lift?: boolean; zero?: boolean }) {
+  // `zero` is for the Deck Master slot: a 0-point Master still shows "0 pts", so it is clear it was counted.
+  const mark = genesysMark(card) ?? (zero && card ? ({ kind: "points", points: 0 } as const) : null);
   if (!mark) return null;
   return (
-    <span className={styles.badge} data-k={mark.kind} title={genesysMarkText(mark)}>
-      {mark.kind === "forbidden" ? <Ban aria-hidden /> : mark.kind === "unknown" ? "?" : mark.points}
+    <span className={styles.badge} data-k={mark.kind} data-v={variant === "tile" ? undefined : variant} data-lift={lift && variant === "tile" ? "" : undefined} title={genesysMarkText(mark)}>
+      {mark.kind === "forbidden" ? <Ban aria-hidden /> : <><b>{mark.kind === "unknown" ? "?" : mark.points}</b><small aria-hidden>pts</small></>}
     </span>
   );
 }
@@ -106,6 +112,7 @@ export function GenesysMeter({
         ) : (
           <span>{summary.cap}</span>
         )}
+        <small>pts</small>
       </span>
     </div>
   );
