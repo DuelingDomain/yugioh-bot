@@ -33,14 +33,17 @@ export function createActiveDuelService(db: Database.Database): ActiveDuelServic
         or (s.status = 'between_games' and d.status in ('completed', 'interrupted')))
       and not exists (
         select 1 from json_each(d.setup_json, '$.surrenderedSeats') gone where gone.value = me.seat
+          and not exists (
+            select 1 from duel_commands c where c.duel_id = d.id and c.seat = me.seat
+              and json_extract(c.command_json, '$.promptId') glob 'eliminate-eot:*'
+          )
       )
       and not exists (
         select 1 from json_each(d.setup_json, '$.eliminatedSeats') gone where gone.value = me.seat
       )
       and not exists (
         select 1 from duel_commands c where c.duel_id = d.id and c.seat = me.seat
-          and (json_extract(c.command_json, '$.promptId') glob 'eliminate:*'
-            or json_extract(c.command_json, '$.promptId') glob 'eliminate-eot:*')
+          and json_extract(c.command_json, '$.promptId') glob 'eliminate:*'
       )
     order by state desc, julianday(d.created_at) desc, d.id desc
     limit 1

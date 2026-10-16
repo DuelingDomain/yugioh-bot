@@ -33,7 +33,11 @@ No request body or query parameters. Success: HTTP 200, exactly one of:
 - `format`: `"1v1" | "tag" | "ffa3" | "ffa4"`.
 - Only a human seat belonging to the authenticated guild player qualifies.
   Spectators, replay forks, sandbox duels, and terminal duels do not qualify. A player who has
-  surrendered a multiplayer seat does not qualify for that table.
+  surrendered a multiplayer seat does not qualify for that table. Confirmed engine
+  eliminations (LP, deck-out, and losing Tag teammates) are saved in private
+  `setup_json.eliminatedSeats` and excluded too. Retired `eliminate-eot:` commands,
+  including their legacy `surrenderedSeats` flags, keep the seat guarded until the
+  engine confirms elimination, since it may still answer chain prompts.
 - A room before its opening/game starts is `lobby`. RPS/dice openings, active
   games, and unfinished matches between games or awaiting a later game's start
   are `playing`. The latest game slug remains the destination during sideboarding.
