@@ -510,6 +510,16 @@ export async function leaveDuel(slug: string): Promise<{ session: DuelSession }>
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/leave`, { method: "POST" }));
 }
 
+/**
+ * Leave a room that has not started. The host closes it for everyone; a guest gives up the seat.
+ * One route for both: the server decides by the caller's role and refuses once the game has started.
+ */
+export async function leaveLobbyRoom(slug: string): Promise<void> {
+  const res = await fetch(`/api/duels/${encodeURIComponent(slug)}/leave`, { method: "POST" });
+  if (res.ok && !res.redirected) return;
+  await parseBody(res);
+}
+
 export async function archiveDuel(slug: string): Promise<ReceivedDuelRoom> {
   return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(`/api/duels/${encodeURIComponent(slug)}/archive`, { method: "POST" })));
 }

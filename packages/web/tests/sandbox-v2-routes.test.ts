@@ -215,9 +215,11 @@ for (const route of routes) {
       else expect(payloads()[0]).toMatchObject({ op: route.name, slug, guildId: "guild", playerId: owner });
     });
     it("keeps ordinary duels available to members", async () => {
-      const normal = createDuelService(mocks.db!).create({ guildId: "guild", organizerPlayerId: owner, name: "Normal", mode: "normal", masterRule: 5 });
+      const duels = createDuelService(mocks.db!);
+      const normal = duels.create({ guildId: "guild", organizerPlayerId: owner, name: "Normal", mode: "normal", masterRule: 5 });
       mocks.access.mockResolvedValue({ ok: false, status: 403 });
-      expect((await invoke(normal.slug)).status).toBe(route.name === "leave" ? 409 : 200);
+      expect((await invoke(normal.slug)).status).toBe(200);
+      if (route.name === "leave") expect(duels.get(normal.slug, "guild").status).toBe("cancelled");
       expect(mocks.access).not.toHaveBeenCalled();
     });
   });

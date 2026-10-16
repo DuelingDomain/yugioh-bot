@@ -200,6 +200,8 @@ export interface DuelService {
   /** Claims an open human seat before any opening or series has started. Defaults to the first open seat. */
   takeSeat(slug: string, guildId: string, playerId: number, seat?: number): SandboxDuelSession;
   leave(slug: string, guildId: string, playerId: number): SandboxDuelSession;
+  /** Navigation departure before start: the host closes the lobby; a guest releases their seat. */
+  leaveLobby(slug: string, guildId: string, playerId: number): SandboxDuelSession;
   /**
    * `seat` picks the empty seat (for example a Tag partner). Without it the lowest empty seat is used.
    * Sandbox start must supply each seat explicitly, before saving setup or activating the duel.
@@ -1374,6 +1376,28 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     return mapSession(updated);
   });
 
+  const leaveLobbyTx = db.transaction((slug: string, guildId: string, playerId: number) => {
+    const row = loadDuelRow(slug, guildId);
+    assertPlay(row);
+    assertPlayerGuild(playerId, guildId);
+    assertRoomAccess(row, playerId);
+    if (row.status !== "lobby" || row.started_at !== null || (row.game_number ?? 1) > 1) {
+      throw new DuelServiceError("You can only leave a lobby before the game or match starts", 409);
+    }
+    assertNoOpening(row);
+    if (!seatRows(row.id).some(seat => seat.player_id === playerId)) {
+      throw new DuelServiceError("You are not seated in this duel", 403);
+    }
+    if (row.organizer_player_id === playerId) return cancelTx(slug, guildId, playerId);
+    if (isPendingChallenge(row) && series.byId(row.series_id!)?.status === "active") {
+      // No game or win exists yet. Keep the host's lobby/options, and let a future start
+      // create a fresh series for whichever guest takes the now-open seat.
+      db.prepare("update duels set series_id = null, game_number = null where id = ?").run(row.id);
+      series.cancel(row.series_id!, guildId);
+    }
+    return leaveTx(slug, guildId, playerId);
+  });
+
   const hostedLiveRows = (guildId: string, playerId: number) => db.prepare<[string, number], DuelRow>(`
     select * from duels where guild_id = ? and organizer_player_id = ?
       and kind = 'play' and sandbox = 0 and status in ('lobby', 'active')
@@ -1606,6 +1630,11 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
 
     leave(slug, guildId, playerId) {
       return leaveTx(slug, guildId, playerId);
+    },
+
+    leaveLobby(slug, guildId, playerId) {
+      // Acquire the writer lock before checking state: a concurrent start/claim must serialize here.
+      return leaveLobbyTx.immediate(slug, guildId, playerId);
     },
 
     addPracticeBot(slug, guildId, organizerPlayerId, deck, seat) {

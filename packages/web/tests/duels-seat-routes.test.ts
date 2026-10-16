@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { NextRequest, NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { createDuelService } from "@yugidraft/shared/services";
+import { createDuelService, createDuelSeriesService } from "@yugidraft/shared/services";
 
 const { requireDuelActor, callDuelHost, notifyDuelChange } = vi.hoisted(() => ({ requireDuelActor: vi.fn(), callDuelHost: vi.fn(), notifyDuelChange: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
@@ -155,7 +155,22 @@ describe("POST /api/duels/[slug]/seat", () => {
 });
 
 describe("POST /api/duels/[slug]/leave", () => {
-  it("releases a guest seat and deck and notifies viewers", async () => {
+  it("lets a casual challenge guest leave before game one while keeping the host lobby open", async () => {
+    const series = createDuelSeriesService(db);
+    const match = series.createChallenge({ guildId: "g", challengerPlayerId: host, opponentPlayerId: guest,
+      bestOf: 3, ranked: true, mode: "normal" });
+    slug = match.duel.slug;
+    const { POST } = await import("../app/api/duels/[slug]/leave/route");
+    const response = await POST(...post("leave"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ session: { status: "lobby", seriesId: null,
+      seats: [{ playerId: host }], bestOf: 3, ranked: true } });
+    expect(series.get(match.series.id, "g").status).toBe("cancelled");
+    expect(notifyDuelChange).toHaveBeenCalledWith(slug, "g");
+  });
+
+  it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("releases a guest's %s seat and deck and notifies viewers", async format => {
+    slug = duels.create({ guildId: "g", organizerPlayerId: host, name: "Leave", mode: "normal", format }).slug;
     duels.takeSeat(slug, "g", guest, 1);
     duels.setDeck(slug, "g", guest, deck);
     const { POST } = await import("../app/api/duels/[slug]/leave/route");
@@ -164,14 +179,70 @@ describe("POST /api/duels/[slug]/leave", () => {
     expect(notifyDuelChange).toHaveBeenCalledWith(slug, "g");
   });
 
-  it("refuses the host and a player in a starting duel", async () => {
-    const { POST } = await import("../app/api/duels/[slug]/leave/route");
+  it("closes a bot lobby even if notification fails after commit", async () => {
+    duels.addPracticeBot(slug, "g", host, deck);
     actor(host);
+    notifyDuelChange.mockRejectedValue(new Error("offline"));
+    const { POST } = await import("../app/api/duels/[slug]/leave/route");
+    expect((await POST(...post("leave"))).status).toBe(200);
+    expect(duels.get(slug, "g").status).toBe("cancelled");
+    expect(notifyDuelChange).toHaveBeenCalledWith(slug, "g");
+  });
+
+  it.each([401, 403, 503])("preserves actor errors (%i) without leaving or notifying", async status => {
+    requireDuelActor.mockResolvedValue({ ok: false, response: NextResponse.json({ error: "Denied" }, { status }) });
+    const { POST } = await import("../app/api/duels/[slug]/leave/route");
+    expect((await POST(...post("leave"))).status).toBe(status);
+    expect(duels.get(slug, "g").status).toBe("lobby");
+    expect(notifyDuelChange).not.toHaveBeenCalled();
+  });
+
+  it("refuses a spectator without mutating the room", async () => {
+    const { POST } = await import("../app/api/duels/[slug]/leave/route");
+    expect((await POST(...post("leave"))).status).toBe(403);
+    expect(duels.get(slug, "g").seats).toHaveLength(1);
+    expect(notifyDuelChange).not.toHaveBeenCalled();
+  });
+
+  it.each(["active", "completed", "interrupted", "cancelled"] as const)("refuses the host of a %s game", async status => {
+    duels.takeSeat(slug, "g", guest, 1);
+    if (status === "cancelled") duels.cancel(slug, "g", host);
+    else {
+      duels.setDeck(slug, "g", host, deck);
+      duels.setDeck(slug, "g", guest, deck);
+      duels.activate(slug, "g", host, ["s"], "v", null);
+      if (status === "completed") duels.complete(slug, "g", 0, "done");
+      else if (status === "interrupted") duels.interrupt(slug, "g", "stopped");
+    }
+    actor(host);
+    const { POST } = await import("../app/api/duels/[slug]/leave/route");
     expect((await POST(...post("leave"))).status).toBe(409);
+    expect(duels.get(slug, "g").status).toBe(status);
+    expect(notifyDuelChange).not.toHaveBeenCalled();
+  });
+
+  it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("closes the host's %s lobby and notifies other seated players", async format => {
+    slug = duels.create({ guildId: "g", organizerPlayerId: host, name: "Close", mode: "normal", format }).slug;
+    duels.takeSeat(slug, "g", guest, 1);
+    actor(host);
+    const { POST } = await import("../app/api/duels/[slug]/leave/route");
+    const response = await POST(...post("leave"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ session: { status: "cancelled" } });
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(duels.room(slug, "g", guest).session.status).toBe("cancelled");
+    expect(notifyDuelChange).toHaveBeenCalledWith(slug, "g");
+    expect(callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it("refuses the host and guest in a starting duel", async () => {
+    const { POST } = await import("../app/api/duels/[slug]/leave/route");
     duels.takeSeat(slug, "g", guest, 1);
     duels.setDeck(slug, "g", host, deck);
     duels.setDeck(slug, "g", guest, deck);
     duels.startOpening(slug, "g", host, Date.now());
+    actor(host);
+    expect((await POST(...post("leave"))).status).toBe(409);
     actor();
     expect((await POST(...post("leave"))).status).toBe(409);
     expect(notifyDuelChange).not.toHaveBeenCalled();

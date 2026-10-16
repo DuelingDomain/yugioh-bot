@@ -56,6 +56,8 @@ export { createTournamentRegistrationService, deckRegistrationMark } from "./tou
 export type { DeckRegistration, DeckRegistrationMark, DeckRegistrationTournament, TournamentRegistrationService } from "./tournament-registrations.js";
 export { createLiveNowService } from "./live-now.js";
 export type { LiveNow, LiveNowService, LiveDuelState, LiveOpponent } from "./live-now.js";
+export { createActiveDuelService } from "./active-duel.js";
+export type { ActiveDuel, ActiveDuelService } from "./active-duel.js";
 export type { TournamentDuelService, TournamentDuelRules, TournamentDeckRegistration } from "./tournament-duels.js";
 export { createBugReportService, BugReportServiceError, BUG_REPORT_LIMIT } from "./bug-reports.js";
 export type { BugReportService, BugReport, BugReportInput, BugReportLimit } from "./bug-reports.js";

@@ -18,13 +18,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       const sandboxActor = await requireSandboxActor();
       if (!sandboxActor.ok) return sandboxActor.response;
     }
-    const session = actor.duels.leave(slug, actor.guildId, actor.playerId);
+    const session = room.session.sandbox
+      ? actor.duels.leave(slug, actor.guildId, actor.playerId)
+      : actor.duels.leaveLobby(slug, actor.guildId, actor.playerId);
     try {
       await notifyDuelChange(session.slug, actor.guildId);
     } catch {
       // Leave already committed.
     }
-    return NextResponse.json({ session });
+    return NextResponse.json({ session }, { headers: { "cache-control": "private, no-store" } });
   } catch (error) {
     return duelErrorResponse(error);
   }
