@@ -58,6 +58,7 @@ import { RoomEdgeLayer } from "./room-edge-layer";
 import { RoomLobby } from "./room-lobby";
 import { ReportButton } from "./report-button";
 import { OpeningScreen } from "./opening";
+import { StartingDuel, startingVariant } from "./starting-duel";
 import { DeckMasterRail, DuelField } from "./field";
 import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
 import { FieldCracksScope } from "./field-cracks/context";
@@ -1126,7 +1127,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         onLeave={() => void run(() => leaveDuel(slug))}
       />
     );
-    if (!opening) return lobby;
+    const startingNow = startingVariant(data);
+    if (!opening) {
+      return startingNow ? <>{lobby}<StartingDuel room={data} variant={startingNow} reducedMotion={preferences.reducedMotion} /></> : lobby;
+    }
     const seatName = (seat: number) => data.session.seats.find((entry) => entry.seat === seat)?.displayName ?? `Player ${seat + 1}`;
     return (
       <>
@@ -1134,10 +1138,15 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         <OpeningScreen opening={opening} receivedAt={data.receivedAt} mySeat={data.mySeat} names={Array.from({ length: seatCountFor(data.session.format) }, (_, seat) => seatName(seat))} busy={busy} error={actionError} reducedMotion={preferences.reducedMotion}
           onPick={(move) => void run(() => pickOpeningMove(slug, move))}
           onChoose={(choice) => void run(() => chooseOpeningOrder(slug, choice))} />
+        {startingNow ? <StartingDuel room={data} variant={startingNow} reducedMotion={preferences.reducedMotion} /> : null}
       </>
     );
   }
 
+  // Active, but the first engine view is not here yet: say so instead of drawing an empty field.
+  if (!forkMode && startingVariant(data) === "card") {
+    return <StartingDuel room={data} variant="card" reducedMotion={preferences.reducedMotion} />;
+  }
   const engine = data.engine;
   // The acting seat (`data.mySeat`) owns prompts and answers; the camera seat decides which side of the board is the bottom.
   const localSeat = cameraSeat ?? data.mySeat ?? 0;
