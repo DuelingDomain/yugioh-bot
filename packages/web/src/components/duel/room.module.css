@@ -806,6 +806,14 @@
     transform-origin: right top;
   }
 }
+/* A mid-height screen (about 900px): the clock pill stands beside the identity pill, over the top strip, and its bottom edge
+   (46px) cuts the rival's Deck label at the board's top-left (it starts at about 40px). A smaller pill ends above it. */
+@media (min-height: 821px) and (max-height: 1000px) {
+  .shell[data-hud="room"] .hudBar > [data-testid="hud-clocks"] {
+    transform: scale(0.82);
+    transform-origin: left top;
+  }
+}
 /* The chain tower keeps clear of the Deck Master tab on the left screen edge. */
 .shell[data-hud="room"] [data-testid="chain-tower"] { left: 40px; }
 .shell[data-hud="room"] .notices { top: 48px; }
