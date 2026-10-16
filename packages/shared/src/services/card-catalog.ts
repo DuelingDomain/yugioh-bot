@@ -452,7 +452,9 @@ export function createCardCatalogService(
       const validation = { ...options, minimumCards: genesys.cardCount(), previousList: genesys.list() };
       const cards = await fetchCardsWith({ format: "genesys", misc: "yes" }, undefined, validation);
       const snapshot = parseGenesysPointsSnapshot({ data: cards }, validation);
-      return publishGenesysPointsSnapshot(db, snapshot, { cacheCards: () => { upsertCards(cards); }, canonicalId });
+      return publishGenesysPointsSnapshot(db, snapshot, {
+        cacheCards: () => { upsertCards(cards); }, canonicalId, expectedRevision: options.expectedRevision,
+      });
     },
 
     /** One full API dump, one transaction per existing family; callback runs only after commit. */

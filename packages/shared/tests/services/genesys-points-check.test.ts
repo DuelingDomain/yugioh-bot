@@ -1,4 +1,8 @@
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { compareGenesysPoints } from "../../src/maintenance/check-genesys-points.js";
 
@@ -6,6 +10,27 @@ const official = JSON.parse(readFileSync(new URL("../fixtures/genesys-official-2
 const card = (name: string, points: number, id = 1) => ({ id, name, points, artworkIds: [id] });
 
 describe("official Genesys points comparison", () => {
+  it.each([14_614, 14_541])("checks a %s-row saved response before operator approval", count => {
+    const directory = mkdtempSync(join(tmpdir(), "genesys-check-"));
+    try {
+      const entries = Object.entries(official);
+      const path = join(directory, "snapshot.json");
+      writeFileSync(path, JSON.stringify({ data: Array.from({ length: count }, (_, index) => ({
+        id: index + 1, name: entries[index]?.[0] ?? `Zero card ${index}`,
+        misc_info: [entries[index] ? { genesys_points: entries[index][1] } : {}], card_images: [{ id: index + 1 }],
+      })) }));
+      const check = () => execFileSync(process.execPath, ["--import", "tsx",
+        fileURLToPath(new URL("../../src/maintenance/check-genesys-points.ts", import.meta.url)), "--api-snapshot", path],
+      { encoding: "utf8", stdio: "pipe" });
+      if (count === 14_614) {
+        expect(JSON.parse(check())).toMatchObject({
+          revision: "tcg-sha256-e2f9c29e9589771fd6f613c4b9d617ce86529f1d5aed548e97c7ed19d490977b",
+          checked: 750, missingCards: [], unexpectedCards: [], pointMismatches: [],
+        });
+      } else expect(check).toThrow(/incomplete card list/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it("uses the complete 750-card Konami baseline", () => {
     expect(Object.keys(official)).toHaveLength(750);
     const cards = Object.entries(official).map(([name, points], index) => card(name, points, index + 1));

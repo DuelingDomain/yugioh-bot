@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
-import { createGenesysPointsReader, parseGenesysPointsResponse, parseGenesysPointsSnapshot } from "../../src/services/genesys-points.js";
+import { createGenesysPointsReader, parseGenesysPointsResponse, parseGenesysPointsSnapshot, publishGenesysPointsSnapshot } from "../../src/services/genesys-points.js";
 import { checkGenesysDeck } from "../../src/duels/genesys.js";
 
 function sourceCard(id: number, points?: number) {
@@ -90,6 +90,69 @@ describe("Genesys points snapshots", () => {
     payload(completeSnapshot());
     await expect(catalog.syncGenesysPoints()).rejects.toThrow(/incomplete/);
     expect(first.effectiveDate).toBe("2026-10-05");
+  });
+
+  it("publishes an exactly verified new list with one fewer card, while unverified ticks keep the strict floor", async () => {
+    const { db, catalog, payload } = setup();
+    const first = await catalog.syncGenesysPoints();
+    const changed = completeSnapshot();
+    changed.data[0].misc_info = [{ genesys_points: 7 }];
+    const expectedRevision = parseGenesysPointsResponse(changed).revision;
+    changed.data.pop();
+    payload(changed);
+    await expect(catalog.syncGenesysPoints()).rejects.toThrow(/incomplete card list/);
+    expect(() => parseGenesysPointsSnapshot(changed, { minimumCards: 1 })).toThrow(/incomplete card list/);
+    expect(createGenesysPointsReader(db).list()).toEqual(first);
+    await expect(catalog.syncGenesysPoints({ effectiveDate: "2027-01-01", expectedRevision: first.revision })).rejects.toThrow();
+    const next = await catalog.syncGenesysPoints({ effectiveDate: "2027-01-01", expectedRevision });
+    expect(next).toMatchObject({ revision: expectedRevision, effectiveDate: "2027-01-01" });
+    const reader = createGenesysPointsReader(db);
+    expect(reader.cardCount()).toBe(14_614);
+    expect(reader.points([1, 14_615])).toEqual(new Map([[1, 7], [14_615, null]]));
+    await expect(catalog.syncGenesysPoints()).rejects.toThrow(/incomplete card list/);
+  });
+
+  it.each([73, 74])("limits verified shrinkage to 0.5 percent (%s missing cards)", missing => {
+    const changed = completeSnapshot();
+    const expectedRevision = parseGenesysPointsResponse(changed).revision;
+    changed.data.splice(-missing);
+    const parse = () => parseGenesysPointsSnapshot(changed, { expectedRevision });
+    if (missing === 73) expect(parse().cards).toHaveLength(14_615 - missing);
+    else expect(parse).toThrow(/incomplete card list/);
+  });
+
+  it("requires the exact revision again when publishing a smaller snapshot", async () => {
+    const { db, catalog } = setup();
+    const first = await catalog.syncGenesysPoints();
+    const changed = completeSnapshot();
+    changed.data.pop();
+    const snapshot = parseGenesysPointsSnapshot(changed, { expectedRevision: first.revision });
+    expect(() => publishGenesysPointsSnapshot(db, snapshot, { cacheCards: () => {}, canonicalId: code => code }))
+      .toThrow(/incomplete card list/);
+    expect(createGenesysPointsReader(db).list()).toEqual(first);
+  });
+
+  it("rechecks the shrink allowance against a concurrently published larger catalog", async () => {
+    const { db, catalog, payload } = setup();
+    await catalog.syncGenesysPoints();
+    const changed = completeSnapshot();
+    changed.data[0].misc_info = [{ genesys_points: 7 }];
+    const expectedRevision = parseGenesysPointsResponse(changed).revision;
+    changed.data.pop();
+    let release!: () => void;
+    const delayedCatalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch: async () => {
+      await new Promise<void>(resolve => { release = resolve; });
+      return { ok: true, status: 200, json: async () => changed };
+    } });
+    const pending = delayedCatalog.syncGenesysPoints({ effectiveDate: "2027-01-01", expectedRevision });
+    const grown = completeSnapshot();
+    grown.data.push(...Array.from({ length: 100 }, (_, index) => sourceCard(30_100 + index)));
+    payload(grown);
+    const latest = await catalog.syncGenesysPoints();
+    release();
+    await expect(pending).rejects.toThrow(/incomplete card list/);
+    expect(createGenesysPointsReader(db).list()).toEqual(latest);
+    expect(createGenesysPointsReader(db).cardCount()).toBe(14_715);
   });
 
   it("remembers an explicitly verified later list and refuses another mapping at the same date", async () => {

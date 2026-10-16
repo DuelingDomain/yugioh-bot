@@ -8,6 +8,10 @@ export const GENESYS_POINTS_SOURCE_URL = "https://db.ygoprodeck.com/api/v7/cardi
 export const GENESYS_LIST_EFFECTIVE_DATE = "2026-10-05";
 // SHA-256 of Konami's 750 [name, nonzero points] pairs, sorted by name.
 const VERIFIED_POINTS_HASH = "e2f9c29e9589771fd6f613c4b9d617ce86529f1d5aed548e97c7ed19d490977b";
+const BASELINE_CARD_COUNT = 14_615;
+const VERIFIED_CARD_COUNT_RATIO = 0.995;
+/** Read-only official-table checks must decode a bounded smaller dump before its revision is known. */
+export const GENESYS_VERIFIED_MINIMUM_CARDS = Math.ceil(BASELINE_CARD_COUNT * VERIFIED_CARD_COUNT_RATIO);
 const OFFICIAL_NAMES: Record<string, string> = {
   "Stellarnova Bonds": "Stellarnova Binding",
   "Exstellarknight Constellar Ptolemy Ω7": "Exstellarknight Constellar Ptolemy O7",
@@ -45,11 +49,9 @@ function invalid(reason: string): never {
 }
 
 /** Only an unpaginated TCG dump with misc data can establish known zeroes. */
-export function parseGenesysPointsResponse(payload: unknown, minimumCards = 14_615): GenesysPointsResponse {
+export function parseGenesysPointsResponse(payload: unknown, minimumCards = BASELINE_CARD_COUNT): GenesysPointsResponse {
   const value = payload as { data?: unknown; meta?: { next_page?: unknown; total_rows?: number; pages_remaining?: number } } | null;
-  // The verified dump has 14,615 identities. A shrinking response needs manual
-  // investigation, even when a previous larger dump contained only zero additions.
-  if (!Array.isArray(value?.data) || value.data.length < Math.max(14_615, minimumCards)) invalid("incomplete card list");
+  if (!Array.isArray(value?.data) || value.data.length < minimumCards) invalid("incomplete card list");
   if (value.meta?.next_page || (value.meta?.pages_remaining ?? 0) > 0
     || (value.meta?.total_rows ?? 0) > value.data.length) invalid("paginated response");
   const ids = new Set<number>();
@@ -80,7 +82,11 @@ export function parseGenesysPointsResponse(payload: unknown, minimumCards = 14_6
 
 /** Authorize the mapping separately from decoding, so read-only checks can report differences. */
 export function parseGenesysPointsSnapshot(payload: unknown, options: GenesysSnapshotOptions = {}): GenesysPointsSnapshot {
-  const snapshot = parseGenesysPointsResponse(payload, options.minimumCards);
+  const minimumCards = Math.max(BASELINE_CARD_COUNT, options.minimumCards ?? 0);
+  // An exact operator approval can account for small catalog merges/deletions.
+  // Decode within the allowance first, then require that the computed mapping matches.
+  const snapshot = parseGenesysPointsResponse(payload, options.expectedRevision
+    ? Math.ceil(minimumCards * VERIFIED_CARD_COUNT_RATIO) : minimumCards);
   if (options.expectedRevision && options.expectedRevision !== snapshot.revision) {
     invalid("unverified points mapping does not match GENESYS_LIST_REVISION");
   }
@@ -107,6 +113,7 @@ export function parseGenesysPointsSnapshot(payload: unknown, options: GenesysSna
 export function publishGenesysPointsSnapshot(db: Database.Database, snapshot: GenesysPointsSnapshot, options: {
   cacheCards: () => void;
   canonicalId: (code: number) => number;
+  expectedRevision?: string;
 }): GenesysPointsList {
   return db.transaction(() => {
     // Another process may have published while this request was in flight.
@@ -116,7 +123,8 @@ export function publishGenesysPointsSnapshot(db: Database.Database, snapshot: Ge
       || (snapshot.revision !== previous.revision && snapshot.effectiveDate <= previous.effectiveDate))) {
       invalid("unverified points mapping would replace a newer list");
     }
-    if (snapshot.cards.length < active.cardCount()) invalid("incomplete card list");
+    const minimumCards = Math.ceil(active.cardCount() * (options.expectedRevision === snapshot.revision ? VERIFIED_CARD_COUNT_RATIO : 1));
+    if (snapshot.cards.length < minimumCards) invalid("incomplete card list");
     options.cacheCards();
     const points = new Map<number, number>();
     for (const card of snapshot.cards) {

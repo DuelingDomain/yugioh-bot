@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { GENESYS_POINTS_SOURCE_URL, parseGenesysPointsResponse, type GenesysPointsCard } from "../services/genesys-points.js";
+import { GENESYS_POINTS_SOURCE_URL, GENESYS_VERIFIED_MINIMUM_CARDS, parseGenesysPointsResponse, type GenesysPointsCard } from "../services/genesys-points.js";
 
 // Explicitly verified against Konami's English table on 2026-10-15. Keep these
 // visible in the report; fuzzy name matching could conceal a different identity.
@@ -47,7 +47,9 @@ async function main() {
     if (!response.ok) throw new Error(`Genesys request failed (${response.status})`);
     payload = await response.json();
   }
-  const snapshot = parseGenesysPointsResponse(payload);
+  // This command verifies against the supplied official table and never publishes.
+  // Allow the same bounded catalog cleanup that an exactly approved sync can accept.
+  const snapshot = parseGenesysPointsResponse(payload, GENESYS_VERIFIED_MINIMUM_CARDS);
   const result = compareGenesysPoints(snapshot.cards, official);
   console.log(JSON.stringify({ sourceUrl: GENESYS_POINTS_SOURCE_URL, revision: snapshot.revision, ...result }, null, 2));
   if (result.pointMismatches.length || result.missingCards.length || result.unexpectedCards.length) process.exitCode = 1;
