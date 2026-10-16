@@ -27,6 +27,8 @@ export const ENGINE_HOST_RULE_FILES = [
  * Live play recovery deliberately does not gate on this version.
  */
 // Version 5 adds fixed FFA facing pairs and the configurable Domain FFA first-turn draw rule.
+// Genesys adds opt-in creation rules through saved settings; absent/null settings preserve every historical
+// flag and view. Keep the existing identity so older active replay forks can still recover.
 export const ENGINE_HOST_RULE_VERSION = "duel-rules-5";
 
 export class EngineResourceUnavailableError extends Error {

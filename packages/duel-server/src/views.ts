@@ -1619,6 +1619,8 @@ export function projectView(args: {
   result: DuelEngineView["result"];
   reveals: RevealMap;
   mode: DuelMode;
+  /** Original field: no Extra Monster or Pendulum Zones. Absent means off. */
+  genesys?: boolean;
   domainState?: DomainSeatState[];
   /** Hand animation identities (the engine query still decides what the hand holds and in which order). */
   handIdentities?: HandIdentities;
@@ -1708,7 +1710,7 @@ export function projectView(args: {
     if (multi) {
       const sharedExtra = format === "tag" ? args.coreCapabilities?.tagSharedExtraZones
         : format === "ffa3" ? args.coreCapabilities?.ffa3SharedExtraZones : args.coreCapabilities?.ffa4SharedExtraZones;
-      view.sharedExtraWith = sharedExtra ? sharedExtraSeatOf(format, seat, args.eliminated) : null;
+      view.sharedExtraWith = !args.genesys && sharedExtra ? sharedExtraSeatOf(format, seat, args.eliminated) : null;
       view.team = teamOfSeat(format, seat);
       view.eliminated = false;
       if (args.leaving?.has(seat)) view.pendingElimination = true;
@@ -1745,6 +1747,7 @@ export function projectView(args: {
   }));
 
   const view: DuelEngineView = {
+    ...(args.genesys ? { field: { genesys: true } } : {}),
     revision: args.revision,
     turn: args.turn,
     turnSeat: args.turnSeat,

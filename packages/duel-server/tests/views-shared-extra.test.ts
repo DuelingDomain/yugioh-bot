@@ -3,7 +3,7 @@ import { DUEL_FORMATS, seatCountFor, type DuelFormat, type DuelMode } from "@yug
 import { OcgLocation, OcgPosition } from "ocgcore-wasm";
 import { createRevealMap, projectView } from "../src/views.js";
 
-function project(format: DuelFormat, mode: DuelMode, viewer: number | null, eliminated = new Set<number>(), leaving = new Set<number>(), ffa4SharedExtraZones = true, tagSharedExtraZones = true, ffa3SharedExtraZones = true) {
+function project(format: DuelFormat, mode: DuelMode, viewer: number | null, eliminated = new Set<number>(), leaving = new Set<number>(), ffa4SharedExtraZones = true, tagSharedExtraZones = true, ffa3SharedExtraZones = true, genesys = false) {
   const count = seatCountFor(format);
   return projectView({
     lib: {
@@ -19,12 +19,20 @@ function project(format: DuelFormat, mode: DuelMode, viewer: number | null, elim
     cards: { get: (code: number) => ({ code, name: `Card ${code}` }), resolveLabel: () => "" } as never,
     viewer, revision: 1, turn: 1, turnSeat: 0, phase: "main1",
     lp: Array.from({ length: count }, () => 8000), prompt: null, promptSeat: null,
-    log: [], events: [], result: null, reveals: createRevealMap(count), mode, format, eliminated, leaving,
+    log: [], events: [], result: null, reveals: createRevealMap(count), mode, format, eliminated, leaving, genesys,
     coreCapabilities: { ffa3SharedExtraZones, ffa4SharedExtraZones, tagSharedExtraZones },
   });
 }
 
 describe.each<DuelMode>(["normal", "domain"])("%s shared EMZ seat view", (mode) => {
+  it.each(DUEL_FORMATS)("Genesys %s exposes its field and suppresses shared EMZ for every viewer", (format) => {
+    for (const viewer of [null, ...Array.from({ length: seatCountFor(format) }, (_, seat) => seat)]) {
+      const view = project(format, mode, viewer, new Set(), new Set(), true, true, true, true);
+      expect(view.field).toEqual({ genesys: true });
+      expect(view.seats.map(seat => seat.sharedExtraWith)).toEqual(view.seats.map(() => format === "1v1" ? undefined : null));
+    }
+  });
+
   it("gates FFA3 pairing on its own capability and never re-pairs survivors", () => {
     expect(project("ffa3", mode, null, new Set(), new Set(), true, true, false).seats.map(s => s.sharedExtraWith)).toEqual([null, null, null]);
     expect(project("ffa3", mode, null, new Set([1])).seats.map(s => s.sharedExtraWith)).toEqual([null, null, null]);

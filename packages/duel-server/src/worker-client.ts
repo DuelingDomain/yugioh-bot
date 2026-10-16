@@ -23,6 +23,7 @@ export interface GameOptions {
   seed: string[];
   dataDirectory: string;
   masterRule?: DuelMasterRule;
+  /** Saved creation rules, including settings.genesys for field geometry; omission keeps the historical layout. */
   settings?: DuelSettings;
   /** Seat and team layout; `decks` holds one deck per seat. Default `1v1`. */
   format?: DuelFormat;
