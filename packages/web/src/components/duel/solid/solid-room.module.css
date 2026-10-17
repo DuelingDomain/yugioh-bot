@@ -72,42 +72,47 @@
   --duel-t-name: 19px;
   --duel-t-num: 22px;
 
-  /* layout (desktop, spec 2.5); --strip is 0 because there is no dev strip */
-  --hdr: 48px;
+  /* layout (desktop, spec 2.5); --strip is 0 because there is no dev strip.
+     The Card/Log panel and the Deck Master docks are edge drawers now (EdgeDrawer, closed by default), so the stage takes the
+     whole width and only the window height bounds the table. The vertical overhead is what the header, the opponent's backs,
+     the near hand and the phase bar need and nothing more. --rr is how many cell sizes the plane takes on the screen:
+     the 15deg tilt foreshortens it to about 5.0 (the plane also sits --lift-k cells higher, see .plane, because the far
+     edge recedes and would leave a blank band), flat is 5 rows + 4 gaps + the padding = 5.36. */
+  --hdr: 44px;
   --pad: 12px;
-  /* The card panel: wide enough to read a long effect (268px at a small window, up to 420px). The board is bound by the window height, so the wider column costs it nothing
-     (the width bound of --s stays above the height bound from 1280px on). */
-  --insp-w: clamp(268px, 25vw, 420px);
-  --dock-w: 0px;
-  --opp-h: 78px;
+  --vpad: 6px;
+  --opp-h: 72px;
   --hand-h: clamp(100px, 13vh, 150px);
-  --you-h: calc(var(--hand-h) + 14px);
-  --phase-h: 46px;
-  --stage-w: calc(100vw - var(--insp-w) - var(--dock-w) - 4 * var(--pad));
+  --you-ov: 0px;
+  --you-h: calc(var(--hand-h) + 14px - var(--you-ov));
+  --phase-h: 40px;
+  --rr: 5.04;
+  --lift-k: 0.35;
+  --stage-w: calc(100vw - 2 * var(--pad));
   --s: min(
-    calc((100dvh - var(--hdr) - var(--opp-h) - var(--you-h) - var(--phase-h) - var(--pad) - 52px) / 5),
-    calc((100vw - var(--insp-w) - var(--dock-w) - 4 * var(--pad) - 70px) / 7.1)
+    calc((100dvh - var(--hdr) - var(--opp-h) - var(--you-h) - var(--phase-h) - var(--vpad)) / var(--rr)),
+    calc((100vw - 2 * var(--pad) - 70px) / 7.1)
   );
-  --g: calc(var(--s) * 0.07);
+  --g: calc(var(--s) * 0.05);
   --pile: calc(var(--s) * 0.74);
-  --pp: calc(var(--s) * 0.12);
+  --pp: calc(var(--s) * 0.08);
   --cw: calc(var(--s) * 0.6);
   --ch: calc(var(--s) * 0.875);
   --tilt: 15deg;
-  --persp: 1400px;
+  /* 1400px at the sizes the table was tuned for; a bigger table keeps the same look (the lift and --rr hold only if the perspective grows with it). */
+  --persp: max(1400px, calc(var(--s) * 9.2));
 
   position: relative;
   display: grid;
-  grid-template-columns: var(--insp-w) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: var(--hdr) minmax(0, 1fr) auto;
   grid-template-areas:
-    "hdr hdr"
-    "insp stage"
-    "prompt stage";
-  column-gap: var(--pad);
+    "hdr"
+    "stage"
+    "prompt";
   height: 100dvh;
   min-width: 0;
-  padding: 0 var(--pad) var(--pad);
+  padding: 0 var(--pad) var(--vpad);
   /* clip, unlike hidden, cannot be scrolled by focus or scrollIntoView, so the room never shifts.
      No transform, filter, perspective or will-change here or on .stage and .board: BattleFx and
      MasterReturnFx are position: fixed and need the viewport as their containing block (spec 2.2). */
@@ -125,19 +130,19 @@
     radial-gradient(60% 50% at 0% 100%, #0a0d18 0%, transparent 70%),
     var(--ink-0);
 }
-.root[data-domain="true"] {
-  --dock-w: 252px;
-  grid-template-columns: var(--insp-w) minmax(0, 1fr) var(--dock-w);
-  grid-template-areas:
-    "hdr hdr hdr"
-    "insp stage docks"
-    "prompt stage docks";
-}
-.root[data-view="flat"] { --tilt: 0deg; }
+.root[data-view="flat"] { --tilt: 0deg; --rr: 5.36; --lift-k: 0; }
 
-@media (min-width: 1800px) {
-  .root { --opp-h: 88px; }
-  .root[data-domain="true"] { --dock-w: 280px; }
+/* Desktop: a bigger hand and a shorter opponent strip. The near hand reaches --you-ov into the empty padding under the
+   bottom row (the cells are taller than their cards, so no card or zone centre is covered), and the opponent's backs
+   reach into the same padding above the far row. Both only buy height for the table. Phones keep the sizes below. */
+@media (min-width: 901px) {
+  .root {
+    --opp-h: 56px;
+    --hand-h: clamp(100px, 15.5vh, 190px);
+    --you-ov: 16px;
+  }
+  /* The flat view has no recession, so the near row sits lower: reach less far. */
+  .root[data-view="flat"] { --you-ov: 6px; }
 }
 
 .root ::selection { background: rgb(143 118 242 / 0.45); color: #fff; }
@@ -165,25 +170,38 @@
 .banner {
   position: absolute;
   top: calc(var(--hdr) + 6px);
-  left: calc(var(--insp-w) + var(--pad));
-  right: calc(var(--dock-w) + var(--pad));
+  left: var(--pad);
+  right: var(--pad);
   z-index: var(--duel-z-prompt);
   display: flex;
   justify-content: center;
   pointer-events: none;
 }
 .banner > * { pointer-events: auto; }
+/* The drawers sit in this layer, under the header and over the stage. It is not transformed (BattleFx and MasterReturnFx
+   need the viewport as their containing block) and it lets every click through; only an open panel or a tab takes them. */
+.drawers {
+  position: absolute;
+  inset: var(--hdr) 0 0;
+  z-index: var(--duel-z-prompt, 5);
+  pointer-events: none;
+  --pen: var(--pur);
+  --pen-ink: var(--pur-hi);
+  --gold-ink: var(--gold-hi);
+}
+.drawerPanel {
+  background: linear-gradient(180deg, #0b0f1c, #080b15);
+  color: var(--tx);
+  box-shadow: 0 18px 40px -10px rgb(0 0 0 / 0.9);
+}
+.drawerLeft { --bf-drawer-size: clamp(300px, 26vw, 420px); }
 .insp {
-  grid-area: insp;
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--gold-b);
-  border-radius: 12px;
-  background: linear-gradient(180deg, #0b0f1c, #080b15);
-  box-shadow: 0 18px 40px -18px rgb(0 0 0 / 0.9);
 }
 
 .stage {
@@ -234,20 +252,19 @@
 }
 .peek { display: none; }
 
-/* A prompt for you sits in the left column under the inspector, so the board never resizes (V1 .promptDock sets grid-area: prompt). */
-.docks {
-  grid-area: docks;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  /* The two docks carry their own panel (docks.module.css); the column adds no second frame. */
-  padding: 0;
-  overflow: visible;
-  border: 0;
-  background: none;
+/* A prompt for you floats at the bottom right, over the free third of the near rail, so the board never resizes
+   (V1 .promptDock sets grid-area: prompt, which this room has no column for). */
+.root > div[data-mode="float"], .root > div[data-mode="flow"] {
+  grid-area: auto;
+  position: absolute;
+  z-index: var(--duel-z-prompt, 5);
+  right: var(--pad);
+  bottom: calc(var(--phase-h) + var(--vpad) + 4px);
+  width: min(300px, 26vw);
+  margin: 0;
+  max-height: min(40dvh, 420px);
 }
-.docks > * { flex: 1 1 auto; min-height: 0; }
+.root > div[data-mode="flow"] { max-height: 52dvh; }
 
 .mobileBar { display: none; }
 
@@ -258,9 +275,10 @@
     --hdr: 46px;
     --pad: 8px;
     --hand-h: 100px;
-    --dock-w: 0px;
+    --phase-h: 46px;
     /* The Deck/GY/Banish/Extra/Field columns are 46px wide (44px tap target after the tilt); the five zone columns share the rest. */
     --pile: 46px;
+    --lift-k: 0;
     --s: min(calc((100vw - 2 * var(--pad) - 12px - 2 * var(--pile)) / 5.24), 66px);
     --g: calc(var(--s) * 0.04);
     --pp: 4px;
@@ -277,16 +295,8 @@
     padding: 0 var(--pad) max(var(--pad), env(safe-area-inset-bottom));
     font-size: 13px;
   }
-  .root[data-domain="true"] {
-    --dock-w: 0px;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "hdr"
-      "stage"
-      "prompt";
-  }
   .root[data-view="flat"] { --tilt: 0deg; }
-  .insp, .docks { display: none; }
+  .drawers { display: none; }
   .stage {
     grid-template-rows: minmax(0, 1fr) auto auto;
     row-gap: 6px;
@@ -296,13 +306,10 @@
   .mobileBar { display: none; }
   /* The prompt overlays the bottom of the board, above the phase bar, so the table never resizes. */
   .root > div[data-mode="float"], .root > div[data-mode="flow"] {
-    grid-area: auto;
-    position: absolute;
-    z-index: var(--duel-z-prompt, 5);
     left: var(--pad);
     right: var(--pad);
     bottom: 52px;
-    margin: 0;
+    width: auto;
     max-height: 40dvh;
     border-radius: 12px 12px 0 0;
   }

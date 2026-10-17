@@ -15,6 +15,13 @@ import type { Arrangement, CameraState, Compass, FlyPose, PoseSlot, SeatPose, Se
  */
 
 export const STAGE = { width: 1100, height: 860 } as const;
+/**
+ * The canvas is the stage plus the row under it that your hand hangs into, in stage px. A 3-way table needs 60 (its hand is
+ * 160 deep and hangs 15 over the field, so it ends at about stage y 917, above the hint pill that starts at 920 - 4 less its height); the 4-way grid and Tag keep 96. A shorter canvas scales the whole table up.
+ */
+export function canvasHeightOf(format: string | undefined): number {
+  return STAGE.height + (format === "ffa3" ? 60 : 96);
+}
 /** Centre of the plaza, in stage px. Turn ring, attack lines and tethers measure from here. */
 export const ARENA_CENTER = { x: 550, y: 410 } as const;
 /** Card unit (px) of a seat box at scale 1. A seat field is sized from this through `--sf-z`. */
@@ -256,7 +263,7 @@ export function seatPoses(
   const home = homeTable(layout.format);
   const table = slotTable(layout);
   const duo = arrangementOf(layout) === "duo" && camera.mode !== "fly" && viewport ? duoFinaleSlots(stageSpread(viewport)) : null;
-  const wide = duo ?? (viewport && arrangementOf(layout) !== "duo" ? wideHomeSlots(layout.format, stageSpread(viewport), plazaView(viewport)) : null);
+  const wide = duo ?? (viewport && arrangementOf(layout) !== "duo" ? wideHomeSlots(layout.format, stageSpread(viewport), plazaView(viewport, layout.format)) : null);
   const poses = new Map<number, SeatPose>();
   layout.slots.forEach((slot, place) => {
     const name = plan?.[place];
@@ -317,12 +324,12 @@ export const SEAT_BOX = { width: 653, height: 380 } as const;
 export const SEAT_BOX_FULL_DEF = 829;
 /**
  * Your hand at a wide 3-way table, in seat units at scale 1 (see `--hand-w` / `--lh` under `[data-def-full]` in
- * field.module.css): 6.8 zone sizes wide (112 px each), inside the 829 px field, and about 144 deep, hanging 15 px up over
+ * field.module.css): 6.8 zone sizes wide (112 px each), inside the 829 px field, and about 160 deep, hanging 15 px up over
  * the field's bottom pad. The classic hand is 605 by 116.
  */
-const OWN_HAND_WIDE = { width: 762, height: 144, rise: 15 } as const;
+const OWN_HAND_WIDE = { width: 762, height: 160, rise: 15 } as const;
 /** The least spread (stage px beyond each side) that has room for the wide 3-way fields; every floating-HUD screen has it. */
-const FULL_DEF_SPREAD = 200;
+export const FULL_DEF_SPREAD = 200;
 /** Most spread (stage px at each side) the plaza uses. A wider box keeps the extra room as empty floor. */
 export const MAX_SPREAD = 450;
 /** How far a rival's hand fan reaches beyond the outer edge of its board, at scale 1 (measured: about 76 px). */
@@ -396,22 +403,24 @@ export interface PlazaView {
 }
 
 /** The plaza view of a fitted table box (see `seatPoses`): its scale and the stage y its top edge shows. */
-export function plazaView(fit: { width: number; height: number }): PlazaView {
+export function plazaView(fit: { width: number; height: number }, format?: string): PlazaView {
   const k = stageFit(fit);
   if (!(k > 0)) return { k: 1, top: 0 };
-  // The canvas (stage plus the hand row, 956 tall) is centred in the box, whose full height is fit.height * 956 / 860.
-  return { k, top: -((fit.height * 956) / 860 - 956 * k) / (2 * k) };
+  // The canvas (stage plus the hand row, see `canvasHeightOf`) is centred in the box, whose full height is fit.height * canvas / STAGE.height.
+  const canvas = canvasHeightOf(format);
+  return { k, top: -((fit.height * canvas) / STAGE.height - canvas * k) / (2 * k) };
 }
 
 /**
- * The floating HUD's left column over a 3-way plaza (the HUD runs to the edge there, see `[data-plaza-hud]` in
- * table-shell.module.css), in screen px from the top left of the table box, air included: the dock, then the chain tower
- * under it (up to six links). The rival fields keep clear of it. The Deck Master plate in the bottom left corner and the
- * turn controls in the bottom right corner sit level with your own field, which never reaches them.
+ * What the rival fields of a 3-way plaza keep clear of, in screen px from the top left of the table box, air included.
+ * The board runs under the header (no top margin, see `[data-plaza-hud]` in table-shell.module.css), so the corner of the
+ * header where the pills are is kept clear (the clock bank and the status pills, each about 540px wide; 40px plus the 12px air reaches the pills' lower edge).
+ * Only the left rival is checked, and its mirror covers the right one. The side content is in edge
+ * drawers (plaza-drawers.tsx) that cover nothing while they are closed, so no column is kept for a dock, a chain tower
+ * or a Deck Master plate. The turn controls in the bottom right corner sit level with your own field, which never reaches them.
  */
 export const PLAZA_HUD_KEEP: readonly { x: number; y: number; width: number; height: number }[] = [
-  { x: 0, y: 0, width: 60, height: 170 },
-  { x: 0, y: 170, width: 162, height: 356 },
+  { x: 0, y: 0, width: 540, height: 40 },
 ];
 
 /**
@@ -596,21 +605,21 @@ export function wideHoloAnchors(
   const ringAt = finale ? ringPose(layout, camera, spread) : ARENA_CENTER;
   const taken: Bounds[] = [{ l: ringAt.x - ringHalf, r: ringAt.x + ringHalf, t: ringAt.y - 62, b: ringAt.y + 76 }];
   // Your hand fans along the bottom edge under your board: up to ten cards, about 660 stage px.
-  taken.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: 960 });
+  taken.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: canvasHeightOf(layout.format) + 4 });
   // The hand as drawn (at a wide 3-way table it is 762 px wide and rises over the field's bottom pad) and your name label
   // stay clear too. Your seat's pose is upright, so its rectangles are exact.
   const homeSlot = plan[0] === "home" ? layout.slots[0] : undefined;
   const homePose = homeSlot ? poses.get(homeSlot.seat) : undefined;
   if (homePose && !homePose.hidden) {
-    for (const r of seatObstacles(homePose, true).slice(1)) taken.push({ l: r.x - r.width / 2, r: r.x + r.width / 2, t: r.y - r.height / 2, b: r.y + r.height / 2 });
+    for (const r of seatObstacles(homePose, true, layout.format === "ffa3").slice(1)) taken.push({ l: r.x - r.width / 2, r: r.x + r.width / 2, t: r.y - r.height / 2, b: r.y + r.height / 2 });
   }
   // The camera hint pill lives in the bottom left corner of the table area.
-  if (corner) taken.push({ l: left - 6, r: left + corner.hint.width, t: 952 - corner.hint.height, b: 952 });
+  if (corner) taken.push({ l: left - 6, r: left + corner.hint.width, t: (canvasHeightOf(layout.format) - 4) - corner.hint.height, b: (canvasHeightOf(layout.format) - 4) });
   // The floating HUD's turn controls in the bottom right corner (a 3-way plaza).
-  if (corner?.hud) taken.push({ l: right + 6 - corner.hud.width, r: right + 6, t: 952 - corner.hud.height, b: 952 });
+  if (corner?.hud) taken.push({ l: right + 6 - corner.hud.width, r: right + 6, t: (canvasHeightOf(layout.format) - 4) - corner.hud.height, b: (canvasHeightOf(layout.format) - 4) });
   const anchors = new Map<number, HoloAnchor>();
   const rectAt = (x: number, y: number, size: { width: number; height: number }): Bounds => ({ l: x, r: x + size.width, t: y, b: y + size.height });
-  const inside = (r: Bounds) => r.l >= left && r.r <= right && r.t >= 4 && r.b <= 952;
+  const inside = (r: Bounds) => r.l >= left && r.r <= right && r.t >= 4 && r.b <= (canvasHeightOf(layout.format) - 4);
   const clear = (r: Bounds, own: number) =>
     inside(r) &&
     !taken.some((t) => overlaps(t, r, 4)) &&
@@ -630,7 +639,7 @@ export function wideHoloAnchors(
     if (!clear(rectAt(x2, y2, size), own)) {
       let best: { x: number; y: number; d: number } | null = null;
       for (let gx = left; gx <= right - size.width; gx += 8) {
-        for (let gy = 4; gy + size.height <= 952; gy += 8) {
+        for (let gy = 4; gy + size.height <= (canvasHeightOf(layout.format) - 4); gy += 8) {
           const d = (gx - x2) ** 2 + (gy - y2) ** 2;
           if ((!best || d < best.d) && clear(rectAt(gx, gy, size), own)) best = { x: gx, y: gy, d };
         }
@@ -646,7 +655,7 @@ export function wideHoloAnchors(
     if (tight && !clear(rectAt(x2, y2, size), own)) {
       let best: { x: number; y: number; d: number } | null = null;
       for (let gx = left; gx <= right - tight.width; gx += 4) {
-        for (let gy = 4; gy + tight.height <= 952; gy += 4) {
+        for (let gy = 4; gy + tight.height <= (canvasHeightOf(layout.format) - 4); gy += 4) {
           const d = (gx - x2) ** 2 + (gy - y2) ** 2;
           if ((!best || d < best.d) && clear(rectAt(gx, gy, tight), own)) best = { x: gx, y: gy, d };
         }
@@ -768,15 +777,15 @@ export function promptRoom(input: {
     blocked.push({ l: anchor.x, r: anchor.x + size.width, t: anchor.y - (anchor.me ? 0 : 14), b: anchor.y + Math.max(size.height, anchor.me ? 128 : 122) });
   }
   blocked.push({ l: ARENA_CENTER.x - 62, r: ARENA_CENTER.x + 62, t: ARENA_CENTER.y - 62, b: ARENA_CENTER.y + 76 });
-  blocked.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: 960 });
-  blocked.push({ l: left - 6, r: left + hint.width, t: 952 - hint.height, b: 952 });
+  blocked.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: canvasHeightOf(layout.format) + 4 });
+  blocked.push({ l: left - 6, r: left + hint.width, t: (canvasHeightOf(layout.format) - 4) - hint.height, b: (canvasHeightOf(layout.format) - 4) });
   const prefer = input.prefer ?? (mine ? { x: mine.l, y: mine.b } : { x: ARENA_CENTER.x, y: 760 });
   const search = (extra: readonly Bounds[]): PromptRoom | null => {
     for (const { width, height } of sizes) {
       let best: PromptRoom | null = null;
       let bestD = Infinity;
       for (let x = left; x + width <= right; x += 8) {
-        for (let y = 4; y + height <= 952; y += 8) {
+        for (let y = 4; y + height <= (canvasHeightOf(layout.format) - 4); y += 8) {
           const rect: Bounds = { l: x, r: x + width, t: y, b: y + height };
           const d = (x + width / 2 - prefer.x) ** 2 + (y + height / 2 - prefer.y) ** 2;
           if (d >= bestD || blocked.some((b) => overlaps(b, rect, 4)) || extra.some((b) => overlaps(b, rect, 4))) continue;
@@ -853,7 +862,7 @@ export function chainStripInset(input: {
   meFooter: boolean;
 }): number {
   if (!input.chainSize || !(input.box.width > 0) || !(input.box.height > 0)) return 0;
-  const fit = { ...input.box, height: input.box.height * STAGE.height / 956 };
+  const fit = { ...input.box, height: input.box.height * STAGE.height / canvasHeightOf(input.layout.format) };
   const k = stageFit(fit);
   const spread = stageSpread(fit);
   const poses = seatPoses(input.layout, input.camera, fit);
@@ -1100,7 +1109,7 @@ export function hubObstacles(
   layout.slots.forEach((slot, place) => {
     const pose = poses.get(slot.seat);
     if (!pose || pose.hidden) return;
-    for (const rect of seatObstacles(pose, place === 0)) out.push(grow(rect, HUB_AIR.seat));
+    for (const rect of seatObstacles(pose, place === 0, layout.format === "ffa3")) out.push(grow(rect, HUB_AIR.seat));
   });
   for (const anchor of plates.values()) {
     // The plate is drawn as yours when its anchor says so (`me`; in the look view your own plate is a rival-sized one).
@@ -1116,9 +1125,9 @@ export function hubObstacles(
   out.push({ x: ARENA_SIGN.x + ARENA_SIGN.width / 2, y: ARENA_SIGN.y + ARENA_SIGN.height / 2, width: ARENA_SIGN.width, height: ARENA_SIGN.height, rotateDeg: 0 });
   // The turn ring, the same room the plates keep, and your hand's row under the stage and the camera hint.
   out.push({ x: ring.x, y: ring.y + 7, width: 124 * ring.scale + 16, height: 138 * ring.scale + 16, rotateDeg: 0 });
-  out.push({ x: ARENA_CENTER.x, y: (STAGE.height - 4 + 960) / 2, width: HAND_ROW_WIDTH, height: 960 - (STAGE.height - 4), rotateDeg: 0 });
+  out.push({ x: ARENA_CENTER.x, y: (STAGE.height - 4 + canvasHeightOf(layout.format) + 4) / 2, width: HAND_ROW_WIDTH, height: canvasHeightOf(layout.format) + 4 - (STAGE.height - 4), rotateDeg: 0 });
   const left = -spread + 6;
-  out.push({ x: left - 6 + (hint.width + 6) / 2, y: 952 - hint.height / 2, width: hint.width + 6, height: hint.height, rotateDeg: 0 });
+  out.push({ x: left - 6 + (hint.width + 6) / 2, y: canvasHeightOf(layout.format) - 4 - hint.height / 2, width: hint.width + 6, height: hint.height, rotateDeg: 0 });
   return out;
 }
 
@@ -1143,14 +1152,14 @@ function wideHubPose(
   const obstacles = hubObstacles(layout, poses, plates, meFooter, hint, spread, ring);
   if (hud) {
     const right = STAGE.width + spread;
-    obstacles.push({ x: right - hud.width / 2, y: 952 - hud.height / 2, width: hud.width, height: hud.height, rotateDeg: 0 });
+    obstacles.push({ x: right - hud.width / 2, y: (canvasHeightOf(layout.format) - 4) - hud.height / 2, width: hud.width, height: hud.height, rotateDeg: 0 });
   }
   const size: HubSize = "sm";
   const { width, height } = HUB_STRIP[size];
   const l0 = -spread + 6 + width / 2;
   const r0 = STAGE.width + spread - 6 - width / 2;
   const t0 = 4 + height / 2;
-  const b0 = 952 - height / 2;
+  const b0 = (canvasHeightOf(layout.format) - 4) - height / 2;
   const step = 6;
   // 4-way: the clear place nearest the ring. 3-way: the rivals close in on the ring from both sides, so the strip stays by your
   // own field instead (its right side, level with the top quarter), the same place the classic table gives it.
@@ -1217,11 +1226,11 @@ export interface StageRect {
 
 /**
  * Everything one seat draws, as rectangles on the stage: the 653 x 380 field, the hand hanging off its back edge
- * (your face-up hand is 605 wide and 116 deep, with room to grow, or 762 by 144 at a wide 3-way table, `OWN_HAND_WIDE`; a
- * rival's backs about 420 by 100 with their hover lift)
+ * (your face-up hand is 605 wide and 116 deep, with room to grow, or 762 by 160 at a wide 3-way table, `OWN_HAND_WIDE`;
+ * `deepHand`: the classic 3-way field keeps the 605 width but is 160 deep as well; a rival's backs about 420 by 100 with their hover lift)
  * and the name label under the field's left side. The phase hub keeps clear of all three, so it never lands on cards.
  */
-export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotateDeg" | "width">, own: boolean): StageRect[] {
+export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotateDeg" | "width">, own: boolean, deepHand = false): StageRect[] {
   const boxWidth = pose.width ?? SEAT_BOX.width;
   const r = (pose.rotateDeg * Math.PI) / 180;
   const cos = Math.cos(r);
@@ -1236,10 +1245,12 @@ export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotate
   });
   const wide = own && pose.width != null;
   const handW = wide ? OWN_HAND_WIDE.width : own ? 605 : 420;
-  const handH = wide ? OWN_HAND_WIDE.height : own ? 116 : 100;
+  // The 3-way table draws your hand as deep as the wide one even on the classic (narrow) field: `deepHand` (field.module.css).
+  const deep = own && (wide || deepHand);
+  const handH = deep ? OWN_HAND_WIDE.height : own ? 116 : 100;
   return [
     rect(0, 0, boxWidth, 380),
-    rect(0, 190 + handH / 2 - (wide ? OWN_HAND_WIDE.rise : 2), handW, handH),
+    rect(0, 190 + handH / 2 - (deep ? OWN_HAND_WIDE.rise : 2), handW, handH),
     // Your name label stands left of the field at a wide 3-way table (field.module.css), else under its left side.
     wide ? rect(-boxWidth / 2 - 75, 190 + 14, 150, 28) : rect(-boxWidth / 2 + 0.17 * boxWidth, 190 + 14, 150, 28),
   ];

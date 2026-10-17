@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, type ReactNode, type RefObject, type TransitionEvent } from "react";
-import type { DuelCard, DuelEngineView, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
+import { ScrollText } from "lucide-react";
+import type { DuelEngineView, DuelSeatView } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
 import type { BattleAim } from "../battle-fx";
 import type { BoardTilt, BoardView } from "../board-view";
-import { LOCATION_DMZONE, zoneKey } from "../constants";
-import { masterCard } from "../field";
-import { withExact } from "../field-keys";
+import { EdgeDrawer, useExclusiveDrawers } from "../edge-drawer";
 import { duelFontClasses } from "../fonts";
 import type { DuelFieldProps } from "../field-model";
 import type { InspectTarget } from "../inspector";
@@ -16,7 +15,6 @@ import { useQuietViewChange } from "../quiet-view-change";
 import { DuelSkinProvider } from "../skin";
 import { useIsNarrow, type SidePane } from "../side-panel";
 import type { BattleStep } from "../station-track";
-import { DmChipActionsContext, type DmChipActions } from "./dm-chip";
 import { SolidDmSummonFx } from "./dm-summon-fx";
 import { withMasterSummonMoves } from "../master-summon-moves";
 import { solidFontClasses } from "./fonts";
@@ -59,12 +57,11 @@ export type SolidRoomProps = {
   headerTools: ReactNode;
   seriesBanner: ReactNode;
   noticesNode: ReactNode;
+  /** The Card / Log / Settings tabs and panes. They live in the left edge drawer. */
   inspectorNode: ReactNode;
+  /** Log rows that arrived while the Log pane was out of sight: the left drawer's tab counts them. */
+  logUnread?: number;
   promptDockNode: ReactNode;
-  masterRail: ReactNode;
-  /** The Deck Master actions the rail offers (`DeckMasterRail`); the chip on the phone rails offers the same ones. */
-  legalActionsFor: (card: DuelCard | null, keys: string[]) => DuelPromptOption[];
-  onChooseAction: (option: DuelPromptOption) => void;
   /** The room's attack aim. The arrow is drawn on the plane; the room passes `aim={null}` to `BattleFx`. */
   battleAim?: BattleAim | null;
   trackNode: ReactNode;
@@ -88,14 +85,15 @@ export type SolidRoomProps = {
 };
 
 /**
- * The room in 3D mode (Solid Vision): a header, the inspector, the tilted table, the phase bar and (domain duels) the
- * Deck Master docks. Every piece is built by `DuelRoomView`; this file only lays them out and owns the quiet-gated
- * change of the table view. It is loaded lazily, so the classic board never pays for it.
+ * The room in 3D mode (Solid Vision): a header, the tilted table and the phase bar. The inspector (Card, Log, Settings)
+ * and the Deck Master docks are edge drawers, closed by default, so nothing covers the field in normal play and the
+ * table takes the whole window. Every piece is built by `DuelRoomView`; this file only lays them out and owns the
+ * quiet-gated change of the table view. It is loaded lazily, so the classic board never pays for it.
  */
 export function SolidRoom(props: SolidRoomProps) {
   const { slug, boardRef, dealWait, domain, battle, spectator, myTurn, reducedMotion, view, engine, previousSeats, format, turnText, headerPhase,
-    battleStep, wordmark, spectatorTag, seriesLabel, connectionStatus, headerTools, seriesBanner, noticesNode, inspectorNode,
-    promptDockNode, masterRail, legalActionsFor, onChooseAction, battleAim, trackNode, mobileTabs, overlaysNode, fieldProps, renderBoard, renderClock, inspect, setPane, setMobileInspect,
+    battleStep, wordmark, spectatorTag, seriesLabel, connectionStatus, headerTools, seriesBanner, noticesNode, inspectorNode, logUnread = 0,
+    promptDockNode, battleAim, trackNode, mobileTabs, overlaysNode, fieldProps, renderBoard, renderClock, inspect, setPane, setMobileInspect,
     boardQuiet, onBeforeViewChange } = props;
   const narrow = useIsNarrow();
   // The tilted plane, found when asked (it mounts once the engine view is up). The FX canvas follows its tilt.
@@ -108,13 +106,6 @@ export function SolidRoom(props: SolidRoomProps) {
     // The plane appeared after the first sync: read the tilt again.
     if (planeUp) window.dispatchEvent(new Event("resize"));
   }, [planeUp]);
-  const chipActions = useMemo<DmChipActions>(() => ({
-    actionsFor: (seatView: DuelSeatView) => {
-      const card = masterCard(seatView);
-      return legalActionsFor(card, withExact(card, [zoneKey(seatView.seat, LOCATION_DMZONE, 0)]));
-    },
-    onChoose: onChooseAction,
-  }), [legalActionsFor, onChooseAction]);
   const changeView = useQuietViewChange(boardQuiet, onBeforeViewChange);
   const onTilt = useCallback((tilt: BoardTilt) => {
     if (tilt === view.tilt) return;
@@ -130,21 +121,37 @@ export function SolidRoom(props: SolidRoomProps) {
     const target = event.target as HTMLElement;
     if (event.propertyName === "transform" && target.hasAttribute("data-sv-plane")) window.dispatchEvent(new Event("resize"));
   }, []);
+  const drawers = useExclusiveDrawers<"card">();
+  const cardDrawer = drawers.bind("card");
   const openPane = (pane: SidePane) => {
     setPane(pane);
-    setMobileInspect(true);
+    if (narrow) setMobileInspect(true);
+    else cardDrawer.onOpenChange(true);
   };
   const onGear = () => {
     setPane("settings");
-    // Narrow: the settings live in the sheet. Wide: the inspector shows them.
+    // Narrow: the settings live in the sheet. Wide: the left drawer shows them.
     if (narrow) setMobileInspect(true);
+    else cardDrawer.onOpenChange(true);
   };
+  // A click-inspect (a pile, a card) has to show its answer, so it opens the card drawer. Hovering still reads in the hover info.
+  const boardProps: DuelFieldProps | null = fieldProps && !narrow ? {
+    ...fieldProps,
+    onInspect: (target: InspectTarget) => {
+      fieldProps.onInspect(target);
+      cardDrawer.onOpenChange(true);
+    },
+  } : fieldProps;
+  // The Log pane counts unread rows only while it is out of sight, and a closed drawer is out of sight: leave it on Card.
+  const cardOpen = drawers.openId === "card";
+  useEffect(() => {
+    if (!narrow && !cardOpen && props.pane === "log") setPane("card");
+  }, [narrow, cardOpen, props.pane, setPane]);
   const turnSeat = engine?.turnSeat ?? null;
   const bottomSeat = props.mySeat ?? 0;
   const light = turnSeat == null || turnSeat === bottomSeat ? "you" : "opp";
 
   return (
-    <DmChipActionsContext.Provider value={chipActions}>
     <div
       className={cn(styles.root, duelFontClasses, solidFontClasses, "-mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8")}
       data-duel-fx-speed-root
@@ -175,15 +182,12 @@ export function SolidRoom(props: SolidRoomProps) {
         />
         {seriesBanner ? <div className={styles.banner}>{seriesBanner}</div> : null}
         {noticesNode}
-        <aside className={styles.insp} aria-label="Inspector">
-          {inspectorNode}
-        </aside>
         {promptDockNode}
         <main className={styles.stage} aria-label="Duel field">
           <div className={styles.board} ref={boardRef} data-deal-wait={dealWait ? "true" : undefined} data-prompt-scope>
-            {renderBoard(fieldProps ? (
+            {renderBoard(boardProps ? (
               <>
-                <SolidField key={slug} {...fieldProps} renderClock={renderClock} onOpenMasters={() => openPane("masters")} battleAim={battleAim ?? null} />
+                <SolidField key={slug} {...boardProps} renderClock={renderClock} battleAim={battleAim ?? null} />
                 {engine ? <SolidDmSummonFx events={withMasterSummonMoves(engine.events, previousSeats, engine.seats)} seats={engine.seats} duelKey={slug} reducedMotion={reducedMotion} planeRef={planeRef} /> : null}
               </>
             ) : null)}
@@ -193,11 +197,30 @@ export function SolidRoom(props: SolidRoomProps) {
             <PeekBar target={inspect} onCard={() => openPane("card")} onLog={() => openPane("log")} />
           </div>
         </main>
-        {masterRail ? <aside className={styles.docks} aria-label="Deck Masters">{masterRail}</aside> : null}
+        <div className={styles.drawers}>
+          <EdgeDrawer
+            side="left"
+            label="Card · Log"
+            icon={<ScrollText aria-hidden="true" />}
+            tone="violet"
+            attention={logUnread > 0}
+            count={logUnread > 0 ? logUnread : undefined}
+            shortcut="l"
+            className={styles.drawerLeft}
+            panelClassName={styles.drawerPanel}
+            open={cardDrawer.open}
+            onOpenChange={(open) => {
+              // New rows are waiting: open on the Log pane they are in.
+              if (open && logUnread > 0) setPane("log");
+              cardDrawer.onOpenChange(open);
+            }}
+          >
+            <div className={styles.insp}>{inspectorNode}</div>
+          </EdgeDrawer>
+        </div>
         {mobileTabs ? <div className={styles.mobileBar}>{mobileTabs}</div> : null}
         {overlaysNode}
       </DuelSkinProvider>
     </div>
-    </DmChipActionsContext.Provider>
   );
 }

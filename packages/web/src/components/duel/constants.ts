@@ -257,6 +257,26 @@ export function cardKindText(card: CardLike): string {
   return [race, tags.join(" ")].filter(Boolean).join(" / ");
 }
 
+/**
+ * The two lines under the art of the card inspector and the card peek. `facts` is one compact line: "Level 4 · EARTH · Beast-Warrior / Normal"
+ * (Rank or Level, Attribute, Type), and for a Spell or Trap just its kind ("Spell / Quick-Play"). `combat` is "ATK 1700 / DEF 1000", or
+ * "ATK 2300 / LINK-3" for a Link monster, and null for a Spell, a Trap and a card with no stats.
+ */
+export function cardInspectLines(card: CardLike): { facts: string; combat: string | null } {
+  if (isHiddenCard(card)) return { facts: "", combat: null };
+  const type = card.type ?? 0;
+  if (!(type & TYPE_MONSTER)) return { facts: cardKindText(card), combat: null };
+  const link = (type & TYPE_LINK) !== 0;
+  const rating = "linkRating" in card && typeof card.linkRating === "number" ? card.linkRating : undefined;
+  // A Link monster shows its rating after ATK, so the facts line leaves it out.
+  const rank = link ? "" : monsterRankLine(card, type);
+  const facts = [rank, attributeLabel(cardAttribute(card)), cardKindText(card)].filter(Boolean).join(" · ");
+  const atk = `ATK ${formatStat(card.attack)}`;
+  if (!link) return { facts, combat: `${atk} / DEF ${formatStat(card.defense)}` };
+  const size = rating || card.level;
+  return { facts, combat: size && size > 0 ? `${atk} / LINK-${size}` : atk };
+}
+
 export function cardCombatText(card: CardLike): string | null {
   if (isHiddenCard(card)) return null;
   const type = card.type;

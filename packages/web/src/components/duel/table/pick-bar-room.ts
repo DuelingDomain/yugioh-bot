@@ -23,6 +23,10 @@ export interface PickBarInput {
   hud?: readonly Rect[];
   /** Every card on the board, targets or not: the bar keeps off them while a clear place exists. */
   cards?: readonly Rect[];
+  /** The middle (px, in the box) of the field the bar belongs to: when set, the bar is always centred on it and only moves up or down. */
+  centerX?: number;
+  /** The rows (px, in the box) of that field: the bar stays in them while a place clear of the targets and the hand exists there. */
+  band?: { top: number; bottom: number };
 }
 
 /** The size of the bar for a width: a row, or stacked below PICK_BAR.row. */
@@ -53,6 +57,18 @@ const text = (r: Rect) => [r.x, r.y, r.width, r.height].map(Math.round).join(","
 export function planPickBarRoom(input: PickBarInput): string | undefined {
   const { box } = input;
   if (!(box.width > 0) || !(box.height > 0)) return undefined;
+  if (input.band) {
+    // Centred on a field: the bar may cover the HUD and the cards that are not targets; the rows of the field first, then the rest of the box.
+    const inBand = searchPickBar(input, input.band, true);
+    if (inBand.clear) return inBand.room;
+    return searchPickBar(input, undefined, true).room;
+  }
+  return searchPickBar(input, undefined, false).room;
+}
+
+/** One search of planPickBarRoom, over the whole box or only the rows of `band`; `clear` is false when the room covers a target or the hand. */
+function searchPickBar(input: PickBarInput, band: { top: number; bottom: number } | undefined, loose: boolean): { room: string | undefined; clear: boolean } {
+  const { box } = input;
   const edge = PICK_BAR.edge;
   const full = Math.min(PICK_BAR.max, box.width - 2 * edge);
   const widths = [full, ...NARROW.filter((w) => w < full)].filter((w) => w >= 200 || w === full);
@@ -62,14 +78,24 @@ export function planPickBarRoom(input: PickBarInput): string | undefined {
   const must = [...targets, ...hand];
   const hud = (input.hud ?? []).filter(inBox);
   const cards = (input.cards ?? []).map((r) => grow(r, CARD_AIR)).filter(inBox);
-  const cx = box.width / 2;
-  const cy = box.height / 2;
+  const cx = input.centerX ?? box.width / 2;
+  const cy = input.band ? (input.band.top + input.band.bottom) / 2 : box.height / 2;
+  /** The rows tried for a bar of this height: all of them, or only those of the band of the field. */
+  const rows = (height: number, step: number) => {
+    const low = Math.max(edge, band ? band.top : edge);
+    const high = Math.min(box.height - height - edge, band ? band.bottom - height : Infinity);
+    return along(low, Math.max(low, high), height, cy, step);
+  };
+  /** The columns tried for a bar of this width: all of them, or only the one centred on the field (`centerX`). */
+  const columns = (width: number, step: number) =>
+    input.centerX == null ? along(edge, Math.max(edge, box.width - width - edge), width, cx, step) : [Math.max(edge, Math.min(Math.round(cx - width / 2), box.width - width - edge))];
   // A sum table of the grid cells that lie wholly inside a target or the hand: a room that touches one covers it, found in O(1). The
   // search starts at the middle and, in a box full of targets, would otherwise test every place against every block.
   const covered = coverTable(box, must, STEP);
   /** The strictest tier a room passes: 0 all of them, 1 not the cards, 2 not the HUD, -1 none (it covers a target or the hand). */
   const tierOf = (room: Rect) => {
     for (const block of must) if (hits(room, block)) return -1;
+    if (loose) return 0;
     for (const block of hud) if (hits(room, block)) return 2;
     for (const block of cards) if (hits(room, block)) return 1;
     return 0;
@@ -79,8 +105,8 @@ export function planPickBarRoom(input: PickBarInput): string | undefined {
   widths.forEach((width, step) => {
     const cost = step * WIDTH_COST;
     const height = Math.min(heightOf(width), box.height - 2 * edge);
-    const xs = along(edge, Math.max(edge, box.width - width - edge), width, cx, STEP);
-    const ys = along(edge, Math.max(edge, box.height - height - edge), height, cy, STEP);
+    const xs = columns(width, STEP);
+    const ys = rows(height, STEP);
     for (const y of ys) {
       const dy = y + height / 2 - cy;
       if (Math.abs(dy) + cost >= bestScore[0]) break;
@@ -102,7 +128,7 @@ export function planPickBarRoom(input: PickBarInput): string | undefined {
       }
     }
   });
-  for (const found of best) if (found) return text(found);
+  for (const found of best) if (found) return { room: text(found), clear: true };
   // Nothing is clear: the place that covers the least. A target or the hand weighs most, then the HUD, then a card.
   const sum = (room: Rect, list: readonly Rect[]) => {
     let total = 0;
@@ -115,8 +141,8 @@ export function planPickBarRoom(input: PickBarInput): string | undefined {
   let worstScore = Infinity;
   let worstAway = Infinity;
   // Much coarser than the search: every place is scored here, with no early exit.
-  const xs = along(edge, Math.max(edge, box.width - width - edge), width, cx, 4 * STEP);
-  const ys = along(edge, Math.max(edge, box.height - height - edge), height, cy, 4 * STEP);
+  const xs = columns(width, 4 * STEP);
+  const ys = rows(height, 4 * STEP);
   for (const y of ys) {
     for (const x of xs) {
       const room = { x, y, width, height };
@@ -129,5 +155,5 @@ export function planPickBarRoom(input: PickBarInput): string | undefined {
       }
     }
   }
-  return worst ? text(worst) : undefined;
+  return { room: worst ? text(worst) : undefined, clear: false };
 }

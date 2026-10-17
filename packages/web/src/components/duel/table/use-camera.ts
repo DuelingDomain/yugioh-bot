@@ -124,7 +124,7 @@ export function useCamera({ controller, layout, initial, initialLock = null, sea
       if (target?.closest?.("[data-table-chrome]")) return;
       if (/^[1-9]$/.test(event.key) && keyRef.current.seatKeys) return;
       // Esc belongs to what is open first (a card menu, a flyout, a pile, the chain details): only a bare table goes back.
-      if (event.key === "Escape" && (event.defaultPrevented || escapeOwned.current || document.querySelector("[role='dialog']:not([hidden]), [role='menu']:not([hidden])"))) return;
+      if (event.key === "Escape" && (event.defaultPrevented || escapeOwned.current || document.querySelector("[role='dialog']:not([hidden]):not([inert]), [role='menu']:not([hidden])"))) return;
       const action = cameraActionForKey(event, env.current.layout, keyRef.current.state, env.current.ctx);
       if (!action) return;
       if (event.key === " ") event.preventDefault();
