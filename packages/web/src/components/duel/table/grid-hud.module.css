@@ -700,26 +700,28 @@
 .preview[data-anchor="bottom"] { top: auto; bottom: var(--pv-bottom, 8px); }
 .preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
-/* The card, then the name and its facts. The art is a readable card (up to 200px wide) that grows with the room of the band: from 104px in a
-   short band to the full size in a tall one. A cut text shrinks it to 104px first (data-art="small"). */
-.previewHead { display: flex; flex: none; align-items: flex-start; gap: 16px; min-width: 0; }
+/* The art on top, then the name, the facts line and ATK / DEF. The art is the whole panel width, as tall as the band allows: it grows with the room of the
+   band (--pv-max-h, set by grid-preview.tsx; 280px is what the name, the lines and a few lines of text need) from 150px in a short band to the full
+   width in a tall one. A cut text shrinks it to about 60% first (data-art="small"). */
+.previewHead { display: flex; flex: none; flex-direction: column; align-items: stretch; gap: 10px; min-width: 0; }
 .previewArt {
   display: block;
   flex: none;
-  width: clamp(104px, calc((var(--pv-max-h, 640px) - 340px) * 0.7), min(200px, 46%));
-  aspect-ratio: 59 / 86;
+  width: min(100%, max(150px, calc((var(--pv-max-h, 760px) - 280px) * 421 / 614)));
+  aspect-ratio: 421 / 614;
   height: auto;
+  margin: 0 auto;
   border-radius: 4px;
   object-fit: contain;
   background: transparent;
 }
 /* A text that still scrolls shrinks the art to this size first (the art goes only when it is squeezed to a sliver: data-squeezed). */
-.preview[data-art="small"] .previewArt { width: 104px; }
+.preview[data-art="small"] .previewArt { width: min(100%, max(130px, calc((var(--pv-max-h, 760px) - 280px) * 0.6 * 421 / 614))); }
 .preview[data-squeezed="true"] .previewArt { display: none; }
-.previewId { flex: 1 1 0; min-width: 0; }
-.preview h3 { margin: 0; padding-right: 26px; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
-.previewType { margin: 4px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); line-height: 1.35; }
-.previewStats { margin: 8px 0 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 500; letter-spacing: 0.02em; }
+.previewId { flex: none; min-width: 0; }
+.preview h3 { margin: 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.previewType { margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); line-height: 1.35; }
+.previewStats { margin: 5px 0 0; font-size: calc(var(--pv-ct) * 1.25); font-weight: 500; letter-spacing: 0.02em; }
 /* No line clamp: the whole effect shows while it fits. */
 .previewText {
   flex: 0 1 auto;
@@ -739,7 +741,7 @@
 /* Only a text that does not fit scrolls, and only then it takes the pointer (a wheel scroll over it). */
 .previewText[data-overflow="true"] { padding-right: 6px; pointer-events: auto; }
 /* Inline flow, so a narrow panel wraps the line as one sentence instead of splitting it into columns. */
-.previewOwner { margin: 10px 0 0; line-height: 1.35; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.95); }
+.previewOwner { margin: 6px 0 0; line-height: 1.35; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.95); }
 .previewOwner i { display: inline-block; width: 0.6em; height: 0.6em; margin-right: 6px; vertical-align: 0.05em; border-radius: 50%; background: var(--seat-main, var(--duel-ink-3)); }
 .previewOwner b { color: var(--seat-ink, var(--duel-ink)); font-weight: 600; }
 
@@ -748,6 +750,8 @@
  * (a click on it never reaches the board under it: a target of a prompt may be covered), and adds the extra lines and the X button.
  */
 .preview[data-pinned="true"] { pointer-events: auto; }
+/* The X button gets a strip of its own above the art, so it never covers the corner of the card. */
+.preview[data-pinned="true"] { padding-top: 42px; }
 .previewExtras {
   flex: none;
   margin: 8px 0 0;

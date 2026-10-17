@@ -143,7 +143,7 @@ describe("the hover card preview", () => {
     fireEvent.mouseEnter(card);
     expect(preview().getAttribute("data-open")).toBe("true");
     expect(within(preview()).getByText("Celtic Guardian")).toBeTruthy();
-    expect(within(preview()).getByText("1400 / 1200")).toBeTruthy();
+    expect(within(preview()).getByText("ATK 1400 / DEF 1200")).toBeTruthy();
     expect(within(preview()).getByText("Aster")).toBeTruthy();
     // No Inspect drawer opens on a hover.
     expect(isOpen()).toBe(false);
@@ -252,12 +252,12 @@ describe("the pinned card peek of the 4-way grid", () => {
     const first = stateOf("main");
     const view = render(<Shell state={first} />);
     fireEvent.click(myCard(view.container));
-    expect(screen.getByTestId("hover-preview")).toHaveTextContent("1400 / 1200");
+    expect(screen.getByTestId("hover-preview")).toHaveTextContent("ATK 1400 / DEF 1200");
     const changed = structuredClone(first);
     const seat = changed.room.engine!.seats.find((entry) => entry.seat === 0)!;
     seat.hand.find((card) => card?.name === "Celtic Guardian")!.attack = 2400;
     view.rerender(<Shell state={changed} />);
-    expect(screen.getByTestId("hover-preview")).toHaveTextContent("2400 / 1200");
+    expect(screen.getByTestId("hover-preview")).toHaveTextContent("ATK 2400 / DEF 1200");
     expect(screen.getByTestId("hover-preview").getAttribute("data-pinned")).toBe("true");
     const gone = structuredClone(first);
     const goneSeat = gone.room.engine!.seats.find((entry) => entry.seat === 0)!;

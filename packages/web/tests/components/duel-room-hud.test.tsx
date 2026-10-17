@@ -517,10 +517,10 @@ describe("the pinned card peek of the 1v1 room", () => {
     vi.useFakeTimers();
     const view = mount();
     pin();
-    expect(peek()).toHaveTextContent("1700 / 1000");
+    expect(peek()).toHaveTextContent("ATK 1700 / DEF 1000");
     swr.data = makeRoom({ atk: 2400, revision: 3 });
     view.rerender(<DuelRoomView slug="abc" windowed />);
-    expect(peek()).toHaveTextContent("2400 / 1000");
+    expect(peek()).toHaveTextContent("ATK 2400 / DEF 1000");
     expect(peek().getAttribute("data-pinned")).toBe("true");
     swr.data = makeRoom({ empty: true, revision: 4 });
     view.rerender(<DuelRoomView slug="abc" windowed />);
@@ -864,11 +864,11 @@ describe("the pinned card peek of the 1v1 room", () => {
 
 
 
-    it("sizes the card art with the band: from 104 px in a short one to 200 px in a tall one, and the panel is 320-420 px wide, over the Deck Master plate", () => {
+    it("sizes the card art with the band (about the panel width in a tall one), and the panel is 320-420 px wide, over the Deck Master plate", () => {
       const css = readFileSync(join(__dirname, "../../src/components/duel/table/grid-hud.module.css"), "utf8");
       const art = css.match(/^\.previewArt\s*\{[^}]*\}/m);
       // --pv-max-h is the band height that grid-preview.tsx sets.
-      expect(art?.[0]).toMatch(/width:\s*clamp\(104px,\s*calc\(\(var\(--pv-max-h,\s*640px\)\s*-\s*340px\)\s*\*\s*0\.7\),\s*min\(200px,\s*46%\)\)/);
+      expect(art?.[0]).toMatch(/width:\s*min\(100%,\s*max\(150px,\s*calc\(\(var\(--pv-max-h,\s*760px\)\s*-\s*280px\)\s*\*\s*421\s*\/\s*614\)\)\)/);
       const panel = css.match(/^\.preview\s*\{[^}]*\}/m);
       expect(panel?.[0]).toMatch(/--pv-col-w:\s*clamp\(320px,\s*22vw,\s*420px\)/);
       // Above the Deck Master plate (.masterWrap, z-index 31).

@@ -102,7 +102,7 @@ it("fills missing field-preview text through the same lookup while retaining liv
   await screen.findByRole("heading", { name: card.name });
   expect([...container.querySelectorAll("p")].some(p => p.textContent === card.description)).toBe(true);
   expect(screen.getByText(/5100/)).toBeInTheDocument();
-  expect(screen.getByText("Dragon / Fusion Effect")).toBeInTheDocument();
+  expect(screen.getByText(/Dragon \/ Fusion Effect/)).toBeInTheDocument();
 });
 
 it("does not fetch or reveal hidden cards", async () => {
