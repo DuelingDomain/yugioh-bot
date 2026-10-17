@@ -57,7 +57,7 @@ describe("the floating HUD of the 4-way grid", () => {
     // No full-width bottom bar: the turn controls sit in the corner cluster.
     expect(screen.queryByTestId("hud-bottom")).toBeNull();
     expect(screen.getByTestId("hud-corner")).toBeTruthy();
-    for (const name of ["Log", "Settings", "Inspect"]) expect(tab(name).getAttribute("aria-expanded")).toBe("false");
+    for (const name of ["Log", "Settings"]) expect(tab(name).getAttribute("aria-expanded")).toBe("false");
     // The dock and its flyout are gone, and so is the History pane that only repeated the Log.
     expect(screen.queryByTestId("hud-dock-log")).toBeNull();
     expect(screen.queryByTestId("hud-flyout")).toBeNull();
@@ -239,12 +239,11 @@ describe("the pinned card peek of the 4-way grid", () => {
     expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("false");
   });
 
-  it("a click on a card inside an open pile opens the Card flyout and pins nothing", () => {
-    const { container } = render(<Shell state={richState()} />);
+  it("a click on a card inside an open pile opens no Inspect drawer", () => {
+    render(<Shell state={richState()} />);
     fireEvent.click(screen.getByRole("button", { name: /Graveyard \(2\)/ }));
     fireEvent.click(within(screen.getByRole("dialog")).getAllByRole("button", { name: /Grave \d/ })[0]);
-    expect(openName()).toBe("Inspect");
-    expect(container.querySelectorAll("[data-testid='hover-preview'][data-pinned='true']")).toHaveLength(0);
+    expect(document.querySelector('[data-edge-drawer="Inspect"]')).toBeNull();
   });
 
   it("takes the fresh copy of the pinned card at a new revision, and lets the pin go when the card is gone", () => {

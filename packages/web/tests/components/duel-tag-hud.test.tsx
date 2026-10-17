@@ -76,7 +76,7 @@ describe("the floating HUD of the Tag Rooftop", () => {
     expect(screen.getByTestId("hud-top").hasAttribute("data-tag-header")).toBe(true);
     expect(screen.getByTestId("hud-bottom")).toBeTruthy();
     expect(container.querySelector("[aria-label='Camera'][class*='right']")).toBeNull();
-    for (const id of ["log", "card", "settings", "camera"]) expect(tabOf(id)).toBeTruthy();
+    for (const id of ["log", "settings", "camera"]) expect(tabOf(id)).toBeTruthy();
     expect(screen.queryByTestId("hud-drawer-chain")).toBeNull();
     expect(screen.queryByTestId("hud-dock")).toBeNull();
     // Closed by default: nothing but the thin tabs stands beside the field.

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { LEFT_TAB_ORDER, leftTabOffset } from "@/components/duel/tag/tag-drawers";
 
 describe("the left edge tabs of the Tag Rooftop", () => {
-  it("lists log, card, settings and camera, top to bottom", () => {
-    expect(LEFT_TAB_ORDER).toEqual(["log", "card", "settings", "camera"]);
+  it("lists log, settings and camera, top to bottom", () => {
+    expect(LEFT_TAB_ORDER).toEqual(["log", "settings", "camera"]);
   });
 
   it("centres the first tab below the top bar, with the guess heights", () => {

@@ -10,7 +10,7 @@ const fitRule = frameCss.slice(frameCss.indexOf(".fit {"));
 describe("edge drawer css", () => {
   it("has a reduced-motion block that removes the slide transform transition and the glow beat", () => {
     const block = drawerCss.slice(drawerCss.indexOf("@media (prefers-reduced-motion: reduce)"));
-    expect(block).toContain(".slide { transition: none; }");
+    expect(block).toContain(".slide, .tabSlot { transition: none; }");
     expect(block).toContain("animation: none");
   });
   it("never loops the attention glow", () => {

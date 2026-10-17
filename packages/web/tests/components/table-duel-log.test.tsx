@@ -54,17 +54,17 @@ function openLog(kind: Kind) {
   return kind === "tag" ? openDrawer() : drawer("Log");
 }
 
-const MODES: Array<{ name: string; ui: () => React.ReactElement; rivals: string[]; hidden: string; camera: boolean; kind: Kind; cardDrawer: string }> = [
-  { name: "3-way free-for-all", ui: () => <TableMain set={FFA3_FIXTURES} />, rivals: ["Ryo Sato", "Mika Hana"], hidden: TABLE_CARDS.mirrorForce.name, camera: true, kind: "grid", cardDrawer: "Card" },
-  { name: "4-way free-for-all", ui: () => <TableMain set={FFA4_FIXTURES} />, rivals: ["Rook", "Juniper", "Mirelle"], hidden: TABLE_CARDS.mirrorForce.name, camera: false, kind: "grid", cardDrawer: "Inspect" },
-  { name: "2v2 Tag", ui: () => <TagMain />, rivals: ["Mirelle Quay", "Juniper Rook"], hidden: TABLE_CARDS.torrential.name, camera: true, kind: "tag", cardDrawer: "Card" },
+const MODES: Array<{ name: string; ui: () => React.ReactElement; rivals: string[]; hidden: string; camera: boolean; kind: Kind }> = [
+  { name: "3-way free-for-all", ui: () => <TableMain set={FFA3_FIXTURES} />, rivals: ["Ryo Sato", "Mika Hana"], hidden: TABLE_CARDS.mirrorForce.name, camera: true, kind: "grid" },
+  { name: "4-way free-for-all", ui: () => <TableMain set={FFA4_FIXTURES} />, rivals: ["Rook", "Juniper", "Mirelle"], hidden: TABLE_CARDS.mirrorForce.name, camera: false, kind: "grid" },
+  { name: "2v2 Tag", ui: () => <TagMain />, rivals: ["Mirelle Quay", "Juniper Rook"], hidden: TABLE_CARDS.torrential.name, camera: true, kind: "tag" },
 ];
 
-describe.each(MODES)("the duel log on the $name table", ({ ui, rivals, hidden, camera, kind, cardDrawer }) => {
+describe.each(MODES)("the duel log on the $name table", ({ ui, rivals, hidden, camera, kind }) => {
   it("has a Log control next to Settings (and Camera), that opens the history", () => {
     render(ui());
     if (kind === "grid") {
-      for (const name of ["Log", "Settings", camera ? "Camera" : "Inspect"]) expect(tabOf(name), name).toBeTruthy();
+      for (const name of ["Log", "Settings", ...(camera ? ["Camera"] : [])]) expect(tabOf(name), name).toBeTruthy();
     } else {
       for (const id of ["log", "settings", ...(camera ? ["camera"] : [])]) expect(screen.getByTestId(`hud-drawer-${id}`), id).toBeTruthy();
     }
@@ -102,26 +102,16 @@ describe.each(MODES)("the duel log on the $name table", ({ ui, rivals, hidden, c
     expect(container.textContent).not.toContain(hidden);
   });
 
-  it("opens a card clicked in the log in the Card view, and the log keeps its rows", () => {
-    render(ui());
+  it("pins a card clicked in the log in the card pop-out, with no card drawer, and the log keeps its rows", () => {
+    const { container } = render(ui());
     const panel = openLog(kind);
     const thumb = within(panel).getAllByRole("button").find((node) => /^Inspect (?!card$)/.test(node.getAttribute("aria-label") ?? ""))!;
     expect(thumb).toBeTruthy();
     const name = (thumb.getAttribute("aria-label") ?? "").replace(/^Inspect /, "");
     fireEvent.click(thumb);
-    if (kind === "grid") {
-      // The card opens in its own drawer, which takes the place of the Log drawer.
-      expect(drawer(cardDrawer).getAttribute("data-state")).toBe("open");
-      expect(drawer(cardDrawer).textContent).toContain(name);
-      fireEvent.click(tabOf("Log"));
-      expect(within(drawer("Log")).getByRole("region", { name: "Duel history events" })).toBeTruthy();
-      return;
-    }
-    // Tag: the Card drawer takes over from the Log drawer, and the Log drawer keeps its rows once reopened.
-    expect(openDrawer().getAttribute("data-edge-drawer")).toBe("Card");
-    expect(openDrawer().textContent).toContain(name);
-    fireEvent.click(tagTab("log"));
-    expect(within(openDrawer()).getByRole("region", { name: "Duel history events" })).toBeTruthy();
+    const pinned = container.querySelector("[data-testid='hover-preview'][data-pinned='true']");
+    expect(pinned?.textContent).toContain(name);
+    expect(document.querySelector('[data-edge-drawer="Card"], [data-edge-drawer="Inspect"]')).toBeNull();
   });
 });
 

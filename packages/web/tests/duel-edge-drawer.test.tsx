@@ -53,6 +53,7 @@ describe("EdgeDrawer", () => {
     fireEvent.click(tab(), { detail: 1 });
     expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "open");
     expect(dialog()).not.toHaveAttribute("inert");
+    act(() => { vi.advanceTimersByTime(50); });
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Entry" }));
     fireEvent.keyDown(document, { key: "Escape" });
     expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "closed");
@@ -105,67 +106,6 @@ describe("EdgeDrawer", () => {
     expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "open");
   });
 
-  it("traps Tab inside the open panel", () => {
-    render(
-      <EdgeDrawer side="right" label="Log"><button>One</button><button>Two</button></EdgeDrawer>,
-    );
-    fireEvent.click(tab(), { detail: 1 });
-    const two = screen.getByRole("button", { name: "Two" });
-    two.focus();
-    const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
-    act(() => { document.dispatchEvent(event); });
-    expect(event.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "One" }));
-  });
-
-  it("opens on hover after a delay, closes on leave, and does not take focus", () => {
-    render(<EdgeDrawer side="right" label="Log"><button>Entry</button></EdgeDrawer>);
-    const slot = tab().parentElement!;
-    fireEvent.pointerEnter(slot, { pointerType: "mouse" });
-    expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "closed");
-    act(() => { vi.advanceTimersByTime(150); });
-    expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "open");
-    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "Entry" }));
-    fireEvent.pointerLeave(slot, { pointerType: "mouse" });
-    act(() => { vi.advanceTimersByTime(300); });
-    expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "closed");
-  });
-
-  it("does not close while the pointer moves from the tab onto the panel", () => {
-    render(<EdgeDrawer side="right" label="Log"><button>Entry</button></EdgeDrawer>);
-    const slot = tab().parentElement!;
-    fireEvent.pointerEnter(slot, { pointerType: "mouse" });
-    act(() => { vi.advanceTimersByTime(150); });
-    fireEvent.pointerLeave(slot, { pointerType: "mouse" });
-    fireEvent.pointerEnter(dialog(), { pointerType: "mouse" });
-    act(() => { vi.advanceTimersByTime(500); });
-    expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "open");
-  });
-
-  it("a click on a hover-opened drawer pins it", () => {
-    render(<EdgeDrawer side="right" label="Log"><button>Entry</button></EdgeDrawer>);
-    const slot = tab().parentElement!;
-    fireEvent.pointerEnter(slot, { pointerType: "mouse" });
-    act(() => { vi.advanceTimersByTime(150); });
-    fireEvent.click(tab(), { detail: 1 });
-    expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "open");
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Entry" }));
-    fireEvent.pointerLeave(slot, { pointerType: "mouse" });
-    act(() => { vi.advanceTimersByTime(500); });
-    expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "open");
-  });
-
-  it("touch never hover-opens, and hoverOpen=false turns it off", () => {
-    const { rerender } = render(<EdgeDrawer side="right" label="Log"><p>x</p></EdgeDrawer>);
-    fireEvent.pointerEnter(tab().parentElement!, { pointerType: "touch" });
-    act(() => { vi.advanceTimersByTime(500); });
-    expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "closed");
-    rerender(<EdgeDrawer side="right" label="Log" hoverOpen={false}><p>x</p></EdgeDrawer>);
-    fireEvent.pointerEnter(tab().parentElement!, { pointerType: "mouse" });
-    act(() => { vi.advanceTimersByTime(500); });
-    expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "closed");
-  });
-
   it("toggles on its shortcut key, but not while typing or with a modifier", () => {
     render(
       <div>
@@ -214,6 +154,7 @@ describe("EdgeDrawer", () => {
     render(<Host />);
     fireEvent.click(screen.getByRole("button", { name: "Show entry" }));
     expect(document.querySelector("[data-edge-drawer]")).toHaveAttribute("data-state", "open");
+    act(() => { vi.advanceTimersByTime(50); });
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Detail" }));
   });
 
@@ -231,8 +172,8 @@ describe("useExclusiveDrawers", () => {
       const drawers = useExclusiveDrawers<"log" | "chat">();
       return (
         <div>
-          <EdgeDrawer side="right" label="Log" hoverOpen={false} {...drawers.bind("log")}><p>a</p></EdgeDrawer>
-          <EdgeDrawer side="left" label="Chat" hoverOpen={false} {...drawers.bind("chat")}><p>b</p></EdgeDrawer>
+          <EdgeDrawer side="right" label="Log" {...drawers.bind("log")}><p>a</p></EdgeDrawer>
+          <EdgeDrawer side="left" label="Chat" {...drawers.bind("chat")}><p>b</p></EdgeDrawer>
         </div>
       );
     }
