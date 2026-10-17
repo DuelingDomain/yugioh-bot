@@ -251,6 +251,9 @@
   rotate: 180deg;
 }
 
+/* The 3-way corner has no hand beside it: the line and the label stand on the left of the card instead. */
+.wrap[data-corner="true"] .divider { left: auto; right: calc(100% + 8px); }
+
 /* A small slot (a Tag chip) leaves the state pill out; the pop-over still says where the card is. */
 :global([data-dm-compact]) .state { display: none; }
 
