@@ -67,7 +67,7 @@ describe.each([0, 1])("live 1v1 hand effects, seat %s", seat => {
 });
 
 describe("live 1v1 Deck Master during the reveal hold", () => {
-  it("shows no pick glow on the Deck Master plate until the reveal, then glows", async () => {
+  it("shows no pick glow on the Deck Master badge until the reveal, then glows", async () => {
     room(0, false);
     const source = state.room!;
     source.session.mode = "domain";
@@ -78,7 +78,7 @@ describe("live 1v1 Deck Master during the reveal hold", () => {
     };
     holdPromptReveal(2000);
     render(<DuelRoomView slug="live" windowed />);
-    const plate = () => screen.getByTestId("hud-master").querySelector("section")!;
+    const plate = () => screen.getAllByTestId("dm-badge-wrap").find((node) => node.getAttribute("data-local") === "true")!;
     expect(plate().getAttribute("data-legal")).toBe("false");
     await act(async () => { await vi.advanceTimersByTimeAsync(6500); });
     expect(plate().getAttribute("data-legal")).toBe("true");

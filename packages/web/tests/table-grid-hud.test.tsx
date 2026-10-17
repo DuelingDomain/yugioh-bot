@@ -9,11 +9,9 @@ vi.mock("next/font/google", () => {
 });
 
 import type { DuelAnswer } from "@yugidraft/shared/duels";
-import { LOCATION_DMZONE } from "@/components/duel/constants";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
-import { masterForm } from "@/components/duel/table/grid-master";
 import { PREVIEW_HIDE_MS } from "@/components/duel/table/grid-preview";
 import { TableShell } from "@/components/duel/table/table-shell";
 
@@ -42,23 +40,6 @@ function Shell({ state, onAnswer }: { state: TableFixtureState; onAnswer?: (answ
 }
 const stateOf = (id: keyof typeof FFA4_FIXTURES.states) => FFA4_FIXTURES.states[id];
 
-/** The "main" state with Aster's Deck Master in its zone and two legal summons on it. */
-function masterState(): TableFixtureState {
-  const state = structuredClone(stateOf("main"));
-  const engine = state.room.engine!;
-  const aster = engine.seats.find((seat) => seat.seat === 0)!;
-  aster.deckMaster = { ...aster.deckMaster!, inZone: true };
-  engine.prompt = {
-    ...engine.prompt!,
-    options: [
-      ...engine.prompt!.options,
-      { id: "summon:0", label: "Normal Summon Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
-      { id: "mset:0", label: "Set monster Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
-    ],
-  };
-  return state;
-}
-
 /** The side content is a set of left-edge drawers (bigger-field contract): a tab each, closed at rest, one open at most. */
 const drawer = (name: string) => document.querySelector<HTMLElement>(`[data-edge-drawer="${name}"]`)!;
 const tab = (name: string) => drawer(name).querySelector<HTMLButtonElement>("button[aria-expanded]")!;
@@ -76,12 +57,13 @@ describe("the floating HUD of the 4-way grid", () => {
     // No full-width bottom bar: the turn controls sit in the corner cluster.
     expect(screen.queryByTestId("hud-bottom")).toBeNull();
     expect(screen.getByTestId("hud-corner")).toBeTruthy();
-    for (const name of ["Log", "Settings", "Deck Master", "Inspect"]) expect(tab(name).getAttribute("aria-expanded")).toBe("false");
+    for (const name of ["Log", "Settings", "Inspect"]) expect(tab(name).getAttribute("aria-expanded")).toBe("false");
     // The dock and its flyout are gone, and so is the History pane that only repeated the Log.
     expect(screen.queryByTestId("hud-dock-log")).toBeNull();
     expect(screen.queryByTestId("hud-flyout")).toBeNull();
     // The Chain tab shows only while a chain is live.
     expect(document.querySelector('[data-edge-drawer="Chain"]')).toBeNull();
+    expect(document.querySelector('[data-edge-drawer="Deck Master"]')).toBeNull();
     expect(isOpen()).toBe(false);
   });
 
@@ -140,118 +122,6 @@ describe("the floating HUD of the 4-way grid", () => {
   it("has no chain tower when no chain is open", () => {
     render(<Shell state={stateOf("main")} />);
     expect(screen.queryByTestId("chain-tower")).toBeNull();
-  });
-});
-
-describe("the Deck Master token", () => {
-  it("shows the real card and offers Inspect, but no summon that is not legal", () => {
-    render(<Shell state={stateOf("main")} />);
-    const token = screen.getByTestId("hud-master-token");
-    expect(token.getAttribute("aria-label")).toContain("Black Luster Soldier");
-    expect(screen.queryAllByTestId("hud-master-action")).toHaveLength(0);
-    expect(screen.getByTestId("hud-master-inspect")).toBeTruthy();
-  });
-
-  it("lists Summon and Set when they are legal, and sends the chosen one", () => {
-    const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    render(<Shell state={masterState()} />);
-    const actions = screen.getAllByTestId("hud-master-action");
-    expect(actions.map((button) => button.textContent)).toEqual(["Summon · 1,000 LP", "Set · 1,000 LP"]);
-    fireEvent.click(actions[1]);
-    expect(info).toHaveBeenCalledWith("[table-preview] answer", expect.objectContaining({ answer: { choice: "mset:0" } }));
-  });
-
-  it("shows short labels on the buttons and keeps the full option text as the accessible name", () => {
-    render(<Shell state={masterState()} />);
-    openTab("Deck Master");
-    const [summon, set] = screen.getAllByTestId("hud-master-action");
-    expect(summon.textContent).toBe("Summon · 1,000 LP");
-    expect(summon.getAttribute("aria-label")).toBe("Normal Summon Sage with Eyes of Blue · 1,000 LP");
-    expect(summon.getAttribute("title")).toBe("Normal Summon Sage with Eyes of Blue");
-    expect(set.textContent).toBe("Set · 1,000 LP");
-    expect(set.getAttribute("aria-label")).toBe("Set monster Sage with Eyes of Blue · 1,000 LP");
-    expect(screen.getByRole("button", { name: "Normal Summon Sage with Eyes of Blue · 1,000 LP" })).toBe(summon);
-    expect(screen.getByRole("button", { name: "Set monster Sage with Eyes of Blue · 1,000 LP" })).toBe(set);
-    expect(screen.getByTestId("hud-master-inspect").getAttribute("aria-label")).toBe("Inspect");
-  });
-
-  it("shows a short word for an attack and keeps the full text as the name", () => {
-    const state = masterState();
-    const prompt = state.room.engine!.prompt!;
-    prompt.options = [
-      ...prompt.options.filter((option) => !/^(?:summon|mset):/.test(option.id)),
-      { id: "dm-attack", label: "Attack with Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
-      { id: "dm-direct", label: "Attack directly with Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
-    ];
-    render(<Shell state={state} />);
-    const [attack, direct] = screen.getAllByTestId("hud-master-action");
-    expect(attack.textContent).toBe("Attack");
-    expect(attack.getAttribute("aria-label")).toBe("Attack with Sage with Eyes of Blue");
-    expect(direct.textContent).toBe("Direct attack");
-    expect(direct.getAttribute("title")).toBe("Attack directly with Sage with Eyes of Blue");
-  });
-
-  it("shows the wide plate in its drawer, closed at rest, with the whole card", () => {
-    render(<Shell state={masterState()} />);
-    expect(isOpen()).toBe(false);
-    expect(screen.getByTestId("hud-master").dataset.form).toBe("wide");
-    expect(within(drawer("Deck Master")).getByTestId("hud-master-ability")).toBeTruthy();
-  });
-
-  it("glows the Deck Master tab only when a Deck Master action is open to you", () => {
-    const { unmount } = render(<Shell state={stateOf("main")} />);
-    expect(tab("Deck Master").getAttribute("data-attention")).toBe("false");
-    unmount();
-    render(<Shell state={masterState()} />);
-    expect(tab("Deck Master").getAttribute("data-attention")).toBe("true");
-  });
-
-  it("is tall only on a large screen with room for a card of 195px or more, never between the two forms", () => {
-    expect(masterForm(800, 400)).toEqual({ tall: false });
-    expect(masterForm(768, 400)).toEqual({ tall: false });
-    expect(masterForm(900, 194)).toEqual({ tall: false });
-    expect(masterForm(900, 195)).toEqual({ tall: true, art: 195 });
-    expect(masterForm(900, 530)).toEqual({ tall: true, art: 222 });
-    expect(masterForm(1080, 97)).toEqual({ tall: false });
-  });
-
-  it("opens the details flyout from the token or from Inspect, and closes it", () => {
-    render(<Shell state={stateOf("main")} />);
-    openTab("Deck Master");
-    expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
-    fireEvent.click(screen.getByTestId("hud-master-token"));
-    const details = screen.getByTestId("hud-master-flyout");
-    expect(within(details).getByTestId("hud-master-returns").textContent).toBe("1");
-    expect(within(details).getByTestId("hud-master-cost").textContent).toBe("1000 LP");
-    expect(within(details).getByTestId("hud-master-status").textContent).toBe("Elsewhere");
-    expect(openName()).toBe("Deck Master");
-    // Esc shuts the drawer, and the details with it.
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(isOpen()).toBe(false);
-    expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
-
-    openTab("Deck Master");
-    fireEvent.click(screen.getByTestId("hud-master-inspect"));
-    expect(screen.getByTestId("hud-master-flyout")).toBeTruthy();
-    // Card view opens the full card in the Inspect drawer.
-    fireEvent.click(screen.getByTestId("hud-master-card"));
-    expect(openNames()).toEqual(["Inspect"]);
-    expect(within(drawer("Inspect")).getAllByText(/Black Luster Soldier/).length).toBeGreaterThan(0);
-    openTab("Deck Master");
-    fireEvent.click(screen.getByTestId("hud-master-token"));
-    fireEvent.click(screen.getByTestId("hud-master-close"));
-    expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
-  });
-
-  it("says Free in the details flyout when the next summon costs nothing", () => {
-    const state = structuredClone(stateOf("main"));
-    const seat = state.room.engine!.seats.find((entry) => entry.seat === 0)!;
-    // In the zone: the next summon is the engine cost (out of the zone the panel shows the post-recall cost).
-    seat.deckMaster = { ...seat.deckMaster!, inZone: true, returns: 0, nextCost: 0 };
-    render(<Shell state={state} />);
-    openTab("Deck Master");
-    fireEvent.click(screen.getByTestId("hud-master-token"));
-    expect(screen.getByTestId("hud-master-cost").textContent).toBe("Free");
   });
 });
 

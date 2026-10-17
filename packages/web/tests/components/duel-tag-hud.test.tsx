@@ -208,51 +208,17 @@ describe("the floating HUD of the Tag Rooftop", () => {
   });
 });
 
-describe("the Deck Master plates of the Tag Rooftop", () => {
-  it("shows no plate outside the Domain format", () => {
+describe("the Deck Master badges of the Tag Rooftop", () => {
+  it("shows no badge outside the Domain format", () => {
     media(false);
     render(<Shell />);
-    expect(screen.queryByTestId("hud-master")).toBeNull();
-    expect(screen.queryByTestId("hud-other")).toBeNull();
-  });
-
-  it("holds your master and your partner's in one gold drawer on the right, with their real cards", () => {
-    media(false);
-    render(<Shell domain />);
-    expect(rootOf("masters").getAttribute("data-side")).toBe("right");
-    expect(rootOf("masters").getAttribute("data-state")).toBe("closed");
-    expect(screen.getByTestId("hud-master-token").getAttribute("aria-label")).toContain("Dark Magician");
-    expect(screen.getByTestId("hud-other-token").getAttribute("aria-label")).toContain("Blue-Eyes");
-    expect(screen.getByTestId("hud-other").getAttribute("data-slot")).toBe("other");
-    expect(screen.queryAllByTestId("hud-other-action")).toHaveLength(0);
-    fireEvent.click(tabOf("masters"));
-    expect(openNames()).toEqual(["Deck Master"]);
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(isOpen()).toBe(false);
+    expect(screen.queryByTestId("dm-badge")).toBeNull();
   });
 
   it("has no Deck Master drawer outside the Domain format", () => {
     media(false);
     render(<Shell />);
     expect(screen.queryByTestId("hud-drawer-masters")).toBeNull();
-  });
-
-  it("opens the Card drawer from a plate's token or Inspect, and closes it with Esc", () => {
-    media(false);
-    render(<Shell domain />);
-    fireEvent.click(screen.getByTestId("hud-master-token"));
-    expect(openNames()).toEqual(["Card"]);
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(isOpen()).toBe(false);
-    fireEvent.click(screen.getByTestId("hud-other-inspect"));
-    expect(openNames()).toEqual(["Card"]);
-  });
-
-  it("offers Summon or Set on your plate only when the engine lists it", () => {
-    media(false);
-    render(<Shell domain />);
-    expect(screen.queryAllByTestId("hud-master-action")).toHaveLength(0);
-    expect(screen.getByTestId("hud-master-inspect")).toBeTruthy();
   });
 });
 

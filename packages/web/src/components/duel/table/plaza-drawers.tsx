@@ -1,14 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Crown, Link2, ScrollText, Search, SlidersHorizontal, Video, X } from "lucide-react";
+import { Link2, ScrollText, Search, SlidersHorizontal, Video, X } from "lucide-react";
 import { EdgeDrawer } from "../edge-drawer";
-import { LOCATION_DMZONE, zoneKey } from "../constants";
-import { masterCard, withExact } from "../field";
-import { anyLegal } from "../field-keys";
 import { cardExtraLines, cardScrollerProps } from "../inspector";
 import { ChainTower, HUD_PANE_LABEL, type HudPane } from "./grid-hud";
-import { GridMasterToken } from "./grid-master";
 import { GridHoverPreview } from "./grid-preview";
 import type { HudLayerProps } from "./hud-layer";
 import styles from "./plaza-drawers.module.css";
@@ -19,7 +15,7 @@ import styles from "./plaza-drawers.module.css";
  * glows when something is new (the log) or when you can act (the Deck Master, a live chain). The open pane is the shell's
  * own `hud.pane`, so Esc, the press outside, a click on a log row and Inspect work as before; the drawers only draw it.
  *
- * Left edge: Deck Master, Card, Chain. Right edge: Log, Settings, Camera.
+ * Left edge: Card, Chain. Right edge: Log, Settings, Camera.
  */
 
 /** A closed drawer keeps its content for the slide out, then lets it go (the card and the settings only mount while shown). */
@@ -51,7 +47,7 @@ function Pane({ title, onClose, scrolls = true, card = false, children }: { titl
 }
 
 /** The plaza's drawers, in place of the floating HUD layer. Same props as `HudLayer`. */
-export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, onInspect, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats }: HudLayerProps) {
+export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, onInspect, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats }: HudLayerProps) {
   const { pane, setPane, close, pinned, pinAnchor } = hud;
   const bind = (id: HudPane) => ({
     open: pane === id,
@@ -67,15 +63,6 @@ export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones,
 
   const cardMounted = useLinger(pane === "card");
   const settingsMounted = useLinger(pane === "settings");
-
-  // The Deck Master drawer glows gold while you can act with it: a summon, a set or an activation is legal now.
-  const masterAct = useMemo(() => {
-    if (!master || !master.local || !master.view?.deckMaster) return false;
-    const card = masterCard(master.view);
-    const keys = withExact(card, [zoneKey(master.view.seat, LOCATION_DMZONE, 0)]);
-    if (!master.canAct) return false;
-    return anyLegal(keys, master.legalKeys) || master.legalActionsFor(card, keys).length > 0;
-  }, [master]);
 
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
@@ -97,31 +84,14 @@ export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones,
 
   return (
     <>
-      {master ? keep(
-        <EdgeDrawer side="left" label="Deck Master" icon={<Crown />} tone="gold" attention={masterAct} shortcut="m" tabOffset="28%" size="min(320px, 88vw)" hoverOpen={false} panelClassName={styles.panel} {...bind("master")}>
-          <Pane title={HUD_PANE_LABEL.master} onClose={close} scrolls={false}>
-            <div className={styles.masterSlot}>
-              {/* The plate stays mounted while the drawer is closed: it is the Deck Master Zone anchor of the summon and return flights. */}
-              <GridMasterToken
-                {...master}
-                wide
-                open={false}
-                onToggle={() => master.view?.deckMaster && inspect(masterTarget(master))}
-                onClose={close}
-                onInspect={inspect}
-              />
-            </div>
-          </Pane>
-        </EdgeDrawer>,
-      ) : null}
       {keep(
-        <EdgeDrawer side="left" label="Card" icon={<Search />} tabOffset={master ? "46%" : "28%"} size="min(400px, 88vw)" hoverOpen={false} panelClassName={styles.panel} {...bind("card")}>
+        <EdgeDrawer side="left" label="Card" icon={<Search />} tabOffset="28%" size="min(400px, 88vw)" hoverOpen={false} panelClassName={styles.panel} {...bind("card")}>
           {cardMounted ? <Pane title={HUD_PANE_LABEL.card} onClose={close} card>{panels.card}</Pane> : null}
         </EdgeDrawer>,
       )}
       {chainOpen ? keep(
         <EdgeDrawer
-          side="left" label="Chain" icon={<Link2 />} tone="gold" attention count={chain.length} tabOffset={master ? "62%" : "46%"} size="min(300px, 88vw)" hoverOpen={false} panelClassName={styles.panel}
+          side="left" label="Chain" icon={<Link2 />} tone="gold" attention count={chain.length} tabOffset="46%" size="min(300px, 88vw)" hoverOpen={false} panelClassName={styles.panel}
           open={chainShown} onOpenChange={setChainShown}
         >
           <Pane title="Chain" onClose={() => setChainShown(false)}>
@@ -159,11 +129,4 @@ export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones,
       />
     </>
   );
-}
-
-/** Inspect target of the master plate: the live card when it is somewhere, else its catalog info. */
-function masterTarget(master: NonNullable<HudLayerProps["master"]>): Parameters<HudLayerProps["onInspect"]>[0] {
-  const view = master.view!;
-  const card = masterCard(view);
-  return card ? { type: "card", card } : { type: "info", card: view.deckMaster!.card };
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent } from "react";
 import { engineFormat } from "../multi-seat";
-import { masterInUse } from "../master-place";
+import { SeatMasterBadge } from "../master-badge";
 import { AttackLine } from "./attack-line";
 import { crumbleWaiting, onCrumbleStart } from "./crumble-gate";
 import { boxOf, cancelTracks, FLIP_EASING, FLIP_MS, playFlip, type FlipTrack } from "./grid-flip";
@@ -936,10 +936,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   y={0}
                   fit={lpFit(lp, placeLabels?.has(cell.seat) === true)}
                   beam="none"
-                  master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
-                  masterInUse={masterInUse(view, engine.seats)}
+                  badge={<SeatMasterBadge seat={cell.seat} side={slot.relation === "self" ? "you" : "opp"} />}
                   linkedWith={finale?.kind === "same" && inFinale(cell.seat) ? nameOf(cell.seat === finale.bottom.seat ? finale.top.seat : finale.bottom.seat) : null}
-                  onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
                   lastDamage={lastSeatDamage(engine.events, cell.seat)}
                   legal={pickable}
                   hotkey={pickable && index >= 0 ? index + 1 : null}

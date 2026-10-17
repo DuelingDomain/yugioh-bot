@@ -176,7 +176,7 @@ const drawerTab = (label: string) => {
   return tab;
 };
 const clickTab = (label: string) => fireEvent.click(drawerTab(label));
-const TAB_LABEL: Record<string, string> = { log: "Log", settings: "Settings", card: "Card", master: "Deck Master", other: "Rival Master" };
+const TAB_LABEL: Record<string, string> = { log: "Log", settings: "Settings", card: "Card" };
 
 beforeEach(() => {
   sendDuelAction.mockClear();
@@ -278,8 +278,8 @@ describe("the floating HUD of the 1v1 room", () => {
     mount({ domain: true });
     fireEvent.keyDown(document.body, { key: "l" });
     expect(openLabel()).toBe("Log");
-    fireEvent.keyDown(document.body, { key: "m" });
-    expect(openLabel()).toBe("Deck Master");
+    fireEvent.keyDown(document.body, { key: "i" });
+    expect(openLabel()).toBe("Card");
     expect(document.querySelectorAll(DRAWER)).toHaveLength(1);
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(isOpen()).toBe(false);
@@ -291,60 +291,10 @@ describe("the floating HUD of the 1v1 room", () => {
   });
 });
 
-describe("the Deck Master plates of the 1v1 room", () => {
-  it("shows no plate outside the Domain format", () => {
+describe("the Deck Master plates of the 1v1 room (now badges in the name plates)", () => {
+  it("shows no badge outside the Domain format", () => {
     mount();
-    expect(screen.queryByTestId("hud-master")).toBeNull();
-    expect(screen.queryByTestId("hud-other")).toBeNull();
-  });
-
-  it("shows your master on the left and the rival's on the right, each with its real card", () => {
-    mount({ domain: true });
-    expect(screen.getByTestId("hud-master-token").getAttribute("aria-label")).toContain("Dark Magician");
-    expect(screen.getByTestId("hud-other-token").getAttribute("aria-label")).toContain("Blue-Eyes");
-    expect(screen.getByTestId("hud-other").getAttribute("data-slot")).toBe("other");
-    // The rival's plate never offers an action.
-    expect(screen.queryAllByTestId("hud-other-action")).toHaveLength(0);
-  });
-
-  it("opens the details in a flyout and closes them with the token, Esc or a click outside", () => {
-    mount({ domain: true });
-    // The plates live in edge drawers: your master slides out from the left, the rival's from the right.
-    expect(document.querySelector('[data-edge-drawer="Deck Master"]')?.getAttribute("data-state")).toBe("closed");
-    clickTab("Deck Master");
-    expect(openLabel()).toBe("Deck Master");
-    fireEvent.click(screen.getByTestId("hud-master-token"));
-    expect(screen.getByTestId("hud-master-flyout")).toBeTruthy();
-    expect(screen.getByTestId("hud-master-returns").textContent).toBe("0");
-    fireEvent.click(screen.getByTestId("hud-master-token"));
-    expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
-    clickTab("Deck Master");
-    expect(isOpen()).toBe(false);
-
-    clickTab("Rival Master");
-    expect(openLabel()).toBe("Rival Master");
-    fireEvent.click(screen.getByTestId("hud-other-token"));
-    expect(screen.getByTestId("hud-other-flyout")).toBeTruthy();
-    expect(screen.getByTestId("hud-other-returns").textContent).toBe("1");
-    expect(screen.getByTestId("hud-other-cost").textContent).toBe("500 LP");
-    fireEvent.keyDown(document.body, { key: "Escape" });
-    expect(isOpen()).toBe(false);
-    expect(screen.queryByTestId("hud-other-flyout")).toBeNull();
-
-    // A press outside shuts the drawer, and the plate's details go with it.
-    clickTab("Deck Master");
-    fireEvent.click(screen.getByTestId("hud-master-token"));
-    expect(screen.getByTestId("hud-master-flyout")).toBeTruthy();
-    fireEvent.pointerDown(document.body);
-    expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
-    expect(isOpen()).toBe(false);
-  });
-
-  it("glows the Deck Master tab only while something new waits, and shuts the drawers by default", () => {
-    mount({ domain: true });
-    for (const label of ["Log", "Settings", "Card", "Deck Master", "Rival Master"]) {
-      expect(drawerTab(label).getAttribute("data-attention")).toBe("false");
-    }
+    expect(screen.queryByTestId("dm-badge")).toBeNull();
   });
 });
 
@@ -1191,7 +1141,7 @@ describe("the HUD with a prompt", () => {
   });
 });
 
-describe("the 1v1 clocks and the Deck Master plate", () => {
+describe("the 1v1 clocks", () => {
   it("shows both clocks with a short name each", () => {
     const clock: DuelClock = { turn: 1, remainingMs: [300_000, 240_000], activeSeat: null, startedAt: null, serverNow: Date.now() };
     mount({ clock });
@@ -1199,34 +1149,6 @@ describe("the 1v1 clocks and the Deck Master plate", () => {
     expect(timer.getByText("5:00")).toBeTruthy();
     expect(timer.getByText("4:00")).toBeTruthy();
     expect(timer.getAllByText(/\S/, { selector: "small" })).toHaveLength(2);
-  });
-
-  it("shows Inspect on both plates of a spectator, with the short title", () => {
-    mount({ spectator: true, domain: true }, { spectate: true });
-    expect(screen.getByTestId("hud-master-inspect")).toBeTruthy();
-    expect(screen.getByTestId("hud-other-inspect")).toBeTruthy();
-    expect(screen.getByTestId("hud-master")).toHaveTextContent("Deck Master");
-    expect(screen.getByTestId("hud-other")).toHaveTextContent("Deck Master");
-  });
-
-  it("titles your own plate Your Master and the rival's plate Deck Master", () => {
-    mount({ domain: true });
-    expect(screen.getByTestId("hud-master")).toHaveTextContent("Your Master");
-    expect(screen.getByTestId("hud-other")).toHaveTextContent("Deck Master");
-  });
-
-  it("picks a Deck Master that a prompt asks for from its plate, through the room pick path", () => {
-    const master: DuelPrompt = {
-      id: "p4", seat: 0, kind: "cards", title: "Select 1 monster", min: 1, max: 1, cancelable: true,
-      options: [{ id: "dm", label: "Dark Magician", card: info(9, "Dark Magician"), controller: 0, location: 0x4000, sequence: 0 }],
-    };
-    mount({ domain: true, prompt: master });
-    const token = screen.getByTestId("hud-master-token");
-    expect(token.hasAttribute("aria-expanded")).toBe(false);
-    fireEvent.click(token);
-    expect(sent()).toHaveLength(1);
-    expect(sent()[0]).toMatchObject({ promptId: "p4", answer: { selected: ["dm"] } });
-    expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
   });
 });
 

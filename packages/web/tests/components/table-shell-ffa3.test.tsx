@@ -70,12 +70,13 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("nav[aria-label='Duel phases']")).not.toBeNull();
     expect(container.querySelectorAll("[aria-label='Turn order'] li")).toHaveLength(3);
     expect(container.querySelector("[data-testid='seat-strip']")).not.toBeNull();
-    for (const label of ["Deck Master", "Card", "Log", "Settings", "Camera"]) {
+    for (const label of ["Card", "Log", "Settings", "Camera"]) {
       const drawer = container.querySelector(`[data-edge-drawer='${label}']`);
       expect(drawer, label).not.toBeNull();
       expect(drawer!.getAttribute("data-state"), `${label} starts closed`).toBe("closed");
     }
     expect(container.querySelector("[data-edge-drawer='Chain']")).toBeNull();
+    expect(container.querySelector("[data-edge-drawer='Deck Master']")).toBeNull();
     // No dock and no floating flyout: nothing stands on the field at rest.
     expect(container.querySelector("[data-testid^='hud-dock-']")).toBeNull();
     expect(container.querySelector("[data-testid='hud-flyout']")).toBeNull();
@@ -135,12 +136,12 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(sheet.querySelectorAll("[data-chain-row]")).toHaveLength(2);
   });
 
-  it("puts rival Deck Masters on the holo panels, your own on the HUD plate, and the camera panel in the Camera drawer", () => {
+  it("puts a Deck Master badge on every holo panel, and the camera panel in the Camera drawer", () => {
     const { container } = render(<Shell id="main" />);
-    expect(container.querySelector("[data-testid='hud-master']")).not.toBeNull();
     expect(container.querySelector("[data-docks]")).toBeNull();
-    const thumbs = [...container.querySelectorAll("[data-master-thumb]")].map((node) => node.getAttribute("data-master-thumb")).sort();
-    expect(thumbs).toEqual(["1", "2"]);
+    expect(container.querySelector("[data-testid='hud-master']")).toBeNull();
+    const badges = [...container.querySelectorAll("[data-testid='dm-badge']")].map((node) => node.getAttribute("data-badge-seat")).sort();
+    expect(badges).toEqual(["0", "1", "2"]);
     const drawer = container.querySelector("[data-edge-drawer='Camera']") as HTMLElement;
     act(() => void fireEvent.click(within(drawer).getByRole("button", { name: /Camera/ })));
     expect(drawer.getAttribute("data-state")).toBe("open");

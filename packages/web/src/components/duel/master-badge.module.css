@@ -126,6 +126,9 @@
 .state[data-place="field"],
 .state[data-place="elsewhere"] { color: #f0cd78; border-color: rgb(240 205 120 / 0.5); }
 
+/* A small slot (a Tag chip) leaves the state pill out; the pop-over still says where the card is. */
+:global([data-dm-compact]) .state { display: none; }
+
 /* ---------- pop-over ---------- */
 
 .pop {

@@ -55,20 +55,5 @@
   box-shadow: none;
 }
 
-/* The Deck Master plates are absolute in the HUD layer; inside the drawer they stack in flow, one over the other. */
-.mastersHost {
-  display: grid;
-  align-content: start;
-  gap: 12px;
-  padding: 10px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.mastersHost [data-slot][data-form] {
-  position: relative;
-  inset: auto;
-  width: 100%;
-}
-
 /* An open drawer stands over the tabs of its neighbours: their tabs sit on the same screen edge, under its panel. */
 .open { --bf-drawer-z: 44; }

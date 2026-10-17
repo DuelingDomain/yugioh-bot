@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LEFT_TAB_ORDER, leftTabOffset, masterNeedsYou } from "@/components/duel/tag/tag-drawers";
+import { LEFT_TAB_ORDER, leftTabOffset } from "@/components/duel/tag/tag-drawers";
 
 describe("the left edge tabs of the Tag Rooftop", () => {
   it("lists log, card, settings and camera, top to bottom", () => {
@@ -24,11 +24,5 @@ describe("the left edge tabs of the Tag Rooftop", () => {
       const gap = centres[i] - heights[i] / 2 - (centres[i - 1] + heights[i - 1] / 2);
       expect(gap).toBeGreaterThanOrEqual(9);
     }
-  });
-});
-
-describe("the Deck Master tab glow", () => {
-  it("stays quiet with no plate or no master", () => {
-    expect(masterNeedsYou(null)).toBe(false);
   });
 });

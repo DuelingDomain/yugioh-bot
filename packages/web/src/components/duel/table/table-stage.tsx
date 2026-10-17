@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { ArrowUp } from "lucide-react";
 import { flushSync } from "react-dom";
 import { engineFormat, plazaFacingPair } from "../multi-seat";
-import { masterInUse } from "../master-place";
+import { SeatMasterBadge } from "../master-badge";
 import type { UseGridFocus } from "./grid-focus";
 import type { GridFinaleBoard } from "./grid-finale";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
@@ -848,9 +848,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               y={anchor.y}
               beam={fly ? "none" : threeWay ? anchor.beam : place === 0 ? "none" : "down"}
               floating={fly}
-              master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
-              masterInUse={masterInUse(view, engine.seats)}
-              onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
+              badge={<SeatMasterBadge seat={slot.seat} side={slot.relation === "self" ? "you" : "opp"} />}
               lastDamage={lastSeatDamage(engine.events, slot.seat)}
               legal={pickable}
               hotkey={pickable && index >= 0 ? index + 1 : null}

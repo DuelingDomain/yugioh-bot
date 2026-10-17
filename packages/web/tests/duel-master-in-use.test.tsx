@@ -17,7 +17,6 @@ import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import { engineAtStep, isSceneId, masterCycle, sceneSteps } from "@/components/duel/table/fixtures/scenes";
 import { GridMasterToken } from "@/components/duel/table/grid-master";
-import { HoloLp } from "@/components/duel/table/holo-lp";
 import { MasterChip } from "@/components/duel/table/master-chip";
 import { TAG_FIXTURES, tagDomainVariant } from "@/components/duel/tag/fixtures";
 
@@ -92,17 +91,6 @@ describe("the Deck Master plate of a multi-seat table", () => {
 });
 
 describe("the other Deck Master surfaces", () => {
-  it("the rival thumb on a seat plate is an empty slot and a zone anchor", () => {
-    const base = { seat: 1, name: "Ryo", tone: "ice", lp: 5400, handCount: 4, deckCount: 30, clockMs: 240000, status: "active", me: false, x: 8, y: 8, beam: "down", reducedMotion: true, master: info } as const;
-    const { container, rerender } = render(<HoloLp {...base} masterInUse />);
-    const thumb = container.querySelector("[data-master-thumb='1']") as HTMLElement;
-    expect(thumb.dataset.inUse).toBe("true");
-    expect(thumb.dataset.masterDock).toBe("1");
-    expect(thumb.querySelector("img")).toBeNull();
-    rerender(<HoloLp {...base} />);
-    expect(container.querySelector("[data-master-thumb='1'] img")).not.toBeNull();
-  });
-
   it("the rail dock and the chip show the empty zone only on a multi-seat table", () => {
     const view = seatView({ inZone: false });
     const dock = (showInUse: boolean) => (

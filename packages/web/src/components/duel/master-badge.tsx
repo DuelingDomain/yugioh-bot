@@ -167,7 +167,7 @@ export function DeckMasterBadge({
 
   return (
     <div ref={wrapRef} className={styles.wrap} data-side={side} data-local={local ? "true" : "false"} data-ready={ready ? "true" : undefined}
-      data-open={open ? "true" : undefined} data-in-use={inUse ? "true" : undefined} data-testid="dm-badge-wrap" data-badge-seat={view.seat}>
+      data-legal={legal && canAct ? "true" : "false"} data-open={open ? "true" : undefined} data-in-use={inUse ? "true" : undefined} data-testid="dm-badge-wrap" data-badge-seat={view.seat}>
       <button
         ref={buttonRef}
         type="button"

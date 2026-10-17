@@ -23,7 +23,9 @@ import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
 import { resolveBattleStep, StationTrack } from "../station-track";
 import { RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "../table/hud-layer";
-import { clockStrip, hudClockBank, stationTrackProps } from "../table/hud-shared";
+import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "../table/hud-shared";
+import { useForkLabels } from "../table/fork-labels";
+import { MasterBadgeContext, type MasterBadgeSource } from "../master-badge";
 import { tagSeatCode } from "../table-format";
 import { OpponentBar } from "../table/opponent-bar";
 import { attackLockAt, toneBySeat } from "../table/seat-state";
@@ -35,6 +37,7 @@ import { useTableUi } from "../table/use-table-ui";
 import { tableZoneAnchor } from "../table/zone-find";
 import { carriedCamera, useReadOnlyReplayController, useReplayCarry, type ReplayCarryRef } from "../table/replay-mode";
 import { SEAT_TONE_HEX, type ReplayShellMode, type TableController } from "../table/types";
+import type { InspectTarget } from "../inspector";
 import { lastEventId, lockForEvents, otherPlayerActed } from "./fx-lock";
 import { resolveTagExtras, tagCameraYields, tagInputSuspended, type TagShellPreviewProps } from "./live-tag";
 import { initialRoofCamera, roofReducer } from "./roof-camera";
@@ -359,7 +362,25 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
     />
   );
 
+  // The Deck Master badges (on every member chip) read their seat's master from here, with this table's keys and prompt.
+  const forkLabels = useForkLabels();
+  const showMasterCard = (target: InspectTarget) => {
+    if (hud) { ui.setInspect(target); hudState.setPane("card"); }
+    else { ui.inspectCard(target); setSheetOpen(true); }
+  };
+  const masterBadges: MasterBadgeSource | null = domain ? {
+    forSeat: (seat) => hudMasterProps(
+      { legalKeys: controller.legalKeys, selectedKeys: controller.selectedKeys, canAct, prompt, onAnswer: controller.onAnswer, onActivate: controller.onActivate, onHoverCard: controller.onHoverCard },
+      engine.seats.find((view) => view.seat === seat),
+      seat === viewerSeat && !replay,
+      seat === viewerSeat && !replay && !forkLabels ? "Your Master" : `${nameOf(seat)}'s Master`,
+      true,
+    ),
+    onInspect: showMasterCard,
+  } : null;
+
   return (
+    <MasterBadgeContext.Provider value={masterBadges}>
     <div
       ref={rootRef}
       className={`${duelFontClasses} ${styles.shell}`}
@@ -578,5 +599,6 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
       ) : null}
       {replay ? null : modals}
     </div>
+    </MasterBadgeContext.Provider>
   );
 }

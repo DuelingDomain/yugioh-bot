@@ -1,26 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
-import { Crown, Info, Link2, ScrollText, SlidersHorizontal, Video, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Info, Link2, ScrollText, SlidersHorizontal, Video, X } from "lucide-react";
 import type { DuelCard, DuelCardInfo, DuelChainLink } from "@yugidraft/shared/duels";
-import { LOCATION_DMZONE, zoneKey } from "../constants";
 import { EdgeDrawer } from "../edge-drawer";
 import type { EquipLinks } from "../equip-links";
-import { masterCard, withExact } from "../field";
-import { anyLegal } from "../field-keys";
 import { cardExtraLines, cardScrollerProps } from "../inspector";
 import { ChainTower, HUD_PANE_LABEL, type HudPane } from "../table/grid-hud";
-import { GridMasterToken } from "../table/grid-master";
 import { GridHoverPreview } from "../table/grid-preview";
-import type { HudMasterProps, HudPaneState } from "../table/hud-layer";
+import type { HudPaneState } from "../table/hud-layer";
 import type { InspectTarget } from "../table/types";
 import styles from "./tag-drawers.module.css";
 
 /**
  * The side content of the wide Rooftop, as edge drawers (see `edge-drawer/`): Log, Card, Settings and Camera on the left,
- * the chain while one is live, and the Deck Masters on the right. Every drawer is closed until the viewer opens it, so
+ * and the chain while one is live. Every drawer is closed until the viewer opens it, so
  * nothing but the field stands beside the board; only the thin edge tabs show, and a tab glows when there is news
- * (unread log rows, a chain, a Deck Master that can act). An open drawer may overlay the field.
+ * (unread log rows, a chain). An open drawer may overlay the field.
  *
  * It replaces `HudLayer` on the Rooftop and keeps its contract: `hud` (`useHudPane`) still holds the one open pane, so
  * `useHudEscape`, the pin sync, the prompt's `escapeHeld` and the replay carry-over work as before. The chain tower and
@@ -70,13 +66,12 @@ function useLeftTabHeights(root: RefObject<HTMLElement | null>, deps: readonly u
 }
 
 /** Panel width of each drawer. The log and settings rows need room for names; the card pane keeps its old 380px. */
-const LEFT_SIZE: Record<LeftPane | "chain" | "masters", string> = {
+const LEFT_SIZE: Record<LeftPane | "chain", string> = {
   log: "min(460px, 92vw)",
   card: "min(380px, 92vw)",
   settings: "min(420px, 92vw)",
   camera: "min(340px, 92vw)",
   chain: "min(240px, 88vw)",
-  masters: "min(300px, 92vw)",
 };
 
 /** Keeps `children` mounted a little after the drawer closes, so the panel does not empty while it slides out. */
@@ -104,16 +99,6 @@ function PaneHead({ title, onClose }: { title: string; onClose: () => void }) {
   );
 }
 
-/** Whether the own Deck Master has something to do now: a legal Summon / Set / Attack, or a card a prompt asks for. */
-export function masterNeedsYou(master: HudMasterProps | null): boolean {
-  const view = master?.view;
-  if (!master || !view?.deckMaster) return false;
-  const card = masterCard(view);
-  const keys = withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]);
-  if (anyLegal(keys, master.legalKeys)) return master.canAct;
-  return master.local && master.canAct && master.legalActionsFor(card, keys).length > 0;
-}
-
 export interface TagDrawersProps {
   hud: HudPaneState;
   panels: Record<LeftPane, ReactNode>;
@@ -122,8 +107,6 @@ export interface TagDrawersProps {
   nameOf: (seat: number) => string;
   seatTones: ReadonlyMap<number, { main: string; ink: string }>;
   logUnread: number;
-  master: HudMasterProps | null;
-  otherMaster?: HudMasterProps | null;
   onInspect: (target: InspectTarget) => void;
   preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean } | null;
   equipLinks?: EquipLinks;
@@ -133,7 +116,7 @@ export interface TagDrawersProps {
   ownSeats?: readonly number[];
 }
 
-export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats }: TagDrawersProps) {
+export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, onInspect, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats }: TagDrawersProps) {
   const { pane, setPane, close, pinAnchor } = hud;
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
@@ -148,15 +131,7 @@ export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, l
     target?.focus({ preventScroll: true });
   }, [close, pinAnchor]);
 
-  const mastersOpen = pane === "master" || pane === "other";
   const [chainShown, setChainShown] = useState(false);
-  const ownAttention = masterNeedsYou(master);
-  const hasMasters = master != null || otherMaster != null;
-  const inspectMaster = (view: HudMasterProps["view"]) => {
-    const info = view?.deckMaster?.card;
-    if (info) onInspect({ type: "info", card: info });
-    setPane("card");
-  };
   const leftPanes = LEFT_TAB_ORDER.filter((id) => id !== "camera" || hud.dock.includes("camera"));
   const rootRef = useRef<HTMLDivElement>(null);
   const heights = useLeftTabHeights(rootRef, [leftPanes.length, chainOpen, logUnread, chain.length]);
@@ -194,34 +169,6 @@ export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, l
             <PaneHead title="Chain" onClose={() => setChainShown(false)} />
             <div className={styles.chainHost}>
               <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} />
-            </div>
-          </EdgeDrawer>
-        </div>
-      ) : null}
-      {hasMasters ? (
-        <div data-hud-keep="" style={{ display: "contents" }} data-testid="hud-drawer-masters">
-          <EdgeDrawer
-            side="right"
-            label="Deck Master"
-            icon={<Crown strokeWidth={1.75} />}
-            tone="gold"
-            attention={ownAttention}
-            shortcut="m"
-            open={mastersOpen}
-            className={mastersOpen ? styles.open : undefined}
-            onOpenChange={(next) => (next ? setPane("master") : mastersOpen ? setPane(null) : undefined)}
-            size={LEFT_SIZE.masters}
-            tabOffset="40%"
-          >
-            <PaneHead title="Deck Masters" onClose={close} />
-            <div className={styles.mastersHost} style={{ "--hud-master-art-h": "170px", "--hud-master-ability-h": "104px", "--hud-master-w": "100%" } as CSSProperties}>
-              {/* Always mounted, like the panels: the plate is the Deck Master Zone anchor of its seat (flights read it). */}
-              {master ? (
-                <GridMasterToken {...master} wide open={false} onToggle={() => inspectMaster(master.view)} onClose={close} onInspect={(target) => { onInspect(target); setPane("card"); }} />
-              ) : null}
-              {otherMaster ? (
-                <GridMasterToken {...otherMaster} wide slot="other" open={false} onToggle={() => inspectMaster(otherMaster.view)} onClose={close} onInspect={(target) => { onInspect(target); setPane("card"); }} />
-              ) : null}
             </div>
           </EdgeDrawer>
         </div>

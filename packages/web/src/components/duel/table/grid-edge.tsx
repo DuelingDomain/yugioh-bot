@@ -1,16 +1,12 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Crown, Link2, ScrollText, Search, SlidersHorizontal } from "lucide-react";
+import { Link2, ScrollText, Search, SlidersHorizontal } from "lucide-react";
 import type { DuelChainLink } from "@yugidraft/shared/duels";
 import { EdgeDrawer } from "@/components/duel/edge-drawer";
-import { LOCATION_DMZONE, zoneKey } from "../constants";
-import { masterCard, withExact } from "../field";
-import { anyLegal } from "../field-keys";
 import { cardScrollerProps, type InspectTarget } from "../inspector";
 import { ChainTower, type HudPane } from "./grid-hud";
-import { GridMasterToken } from "./grid-master";
-import type { HudMasterProps, HudPaneState } from "./hud-layer";
+import type { HudPaneState } from "./hud-layer";
 import styles from "./grid-hud.module.css";
 
 /**
@@ -57,47 +53,17 @@ export interface EdgeHudProps {
   nameOf: (seat: number) => string;
   seatTones: ReadonlyMap<number, { main: string; ink: string }>;
   logUnread: number;
-  master: HudMasterProps | null;
   onInspect: (target: InspectTarget) => void;
 }
 
-/** Is a Deck Master action open to you now (a summon, a set, an attack, an activation, or a pick the prompt asks for). */
-function masterNeedsYou(master: HudMasterProps | null): boolean {
-  const view = master?.view;
-  if (!master || !view?.deckMaster || !master.canAct) return false;
-  const card = masterCard(view);
-  const keys = withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]);
-  if (anyLegal(keys, master.legalKeys)) return true;
-  return master.local && card != null && master.legalActionsFor(card, keys).length > 0;
-}
-
-export function EdgeHud({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, onInspect }: EdgeHudProps) {
+export function EdgeHud({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, onInspect }: EdgeHudProps) {
   const { pane, setPane } = hud;
-  // The details of the Deck Master plate (Inspect on the plate): open inside the plate, and shut again when the drawer closes.
-  const [details, setDetails] = useState(false);
-  useEffect(() => { if (pane !== "master") setDetails(false); }, [pane]);
-
   const entries: Entry[] = [];
   entries.push({
     id: "log", label: "Log", icon: <ScrollText />, count: logUnread, attention: logUnread > 0, shortcut: "l", size: "min(460px, 92vw)",
     node: panels.log,
   });
   entries.push({ id: "settings", label: "Settings", icon: <SlidersHorizontal />, size: "min(420px, 92vw)", node: panels.settings });
-  if (master?.view?.deckMaster) {
-    entries.push({
-      id: "master", label: "Deck Master", icon: <Crown />, tone: "gold", attention: masterNeedsYou(master), shortcut: "m", size: "min(300px, 92vw)",
-      node: (
-        <GridMasterToken
-          {...master}
-          wide
-          open={details}
-          onToggle={() => setDetails((now) => !now)}
-          onClose={() => setDetails(false)}
-          onInspect={(target) => { onInspect(target); setPane("card"); }}
-        />
-      ),
-    });
-  }
   if (chainOpen && chain.length > 0) {
     entries.push({
       id: "chain", label: "Chain", icon: <Link2 />, count: chain.length, attention: true, tone: "gold", size: "min(300px, 92vw)",
