@@ -126,6 +126,11 @@ function tinyHandRect(row: HTMLElement | null): DOMRect | null {
   return box;
 }
 
+/** Does a box come within a few pixels of a control the emblem must not cover? */
+function overlapsControl(controls: DOMRect[], x: number, y: number, w: number, h: number): boolean {
+  return controls.some((r) => x < r.right + 4 && x + w > r.left - 4 && y < r.bottom + 1 && y + h > r.top - 1);
+}
+
 /** The small name box around a badge slot (a holo LP plate on a phone): the first ancestor that is 60 x 30 or more. */
 function smallPlateOf(slot: HTMLElement | null): DOMRect | null {
   let el: HTMLElement | null = slot?.parentElement ?? null;
@@ -137,18 +142,30 @@ function smallPlateOf(slot: HTMLElement | null): DOMRect | null {
 }
 
 /**
- * A phone shrinks the hand to a few pixels per card. A set-apart emblem then stays a small portrait but stands on free table:
- * left of the hand, or else under the hand and the name box. Null: neither fits, the badge stays on its plate.
+ * A phone shrinks the hand to a few pixels per card. A set-apart emblem then stands on free table instead of on its plate:
+ * left of the hand (as wide as a hand card when the room allows, never under 28 px), or else under the hand and the name box.
+ * `under` is off for Tag, where the strip under the hand is the plate itself. Null: nothing fits, the badge stays on its plate.
  */
-function smallHandSpot(hand: DOMRect, slot: HTMLElement | null, vh: number): EmblemBox | null {
-  const width = EMBLEM_FALLBACK_MIN_W;
-  const height = Math.round(width / CARD_RATIO);
+function smallHandSpot(hand: DOMRect, slot: HTMLElement | null, vh: number, cardW: number, under: boolean, controls: DOMRect[]): EmblemBox | null {
+  const blocked = (x: number, y: number, w: number, h: number) => overlapsControl(controls, x, y, w, h);
   const plate = smallPlateOf(slot);
-  const beside = { left: Math.round(hand.left - 8 - width), top: Math.round(hand.top) };
-  const clearOfPlate = !plate || plate.right + 4 <= beside.left || plate.bottom + 2 <= beside.top || plate.top >= beside.top + height;
-  if (beside.left >= 6 && beside.top + height <= vh - 8 && clearOfPlate) return { ...beside, width, height, docked: false };
-  const under = { left: Math.round(Math.max(6, plate ? plate.left : hand.left)), top: Math.round(Math.max(hand.bottom, plate?.bottom ?? 0) + 8) };
-  return under.top + height <= vh - 8 ? { ...under, width, height, docked: false } : null;
+  const room = Math.floor(hand.left - 8 - 6);
+  const width = Math.min(Math.max(EMBLEM_FALLBACK_MIN_W, Math.round(cardW)), room);
+  if (width >= EMBLEM_FALLBACK_MIN_W) {
+    const height = Math.round(width / CARD_RATIO);
+    const left = Math.round(hand.left - 8 - width);
+    // Level with the top of the hand, or else standing on a control that sits just under the hand row.
+    const tops = [Math.round(hand.top), ...controls.filter((r) => r.left < left + width && r.right > left && r.top > hand.top).map((r) => Math.round(r.top - 1 - height))];
+    for (const top of tops) {
+      const clearOfPlate = !plate || plate.right + 4 <= left || plate.bottom + 2 <= top || plate.top >= top + height;
+      if (top >= hand.top - 8 && top + height <= vh - 8 && clearOfPlate && !blocked(left, top, width, height)) return { left, top, width, height, docked: false };
+    }
+  }
+  if (!under) return null;
+  const w = EMBLEM_FALLBACK_MIN_W;
+  const h = Math.round(w / CARD_RATIO);
+  const spot = { left: Math.round(Math.max(6, plate ? plate.left : hand.left)), top: Math.round(Math.max(hand.bottom, plate?.bottom ?? 0) + 8) };
+  return spot.top + h <= vh - 8 && !blocked(spot.left, spot.top, w, h) ? { ...spot, width: w, height: h, docked: false } : null;
 }
 
 /**
@@ -162,6 +179,9 @@ export function measureEmblem(slot: HTMLElement | null, seat: number, apart: boo
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const row = document.querySelector<HTMLElement>(`[data-hand-seat="${seat}"][data-side="you"]`);
+  // Table controls the emblem must never cover (they carry data-dm-avoid); a tighter gap may clear them.
+  const controls = Array.from(document.querySelectorAll<HTMLElement>("[data-dm-avoid]"), (el) => el.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
+  const onControl = (x: number, y: number, w: number, h: number) => overlapsControl(controls, x, y, w, h);
   let first: { rect: DOMRect; el: HTMLElement } | null = null;
   if (row) {
     for (const el of Array.from(row.querySelectorAll<HTMLElement>("[data-hand-card], button[data-zones]"))) {
@@ -200,7 +220,7 @@ export function measureEmblem(slot: HTMLElement | null, seat: number, apart: boo
           options.push({ width: Math.round(lifted * CARD_RATIO), height: lifted, bottom: plate.top - plateGap });
         }
       }
-      const best = options.filter((o) => o.width >= EMBLEM_MIN_W && right - o.width >= 8).sort((x, y) => y.height - x.height)[0];
+      const best = options.filter((o) => o.width >= EMBLEM_MIN_W && right - o.width >= 8 && !onControl(right - o.width, o.bottom - o.height, o.width, o.height)).sort((x, y) => y.height - x.height)[0];
       if (!best) continue;
       const candidate = { box: { left: Math.round(right - best.width), top: Math.round(best.bottom - best.height), width: best.width, height: best.height, docked: true, gap }, shrink: height - best.height };
       if (!found || candidate.shrink < found.shrink) found = candidate;
@@ -208,14 +228,15 @@ export function measureEmblem(slot: HTMLElement | null, seat: number, apart: boo
     }
     if (found) return found.box;
   }
-  if (apart && (!first || first.rect.width < EMBLEM_MIN_W)) {
+  if (apart) {
     const hand = tinyHandRect(row);
-    const spot = hand ? smallHandSpot(hand, slot, vh) : null;
+    const spot = hand ? smallHandSpot(hand, slot, vh, first?.rect.width ?? EMBLEM_FALLBACK_MIN_W, apart !== "lift", controls) : null;
     if (spot) return spot;
   }
   const s = slot?.getBoundingClientRect();
   if (!s || s.width < 4 || s.height < 4) return null;
-  const width = Math.round(Math.max(EMBLEM_FALLBACK_MIN_W, Math.min(EMBLEM_FALLBACK_W, s.width * 1.25)));
+  // No wider than the slot, so the emblem never reaches over the plate beside it.
+  const width = Math.round(Math.max(EMBLEM_FALLBACK_MIN_W, Math.min(EMBLEM_FALLBACK_W, s.width)));
   const height = Math.round(width / CARD_RATIO);
   return {
     left: Math.round(Math.max(4, Math.min(s.left + s.width / 2 - width / 2, vw - width - 4))),
@@ -360,6 +381,8 @@ export function DeckMasterBadge({
     "data-emblem": emblem ? (box?.docked ? "docked" : "plate") : undefined,
     // Set apart only while the emblem stands beside the hand; the small plate fallback keeps the plain badge.
     "data-apart": emblem && apart && box?.docked ? "true" : undefined,
+    // A small portrait (a phone): its pills tuck inside the card so they cannot reach over the table.
+    "data-tiny": emblem && box && box.width < 40 ? "true" : undefined,
     "data-testid": "dm-badge-wrap",
     "data-badge-seat": view.seat,
   };
