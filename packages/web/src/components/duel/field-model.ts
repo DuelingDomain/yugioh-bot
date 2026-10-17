@@ -45,6 +45,8 @@ export type DuelFieldProps = {
    * zones. The lane takes height from the board (the zones shrink a little). Leave it out and the board is as before.
    */
   hub?: ReactNode;
+  /** The Deck Master badge of a seat, drawn in its name plate (Domain only; master-badge.tsx). Leave it out for no badge. */
+  masterBadge?: (seat: number, side: "opp" | "you") => ReactNode;
 };
 
 /**

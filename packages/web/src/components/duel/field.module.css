@@ -283,6 +283,22 @@
     :global([data-hud="room"]) .stripBottom > .tally {
       bottom: 100%;
     }
+
+    /* In the wide margin the badge stands beside the name plate, at the board side of the left margin: the rival's above
+       its tally, yours above yours, so the badge never covers the field and the tally keeps its place. */
+    :global([data-hud="room"]) .tally > .tBadge {
+      --dm-badge-size: clamp(52px, 7dvh, 80px);
+      top: auto;
+      right: auto;
+      left: 0;
+      translate: none;
+    }
+    :global([data-hud="room"]) .stripTop > .tally > .tBadge {
+      top: calc(100% + 18px);
+    }
+    :global([data-hud="room"]) .stripBottom > .tally > .tBadge {
+      bottom: calc(100% + 18px);
+    }
   }
 }
 
@@ -354,10 +370,22 @@
 }
 
 .tally {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
   min-width: 0;
+}
+
+/* The Deck Master badge (master-badge.tsx). It never takes room from the tally: it floats at the tally's outer corner.
+   Compact layout: pinned to the right end of the tally, over the gap before the hand. */
+.tBadge {
+  --dm-badge-size: calc(var(--tally-h) * 0.82);
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: calc(var(--sg) * -1 - var(--dm-badge-size) * 0.5);
+  translate: 0 -50%;
 }
 
 .tHead {

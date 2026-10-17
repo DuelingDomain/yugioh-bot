@@ -66,6 +66,7 @@ import { TableShell, type TableShellProps } from "./table/table-shell";
 import type { ReplayCarry } from "./table/replay-mode";
 import { ForkLabelsContext } from "./table/fork-labels";
 import { MasterSeatsContext } from "./master-place";
+import { MasterBadgeContext, SeatMasterBadge, type MasterBadgeSource } from "./master-badge";
 import { TagShell } from "./tag/tag-shell";
 import { fieldWaitsForReveal } from "./field-gate";
 import { defaultTeamNames } from "./tag/live-tag";
@@ -1539,6 +1540,15 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   );
   const hudMaster = (seatView: NonNullable<typeof engine>["seats"][number] | undefined, local: boolean, title: string) =>
     hudMasterProps({ legalKeys: fieldLegalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title, true);
+  // The Deck Master badges (name plates of the 1v1 board and the 3D room) read the master of their seat from here.
+  const masterBadges: MasterBadgeSource | null = domain && engine && !multi ? {
+    forSeat: (seat) => {
+      const seatView = engine.seats.find((entry) => entry.seat === seat);
+      const mine = seat === localSeat;
+      return hudMaster(seatView, mine && !spectator, mine ? (spectator || forkMode ? `${playerName(seat)}'s Master` : "Your Master") : `${playerName(seat)}'s Master`);
+    },
+    onInspect: (target) => showInspector(target, true),
+  } : null;
 
   // The pieces of the flat page, built once so the classic page and the 3D mode page (SolidRoom) show the same nodes.
   const wordmark = <Link href="/duels" replace={inDuelWindow}>Dueling Domain</Link>;
@@ -1666,6 +1676,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     bottomName: playerName(localSeat),
     topName: playerName(top?.seat ?? 1 - localSeat),
     hub: hubNode,
+    masterBadge: masterBadges ? (seat: number, side: "opp" | "you") => <SeatMasterBadge seat={seat} side={side} shortcut={seat === localSeat && !spectator} /> : undefined,
   } : null;
   // The board: the field (given by the caller), the FX layers as flat siblings of it, the prompt layer and the pile viewer.
   const renderBoard = (field: ReactNode): ReactNode => engine ? (
@@ -1769,7 +1780,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 
   if (solid) {
     return withCracks(
-      <ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
+      <ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}><MasterBadgeContext.Provider value={masterBadges}>
         <SolidRoom
           slug={slug}
           boardRef={boardRef}
@@ -1816,12 +1827,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           boardQuiet={boardQuiet}
           onBeforeViewChange={beforeViewChange}
         />
-      </DeckSurrenderContext.Provider></ForkSearchContext.Provider>,
+      </MasterBadgeContext.Provider></DeckSurrenderContext.Provider></ForkSearchContext.Provider>,
     );
   }
 
   return withCracks(
-    <ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
+    <ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}><MasterBadgeContext.Provider value={masterBadges}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
       data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
       data-hud={hud ? "room" : undefined}
@@ -1895,8 +1906,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           nameOf={playerName}
           seatTones={hudSeatTones}
           logUnread={logUnread}
-          master={domain ? hudMaster(engine.seats.find((seat) => seat.seat === localSeat), !spectator, spectator || forkMode ? `${playerName(localSeat)}'s Master` : "Your Master") : null}
-          otherMaster={domain && top ? hudMaster(top, false, `${playerName(top.seat)}'s Master`) : null}
           onInspect={setInspect}
           preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
@@ -1908,6 +1917,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       ) : null}
       {overlaysNode}
     </div>
-    </DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>,
+    </MasterBadgeContext.Provider></DeckSurrenderContext.Provider></ForkSearchContext.Provider></ForkLabelsContext.Provider>,
   );
 }

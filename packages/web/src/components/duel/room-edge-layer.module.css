@@ -39,20 +39,3 @@
 .pane[data-pane="log"] { --ft: 1; }
 .pane[data-pane="log"] .paneBody { overflow: hidden; }
 
-/* A Deck Master plate in a drawer: in the flow, at the bottom (yours) or the top (the rival's) of the drawer. */
-.masterHost {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
-  background: rgb(9 15 29 / 0.97);
-}
-.masterHost[data-slot="own"] { justify-content: flex-end; }
-.masterHost[data-slot="other"] { justify-content: flex-start; }
-.masterHost > [data-hud-keep][data-slot] {
-  position: relative;
-  inset: auto;
-  width: 100%;
-}

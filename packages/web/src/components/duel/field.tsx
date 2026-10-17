@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Link2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -522,6 +522,7 @@ export function Tally({
   spectator,
   reducedMotion,
   acting = false,
+  badge = null,
 }: {
   side: "opp" | "you";
   name: string;
@@ -533,6 +534,8 @@ export function Tally({
   reducedMotion: boolean;
   /** A replay fork: the seat that answers. Tagged "Acting" next to the name. */
   acting?: boolean;
+  /** The Deck Master badge: a round portrait in the name plate (see master-badge.tsx). */
+  badge?: ReactNode;
 }) {
   const styles = useSkinStyles(baseStyles, "field");
   const priority = priorityLabel ? (
@@ -543,7 +546,8 @@ export function Tally({
     </span>
   ) : null;
   return (
-    <div className={styles.tally} data-side={side} data-lp-seat={seatKey} data-active={active ? "true" : "false"}>
+    <div className={styles.tally} data-side={side} data-lp-seat={seatKey} data-active={active ? "true" : "false"} data-badge={badge ? "true" : undefined}>
+      {badge ? <div className={styles.tBadge}>{badge}</div> : null}
       <div className={styles.tHead}>
         <span className={styles.tIdentity}>
           <span className={styles.tWho} aria-hidden={spectator && priorityLabel ? true : undefined}>{name}</span>
@@ -928,6 +932,7 @@ export function DuelField(props: DuelFieldProps) {
             acting={actingSeat === topIndex}
             spectator={mySeat == null || props.named === true}
             reducedMotion={reducedMotion}
+            badge={top ? props.masterBadge?.(top.seat, "opp") : null}
           />
           {top ? (
             <HandStrip
@@ -989,6 +994,7 @@ export function DuelField(props: DuelFieldProps) {
             acting={actingSeat === bottomIndex}
             spectator={mySeat == null || props.named === true}
             reducedMotion={reducedMotion}
+            badge={bottom ? props.masterBadge?.(bottom.seat, "you") : null}
           />
           {bottom ? (
             <HandStrip

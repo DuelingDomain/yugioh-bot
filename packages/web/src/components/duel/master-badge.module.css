@@ -1,0 +1,226 @@
+/* The Deck Master portrait badge and its pop-over (master-badge.tsx). The badge is sized by its parent through
+   --dm-badge-size; the pop-over is a portal on the page body, so it carries its own tokens. */
+
+.wrap {
+  --d: var(--dm-badge-size, clamp(44px, 6.2vh, 72px));
+  --ring: rgb(139 92 246 / 0.8);
+  --ring-glow: rgb(139 92 246 / 0.4);
+  position: relative;
+  flex: none;
+  width: var(--d);
+  height: var(--d);
+}
+.wrap[data-local="false"] { --ring: rgb(155 126 255 / 0.7); }
+
+.badge {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 2px solid var(--ring);
+  border-radius: 50%;
+  background: #0c1224;
+  box-shadow: 0 0 12px var(--ring-glow);
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+}
+.badge:hover { transform: scale(1.04); }
+.badge:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.wrap[data-open="true"] .badge { border-color: #f0cd78; }
+
+/* You can act with the master now: a gold ring that breathes, and the "Ready" tag. */
+.wrap[data-ready="true"] { --ring: #f0cd78; }
+.wrap[data-ready="true"] .badge {
+  box-shadow: 0 0 0 2px rgb(240 205 120 / 0.3), 0 0 20px 3px rgb(240 205 120 / 0.55);
+  animation: dm-breathe 3.2s ease-in-out infinite;
+}
+@keyframes dm-breathe {
+  0%, 100% { box-shadow: 0 0 0 2px rgb(240 205 120 / 0.25), 0 0 14px 1px rgb(240 205 120 / 0.4); }
+  50% { box-shadow: 0 0 0 3px rgb(240 205 120 / 0.4), 0 0 26px 5px rgb(240 205 120 / 0.65); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wrap[data-ready="true"] .badge { animation: none; }
+  .badge { transition: none; }
+}
+:global([data-reduced-motion="true"]) .wrap[data-ready="true"] .badge { animation: none; }
+
+.art {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+}
+/* The art window of the card, cropped round: the picture is wider than the badge and pulled up to centre the art. */
+.art img {
+  position: absolute;
+  left: -35%;
+  top: -57%;
+  width: 170%;
+  max-width: none;
+  height: auto;
+  user-select: none;
+  pointer-events: none;
+}
+/* The master is out of its zone: an empty well, the card comes back into it on the return flight. */
+.art[data-in-use="true"] { background: radial-gradient(circle at 50% 40%, rgb(30 38 72) 0%, rgb(12 18 36) 75%); }
+.well { color: rgb(170 179 207 / 0.7); }
+
+.crown {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  display: grid;
+  place-items: center;
+  width: calc(var(--d) * 0.34);
+  height: calc(var(--d) * 0.34);
+  min-width: 18px;
+  min-height: 18px;
+  border: 2px solid #0a1026;
+  border-radius: 50%;
+  background: #4a2fb0;
+  color: #e4dbff;
+  pointer-events: none;
+}
+.wrap[data-local="true"] .crown { background: linear-gradient(180deg, #f0cd78, #c79a3c); color: #2a1d00; }
+
+.ready,
+.state {
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-family: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ready {
+  top: -9px;
+  background: linear-gradient(180deg, #f6dc92, #d9a944);
+  color: #2a1d00;
+  box-shadow: 0 0 10px rgb(240 205 120 / 0.55);
+}
+.ready i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2a1d00;
+}
+.state {
+  bottom: -8px;
+  border: 1px solid rgb(214 196 150 / 0.35);
+  background: rgb(8 12 28 / 0.94);
+  color: #c3bba8;
+}
+.state[data-place="field"],
+.state[data-place="elsewhere"] { color: #f0cd78; border-color: rgb(240 205 120 / 0.5); }
+
+/* ---------- pop-over ---------- */
+
+.pop {
+  --duel-ink: #efe7d5;
+  --duel-ink-2: #c3bba8;
+  --duel-ink-3: #958f81;
+  --duel-gold: #e4b64f;
+  --duel-pen-ink: #c6b6ff;
+  position: fixed;
+  z-index: var(--duel-z-menu, 100);
+  box-sizing: border-box;
+  width: min(330px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid rgb(214 196 150 / 0.34);
+  border-radius: 12px;
+  background: rgb(8 12 28 / 0.97);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.4);
+  color: var(--duel-ink);
+  font-family: var(--sv-font, var(--font-duel-ui)), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  font-size: 14px;
+  line-height: 1.3;
+  scrollbar-width: thin;
+  animation: dm-pop-in 0.14s ease-out;
+}
+@keyframes dm-pop-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pop { animation: none; }
+}
+:global([data-reduced-motion="true"]) .pop { animation: none; }
+
+.popTop { display: flex; gap: 12px; }
+.popArt {
+  flex: none;
+  width: 108px;
+  height: auto;
+  align-self: flex-start;
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.5);
+}
+.popHead { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
+.popKicker {
+  color: var(--duel-gold);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.popName { color: #fff; font-size: 19px; line-height: 1.15; overflow-wrap: anywhere; }
+.popLine { color: var(--duel-ink-2); font-size: 13px; }
+.popStats { display: flex; gap: 12px; margin-top: 2px; color: var(--duel-ink-3); font-size: 11px; letter-spacing: 0.06em; }
+.popStats b { color: #fff; font-size: 19px; letter-spacing: 0; }
+.popWhere { margin-top: 4px; color: var(--duel-pen-ink); font-size: 13px; font-weight: 600; }
+.popCost { color: var(--duel-ink); font-size: 13px; font-weight: 700; }
+.popEffect {
+  max-height: 150px;
+  margin: 10px 0 0;
+  padding-top: 8px;
+  overflow-y: auto;
+  border-top: 1px solid rgb(214 196 150 / 0.2);
+  color: var(--duel-ink-2);
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: pre-line;
+  scrollbar-width: thin;
+}
+.popActs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.act {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 78px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgb(155 126 255 / 0.5);
+  border-radius: 6px;
+  background: rgb(87 51 209 / 0.14);
+  color: var(--duel-pen-ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.act small { color: inherit; font-size: 11px; font-weight: 600; opacity: 0.85; }
+.act:hover:not(:disabled) { background: rgb(87 51 209 / 0.3); }
+.act:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.act[data-primary="true"]:not(:disabled) {
+  border-color: #f0cd78;
+  background: linear-gradient(180deg, #f6dc92, #d9a944);
+  color: #2a1d00;
+}
+.act:disabled { border-color: rgb(214 196 150 / 0.18); background: transparent; color: var(--duel-ink-3); cursor: default; opacity: 0.7; }
