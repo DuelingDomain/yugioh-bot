@@ -89,6 +89,7 @@ export function DeckImportPanel({
       {showSource ? (
         <div className={styles.importSource}>
           <Segmented label="Save as" value={mode} options={MODE_CHOICES} disabled={busy} onChange={setMode} />
+          {mode === "genesys" || mode === "genesys-domain" ? <p className={styles.hintText}>Genesys decks save with a 100 point cap. The file is not checked for points; the editor shows the total.</p> : null}
           <Segmented label="Import from" value={tab} options={TABS} disabled={busy} onChange={setTab} />
 
           {tab === "files" ? (

@@ -12,10 +12,12 @@ import {
 export const MODE_CHOICES = [
   { value: "standard" as const, label: "Standard" },
   { value: "domain" as const, label: "Domain" },
+  { value: "genesys" as const, label: "Genesys" },
+  { value: "genesys-domain" as const, label: "Genesys Domain" },
 ] satisfies ReadonlyArray<{ value: ImportMode; label: string }>;
 
 export function importModeLabel(mode: ImportMode): string {
-  return mode === "domain" ? "Domain" : "Standard";
+  return MODE_CHOICES.find((choice) => choice.value === mode)?.label ?? "Standard";
 }
 
 /**
