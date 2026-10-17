@@ -808,13 +808,16 @@ button.bpill[data-targets="true"] { border-color: rgb(240 192 96 / 0.85); }
   transition: box-shadow 0.3s;
 }
 
-/* The Deck Master portrait badge, on the chip's top right. It sizes itself from --dm-badge-size; its state pill is hidden by data-dm-compact (the pop-over says it). */
+/* The Deck Master portrait badge, in a reserved gap at the chip's right end (it never covers the clock). */
+.mchipWrap[data-has-badge="true"] .mchip { padding-right: calc(36 * var(--u)); }
+/* The Deck Master portrait badge, on the chip's right. It sizes itself from --dm-badge-size; its state pill is hidden by data-dm-compact (the pop-over says it). */
 .mbadge {
-  --dm-badge-size: calc(32 * var(--u));
+  --dm-badge-size: calc(26 * var(--u));
   position: absolute;
   z-index: 2;
-  right: calc(-7 * var(--u));
-  top: calc(-8 * var(--u));
+  right: calc(4 * var(--u));
+  top: 50%;
+  translate: 0 -50%;
 }
 
 .m1 {
@@ -1373,7 +1376,7 @@ button.bpill[data-targets="true"] { border-color: rgb(240 192 96 / 0.85); }
   .mchip { display: flex; align-items: center; gap: calc(8 * var(--u)); }
   .m2 { margin-top: 0; }
   .clk { margin-left: 0; }
-  .mbadge { --dm-badge-size: calc(30 * var(--u)); top: calc(-5 * var(--u)); right: calc(-6 * var(--u)); }
+  .mbadge { --dm-badge-size: calc(26 * var(--u)); right: calc(3 * var(--u)); }
   .handDock { height: calc(117 * var(--u)); }
   .hcard { width: calc(65 * var(--u)); }
   .pcd { width: calc(49 * var(--u)); }

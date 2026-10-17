@@ -96,7 +96,7 @@ function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number)
   // The Deck Master badge is a sibling of the chip, not inside it: a button in a pickable chip would nest controls, and its
   // Enter key would bubble into the chip and pick the seat.
   return (
-    <div className={styles.mchipWrap} style={style}>
+    <div className={styles.mchipWrap} data-has-badge={member.badge ? "true" : undefined} style={style}>
       <div
         className={styles.mchip}
         data-lp-seat={member.seat}
