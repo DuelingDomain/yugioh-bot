@@ -119,18 +119,58 @@ it.each(["duel", "presence"] as const)("refreshes a rejected token and reconnect
   expect(view.result.current).toMatchObject(hook === "duel" ? { connected: true } : { onlineSeats: [1] });
 });
 
-it.each(["duel", "presence"] as const)("bounds token rejection retries for the %s hook", async (hook) => {
+it("bounds token rejection retries for the presence hook", async () => {
   vi.useFakeTimers();
-  vi.stubGlobal("fetch", vi.fn(async () => {
+  let attempts = 0;
+  vi.stubGlobal("fetch", async () => {
+    attempts++;
     sockets[0].join.mockImplementation((_event, _payload, ack) => ack(null, { ok: false, error: "invalid token" }));
     return Response.json({ token: "rejected", guildId: "g1", expiresAt: Date.now() + 300_000 });
-  }));
-  const view = renderHook(() => hook === "duel" ? useDuelWebsocket("alpha", 0, async () => {}) : useDuelPresence("alpha"));
+  });
+  const view = renderHook(() => useDuelPresence("alpha"));
   await act(async () => {});
   await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-  expect(fetch).toHaveBeenCalledTimes(2);
-  expect(sockets[0].join).toHaveBeenCalledTimes(2);
-  expect(view.result.current).toEqual(hook === "duel" ? expect.objectContaining({ connected: false }) : null);
+  expect(attempts).toBe(2);
+  expect(view.result.current).toBeNull();
+});
+
+it("recovers the duel subscription on the same socket with capped token retry backoff", async () => {
+  vi.useFakeTimers();
+  let attempts = 0;
+  let refusing = true;
+  vi.stubGlobal("fetch", async () => {
+    attempts++;
+    sockets[0].join.mockImplementation((_event, _payload, ack) => ack(null, refusing
+      ? { ok: false, error: attempts % 2 ? "invalid token" : "expired token" }
+      : { ok: true, onlineSeats: [1], spectatorCount: 0 }));
+    return Response.json({ token: `token-${attempts}`, guildId: "g1", expiresAt: Date.now() + 300_000 });
+  });
+  const { result, unmount } = renderHook(() => useDuelWebsocket("alpha", 0, async () => {}));
+  await act(async () => {});
+  expect(attempts).toBe(2);
+  expect(result.current.connected).toBe(false);
+  for (const delay of [3000, 6000, 12000, 24000, 30000, 30000]) {
+    const before = attempts;
+    await act(async () => { await vi.advanceTimersByTimeAsync(delay - 1); });
+    expect(attempts).toBe(before);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(attempts).toBe(before + 2);
+    expect(result.current.connected).toBe(false);
+  }
+  refusing = false;
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+  expect(result.current).toMatchObject({ connected: true, recovering: false, presence: { onlineSeats: [1] } });
+  expect(sockets).toHaveLength(1);
+  expect(sockets[0].id).toBe("first");
+
+  refusing = true;
+  await act(async () => { sockets[0].handlers.get("duel:subscription-expired")?.({ slug: "alpha" }); });
+  const before = attempts;
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(attempts).toBe(before + 2);
+  unmount();
+  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  expect(attempts).toBe(before + 2);
 });
 
 it.each(["duel", "presence"] as const)("keeps network recovery after a token refresh for the %s hook", async (hook) => {

@@ -51,7 +51,8 @@ export function useSavedDecks(roomSlug?: string) {
     if (!roomSlug) return;
     let stopped = false;
     const refresh = () => {
-      if (stopped || document.visibilityState === "hidden" || Date.now() - lastLoad.current < REFRESH_GAP_MS) return;
+      // Keep the initial request's visible success/error handling until a list is available to preserve.
+      if (stopped || latest.current == null || document.visibilityState === "hidden" || Date.now() - lastLoad.current < REFRESH_GAP_MS) return;
       lastLoad.current = Date.now();
       const mine = ++request.current;
       void listSavedDecks(undefined, roomSlug).then(

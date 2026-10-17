@@ -42,7 +42,6 @@ import {
   drainDeferredDestroys,
   moveReveals,
   nextBattleStep,
-  linkTargetPhrase,
   nameLinkTargets,
   noteChainTargetLog,
   noteDestroyLog,
@@ -56,16 +55,16 @@ import {
   projectView,
   resetEventBatch,
   snapshotLinkTargets,
-  targetEventLabels,
-  targetEventText,
+  updateTargetEvent,
   type DomainSeatState,
   type LogEntry,
   type StoredChainLink,
   type StoredDuelEvent,
 } from "./views.js";
 import { createDomainCore } from "../domain-core.js";
-import { fillPlaceholders } from "../text.js";
-import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines } from "../log-lines.js";
+import { createLogCardVisibility, destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleTargetCardCodes, type TargetQueryCache } from "../log-lines.js"; // LEGACY-1V1: per-viewer hint identity redaction
+import type { TargetDescription } from "../target-names.js";
+import type { EngineViewHistory } from "../engine.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -103,7 +102,7 @@ export interface EngineGameOptions {
 
 export interface EngineGame {
   diagnostics(): EngineDiagnostic[]; // LEGACY-1V1: private display error diagnostics
-  view(seat: number | null): DuelEngineView;
+  view(seat: number | null, history?: EngineViewHistory): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
   searchCards(query: string, seat?: number): DuelCardInfo[]; // LEGACY-1V1: seat-scoped card announcement search
   /** LEGACY-1V1: set a seat's chain response mode; true when it passed the open window. See ../engine.ts EngineGame.setChainMode. */
@@ -382,6 +381,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     lib.duelSetResponse(handle, response); // LEGACY-1V1: public chosen chain options
   }; // LEGACY-1V1: public chosen chain options
   const reveals = createRevealMap();
+  const targetQueryCache: TargetQueryCache = new Map();
+  eventContext.targetVisibility = (zone) => visibleTargetCardCodes({ lib, handle, format: "1v1", reveals, queryCache: targetQueryCache }, zone);
   let nextLogId = 1;
   let nextEventId = 1;
   let lastSelectHint: string | undefined;
@@ -389,10 +390,11 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let lastHintCard: number | undefined;
   let synchroSummon: MapPromptExtras["synchroSummon"];
   let sawRetry = false;
-  const hintCardName = () => (lastHintCard ? cards.get(lastHintCard)?.name : undefined);
 
-  const appendLog = (text: string, audience: "all" | number = "all"): LogEntry => {
-    const entry = { id: nextLogId++, text, audience };
+  const deckMasters = options.mode === "domain" ? options.decks.flatMap((deck) => deck.deckMaster ? [deck.deckMaster] : []) : []; // LEGACY-1V1: public Deck Master identities
+  const hintVisibility = createLogCardVisibility({ lib, handle, format: "1v1", reveals, deckMasters, queryCache: targetQueryCache });
+  const appendLog = (text: string, audience: "all" | number = "all", privateText?: Record<number, string>): LogEntry => { // LEGACY-1V1: viewer-specific hint text
+    const entry = { id: nextLogId++, text, audience, ...(privateText ? { privateText } : {}) }; // LEGACY-1V1: freeze eligible names at message time
     log.push(entry);
     if (log.length > 400) log.splice(0, log.length - 400);
     return entry;
@@ -425,16 +427,29 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let autoPickSeat: number | null = null;
   // Target lines whose names have not all arrived: the core can deliver a card's note in a later process call than the
   // target message, so the lines are written now and their text is completed by settleTargetNames.
-  const unnamedTargets: Array<{ link: StoredChainLink; event: StoredDuelEvent; lines: Array<{ entry: LogEntry; text: (phrase: string) => string }> }> = [];
+  type TargetLogLine = { entry: LogEntry; text: (phrase: string) => string };
+  const unnamedTargets: Array<{ link: StoredChainLink; event: StoredDuelEvent; lines: TargetLogLine[] }> = [];
+  const updateTargetLines = (lines: TargetLogLine[], description: TargetDescription) => {
+    for (const line of lines) {
+      line.entry.text = line.text(description.phrase);
+      if (line.entry.privateText) delete line.entry.privateText;
+      if (!description.private) continue;
+      for (const [viewer, named] of Object.entries(description.private)) {
+        const text = line.text(named.phrase);
+        if (text !== line.entry.text) (line.entry.privateText ??= {})[Number(viewer)] = text;
+      }
+    }
+  };
   /** The log lines of a chain link's target: the public line, and a private note when the player had no choice. */
   const logChainTarget = (event: StoredDuelEvent) => {
     const link = event.chainIndex != null ? chainMemory.find((entry) => entry.index === event.chainIndex) : undefined;
     if (!link || !event.targetAnnouncement) return;
     const snapshot = snapshotLinkTargets(link);
+    // CHAINING publicly announces its source, even when the effect activates from a hidden zone.
     const source = cards.get(link.code)?.name ?? `Card ${link.code}`;
-    const lines: Array<{ entry: LogEntry; text: (phrase: string) => string }> = [];
+    const lines: TargetLogLine[] = [];
     const add = (text: (phrase: string) => string, audience: "all" | number) => {
-      lines.push({ entry: appendLog(text(linkTargetPhrase(snapshot)), audience), text });
+      lines.push({ entry: appendLog("", audience), text });
     };
     add((phrase) => `Chain Link ${link.index}: ${source} targets ${phrase}`, "all");
     if (autoPickSeat === link.seat) {
@@ -442,8 +457,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       autoPickSeat = null;
     }
     const complete = nameLinkTargets(eventContext, snapshot, cards);
-    event.text = event.publicText = targetEventText(snapshot);
-    event.targetLabels = targetEventLabels(snapshot);
+    updateTargetLines(lines, updateTargetEvent(event, snapshot));
     if (!complete) {
       unnamedTargets.push({ link: snapshot, event, lines });
       // Match the event ring's bound even if a broken reporter never supplies the missing notes.
@@ -454,10 +468,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     for (let index = unnamedTargets.length - 1; index >= 0; index -= 1) {
       const pending = unnamedTargets[index]!;
       if (!nameLinkTargets(eventContext, pending.link, cards)) continue;
-      pending.event.text = pending.event.publicText = targetEventText(pending.link);
-      pending.event.targetLabels = targetEventLabels(pending.link);
-      const phrase = linkTargetPhrase(pending.link);
-      for (const line of pending.lines) line.entry.text = line.text(phrase);
+      updateTargetLines(pending.lines, updateTargetEvent(pending.event, pending.link));
       unnamedTargets.splice(index, 1);
     }
   };
@@ -502,7 +513,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     nextEventId += 1;
     markDestroyedLine(stored);
     events.push(stored);
-    if (events.length > 400) events.splice(0, events.length - 400);
+    hintVisibility.addEvent(stored);
+    if (events.length > 400) {
+      for (const expired of events.splice(0, events.length - 400)) hintVisibility.removeEvent(expired);
+    }
   };
 
   const flushDeferredDestroys = () => {
@@ -520,8 +534,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
           // Placeholders are filled when the prompt is built, against the card the prompt names.
           lastSelectHint = cards.resolveLabel(message.hint) || cards.system(Number(message.hint));
         } else if (message.hint_type === OcgHintType.EVENT || message.hint_type === OcgHintType.MESSAGE) {
-          const text = fillPlaceholders(cards.resolveLabel(message.hint) || cards.system(Number(message.hint)) || "", [hintCardName()]);
-          if (text) appendLog(text);
+          const line = hintLogLine(message.hint, lastHintCard, cards, hintVisibility); // LEGACY-1V1: redact literal names as well as placeholders
+          if (line) appendLog(line.text, line.audience, line.privateText); // LEGACY-1V1: preserve public card names
         } else if (message.hint_type === OcgHintType.CARD) {
           lastHintCard = Number(message.hint) || undefined;
         }
@@ -622,7 +636,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         return;
       case OcgMessageType.MOVE:
         moveReveals(reveals, message.from, message.to, message.card);
-        for (const line of moveLogLines(message, cards)) {
+        for (const line of moveLogLines(message, cards, undefined, deckMasters)) { // LEGACY-1V1: distinguish Deck Masters from unplaced cards
           const entry = appendLog(line.text, line.audience);
           // Parsed overlay locations name the host's field zone, but the material itself was not on the field.
           if (line.leftField && message.from.overlay_sequence == null) {
@@ -660,6 +674,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     while (!result) {
       if (processCalls++ >= CORE_PROCESS_CALL_LIMIT) throw new EngineLoopError();
       scriptErrors.enterProcess();
+      targetQueryCache.clear();
       let status: ReturnType<typeof lib.duelProcess>;
       try { status = lib.duelProcess(handle); }
       finally { scriptErrors.leaveProcess(); } // LEGACY-1V1: only runtime process errors are tolerable
@@ -746,8 +761,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   }
 
   const game: EngineGame = {
-    view(seat) {
+    view(seat, history) {
       if (closed) throw new Error("Engine is closed");
+      const logAfter = history?.logAfter, eventsAfter = history?.eventsAfter;
       if (seat != null && seat !== 0 && seat !== 1) throw new Error("Invalid seat");
       const projected = scriptErrors.query(() => projectView({
         lib,
@@ -762,8 +778,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         lp,
         prompt: pending?.prompt ?? null,
         promptSeat: pending?.seat ?? null,
-        log,
-        events,
+        log: logAfter == null ? log : log.filter((entry) => entry.id > logAfter),
+        events: eventsAfter == null ? events : events.filter((entry) => entry.id > eventsAfter),
         chain: chainMemory,
         result,
         reveals,

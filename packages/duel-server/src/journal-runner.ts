@@ -4,7 +4,7 @@ import {
   isEngineIdentity, isReplaySeed, isUnknownEngineChoice, sameEngineIdentity, seatCountFor, sourceEngineChoice,
   type DuelEngineView, type EngineIdentity, type ReplayJournalEntry, type ReplaySource,
 } from "@yugidraft/shared/duels";
-import { eliminationAtTurnEnd } from "./engine.js";
+import { eliminationAtTurnEnd, type EngineViewHistory } from "./engine.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { savedFirstTurnDraw } from "./first-turn-draw.js";
 import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
@@ -45,7 +45,7 @@ export interface JournalCheckpoint {
   actorSeat: number | null;
   input: ReplayJournalEntry | null;
   beforeRevision: number | null;
-  /** Full view for checkpointSeat. Caller controls replay sanitization and per-view deltas. */
+  /** Board and requested history for checkpointSeat. Caller controls replay sanitization and per-view deltas. */
   view: DuelEngineView;
 }
 
@@ -61,6 +61,8 @@ export interface JournalRunOptions {
   /** Optional replay capture, including count 0 and private no-op commands. */
   onCheckpoint?: (checkpoint: JournalCheckpoint) => void | Promise<void>;
   checkpointSeat?: number | null;
+  /** Replay builders can request new history only; default checkpoints retain the full view. */
+  checkpointHistory?: () => EngineViewHistory;
   target?: { revision: number; stateDigest?: string };
 }
 
@@ -185,7 +187,7 @@ export async function runJournalPrefix(options: JournalRunOptions): Promise<Jour
       const capture = async (prefixCount: number, input: ReplayJournalEntry | null, beforeRevision: number | null) => {
         if (!options.onCheckpoint) return;
         stage = "engine";
-        const view = await worker.view(options.checkpointSeat ?? null);
+        const view = await worker.view(options.checkpointSeat ?? null, options.checkpointHistory?.());
         stage = "capture";
         await options.onCheckpoint({ prefixCount, actorSeat: input?.seat ?? null, input, beforeRevision, view });
       };
@@ -193,7 +195,8 @@ export async function runJournalPrefix(options: JournalRunOptions): Promise<Jour
       for (let index = 0; index < options.prefixCount; index++) {
         const input = options.source.commands[index]!;
         stage = "engine";
-        const before = await worker.view(input.seat);
+        // Validation uses the prompt and revision; it does not consume the history ring.
+        const before = await worker.view(input.seat, { logAfter: Number.MAX_SAFE_INTEGER, eventsAfter: Number.MAX_SAFE_INTEGER });
         if (before.revision !== input.command.revision || (!isPromptlessCommand(input.command.promptId) && before.prompt?.id !== input.command.promptId)) {
           mismatch("Journal replay did not reproduce the saved revision or prompt");
         }

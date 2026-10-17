@@ -21,15 +21,12 @@ export const ENGINE_HOST_RULE_FILES = [
   "engine-loop-error", "engine-resource-resolver", "legacy/index", "prompt-trace", "chain-activator", "target-names",
 ] as const;
 
-/** Replay/fork compatibility version. Bump for engine/journal behavior changes; the CI
- * fingerprint guard in engine-resource-resolver.test.ts requires a matching baseline.
- * Comments and other behavior-neutral edits may refresh that baseline with a stated reason.
+/** Replay/fork compatibility version. Bump for engine/journal behavior changes.
  * Live play recovery deliberately does not gate on this version.
  */
-// Version 5 adds fixed FFA facing pairs and the configurable Domain FFA first-turn draw rule.
-// Genesys adds opt-in creation rules through saved settings; absent/null settings preserve every historical
-// flag and view. Keep the existing identity so older active replay forks can still recover.
-export const ENGINE_HOST_RULE_VERSION = "duel-rules-5";
+// Version 6 redacts viewer log identities, including hints and target names, and requires proven public move sources.
+// Genesys adds opt-in rules through saved settings; absent/null settings preserve the existing flags and views.
+export const ENGINE_HOST_RULE_VERSION = "duel-rules-6";
 
 export class EngineResourceUnavailableError extends Error {
   readonly code = "ENGINE_UNAVAILABLE_FOR_SOURCE";

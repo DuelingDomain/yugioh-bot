@@ -6,7 +6,7 @@ import { ChainRoomContext, type ChainStripSize } from "../table/chain-room";
 import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
 import { LOCATION_FZONE, LOCATION_MZONE, LOCATION_PZONE, LOCATION_SZONE, zoneKey } from "../constants";
-import { masterInUse, masterSummonLine } from "../master-place";
+import { SeatMasterBadge } from "../master-badge";
 import { isChainStripPrompt } from "../prompt-center";
 import { useStripRoom } from "../table/use-strip-room";
 import { hexToRgbTriplet } from "../table/seat-angle";
@@ -17,6 +17,10 @@ import { HelipadHub, type HubSeatTone } from "./helipad-hub";
 import { OwnHand, PartnerHand } from "./tag-hand";
 import {
   clampCenter,
+  clearHands,
+  liftView,
+  isLiftedPose,
+  dropPose,
   easeCam,
   easeFly,
   lockLabel,
@@ -297,7 +301,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   };
 
   /** Measures the stage box: the free view rect (above the hands, under the plates) and the overview fit. Null for an empty box. */
-  const measure = (root: HTMLElement): { w: number; h: number; view: RoofView; fit: number } | null => {
+  const measure = (root: HTMLElement): { w: number; h: number; view: RoofView; fit: number; base: RoofView; drop: number } | null => {
     const w = root.clientWidth;
     const h = root.clientHeight;
     if (w <= 0 || h <= 0) return null;
@@ -306,7 +310,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       root.querySelector<HTMLElement>("[data-partner-hand]")?.offsetHeight ?? 0,
     );
     const narrow = narrowRef.current;
-    let hudH = Math.max(ownPlateRef.current?.offsetHeight ?? 0, handH) + 10;
+    // A wide screen keeps slim gaps around the field (the bigger field); a phone keeps its roomier ones.
+    const gap = narrow ? { hand: 10, bottom: 8, plate: 8 } : { hand: 4, bottom: 4, plate: 4 };
+    let hudH = Math.max(ownPlateRef.current?.offsetHeight ?? 0, handH) + gap.hand;
     if (narrow) {
       // A phone has no room for the plate and the hands side by side: the plate takes the bottom row, the own hand sits
       // above it and the partner hand above that (see the narrow block in the CSS). The band is as tall as the stack.
@@ -320,23 +326,59 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         .map((node) => node.getBoundingClientRect().top - rootTop);
       if (tops.length > 0) hudH = Math.max(hudH, h - Math.min(...tops) + 4);
     }
+    // The own plate and the own hand share the bottom row. The hand sits at the middle of the stage, and slides right only as far as
+    // the plate needs, never into the partner hand (the hand count stands right of the dock, 64px).
+    const dock = root.querySelector<HTMLElement>("[data-hand-dock]");
+    const ownPlate = ownPlateRef.current;
+    if (narrow || !dock || !ownPlate) root.style.removeProperty("--hx");
+    else {
+      const half = dock.offsetWidth / 2;
+      const partnerHand = root.querySelector<HTMLElement>("[data-partner-hand]");
+      const clear = ownPlate.offsetLeft + ownPlate.offsetWidth + 14 + half;
+      const limit = (partnerHand ? partnerHand.offsetLeft : w) - 10 - 64 - half;
+      root.style.setProperty("--hx", `${Math.min(Math.max(w / 2, clear), Math.max(w / 2, limit)).toFixed(1)}px`);
+    }
     // The far team plate hangs from the top edge: its height is not free space for the fields.
     const plateH = farPlateRef.current?.offsetHeight ?? 0;
-    const bottom = Math.max(60, h - hudH - 8);
+    const bottom = Math.max(60, h - hudH - gap.bottom);
     // A narrow screen has no side room for the camera rail: it takes its own row under the plate, kept in every mode so
     // the fit does not jump when a focus starts.
     const railRow = w < RAIL_COLUMN_MIN ? RAIL_ROW : 0;
-    const railTop = 6 + (plateH > 0 ? plateH + 8 : 0);
+    const railTop = 6 + (plateH > 0 ? plateH + gap.plate : 0);
     root.style.setProperty("--rail-top", `${railTop}px`);
-    const view = { left: 8, right: w - 8, top: Math.min(railTop + railRow, bottom - 40), bottom };
+    const viewTop = narrow ? railTop : 6;
+    let view: RoofView = { left: 8, right: w - 8, top: Math.min(viewTop + railRow, bottom - 40), bottom };
+    const base = view;
+    if (!narrow) {
+      // The home pose is fitted to the free box and its near edge can end below it: the hand dock and the partner's
+      // hand are in that row. First lift the whole box (same size, same fit) as far as the far field has room under the
+      // far plate; only what is still too low shrinks the box until your Spell/Trap row and piles stay above both.
+      const rootTop = root.getBoundingClientRect().top;
+      const handTops = [dock, root.querySelector<HTMLElement>("[data-partner-hand]")]
+        .filter((node): node is HTMLElement => node != null)
+        .map((node) => node.getBoundingClientRect().top - rootTop);
+      if (handTops.length > 0) {
+        const handTop = Math.min(...handTops) - 2;
+        // The far edge may rise to 8px under the far plate (the plate hangs from the top edge, 6px down).
+        const farTop = 6 + plateH + 8;
+        view = clearHands(anchorRef.current, liftView(anchorRef.current, view, handTop, farTop).view, handTop);
+      }
+    }
     const fit = roofFit(view) || 1;
     fitRef.current = fit;
-    return { w, h, view, fit };
+    const drop = (base.top + base.bottom) / 2 - (view.top + view.bottom) / 2;
+    return { w, h, view, fit, base, drop };
   };
 
-  /** The pose the world ends on: a close-up is fitted to the free box so the whole field shows; any other pose is as it is. */
-  const resolvePose = (pose: RoofPose, m: { fit: number; view: RoofView }): RoofPose =>
-    modeRef.current === "focus" && focusSeatRef.current != null ? fitSeatPose(anchorRef.current, focusSeatRef.current, m.fit, m.view) : pose;
+  /**
+   * The pose the world ends on. A close-up is fitted to the free box so the whole field shows. The home and rival poses
+   * ride up with the lifted view (that is what the lift is for). Every other pose (the overview, the fly-in end, a free
+   * camera) is slid back down by the lift, so all four fields stay between the far plate and the hands.
+   */
+  const resolvePose = (pose: RoofPose, m: { fit: number; base: RoofView; drop: number }): RoofPose => {
+    if (modeRef.current === "focus" && focusSeatRef.current != null) return fitSeatPose(anchorRef.current, focusSeatRef.current, m.fit, m.base, m.drop);
+    return isLiftedPose(pose) ? pose : dropPose(anchorRef.current, pose, m.fit, m.drop);
+  };
 
   const apply = useCallback(() => {
     const root = rootRef.current;
@@ -344,8 +386,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     if (!root || !world) return;
     const m = measure(root);
     if (!m) return;
-    const { view, fit } = m;
+    const { fit } = m;
     fitRef.current = fit;
+    const { view } = m;
     const cx = (view.left + view.right) / 2;
     const cy = (view.top + view.bottom) / 2;
     root.style.setProperty("--cx", `${cx.toFixed(1)}px`);
@@ -373,7 +416,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const hub = hubRef.current;
     const phases = phaseHubRef.current;
     const padAt = pad ? { x: pad.left - box.left, y: pad.top - box.top } : null;
-    const padSeen = padAt != null && padAt.x >= view.left && padAt.x <= view.right && padAt.y >= view.top && padAt.y <= view.bottom;
+    // The helipad rides with the lifted view in the home and rival poses; in any other pose it sits in the box before the lift.
+    const hubView = isLiftedPose(targetRef.current) ? view : m.base;
+    const padSeen = padAt != null && padAt.x >= hubView.left && padAt.x <= hubView.right && padAt.y >= hubView.top && padAt.y <= hubView.bottom;
     if (phases && pad && padAt) {
       // The phase hub sits in the gap between the two strips, on the helipad. The size comes from the gap the camera
       // ends on (so it does not flip during a tween): the biggest strip that fits the gap, with the chain hub stacked
@@ -397,7 +442,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       }
       if (fitted) {
         phases.removeAttribute("data-off");
-        const at = clampCenter(padAt, { w: Math.max(phases.offsetWidth, hub?.offsetWidth ?? 0), h: stackH }, view);
+        const at = clampCenter(padAt, { w: Math.max(phases.offsetWidth, hub?.offsetWidth ?? 0), h: stackH }, hubView);
         const top = at.y - stackH / 2;
         place(phases, at.x, top + phases.offsetHeight / 2);
         if (hub) place(hub, at.x, top + phases.offsetHeight + PHASE_HUB_GAP + hub.offsetHeight / 2);
@@ -406,11 +451,11 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         placedRef.current.delete(phases);
       }
       if (!fitted && hub) {
-        const at = clampCenter(padAt, { w: hub.offsetWidth, h: hub.offsetHeight }, view);
+        const at = clampCenter(padAt, { w: hub.offsetWidth, h: hub.offsetHeight }, hubView);
         place(hub, at.x, at.y);
       }
     } else if (hub && pad) {
-      const at = clampCenter({ x: pad.left - box.left, y: pad.top - box.top }, { w: hub.offsetWidth, h: hub.offsetHeight }, view);
+      const at = clampCenter({ x: pad.left - box.left, y: pad.top - box.top }, { w: hub.offsetWidth, h: hub.offsetHeight }, hubView);
       place(hub, at.x, at.y);
     }
     const plate = farPlateRef.current;
@@ -715,10 +760,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         pickable: pickIndex >= 0,
         hotkey: pickIndex >= 0 ? pickIndex + 1 : null,
         locked: aimedSeat === seat,
-        // The rival team's Deck Masters (Domain only; a Standard seat view has none). Your side keeps its master panels.
-        master: !near && room.session.mode === "domain" && view?.deckMaster
-          ? { card: view.deckMaster.card, inUse: masterInUse(view, engine.seats), summon: masterSummonLine(view) }
-          : undefined,
+        // The Deck Master badge of the member (Domain only; it is empty for a Standard seat view).
+        badge: room.session.mode === "domain" && view?.deckMaster ? <SeatMasterBadge seat={seat} side={near ? "you" : "opp"} /> : undefined,
       };
     });
     const out = loss.lostTeam === team;
@@ -736,7 +779,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         hang={!near}
         reducedMotion={reducedMotion}
         onPick={onPick}
-        onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
         plateRef={near ? (node) => { ownPlateRef.current = node; } : (node) => { farPlateRef.current = node; }}
       />
     );

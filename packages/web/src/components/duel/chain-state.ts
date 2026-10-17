@@ -8,7 +8,7 @@
 // applyChainEvent folds one event into the state, so a player can play a batch out one beat at a
 // time. deriveChainState folds a whole window at once (first paint, reconnect, replay of a window).
 import type { DuelCardInfo, DuelChainLink, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
-import { LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_REMOVED, LOCATION_SZONE, zoneKey } from "./constants";
+import { LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_OVERLAY, LOCATION_REMOVED, LOCATION_SZONE, zoneKey } from "./constants";
 import { CHAIN_TIMING } from "./duel-timing";
 import { chainEffectText } from "./chain-effect-text";
 
@@ -297,7 +297,7 @@ export function chainCallout(
 export type ChainAnchor = {
   /** The zone the card activated from; on the board it is found by its data-zones key. */
   zone: DuelZoneRef;
-  /** Used when that exact slot is gone (the card left it): the whole hand or pile of that player. */
+  /** Used when that exact slot is gone (the card left it): the pile of that player; for a hand, a card-sized ghost in it (never the whole hand). */
   fallback?: { kind: "hand"; controller: number } | { kind: "pile"; controller: number; location: number };
 };
 
@@ -672,4 +672,59 @@ export function chainAnnouncement(
     if (said) return `Chain Link ${done.index} resolved. ${said}`;
   }
   return null;
+}
+
+const sameZone = (a: DuelZoneRef | undefined, b: DuelZoneRef): boolean =>
+  a != null && a.controller === b.controller && a.location === b.location && a.sequence === b.sequence;
+
+/** A place the board draws a card at (a field zone or a pile); a hand slot, an overlay or an unknown place is not one. */
+const isDrawnPlace = (zone: DuelZoneRef): boolean => zone.location !== LOCATION_HAND && zone.location !== LOCATION_OVERLAY;
+
+/**
+ * Where the card of each link that activated from the hand stands now. A link that is not in the map still stands in
+ * its hand slot. A link whose card has left the slot maps to the zone the card moved to (a cost or an effect that
+ * sent it to the Graveyard, banished it, put it on the field), or to null when the card went somewhere the board does not draw.
+ *
+ * A hand slot is a number, not a card: when a card leaves, the hand closes the gap, so the slot is gone or holds a
+ * neighbour. The moves are read from the events instead: the moves out of that very slot, of that card (by code, when
+ * the move names it), since the chain opened. Later moves of the same card are followed.
+ */
+export function handLinkPlaces(events: readonly DuelEvent[], links: readonly ChainLinkState[]): Map<number, DuelZoneRef | null> {
+  const places = new Map<number, DuelZoneRef | null>();
+  for (const link of links) {
+    const slot = link.zone;
+    if (!slot || slot.location !== LOCATION_HAND) continue;
+    let activate: DuelEvent | undefined;
+    for (const event of events) {
+      if (event.kind === "activate" && event.chainIndex === link.index && (!activate || event.id >= activate.id)) activate = event;
+    }
+    if (!activate) continue;
+    const opening: DuelEvent = activate;
+    // Only this chain: a move before the last chain-end belongs to an earlier chain.
+    let opened = -Infinity;
+    for (const event of events) if (event.kind === "chain-end" && event.id < opening.id && event.id > opened) opened = event.id;
+    const code = link.code != null && link.code > 0 ? link.code : opening.card?.code;
+    const mine = (event: DuelEvent, from: DuelZoneRef) =>
+      event.kind === "move" && event.id > opened && sameZone(event.from, from) && event.zone != null
+      && (event.card ? code == null || event.card.code === code : event.id > opening.id);
+    // The nearest move out of the slot, the ones after the activation first (a cost paid after the link was announced).
+    let first: DuelEvent | undefined;
+    for (const event of events) {
+      if (!mine(event, slot)) continue;
+      const rank = (e: DuelEvent) => (e.id > opening.id ? e.id - opening.id : opening.id - e.id + 1e9);
+      if (!first || rank(event) < rank(first)) first = event;
+    }
+    if (!first?.zone) continue;
+    let at: DuelZoneRef = first.zone;
+    let from = first;
+    for (let hops = 0; hops < 4; hops += 1) {
+      const next = events.find((event) => event.id > from.id && event.kind === "move" && event.id > opened && sameZone(event.from, at) && event.zone != null
+        && (!event.card || code == null || event.card.code === code));
+      if (!next?.zone) break;
+      at = next.zone;
+      from = next;
+    }
+    places.set(link.index, isDrawnPlace(at) ? { ...at } : null);
+  }
+  return places;
 }

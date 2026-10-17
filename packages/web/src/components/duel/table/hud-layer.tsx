@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, typ
 import type { DuelCard, DuelCardInfo, DuelChainLink, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import type { DuelHoverHandler } from "../field-keys";
 import { ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHudDismiss, type DockPane, type HudPane } from "./grid-hud";
-import { GridMasterToken } from "./grid-master";
+import { EdgeHud } from "./grid-edge";
 import { LOCATION_HAND } from "../constants";
 import type { EquipLinks } from "../equip-links";
 import { cardExtraLines, NEGATED_LINE } from "../inspector";
@@ -244,11 +244,7 @@ export interface HudLayerProps {
   nameOf: (seat: number) => string;
   seatTones: SeatTones;
   logUnread: number;
-  /** The Deck Master token (Domain only). `null` hides it. */
-  master: HudMasterProps | null;
-  /** The second plate: the rival's master in a 1v1 duel, the partner's in a Tag duel. `null` hides it. */
-  otherMaster?: HudMasterProps | null;
-  /** Shows the Card flyout for the master (Inspect on the plate). */
+  /** Shows the Card flyout. */
   onInspect: (target: InspectTarget) => void;
   /** The card for the left peek and its owner, or `null` when there is none. A prompt row card has no owner. `pinned`: it stays until closed. */
   preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean } | null;
@@ -261,9 +257,11 @@ export interface HudLayerProps {
   hoverAnchor?: HTMLElement | null;
   /** The seats of the viewer (and the partner in Tag): the card peek is as wide as the free room up to their field zones, so it never covers them. */
   ownSeats?: readonly number[];
+  /** The 4-way grid: the log, settings, chain and card panel are left-edge drawers (grid-edge.tsx) instead of the dock, the tower and the flyout, so the board keeps the whole width. */
+  edge?: boolean;
 }
 
-export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats }: HudLayerProps) {
+export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, onInspect, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats, edge = false }: HudLayerProps) {
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   // A hovered board card says only what the art already shows (negated); a pinned one adds its equip, counter and material lines.
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
@@ -281,28 +279,15 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
   }, [close, pinAnchor]);
   return (
     <>
-      <GridDock pane={hud.pane} onToggle={hud.toggle} unread={logUnread} panes={hud.dock} />
-      {chainOpen ? <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} /> : null}
-      {master ? (
-        <GridMasterToken
-          {...master}
-          open={hud.pane === "master"}
-          onToggle={() => hud.toggle("master")}
-          onClose={hud.close}
-          onInspect={(target) => { onInspect(target); hud.setPane("card"); }}
-        />
-      ) : null}
-      {otherMaster ? (
-        <GridMasterToken
-          {...otherMaster}
-          slot="other"
-          open={hud.pane === "other"}
-          onToggle={() => hud.toggle("other")}
-          onClose={hud.close}
-          onInspect={(target) => { onInspect(target); hud.setPane("card"); }}
-        />
-      ) : null}
-      <GridFlyout pane={hud.pane} tabs={hud.tabs} panels={panels} keepMounted={HUD_KEEP} onSelect={hud.setPane} onClose={hud.close} chainLive={chainOpen} />
+      {edge ? (
+        <EdgeHud hud={hud} panels={panels} chain={chain} chainOpen={chainOpen} nameOf={nameOf} seatTones={seatTones} logUnread={logUnread} onInspect={onInspect} />
+      ) : (
+        <>
+        <GridDock pane={hud.pane} onToggle={hud.toggle} unread={logUnread} panes={hud.dock} />
+        {chainOpen ? <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} /> : null}
+        <GridFlyout pane={hud.pane} tabs={hud.tabs} panels={panels} keepMounted={HUD_KEEP} onSelect={hud.setPane} onClose={hud.close} chainLive={chainOpen} />
+        </>
+      )}
       <GridHoverPreview
         card={hud.pane == null && !previewHidden && preview ? preview.card : null}
         owner={preview?.owner ?? null}
@@ -312,6 +297,7 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
         avoid={preview?.pinned === true ? hud.pinAnchor : null}
         hoverAnchor={preview?.pinned === true ? null : hoverAnchor}
         ownSeats={ownSeats}
+        edge={edge}
         onClose={closePin}
       />
     </>

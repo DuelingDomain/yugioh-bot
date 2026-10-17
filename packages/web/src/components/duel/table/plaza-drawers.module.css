@@ -1,0 +1,88 @@
+/*
+ * The drawers of the 3-way plaza (plaza-drawers.tsx). The edge-drawer files draw the panel and the tab; this file only
+ * sets what goes inside them. The panels read the duel tokens (--duel-*) from the table shell they sit in.
+ */
+.keep { display: contents; }
+
+.panel {
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink);
+  background: rgb(9 15 29 / 0.98);
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+.paneHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 6px 0 14px;
+  height: 40px;
+  border-bottom: 1px solid var(--duel-rule);
+}
+.paneHead b {
+  color: var(--duel-ink);
+  font-size: var(--duel-t-body);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.paneClose {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--duel-ink-3);
+  cursor: pointer;
+}
+.paneClose:hover { color: var(--duel-ink); background: rgb(239 231 213 / 0.06); }
+.paneClose:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+
+.paneBody {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(155 126 255 / 0.55) transparent;
+}
+.paneBody[data-scrolls="true"] { overflow-y: auto; }
+/* The log rows read at the 12px floor the tables use, one px up from the 1v1 room. */
+.pane[data-pane-title="Log"] { --ft: 1; }
+
+/* The Deck Master plate: the wide form of grid-hud.module.css, set in the drawer instead of the corner of the screen. */
+.masterSlot {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  --hud-master-art-h: clamp(150px, 26dvh, 280px);
+  --hud-master-ability-h: clamp(80px, 16dvh, 200px);
+}
+.masterSlot > [data-testid="hud-master"] {
+  position: static;
+  width: 100%;
+}
+.masterSlot > [data-testid="hud-master"][data-form="wide"] { width: 100%; }
+
+/* The chain tower inside its drawer: a list, not a floating box. */
+.chainSlot { padding: 10px; }
+.chainSlot [data-testid="chain-tower"] {
+  position: static;
+  width: auto;
+}

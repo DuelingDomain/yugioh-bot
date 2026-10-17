@@ -7,8 +7,10 @@
  *    glyph) on the card that activated, with a soft gold ring on the card. A new link drops in with
  *    a clink; the highest link is the largest and sits on top, so the order reads at a glance. A thin
  *    arc joins badge N to badge N-1, so the badges read as one chain. A link that activated from the
- *    hand, the GY, the Extra Deck or the banished pile sits on its slot, or on the hand / pile when
- *    the card has left that slot.
+ *    hand, the GY, the Extra Deck or the banished pile sits on its slot. A link whose card has left the
+ *    hand follows it: it sits on the zone or pile the card moved to, or, when that place is not drawn, on a
+ *    card-sized ghost at the empty hand slot (never on the whole hand). A pile link sits on the pile when
+ *    the card has left its slot.
  *  - The "Now resolving" panel (a column in the free gutter left of the field, wide or narrow, or a strip
  *    when there is no room, on a phone or table, or a prompt meets the column) says which link is being
  *    resolved, what it does (the engine's description, else the card's printed text), whom it targets and
@@ -41,14 +43,15 @@ import { ChainRoomContext } from "./table/chain-room";
 import { duelFxClock } from "./fx-clock";
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { partnerSeatOf, type DuelChainLink, type DuelEvent, type DuelSeatView } from "@yugidraft/shared/duels";
+import { partnerSeatOf, type DuelChainLink, type DuelEvent, type DuelSeatView, type DuelZoneRef } from "@yugidraft/shared/duels";
 import { X } from "lucide-react";
-import { zoneKey } from "./constants";
+import { LOCATION_HAND, zoneKey } from "./constants";
 import { collectFreshEvents, findZoneElement, maxEventId } from "./event-queue";
 import {
   applyChainEvent,
   badgeCenter,
   chainAnchor,
+  handLinkPlaces,
   chainAnnouncement,
   chainCallout,
   chainEffectLead,
@@ -66,12 +69,11 @@ import {
   placeChips,
   projectChainNames,
   type CalloutPlace,
-  type ChainAnchor,
-  type ChainLinkState,
+    type ChainLinkState,
   type ChainPanelForm,
   type ChainState,
 } from "./chain-state";
-import { cardFrame, labelAnchor, type CardFrame } from "./chain-frame";
+import { cardFrame, handGhostFrame, labelAnchor, type CardFrame } from "./chain-frame";
 import { buildPanelView, buildStripView, chainOutcomes, rememberTargetNames, type TargetMemory, type Who } from "./chain-narrate";
 import { ChainGlyph } from "./chain-glyph";
 import { ChainPanel, ChainStrip } from "./chain-panel";
@@ -242,13 +244,35 @@ function findPileElement(controller: number, location: number, found: Map<string
   return hit;
 }
 
-function resolveAnchor(anchor: ChainAnchor, piles: Map<string, HTMLElement | null>): HTMLElement | null {
+/** The element a link's mark stands on; `ghost` is set when that element is a hand the card has left (a card-sized ghost, at that hand slot). */
+type ResolvedAnchor = { el: HTMLElement; ghost: number | null };
+
+/**
+ * A link that activated from the hand follows its card: its slot while the card is in it, the zone or pile the card
+ * moved to (`place`, from handLinkPlaces) once it left, and a ghost at the empty slot when that place is not drawn.
+ * The whole hand is never the mark.
+ */
+function resolveAnchor(link: ChainLinkState, place: DuelZoneRef | null | undefined, piles: Map<string, HTMLElement | null>): ResolvedAnchor | null {
+  const slot = link.zone;
+  if (slot && slot.location === LOCATION_HAND && place !== undefined) {
+    const moved = place ? chainAnchor({ ...link, zone: place }) : null;
+    const el = moved ? findZoneElement(moved.zone) ?? (moved.fallback?.kind === "pile" ? findPileElement(moved.fallback.controller, moved.fallback.location, piles) : null) : null;
+    if (el) return { el, ghost: null };
+    const hand = document.querySelector<HTMLElement>(`[data-hand-seat="${slot.controller}"]`);
+    return hand ? { el: hand, ghost: slot.sequence } : null;
+  }
+  const anchor = chainAnchor(link);
+  if (!anchor) return null;
   const exact = findZoneElement(anchor.zone);
-  if (exact) return exact;
+  if (exact) return { el: exact, ghost: null };
   const fallback = anchor.fallback;
   if (!fallback) return null;
-  if (fallback.kind === "hand") return document.querySelector<HTMLElement>(`[data-hand-seat="${fallback.controller}"]`);
-  return findPileElement(fallback.controller, fallback.location, piles);
+  if (fallback.kind === "hand") {
+    const hand = document.querySelector<HTMLElement>(`[data-hand-seat="${fallback.controller}"]`);
+    return hand ? { el: hand, ghost: anchor.zone.sequence } : null;
+  }
+  const pile = findPileElement(fallback.controller, fallback.location, piles);
+  return pile ? { el: pile, ghost: null } : null;
 }
 
 const OBSTACLES = "[data-prompt-panel], [data-prompt-surface], [data-feedback-cue]";
@@ -434,6 +458,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const linksKey = useMemo(() => chainStateKey(state), [state]);
   const linksRef = useRef(links);
   linksRef.current = links;
+  // Links that activated from the hand follow their card when it leaves the hand (a discard cost, a send to the GY).
+  const places = useMemo(() => handLinkPlaces(events, links), [events, links]);
+  const placesRef = useRef(places);
+  placesRef.current = places;
 
   // Keep every badge on its card: layout can move under us (resize, a hovered hand card, a summon).
   // Each frame reads the layout first and writes after, so the browser lays out at most once per frame.
@@ -572,9 +600,9 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       for (const link of linksRef.current) {
         const slot = slotRefs.current.get(link.index);
         if (!slot) continue;
-        const anchor = chainAnchor(link);
-        const zone = anchor ? resolveAnchor(anchor, piles) : null;
-        const frame = zone ? cardFrame(origin, zone, mayTurn) : null;
+        const resolved = resolveAnchor(link, placesRef.current.get(link.index), piles);
+        const zone = resolved?.el ?? null;
+        const frame = resolved ? (resolved.ghost != null ? handGhostFrame(origin, resolved.el, resolved.ghost) : cardFrame(origin, resolved.el, mayTurn)) : null;
         if (!zone || !frame) {
           placed.push({ link, slot, frame: null, size: 0, shift: 0, half: "high", callout: null, covered: false, badge: null });
           continue;

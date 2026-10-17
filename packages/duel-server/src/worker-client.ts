@@ -4,7 +4,7 @@ import { Worker } from "node:worker_threads";
 import { RequestError } from "./request-error.js";
 import { workerLimitsFromEnv } from "./config.js";
 import type { PromptTraceEntry } from "./prompt-trace.js";
-import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
+import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript, EngineViewHistory } from "./engine.js";
 import type { DuelWorkerResponse, WorkerCreateTimings } from "./worker-protocol.js";
 import { EngineAnswerError } from "./prompts.js";
 import { EngineLoopError } from "./engine-loop-error.js";
@@ -57,7 +57,7 @@ export interface DuelGameWorker {
   /** Bound the complete recovery/replay initialization before live operations resume. */
   initialize?<T>(work: () => Promise<T>): Promise<T>;
   create(options: GameOptions): Promise<void>;
-  view(seat: number | null): Promise<DuelEngineView>;
+  view(seat: number | null, history?: EngineViewHistory): Promise<DuelEngineView>;
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void>;
   search(query: string, seat?: number): Promise<DuelCardInfo[]>;
   /** Flag a core loss. `atTurnEnd` identifies retired journal commands, which the engine refuses. */
@@ -200,8 +200,8 @@ export class GameWorker implements DuelGameWorker {
     return this.request({ op: "create", options });
   }
 
-  view(seat: number | null): Promise<DuelEngineView> {
-    return this.request({ op: "view", seat });
+  view(seat: number | null, history?: EngineViewHistory): Promise<DuelEngineView> {
+    return this.request({ op: "view", seat, ...(history ? { history } : {}) });
   }
 
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void> {

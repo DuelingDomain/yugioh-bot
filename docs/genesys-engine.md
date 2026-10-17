@@ -17,10 +17,9 @@ not introduce the old-rule flags rejected by `Debug.SetupDuelists`, so the
 shared service's MR5 guard needs no change.
 
 The supplied engine-facing cores honor the flags without patches or rebuilds.
-Both multiplayer SOURCE files match the checkout's ygopro-core, wrapper and Lua
-pins and the complete 104-patch series (SHA-256
-`8f26289b1ae1102a0a03cac1db516e1927e813fb517884c64c557d05e418afaf`).
-No core resources were modified or built.
+Core inputs are recorded in the checked-in pin files and patch series. Read those
+files for current revisions; documentation does not duplicate card-data or script
+pins. No core resources were modified or built for this feature.
 
 ## Transport and replay
 
@@ -30,10 +29,11 @@ settings. Tests run actual workers and accepted placement commands through
 `runJournalPrefix`, including target revision/state-digest recovery.
 
 Replay source fingerprints now bind enabled Genesys settings. Missing/null
-settings preserve the previous source hash. The host-rule fingerprint is
-refreshed at version 5 because existing sources retain identical creation flags,
-projections and journal interpretation. Preserving that identity also preserves
-recovery of older active replay forks.
+settings preserve the previous source hash. Main's host-rule version 6 is retained,
+including its viewer-log redaction and
+public move-source checks. Genesys adds opt-in creation rules through saved
+settings; missing/null settings preserve the current non-Genesys behavior.
+Live recovery keeps main's existing compatibility policy.
 
 ## Field view contract
 
@@ -63,15 +63,10 @@ with Pendulum Zones does not make them Pendulum Zones in Genesys.
 - Both 1v1 engines under MR3 clear separate PZ flags and preserve the other
   MR3 summon rules; zero point caps still enable Genesys.
 
-The focused regression run also includes `engine-resource-resolver`,
-`views-shared-extra`, `journal-runner`, `replay-cursor`, `engine-settings`, and
-`standard-engine-worker` tests. Build shared before consumers, use Node 22, and
-set `DUEL_DATA_DIR` to the prepared engine bundle and `DUEL_REQUIRE_CORES=1`.
-
-Final verification: **181 tests passed across seven focused files**, including
-all 32 Genesys real-worker cases. The shared build, duel-server typecheck and
-`git diff --check` passed. Read-only code review found no critical or important
-issues; its compatibility finding led to preserving the historical host-rule identity.
+PR verification keeps real-worker, SQLite-backed deck-legality, and real-host
+admission tests. Pure unit files and the obsolete host-rule fingerprint fixture
+removed by the test cleanup stay deleted. See [the integration record](genesys-integration.md)
+for the current checks, retained tests, and local engine-data limits.
 
 ## Integration status
 
