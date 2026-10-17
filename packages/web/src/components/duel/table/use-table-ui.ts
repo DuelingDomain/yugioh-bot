@@ -53,7 +53,7 @@ export interface TableUiOptions {
    * hover preview (`onPinCard`) instead; any other click on a zone lets the pin go (`onPinCard(null)`).
    */
   hud?: boolean;
-  onOpenCard?: () => void;
+  onOpenCard?: (target: InspectTarget) => void;
   onPinCard?: (card: DuelCard | null, anchor?: HTMLElement | null) => void;
 }
 
@@ -175,7 +175,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
         return;
       }
       setInspect(target);
-      if (hud) onOpenCard?.();
+      if (hud) onOpenCard?.(target);
       else {
         // A deliberate inspect (it opens the drawer) shows the Card pane, even when the drawer was last on the Log or Settings.
         if (reveal || openDrawer || pane !== "log") setPane("card");

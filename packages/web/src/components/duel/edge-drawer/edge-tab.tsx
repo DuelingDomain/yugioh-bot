@@ -42,6 +42,7 @@ export function EdgeTab({ side, label, icon, attention = false, count, tone = "v
       ref={ref}
       type={type ?? "button"}
       className={className ? `${styles.tab} ${className}` : styles.tab}
+      data-edge-tab=""
       data-side={side}
       data-tone={tone}
       data-attention={attention ? "true" : "false"}

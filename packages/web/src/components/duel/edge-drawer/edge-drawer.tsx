@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { EdgeTab, type EdgeSide, type EdgeTone } from "./edge-tab";
 import styles from "./edge-drawer.module.css";
 
-/** What opened the drawer. Hover opening never takes focus and never traps it; the others do. */
-export type OpenVia = "hover" | "click" | "key" | "api";
+/** What opened the drawer: a click on the tab, a key (Enter, Space or the shortcut), or the parent. Never a hover. */
+export type OpenVia = "click" | "key" | "api";
 
 export interface EdgeDrawerProps {
   side: EdgeSide;
@@ -27,10 +26,6 @@ export interface EdgeDrawerProps {
 
   /** A single key (for example "l") that toggles the drawer. Ignored while typing and with Ctrl, Alt or Meta. */
   shortcut?: string;
-  /** Open when a mouse or pen rests on the tab, and close when it leaves. Default true. Touch never hover-opens. */
-  hoverOpen?: boolean;
-  hoverDelayMs?: number;
-  hoverCloseMs?: number;
   /** Close on a press outside the drawer. Default true. The press still reaches whatever it hit. */
   closeOnOutside?: boolean;
   /** Close on Escape. Default true. */
@@ -51,24 +46,57 @@ export function anyEdgeDrawerOpen(): boolean {
   return typeof document !== "undefined" && document.querySelector('[data-edge-drawer][data-state="open"]') !== null;
 }
 
-/** How long a tab ignores hover after the drawer was closed on purpose (key, click, outside press, tab). */
-const HOVER_QUIET_MS = 800;
-
 const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
 
 function typingTarget(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(EDITABLE) !== null;
 }
 
+/** The panel size when a drawer sets none (the same fallbacks as edge-drawer.module.css). */
+const DEFAULT_SIZE: Record<EdgeSide, string> = { left: "min(360px, 88vw)", right: "min(360px, 88vw)", bottom: "min(320px, 58dvh)" };
+/** Room that stays free on a narrow screen, so the tabs beside an open panel never leave it (a 36px touch tab and a margin). */
+const TAB_COLUMN = "48px";
+const clampSize = (size: string, side: EdgeSide) => (side === "bottom" ? size : `min(${size}, calc(100vw - ${TAB_COLUMN}))`);
+
 /**
- * A slide-out for side content (Deck Master, duel log, chat, card inspect). Closed by default, so nothing
+ * Which drawer of each screen edge is open, and how wide. A closed drawer reads it to move its tab to the outer face of
+ * the open panel: the tabs of one edge always stay in view and never lie over the open drawer's content.
+ */
+const openByEdge: Record<EdgeSide, Array<{ id: string; size: string }>> = { left: [], right: [], bottom: [] };
+const edgeListeners = new Set<() => void>();
+const subscribeEdges = (listener: () => void) => {
+  edgeListeners.add(listener);
+  return () => { edgeListeners.delete(listener); };
+};
+function markOpen(side: EdgeSide, id: string, size: string | null) {
+  const list = openByEdge[side].filter((entry) => entry.id !== id);
+  if (size != null) list.push({ id, size });
+  openByEdge[side] = list;
+  edgeListeners.forEach((listener) => listener());
+}
+const openSizeOf = (side: EdgeSide): string => openByEdge[side][openByEdge[side].length - 1]?.size ?? "";
+
+/** The tabs of one edge, in screen order (top to bottom, or left to right on the bottom edge). */
+function tabsOnEdge(side: EdgeSide): HTMLElement[] {
+  const tabs = [...document.querySelectorAll<HTMLElement>(`[data-edge-tab][data-side="${side}"]`)];
+  const key = (node: HTMLElement) => { const box = node.getBoundingClientRect(); return side === "bottom" ? box.left : box.top; };
+  return tabs.sort((a, b) => key(a) - key(b));
+}
+
+/**
+ * A slide-out for side content (duel log, settings, chain, card inspect). Closed by default, so nothing
  * covers the field in normal play; only the small edge tab shows, and it glows when `attention` is set.
- * It opens from the tab (click, Enter, Space, or hover with a mouse), from the optional shortcut key, or
- * from the parent through `open`. While open it may overlay the field. It closes on Escape, on a press
- * outside, or from the tab, and then slides back (a short fade under reduced motion).
+ * It opens only from a click on its tab (Enter or Space on the focused tab count), from the optional shortcut
+ * key, or from the parent through `open`. A resting pointer or a focus change never opens it. While open it may
+ * overlay the field. It closes on Escape, on a press outside, or from its own tab, and then slides back
+ * (a short fade under reduced motion).
  *
- * Focus: opening by click, key or the parent moves focus into the panel and traps Tab inside it; closing
- * gives focus back to the tab. Opening by hover does neither, until a click pins it.
+ * Tabs: the tab of a closed drawer moves to the outer face of whichever drawer is open on the same edge, so
+ * every tab stays visible and clickable, and a click on another tab switches to that drawer. The tab never lies
+ * over the open panel. Up and Down arrows (Left and Right on the bottom edge) move focus between the tabs of an edge.
+ *
+ * Focus: opening moves focus into the panel; Shift+Tab goes back to the tab, and the tabs stay reachable (the
+ * panel is not modal). Closing from inside the panel gives focus back to the tab.
  */
 export function EdgeDrawer({
   side,
@@ -82,9 +110,6 @@ export function EdgeDrawer({
   defaultOpen = false,
   onOpenChange,
   shortcut,
-  hoverOpen = true,
-  hoverDelayMs = 140,
-  hoverCloseMs = 280,
   closeOnOutside = true,
   closeOnEscape = true,
   size,
@@ -94,77 +119,64 @@ export function EdgeDrawer({
   panelClassName,
 }: EdgeDrawerProps) {
   const panelId = useId();
+  const markId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const tabRef = useRef<HTMLButtonElement>(null);
   const [innerOpen, setInnerOpen] = useState(defaultOpen);
-  const [via, setVia] = useState<OpenVia>("api");
   const controlled = openProp !== undefined;
   const open = controlled ? openProp : innerOpen;
-  const restoreFocusRef = useRef(false);
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // After a close the tab slides back under a pointer that rests where the drawer was; that must not count as a new hover.
-  const noHoverUntil = useRef(0);
+  // Focus is inside the panel. It stays true through a close (the browser drops focus from the panel then), so the tab can take it back,
+  // whoever closed the drawer (this component's Escape, the shell's Escape, the panel's close button).
+  const focusInsideRef = useRef(false);
   const onOpenChangeRef = useRef(onOpenChange);
   onOpenChangeRef.current = onOpenChange;
   const openRef = useRef(open);
   openRef.current = open;
-  const viaRef = useRef(via);
-  viaRef.current = via;
-
-  const clearHover = useCallback(() => {
-    if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
-    hoverTimer.current = null;
-  }, []);
 
   const request = useCallback(
     (next: boolean, how: OpenVia, restoreFocus = true) => {
-      clearHover();
-      if (next === openRef.current && (!next || how === viaRef.current || how === "hover")) return;
-      if (next) {
-        restoreFocusRef.current = false;
-        setVia(how);
-      } else {
-        restoreFocusRef.current = restoreFocus && (panelRef.current?.contains(document.activeElement) ?? false);
-      }
+      if (next === openRef.current) return;
+      if (!next && !restoreFocus) focusInsideRef.current = false;
       if (!controlled) setInnerOpen(next);
       onOpenChangeRef.current?.(next, how);
     },
-    [clearHover, controlled],
+    [controlled],
   );
 
-  // Whoever closes the drawer (the tab, Escape, a press outside, or the parent), a pointer resting where it was must not reopen it.
-  const wasOpen = useRef(open);
+  // Tell the other drawers of this edge that this one is open and how wide, so their tabs stand on its outer face.
+  const panelSize = size ?? DEFAULT_SIZE[side];
   useEffect(() => {
-    if (wasOpen.current && !open && viaRef.current !== "hover") noHoverUntil.current = Date.now() + HOVER_QUIET_MS;
-    wasOpen.current = open;
-  }, [open]);
-
-  // A drawer opened by the parent (controlled `open` flipping true with no request) counts as "api".
-  // A closed drawer forgets how it was opened.
-  useEffect(() => {
-    if (!open) setVia("api");
-  }, [open]);
-
-  useEffect(() => clearHover, [clearHover]);
+    if (!open) return;
+    markOpen(side, markId, panelSize);
+    return () => markOpen(side, markId, null);
+  }, [open, side, markId, panelSize]);
+  const openSize = useSyncExternalStore(subscribeEdges, () => openSizeOf(side), () => "");
 
   // Give focus back to the tab after a close that left focus inside the panel.
   useEffect(() => {
-    if (open || !restoreFocusRef.current) return;
-    restoreFocusRef.current = false;
+    if (open || !focusInsideRef.current) return;
+    focusInsideRef.current = false;
     tabRef.current?.focus();
   }, [open]);
 
-  // Move focus into the panel for every opening except hover (and again when a click pins a hover opening).
+  // Move focus into the panel when it opens (a click on the tab, a key, or the parent). The panel is made focusable by the same commit
+  // (`inert` off, `visibility` back), but the browser refuses focus on content whose style is still settling (a descendant with a
+  // transition on `visibility`), so the try repeats for a few frames until the focus lands.
   useEffect(() => {
-    if (!open || via === "hover") return;
-    const panel = panelRef.current;
-    if (!panel || panel.contains(document.activeElement)) return;
-    const first = panel.querySelector<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])');
-    (first ?? panel).focus({ preventScroll: true });
-  }, [open, via]);
-
-  useFocusTrap(panelRef, open && via !== "hover");
+    if (!open) return;
+    let frame = 0;
+    let tries = 0;
+    const focusIn = () => {
+      const panel = panelRef.current;
+      if (!panel || panel.contains(document.activeElement)) return;
+      const first = panel.querySelector<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      (first ?? panel).focus({ preventScroll: true });
+      if (!panel.contains(document.activeElement) && (tries += 1) < 12) frame = requestAnimationFrame(focusIn);
+    };
+    frame = requestAnimationFrame(focusIn);
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -182,6 +194,8 @@ export function EdgeDrawer({
   useEffect(() => {
     if (!open || !closeOnOutside) return;
     const onDown = (event: PointerEvent) => {
+      // A press on the tab of another drawer is a switch, not an outside press: that click closes this drawer and opens the other.
+      if (event.target instanceof Element && event.target.closest("[data-edge-drawer]")) return;
       if (rootRef.current && event.target instanceof Node && !rootRef.current.contains(event.target)) request(false, "click", false);
     };
     document.addEventListener("pointerdown", onDown, true);
@@ -203,34 +217,27 @@ export function EdgeDrawer({
     return () => document.removeEventListener("keydown", onKey);
   }, [shortcut, request]);
 
-  const onTabClick = (event: { detail: number }) => {
-    // Hover-opened + click = pin it (stay open, take focus). Open + click = close.
-    if (open && via === "hover") request(true, "click");
-    else request(!open, event.detail === 0 ? "key" : "click");
-  };
+  // A click on the tab toggles: it opens a closed drawer and closes its own open one. `detail` 0 is Enter or Space.
+  const onTabClick = (event: { detail: number }) => request(!open, event.detail === 0 ? "key" : "click");
 
-  const mouseLike = (event: ReactPointerEvent) => event.pointerType !== "touch";
-  const onTabEnter = (event: ReactPointerEvent) => {
-    if (!hoverOpen || !mouseLike(event) || openRef.current || Date.now() < noHoverUntil.current) return;
-    clearHover();
-    hoverTimer.current = setTimeout(() => request(true, "hover"), hoverDelayMs);
-  };
-  const onLeave = (event: ReactPointerEvent) => {
-    if (!hoverOpen || !mouseLike(event)) return;
-    clearHover();
-    if (!openRef.current) return;
-    // Only a hover opening closes by leaving; a pinned drawer waits for Escape, an outside press or the tab.
-    hoverTimer.current = setTimeout(() => {
-      if (viaRef.current === "hover") request(false, "hover");
-    }, hoverCloseMs);
-  };
-  const onEnterKeep = (event: ReactPointerEvent) => {
-    if (mouseLike(event)) clearHover();
+  const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const vertical = side !== "bottom";
+    const step = event.key === (vertical ? "ArrowDown" : "ArrowRight") ? 1 : event.key === (vertical ? "ArrowUp" : "ArrowLeft") ? -1 : 0;
+    const edge = event.key === "Home" ? 0 : event.key === "End" ? -1 : null;
+    if (step === 0 && edge === null) return;
+    const tabs = tabsOnEdge(side);
+    const at = tabs.indexOf(event.currentTarget);
+    if (at < 0 || tabs.length < 2) return;
+    event.preventDefault();
+    const next = edge === null ? tabs[(at + step + tabs.length) % tabs.length] : tabs[edge < 0 ? tabs.length - 1 : 0];
+    next.focus();
   };
 
   const style: CSSProperties = {};
   if (size) (style as Record<string, string>)["--bf-drawer-size"] = size;
   if (tabOffset) (style as Record<string, string>)["--bf-tab-offset"] = tabOffset;
+  // A closed drawer's tab stands on the outer face of the panel that is open on this edge.
+  if (!open && openSize) (style as Record<string, string>)["--bf-shift"] = clampSize(openSize, side);
 
   return (
     <div
@@ -243,7 +250,7 @@ export function EdgeDrawer({
       data-edge-drawer={label}
     >
       <div className={styles.slide}>
-        <div className={styles.tabSlot} onPointerLeave={onLeave} onPointerEnter={onTabEnter}>
+        <div className={styles.tabSlot}>
           <EdgeTab
             ref={tabRef}
             side={side}
@@ -255,6 +262,7 @@ export function EdgeDrawer({
             open={open}
             controlsId={panelId}
             onClick={onTabClick}
+            onKeyDown={onTabKeyDown}
           />
         </div>
         <div
@@ -268,8 +276,9 @@ export function EdgeDrawer({
           // `inert` keeps a closed panel out of the tab order and away from screen readers.
           inert={!open}
           tabIndex={-1}
-          onPointerEnter={onEnterKeep}
-          onPointerLeave={onLeave}
+          onFocus={() => { focusInsideRef.current = true; }}
+          // A blur while the drawer is open means focus went elsewhere on purpose; the blur of a close does not count.
+          onBlur={() => { if (openRef.current) focusInsideRef.current = false; }}
         >
           {children}
         </div>

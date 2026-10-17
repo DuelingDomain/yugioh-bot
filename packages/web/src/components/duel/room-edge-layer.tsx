@@ -65,16 +65,16 @@ export function RoomEdgeLayer({
     <>
       {chainOpen ? <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} /> : null}
 
-      <EdgeDrawer side="left" label="Card" icon={<Info size={14} strokeWidth={1.75} />} shortcut="i" hoverOpen={false}
+      <EdgeDrawer side="left" label="Card" icon={<Info size={14} strokeWidth={1.75} />} shortcut="i"
         tabOffset="34%" size="min(400px, 88vw)" {...bind("card")}>
         <Pane kind="card" open={pane === "card"} label={HUD_PANE_LABEL.card} closeLabel="Close Card panel" onClose={close}>{panels.card}</Pane>
       </EdgeDrawer>
 
-      <EdgeDrawer side="right" label="Log" icon={<ScrollText size={14} strokeWidth={1.75} />} shortcut="l" hoverOpen={false}
+      <EdgeDrawer side="right" label="Log" icon={<ScrollText size={14} strokeWidth={1.75} />} shortcut="l"
         attention={pane !== "log" && logUnread > 0} count={pane === "log" ? 0 : logUnread} tabOffset="42%" size="min(420px, 88vw)" {...bind("log")}>
         <Pane kind="log" open={pane === "log"} label={HUD_PANE_LABEL.log} closeLabel="Close Log panel" onClose={close}>{panels.log}</Pane>
       </EdgeDrawer>
-      <EdgeDrawer side="right" label="Settings" icon={<SlidersHorizontal size={14} strokeWidth={1.75} />} hoverOpen={false}
+      <EdgeDrawer side="right" label="Settings" icon={<SlidersHorizontal size={14} strokeWidth={1.75} />}
         tabOffset="62%" size="min(340px, 88vw)" {...bind("settings")}>
         <Pane kind="settings" open={pane === "settings"} label={HUD_PANE_LABEL.settings} closeLabel="Close Settings panel" onClose={close}>{panels.settings}</Pane>
       </EdgeDrawer>

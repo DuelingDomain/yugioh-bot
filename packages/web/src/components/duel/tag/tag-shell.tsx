@@ -151,7 +151,8 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   // A wide screen swaps the bars and side columns for the floating HUD (table/hud-layer.tsx). The Card pane is a flyout
   // there: a hover must not fill it, only a click or Inspect does, so the list pane stays the starting one.
   const hud = !narrow;
-  const hudState = useHudPane({ camera: true, initialPane: replayCarry?.current.hudPane });
+  // No Card drawer on the Rooftop: a click on a card (and Inspect) opens the pinned card pop-out.
+  const hudState = useHudPane({ camera: true, cardPane: false, initialPane: replayCarry?.current.hudPane });
   const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
@@ -365,7 +366,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   // The Deck Master badges (on every member chip) read their seat's master from here, with this table's keys and prompt.
   const forkLabels = useForkLabels();
   const showMasterCard = (target: InspectTarget) => {
-    if (hud) { ui.setInspect(target); hudState.setPane("card"); }
+    if (hud) { ui.setInspect(target); hudState.openCard(target); }
     else { ui.inspectCard(target); setSheetOpen(true); }
   };
   const masterBadges: MasterBadgeSource | null = domain ? {

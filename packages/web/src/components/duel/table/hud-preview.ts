@@ -17,10 +17,11 @@ export function hudPreview(
   menuCard: DuelCard | null | undefined,
   rowCard: DuelCardInfo | null,
   ownerOf: (card: DuelCard) => Owner,
-  pinned: DuelCard | null = null,
+  pinned: DuelCard | DuelCardInfo | null = null,
 ): HudPreview | null {
   if (rowCard && pinned && pinned.code != null) return { card: rowCard, owner: null };
-  if (pinned && pinned.code != null) return { card: pinned, owner: ownerOf(pinned), pinned: true };
+  // The card of an Inspect on a prompt row or a log row has no seat: no owner line.
+  if (pinned && pinned.code != null) return { card: pinned, owner: "location" in pinned ? ownerOf(pinned) : null, pinned: true };
   // A menu card without a code has no art to show, as on the hover path.
   const menuBoard = menuCard && menuCard.code != null ? menuCard : null;
   const board = hover ?? menuBoard;
