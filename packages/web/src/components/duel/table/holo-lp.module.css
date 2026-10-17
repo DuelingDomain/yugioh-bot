@@ -357,9 +357,13 @@
   }
 }
 
-/* The Deck Master portrait badge: round art at the top right corner of the panel, over its edge (the badge sizes itself from --dm-badge-size). */
-.badge {
+/* The Deck Master portrait badge (the badge sizes itself from --dm-badge-size). Yours hangs over the top right corner of your panel (the
+   emblem docks here only when your hand is too wide for it). A rival's stands INSIDE its panel, at the right end, so it is never cut by the
+   top of the screen or by the table box that clips the panels; the panel keeps that room free of text (`data-badge-in`). */
+.holo {
   --dm-badge-size: 54px;
+}
+.badge {
   position: absolute;
   z-index: 2;
   right: 8px;
@@ -367,11 +371,21 @@
 }
 .holo[data-elim="true"] .badge { filter: grayscale(1); opacity: 0.6; }
 
-/* In a grid box the badge shrinks with the panel and sits higher, so it never covers the life numerals. */
-.holo[data-fit="true"] .badge {
+/* In a grid box your badge shrinks with the panel and sits higher, so it never covers the life numerals. */
+.holo[data-fit="true"] {
   --dm-badge-size: calc(50px * var(--lpk));
+}
+.holo[data-fit="true"] .badge {
   right: calc(6px * var(--lpk));
   top: calc(-24px * var(--lpk));
+}
+.holo[data-badge-in="true"] .badge {
+  right: calc(8px * var(--lpk));
+  top: 50%;
+  translate: 0 calc(-50% - 2px);
+}
+.holo[data-badge-in="true"] .body {
+  padding-right: calc(var(--dm-badge-size) * 0.686 + 16px * var(--lpk));
 }
 
 /* A box too small for the whole panel (a fit under about 0.6) keeps the name, the numerals and the damage: the counts row
