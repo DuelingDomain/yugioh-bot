@@ -23,6 +23,7 @@ import { useDuelWebsocket } from "@/lib/hooks/use-duel-websocket";
 import { createEchoWindow } from "@/lib/duel-echo-window";
 import { applyAnswerResult } from "./answer-result";
 import { useChainModeControl } from "./use-chain-mode";
+import { useDuelRoomActivity } from "@/lib/hooks/use-duel-room-activity";
 import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { useBlockBrowserContextMenu } from "@/lib/hooks/use-block-browser-context-menu";
 import {
@@ -229,6 +230,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // keep the default.
       dedupingInterval: forkSeenFor.current === slug ? 0 : undefined },
   );
+  useDuelRoomActivity(rawData?.session.kind === "play" && rawData.session.status === "lobby"
+    && rawData.mySeat != null && rawData.opening == null ? slug : null);
   const refreshRoom = useCallback(
     () => mutate(() => getDuelRoom(slug, spectate, forkView.view), { revalidate: false }),
     [mutate, slug, spectate, forkView.view],
