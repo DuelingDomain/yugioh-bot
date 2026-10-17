@@ -395,14 +395,14 @@ export function CardBrowser({
                 if (view === "grid") {
                   return (
                     <li key={card.code}>
-                      <button type="button" className={styles["de-t"]} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} {...handlers}>
+                      <button type="button" className={styles["de-t"]} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} data-un={card.unavailableReason ? "" : undefined} {...handlers}>
                         <CardArt code={card.code} name={card.name} />
-                        {genesys && !pool ? <GenesysBadge card={card} variant="browse" /> : <LimitBadge limit={limit} />}
+                        {genesys && !pool ? <GenesysBadge card={card} variant="browse" lift={Boolean(card.unavailableReason)} /> : <LimitBadge limit={limit} />}
                         <ArtChip otherArts={card.altArtCount ?? 0} corner />
                         {card.unavailableReason ? <span className={styles.unavailable}>Unavailable</span> : null}
                         {pool ? (
                           <span className={cn("num", styles["de-left"])} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left} left</span>
-                        ) : count > 0 ? <span className={cn("num", styles["de-have"])}>×{count}</span> : null}
+                        ) : count > 0 ? <span className={cn("num", styles["de-have"])} data-gx={genesys ? "" : undefined}>×{count}</span> : null}
                       </button>
                     </li>
                   );

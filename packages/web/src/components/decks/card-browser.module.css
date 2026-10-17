@@ -25,10 +25,15 @@
 @container de-list (max-width: 300px) { .de-res { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .de-t { border-radius: 5px; }
 .de-have, .de-left { position: absolute; right: 4px; bottom: 4px; min-width: 24px; height: 19px; padding: 0 5px; border-radius: 4px; background: rgb(5 8 15 / 0.9); color: var(--chain-ink); font: 500 13px/19px var(--f-num); text-align: center; box-shadow: 0 0 0 1px rgb(181 153 99 / 0.55); }
+/* Genesys: the points chip has the bottom left (28px tall), so the copy count sits right above the foot, clear of it. A strip across the foot ("Unavailable") raises both. */
+.de-have[data-gx] { bottom: 35px; }
+.de-t[data-un] .de-have[data-gx] { bottom: 59px; }
 .de-left { color: var(--ink); }
 .de-left[data-zero] { color: var(--ink-3); box-shadow: 0 0 0 1px var(--rule-lo); }
 .de-t[data-full] img { opacity: 0.38; filter: grayscale(0.6); }
-.unavailable { position: absolute; left: 4px; bottom: 4px; padding: 2px 5px; border-radius: 4px; background: rgb(5 8 15 / 0.95); color: var(--ink); font-size: 11px; }
+/* A strip across the foot, so it fits any tile width; the copy count and the points chip sit above it. */
+.unavailable { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 0; background: rgb(5 8 15 / 0.95); color: var(--ink); font-size: 11px; line-height: 1.4; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.de-t[data-un] .de-have { bottom: 26px; }
 
 
 .de-list { container: de-list / inline-size; position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; border-left: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
