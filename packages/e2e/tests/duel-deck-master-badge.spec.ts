@@ -30,7 +30,19 @@ async function recordFlights(page: Page, code: number): Promise<void> {
   }, code);
 }
 
-const flights = (page: Page): Promise<Sample[]> => page.evaluate(() => (window as unknown as { __dmFlights: Sample[] }).__dmFlights.slice());
+const readFlights = (page: Page): Promise<Sample[]> => page.evaluate(() => (window as unknown as { __dmFlights: Sample[] }).__dmFlights.slice());
+/** The samples of a flight, read once no new sample has come for 600 ms (the flight is over). */
+async function flights(page: Page): Promise<Sample[]> {
+  let last = -1;
+  let quiet = 0;
+  for (let i = 0; i < 60 && quiet < 3; i += 1) {
+    const count = (await readFlights(page)).length;
+    quiet = count === last && count > 0 ? quiet + 1 : 0;
+    last = count;
+    await page.waitForTimeout(200);
+  }
+  return readFlights(page);
+}
 const clearFlights = (page: Page): Promise<void> => page.evaluate(() => { (window as unknown as { __dmFlights: Sample[] }).__dmFlights.length = 0; });
 const centerOf = (box: { x: number; y: number; width: number; height: number }) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 const gap = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -110,6 +122,7 @@ test("the Deck Master badge opens on one click, summons from the pop-over, and t
 
   // Destroy it with Dark Hole, recall it: the card flies back into the badge.
   await useCard(page, handCard(page, "Dark Hole"), "Activate");
+  await pickLegalZone(page, "st");
   const recall = page.getByRole("group", { name: /Deck Master/i });
   await expect(recall).toBeVisible();
   await clearFlights(page);
