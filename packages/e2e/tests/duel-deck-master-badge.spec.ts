@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "../helpers/fixtures";
 import { createTable, enterDuelRoom, importDeckUploadAndReady, uniqueTableName } from "../helpers/duel";
 import { expectReadyToAct, handCard, pickLegalZone, useCard, yourHand } from "../helpers/board";
@@ -46,6 +46,27 @@ async function flights(page: Page): Promise<Sample[]> {
 const clearFlights = (page: Page): Promise<void> => page.evaluate(() => { (window as unknown as { __dmFlights: Sample[] }).__dmFlights.length = 0; });
 const centerOf = (box: { x: number; y: number; width: number; height: number }) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 const gap = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+
+/** The badge sits whole inside the window and inside every clipping ancestor, and the top of the page at its corners is the badge itself (nothing covers it). */
+async function expectWhollyVisible(badge: Locator, what: string): Promise<void> {
+  const cut = await badge.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const miss: string[] = [];
+    if (box.left < -0.5 || box.top < -0.5 || box.right > innerWidth + 0.5 || box.bottom > innerHeight + 0.5) miss.push("outside the window");
+    for (let el = node.parentElement; el; el = el.parentElement) {
+      const style = getComputedStyle(el);
+      if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+      const clip = el.getBoundingClientRect();
+      if (box.left < clip.left - 0.5 || box.top < clip.top - 0.5 || box.right > clip.right + 0.5 || box.bottom > clip.bottom + 0.5) miss.push(`clipped by ${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]}`);
+    }
+    for (const [fx, fy] of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) {
+      const top = document.elementFromPoint(box.left + box.width * fx, box.top + box.height * fy);
+      if (!top || !node.contains(top)) miss.push(`covered at ${fx},${fy}`);
+    }
+    return miss;
+  });
+  expect(cut, `${what} is wholly visible`).toEqual([]);
+}
 
 /** The table: a Domain duel against the practice bot, your Deck Master Celtic Guardian, Dark Hole in the deck. */
 async function startBotDuel(page: Page): Promise<void> {
@@ -104,6 +125,7 @@ test("the Deck Master emblem opens on one click, summons from the pop-over, and 
   // At rest: both badges show, yours is ready and glows, the rival's is info only. Nothing is open.
   await expect(badge).toBeVisible();
   await expect(rival.getByTestId("dm-badge")).toBeVisible();
+  await expectWhollyVisible(rival, "the rival badge");
   await expect(mine).toHaveAttribute("data-ready", "true");
   await expect(mine.getByTestId("dm-badge-ready")).toBeVisible();
   await expect(rival).not.toHaveAttribute("data-ready", "true");
