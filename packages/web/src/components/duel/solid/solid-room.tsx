@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, type ReactNode, type RefObject, type TransitionEvent } from "react";
+import { useCallback, useContext, useEffect, useMemo, type ReactNode, type RefObject, type TransitionEvent } from "react";
 import { ScrollText } from "lucide-react";
 import type { DuelEngineView, DuelSeatView } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ import { EdgeDrawer, useExclusiveDrawers } from "../edge-drawer";
 import { duelFontClasses } from "../fonts";
 import type { DuelFieldProps } from "../field-model";
 import type { InspectTarget } from "../inspector";
+import { MasterBadgeContext } from "../master-badge";
 import type { DuelPreferences } from "../preferences";
 import { useQuietViewChange } from "../quiet-view-change";
 import { DuelSkinProvider } from "../skin";
@@ -96,6 +97,7 @@ export function SolidRoom(props: SolidRoomProps) {
     promptDockNode, battleAim, trackNode, mobileTabs, overlaysNode, fieldProps, renderBoard, renderClock, inspect, setPane, setMobileInspect,
     boardQuiet, onBeforeViewChange } = props;
   const narrow = useIsNarrow();
+  const masterBadges = useContext(MasterBadgeContext);
   // The tilted plane, found when asked (it mounts once the engine view is up). The FX canvas follows its tilt.
   const planeRef = useMemo<RefObject<Element | null>>(() => ({
     get current() { return boardRef.current?.querySelector("[data-sv-plane]") ?? null; },
@@ -134,6 +136,13 @@ export function SolidRoom(props: SolidRoomProps) {
     if (narrow) setMobileInspect(true);
     else cardDrawer.onOpenChange(true);
   };
+  const badgeSource = masterBadges ? {
+    ...masterBadges,
+    onInspect: (target: InspectTarget) => {
+      masterBadges.onInspect(target);
+      openPane("card");
+    },
+  } : null;
   // A click-inspect (a pile, a card) has to show its answer, so it opens the card drawer. Hovering still reads in the hover info.
   const boardProps: DuelFieldProps | null = fieldProps && !narrow ? {
     ...fieldProps,
@@ -164,7 +173,7 @@ export function SolidRoom(props: SolidRoomProps) {
       data-reduced={reducedMotion ? "true" : "false"}
       onTransitionEnd={onTransitionEnd}
     >
-      <DuelSkinProvider value={SOLID_SKIN}>
+      <DuelSkinProvider value={SOLID_SKIN}><MasterBadgeContext.Provider value={badgeSource}>
         <SolidHeader
           identity={<>{wordmark}{spectatorTag}</>}
           format={format}
@@ -220,7 +229,7 @@ export function SolidRoom(props: SolidRoomProps) {
         </div>
         {mobileTabs ? <div className={styles.mobileBar}>{mobileTabs}</div> : null}
         {overlaysNode}
-      </DuelSkinProvider>
+      </MasterBadgeContext.Provider></DuelSkinProvider>
     </div>
   );
 }

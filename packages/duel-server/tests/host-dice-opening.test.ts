@@ -230,6 +230,7 @@ const output = useConsoleObservability();
 
 describe("lobby resource preparation", () => {
   it.each(["ffa4", "ffa3", "tag", "1v1"] as const)("returns a %s lobby while resource preparation is pending", async (format) => {
+    vi.stubEnv("DUEL_STANDARD_1V1_ENGINE", "legacy");
     const t = table(format, [6, 4, 2, 1]);
     const get = vi.spyOn(EngineResourceCache.prototype, "get").mockReturnValue(new Promise(() => {}));
     const room = await t.post("view");

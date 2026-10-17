@@ -826,7 +826,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     }
     setHover({ card, anchor });
     // The HUD's Card flyout opens on a click, never on a hover.
-    if (pane === "card" && !hud) setInspect({ type: "card", card });
+    if (pane === "card" && !hud && (view.mode !== "3d" || narrow)) setInspect({ type: "card", card });
   }
 
   function onFieldActivate(keys: string[], card: DuelCard | null, anchor: HTMLElement, preserveInspector = false) {

@@ -1722,6 +1722,8 @@ export function PromptCenter(props: PromptCenterProps) {
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       if (event.metaKey || event.ctrlKey || event.altKey || menuRef.current) return;
+      // A badge opened by mouse keeps focus outside its portal but owns the keys.
+      if (document.querySelector("[data-master-popover]")) return;
       // An open edge drawer owns Escape too (it closes on it).
       if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen())) return;
       // A menu owns its keys: Escape closes it, and n / y in it must not answer the prompt behind.

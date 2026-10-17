@@ -33,10 +33,13 @@ export async function importDeckAndReady(page: Page): Promise<void> {
 /** A live duel opens behind a gate that offers a separate window. Tests play in the same tab. */
 export async function enterDuelRoom(page: Page): Promise<void> {
   const gate = page.getByTestId("duel-window-gate");
-  const board = page.getByRole("region", { name: "Duel field" });
+  const board = page.locator('[aria-label="Duel field"]');
   await expect(gate.or(board)).toBeVisible({ timeout: 60_000 });
-  if (await gate.isVisible()) await page.getByRole("button", { name: "Open here instead" }).click();
-  await expect(board).toBeVisible();
+  // A room refresh can switch the field to the window gate between these reads.
+  await expect(async () => {
+    if (await gate.isVisible()) await page.getByRole("button", { name: "Open here instead" }).click();
+    await expect(board).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 60_000 });
 }
 
 /**

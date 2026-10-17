@@ -257,13 +257,6 @@ export function DeckMasterBadge({
     if (!master) setOpen(false);
   }, [master]);
 
-  // Opened by a key: focus moves into the pop-over. Opened by the mouse: focus stays where it was.
-  useEffect(() => {
-    if (!open || !viaKey.current) return;
-    viaKey.current = false;
-    popRef.current?.querySelector<HTMLElement>("button:not(:disabled)")?.focus({ preventScroll: true });
-  }, [open]);
-
   if (!view || !master) return null;
 
   const name = master.card.name;
@@ -334,6 +327,7 @@ export function DeckMasterBadge({
       {open ? (
         <MasterPop
           popRef={popRef}
+          focusOnOpen={viaKey.current}
           id={popId}
           anchor={buttonRef}
           side={side}
@@ -411,9 +405,10 @@ function usePopPlace(anchor: { current: HTMLElement | null }, popRef: { current:
 }
 
 function MasterPop({
-  popRef, id, anchor, side, title, view, local, words, summonLine, actions, canAct, onChoose, onInspect, onTabOut, onDismiss,
+  popRef, focusOnOpen, id, anchor, side, title, view, local, words, summonLine, actions, canAct, onChoose, onInspect, onTabOut, onDismiss,
 }: {
   popRef: { current: HTMLDivElement | null };
+  focusOnOpen: boolean;
   id: string;
   anchor: { current: HTMLElement | null };
   side: BadgeSide;
@@ -432,6 +427,10 @@ function MasterPop({
   const [host, setHost] = useState<HTMLElement | null>(null);
   useEffect(() => setHost(document.body), []);
   const place = usePopPlace(anchor, popRef, side, host != null);
+  // Keyboard focus must wait for the portal to mount and become visible.
+  useEffect(() => {
+    if (focusOnOpen && place.ready) popRef.current?.querySelector<HTMLElement>("button:not(:disabled)")?.focus({ preventScroll: true });
+  }, [focusOnOpen, place.ready, popRef]);
   const master = view.deckMaster!;
   const card = master.card;
   const lines = masterDetailLines(card);
@@ -507,6 +506,7 @@ function MasterPop({
       role="dialog"
       aria-label={`${title} details`}
       data-testid="dm-badge-pop"
+      data-master-popover=""
       data-side={side}
       data-flow={place.flow}
       data-local={local ? "true" : "false"}

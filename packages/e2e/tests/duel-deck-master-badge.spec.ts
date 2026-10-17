@@ -7,6 +7,37 @@ import { withFiller, ydkUpload } from "../helpers/decks";
 
 const DECK_MASTER = "Celtic Guardian";
 
+for (const mode of ["classic", "3d"] as const) {
+  test(`${mode}: Inspect in the Deck Master pop-over opens the card drawer`, async ({ player }) => {
+    const { page } = await player("p5");
+    await startBotDuel(page);
+    const url = new URL(page.url());
+    url.searchParams.set("view", mode);
+    await page.goto(url.toString());
+    await expectReadyToAct(page);
+    await page.locator('[data-testid="dm-badge-wrap"][data-local="true"]').getByTestId("dm-badge").click();
+    await page.getByTestId("dm-badge-inspect").click();
+    await expect(page.getByTestId("dm-badge-pop")).toHaveCount(0);
+    const drawer = page.getByRole("dialog", { name: mode === "3d" ? "Card · Log" : "Card", exact: true });
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText(DECK_MASTER);
+    await expect(drawer.locator('img[src$="/image"]')).toBeVisible();
+    expect((await page.request.post(`/api/duels/${url.pathname.split("/").at(-1)}/surrender`)).ok()).toBe(true);
+  });
+}
+
+test("the Deck Master keyboard shortcut moves focus into the pop-over", async ({ player }) => {
+  const { page } = await player("p5");
+  await startBotDuel(page);
+  await page.keyboard.press("m");
+  const pop = page.getByTestId("dm-badge-pop");
+  await expect(pop).toBeVisible();
+  await expect(pop.locator("button:focus")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(pop).toHaveCount(0);
+  expect((await page.request.post(`/api/duels/${new URL(page.url()).pathname.split("/").at(-1)}/surrender`)).ok()).toBe(true);
+});
+
 type Sample = { x: number; y: number; w: number; h: number; opacity: number };
 
 /** Records, every frame, the box of each flying ghost that shows the Deck Master art (summon and return flights). */
@@ -217,6 +248,11 @@ test("the Deck Master emblem opens on one click, summons from the pop-over, and 
   await pickLegalZone(page, "st");
   const recall = page.getByRole("group", { name: /Deck Master/i });
   await expect(recall).toBeVisible();
+  await badge.click();
+  await expect(pop).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(pop).toHaveCount(0);
+  await expect(recall, "closing the pop-over must keep the pending recall").toBeVisible();
   await clearFlights(page);
   await recall.getByRole("button", { name: /^Yes/ }).click();
   await expect(mine.getByTestId("dm-badge-state")).toHaveText("In zone");

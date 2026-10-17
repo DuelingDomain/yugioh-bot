@@ -159,6 +159,7 @@ function parseNumberKey(key: string): number | null {
 
 function shouldIgnoreKeyboard(event: KeyboardEvent, menuOpen: boolean): boolean {
   if (menuOpen) return true;
+  if (document.querySelector("[data-master-popover]")) return true;
   if (event.isComposing || event.key === "Process") return true;
   if (event.defaultPrevented) return true;
   const target = event.target;

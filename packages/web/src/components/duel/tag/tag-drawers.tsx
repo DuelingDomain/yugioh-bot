@@ -132,6 +132,7 @@ export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, l
   }, [close, pinAnchor]);
 
   const [chainShown, setChainShown] = useState(false);
+  useEffect(() => { if (!chainOpen || pane != null) setChainShown(false); }, [chainOpen, pane]);
   const leftPanes = LEFT_TAB_ORDER.filter((id) => id !== "camera" || hud.dock.includes("camera"));
   const rootRef = useRef<HTMLDivElement>(null);
   const heights = useLeftTabHeights(rootRef, [leftPanes.length, chainOpen, logUnread, chain.length]);
@@ -162,7 +163,10 @@ export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, l
             count={chain.length}
             open={chainShown}
             className={chainShown ? styles.open : undefined}
-            onOpenChange={setChainShown}
+            onOpenChange={(open) => {
+              if (open) close();
+              setChainShown(open);
+            }}
             size={LEFT_SIZE.chain}
             tabOffset={leftTabOffset(leftPanes.length, heights)}
           >
