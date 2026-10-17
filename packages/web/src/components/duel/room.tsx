@@ -230,7 +230,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // keep the default.
       dedupingInterval: forkSeenFor.current === slug ? 0 : undefined },
   );
-  useDuelRoomActivity(rawData?.session.kind === "play" && rawData.session.status === "lobby"
+  const idleDeadline = useDuelRoomActivity(rawData?.session.kind === "play" && rawData.session.status === "lobby"
     && rawData.mySeat != null && rawData.opening == null ? slug : null);
   const refreshRoom = useCallback(
     () => mutate(() => getDuelRoom(slug, spectate, forkView.view), { revalidate: false }),
@@ -1082,7 +1082,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   if (data.session.status === "lobby" && !ownWindowGate) {
     const opening = data.opening;
     const lobby = (
-      <RoomLobby room={data} presence={realtime.presence} slug={slug} busy={busy} starting={starting} actionError={actionError}
+      <RoomLobby room={data} presence={realtime.presence} idleDeadline={idleDeadline} slug={slug} busy={busy} starting={starting} actionError={actionError}
         onDeckLocked={() => void refreshRoom()}
         onTakeSeat={(seat) => void run(() => takeDuelSeat(slug, seat))}
         onAddBot={(seat) => void run(() => addPracticeBot(slug, seat))}
