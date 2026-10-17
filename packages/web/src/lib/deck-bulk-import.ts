@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { decodeYdke, MAX_DECK_ISSUES, parseYdk, splitImportText, type DeckSections, type FormatIssue } from "@yugidraft/shared/decks";
-import { assertExtraDeckCards, ExtraDeckCardError, routeDeckSections, type DeckCardType, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
+import { assertExtraDeckCards, DEFAULT_GENESYS_POINT_CAP, ExtraDeckCardError, routeDeckSections, type DeckCardType, type DuelDeck, type DuelMode, type GenesysSettings } from "@yugidraft/shared/duels";
 import { CARD_LOOKUP_LIMIT, createDeckTypeLookup, SavedDeckServiceError, validateSavedDeckWrite } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
 import { normalizeDraftCardCodes } from "@/lib/draft-deck-codes";
@@ -12,7 +12,8 @@ const MAX_IMPORT_CODES = MAX_IMPORT_DECKS * 91;
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_SOURCE_BYTES = 64 * 1024;
 type Actor = Extract<SavedDeckActor, { ok: true }>;
-export type ImportMode = "standard" | "domain";
+/** The format a row is saved as. The two Genesys formats save with the Genesys tag (the default cap) on Standard or Domain. */
+export type ImportMode = "standard" | "domain" | "genesys" | "genesys-domain";
 export type ImportIssue = FormatIssue & { passcode?: number; from?: number; to?: number };
 type Duplicate = { kind: "saved"; deckId: number; name: string } | { kind: "row"; rowId: string; name: string };
 export type ImportPreviewRow = {
@@ -31,8 +32,8 @@ export type ImportPreviewRow = {
 const emptyDeck = (): DeckSections => ({ main: [], extra: [], side: [], deckMaster: null });
 const errorResponse = (error: string, status = 400) => NextResponse.json({ error }, { status });
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
-const isImportMode = (value: unknown): value is ImportMode => value === "standard" || value === "domain";
-const importMode = (mode: DuelMode): ImportMode => mode === "domain" ? "domain" : "standard";
+const isImportMode = (value: unknown): value is ImportMode => value === "standard" || value === "domain" || value === "genesys" || value === "genesys-domain";
+const importMode = (mode: DuelMode, genesys: GenesysSettings | null): ImportMode => genesys ? (mode === "domain" ? "genesys-domain" : "genesys") : mode === "domain" ? "domain" : "standard";
 const sourceLines = new WeakMap<ImportPreviewRow, Map<number, number>>();
 
 /** The card name for a person to read: the engine or catalog name, never the "card 123" placeholder. */
@@ -159,20 +160,21 @@ export const importListError = (label: string) => errorResponse(`Provide between
 
 /** Match importForLibrary: explicit master selects Domain; a lone Domain Side card becomes the master. */
 export function validateImportRow(value: unknown):
-  | { ok: true; name: string; mode: DuelMode; deck: DuelDeck }
+  | { ok: true; name: string; mode: DuelMode; deck: DuelDeck; genesys: GenesysSettings | null }
   | { ok: false; errors: ImportIssue[] } {
   try {
     if (!isRecord(value)) throw new SavedDeckServiceError("Expected a deck row", 400);
     if (value.mode !== undefined && !isImportMode(value.mode)) {
-      throw new SavedDeckServiceError("Import mode must be standard or domain", 400);
+      throw new SavedDeckServiceError("Import mode must be standard, domain, genesys or genesys-domain", 400);
     }
     let deck = value.deck;
-    const mode: DuelMode = value.mode === "domain" || (isRecord(deck) && deck.deckMaster != null) ? "domain" : "normal";
+    const mode: DuelMode = value.mode === "domain" || value.mode === "genesys-domain" || (isRecord(deck) && deck.deckMaster != null) ? "domain" : "normal";
+    const genesys = value.mode === "genesys" || value.mode === "genesys-domain" ? { pointCap: DEFAULT_GENESYS_POINT_CAP } : null;
     if (isRecord(deck) && deck.deckMaster === null) {
       const { deckMaster: _master, ...rest } = deck;
       deck = rest;
     }
-    const valid = validateSavedDeckWrite({ name: value.name, mode, deck });
+    const valid = validateSavedDeckWrite({ name: value.name, mode, deck, genesys });
     if (valid.mode === "domain" && valid.deck.deckMaster == null && valid.deck.side.length === 1) {
       valid.deck = { ...valid.deck, side: [], deckMaster: valid.deck.side[0] };
     }
@@ -194,7 +196,7 @@ export function parseImportSources(sources: unknown[]): { ok: true; rows: Import
       return { ok: false, response: errorResponse("Each source needs a unique string id and text, with an optional string name") };
     }
     if (source.mode !== undefined && !isImportMode(source.mode)) {
-      return { ok: false, response: errorResponse("Import mode must be standard or domain") };
+      return { ok: false, response: errorResponse("Import mode must be standard, domain, genesys or genesys-domain") };
     }
     const sourceMode: ImportMode = source.mode ?? "standard";
     const sourceId = source.id;
@@ -229,7 +231,7 @@ export function parseImportSources(sources: unknown[]): { ok: true; rows: Import
         const valid = validateImportRow({ name, deck, mode });
         if (!valid.ok) errors = valid.errors;
         else {
-          mode = importMode(valid.mode);
+          mode = importMode(valid.mode, valid.genesys);
           deck = { ...valid.deck, deckMaster: valid.deck.deckMaster ?? null };
         }
       }
@@ -382,7 +384,7 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
   const created: Array<{ id: number; name: string }> = [];
   const failed: Array<{ index: number; errors: ImportIssue[] }> = [];
   const warnings: Array<{ index: number; warnings: ImportIssue[] }> = [];
-  const prepared: Array<{ index: number; name: string; mode: DuelMode; deck: DuelDeck }> = [];
+  const prepared: Array<{ index: number; name: string; mode: DuelMode; deck: DuelDeck; genesys: GenesysSettings | null }> = [];
   for (const [index, row] of checked.entries()) {
     if (!row.ok) {
       failed.push({ index, errors: row.errors });
@@ -409,19 +411,19 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
       continue;
     }
     // Validate the resolved deck too. The service remains the authority for storage rules.
-    const final = validateImportRow({ name: row.name, deck: routed.deck, mode: importMode(row.mode) });
+    const final = validateImportRow({ name: row.name, deck: routed.deck, mode: importMode(row.mode, row.genesys) });
     if (!final.ok) {
       failed.push({ index, errors: final.errors });
       continue;
     }
-    prepared.push({ index, name: final.name, mode: final.mode, deck: final.deck });
+    prepared.push({ index, name: final.name, mode: final.mode, deck: final.deck, genesys: final.genesys });
     if (warning.length) warnings.push({ index, warnings: warning });
   }
   // Finish every host check before writing: a 503 must not hide already-created decks.
   for (const final of prepared) {
     try {
       // Selected duplicates are allowed. Always create a library deck owned by the server actor.
-      const saved = actor.decks.create(actor.guildId, actor.ownerUserId, { name: final.name, mode: final.mode, deck: final.deck });
+      const saved = actor.decks.create(actor.guildId, actor.ownerUserId, { name: final.name, mode: final.mode, deck: final.deck, genesys: final.genesys });
       created.push({ id: saved.id, name: saved.name });
     } catch (error) {
       if (!(error instanceof SavedDeckServiceError)) throw error;
