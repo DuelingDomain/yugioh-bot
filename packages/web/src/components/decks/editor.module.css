@@ -356,3 +356,14 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 @container de-editor (1200px <= width < 1500px) {
   .de-body { grid-template-columns: 230px minmax(0, 1fr) 320px; }
 }
+
+/* Opened from a duel room: a bordered "Back to room" button, with the short word on a phone, so the way back is plain. */
+.de-back-room { gap: 4px; padding: 0 12px 0 6px; border: 1px solid var(--rule); color: var(--ink); }
+.de-back-room:hover { border-color: var(--ink-3); }
+.de-back-short { display: none; }
+@container de-editor (width < 960px) {
+  .de-bar:has(.de-back-room), .host[data-pool] .de-bar:has(.de-back-room) { grid-template-columns: auto minmax(0, 1fr) 34px auto; }
+  :global(.ms) .de-back.de-back-room { width: auto; height: 36px; padding: 0 10px 0 4px; align-self: center; }
+  .de-back-room .de-back-long { display: none; }
+  .de-back-room .de-back-short { display: inline; }
+}

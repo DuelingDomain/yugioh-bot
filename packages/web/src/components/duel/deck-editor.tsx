@@ -144,7 +144,7 @@ export function DeckEditor({
   const cardMeta = useDeckCardMeta(deck, { enabled: mode === "domain", retry });
   const [fileName, setFileName] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const savedList = useSavedDecks();
+  const savedList = useSavedDecks(slug);
   const importSeq = useRef(0);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const [saveNote, setSaveNote] = useState<{ text: string; error?: boolean } | null>(null);
@@ -368,7 +368,14 @@ export function DeckEditor({
         {genesysDeck.summary ? <GenesysCheck summary={genesysDeck.summary} /> : null}
       </header>
 
-      <SavedDeckPicker mode={mode} genesys={settings.genesys} disabled={busy} list={savedList} onLoad={(saved) => {
+      <SavedDeckPicker mode={mode} genesys={settings.genesys} disabled={busy} list={savedList}
+        onBeforeEdit={() => {
+          // The editor opens in this tab, so the deck changed here by hand is lost: ask first. A deck from the room or
+          // a saved deck that was not changed leaves nothing behind.
+          const changed = deck !== pristineDeck && (main.length > 0 || extra.length > 0 || side.length > 0 || masterCode !== undefined);
+          return !changed || window.confirm("You changed the deck at this table. If you open the deck editor, those changes are lost. Open the editor?");
+        }}
+        onLoad={(saved) => {
         const hasCards = main.length > 0 || extra.length > 0 || side.length > 0 || masterCode !== undefined;
         if (hasCards && deck !== pristineDeck
           && !window.confirm("Replace the deck you changed at this table? Your saved deck is unchanged.")) return false;

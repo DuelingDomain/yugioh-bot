@@ -10,8 +10,8 @@
 .row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  grid-template-areas: "name pts chip" "why why why";
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-areas: "name pts chip edit" "why why why why";
   align-items: center;
   gap: 2px 16px;
   padding: 9px 12px;
@@ -55,11 +55,13 @@
 .row[data-s="over"] .chip, .row[data-s="forbidden"] .chip { border-color: rgb(228 90 77 / 0.5); color: var(--duel-loss-ink); background: var(--duel-loss-soft); }
 .row[data-s="unknown"] .chip, .row[data-s="failed"] .chip { border-color: rgb(228 182 79 / 0.5); color: var(--duel-chain-ink); background: var(--duel-chain-soft); }
 
+.edit { grid-area: edit; justify-self: end; cursor: pointer; }
 .why { grid-area: why; margin-top: 4px; color: var(--duel-ink-3); font-size: 12.5px; line-height: 1.5; }
 .row[data-s="over"] .why, .row[data-s="forbidden"] .why { color: var(--duel-loss-ink); }
 
 @media (max-width: 560px) {
-  .row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name chip" "pts pts" "why why"; }
+  .row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name name" "pts pts" "chip edit" "why why"; }
+  .chip { justify-self: start; }
   .pts { justify-items: start; grid-template-columns: auto 1fr; align-items: center; gap: 10px; }
   .bar { width: 100%; }
 }

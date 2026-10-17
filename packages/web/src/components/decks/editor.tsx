@@ -1070,7 +1070,10 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
     const now = artMenu.section === "deckMaster" ? (mode === "domain" ? deck.deckMaster : undefined) : deck[artMenu.section][artMenu.index];
     if (now !== artMenu.code) setArtMenu(null);
   }, [artMenu, deck, mode]);
-  const backHref = pool ? `/draft/${pool.slug}` : "/decks";
+  // Opened from a duel room: the way back leads to the room, not to the deck list.
+  const inRoom = !pool && !!roomSlug;
+  const backHref = pool ? `/draft/${pool.slug}` : inRoom ? `/duels/${roomSlug}` : "/decks";
+  const backLabel = pool ? "Back to the draft" : inRoom ? "Back to room" : "Back to decks";
   const statusTone = saveError ? "bad" : dirty ? "warn" : savedId != null ? "ok" : undefined;
   const statusText = saveBusy
     ? "Saving…"
@@ -1086,7 +1089,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
     return (
       <EditorState pool={!!pool} backHref={backHref}>
         <div ref={pool ? undefined : editorRef} role="alert" className={styles["de-fail"]}><StatusLine tone="block">{loadError ?? "That deck id is not valid."}</StatusLine></div>
-        <div><SvButton as="a" href={backHref} variant="ghost">{pool ? "Back to the draft" : "Back to decks"}</SvButton></div>
+        <div><SvButton as="a" href={backHref} variant="ghost">{backLabel}</SvButton></div>
       </EditorState>
     );
   }
@@ -1257,9 +1260,14 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
       {copyToast}
       <div ref={editorRef} className={styles.de} data-tab={phoneTab} data-pane-dir={phoneDir}>
         <header className={styles["de-bar"]}>
-          <Link href={backHref} className={styles["de-back"]} aria-label={pool ? "Back to the draft" : "Back to decks"}>
+          <Link href={backHref} className={cn(styles["de-back"], inRoom && styles["de-back-room"])} aria-label={backLabel}>
             <ChevronLeft size={18} strokeWidth={2} aria-hidden />
-            <span>{pool ? "Draft" : "Decks"}</span>
+            {inRoom ? (
+              <>
+                <span className={styles["de-back-long"]}>Back to room</span>
+                <span className={styles["de-back-short"]}>Room</span>
+              </>
+            ) : <span>{pool ? "Draft" : "Decks"}</span>}
           </Link>
           <label className={styles["de-namef"]}>
             <span className="sr">Deck name</span>
