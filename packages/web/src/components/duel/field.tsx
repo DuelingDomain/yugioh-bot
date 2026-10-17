@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Link2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -47,7 +47,6 @@ import { RivalHand } from "./table/rival-hand";
 import { hexToRgbTriplet, normalizeDeg, textScale } from "./table/seat-angle";
 import { SEAT_TONE_HEX, type SeatFieldProps } from "./table/types";
 import { useForkLabels } from "./table/fork-labels";
-import { MasterZoneContext } from "./master-zone-context";
 import { useDuelFieldModel, type DuelFieldProps } from "./field-model";
 import {
   anyLegal,
@@ -1067,9 +1066,6 @@ export const SeatField = memo(function SeatField({
   const turn = engine.turnSeat === seat && !eliminated;
   const off = disabledZones(view);
   const equipLinks = useMemo(() => resolveEquipLinks(engine.seats), [engine.seats]);
-  // Domain tables: the Deck Master Zone, a column of its own left of the Field Spell Zone (master-zone-context.ts).
-  const MasterZone = useContext(MasterZoneContext);
-  const dmz = MasterZone != null && view?.deckMaster != null && masterRule >= 4;
   const toneHex = SEAT_TONE_HEX[tone];
   const vars: CssVars = {
     "--t": hexToRgbTriplet(toneHex.main),
@@ -1153,7 +1149,6 @@ export const SeatField = memo(function SeatField({
         data-emz={emz === "pair" || emz === "none" ? emz : undefined}
         data-joined={emz === "pair" && pair?.joined ? "true" : undefined}
         data-framed={pair?.framed ? "true" : undefined}
-        data-dmz={dmz ? "true" : undefined}
         style={vars}
       >
         <div className={styles.sfMat}>
@@ -1161,7 +1156,6 @@ export const SeatField = memo(function SeatField({
           {emz === "none" ? <span className={styles.sfCrackAvoid} data-crack-avoid="" aria-hidden="true" /> : null}
           <span className={styles.sfRule} aria-hidden="true" />
           <div className={styles.sfGrid}>
-            {dmz && MasterZone ? <div className={styles.sfDm}><MasterZone seat={seat} side={side} /></div> : null}
             <PileColumn view={view} opponent={false} flip={false} side="left" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
             <div className={styles.sfEmz}>
               {masterRule >= 4 && emz === "pair" ? (
