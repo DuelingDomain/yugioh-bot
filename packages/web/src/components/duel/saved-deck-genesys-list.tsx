@@ -1,21 +1,23 @@
 "use client";
 
 import { useId, type CSSProperties } from "react";
-import type { DuelMode, GenesysCard, GenesysSettings, SavedDeck } from "@yugidraft/shared/duels";
+import type { DuelMode, GenesysCard, GenesysSettings } from "@yugidraft/shared/duels";
+import type { SavedDeckView } from "../decks/api";
 import { formatLabel } from "../decks/genesys";
+import { EditDeckLink } from "./saved-deck-edit-link";
 import { genesysPlainLine, savedDeckGenesysPick, savedDeckTag, type GenesysPick } from "./saved-deck-genesys";
 import ui from "./sheet-ui.module.css";
 import styles from "./saved-deck-genesys.module.css";
 
 export interface GenesysDeckRowModel {
-  saved: SavedDeck;
+  saved: SavedDeckView;
   /** null for a deck of the other format. */
   pick: GenesysPick | null;
 }
 
 /** One row per saved deck of the room's format, judged against the cap; decks of the other format follow. */
 export function genesysDeckRows(
-  decks: readonly SavedDeck[],
+  decks: readonly SavedDeckView[],
   mode: DuelMode,
   genesys: GenesysSettings,
   catalog: ReadonlyMap<number, GenesysCard>,
@@ -35,7 +37,7 @@ export function genesysDeckRows(
  * The deck choice of a Genesys room. A deck that does not fit the cap now is disabled and says why; when the host
  * raises the cap the rows are judged again, so a deck that fits becomes pickable at once.
  */
-export function GenesysDeckChoices({ mode, genesys, rows, picked, disabled, emptyText, onPick }: {
+export function GenesysDeckChoices({ mode, genesys, rows, picked, disabled, emptyText, onPick, roomSlug, onBeforeEdit }: {
   mode: DuelMode;
   genesys: GenesysSettings;
   rows: readonly GenesysDeckRowModel[];
@@ -44,6 +46,10 @@ export function GenesysDeckChoices({ mode, genesys, rows, picked, disabled, empt
   /** Shown when there is no row: loading, an error or no deck in this format. */
   emptyText: string;
   onPick: (id: string) => void;
+  /** The room the list belongs to: every deck, usable or not, has an Edit link that leads back to it. */
+  roomSlug?: string;
+  /** Asked before the editor opens in this tab. Returns false when the player stays. */
+  onBeforeEdit?: () => boolean;
 }) {
   const name = useId();
   return (
@@ -78,6 +84,7 @@ export function GenesysDeckChoices({ mode, genesys, rows, picked, disabled, empt
                   </span>
                 ) : null}
                 <span className={styles.chip}>{pick ? (isPicked && blocked ? `Loaded · ${pick.label}` : pick.label) : "Other format"}</span>
+                <EditDeckLink saved={saved} roomSlug={roomSlug} onBeforeEdit={onBeforeEdit} className={styles.edit} />
                 {reason ? <span id={whyId} className={styles.why}>{reason}</span> : null}
               </label>
             );
