@@ -213,6 +213,7 @@ export function HoloLp({
       data-seat={seat}
       data-tone={tone}
       data-me={me ? "true" : undefined}
+      data-badge-in={badge && !me ? "true" : undefined}
       data-turn={turn ? "true" : undefined}
       data-active={turn || status === "choosing" ? "true" : undefined}
       data-elim={out ? "true" : undefined}
