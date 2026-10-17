@@ -206,13 +206,12 @@ export function TagSide({
         <div className={styles.hudTray} data-tone={prompt?.context?.type === "chain" ? "chain" : "action"} data-empty={hud.trayVisible ? undefined : "true"} data-prompt-surface={prompt ? "" : undefined}>{trayNode}</div>
         <TagDrawers
           hud={hud.state}
-          panels={{ card: cardPanel, log: logPanel, settings: settingsPanel, camera: hud.camera }}
+          panels={{ log: logPanel, settings: settingsPanel, camera: hud.camera }}
           chain={engine.chain}
           chainOpen={engine.chain.length > 0 && session.status === "active"}
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          onInspect={ui.setInspect}
           preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hud.state.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={ui.pile?.open === true}
