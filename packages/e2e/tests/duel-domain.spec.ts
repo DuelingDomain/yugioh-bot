@@ -69,7 +69,7 @@ test("a Deck Master is summoned from its zone, destroyed, recalled, and summoned
   await activateSingleResponse(bob.page);
   const recall = alice.page.getByRole("group", { name: /Deck Master/i });
   await expect(recall).toBeVisible();
-  await expect(recall).toContainText("Next summon after this recall: 500 LP");
+  await expect(recall).toContainText("Next summon, set or activation after this recall: 500 LP");
   await recall.getByRole("button", { name: /^Yes/ }).click();
 
   // The master is back in its zone on both screens. The next summon costs 500 Life Points.
