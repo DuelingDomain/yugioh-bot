@@ -46,7 +46,9 @@ it("enforces cube write access before contacting the engine", async () => {
 });
 
 function themeDraft() {
-  db.exec("insert into card_catalog select 20,'Other',type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10");
+  db.exec(`insert into card_catalog
+    (ygoprodeck_id,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype)
+    select 20,'Other',type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10`);
   db.exec("insert into cube_cards (cube_id,catalog_card_id,pool,max_copies) values (1,20,'main',3)");
   const players = ["p1", "p2"].map(user => Number(db.prepare("insert into players (guild_id,user_id,discord_user_id,display_name) values ('g',?,?,?)").run(fixtureUserId(user), fixtureDiscordId(user), user).lastInsertRowid));
   const drafts = createDraftService(db);
@@ -109,7 +111,9 @@ it("blocks an assigned active cube after a pick, even without allowedCubeIds", a
 it("demonstrates that bypassing the guard over-deals the same family", () => {
   const { drafts, draft, players } = themeDraft(); drafts.start(draft.id);
   drafts.pickCard(draft.id, players[0], drafts.currentPackOptions(draft.id, players[0]).find(c => c.catalogCardId === 10)!.id, "manual");
-  db.exec("insert into card_catalog select 11,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10");
+  db.exec(`insert into card_catalog
+    (ygoprodeck_id,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype)
+    select 11,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10`);
   db.exec("update cube_cards set catalog_card_id = 11 where cube_id = 1 and catalog_card_id = 10");
   for (let round = 0; round < 4; round++) for (const player of players) {
     const options = drafts.currentPackOptions(draft.id, player);
@@ -134,7 +138,9 @@ it("maps an engine-unknown cube source to 400, preserving host failures", async 
 });
 
 it("keeps engine-only artwork in the existing local API family", async () => {
-  db.exec("insert into card_catalog select 12,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10");
+  db.exec(`insert into card_catalog
+    (ygoprodeck_id,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype)
+    select 12,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10`);
   db.exec("insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main) values (12,12,'full','small',1),(12,10,'full','small',0)");
   expect((await swap()).status).toBe(200);
   expect(db.prepare("select card_id,is_main from card_artworks where artwork_id = 11").get()).toEqual({ card_id: 12, is_main: 0 });

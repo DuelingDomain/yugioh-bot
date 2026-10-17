@@ -63,6 +63,9 @@ Retained integration/engine files:
 - `packages/web/tests/duel-hidden-waiting.test.tsx`
 - `packages/web/tests/duel-spectator-routes.test.ts`
 
+- `packages/shared/tests/services/card-artworks.test.ts`
+- `packages/web/tests/cube-artwork-swap.test.ts`
+
 Main's `packages/web/tests/duel-host-errors.test.ts` is also retained unchanged.
 
 ## Local verification
@@ -71,8 +74,8 @@ Node 22.23.3 verification after the main merge:
 
 - `npm ci` and shared/worker/web production builds passed.
 - `npx tsc --noEmit` passed for shared, web, duel-server, bot, ws, worker, and e2e.
-- 180 targeted integration tests passed: 91 shared (including two real CLI
-  subprocess checks), 50 duel-server SQLite/host-admission checks, 34 web
+- 244 targeted integration tests passed: 133 shared (including two real CLI
+  subprocess checks), 50 duel-server SQLite/host-admission checks, 56 web
   route/SQLite checks, and five real worker process checks.
 - The 32 `genesys-engine-real` worker cases were skipped because this worktree has
   no engine data or built cores. The retained `host-table-legality` file was not
@@ -81,6 +84,11 @@ Node 22.23.3 verification after the main merge:
   main's `duel-host-errors`. The pure comparison cases in the CLI test file were
   not run. No complete local package suite was run.
 - Documentation contains no duplicated BabelCDB/CardScripts pin SHAs.
+
+Artwork integration fixtures now name catalog columns explicitly, so new nullable
+Genesys columns do not break their seed rows. The real worker shutdown test injects
+its heartbeat filesystem fault during SIGTERM, after the first flush and before
+cleanup, avoiding a race with normal heartbeat writes.
 
 Read-only review found a saved-deck refresh race: a background focus request could
 replace a pending initial request and hide its error. Background refresh now waits

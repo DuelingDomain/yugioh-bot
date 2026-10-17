@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { readSignedRequest } from "@yugidraft/shared/internal-auth";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,12 +47,11 @@ it.each(["0", "1"])("flushes heartbeat cleanup errors on the real SIGTERM path (
   const output = join(root, "observability.jsonl");
   const worker = startWorker(root, {
     SENTRY_DSN: "configured", WORKER_OBSERVABILITY_OUTPUT: output, WORKER_FLUSH_BLOCK: blocked,
+    WORKER_HEALTH_CLEANUP_ERROR: "1",
   }, [fileURLToPath(new URL("./helpers/shutdown-observability.mjs", import.meta.url))]);
   try {
     await until(() => existsSync(worker.health) || worker.stopped());
     expect(existsSync(worker.health), worker.output()).toBe(true);
-    rmSync(worker.health);
-    mkdirSync(worker.health);
     const signalledAt = Date.now();
     worker.child.kill("SIGTERM");
     await until(worker.stopped);
