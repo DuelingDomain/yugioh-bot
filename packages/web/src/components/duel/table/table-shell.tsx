@@ -25,7 +25,7 @@ import { FxBoundary, MoveSourceBoundary } from "../fx-boundary";
 import { duelFontClasses } from "../fonts";
 import { DuelHistoryRail } from "../history-rail";
 import { CardInspector, type InspectTarget } from "../inspector";
-import { MasterBadgeContext, type MasterBadgeSource } from "../master-badge";
+import { MasterBadgeScope, type MasterBadgeSource } from "../master-badge";
 import { MasterReturnFx } from "../master-return-fx";
 import { MoveFx } from "../move-fx";
 import { engineFormat, formatLabel, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds } from "../multi-seat";
@@ -641,7 +641,7 @@ function TableShellBody({
   const HudLayerView = plazaHud ? PlazaDrawers : HudLayer;
 
   return (
-    <MasterBadgeContext.Provider value={masterBadges}>
+    <MasterBadgeScope value={masterBadges}>
     <div
       ref={rootRef}
       className={`${roomStyles.shell} ${styles.shell} ${duelFontClasses}`}
@@ -1012,6 +1012,6 @@ function TableShellBody({
       ) : null}
       {replay ? null : modals}
     </div>
-    </MasterBadgeContext.Provider>
+    </MasterBadgeScope>
   );
 }
