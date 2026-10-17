@@ -48,7 +48,7 @@ def check_security(host, headers):
     for key, values in {
         "default-src": {"'self'"}, "img-src": {"'self'", "data:"},
         "script-src": {"'self'"}, "connect-src": {"'self'"},
-        "frame-ancestors": {"'none'"}, "base-uri": {"'self'"}, "form-action": {"'self'"}
+        "frame-src": {"https://www.youtube-nocookie.com"}, "frame-ancestors": {"'none'"}, "base-uri": {"'self'"}, "form-action": {"'self'"}
     }.items():
         assert directives.get(key) == values, (key, csp)
     # The documented network fallback temporarily permits only the two font origins.

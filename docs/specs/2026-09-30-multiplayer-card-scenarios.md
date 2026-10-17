@@ -241,6 +241,20 @@ Binding source (spec 4.2): **explicit pick** (the activator chooses one opponent
 
 Finding: the old spec text said Ash Blossom checks `rp==1-tp`. The script has no such check (lines 32 to 38 of `c14558127.lua`), and Solemn Judgment has none either. Ash Blossom can negate effects of the owner in 1v1. The product owner then decided (2026-09-30) that in Tag these cards cannot negate the partner. The fold alone does not do this, so a core rule does it (rule 7). The spec and ADR-0002 now say this.
 
+## Droll & Lock Bird: allowed after real-core proof (2026-10-16)
+
+Droll & Lock Bird (94145021) is allowed in FFA3, FFA4 and Tag. The former FFA ban was stale. The stock script checked only controller values 0 and 1. The existing `domain-core/multi-scripts/c94145021.lua` patch records a bit per seat in FFA and per team in Tag. No script change was needed.
+
+`tests/scenarios/multiplayer/droll-lock-bird.ts` and `droll-lock-bird.test.ts` run 206 real-engine checks: 54 for FFA3, 80 for FFA4 and 72 for Tag, split equally between the Standard and Domain multi cores. They prove:
+
+- Every opponent's Deck search can enable Droll. Own searches and Tag partner searches cannot. An effect draw outside the Draw Phase can also enable it at every seat.
+- After resolution, no player can search or draw from the Deck for the rest of that turn. This includes the holder and the Tag partner, under ADR-0002 R-COMMON-EACH-PLAYER. Both new activations and already-queued search/draw effects are checked. Searches and draws work again on the next turn.
+- Natural draws, effect draws and Deck searches in each seat's Draw Phase do not enable Droll. A later Main Phase search still enables it.
+- Droll has **no once-per-turn limit** in the [official card text](https://www.db.yugioh-card.com/yugiohdb/card_search.action?ope=2&cid=9279&request_locale=en). Each seat can use two copies in the same turn and response chain.
+- In FFA3 and FFA4, activation and the restriction still work after any one seat is eliminated. Every survivor is checked, including tables whose removed seat held the first copy that registered the global check.
+
+The catalog checks the real deck-validation result for Main Deck, Side Deck and Domain Deck Master positions in all three formats. Tag already had no multiplayer ban. The web duel deck editor displays the server's validation report; it has no separate copy of this ban. Normal format banlist copy limits still apply.
+
 ## Group (c): forbidden in free-for-all
 
 The deck check refuses these cards at the listed tables. "Tag too" says if the card also breaks in 2v2 Tag. Alternate-art passcodes are caught through the `alias` column of `cards.cdb` (for example Exodia 33396949, 33396950 and 33396951).
@@ -289,7 +303,6 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Phantasm Spiral Assault | 97795930 | alt-win | It ends the duel with a win for its controller when its counter reaches 3. A 'you win' effect has no defined result for the other players. | `c97795930.lua:77` | 3-FFA, 4-FFA, Tag | yes |
 | Number 88: Gimmick Puppet of Leo | 48995978 | alt-win | It ends the duel with a win for its controller when it has 3 counters. A 'you win' effect has no defined result for the other players. | `c48995978.lua:58` | 3-FFA, 4-FFA, Tag | yes |
 | Nibiru, the Primal Being | 27204311 | global-state | It counts summons in a flag for each of two players and reads the flag of 'the opponent'. | `c27204311.lua:34`, `c27204311.lua:38` | 3-FFA, 4-FFA | no |
-| Droll & Lock Bird | 94145021 | global-state | It keeps a two-slot table of draws for each player. | `c94145021.lua:17`, `c94145021.lua:42` | 3-FFA, 4-FFA | no |
 | Crush Card Virus | 57728570 | chooser | It reads the opponent hand, field and Deck, and asks one opponent to choose. | `c57728570.lua:43`, `c57728570.lua:52` | 3-FFA, 4-FFA | no |
 | Creature Seizure | 15305240 | control-swap | The script swaps control between the activator and one named opponent. | `c15305240.lua:30`, `c15305240.lua:34` | 3-FFA, 4-FFA | no |
 | Switcheroroo | 30426226 | control-swap | It needs equal monster counts on two sides and swaps all of them. | `c30426226.lua:19`, `c30426226.lua:29` | 3-FFA, 4-FFA | no |
@@ -298,7 +311,7 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 
 Turn-count rows: these 4 bans stay. Swords of Revealing Light is legal under R-FFA-SWORDS-PROTECT (owner correction, 2026-10-02 night). Other cards with an opponent-turn count are legal and follow rule 11; the review is in `.status/multiplayer-turncount-review.md`.
 
-Total: 46 cards. 3-FFA and 4-FFA: 46 cards (22 only in free-for-all). Tag: 24 cards.
+Total: 47 cards. 3-FFA and 4-FFA: 47 cards (21 only in free-for-all). Tag: 26 cards.
 
 Error message format: `<card> is forbidden in 4-player free-for-all: <reason>`. The table name is "3-player free-for-all", "4-player free-for-all" or "2v2 Tag Duel".
 

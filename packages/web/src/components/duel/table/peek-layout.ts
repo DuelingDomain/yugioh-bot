@@ -33,6 +33,8 @@ export interface Place {
 /** The gap kept between the peek and what it stays clear of, and the offsets of the panel from the layer edges (grid-hud.module.css). */
 export const GAP_PX = 12;
 export const EDGE_LEFT_PX = 72;
+/** Where the peek starts when the HUD has edge drawers instead of a dock (the 4-way grid): right of the 26px tabs. */
+export const EDGE_LEFT_TABS_PX = 34;
 /** The top offset of the peek in the layer (under the header pills) and the room left under it. */
 export const TOP_PX = 50;
 const BOTTOM_PX = 8;
@@ -190,9 +192,9 @@ export function bandsOf(x0: number, x1: number, top: number, bottom: number, kee
  * The width of the panel in a layer: `peekWidth`, or the free room up to the nearest limit when that is less, never under `FLOOR_WIDTH_PX`. The limits are the
  * own Monster and Spell/Trap Zones (`obstacles.own`: the rival boards and the piles do not limit it); without them (the caller does not know the seat) every board part.
  */
-export function panelWidth(layer: Box, obstacles: Obstacles): number {
+export function panelWidth(layer: Box, obstacles: Obstacles, left: number = EDGE_LEFT_PX): number {
   const full = peekWidth(layer.right - layer.left);
-  const edge = layer.left + EDGE_LEFT_PX;
+  const edge = layer.left + left;
   const limits = (obstacles.own && obstacles.own.length > 0 ? obstacles.own : obstacles.board).filter((box) => box.right > edge).map((box) => box.left);
   const room = limits.length === 0 ? Infinity : Math.floor(Math.min(...limits) - GAP_PX - edge);
   return Math.max(FLOOR_WIDTH_PX, Math.min(full, room));
@@ -205,10 +207,10 @@ export function panelWidth(layer: Box, obstacles: Obstacles): number {
  * A column cut into short bands (a chain tower, the chain panel) is still the column: the short bands follow the tall ones
  * (a pin can take one to stay clear of the clicked card), they are the only places when no band is tall, and the panel never goes to the other side.
  */
-export function peekPlaces(layer: Box, obstacles: Obstacles): Place[] {
+export function peekPlaces(layer: Box, obstacles: Obstacles, left: number = EDGE_LEFT_PX): Place[] {
   if (layer.bottom - layer.top <= 0) return [];
-  const x0 = layer.left + EDGE_LEFT_PX;
-  let width = panelWidth(layer, obstacles);
+  const x0 = layer.left + left;
+  let width = panelWidth(layer, obstacles, left);
   const target = obstacles.target;
   let blockers: Box[] | null = null;
   if (target && target.right > x0 && target.left < x0 + width) {

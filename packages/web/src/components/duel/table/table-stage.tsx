@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { ArrowUp } from "lucide-react";
 import { flushSync } from "react-dom";
 import { engineFormat, plazaFacingPair } from "../multi-seat";
-import { masterInUse } from "../master-place";
+import { SeatMasterBadge } from "../master-badge";
 import type { UseGridFocus } from "./grid-focus";
 import type { GridFinaleBoard } from "./grid-finale";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
@@ -16,7 +16,7 @@ import { watchMeasure } from "./measure-watch";
 import { BAR_HUD, promptUnit } from "./grid-stage";
 import { planPickBarRoom } from "./pick-bar-room";
 import { isChainStripPrompt } from "../prompt-center";
-import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
+import { aliveLayout, boardBounds, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, isOwnFocus, normalizeAngle, ringAngles, CAMERA_HINT, canvasHeightOf, FULL_DEF_SPREAD, HUD_CORNER, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -212,7 +212,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     observePanels();
     return () => { observer.disconnect(); mutations.disconnect(); };
   }, [portrait, promptCenter]);
-  const canvasHeight = portrait?.height ?? STAGE.height + 96;
+  const canvasHeight = portrait?.height ?? canvasHeightOf(layout.format);
   const chainInset = useMemo(() => portrait && chainSize ? chainSize.height + 12 : chainStripInset({ layout: play, camera, box, chainSize, meFooter: masterChip != null }), [play, camera, box, chainSize, masterChip != null, portrait]);
   // The seat switcher and camera status belong to the phone chrome, outside the fitted table.
   const stageTop = chainInset + (portrait ? 44 : 0);
@@ -434,14 +434,22 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       window.clearTimeout(again);
     };
   }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed, ownZoom, handMoves]);
+  // The near field across the box (px): the pick bar is centred on its middle and stays in its rows while a clear place exists there (it only
+  // moves up or down, off the targets). Planned from the pose, so it is the same at home, in a focus and in your own zoom.
+  const nearField = useMemo(() => {
+    if (!near || !(k > 0)) return undefined;
+    const b = boardBounds(near);
+    const dy = stageTop + (stageHeight - canvasHeight * k) / 2;
+    return { centerX: Math.round((box.width - STAGE.width * k) / 2 + ((b.l + b.r) / 2) * k), band: { top: Math.round(dy + b.t * k), bottom: Math.round(dy + b.b * k) } };
+  }, [near, k, box.width, stageTop, stageHeight, canvasHeight]);
   // The card-pick bar: the clear place nearest the middle of the box, always inside it, off the legal targets, your live hand (and a card
   // raised from it) and the HUD, and off the cards on the board while a clear place exists (see pick-bar-room.ts). The same plan holds at
   // home, in rival focus and in your own zoom: the camera never moves for it.
   const barRoom = useMemo(() => {
     if (!floating) return undefined;
     if (!zoom.zoomed && !nearBox) return undefined;
-    return planPickBarRoom({ box, targets, hand: handRect, hud: pinnedRect ? [...hudRects, pinnedRect] : hudRects, cards });
-  }, [floating, zoom.zoomed, handRect, nearBox, targets, cards, hudRects, pinnedRect, box]);
+    return planPickBarRoom({ box, targets, hand: handRect, hud: pinnedRect ? [...hudRects, pinnedRect] : hudRects, cards, centerX: nearField?.centerX, band: nearField?.band });
+  }, [floating, zoom.zoomed, handRect, nearBox, targets, cards, hudRects, pinnedRect, box, nearField]);
 
   // The chain-response panel (every option a card): a wide room of its own, big enough for large cards, wholly inside the box, off the HUD,
   // the chain's cards and your hand (it may cover the field). It is fixed to the middle of the screen (`fixed`): the same room at home, in a focus and
@@ -724,6 +732,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-fly={fly ? "true" : "false"}
       data-stage-scale={k.toFixed(3)}
       data-stage-spread={spread}
+      data-wide-fields={spread >= FULL_DEF_SPREAD ? "true" : undefined}
       data-ready={k > 0 ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
       data-chain-room={rooms?.chain ? `${rooms.chain.x},${rooms.chain.y},${rooms.chain.width},${rooms.chain.height}` : undefined}
@@ -854,9 +863,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               y={anchor.y}
               beam={fly ? "none" : threeWay ? anchor.beam : place === 0 ? "none" : "down"}
               floating={fly}
-              master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
-              masterInUse={masterInUse(view, engine.seats)}
-              onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
+              badge={<SeatMasterBadge seat={slot.seat} side={slot.relation === "self" ? "you" : "opp"} />}
               lastDamage={lastSeatDamage(engine.events, slot.seat)}
               legal={pickable}
               hotkey={pickable && index >= 0 ? index + 1 : null}

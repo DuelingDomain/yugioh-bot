@@ -2,10 +2,9 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { Link2 } from "lucide-react";
-import type { DuelCardInfo, DuelClock } from "@yugidraft/shared/duels";
+import type { DuelClock } from "@yugidraft/shared/duels";
 import { clockSeconds, isLowClock } from "../clock-beep";
 import { useLiveClockMs } from "../use-live-clock";
-import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
 import { hexToRgbTriplet } from "./seat-angle";
 import { FOLLOW_ATTR, followTransform } from "./view-zoom";
@@ -57,11 +56,8 @@ export interface HoloLpProps {
   fit?: number;
   /** LP this seat lost last (its newest LP event): the old LP is struck out and a "-1,200" chip shows beside the numerals. */
   lastDamage?: number | null;
-  /** A rival's Deck Master: a small art thumb at the top right of the panel. A click inspects it. */
-  master?: DuelCardInfo | null;
-  onInspectMaster?: (card: DuelCardInfo) => void;
-  /** The rival's master is out of its zone: the thumb is an empty "in use" slot until the card returns (master-place.ts). */
-  masterInUse?: boolean;
+  /** The Deck Master portrait badge of this seat (master-badge.tsx): round art at the top right corner of the panel, over its edge. */
+  badge?: ReactNode;
   /** The seat is out but its board still waits for the battle to end (crumble-gate.ts): the plate keeps its LP and hides the elimination marks. */
   held?: boolean;
   /** The seat just left the duel and its panel is on its way out (use-seat-exits.ts): the state line is hidden, a place chip shows. */
@@ -71,7 +67,7 @@ export interface HoloLpProps {
   linkedWith?: string | null;
   /** The seats regroup after an elimination: the panel waits, then glides to its new corner. */
   glide?: boolean;
-  /** Hangs under the panel (your Deck Master chip). It sits outside the panel body, so it never changes the panel's own box. */
+  /** Hangs under the panel. It sits outside the panel body, so it never changes the panel's own box. */
   footer?: ReactNode;
   /** The footer chip stays within the panel's width. */
   footerTight?: boolean;
@@ -141,9 +137,7 @@ export function HoloLp({
   onHover,
   floating = false,
   fit,
-  master = null,
-  onInspectMaster,
-  masterInUse = false,
+  badge = null,
   lastDamage = null,
   exiting = false,
   held = false,
@@ -250,21 +244,7 @@ export function HoloLp({
       ) : (
         <div className={styles.body}>{body}</div>
       )}
-      {master ? (
-        <button
-          type="button"
-          className={styles.master}
-          data-master-thumb={seat}
-          data-master-dock={seat}
-          data-master-source={seat}
-          data-in-use={masterInUse ? "true" : undefined}
-          aria-label={`${name}'s Master: ${master.name}${masterInUse ? " (in use)" : ""}`}
-          title={`${name}'s Master: ${master.name}${masterInUse ? " (in use)" : ""}`}
-          onClick={() => onInspectMaster?.(master)}
-        >
-          {masterInUse ? null : <img src={cardArtUrl(master.code, "small")} alt="" draggable={false} />}
-        </button>
-      ) : null}
+      {badge ? <div className={styles.badge} data-dm-slot="">{badge}</div> : null}
       {exiting ? <span className={styles.exitChip} data-exit-chip>{placeLabel ? `Eliminated, ${placeLabel}` : "Eliminated"}</span> : null}
       <span className={styles.beam} aria-hidden="true" />
       {footer ? <div className={styles.footer} data-tight={footerTight ? "true" : undefined}>{footer}</div> : null}

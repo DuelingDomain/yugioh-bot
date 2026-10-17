@@ -26,7 +26,6 @@ import { MONSTER_ROW_ATTR } from "../direct-target";
 import { Emblem, Notches } from "./emblem";
 import { FieldCracks } from "../field-cracks/field-cracks";
 import { PlaneSvg } from "./plane-svg";
-import { DmChip } from "./dm-chip";
 import rails from "./rails.module.css";
 import table from "./table.module.css";
 
@@ -34,8 +33,6 @@ import table from "./table.module.css";
 export type SolidFieldProps = DuelFieldProps & {
   /** The duel clock of one seat, drawn in that player's gap of the centre band. Nothing when the duel has no clock. */
   renderClock?: (seat: number) => ReactNode;
-  /** Opens the Deck Masters sheet (the mobile chips). */
-  onOpenMasters?: () => void;
   /**
    * The room's attack aim (preview, aim, locked). When given, the arrow is drawn on the plane (`PlaneSvg`); the room
    * then passes `aim={null}` to `BattleFx` so only one arrow shows. Leave it out to keep the flat V1 arrow.
@@ -189,7 +186,7 @@ function Half({ view, seatIndex, opponent, ownerLabel, masterRule, callbacks, ac
  */
 export function SolidField(props: SolidFieldProps) {
   const { engine, masterRule, reducedMotion, legalKeys, selectedKeys, onActivate, onHoverCard, bottomName, topName,
-    showExtraZones = true, renderClock, onOpenMasters, battleAim = null } = props;
+    showExtraZones = true, renderClock, battleAim = null } = props;
   const boardRef = useRef<HTMLElement | null>(null);
   const model = useDuelFieldModel({ ...props, boardRef });
   const { bottomIndex, topIndex, bottom, top, callbacks, topLabel, bottomLabel, battle, activity, priorityLabel,
@@ -216,6 +213,7 @@ export function SolidField(props: SolidFieldProps) {
             acting={model.actingSeat === index}
             spectator={spectator}
             reducedMotion={reducedMotion}
+            badge={view ? props.masterBadge?.(view.seat, side) : null}
           />
         </div>
         <div className={rails.railHand} data-side={side}>
@@ -234,11 +232,6 @@ export function SolidField(props: SolidFieldProps) {
             <div className={baseStyles.handRail}><div className={cn(baseStyles.hand, mine && baseStyles.handLocal)} /></div>
           )}
         </div>
-        {onOpenMasters && view?.deckMaster?.card ? (
-          <div className={rails.railChip}>
-            <DmChip seat={view.seat} view={view} mine={mine} onOpen={onOpenMasters} />
-          </div>
-        ) : null}
       </div>
     );
   };

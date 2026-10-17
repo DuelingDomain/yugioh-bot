@@ -101,7 +101,36 @@ function quickPlayInChain(): LabScript {
   return { initial, steps: [step], tailMs: 5000 };
 }
 
+/**
+ * A monster effect that is activated from the hand and sends its own card to the Graveyard (a discard cost, as Kuriboh
+ * has): the chain mark must follow that one card. The engine names the hand slot in the activation and moves the card
+ * out in the same batch, so the slot is gone (or holds a neighbour) when the mark is drawn. `slot` is the hand position.
+ */
+function handDiscardCost(slot: number): LabScript {
+  const hand = [C.sangan, C.swords, C.mst];
+  hand.splice(slot, 0, C.kuriboh);
+  const initial = newBoard({ ...myHand, hand }, oppHand);
+  const activation: LabStep = {
+    at: 0,
+    events: [ev.activate(ME, C.kuriboh, HAND(ME, slot), 1), ev.move(ME, C.kuriboh, HAND(ME, slot), GY(ME, 0), "discard")],
+    edits: [edit.removeHand(ME, slot), edit.grave(ME, C.kuriboh)],
+    chain: [link(1, ME, C.kuriboh)],
+  };
+  const resolve: LabStep = { at: 2600, events: resolves(ME, C.kuriboh), chain: [] };
+  return { initial, steps: [activation, resolve], tailMs: 3000 };
+}
+
 export const ACTIVATION_SCENARIOS: LabScenario[] = [
+  {
+    id: "activation-hand-discard-last", category: "Chain", name: "Activation: hand effect that discards itself (last card)",
+    description: "A monster is activated from the end of the hand and sent to the Graveyard as the cost. The chain mark follows the card to the Graveyard; it never fills the hand.",
+    build: () => handDiscardCost(3),
+  },
+  {
+    id: "activation-hand-discard-middle", category: "Chain", name: "Activation: hand effect that discards itself (middle card)",
+    description: "A monster is activated from the middle of the hand and sent to the Graveyard as the cost. The chain mark follows the card to the Graveyard, not the card that closes the gap.",
+    build: () => handDiscardCost(1),
+  },
   {
     id: "activation-hand-continuous", category: "Chain", name: "Activation: Continuous Spell from the hand",
     description: "The card flies in, activates and stays. It keeps the full size of its zone and the zone outline the whole time.",

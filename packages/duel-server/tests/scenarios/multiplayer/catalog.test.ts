@@ -3,8 +3,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { afterAll, describe, expect, it } from "vitest";
+import { defaultDuelSettings } from "@yugidraft/shared/duels";
 import { loadScenarios, parseAdrRules, type ScenarioLike } from "../../../scripts/rule-coverage.js";
 import { CARD_RULE_PROOF, MULTIPLAYER_CARD_RULES, MULTIPLAYER_FORBIDDEN } from "../../../src/banlists/multiplayer.js";
+import { inspectDeck } from "../../../src/deck-legality.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import {
   CARD_RULE_EVIDENCE,
@@ -70,10 +72,21 @@ const formatOf = async () =>
   new Map(((await loadScenarios()) as (ScenarioLike & { setup?: { format?: string } })[]).map((scenario) => [scenario.id, scenario.setup?.format ?? "1v1"]));
 
 describe("multiplayer card catalog", () => {
+  it("allows Droll & Lock Bird in FFA3, FFA4 and Tag after the real-core proofs", () => {
+    expect(MULTIPLAYER_FORBIDDEN.some(entry => entry.code === 94145021)).toBe(false);
+    expect(FORBIDDEN_EVIDENCE[94145021]).toBeUndefined();
+    for (const mode of ["normal", "domain"] as const) for (const table of ["ffa3", "ffa4", "tag"] as const) {
+      // Multiplayer support is checked even when deck-size and format banlist validation is off.
+      const settings = { ...defaultDuelSettings(mode), validateDeck: false, banlist: "none" as const };
+      const deck = { main: [94145021, 15025844, 15025844, 15025844, 15025844], extra: [], side: [94145021], ...(mode === "domain" ? { deckMaster: 94145021 } : {}) };
+      expect(inspectDeck(mode, deck, engineDataDirectory, settings, { table }).issues, `${mode} ${table}`).toEqual([]);
+    }
+  });
+
   it("keeps 21 all-seat or ongoing cards and 45 one-opponent cards after the FFA rule change", () => {
     expect(GROUP_ALL).toHaveLength(21);
     expect(GROUP_ONE).toHaveLength(45);
-    expect(MULTIPLAYER_FORBIDDEN).toHaveLength(48);
+    expect(MULTIPLAYER_FORBIDDEN).toHaveLength(47);
     expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.formats.includes("tag"))).toHaveLength(26);
   });
 

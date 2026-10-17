@@ -15,6 +15,8 @@ import { isBattlePhase, LOCATION_HAND, LOCATION_SZONE, phaseTitle, zoneKey } fro
 import { DeckSurrenderContext } from "../../deck-surrender";
 import { duelFontClasses } from "../../fonts";
 import { DeckMasterRail } from "../../field";
+import { MasterBadgeContext, SeatMasterBadge, type MasterBadgeSource } from "../../master-badge";
+import { hudMasterProps } from "../../table/hud-shared";
 import { DuelHistoryRail } from "../../history-rail";
 import { CardInspector, cardScrollerProps } from "../../inspector";
 import { seatNamer } from "../../multi-seat";
@@ -152,6 +154,12 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card, activate, lp, l
   // `?card=jinzo` shows a long effect text in the card panel (the text-fit check).
   const inspectCard = card === "jinzo" ? TABLE_CARDS.jinzo : SOLID_CARDS[ui.inspect.card];
   const cardPanel = <CardInspector target={{ type: "info", card: inspectCard }} />;
+  const masterBadges: MasterBadgeSource | null = domain ? {
+    forSeat: (seat) => hudMasterProps(
+      { legalKeys, selectedKeys: NO_KEYS, canAct, prompt, onAnswer: noop, onActivate: noop, onHoverCard: noop },
+      engine.seats.find((entry) => entry.seat === seat), seat === mySeat, seat === mySeat ? "Your Master" : `${playerName(seat)}'s Master`, true),
+    onInspect: noop,
+  } : null;
   const masterRail = domain ? (
     <DeckMasterRail engine={engine} mySeat={mySeat} legalKeys={legalKeys} selectedKeys={NO_KEYS} canAct={canAct}
       legalActionsFor={legalActionsFor} onActivate={noop} onChooseAction={noop} onInspect={noop} />
@@ -206,6 +214,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card, activate, lp, l
   return (
     <DeckSurrenderContext.Provider value={DECK_SURRENDER}>
       <FieldCracksScope duelKey={slug} startLp={8000}>
+      <MasterBadgeContext.Provider value={masterBadges}>
       <SolidRoom
         slug={slug}
         boardRef={boardRef}
@@ -244,9 +253,6 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card, activate, lp, l
         noticesNode={null}
         inspectorNode={<>{tabs()}<div className={roomStyles.sideContent} {...cardScrollerProps(desktopPane(pane) === "card")}>{sidePanes(true)}</div></>}
         promptDockNode={null}
-        masterRail={masterRail}
-        legalActionsFor={legalActionsFor}
-        onChooseAction={noop}
         battleAim={battleAim}
         trackNode={
           <StationTrack phase={engine.phase} battleStep={battleStep} turn={engine.turn} turnSeat={engine.turnSeat} mySeat={mySeat}
@@ -286,6 +292,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card, activate, lp, l
           engine, mySeat, masterRule: room.session.masterRule, reducedMotion: reduced, priorityLive: true,
           legalKeys, selectedKeys: NO_KEYS, onActivate: noop, onInspect: noop,
           bottomName: playerName(mySeat ?? 0), topName: playerName(1 - (mySeat ?? 0)),
+          masterBadge: domain ? (seat: number, side: "opp" | "you") => <SeatMasterBadge seat={seat} side={side} shortcut={seat === mySeat} /> : undefined,
         }}
         renderBoard={renderBoard}
         renderClock={(seat) => room.clock ? <DuelClockDisplay clock={room.clock} session={room.session} reducedMotion={reduced} seats={[seat]} /> : null}
@@ -296,6 +303,7 @@ export function SolidPreviewRoom({ stateId, flat, reduced, card, activate, lp, l
         boardQuiet={() => true}
         onBeforeViewChange={() => { setMenu(null); setConfirm(null); }}
       />
+      </MasterBadgeContext.Provider>
       </FieldCracksScope>
     </DeckSurrenderContext.Provider>
   );
