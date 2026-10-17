@@ -209,10 +209,16 @@ export const SMALL_FIELD_WIDTH = 520;
 export const FINALE_SIDE = 2;
 export const FINALE_GAP = 0.22;
 /**
- * How far the two fields of the face-off overlap: only their pads. Each keeps its own Extra Monster row (nothing is shared in
- * the face-off, also for a facing pair), so the two rows lie face to face in a double band.
+ * How far the two fields of the face-off overlap: not at all, their boxes (and so their frames) meet edge to edge. Each keeps
+ * its own Extra Monster row (nothing is shared in the face-off, also for a facing pair), so the two rows lie face to face in
+ * a double band.
  */
-export const FINALE_OVERLAP = PAD;
+export const FINALE_OVERLAP = 0;
+/**
+ * The room of the face-off is fitted as if the boxes overlapped by their pads (the old layout), so the cards keep their size.
+ * The pads that no longer overlap move the bottom field down into the free edge below the board.
+ */
+const FINALE_FIT_OVERLAP = PAD;
 
 export interface GridWorld {
   masterRule: DuelMasterRule;
@@ -336,7 +342,7 @@ function union(a: GridRect, b: GridRect): GridRect {
 
 /** Height of the face-off from the top of its top lane to the bottom of its bottom lane (px; `lane` in card heights). */
 function finaleHeight(z: number, lane: number): number {
-  return (TOP_LANE + 2 * FIELD_ZONES_HIGH - FINALE_OVERLAP + lane) * z;
+  return (TOP_LANE + 2 * FIELD_ZONES_HIGH - FINALE_FIT_OVERLAP + lane) * z;
 }
 
 /**
