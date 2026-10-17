@@ -30,9 +30,15 @@
 
 
 /* three panes */
-.de-body { display: grid; grid-template-columns: clamp(250px, 21%, 320px) minmax(0, 1fr) clamp(320px, 28%, 420px); min-height: 0; }
-.de-read { min-height: 0; overflow: auto; padding: 20px 20px 28px; border-right: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
-.de-deck { container: de-deck / inline-size; display: grid; align-content: start; gap: 22px; min-height: 0; overflow: auto; padding: 12px 22px 64px; }
+.de-body { --de-pane: clamp(340px, 20cqw, 400px); display: grid; grid-template-columns: var(--de-pane) minmax(0, 1fr) clamp(320px, 28%, 420px); min-height: 0; }
+/* The card reader has one fixed width for its editor size. It never depends on what it shows (a card, the deck check, a long name or text), and the
+   scrollbar gutter stays reserved, so a scrollbar that comes and goes with the text moves nothing: not the image, not the text, not the deck grid.
+   It reads as a column: the card first and the controls last. The card art takes the full width of the pane. */
+.de-read { --card-art-w: 100%; display: flex; flex-direction: column; width: var(--de-pane); min-width: 0; max-width: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; padding: 20px 12px 24px 20px; border-right: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
+.de-read > * { flex: none; }
+.de-read > :has(+ .de-legend) { margin-bottom: 22px; }
+.de-read > .de-legend { margin-top: auto; }
+.de-deck { container: de-deck / inline-size; display: grid; align-content: start; gap: 22px; min-height: 0; overflow: auto; scrollbar-gutter: stable; padding: 12px 22px 64px; }
 
 /* left pane: the deck check */
 .de-sum { display: grid; gap: 24px; }
@@ -250,7 +256,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
   .de-status { grid-column: 1 / 3; }
   .de-acts { grid-column: 3 / -1; justify-content: flex-end; }
   .de-rule { grid-column: 3 / -1; }
-  .de-body { grid-template-columns: 230px minmax(0, 1fr) 320px; }
+  .de-body { --de-pane: 280px; grid-template-columns: var(--de-pane) minmax(0, 1fr) 320px; }
   .de-deck { padding-inline: 16px; }
 }
 @container de-editor (width < 960px) {
@@ -355,5 +361,5 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-deck[data-fit] .de-hand-g { grid-template-columns: repeat(auto-fill, 38px); gap: 5px; max-height: 58px; overflow-y: auto; scrollbar-width: thin; }
 /* Wide desktops keep the side panes narrower, so the deck gets the room. */
 @container de-editor (1200px <= width < 1500px) {
-  .de-body { grid-template-columns: 230px minmax(0, 1fr) 320px; }
+  .de-body { --de-pane: clamp(300px, 22cqw, 340px); grid-template-columns: var(--de-pane) minmax(0, 1fr) 320px; }
 }
