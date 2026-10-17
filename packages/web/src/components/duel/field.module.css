@@ -287,7 +287,7 @@
     /* In the wide margin the badge stands beside the name plate, at the board side of the left margin: the rival's above
        its tally, yours above yours, so the badge never covers the field and the tally keeps its place. */
     :global([data-hud="room"]) .tally > .tBadge {
-      --dm-badge-size: clamp(52px, 7dvh, 80px);
+      --dm-badge-size: clamp(64px, 9dvh, 100px);
       top: auto;
       right: auto;
       left: 0;

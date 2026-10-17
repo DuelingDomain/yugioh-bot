@@ -359,19 +359,19 @@
 
 /* The Deck Master portrait badge: round art at the top right corner of the panel, over its edge (the badge sizes itself from --dm-badge-size). */
 .badge {
-  --dm-badge-size: 42px;
+  --dm-badge-size: 54px;
   position: absolute;
   z-index: 2;
   right: 8px;
-  top: -16px;
+  top: -22px;
 }
 .holo[data-elim="true"] .badge { filter: grayscale(1); opacity: 0.6; }
 
 /* In a grid box the badge shrinks with the panel and sits higher, so it never covers the life numerals. */
 .holo[data-fit="true"] .badge {
-  --dm-badge-size: calc(38px * var(--lpk));
+  --dm-badge-size: calc(50px * var(--lpk));
   right: calc(6px * var(--lpk));
-  top: calc(-18px * var(--lpk));
+  top: calc(-24px * var(--lpk));
 }
 
 /* A box too small for the whole panel (a fit under about 0.6) keeps the name, the numerals and the damage: the counts row

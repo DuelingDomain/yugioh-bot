@@ -432,7 +432,7 @@
 
 /* The Deck Master badge sits at the right end of the name plate, beside the name and LP (master-badge.tsx). */
 .rail [data-dm-slot] {
-  --dm-badge-size: 56px;
+  --dm-badge-size: 68px;
   top: 50%;
   right: 10px;
   translate: 0 -50%;
