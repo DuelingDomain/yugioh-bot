@@ -1,0 +1,59 @@
+/* Edge drawers of the wide Rooftop (tag-drawers.tsx). The drawer shell (panel, tab, slide) is edge-drawer/; this file
+   only lays out what goes inside. */
+
+.head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--duel-rule, rgb(181 153 99 / 0.3));
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink, #efe7d5);
+}
+.head b {
+  font-size: calc(12px * var(--tt, 1));
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.close {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--duel-ink-2, #c3bba8);
+  cursor: pointer;
+}
+.close:hover { color: var(--duel-ink, #efe7d5); background: rgb(239 231 213 / 0.08); }
+.close:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: 1px; }
+
+.body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink, #efe7d5);
+}
+.body > * { min-height: 0; }
+
+/* The chain tower is a free-standing card in the HUD layer (grid-hud.module.css); inside the drawer it is in flow. */
+.chainHost { padding: 10px; }
+.chainHost [data-testid="chain-tower"] {
+  position: static;
+  width: auto;
+  padding: 8px 8px 6px;
+  box-shadow: none;
+}
+
+/* An open drawer stands over the tabs of its neighbours: their tabs sit on the same screen edge, under its panel. */
+.open { --bf-drawer-z: 44; }

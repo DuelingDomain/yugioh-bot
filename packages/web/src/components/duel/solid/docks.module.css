@@ -220,76 +220,6 @@
   [data-look="solid"] .masterInspect { min-height: 40px; height: 40px; }
 }
 
-/* ---------- mobile Deck Master chip (height 48) ---------- */
-
-.dmChip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 48px;
-  padding: 4px 5px;
-  border-radius: 9px;
-  background: #0d1221;
-  box-shadow: inset 0 0 0 1px var(--gold-b);
-  transition: box-shadow 0.25s;
-}
-.dmChip[data-can-act="true"] { box-shadow: inset 0 0 0 1px rgb(143 118 242 / 0.6); }
-
-.chipMain {
-  display: grid;
-  grid-template-columns: 28px auto;
-  grid-template-rows: auto auto;
-  column-gap: 8px;
-  align-items: center;
-  min-width: 0;
-  height: 40px;
-  padding: 0 4px 0 0;
-  border: 0;
-  background: none;
-  color: var(--tx);
-  font-family: var(--font);
-  text-align: left;
-  touch-action: manipulation;
-}
-/* The thumb carries data-master-dock when the chip is the visible dock (narrow screens). */
-.chipArt {
-  grid-row: 1 / 3;
-  display: block;
-  width: 28px;
-  height: 40px;
-  border-radius: 3px;
-}
-.chipArt img {
-  display: block;
-  width: 28px;
-  height: 40px;
-  border-radius: 3px;
-  object-fit: cover;
-  transition: opacity 0.3s;
-}
-.dmChip[data-away="true"] .chipArt img { opacity: 0.3; }
-.chipName { font-size: 12px; font-weight: 500; line-height: 1.15; white-space: nowrap; }
-.chipStatus { font-size: 11px; line-height: 1.2; color: var(--tx-3); white-space: nowrap; }
-
-.chipAct {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  height: 36px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 7px;
-  background: var(--pur-btn);
-  color: #fff;
-  font-family: var(--font);
-  font-size: 12px;
-  font-weight: 500;
-  touch-action: manipulation;
-}
-.chipAct:active { background: var(--pur-btn-hi); }
-.chipMain:focus-visible, .chipAct:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 1px; }
-
 /* ---------- mobile peek bar (height 46) ---------- */
 
 .peekBar {
@@ -349,11 +279,8 @@
 .peekBtn:active { background: #1b2540; }
 .peekBtn:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 1px; }
 
-/* ---------- phones: tap targets for the Deck Master chip and the peek bar ---------- */
+/* ---------- phones: tap targets for the peek bar ---------- */
 @media (max-width: 900px) {
-  .dmChip { height: 52px; }
-  .chipMain { height: 44px; min-width: 44px; }
-  .chipAct { height: 40px; min-width: 44px; padding: 0 12px; }
   .peekBar { height: 52px; }
   .peekBtn { height: 42px; min-width: 56px; }
 }

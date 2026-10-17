@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import { seatCountFor, type DuelAnswer, type DuelEngineView, type DuelFormat } from "@yugidraft/shared/duels";
+import { EngineResourceCache } from "../src/engine-resource-cache.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import { createTestDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
@@ -83,7 +84,7 @@ function table(format: DuelFormat, values: number[], botSeat?: number, keepFixtu
     return keepFixtureSeats ? finishTestDiceOpening(host, JSON.parse(raw), result,
       (body) => post(String(body.op), playerId, body)) : result;
   };
-  return { duels, players, slug: session.slug, workers, rollDie, changes, post };
+  return { db, duels, players, slug: session.slug, workers, rollDie, changes, post };
 }
 
 describe("host FFA dice opening", () => {
@@ -225,3 +226,82 @@ describe("host FFA dice opening", () => {
 });
 
 const output = useConsoleObservability();
+
+
+describe("lobby resource preparation", () => {
+  it.each(["ffa4", "ffa3", "tag", "1v1"] as const)("returns a %s lobby while resource preparation is pending", async (format) => {
+    vi.stubEnv("DUEL_STANDARD_1V1_ENGINE", "legacy");
+    const t = table(format, [6, 4, 2, 1]);
+    const get = vi.spyOn(EngineResourceCache.prototype, "get").mockReturnValue(new Promise(() => {}));
+    const room = await t.post("view");
+    expect(room.status).toBe(200);
+    expect(room.data.session.status).toBe("lobby");
+    expect(room.data.engine).toBeNull();
+    expect(t.workers).toHaveLength(0);
+    expect(get).toHaveBeenCalledWith(resources.at(-1)!.dir, { mode: "normal", format,
+      engine: format === "1v1" ? "legacy" : undefined });
+    await t.post("view");
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("startup room signal", () => {
+  it.each(["ffa4", "ffa3", "tag", "1v1"] as const)("reports a pending %s start without waiting or exposing other decks", async (format) => {
+    vi.useFakeTimers();
+    const t = table(format, [6, 4, 2, 1]);
+    t.db.prepare("update duels set settings_json = json_set(settings_json, '$.visibility', 'private') where web_slug = ?").run(t.slug);
+    let release!: () => void, entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const creating = new Promise<void>(resolve => { entered = resolve; });
+    const create = Worker.prototype.create;
+    vi.spyOn(Worker.prototype, "create").mockImplementation(async function(this: Worker, options) {
+      entered(); await gate; await create.call(this, options);
+    });
+    const start = t.post("start");
+    if (format === "ffa3" || format === "ffa4") await start;
+    try {
+      await vi.advanceTimersByTimeAsync(3000);
+      await creating;
+      let seen: Awaited<ReturnType<typeof t.post>> | undefined;
+      const read = t.post("view").then(value => { seen = value; });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(seen?.status).toBe(200);
+      expect(seen?.data).toMatchObject({ starting: true, engine: null, session: { status: "lobby" },
+        myDeck: { main: Array(40).fill(1), extra: [], side: [] } });
+      expect(JSON.stringify(seen?.data)).not.toContain("seed");
+      const otherSeat = await t.post("view", t.players[1]!);
+      expect(otherSeat.data.myDeck.main).toEqual(Array(40).fill(2));
+      for (const override of [{ as: 0 }, { reveal: true }]) {
+        expect((await t.post("view", t.players[0]!, override)).status).toBe(400);
+      }
+      expect((await t.post("view", t.players[0]!, { guildId: "other" })).status).toBe(404);
+      expect((await t.post("view", t.players.at(-1)!)).status).toBe(403);
+      let spectatorDone = false;
+      const spectator = t.post("view", t.players[0]!, { spectate: true }).then(value => { spectatorDone = true; return value; });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(spectatorDone).toBe(false);
+      release(); await start; await read;
+      expect((await spectator).status).toBe(409);
+      const active = await t.post("view");
+      expect(active.data.session.status).toBe("active");
+      expect(active.data.starting).toBeUndefined();
+      expect(t.workers).toHaveLength(1);
+    } finally { release(); await start; }
+  });
+
+  it.each(["ffa3", "tag"] as const)("clears the %s signal and notifies readers after a failed worker start", async (format) => {
+    vi.useFakeTimers();
+    const t = table(format, [6, 4, 2]);
+    vi.spyOn(Worker.prototype, "create").mockRejectedValueOnce(new Error("Test start failed"));
+    const start = await t.post("start");
+    if (format === "ffa3") {
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.waitFor(() => expect(t.duels.openingState(t.slug, "g")).toBeNull());
+    } else expect(start.status).toBe(500);
+    const view = await t.post("view");
+    expect(view.data.starting).toBeUndefined();
+    expect(view.data.session.status).toBe("lobby");
+    expect(t.changes.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+});

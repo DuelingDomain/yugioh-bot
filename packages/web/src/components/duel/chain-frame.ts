@@ -106,3 +106,59 @@ export function cardFrame(overlay: DOMRect, zone: HTMLElement, mayTurn = true): 
   const own = zone.hasAttribute("data-zones") && isTurned(quad) ? zoneFrameOf(zone) : null;
   return frameOfQuad(own ? elementQuad(own) : quad, overlay, defense);
 }
+
+/** A card is this wide for its height (63 x 91 mm). */
+const CARD_ASPECT = 0.69;
+
+/**
+ * Where a card stood in a hand it has left: one card-sized box on the hand, in the hand's own angle, at the gap the card
+ * left (between its neighbours; at an end, one card step past the last card). The mark of a link that activated from the
+ * hand and then left it (a discard cost, a send to the Graveyard) is drawn here, never on the whole hand and never on
+ * the neighbour that closed the gap. `slot` is the hand position the card had. Null when the hand has no size.
+ */
+export function handGhostFrame(overlay: DOMRect, hand: HTMLElement, slot: number): CardFrame | null {
+  if (overlay.width < 4) return null;
+  const cards = [...hand.children]
+    .filter((el): el is HTMLElement => el instanceof HTMLElement && el.getBoundingClientRect().width > 4)
+    .map((el) => elementQuad(el));
+  let quad: Quad;
+  if (cards.length === 0) {
+    // An empty hand: a card box the height of the hand strip, in the middle of it.
+    const strip = elementQuad(hand);
+    const across = { x: strip[1].x - strip[0].x, y: strip[1].y - strip[0].y };
+    const down = { x: strip[3].x - strip[0].x, y: strip[3].y - strip[0].y };
+    const width = Math.hypot(across.x, across.y);
+    const height = Math.hypot(down.x, down.y);
+    if (width < 4 || height < 4) return null;
+    const half = Math.min(width, height * CARD_ASPECT) / 2;
+    const ux = across.x / width;
+    const uy = across.y / width;
+    const vx = down.x / 2;
+    const vy = down.y / 2;
+    const c = centerOfQuad(strip);
+    quad = [
+      { x: c.x - ux * half - vx, y: c.y - uy * half - vy },
+      { x: c.x + ux * half - vx, y: c.y + uy * half - vy },
+      { x: c.x + ux * half + vx, y: c.y + uy * half + vy },
+      { x: c.x - ux * half + vx, y: c.y - uy * half + vy },
+    ];
+  } else {
+    const at = Math.max(0, Math.min(cards.length - 1, slot));
+    const template = cards[at];
+    const centers = cards.map(centerOfQuad);
+    const here = centers[at];
+    let target: Pt;
+    if (slot > 0 && slot < cards.length) {
+      target = { x: (centers[slot - 1].x + here.x) / 2, y: (centers[slot - 1].y + here.y) / 2 };
+    } else {
+      // At an end: one step past the last card (or before the first), by the step between the two cards at that end.
+      const near = cards.length > 1 ? centers[slot <= 0 ? 1 : cards.length - 2] : null;
+      const step = near ? { x: here.x - near.x, y: here.y - near.y } : { x: 0, y: 0 };
+      target = { x: here.x + step.x, y: here.y + step.y };
+    }
+    const dx = target.x - here.x;
+    const dy = target.y - here.y;
+    quad = template.map((p) => ({ x: p.x + dx, y: p.y + dy })) as Quad;
+  }
+  return frameOfQuad(quad, overlay, false);
+}

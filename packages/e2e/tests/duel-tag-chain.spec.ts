@@ -161,6 +161,13 @@ test.describe("Tag chain and visibility", () => {
         await expect(tagPriorityChips(seat.page)).toHaveAttribute("data-seat", "1");
       }
       await tableShot(bob.page, slug, info, "tag-chain-priority-p2");
+      const chainDrawer = bob.page.locator('[data-edge-drawer="Chain"]');
+      await chainDrawer.locator("button[aria-controls]").click();
+      await expect(bob.page.getByRole("dialog", { name: "Chain", exact: true })).toBeVisible();
+      await bob.page.keyboard.press("l");
+      await expect(bob.page.getByRole("dialog", { name: "Log", exact: true })).toBeVisible();
+      await expect(bob.page.getByRole("dialog", { name: "Chain", exact: true })).toBeHidden();
+      await bob.page.keyboard.press("Escape");
       await chainNo(bob.page).click();
       // Passing is a team act: p4 is asked next, before the turn team gets a chance.
       await expect.poll(async () => {

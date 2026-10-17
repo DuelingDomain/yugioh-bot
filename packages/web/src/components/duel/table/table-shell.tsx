@@ -24,6 +24,7 @@ import { FxBoundary, MoveSourceBoundary } from "../fx-boundary";
 import { duelFontClasses } from "../fonts";
 import { DuelHistoryRail } from "../history-rail";
 import { CardInspector, type InspectTarget } from "../inspector";
+import { MasterBadgeContext, type MasterBadgeSource } from "../master-badge";
 import { MasterReturnFx } from "../master-return-fx";
 import { MoveFx } from "../move-fx";
 import { engineFormat, formatLabel, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds } from "../multi-seat";
@@ -56,11 +57,11 @@ import { CAPTION_TEXT, useFinalDuel } from "./final-duel-caption";
 import { finaleBoard } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { hudPreview } from "./hud-preview";
+import { PlazaDrawers } from "./plaza-drawers";
 import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./hud-shared";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
-import { MasterChip } from "./master-chip";
 import { OpponentBar } from "./opponent-bar";
 import { attackLockAt, placeLabel, placings, toneBySeat, trackOutOrder } from "./seat-state";
 import { TableDrawer, TableRail } from "./table-rail";
@@ -495,12 +496,6 @@ function TableShellBody({
     </div>
   );
 
-  // Your Deck Master hangs under your LP plate on the wide table; a click opens the drawer on its Master tab.
-  const myView = viewerSeat != null ? engine.seats.find((seat) => seat.seat === viewerSeat) : undefined;
-  const masterChip = domain && !narrow && !hud && myView?.deckMaster ? (
-    <MasterChip view={myView} label={replay ? `${nameOf(myView.seat)}'s Master` : forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)}'s Master` : "Your Master"} onOpen={() => { ui.setPane("masters"); ui.setDrawerOpen(true); }} />
-  ) : null;
-
   const pileSeat = ui.pile?.seat;
   const out = useMemo(() => standings.filter((entry) => engine.seats.find((view) => view.seat === entry.seat)?.eliminated === true), [standings, engine.seats]);
   const placeLabels = useMemo(() => new Map(out.map((entry) => [entry.seat, placeLabel(entry.place)])), [out]);
@@ -621,7 +616,27 @@ function TableShellBody({
   </div>
   );
 
+  // The Deck Master badges (the corner of each LP plate) read their seat's master from here, with this table's keys and prompt.
+  const showMasterCard = (target: InspectTarget) => {
+    if (hud) { ui.setInspect(target); hudState.setPane("card"); }
+    else inspectCard(target);
+  };
+  const masterBadges: MasterBadgeSource | null = domain ? {
+    forSeat: (seat) => hudMasterProps(
+      { legalKeys: controller.legalKeys, selectedKeys: controller.selectedKeys, canAct, prompt, onAnswer: controller.onAnswer, onActivate: controller.onActivate, onHoverCard: controller.onHoverCard },
+      engine.seats.find((view) => view.seat === seat),
+      seat === viewerSeat && !spectator && !replay,
+      seat === viewerSeat && !spectator && !replay && !forkLabels ? "Your Master" : `${nameOf(seat)}'s Master`,
+      true,
+    ),
+    onInspect: showMasterCard,
+  } : null;
+
+  // The 3-way plaza keeps its side content in edge drawers (plaza-drawers.tsx); the grid and the other tables keep the floating HUD.
+  const HudLayerView = plazaHud ? PlazaDrawers : HudLayer;
+
   return (
+    <MasterBadgeContext.Provider value={masterBadges}>
     <div
       ref={rootRef}
       className={`${roomStyles.shell} ${styles.shell} ${duelFontClasses}`}
@@ -634,6 +649,7 @@ function TableShellBody({
       data-fit="true"
       data-grid={grid ? "true" : undefined}
       data-hud={hud ? "true" : undefined}
+      data-edge-hud={hud && grid ? "true" : undefined}
       data-plaza-hud={plazaHud ? "true" : undefined}
       data-replay={replay ? "true" : undefined}
       data-phase={battle ? "battle" : undefined}
@@ -769,7 +785,6 @@ function TableShellBody({
                     reducedMotion={controller.reducedMotion}
                   />
                 ) : undefined}
-                masterChip={masterChip}
                 centerPrompts={plazaHud}
                 renderSeatField={(props) => <SeatField {...props} />}
                 hub={hubOn && !grid ? (
@@ -922,7 +937,7 @@ function TableShellBody({
         </>
       )}
       {hud ? (
-        <HudLayer
+        <HudLayerView
           hud={hudState}
           panels={{
             card: cardPanel,
@@ -935,23 +950,14 @@ function TableShellBody({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          master={domain ? {
-            ...hudMasterProps(
-              { legalKeys: controller.legalKeys, selectedKeys: controller.selectedKeys, canAct, prompt, onAnswer: controller.onAnswer, onActivate: controller.onActivate, onHoverCard: controller.onHoverCard },
-              engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
-              !spectator && !replay,
-              spectator || replay ? `${nameOf(viewerSeat ?? layout.anchorSeat)}'s Master` : forkLabels && viewerSeat != null ? `${nameOf(viewerSeat)}'s Master` : "Your Master",
-              true,
-            ),
-            wide: plazaHud,
-          } : null}
-          onInspect={ui.setInspect}
+          onInspect={showMasterCard}
           preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
           hoverAnchor={ui.hover?.anchor ?? null}
           ownSeats={[viewerSeat ?? layout.anchorSeat]}
+          edge={grid}
         />
       ) : null}
       {narrow ? <TablePhonePanes domain={domain} pane={ui.pane} open={sheetOpen} unread={logUnread}
@@ -1001,5 +1007,6 @@ function TableShellBody({
       ) : null}
       {replay ? null : modals}
     </div>
+    </MasterBadgeContext.Provider>
   );
 }

@@ -218,6 +218,12 @@
   display: none;
 }
 
+/* The 3-way table with the classic (narrow) fields draws your hand 160 deep down to the bottom edge, where this chip sits in
+   the corner: the key list would run under the first cards, so only the chip and the Zoom button stay. */
+:global([data-table-stage="ffa3"]:not([data-wide-fields]):not([data-portrait])) .hint {
+  display: none;
+}
+
 .cue {
   left: 10px;
   bottom: 46px;

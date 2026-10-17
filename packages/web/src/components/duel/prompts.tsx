@@ -19,6 +19,7 @@ import { backOutAnswer } from "./pick-backout";
 import { selectBarCopy, sumSelectionValues } from "./select-bar-copy";
 import { tributeClick, tributeState } from "./tribute-pick";
 import baseStyles from "./prompts.module.css";
+import { anyEdgeDrawerOpen } from "./edge-drawer";
 import { useSkinStyles } from "./skin";
 
 export interface PromptDraft {
@@ -158,6 +159,7 @@ function parseNumberKey(key: string): number | null {
 
 function shouldIgnoreKeyboard(event: KeyboardEvent, menuOpen: boolean): boolean {
   if (menuOpen) return true;
+  if (document.querySelector("[data-master-popover]")) return true;
   if (event.isComposing || event.key === "Process") return true;
   if (event.defaultPrevented) return true;
   const target = event.target;
@@ -695,7 +697,7 @@ export function PromptTray({
 
     function onKey(event: KeyboardEvent) {
       if (shouldIgnoreKeyboard(event, menuOpenRef.current)) return;
-      if (event.key === "Escape" && escapeHeldRef.current) return;
+      if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen())) return;
       if (suspendedRef.current) return;
       const current = promptRef.current;
       const currentDraft = draftRef.current;

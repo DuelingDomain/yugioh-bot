@@ -1,0 +1,40 @@
+/* The edge drawers of the 1v1 room (room-edge-layer.tsx). The drawer panel itself comes from edge-drawer; this file
+   lays out what is inside: a title row and a body for the Card, Log and Settings panes, and a host for a Deck Master
+   plate. The plate is positioned in the margin by grid-hud.module.css; in a drawer it is part of the flow. */
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: rgb(9 15 29 / 0.97);
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink);
+}
+.paneHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 6px 0 14px;
+  height: 40px;
+  border-bottom: 1px solid var(--duel-rule);
+  color: var(--duel-ink-2);
+  font-size: var(--duel-t-body);
+}
+.paneHead b { font-weight: 600; letter-spacing: 0.04em; }
+.paneBody {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(155 126 255 / 0.55) transparent;
+}
+/* The log list scrolls inside the pane, as it did in the flyout. The log rows read at the 12px floor. */
+.pane[data-pane="log"] { --ft: 1; }
+.pane[data-pane="log"] .paneBody { overflow: hidden; }
