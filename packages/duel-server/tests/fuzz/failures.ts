@@ -35,6 +35,8 @@ export function describeFailure(outcome: DuelOutcome, dataDirectory: string): st
         .join(" | ")}${f.prompt.options.length > 8 ? " ..." : ""}`,
     );
   }
+  // The offending text or card, so a CI log alone can locate the leak without a local engine bundle.
+  if (f.detail !== undefined) lines.push(`  detail: ${JSON.stringify(f.detail)?.slice(0, 600)}`);
   lines.push(`  repro: ${reproCommand(outcome, dataDirectory)}`);
   return lines.join("\n");
 }

@@ -409,11 +409,13 @@ export function createDuelHost(options: {
   const reservedTableState = options.db.prepare<[number], { status: string; archived_at: string | null }>(
     "select status, archived_at from duels where id = ?",
   );
+  function isFinishedTable(session: DuelSession): boolean {
+    const row = reservedTableState.get(session.id);
+    return !row || row.archived_at !== null || (row.status !== "active" && row.status !== "lobby");
+  }
   function releaseFinishedPlayers(): void {
     for (const { release, session } of reservations.values()) {
-      if (!session) continue;
-      const row = reservedTableState.get(session.id);
-      if (!row || row.archived_at !== null || (row.status !== "active" && row.status !== "lobby")) release.releasePlayers();
+      if (session && isFinishedTable(session)) release.releasePlayers();
     }
   }
   async function spawn(session?: DuelSession, spawnOptions: {
@@ -425,7 +427,11 @@ export function createDuelHost(options: {
     wait?: boolean;
   } = {}): Promise<LimitedGameWorker> {
     releaseFinishedPlayers();
-    for (const [game] of reservations) if (!game.running && !game.closing) await safeClose(game);
+    for (const [game, { session }] of reservations) {
+      if (!game.running && !game.closing) await safeClose(game);
+      else if (session && games.get(session.slug)?.game === game && !queues.has(session.slug)
+        && !game.debugState?.().busy && isFinishedTable(session)) await disposeGame(session.slug);
+    }
     const release = await pool.acquire(spawnOptions.players ?? session?.seats.flatMap((seat) => seat.playerId === null ? [] : [seat.playerId]) ?? [],
       spawnOptions.wait ?? !session, spawnOptions.signal, session?.id);
     try {

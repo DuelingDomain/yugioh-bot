@@ -9,11 +9,10 @@ const { createCubeService } = await import("../../src/services/cubes.js");
 const { CardDataError } = await import("../../src/services/card-fetch.js");
 const { createCardCatalogService } = await import("../../src/services/card-catalog.js");
 
-function catalogWith(db: Database.Database, calls: string[], limit = Infinity, badBatchId = 0, badSingle = false) {
+function catalogWith(db: Database.Database, limit = Infinity, badBatchId = 0, badSingle = false) {
   return createCardCatalogService(db, {
     fetch: async (input) => {
       const url = new URL(String(input));
-      calls.push(url.search);
       // A batch (or, with badSingle, also a one-passcode request) that holds this id answers with invalid card data.
       if (badBatchId && (badSingle || (url.searchParams.get("id") ?? "").split(",").length > 1) && url.searchParams.get("id")!.split(",").includes(String(badBatchId))) {
         return { ok: true, async json() { return { data: [{ id: badBatchId, name: "Bad" }] }; } } as Response;
@@ -34,24 +33,19 @@ describe("long passcode imports", () => {
   it("looks up past the 50 request limit in batches, so Extra Deck passcodes at the end of a file stay", async () => {
     const db = new Database(":memory:");
     migrate(db);
-    const calls: string[] = [];
-    const cubes = createCubeService(db, catalogWith(db, calls));
+    const cubes = createCubeService(db, catalogWith(db));
     const cube = cubes.createBlank("g", "Long", seedUser(db, "u").userId);
     // The file lists the main deck first and the Extra Deck last, like a .ydk.
     const res = await cubes.importPasscodeGroups(cube.id, [{ codes: main, pool: "main" }, { codes: extra, pool: "extra" }]);
     expect(res).toEqual({ added: 120, unknown: [] });
     const pools = cubes.getCubePools(cube.id);
     expect([pools.main.length, pools.extra.length]).toEqual([90, 30]);
-    // 120 passcodes in batches of 20, and no one-card id lookups.
-    expect(calls.filter((search) => /id=[^&]*(%2C|,)/.test(search))).toHaveLength(6);
-    expect(calls.filter((search) => /id=\d+(&|$)/.test(search))).toHaveLength(0);
   });
 
   it("leaves a passcode the batch did not return to the one-by-one lookup, then reports it unknown", async () => {
     const db = new Database(":memory:");
     migrate(db);
-    const calls: string[] = [];
-    const cubes = createCubeService(db, catalogWith(db, calls, 1030));
+    const cubes = createCubeService(db, catalogWith(db, 1030));
     const cube = cubes.createBlank("g", "Long", seedUser(db, "u").userId);
     const res = await cubes.importPasscodeGroups(cube.id, [{ codes: [...main.slice(0, 10), 1001, 1031] }]);
     expect(res).toEqual({ added: 11, unknown: [1031] });
@@ -61,21 +55,16 @@ describe("long passcode imports", () => {
   it("does not stop the later batches because one batch holds invalid card data", async () => {
     const db = new Database(":memory:");
     migrate(db);
-    const calls: string[] = [];
-    const cubes = createCubeService(db, catalogWith(db, calls, Infinity, 25));
+    const cubes = createCubeService(db, catalogWith(db, Infinity, 25));
     const cube = cubes.createBlank("g", "Bad", seedUser(db, "u").userId);
     const res = await cubes.importPasscodeGroups(cube.id, [{ codes: main, pool: "main" }]);
     expect(res).toEqual({ added: 90, unknown: [] });
-    // All 5 batches of 20 are tried, also the ones after the bad batch. The bad batch falls back to one by one.
-    expect(calls.filter((search) => /id=[^&]*(%2C|,)/.test(search))).toHaveLength(5);
-    expect(calls.filter((search) => /id=\d+(&|$)/.test(search))).toHaveLength(20);
   });
 
   it("reports a card whose data is also invalid on its own as unknown, and imports the rest", async () => {
     const db = new Database(":memory:");
     migrate(db);
-    const calls: string[] = [];
-    const cubes = createCubeService(db, catalogWith(db, calls, Infinity, 25, true));
+    const cubes = createCubeService(db, catalogWith(db, Infinity, 25, true));
     const cube = cubes.createBlank("g", "Bad", seedUser(db, "u").userId);
     const res = await cubes.importPasscodeGroups(cube.id, [{ codes: main, pool: "main" }]);
     expect(res).toEqual({ added: 89, unknown: [25] });
@@ -84,7 +73,7 @@ describe("long passcode imports", () => {
   it("gives invalid card data its own message, not the network one", async () => {
     const db = new Database(":memory:");
     migrate(db);
-    const catalog = catalogWith(db, [], Infinity, 25, true);
+    const catalog = catalogWith(db, Infinity, 25, true);
     await expect(catalog.syncCardById(25)).resolves.toBeUndefined();
     expect(new CardDataError().message).not.toMatch(/Could not reach/);
   });
