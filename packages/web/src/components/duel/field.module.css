@@ -1431,6 +1431,12 @@
   transform: translate(calc(2 * var(--stack-step)), calc(-2 * var(--stack-step))) rotate(3deg);
 }
 
+/* 4-way grid: the fan of a stack in the right pile column leans out toward the field's edge and would end on its inner
+   border line; the stack sits two steps in, so the last card ends inside the zone. */
+:global([data-grid-stage]) .zone[data-col="right"]:not([data-side="opp"]) .frame[data-stack-size] {
+  translate: calc(-2 * var(--stack-step)) 0;
+}
+
 /* GY, Banished and Extra Deck show their top two or three cards fanned, deepest card toward the outside. */
 .zone[data-col="left"] {
   --dir: 1;
