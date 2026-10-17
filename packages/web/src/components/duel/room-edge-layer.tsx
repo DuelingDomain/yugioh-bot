@@ -66,7 +66,7 @@ export function RoomEdgeLayer({
       {chainOpen ? <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} /> : null}
 
       <EdgeDrawer side="left" label="Card" icon={<Info size={14} strokeWidth={1.75} />} shortcut="i" hoverOpen={false}
-        tabOffset="34%" size="min(380px, 88vw)" {...bind("card")}>
+        tabOffset="34%" size="min(400px, 88vw)" {...bind("card")}>
         <Pane kind="card" open={pane === "card"} label={HUD_PANE_LABEL.card} closeLabel="Close Card panel" onClose={close}>{panels.card}</Pane>
       </EdgeDrawer>
 

@@ -65,10 +65,10 @@ function useLeftTabHeights(root: RefObject<HTMLElement | null>, deps: readonly u
   return heights;
 }
 
-/** Panel width of each drawer. The log and settings rows need room for names; the card pane keeps its old 380px. */
+/** Panel width of each drawer. The log and settings rows need room for names; the card pane is 400px (a large card art). */
 const LEFT_SIZE: Record<LeftPane | "chain", string> = {
   log: "min(460px, 92vw)",
-  card: "min(380px, 92vw)",
+  card: "min(400px, 92vw)",
   settings: "min(420px, 92vw)",
   camera: "min(340px, 92vw)",
   chain: "min(240px, 88vw)",

@@ -201,8 +201,8 @@ describe("the CSS keeps the peek column free", () => {
     expect(css).not.toContain("--pv-right");
   });
 
-  it("lets the card art of the Card panel grow with the pane (the 3D mode now shows it in an edge drawer)", () => {
-    expect(read("inspector.module.css")).toContain("min(calc(170 * var(--duel-unit, 1px)), 44%)");
+  it("lets the card art of the Card panel fill the pane, capped by the window height", () => {
+    expect(read("inspector.module.css")).toContain("width: min(100%, max(200px, calc((100dvh - 340px) * 421 / 614)))");
   });
 
   it("keeps the 1v1 board clear of the corner stack by --hud-left, not by a fixed number", () => {

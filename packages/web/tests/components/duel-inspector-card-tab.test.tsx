@@ -38,16 +38,16 @@ const nextFrame = () => new Promise<void>((resolve) => setTimeout(() => requestA
 const scrollerOf = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-testid="scroller"]')!;
 
 describe("Card tab", () => {
-  it("marks a face-up card for the header-beside-art layout and keeps its whole text", () => {
+  it("marks a face-up card for the stacked layout and keeps its whole text", () => {
     const { container } = render(<Pane target={card} />);
-    const root = container.querySelector('[data-header="side"]');
+    const root = container.querySelector('[data-header="stack"]');
     expect(root).not.toBeNull();
     expect(root?.textContent).toContain(card.description?.trim());
   });
 
   it("has no header layout and no cue for a face-down card", () => {
     const { container } = render(<Pane target={{ ...card, code: null } as unknown as DuelCard} />);
-    expect(container.querySelector('[data-header="side"]')).toBeNull();
+    expect(container.querySelector('[data-header="stack"]')).toBeNull();
     expect(scrollerOf(container).dataset.cardMore).toBeUndefined();
   });
 

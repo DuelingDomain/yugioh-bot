@@ -5,13 +5,7 @@ import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { CardBack } from "./card-face";
 import { hasCardName, useDuelCardInfo } from "./card-info";
 import { cardTextStyle, useCardTextSize } from "./card-text-size";
-import {
-  cardArtUrl,
-  cardCombatText,
-  cardDetailsText,
-  cardKindText,
-  isHiddenCard,
-} from "./constants";
+import { cardArtUrl, cardInspectLines, isHiddenCard } from "./constants";
 import { equipSentence, roleOfCard, type EquipLinks } from "./equip-links";
 import baseStyles from "./inspector.module.css";
 import { useSkinStyles } from "./skin";
@@ -112,22 +106,20 @@ function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
     );
   }
 
-  const details = cardDetailsText(card);
-  const kind = cardKindText(card);
-  const combat = cardCombatText(card);
+  const { facts, combat } = cardInspectLines(card);
   const description = card.description?.trim() ?? "";
 
+  // The art is large and full width; the name, one compact facts line and ATK / DEF stand under it, then the effect text.
   return (
-    <div ref={rootRef} className={styles.root} data-header="side" data-card-text={textSize} style={textStyle}>
+    <div ref={rootRef} className={styles.root} data-header="stack" data-card-text={textSize} style={textStyle}>
       <div className={`${styles.art} card-frame`}>
         <img src={cardArtUrl(code, "full")} alt="" />
       </div>
       <div className={styles.body}>
         <h2 className={styles.name}>{card.name ?? `Card ${card.code}`}</h2>
-        {details || (kind && kind !== details) || combat ? (
+        {facts || combat ? (
           <div className={styles.facts}>
-            {details ? <p className={styles.details}>{details}</p> : null}
-            {kind && kind !== details ? <p className={styles.kind}>{kind}</p> : null}
+            {facts ? <p className={styles.details}>{facts}</p> : null}
             {combat ? <p className={styles.combat}>{combat}</p> : null}
           </div>
         ) : null}
