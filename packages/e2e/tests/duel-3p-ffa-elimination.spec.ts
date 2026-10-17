@@ -394,7 +394,9 @@ test.describe("FFA3 elimination, Domain and UI rule gaps", () => {
     await page.reload();
     await enterDuelRoom(page);
     await expect(monsters(page, 0)).toHaveCount(1);
-    await expect(page.getByRole("complementary", { name: "Deck Masters" })).toContainText("On field");
+    await page.locator("[data-testid='dm-badge'][data-badge-seat='0']").click();
+    await expect(page.getByTestId("dm-badge-where")).toHaveText("On the field");
+    await page.keyboard.press("Escape");
     await recordElimination(page, slug, info, "domain-ffa3-master-summon-persisted");
   });
 });
