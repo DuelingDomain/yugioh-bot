@@ -410,6 +410,7 @@ describe("rock-paper-scissors opening", () => {
       expect(room?.data.session.status).toBe("lobby");
       expect(room?.data.opening).toMatchObject({ phase: "start", choice: winner === "bot" ? "first" : "second" });
       expect(room?.data.engine).toBeNull();
+      expect(room?.data.starting).toBe(true);
       expect(room?.data.myDeck).toEqual(deckFor());
       expect(mutationDone).toBe(false);
       expect(workers).toHaveLength(1);
