@@ -661,6 +661,14 @@ export interface DuelListItem extends Omit<DuelSession, "createdAt" | "seats"> {
   seats: Array<DuelSeat & { team: number | null; result: "win" | "loss" | "draw" | null }>;
   /** Whether this ordinary table is invite-only. */
   private: boolean;
+  /** Card rules. `format` and `tableType` identify the seat layout. */
+  matchFormat: "standard" | "domain" | "genesys" | "genesys-domain";
+  tableType: DuelFormat;
+  visibility: "public" | "private";
+  /** Empty seat indices, in seat order. A fixed match can have empty seats but cannot admit a new player. */
+  openSeats: number[];
+  /** True only when this viewer can take an open seat now. */
+  joinable: boolean;
   /** The viewer's seat, or null when the viewer is not seated. */
   mySeat: number | null;
   /** Last start or accepted input; falls back to creation time. */

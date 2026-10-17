@@ -6,7 +6,17 @@ import type { DeckRegistrationMark } from "@yugidraft/shared/services";
 export type { SavedDeck, DeckRegistrationMark };
 
 /** A saved deck as the decks API returns it: the stored deck plus the tournament it is registered for, if any. */
-export type SavedDeckView = SavedDeck & { registration?: DeckRegistrationMark | null };
+export type SavedDeckView = SavedDeck & {
+  registration?: DeckRegistrationMark | null;
+  editDeckId?: number;
+  editHref?: string;
+};
+
+export interface SavedDeckListResponse {
+  decks: SavedDeckView[];
+  roomSlug: string | null;
+  roomHref: string | null;
+}
 
 export class DeckRequestError extends Error {
   readonly status: number;
@@ -51,8 +61,9 @@ function readDeck(body: { deck?: SavedDeckView }): SavedDeckView {
   return body.deck;
 }
 
-export async function listSavedDecks(signal?: AbortSignal): Promise<SavedDeckView[]> {
-  const body = await parseBody<{ decks?: SavedDeckView[] }>(await fetch("/api/decks", { cache: "no-store", signal }));
+export async function listSavedDecks(signal?: AbortSignal, roomSlug?: string): Promise<SavedDeckView[]> {
+  const url = `/api/decks${roomSlug ? `?room=${encodeURIComponent(roomSlug)}` : ""}`;
+  const body = await parseBody<SavedDeckListResponse>(await fetch(url, { cache: "no-store", signal }));
   if (!Array.isArray(body.decks)) {
     throw new DeckRequestError("The server returned an invalid deck list.", 502);
   }

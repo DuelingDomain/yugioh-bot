@@ -188,7 +188,8 @@ describe("own table row", () => {
     const data = room(0, true);
     navigateDuelWindow(popup as unknown as Window, data.session.slug);
     popup.focus.mockClear();
-    listData.duels = [{ ...data.session, private: false, status: "active", mySeat: 0, lastActivityAt: "", series: null,
+    listData.duels = [{ ...data.session, private: false, status: "active", mySeat: 0,
+      matchFormat: "standard", tableType: data.session.format, visibility: "public", openSeats: [], joinable: false, lastActivityAt: "", series: null,
       startedAt: null, durationMs: null, turnCount: null, engine: null,
       seats: data.session.seats.map(seat => ({ ...seat, team: null, result: null })) }];
     render(<DuelLobby />);
@@ -204,7 +205,9 @@ describe("table list entry", () => {
   function table(full = false, occupiedSeat = 0) {
     const data = room(null, full);
     if (!full) data.session.seats[0].seat = occupiedSeat;
-    listData.duels = [{ ...data.session, private: false, mySeat: null, lastActivityAt: "", series: null,
+    listData.duels = [{ ...data.session, private: false, mySeat: null,
+      matchFormat: "standard", tableType: data.session.format, visibility: "public",
+      openSeats: full ? [] : [occupiedSeat === 0 ? 1 : 0], joinable: !full, lastActivityAt: "", series: null,
       startedAt: null, durationMs: null, turnCount: null, engine: null,
       seats: data.session.seats.map(seat => ({ ...seat, team: null, result: null })) }];
     render(<DuelLobby />);
