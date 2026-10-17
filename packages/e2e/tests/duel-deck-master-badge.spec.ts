@@ -1,0 +1,123 @@
+import type { Page } from "@playwright/test";
+import { test, expect } from "../helpers/fixtures";
+import { createTable, enterDuelRoom, importDeckUploadAndReady, uniqueTableName } from "../helpers/duel";
+import { expectReadyToAct, handCard, pickLegalZone, useCard } from "../helpers/board";
+import { cardCode } from "../helpers/cards";
+import { withFiller, ydkUpload } from "../helpers/decks";
+
+const DECK_MASTER = "Celtic Guardian";
+
+type Sample = { x: number; y: number; w: number; h: number; opacity: number };
+
+/** Records, every frame, the box of each flying ghost that shows the Deck Master art (summon and return flights). */
+async function recordFlights(page: Page, code: number): Promise<void> {
+  await page.addInitScript((masterCode) => {
+    const samples: Sample[] = [];
+    (window as unknown as { __dmFlights: Sample[] }).__dmFlights = samples;
+    const tick = () => {
+      for (const el of Array.from(document.querySelectorAll<HTMLElement>('[class*="ghost"]'))) {
+        const img = el.querySelector("img");
+        if (!img || !img.src.includes(String(masterCode))) continue;
+        const box = el.getBoundingClientRect();
+        if (box.width < 4) continue;
+        const opacity = Number(getComputedStyle(el).opacity);
+        if (opacity <= 0.01) continue;
+        if (samples.length < 4000) samples.push({ x: box.left + box.width / 2, y: box.top + box.height / 2, w: box.width, h: box.height, opacity });
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, code);
+}
+
+const flights = (page: Page): Promise<Sample[]> => page.evaluate(() => (window as unknown as { __dmFlights: Sample[] }).__dmFlights.slice());
+const clearFlights = (page: Page): Promise<void> => page.evaluate(() => { (window as unknown as { __dmFlights: Sample[] }).__dmFlights.length = 0; });
+const centerOf = (box: { x: number; y: number; width: number; height: number }) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+const gap = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+
+// Domain duel against the practice bot: the Deck Master badge sits in the name plate, glows when the master can act, opens
+// its pop-over on the first click, and the summon flies out of the badge and the recall flies back into it.
+test("the Deck Master badge opens on one click, summons from the pop-over, and the master flies out and back", async ({ player }) => {
+  const host = await player("p5");
+  const page = host.page;
+  await recordFlights(page, cardCode(DECK_MASTER));
+  // The e2e config reduces motion; this test needs the flights.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+
+  const table = uniqueTableName("dm badge");
+  await createTable(page, table, { domain: true, ordered: true, looseDecks: true, noBanlist: true });
+  await page.getByRole("button", { name: "Add practice bot" }).click();
+  const deck = { main: withFiller(["Dark Hole"], 14), deckMaster: DECK_MASTER };
+  await importDeckUploadAndReady(page, ydkUpload(deck), deck.main.length);
+  const start = page.getByRole("button", { name: /^Start duel/ });
+  await expect(start).toBeEnabled();
+  await start.click();
+  await enterDuelRoom(page);
+  await expectReadyToAct(page);
+
+  const mine = page.locator('[data-testid="dm-badge-wrap"][data-local="true"]');
+  const rival = page.locator('[data-testid="dm-badge-wrap"][data-local="false"]');
+  const badge = mine.getByTestId("dm-badge");
+  const pop = page.getByTestId("dm-badge-pop");
+
+  // At rest: both badges show, yours is ready and glows, the rival's is info only. Nothing is open.
+  await expect(badge).toBeVisible();
+  await expect(rival.getByTestId("dm-badge")).toBeVisible();
+  await expect(mine).toHaveAttribute("data-ready", "true");
+  await expect(mine.getByTestId("dm-badge-ready")).toBeVisible();
+  await expect(rival).not.toHaveAttribute("data-ready", "true");
+  await expect(mine.getByTestId("dm-badge-state")).toHaveText("In zone");
+  expect(await badge.evaluate((node) => getComputedStyle(node).boxShadow)).not.toBe("none");
+  await expect(pop).toHaveCount(0);
+
+  // One click opens the pop-over, with the card, the place, the cost and all three buttons. Esc closes it.
+  await badge.click();
+  await expect(pop).toBeVisible();
+  await expect(pop.getByTestId("dm-badge-name")).toHaveText(DECK_MASTER);
+  await expect(pop.getByTestId("dm-badge-stats")).toContainText("ATK");
+  await expect(pop.getByTestId("dm-badge-where")).toHaveText("In the Deck Master Zone");
+  await expect(pop.getByTestId("dm-badge-cost")).toHaveText("Next summon: Free");
+  await expect(pop.getByTestId("dm-badge-summon")).toBeEnabled();
+  await expect(pop.getByTestId("dm-badge-set")).toBeVisible();
+  await expect(pop.getByTestId("dm-badge-inspect")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(pop).toHaveCount(0);
+
+  // The rival's pop-over is info only.
+  await rival.getByTestId("dm-badge").click();
+  await expect(pop).toBeVisible();
+  await expect(pop.getByTestId("dm-badge-summon")).toHaveCount(0);
+  await expect(pop.getByTestId("dm-badge-inspect")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(pop).toHaveCount(0);
+
+  // Summon from the pop-over. The card flies out of the badge to a monster zone.
+  const dock = mine.locator("[data-master-dock]");
+  const badgeCenter = centerOf((await dock.boundingBox())!);
+  const badgeSize = (await dock.boundingBox())!.width;
+  await clearFlights(page);
+  await badge.click();
+  await pop.getByTestId("dm-badge-summon").click();
+  await pickLegalZone(page, "mz");
+  const zone = page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"]');
+  await expect(zone).toHaveCount(1);
+  await expect(mine.getByTestId("dm-badge-state")).toHaveText("On field");
+  const out = await flights(page);
+  expect(out.length, "the summon flight was seen").toBeGreaterThan(2);
+  expect(gap(out[0], badgeCenter), "the flight starts at the badge").toBeLessThan(badgeSize);
+  const zoneCenter = centerOf((await zone.boundingBox())!);
+  expect(gap(out[out.length - 1], zoneCenter), "the flight ends on the zone").toBeLessThan(badgeSize * 2);
+
+  // Destroy it with Dark Hole, recall it: the card flies back into the badge.
+  await useCard(page, handCard(page, "Dark Hole"), "Activate");
+  const recall = page.getByRole("group", { name: /Deck Master/i });
+  await expect(recall).toBeVisible();
+  await clearFlights(page);
+  await recall.getByRole("button", { name: /^Yes/ }).click();
+  await expect(mine.getByTestId("dm-badge-state")).toHaveText("In zone");
+  await expect(zone).toHaveCount(0);
+  const back = await flights(page);
+  expect(back.length, "the return flight was seen").toBeGreaterThan(2);
+  const home = centerOf((await dock.boundingBox())!);
+  expect(gap(back[back.length - 1], home), "the flight ends in the badge").toBeLessThan(badgeSize);
+});
