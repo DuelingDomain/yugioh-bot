@@ -96,6 +96,11 @@ it("expires a passive room at ten minutes and keeps seats during active deck wor
     expect(duels.expireWaitingTables(Date.now(), 10)).toEqual([]);
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect((await activityPost(inputRequest(), context)).status).toBe(409);
+    expect(() => duels.setDeck(editing.slug, "g", guest, { main: Array(40).fill(1), extra: [], side: [], deckMaster: 2 })).toThrow(/idle deadline/);
+    expect(() => duels.markReady(editing.slug, "g", guest)).toThrow(/idle deadline/);
+    expect(() => duels.markUnready(editing.slug, "g", guest)).toThrow(/idle deadline/);
+    expect(() => duels.takeSeat(editing.slug, "g", guest, 2)).toThrow(/idle deadline/);
+    expect(() => duels.addPracticeBot(editing.slug, "g", playerId, { main: Array(40).fill(1), extra: [], side: [], deckMaster: 2 })).toThrow(/idle deadline/);
     expect(duels.expireWaitingTables(Date.now(), 10).map(row => row.slug)).toEqual([editing.slug]);
     expect(activityFetch).toHaveBeenCalledTimes(inputs);
     expect((await activityPost(inputRequest(), context)).status).toBe(409);

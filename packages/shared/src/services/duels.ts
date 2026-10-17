@@ -763,9 +763,27 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     }
   };
 
+  /** Openings, presets, tournament games, and later series games use their existing lifecycle. */
+  const waitingDeadline = (row: DuelRow): number | null => {
+    if (row.kind !== "play" || row.status !== "lobby" || row.started_at !== null || row.opening_json !== null
+      || parseSetup(row.setup_json, row.kind, rowFormat(row))?.presetId) return null;
+    const linked = row.series_id === null ? null : series.byId(row.series_id);
+    if (row.series_id !== null && (!linked || linked.tournament_match_id !== null || (row.game_number ?? 1) > 1)) return null;
+    const lastActivity = historyTimestamp(row.last_activity_at ?? row.created_at);
+    return lastActivity ? Date.parse(lastActivity) + DUEL_WAITING_IDLE_TIMEOUT_MS : NaN;
+  };
+
+  const assertWaitingDeadline = (row: DuelRow) => {
+    const deadline = waitingDeadline(row);
+    if (deadline !== null && !(Date.now() < deadline)) {
+      throw new DuelServiceError("This room has reached its idle deadline", 409);
+    }
+  };
+
   /** Decks, seats and the bot are fixed once the opening runs. */
   const assertNoOpening = (row: DuelRow) => {
     if (row.opening_json) throw new DuelServiceError("The duel is about to start. Seats and decks are fixed.", 409);
+    assertWaitingDeadline(row);
   };
 
   const requireOpening = (row: DuelRow): DuelOpeningState => {
@@ -852,6 +870,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     } else if (row.organizer_player_id !== actorPlayerId) {
       throw new DuelServiceError("Only the organizer can start this duel", 403);
     }
+    assertWaitingDeadline(row);
     const state = format === "1v1" ? newOpening(actorPlayerId, at) : newDiceOpening(actorPlayerId, seatCount, at, rollDie);
     storeOpening(row.id, state);
     return state;
@@ -915,6 +934,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       );
       const duelId = Number(result.lastInsertRowid);
       insertSeat.run(duelId, 0, input.organizerPlayerId);
+      touchActivity(duelId);
       const created = selectDuelById.get(duelId);
       if (!created) throw new DuelServiceError("Duel record is invalid", 500);
       return mapSession(created);
@@ -970,6 +990,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     if (row.organizer_player_id !== organizerPlayerId) {
       throw new DuelServiceError("Only the organizer can add a practice bot", 403);
     }
+    assertWaitingDeadline(row);
 
     const seats = seatRows(row.id);
     const seatCount = seatCountFor(rowFormat(row));
@@ -1126,6 +1147,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       } else if (row.organizer_player_id !== organizerPlayerId) {
         throw new DuelServiceError("Only the organizer can start this duel", 403);
       }
+      assertWaitingDeadline(row);
       if (!Array.isArray(seed) || seed.some((value) => typeof value !== "string")) {
         throw new DuelServiceError("Duel seed is invalid", 400);
       }
@@ -1367,14 +1389,16 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     return cancelTx(slug, guildId, playerId);
   });
   const expireWaitingTx = db.transaction((nowMs: number, limit: number) => {
-    const rows = db.prepare<[string, number], DuelRow>(`
+    const before = new Date(nowMs - DUEL_WAITING_IDLE_TIMEOUT_MS).toISOString();
+    const rows = db.prepare<[string, string, number], DuelRow>(`
       select * from duels where kind = 'play' and status = 'lobby' and started_at is null and opening_json is null
         and coalesce(json_extract(setup_json, '$.presetId'), '') = ''
+        and datetime(coalesce(last_activity_at, created_at)) <= datetime(?)
         and julianday(coalesce(last_activity_at, created_at)) <= julianday(?)
         and (series_id is null or (game_number = 1 and exists
           (select 1 from duel_series s where s.id = duels.series_id and s.tournament_match_id is null)))
       order by id limit ?
-    `).all(new Date(nowMs - DUEL_WAITING_IDLE_TIMEOUT_MS).toISOString(), Math.min(ARCHIVE_DUE_CAP, Math.max(1, Math.floor(limit))));
+    `).all(before, before, Math.min(ARCHIVE_DUE_CAP, Math.max(1, Math.floor(limit))));
     return rows.map(row => cancelTx(row.web_slug, row.guild_id, row.organizer_player_id));
   });
 
@@ -1386,18 +1410,12 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     if (!seatRows(row.id).some(seat => !seat.is_bot && seat.player_id === playerId)) {
       throw new DuelServiceError("You are not seated in this duel", 403);
     }
-    const linked = row.series_id === null ? null : series.byId(row.series_id);
-    if (row.status !== "lobby" || row.started_at !== null || row.opening_json !== null
-      || parseSetup(row.setup_json, row.kind, rowFormat(row))?.presetId
-      || (row.series_id !== null && (!linked || linked.tournament_match_id !== null || (row.game_number ?? 1) > 1))) {
+    if (waitingDeadline(row) === null) {
       throw new DuelServiceError("This room has no waiting deadline", 409);
     }
+    assertWaitingDeadline(row);
     const nowMs = Date.now();
-    const lastActivity = historyTimestamp(row.last_activity_at ?? row.created_at);
-    if (!lastActivity || Date.parse(lastActivity) + DUEL_WAITING_IDLE_TIMEOUT_MS <= nowMs) {
-      throw new DuelServiceError("This room has reached its idle deadline", 409);
-    }
-    db.prepare("update duels set last_activity_at = ? where id = ?").run(new Date(nowMs).toISOString(), row.id);
+    updateActivity.run(new Date(nowMs).toISOString(), row.id);
     return { slug, idleTimeoutMs: DUEL_WAITING_IDLE_TIMEOUT_MS,
       idleDeadlineAt: new Date(nowMs + DUEL_WAITING_IDLE_TIMEOUT_MS).toISOString() };
   });
@@ -1491,7 +1509,8 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       openSeats,
       // List access already checks the viewer's guild and private-room grant.
       joinable: session.status === "lobby" && row.my_seat === null && openSeats.length > 0
-        && row.series_id === null && row.has_opening === 0,
+        && row.series_id === null && row.has_opening === 0 && (setup?.presetId != null
+          || Date.parse(historyTimestamp(row.last_activity_at ?? row.created_at) ?? "") + DUEL_WAITING_IDLE_TIMEOUT_MS > Date.now()),
       mySeat: row.my_seat,
       lastActivityAt: row.last_activity_at ?? row.created_at,
       series: row.series_id === null ? null : series.summaryById(row.series_id),
