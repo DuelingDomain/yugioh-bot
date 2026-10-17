@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { decodeYdke, MAX_DECK_ISSUES, parseYdk, splitImportText, type DeckSections, type FormatIssue } from "@yugidraft/shared/decks";
-import { assertExtraDeckCards, ExtraDeckCardError, routeDeckSections, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
+import { assertExtraDeckCards, ExtraDeckCardError, routeDeckSections, type DeckCardType, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
 import { CARD_LOOKUP_LIMIT, createDeckTypeLookup, SavedDeckServiceError, validateSavedDeckWrite } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
 import { normalizeDraftCardCodes } from "@/lib/draft-deck-codes";
@@ -24,6 +24,8 @@ export type ImportPreviewRow = {
   counts: { main: number; extra: number; side: number };
   errors: ImportIssue[];
   warnings: ImportIssue[];
+  /** Neutral information that needs no action, such as a card that uses the game's own copy. Never counted as a warning. */
+  notes: ImportIssue[];
   duplicateOf?: Duplicate;
 };
 const emptyDeck = (): DeckSections => ({ main: [], extra: [], side: [], deckMaster: null });
@@ -32,6 +34,15 @@ const isRecord = (value: unknown): value is Record<string, unknown> => !!value &
 const isImportMode = (value: unknown): value is ImportMode => value === "standard" || value === "domain";
 const importMode = (mode: DuelMode): ImportMode => mode === "domain" ? "domain" : "standard";
 const sourceLines = new WeakMap<ImportPreviewRow, Map<number, number>>();
+
+/** The card name for a person to read: the engine or catalog name, never the "card 123" placeholder. */
+export type CardNamer = (code: number) => string | undefined;
+export function cardNamer(find: (code: number) => DeckCardType | undefined): CardNamer {
+  return code => {
+    const name = find(code)?.name?.trim();
+    return name && name !== `card ${code}` ? name : undefined;
+  };
+}
 
 /** Errors take priority so a long warning list cannot hide a blocking issue. */
 function boundIssues(errors: ImportIssue[], warnings: ImportIssue[] = []) {
@@ -44,6 +55,13 @@ function boundIssues(errors: ImportIssue[], warnings: ImportIssue[] = []) {
     list.push({ code: "more_issues", message: `and ${omitted} more issues`, count: omitted });
   }
   return { errors: keptErrors, warnings: keptWarnings };
+}
+
+/** Notes never hide an error or a warning, so they have their own cap and their own "more" entry. */
+function boundNotes(notes: ImportIssue[]): ImportIssue[] {
+  const kept = notes.filter(issue => issue.code !== "more_issues");
+  const omitted = kept.length - MAX_DECK_ISSUES;
+  return omitted > 0 ? [...kept.slice(0, MAX_DECK_ISSUES), { code: "more_issues", message: `and ${omitted} more notes`, count: omitted }] : kept;
 }
 
 // Preview and bulk share request/lookup buckets and a lock. Idle, fully refilled buckets expire.
@@ -216,7 +234,7 @@ export function parseImportSources(sources: unknown[]): { ok: true; rows: Import
         }
       }
       const row: ImportPreviewRow = { rowId: `${sourceId}#${index}`, sourceId, name, mode, deck,
-        counts: { main: deck.main.length, extra: deck.extra.length, side: deck.side.length }, errors, warnings };
+        counts: { main: deck.main.length, extra: deck.extra.length, side: deck.side.length }, errors, warnings, notes: [] };
       sourceLines.set(row, cardLines);
       rows.push(row);
     });
@@ -258,22 +276,29 @@ export async function resolveImportCodes(actor: Actor, decks: DeckSections[], ca
   return result;
 }
 
-export function resolveImportDeck(deck: DeckSections, codes: ReadonlyMap<number, number | null>, limited: ReadonlySet<number> = new Set(), lines: ReadonlyMap<number, number> = new Map()) {
+export function resolveImportDeck(deck: DeckSections, codes: ReadonlyMap<number, number | null>, limited: ReadonlySet<number> = new Set(), lines: ReadonlyMap<number, number> = new Map(), nameOf: CardNamer = () => undefined) {
   const errors: ImportIssue[] = [];
-  const warnings: ImportIssue[] = [];
+  const notes: ImportIssue[] = [];
   for (const code of new Set(allCodes(deck))) {
     const resolved = codes.get(code);
     const line = lines.get(code);
     const position = line === undefined ? {} : { line };
+    // A card the host cannot resolve may still have a catalog name. A remapped card is named by its engine copy first.
+    const name = nameOf(code) ?? (resolved == null ? undefined : nameOf(resolved));
+    const label = name ?? `Card ${code}`;
     if (resolved == null) errors.push(limited.has(code)
-      ? { code: "lookup_limited", message: "lookup limit reached, try again", passcode: code, ...position }
-      : { code: "unknown_card", message: `Unknown card ${code}`, passcode: code, ...position });
-    else if (resolved !== code) warnings.push({ code: "remapped", message: `Passcode ${code} was mapped to ${resolved}.`, from: code, to: resolved, ...position });
+      ? { code: "lookup_limited", message: `${label}: the card check hit its limit. Check this deck again in a moment.`, passcode: code, ...position }
+      : { code: "unknown_card", message: name
+        ? `${name}: this card is not in the game's card data. Remove it from the deck file to import the rest.`
+        : `${label}: not found in the game's card data. Check the passcode in the deck file.`, passcode: code, ...position });
+    else if (resolved !== code) notes.push({ code: "remapped", message: name
+      ? `${name}: uses the game's own copy of this card. No action needed.`
+      : `${label}: uses the game's copy under ID ${resolved}. No action needed.`, from: code, to: resolved, ...position });
   }
   const map = (code: number) => codes.get(code) ?? code;
   const mapped: DeckSections = { main: deck.main.map(map), extra: deck.extra.map(map), side: deck.side.map(map),
     deckMaster: deck.deckMaster == null ? null : map(deck.deckMaster) };
-  return { deck: mapped, errors, warnings };
+  return { deck: mapped, errors, notes };
 }
 
 export function sizeWarnings(deck: DeckSections): ImportIssue[] {
@@ -308,7 +333,7 @@ const sectionIssues = (messages: string[]): ImportIssue[] => messages.map(messag
 export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]): Promise<NextResponse> {
   const valid = rows.filter(row => row.errors.length === 0);
   const response = () => {
-    for (const row of rows) Object.assign(row, boundIssues(row.errors, row.warnings));
+    for (const row of rows) Object.assign(row, boundIssues(row.errors, row.warnings), { notes: boundNotes(row.notes) });
     return NextResponse.json({ maxDecks: MAX_IMPORT_DECKS, rows });
   };
   if (valid.length === 0) return response();
@@ -317,16 +342,17 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
   if (!resolved.ok) return resolved.response;
   const savedCodes = await resolveImportCodes(actor, saved.map(row => row.deck), true);
   if (!savedCodes.ok) return savedCodes.response;
+  const findCard = createDeckTypeLookup(getDb()).snapshot();
+  const nameOf = cardNamer(findCard);
   const duplicates = new Map<string, Duplicate>();
   for (const stored of saved) {
     const key = importDeckIdentity(stored.deck, savedCodes.canonicalCodes);
     if (!duplicates.has(key)) duplicates.set(key, { kind: "saved", deckId: stored.id, name: stored.name });
   }
-  const findCard = createDeckTypeLookup(getDb()).snapshot();
   for (const row of valid) {
     const key = importDeckIdentity(row.deck, resolved.canonicalCodes);
     const masterLine = row.deck.deckMaster == null ? undefined : sourceLines.get(row)?.get(row.deck.deckMaster);
-    const mapped = resolveImportDeck(row.deck, resolved.codes, resolved.lookupLimitedCodes, sourceLines.get(row));
+    const mapped = resolveImportDeck(row.deck, resolved.codes, resolved.lookupLimitedCodes, sourceLines.get(row), nameOf);
     // The engine type takes priority over catalog frames and file section labels.
     const routed = mapped.errors.length === 0
       ? routeDeckSections({ ...mapped.deck, deckMaster: mapped.deck.deckMaster ?? undefined }, findCard)
@@ -337,7 +363,8 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
     const master = mapped.errors.length || !final.ok ? [] : await masterIssues(row.deck);
     if (master.some(issue => issue.code === "validation_unavailable")) return errorResponse("Duel engine unavailable, try again", 503);
     row.errors.push(...mapped.errors, ...(final.ok ? [] : final.errors), ...master.map(issue => masterLine === undefined ? issue : { ...issue, line: masterLine }));
-    row.warnings.push(...mapped.warnings, ...sectionIssues(routed.messages), ...sizeWarnings(row.deck).filter(issue => issue.code !== "extra_size" || !routed.messages.some(message => message.startsWith("Extra Deck contains"))));
+    row.notes.push(...mapped.notes);
+    row.warnings.push(...sectionIssues(routed.messages), ...sizeWarnings(row.deck).filter(issue => issue.code !== "extra_size" || !routed.messages.some(message => message.startsWith("Extra Deck contains"))));
     const duplicate = duplicates.get(key);
     if (duplicate) row.duplicateOf = duplicate;
     else duplicates.set(key, { kind: "row", rowId: row.rowId, name: row.name });
@@ -350,17 +377,18 @@ export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<Nex
   const valid = checked.filter(row => row.ok);
   const resolved = await resolveImportCodes(actor, valid.map(row => row.deck));
   if (!resolved.ok) return resolved.response;
+  const findCard = createDeckTypeLookup(getDb()).snapshot();
+  const nameOf = cardNamer(findCard);
   const created: Array<{ id: number; name: string }> = [];
   const failed: Array<{ index: number; errors: ImportIssue[] }> = [];
   const warnings: Array<{ index: number; warnings: ImportIssue[] }> = [];
   const prepared: Array<{ index: number; name: string; mode: DuelMode; deck: DuelDeck }> = [];
-  const findCard = createDeckTypeLookup(getDb()).snapshot();
   for (const [index, row] of checked.entries()) {
     if (!row.ok) {
       failed.push({ index, errors: row.errors });
       continue;
     }
-    const mapped = resolveImportDeck(row.deck, resolved.codes, resolved.lookupLimitedCodes);
+    const mapped = resolveImportDeck(row.deck, resolved.codes, resolved.lookupLimitedCodes, undefined, nameOf);
     // Recheck resolved preview rows before any writes, with the same 400/code as ordinary saves.
     if (mapped.errors.length === 0) {
       try { assertExtraDeckCards(mapped.deck, findCard); }

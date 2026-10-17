@@ -262,6 +262,7 @@ export function useBulkImport(onImported: () => void) {
         name: item.row.name,
         errors: withLine(only.errors),
         warnings: withLine(only.warnings),
+        notes: withLine(only.notes ?? []),
         duplicateOf: only.duplicateOf ?? item.row.duplicateOf ?? null,
       };
       setView((state) => {
