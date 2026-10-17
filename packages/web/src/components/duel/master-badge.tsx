@@ -43,8 +43,8 @@ import styles from "./master-badge.module.css";
 export interface MasterBadgeSource {
   forSeat: (seat: number) => HudMasterProps | null;
   onInspect: (target: InspectTarget) => void;
-  /** Your emblem is set apart from the hand row (a gap, a divider and a label). The multi-seat tables set it; 1v1 does not. */
-  apart?: boolean;
+  /** Your emblem is set apart from the hand row (a gap, a divider and a label). The multi-seat tables set it; 1v1 does not. "lift" (Tag) stands the emblem on the name plate when the plate is in the way. */
+  apart?: boolean | "lift";
 }
 
 export const MasterBadgeContext = createContext<MasterBadgeSource | null>(null);
@@ -81,7 +81,13 @@ const CARD_RATIO = 59 / 86;
 /** The gap between the emblem and the first hand card, and the room kept between it and the name plate. */
 const EMBLEM_GAP = 14;
 /** The set-apart gap: the label column, the gold divider and some air on both sides. */
-const APART_GAPS = [34, 28, 24];
+const APART_GAPS = [34, 28, 24, 20];
+/** Below this gap the label has no room; the divider alone marks the master. */
+const APART_LABEL_MIN_GAP = 24;
+/** A set-apart emblem keeps a slimmer margin to the name plate than the plain one. */
+const APART_PLATE_GAP = 4;
+/** A lifted emblem (Tag) stands this far above the name plate, at full card height; the table reserves the band for it. */
+export const APART_LIFT_GAP = 6;
 /** The label is vertical, so it needs this much card height. */
 const APART_LABEL_MIN_H = 66;
 const EMBLEM_PLATE_GAP = 8;
@@ -99,6 +105,8 @@ function visible(el: Element): DOMRect | null {
 
 /** The name plate that holds the badge slot: the first ancestor that is plate sized. */
 function plateOf(slot: HTMLElement | null): DOMRect | null {
+  const team = slot?.closest("[data-team-plate]");
+  if (team) return team.getBoundingClientRect();
   let el: HTMLElement | null = slot?.parentElement ?? null;
   for (let depth = 0; el && depth < 4; depth += 1, el = el.parentElement) {
     const r = el.getBoundingClientRect();
@@ -107,13 +115,49 @@ function plateOf(slot: HTMLElement | null): DOMRect | null {
   return null;
 }
 
+/** The whole hand row as one box, even when its cards are only a few pixels wide (a phone). Null: no cards. */
+function tinyHandRect(row: HTMLElement | null): DOMRect | null {
+  let box: DOMRect | null = null;
+  for (const el of Array.from(row?.querySelectorAll<HTMLElement>("[data-hand-card], button[data-zones]") ?? [])) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) continue;
+    box = box ? new DOMRect(Math.min(box.left, r.left), Math.min(box.top, r.top), Math.max(box.right, r.right) - Math.min(box.left, r.left), Math.max(box.bottom, r.bottom) - Math.min(box.top, r.top)) : r;
+  }
+  return box;
+}
+
+/** The small name box around a badge slot (a holo LP plate on a phone): the first ancestor that is 60 x 30 or more. */
+function smallPlateOf(slot: HTMLElement | null): DOMRect | null {
+  let el: HTMLElement | null = slot?.parentElement ?? null;
+  for (let depth = 0; el && depth < 4; depth += 1, el = el.parentElement) {
+    const r = el.getBoundingClientRect();
+    if (r.width >= 60 && r.height >= 30) return r;
+  }
+  return null;
+}
+
+/**
+ * A phone shrinks the hand to a few pixels per card. A set-apart emblem then stays a small portrait but stands on free table:
+ * left of the hand, or else under the hand and the name box. Null: neither fits, the badge stays on its plate.
+ */
+function smallHandSpot(hand: DOMRect, slot: HTMLElement | null, vh: number): EmblemBox | null {
+  const width = EMBLEM_FALLBACK_MIN_W;
+  const height = Math.round(width / CARD_RATIO);
+  const plate = smallPlateOf(slot);
+  const beside = { left: Math.round(hand.left - 8 - width), top: Math.round(hand.top) };
+  const clearOfPlate = !plate || plate.right + 4 <= beside.left || plate.bottom + 2 <= beside.top || plate.top >= beside.top + height;
+  if (beside.left >= 6 && beside.top + height <= vh - 8 && clearOfPlate) return { ...beside, width, height, docked: false };
+  const under = { left: Math.round(Math.max(6, plate ? plate.left : hand.left)), top: Math.round(Math.max(hand.bottom, plate?.bottom ?? 0) + 8) };
+  return under.top + height <= vh - 8 ? { ...under, width, height, docked: false } : null;
+}
+
 /**
  * Where your emblem stands, in window pixels. It takes the visible height of your leftmost hand card (the part of the hand that is
  * already clear of the field) and stands that tall just left of it, so field and hand keep their size. A hand that reaches the name
  * plate squeezes the emblem down to EMBLEM_MIN_W; below that the emblem is a small portrait over the plate's badge slot instead.
  * Null: nothing to measure yet.
  */
-export function measureEmblem(slot: HTMLElement | null, seat: number, apart = false): EmblemBox | null {
+export function measureEmblem(slot: HTMLElement | null, seat: number, apart: boolean | "lift" = false): EmblemBox | null {
   if (typeof document === "undefined") return null;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -133,7 +177,8 @@ export function measureEmblem(slot: HTMLElement | null, seat: number, apart = fa
     const layoutW = el.offsetWidth > 0 ? el.offsetWidth : rect.width;
     let height = Math.min(bottom - top, layoutH);
     let width = Math.min(Math.round(height * CARD_RATIO), layoutW);
-    height = Math.round(width / CARD_RATIO);
+    // A set-apart emblem is exactly a hand card: take its layout box whole instead of rounding it through the ratio.
+    if (apart && height >= layoutH) { width = layoutW; height = layoutH; } else height = Math.round(width / CARD_RATIO);
     const plate = plateOf(slot);
     // A set-apart emblem tries the wide gap first and narrows it (never below the label) before it gives up card size.
     let found: { box: EmblemBox; shrink: number } | null = null;
@@ -141,12 +186,19 @@ export function measureEmblem(slot: HTMLElement | null, seat: number, apart = fa
       const right = rect.left - gap;
       // The room the emblem has: as tall as the hand card, or squeezed beside the plate, or lifted above the plate.
       const options: Array<{ width: number; height: number; bottom: number }> = [{ width, height, bottom }];
-      if (plate && plate.left < right && plate.right + EMBLEM_PLATE_GAP > right - width && plate.bottom > bottom - height && plate.top < bottom) {
+      const plateGap = apart ? APART_PLATE_GAP : EMBLEM_PLATE_GAP;
+      if (plate && plate.left < right && plate.right + plateGap > right - width && plate.bottom > bottom - height && plate.top < bottom) {
         options.length = 0;
-        const squeezed = Math.floor(right - (plate.right + EMBLEM_PLATE_GAP));
-        options.push({ width: squeezed, height: Math.round(squeezed / CARD_RATIO), bottom });
-        const lifted = Math.min(height, plate.top - EMBLEM_PLATE_GAP - top);
-        options.push({ width: Math.round(lifted * CARD_RATIO), height: lifted, bottom: plate.top - EMBLEM_PLATE_GAP });
+        const squeezed = Math.floor(right - (plate.right + plateGap));
+        options.push(apart && squeezed >= width ? { width, height, bottom } : { width: squeezed, height: Math.round(squeezed / CARD_RATIO), bottom });
+        if (apart === "lift") {
+          // Tag: the plate sits under the hand row, so the emblem stands on it at full card size (the table keeps that band free).
+          const liftBottom = plate.top - APART_LIFT_GAP;
+          if (liftBottom - height >= 8) options.push({ width, height, bottom: liftBottom });
+        } else {
+          const lifted = Math.min(height, plate.top - plateGap - top);
+          options.push({ width: Math.round(lifted * CARD_RATIO), height: lifted, bottom: plate.top - plateGap });
+        }
       }
       const best = options.filter((o) => o.width >= EMBLEM_MIN_W && right - o.width >= 8).sort((x, y) => y.height - x.height)[0];
       if (!best) continue;
@@ -155,6 +207,11 @@ export function measureEmblem(slot: HTMLElement | null, seat: number, apart = fa
       if (candidate.shrink <= 0) break;
     }
     if (found) return found.box;
+  }
+  if (apart && (!first || first.rect.width < EMBLEM_MIN_W)) {
+    const hand = tinyHandRect(row);
+    const spot = hand ? smallHandSpot(hand, slot, vh) : null;
+    if (spot) return spot;
   }
   const s = slot?.getBoundingClientRect();
   if (!s || s.width < 4 || s.height < 4) return null;
@@ -168,7 +225,7 @@ export function measureEmblem(slot: HTMLElement | null, seat: number, apart = fa
 }
 
 /** Follows the hand: one frame loop, state only changes when the box moved a few pixels (a hovered card must not shake it). */
-function useEmblemBox(slot: { current: HTMLElement | null }, seat: number | undefined, enabled: boolean, apart: boolean): EmblemBox | null {
+function useEmblemBox(slot: { current: HTMLElement | null }, seat: number | undefined, enabled: boolean, apart: boolean | "lift"): EmblemBox | null {
   const [box, setBox] = useState<EmblemBox | null>(null);
   useEffect(() => {
     if (!enabled || seat == null) {
@@ -207,7 +264,7 @@ export function SeatMasterBadge({ seat, side, shortcut }: { seat: number | undef
 
 export function DeckMasterBadge({
   view, local, legalKeys, selectedKeys, canAct, legalActionsFor, title, onChooseAction, onActivate, onInspect, side, shortcut = false, apart = false,
-}: Omit<HudMasterProps, "wide" | "showInUse" | "onHoverCard"> & { onInspect: (target: InspectTarget) => void; side: BadgeSide; shortcut?: boolean; apart?: boolean }) {
+}: Omit<HudMasterProps, "wide" | "showInUse" | "onHoverCard"> & { onInspect: (target: InspectTarget) => void; side: BadgeSide; shortcut?: boolean; apart?: boolean | "lift" }) {
   const seats = useMasterSeats();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -361,7 +418,7 @@ export function DeckMasterBadge({
       {emblem && apart && box?.docked ? (
         /* The gold divider and the vertical label sit in the gap between the card and the first hand card. */
         <span className={styles.divider} data-testid="dm-badge-divider" aria-hidden="true">
-          {box.height >= APART_LABEL_MIN_H ? <em data-testid="dm-badge-label" style={{ fontSize: Math.min(9, Math.max(7, Math.floor(box.height * 0.075))) }}>Deck Master</em> : null}
+          {box.height >= APART_LABEL_MIN_H && (box.gap ?? 0) >= APART_LABEL_MIN_GAP ? <em data-testid="dm-badge-label" style={{ fontSize: Math.min(9, Math.max(7, Math.floor(box.height * 0.075))) }}>Deck Master</em> : null}
         </span>
       ) : null}
       {open ? (

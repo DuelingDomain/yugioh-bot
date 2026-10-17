@@ -378,7 +378,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
       true,
     ),
     onInspect: showMasterCard,
-    apart: true,
+    apart: "lift",
   } : null;
 
   return (
