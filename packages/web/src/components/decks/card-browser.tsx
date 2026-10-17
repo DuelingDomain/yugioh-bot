@@ -397,7 +397,7 @@ export function CardBrowser({
                     <li key={card.code}>
                       <button type="button" className={styles["de-t"]} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} {...handlers}>
                         <CardArt code={card.code} name={card.name} />
-                        {genesys && !pool ? <GenesysBadge card={card} /> : <LimitBadge limit={limit} />}
+                        {genesys && !pool ? <GenesysBadge card={card} variant="browse" /> : <LimitBadge limit={limit} />}
                         <ArtChip otherArts={card.altArtCount ?? 0} corner />
                         {card.unavailableReason ? <span className={styles.unavailable}>Unavailable</span> : null}
                         {pool ? (
