@@ -381,11 +381,12 @@ test.describe("FFA3 elimination, Domain and UI rule gaps", () => {
     expect(room.engine!.seats.map((seat) => seat.deckMaster?.inZone)).toEqual([true, true, true]);
     expect(room.engine!.seats.map((seat) => seat.deckMaster?.card.name)).toEqual(["Axe Raider", "Axe Raider", "Axe Raider"]);
     await expect(page.locator("[data-master-dock='0']")).toHaveCount(1);
-    for (const seat of [1, 2]) {
-      await expect(page.locator(`[data-master-thumb='${seat}']`)).toHaveCount(1);
-      await expect(page.locator(`[data-master-thumb='${seat}']`)).toHaveAccessibleName(/Master: Axe Raider$/);
+    for (const seat of [0, 1, 2]) {
+      await expect(page.locator(`[data-testid='dm-badge'][data-badge-seat='${seat}']`)).toHaveCount(1);
+      await expect(page.locator(`[data-testid='dm-badge'][data-badge-seat='${seat}']`)).toHaveAccessibleName(/Axe Raider/);
     }
-    await page.getByRole("button", { name: "Normal Summon Axe Raider", exact: true }).click();
+    await page.locator("[data-testid='dm-badge'][data-badge-seat='0']").click();
+    await page.getByTestId("dm-badge-summon").click();
     await pickLegalZone(page, "mz");
     await expect.poll(async () => (await readTable(page, slug)).engine!.seats[0]!.deckMaster?.inZone).toBe(false);
     expect(cardNames((await readTable(page, slug)).engine!, 0, "monsters")).toEqual(["Axe Raider"]);
@@ -393,7 +394,9 @@ test.describe("FFA3 elimination, Domain and UI rule gaps", () => {
     await page.reload();
     await enterDuelRoom(page);
     await expect(monsters(page, 0)).toHaveCount(1);
-    await expect(page.getByRole("complementary", { name: "Deck Masters" })).toContainText("On field");
+    await page.locator("[data-testid='dm-badge'][data-badge-seat='0']").click();
+    await expect(page.getByTestId("dm-badge-where")).toHaveText("On the field");
+    await page.keyboard.press("Escape");
     await recordElimination(page, slug, info, "domain-ffa3-master-summon-persisted");
   });
 });

@@ -49,6 +49,7 @@ import { tributeState } from "./tribute-pick";
 import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place";
 import base from "./prompts.module.css";
 import baseStyles from "./prompt-center.module.css";
+import { anyEdgeDrawerOpen } from "./edge-drawer";
 import { useSkinExtra, useSkinStyles } from "./skin";
 import { useForkLabels } from "./table/fork-labels";
 import { useMedia } from "@/components/draft/room/use-media";
@@ -378,6 +379,21 @@ function boardOf(layer: HTMLElement | null): HTMLElement | null {
   let parent = layer?.parentElement ?? null;
   while (parent && parent.style.display === "contents" && parent.parentElement) parent = parent.parentElement;
   return parent;
+}
+
+/**
+ * Your own field on screen: its box, or (a wrapper with `display: contents` draws none) the box round its zones. The Extra Monster
+ * zones are left out, as they may be shared with another field. Null for a spectator or when nothing is measurable.
+ */
+function ownFieldRect(board: HTMLElement, seat: number | null): BarRect | null {
+  if (seat == null) return null;
+  const field = board.querySelector<HTMLElement>(`[data-seat-field="${seat}"], [data-field-seat="${seat}"]`);
+  if (!field) return null;
+  const own = field.getBoundingClientRect();
+  if (own.width > 1 && own.height > 1) return { left: own.left, right: own.right, top: own.top, bottom: own.bottom };
+  const zones = Array.from(field.querySelectorAll<HTMLElement>('[data-zones]:not([data-kind="emz"])')).map((zone) => zone.getBoundingClientRect()).filter((r) => r.width > 1 && r.height > 1);
+  if (zones.length === 0) return null;
+  return { left: Math.min(...zones.map((r) => r.left)), right: Math.max(...zones.map((r) => r.right)), top: Math.min(...zones.map((r) => r.top)), bottom: Math.max(...zones.map((r) => r.bottom)) };
 }
 
 /** The bar is in its entry animation (it scales and falls a few px): its box on screen is not where it settles. */
@@ -1569,6 +1585,9 @@ export function PromptCenter(props: PromptCenterProps) {
       hands: Array.from(board.querySelectorAll<HTMLElement>("[data-hand-seat]")).map(rectOf),
       // Only the Rooftop draws `[data-team-plate]`: the top spot goes under its far team plate.
       plates: Array.from(board.querySelectorAll<HTMLElement>("[data-team-plate]")).map(rectOf),
+      // The bar is always centred on the middle of my field across and only moves up or down, off every legal card and zone.
+      field: ownFieldRect(board, mySeatRef.current),
+      targets: Array.from(board.querySelectorAll<HTMLElement>('[data-legal="true"]')).map(rectOf),
     });
     setBarPlace((current) => (samePlace(current, next) ? current : next));
   }, []);
@@ -1703,7 +1722,10 @@ export function PromptCenter(props: PromptCenterProps) {
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       if (event.metaKey || event.ctrlKey || event.altKey || menuRef.current) return;
-      if (event.key === "Escape" && escapeHeldRef.current) return;
+      // A badge opened by mouse keeps focus outside its portal but owns the keys.
+      if (document.querySelector("[data-master-popover]")) return;
+      // An open edge drawer owns Escape too (it closes on it).
+      if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen())) return;
       // A menu owns its keys: Escape closes it, and n / y in it must not answer the prompt behind.
       if (event.target instanceof Element && event.target.closest("[data-duel-menu],[role='menu']")) return;
       if (kindRef.current == null || barRef.current) return;

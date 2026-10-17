@@ -20,7 +20,7 @@ import { raceLabel, type CardDatabase } from "./cards.js";
 import { fillPlaceholders, locationLabel } from "./text.js";
 import type { CoreCapabilities } from "./core-capabilities.js";
 import { HandIdentities } from "./hand-identities.js";
-import { chainTargetPhrase, parseTargetCardNote, publicTargetLabel, TARGET_CARD_NOTE_LUA, TARGET_CARD_NOTE_PREFIX, type TargetCardNote, type TargetLabel } from "./target-names.js";
+import { chainTargetPhrase, describeTargets, parseTargetCardNote, publicTargetLabel, targetLabelFor, TARGET_CARD_NOTE_LUA, TARGET_CARD_NOTE_PREFIX, type TargetCardNote, type TargetDescription, type TargetLabel, type TargetVisibility } from "./target-names.js";
 
 export const LOCATION_DECKMASTER = 0x4000;
 export const DOMAIN_LEAVE_TAX_STEP = 500;
@@ -37,6 +37,8 @@ export interface LogEntry {
   id: number;
   text: string;
   audience: "all" | number;
+  /** Safe public text with identity-bearing alternatives frozen for eligible seats. */
+  privateText?: Record<number, string>;
   eventId?: number;
 }
 
@@ -353,6 +355,8 @@ export interface StoredDuelEvent {
   chosenOptions?: DuelChainLink["chosenOptions"];
   text: string;
   publicText: string;
+  privateText?: Record<number, string>;
+  privateTargetLabels?: Record<number, string[]>;
   description?: string;
   toss?: DuelEvent["toss"];
   /** Seats allowed to see `card`/`text`/`description`: everyone, one seat, or a list (empty = nobody). */
@@ -523,6 +527,8 @@ export interface EventContext {
   chainTargetNotes: Array<{ index: number; targets: DuelZoneRef[] }>;
   /** Cards printed by the startup script as they became targets, not yet matched to a BECOME_TARGET message. */
   targetNotes: TargetCardNote[];
+  /** Query visibility at BECOME_TARGET time; never re-read when a late note settles. */
+  targetVisibility?: (zone: DuelZoneRef) => TargetVisibility;
   /** The chain link currently resolving (CHAIN_SOLVING .. CHAIN_SOLVED); the fallback source of an effect destroy. */
   resolving: { index: number; code: number; seat: number; type: number } | null;
   /** Field departures seen before their destruction note arrived. */
@@ -710,7 +716,7 @@ function clearSummonMaterials(ctx: EventContext): void {
 function destroyEvent(id: number, code: number, from: PendingMove["from"], cards: CardDatabase, detail?: DestroyDetail | true, format?: DuelFormat): StoredDuelEvent {
   const info = code ? cards.get(code) : undefined;
   const name = info?.name ?? (code ? `Card ${code}` : "A card");
-  const hidden = isFacedownPosition(from.position);
+  const hidden = !cardIsVisible({ viewer: null, controller: from.controller, location: from.location, position: from.position || OcgPosition.FACEDOWN_DEFENSE });
   const text = `${name} was destroyed`;
   const event: StoredDuelEvent = {
     id,
@@ -758,7 +764,7 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   const projected: DuelEvent = {
     id: event.id,
     kind: event.kind,
-    text: reveal ? event.text : event.publicText,
+    text: (viewer == null ? undefined : event.privateText?.[viewer]) ?? (reveal ? event.text : event.publicText),
   };
   if (event.seat != null) projected.seat = event.seat;
   if (event.chainIndex != null) projected.chainIndex = event.chainIndex;
@@ -774,7 +780,7 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
     ...(event.battle.target ? { target: { ...event.battle.target } } : {}),
   };
   if (event.targets) projected.targets = event.targets.map(zoneOf);
-  if (event.targetLabels) projected.targetLabels = [...event.targetLabels];
+  if (event.targetLabels) projected.targetLabels = [...((viewer == null ? undefined : event.privateTargetLabels?.[viewer]) ?? event.targetLabels)];
   if (event.from) projected.from = { ...event.from };
   if (event.reason) projected.reason = event.reason;
   if (event.faceDown != null) projected.faceDown = event.faceDown;
@@ -876,8 +882,8 @@ function zoneKeyOf(zone: DuelZoneRef): string {
 }
 
 /** The targets of a link as a phrase for the log: names of public cards, "a face-down card", or the count. */
-export function linkTargetPhrase(link: StoredChainLink): string {
-  return chainTargetPhrase(link.targets.map((zone) => link.targetLabels?.[zoneKeyOf(zone)]?.label), link.targets.length);
+export function linkTargetPhrase(link: StoredChainLink, viewer: number | null = null): string {
+  return chainTargetPhrase(link.targets.map((zone) => targetLabelFor(link.targetLabels?.[zoneKeyOf(zone)], viewer)), link.targets.length);
 }
 
 /**
@@ -897,7 +903,14 @@ export function nameLinkTargets(ctx: EventContext, link: StoredChainLink, cards:
       continue;
     }
     const note = ctx.targetNotes.splice(at, 1)[0]!;
-    target.label = publicTargetLabel({ location: note.location, position: note.position, name: cards.get(note.code)?.name });
+    const name = cards.get(note.code)?.name;
+    // A note's position alone is not proof: it can disagree with the view or arrive after a hidden move.
+    // Require the same code in the visibility snapshot taken for this announcement's original slot.
+    target.label = publicTargetLabel({ location: note.location, position: note.position,
+      name: target.visibleCodes?.get(null) === note.code ? name : undefined });
+    for (const [viewer, code] of target.visibleCodes ?? []) {
+      if (viewer != null && code === note.code && name && name !== target.label) (target.privateLabels ??= {})[viewer] = name;
+    }
   }
   return complete;
 }
@@ -908,12 +921,30 @@ export function snapshotLinkTargets(link: StoredChainLink): StoredChainLink {
 }
 
 /** Public names belong to announcements, never to the live board coordinates of a moved target. */
-export function targetEventLabels(link: StoredChainLink): string[] {
-  return link.targets.map((zone) => link.targetLabels?.[zoneKeyOf(zone)]?.label ?? "a card");
+export function targetEventLabels(link: StoredChainLink, viewer: number | null = null): string[] {
+  return link.targets.map((zone) => targetLabelFor(link.targetLabels?.[zoneKeyOf(zone)], viewer) ?? "a card");
 }
 
-export function targetEventText(link: StoredChainLink): string {
-  return `Chain Link ${link.index} targets ${linkTargetPhrase(link)}`;
+export function targetEventText(link: StoredChainLink, viewer: number | null = null): string {
+  return `Chain Link ${link.index} targets ${linkTargetPhrase(link, viewer)}`;
+}
+
+/** Apply the same frozen audience to event text and structured target labels. */
+export function updateTargetEvent(event: StoredDuelEvent, link: StoredChainLink): TargetDescription {
+  const description = describeTargets(link.targets.map((zone) => link.targetLabels?.[zoneKeyOf(zone)]));
+  const text = (phrase: string) => `Chain Link ${link.index} targets ${phrase}`;
+  event.text = event.publicText = text(description.phrase);
+  event.targetLabels = description.labels;
+  if (event.privateText) delete event.privateText;
+  if (event.privateTargetLabels) delete event.privateTargetLabels;
+  if (!description.private) return description;
+  for (const [viewer, named] of Object.entries(description.private)) {
+    if (named.phrase !== description.phrase) (event.privateText ??= {})[Number(viewer)] = text(named.phrase);
+    if (named.labels.some((label, index) => label !== description.labels[index])) {
+      (event.privateTargetLabels ??= {})[Number(viewer)] = named.labels;
+    }
+  }
+  return description;
 }
 
 function targetEvent(link: StoredChainLink, id: number, announcement = false): StoredDuelEvent {
@@ -944,7 +975,9 @@ export function observeChainTargetEvents(message: OcgMessage, chain: StoredChain
     }
     // Create each naming record before any coordinate changes. Announcements and the live link share these
     // write-once records, so one delayed note completes every snapshot that includes the same target.
-    for (const zone of link.targets) (link.targetLabels ??= {})[zoneKeyOf(zone)] ??= { zone: zoneOf(zone) };
+    for (const zone of link.targets) (link.targetLabels ??= {})[zoneKeyOf(zone)] ??= {
+      zone: zoneOf(zone), visibleCodes: new Map(ctx?.targetVisibility?.(zone)),
+    };
     if (ctx && cards) nameLinkTargets(ctx, link, cards);
     return [targetEvent(link, id, true)];
   }
@@ -1057,7 +1090,7 @@ function moveEndVisible(viewer: number, place: { controller: number; location: n
     viewer,
     controller: place.controller,
     location: place.location,
-    position: place.position ?? OcgPosition.FACEUP,
+    position: place.position || OcgPosition.FACEDOWN_DEFENSE,
     partner,
   });
 }
@@ -1078,7 +1111,7 @@ function moveAudience(
   // Both seats know the card. A spectator knows it only if it is public at one end. A face-down
   // card that changes control is known to both players and to nobody else.
   const spectatorSees = [from, to].some((end) =>
-    cardIsVisible({ viewer: null, controller: end.controller, location: end.location, position: end.position ?? OcgPosition.FACEUP }),
+    cardIsVisible({ viewer: null, controller: end.controller, location: end.location, position: end.position || OcgPosition.FACEDOWN_DEFENSE }),
   );
   return spectatorSees ? "all" : seats;
 }
@@ -1277,7 +1310,7 @@ export function observeDuelEvent(
       const format = ctx?.format;
       const who = playerLabel(format, message.controller);
       const text = `${who} ${verb} ${info?.name ?? `Card ${message.code}`}`;
-      const hidden = (message.position & OcgPosition.FACEDOWN) !== 0;
+      const hidden = (message.position & OcgPosition.FACEUP) === 0 || isFacedownPosition(message.position);
       let summonKind: DuelSummonKind =
         message.type === OcgMessageType.SUMMONING ? "normal" : message.type === OcgMessageType.SPSUMMONING ? "special" : "flip";
       if (summonKind === "normal") {
@@ -1308,8 +1341,8 @@ export function observeDuelEvent(
       const info = cards.get(message.code);
       const from = message.prev_position as number;
       const to = message.position as number;
-      const wasUp = !isFacedownPosition(from);
-      const isUp = !isFacedownPosition(to);
+      const wasUp = (from & OcgPosition.FACEUP) !== 0 && !isFacedownPosition(from);
+      const isUp = (to & OcgPosition.FACEUP) !== 0 && !isFacedownPosition(to);
       const name = info?.name ?? `Card ${message.code}`;
       const flip = !wasUp && isUp;
       const text = flip
@@ -1773,7 +1806,7 @@ export function projectView(args: {
     }),
     log: args.log
       .filter((entry) => entry.audience === "all" || entry.audience === args.viewer)
-      .map(({ id, text, eventId }) => ({ id, text, ...(eventId != null ? { eventId } : {}) })),
+      .map(({ id, text, privateText, eventId }) => ({ id, text: args.viewer == null ? text : privateText?.[args.viewer] ?? text, ...(eventId != null ? { eventId } : {}) })),
     result: args.result,
   };
   if (multi) view.format = format;

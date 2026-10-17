@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent } from "react";
 import { engineFormat } from "../multi-seat";
-import { masterInUse } from "../master-place";
+import { SeatMasterBadge } from "../master-badge";
 import { AttackLine } from "./attack-line";
 import { crumbleWaiting, onCrumbleStart } from "./crumble-gate";
 import { boxOf, cancelTracks, FLIP_EASING, FLIP_MS, playFlip, type FlipTrack } from "./grid-flip";
@@ -150,6 +150,8 @@ const OWN_HAND = '[data-hand-seat][data-side="you"]';
 
 /** A target under the pick bar costs this many times what another zone under it costs. */
 const OTHER_WEIGHT = 1000;
+/** A phase chip under the pick bar costs this many times what an empty zone under it costs. */
+const CHIP_WEIGHT = 25;
 
 /** The pick bar as the room plans it (board px): its widest size and its height in one row, or stacked when narrow. */
 export const PICK_BAR = { max: 420, row: 400, rowHeight: 92, stackHeight: 136, edge: 12, clear: 6 } as const;
@@ -189,8 +191,8 @@ export function dockBarRoom(box: { width: number; height: number }): string | un
  * boxes of every legal zone and card (board px). The bar is planned at its widest size, so a narrower bar is clear too.
  * When no place is clear (targets everywhere) the place that covers the least of them wins.
  */
-export function pickBarRoom(pair: GridRect, targets: readonly GridRect[], others: readonly GridRect[] = []): string | undefined {
-  const best = planBarRoom(pair, targets, others);
+export function pickBarRoom(pair: GridRect, targets: readonly GridRect[], others: readonly GridRect[] = [], chips: readonly GridRect[] = []): string | undefined {
+  const best = planBarRoom(pair, targets, others, PICK_BAR.max, chips);
   return best ? [best.box.x, best.box.y, best.box.width, best.box.height].map(Math.round).join(",") : undefined;
 }
 
@@ -198,17 +200,23 @@ export function pickBarRoom(pair: GridRect, targets: readonly GridRect[], others
  * A place for the pick bar in `pair` that covers none of `blocks` (cards and piles, targets or not), trying a narrower bar
  * (it stacks its text and buttons) when the widest has none; empty zones may be covered. Undefined when no width is clear.
  */
-export function clearBarRoom(pair: GridRect, blocks: readonly GridRect[], others: readonly GridRect[] = []): string | undefined {
+export function clearBarRoom(pair: GridRect, blocks: readonly GridRect[], others: readonly GridRect[] = [], chips: readonly GridRect[] = []): string | undefined {
   for (const width of [PICK_BAR.max, ...DOCK_NARROW]) {
-    const best = planBarRoom(pair, blocks, others, width);
+    const best = planBarRoom(pair, blocks, others, width, chips);
     if (best && blocks.every((r) => overlap(best.box, { x: r.x - PICK_BAR.clear, y: r.y - PICK_BAR.clear, width: r.width + 2 * PICK_BAR.clear, height: r.height + 2 * PICK_BAR.clear }) === 0)) return [best.box.x, best.box.y, best.box.width, best.box.height].map(Math.round).join(",");
   }
   return undefined;
 }
 
+const roomText = (plan: BarPlan | null) => (plan ? [plan.box.x, plan.box.y, plan.box.width, plan.box.height].map(Math.round).join(",") : undefined);
+
 /**
- * The pick bar at rest: in the pair (pickBarRoom) where it is clear of every zone, else in the dock at the bottom of the
- * board box (dockBarRoom) when that is clear, else the pair room that covers the least.
+ * The pick bar at rest. When you play (`own`) it is always centred on the middle of YOUR field across, and only moves up or
+ * down: as near the middle of your field as it can be where it covers no target (the cards you can pick, your hand included);
+ * it may sit over empty zones, phase chips and other cards, as they are not part of the pick. When your field has no such place
+ * it moves down the pair at the same x, then it narrows; the dock at the bottom of the box (off the middle of the field, but
+ * clear of every target) is the last resort. A spectator (no `own`) gets the place in the pair nearest its middle: when it is
+ * clear of targets, else a narrower bar, the dock, and last the pair room that covers the least.
  */
 export function restBarRoom(
   pair: GridRect,
@@ -216,12 +224,30 @@ export function restBarRoom(
   targets: readonly GridRect[],
   others: readonly GridRect[],
   hud: readonly GridRect[] = [],
+  chips: readonly GridRect[] = [],
+  own: GridRect | null = null,
 ): string | undefined {
-  const best = planBarRoom(pair, targets, others);
-  if (best && best.cover === 0) return pickBarRoom(pair, targets, others);
+  if (own) {
+    // Always centred on my field across; only up or down moves it off the targets: first in my field, then down the pair, then narrower.
+    const cx = own.x + own.width / 2;
+    for (const room of [own, pair]) {
+      const mine = planBarRoom(room, targets, others, PICK_BAR.max, chips, cx);
+      if (mine && mine.hit === 0) return roomText(mine);
+    }
+    for (const width of DOCK_NARROW) {
+      const mine = planBarRoom(pair, targets, others, width, chips, cx);
+      if (mine && mine.hit === 0) return roomText(mine);
+    }
+    const dock = freeDockRoom(box, [...targets, ...others, ...hud]);
+    return dock ?? roomText(planBarRoom(pair, targets, others, PICK_BAR.max, chips, cx));
+  }
+  const best = planBarRoom(pair, targets, others, PICK_BAR.max, chips);
+  if (best && best.hit === 0) return pickBarRoom(pair, targets, others, chips);
+  const narrow = clearBarRoom(pair, targets, others, chips);
+  if (narrow) return narrow;
   const dock = freeDockRoom(box, [...targets, ...others, ...hud]);
   if (dock) return dock;
-  return best ? pickBarRoom(pair, targets, others) : undefined;
+  return best ? pickBarRoom(pair, targets, others, chips) : undefined;
 }
 
 /**
@@ -255,7 +281,15 @@ const DOCK_NARROW = [380, 340, 300];
 /** The thin margin under a docked bar when the usual one leaves no clear place. */
 const DOCK_THIN_EDGE = 4;
 
-function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: readonly GridRect[], maxWidth: number = PICK_BAR.max): { box: GridRect; cover: number; far: number } | null {
+interface BarPlan {
+  box: GridRect;
+  cover: number;
+  far: number;
+  /** Area (px squared) of the targets the box covers: 0 when it is clear of every target. */
+  hit: number;
+}
+
+function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: readonly GridRect[], maxWidth: number = PICK_BAR.max, chips: readonly GridRect[] = [], lockX?: number): BarPlan | null {
   if (pair.width <= 0 || pair.height <= 0) return null;
   const width = Math.min(maxWidth, pair.width - 2 * PICK_BAR.edge);
   if (width < 200) return null;
@@ -265,20 +299,23 @@ function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: reado
     .map((r) => ({ x: r.x - PICK_BAR.clear, y: r.y - PICK_BAR.clear, width: r.width + 2 * PICK_BAR.clear, height: r.height + 2 * PICK_BAR.clear }));
   // The other zones (not targets now) are kept clear too where there is room: they weigh far less than a target.
   const rest = others.filter((r) => r.width > 0 && r.height > 0);
-  const centreX = pair.x + pair.width / 2;
+  // `lockX`: the bar stays centred on this x (the middle of my field) and only moves up or down.
+  const centreX = lockX ?? pair.x + pair.width / 2;
   const centreY = pair.y + pair.height / 2;
-  const reachX = Math.max(0, (pair.width - width) / 2 - PICK_BAR.edge);
+  const reachX = lockX != null ? 0 : Math.max(0, (pair.width - width) / 2 - PICK_BAR.edge);
   const reachY = Math.max(0, (pair.height - height) / 2 - PICK_BAR.edge);
-  let best = null as { box: GridRect; cover: number; far: number } | null;
+  let best = null as BarPlan | null;
   // Steps out from the middle; up before down at the same distance (the half of the pair in front of you).
   for (let dy = 0; dy <= reachY; dy += 4) {
     for (const sy of dy === 0 ? [0] : [-1, 1]) {
       for (let dx = 0; dx <= reachX; dx += 8) {
         for (const sx of dx === 0 ? [0] : [-1, 1]) {
           const box = { x: centreX + sx * dx - width / 2, y: centreY + sy * dy - height / 2, width, height };
-          const cover = blocks.reduce((sum, r) => sum + overlap(box, r) * OTHER_WEIGHT, 0) + rest.reduce((sum, r) => sum + overlap(box, r), 0);
+          const hit = blocks.reduce((sum, r) => sum + overlap(box, r), 0);
+          // Locked on the middle of my field, only a target counts: the bar may cover phase chips, empty zones and other cards.
+          const cover = lockX != null ? hit * OTHER_WEIGHT : hit * OTHER_WEIGHT + chips.reduce((sum, r) => sum + overlap(box, r) * CHIP_WEIGHT, 0) + rest.reduce((sum, r) => sum + overlap(box, r), 0);
           const far = Math.hypot(dx, dy);
-          if (!best || cover < best.cover || (cover === best.cover && far < best.far)) best = { box, cover, far };
+          if (!best || cover < best.cover || (cover === best.cover && far < best.far)) best = { box, cover, far, hit };
         }
       }
       if (best && best.cover === 0 && best.far <= dy) break;
@@ -346,6 +383,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   // In the floating HUD the board runs to the right edge of the screen, under the corner of turn controls: the layout
   // keeps that corner clear of every field (HUD_CORNER in grid-layout.ts).
   const [hud, setHud] = useState(false);
+  // The edge-drawer HUD keeps its turn controls in a slim bar under the board, so no corner of the board is reserved.
+  const [edgeHud, setEdgeHud] = useState(false);
 
   useLayoutEffect(() => {
     const node = rootRef.current;
@@ -356,6 +395,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     });
     read();
     setHud(node.closest('[data-hud="true"]') != null);
+    setEdgeHud(node.closest('[data-edge-hud="true"]') != null);
     const observer = new ResizeObserver(read);
     observer.observe(node);
     window.addEventListener("resize", read);
@@ -409,10 +449,10 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     return gridFocusLayout(world, box, focusCell, {
       homeColumn,
       drawerRow: drawerKey.split("").map(Number) as [0 | 1, 0 | 1],
-      corner: hud ? HUD_CORNER : null,
+      corner: hud && !edgeHud ? HUD_CORNER : null,
       finale: bottom && top ? { bottom, top, homeHand: bottom.home } : null,
     });
-  }, [box, cells, drawerKey, finaleKey, focusCell, homeColumn, world, hud]);
+  }, [box, cells, drawerKey, finaleKey, focusCell, homeColumn, world, hud, edgeHud]);
   const placed = layoutBox;
 
   // The pair frames (see `pairFrameRect`): the live fields of each column, or on the face-off the frame round both fields
@@ -622,6 +662,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const [targets, setTargets] = useState<readonly GridRect[]>([]);
   const [zones, setZones] = useState<readonly GridRect[]>([]);
   const [hudRects, setHudRects] = useState<readonly GridRect[]>([]);
+  // The phase chips of the hub: the bar keeps off them before it keeps off an empty zone.
+  const [chips, setChips] = useState<readonly GridRect[]>([]);
   const legalKey = [...legalKeys].sort().join(",");
   useEffect(() => {
     const root = rootRef.current;
@@ -634,6 +676,10 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
         .map((r) => ({ x: Math.round(r.left - board.left), y: Math.round(r.top - board.top), width: Math.round(r.width), height: Math.round(r.height) }));
       const next = boxes('[data-legal="true"]');
       const rest = boxes('[data-zones]:not([data-legal="true"])');
+      setChips((current) => {
+        const next = boxes("[data-grid-hub] [data-state]");
+        return sameRects(current, next) ? current : next;
+      });
       setTargets((current) => (sameRects(current, next) ? current : next));
       setZones((current) => (sameRects(current, rest) ? current : rest));
       const hud = occluderRects(root, BAR_HUD).map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }));
@@ -643,9 +689,11 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     // pick is open, again when the fields mount or mark targets.
     return watchMeasure(root, measure, { settleMs: reducedMotion ? 0 : Math.max(FLIP_MS, FINALE_GLIDE_MS) + 80, watch: legalKey !== "" });
   }, [placed, legalKey, reducedMotion, zoom.view]);
-  const barRoom = useMemo(() => (!promptPair ? undefined : zoom.zoomed ? dockBarRoom(box) : restBarRoom(promptPair, box, targets, zones, hudRects)),
+  // The bar plans inside YOUR pair (its frame), not the whole-table box the panels centre in: it is read at your own field, next to your hand.
+  const ownField = placed && homeCell && !finale && !gone(homeCell.seat) ? placed.cells[cellIndex(homeCell)].rect : null;
+  const barRoom = useMemo(() => (!promptPair || !pairFrame ? undefined : zoom.zoomed ? dockBarRoom(box) : restBarRoom(pairFrame, box, targets, zones, hudRects, chips, ownField)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [promptPair?.x, promptPair?.y, promptPair?.width, promptPair?.height, targets, zones, hudRects, zoom.zoomed, box.width, box.height]);
+    [promptPair?.x, ownField?.x, ownField?.y, ownField?.width, ownField?.height, pairFrame?.x, pairFrame?.y, pairFrame?.width, pairFrame?.height, targets, zones, hudRects, chips, zoom.zoomed, box.width, box.height]);
 
   // The chain-response panel (every option a card): a wide room of its own for large cards (strip-room.ts), wholly inside the box and off the HUD and
   // all but the top strip of your hand; it may cover the fields. It starts from the middle of your pair (as it shows after a zoom). The camera never
@@ -903,10 +951,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   y={0}
                   fit={lpFit(lp, placeLabels?.has(cell.seat) === true)}
                   beam="none"
-                  master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
-                  masterInUse={masterInUse(view, engine.seats)}
+                  badge={<SeatMasterBadge seat={cell.seat} side={slot.relation === "self" ? "you" : "opp"} />}
                   linkedWith={finale?.kind === "same" && inFinale(cell.seat) ? nameOf(cell.seat === finale.bottom.seat ? finale.top.seat : finale.bottom.seat) : null}
-                  onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
                   lastDamage={lastSeatDamage(engine.events, cell.seat)}
                   legal={pickable}
                   hotkey={pickable && index >= 0 ? index + 1 : null}

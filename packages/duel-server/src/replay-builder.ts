@@ -179,13 +179,15 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
         }
         return worker;
       }, checkpointSeat: dataSeat,
+      checkpointHistory: () => ({ logAfter: seen.log, eventsAfter: seen.events }),
       onCheckpoint: async ({ view, input, actorSeat, beforeRevision, prefixCount }) => {
         check();
         if (expired) throw new ReplayBuildError("Replay timed out.", "ENGINE_BUSY");
         if (input && chainModeOf(input.command.promptId) !== null && view.revision === beforeRevision) return;
         if (options.reveal) {
           const seats: DuelEngineView[] = [];
-          for (let seat = 0; seat < source.decks.length; seat++) seats.push(seat === dataSeat ? view : await worker!.view(seat));
+          for (let seat = 0; seat < source.decks.length; seat++) seats.push(seat === dataSeat ? view : await worker!.view(seat,
+            { logAfter: Number.MAX_SAFE_INTEGER, eventsAfter: Number.MAX_SAFE_INTEGER }));
           view = revealReplayHands(view, seats);
         }
         await append(view, view.result ? "result" : prefixCount === 0 ? "opening" : "engine", actorSeat, prefixCount);

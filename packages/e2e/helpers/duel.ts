@@ -33,23 +33,26 @@ export async function importDeckAndReady(page: Page): Promise<void> {
 /** A live duel opens behind a gate that offers a separate window. Tests play in the same tab. */
 export async function enterDuelRoom(page: Page): Promise<void> {
   const gate = page.getByTestId("duel-window-gate");
-  const board = page.getByRole("region", { name: "Duel field" });
+  const board = page.locator('[aria-label="Duel field"]');
   await expect(gate.or(board)).toBeVisible({ timeout: 60_000 });
-  if (await gate.isVisible()) await page.getByRole("button", { name: "Open here instead" }).click();
-  await expect(board).toBeVisible();
+  // A room refresh can switch the field to the window gate between these reads.
+  await expect(async () => {
+    if (await gate.isVisible()) await page.getByRole("button", { name: "Open here instead" }).click();
+    await expect(board).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 60_000 });
 }
 
 /**
  * Opens the Settings pane (Surrender and the table options live there). Main replaced the old Options gear with tabs.
- * The 4-way grid keeps its tabs in a hidden flyout: its dock button (`hud-dock-settings`) opens the flyout on the Settings tab.
+ * The 4-way grid keeps its settings in a closed left-edge drawer: its Settings tab opens it.
  */
 export async function openOptions(page: Page): Promise<void> {
-  const dock = page.getByTestId("hud-dock-settings");
+  const edge = page.locator('[data-edge-drawer="Settings"] button[aria-expanded]');
   const tab = page.getByRole("tab", { name: "Settings" });
-  await expect(dock.or(tab)).toBeVisible();
-  if (await dock.isVisible()) {
-    if ((await dock.getAttribute("aria-pressed")) !== "true") await dock.click();
-    await expect(page.getByTestId("hud-tab-settings")).toHaveAttribute("aria-selected", "true");
+  await expect(edge.or(tab)).toBeVisible();
+  if (await edge.isVisible()) {
+    if ((await edge.getAttribute("aria-expanded")) !== "true") await edge.click();
+    await expect(edge).toHaveAttribute("aria-expanded", "true");
     return;
   }
   if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
@@ -100,7 +103,9 @@ export async function createTable(page: Page, name: string, options: TableOption
   if (options.format && options.format !== "1v1") await page.getByLabel("Table type").selectOption(options.format);
   if (options.domain) await chooseOption(page, "Duel type", "Domain");
   await page.getByLabel("Turn timer").selectOption({ label: "Unlimited" });
-  if (options.noBanlist) await page.getByLabel("Forbidden & Limited list").selectOption({ index: 0 });
+  // The Genesys toggle's label holds the same words, so match the select by role. A Genesys table has no list: the select is off and already "none".
+  const banlist = page.getByRole("combobox", { name: "Forbidden & Limited list" });
+  if (options.noBanlist && await banlist.isEnabled()) await banlist.selectOption({ index: 0 });
   if (options.ordered) await chooseOption(page, "Opening deck order", "Not shuffled");
   if (options.looseDecks) await chooseOption(page, "Deck validation", "Allow invalid decks");
   if (options.startingHand !== undefined) {

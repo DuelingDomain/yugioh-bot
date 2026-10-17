@@ -5,9 +5,9 @@ import { X } from "lucide-react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardTextStyle, useCardTextSize } from "../card-text-size";
 import { NEGATED_LINE } from "../inspector";
-import { cardArtUrl, cardDetailsText, cardStatsText, isDefenseAt, isHiddenCard } from "../constants";
+import { cardArtUrl, cardInspectLines, isDefenseAt, isHiddenCard } from "../constants";
 import styles from "./grid-hud.module.css";
-import { coveredArea, measureObstacles, obstaclesKey, peekPlaces, type Box, type Place } from "./peek-layout";
+import { coveredArea, EDGE_LEFT_PX, EDGE_LEFT_TABS_PX, measureObstacles, obstaclesKey, peekPlaces, type Box, type Place } from "./peek-layout";
 
 /** The preview lingers this long after the pointer leaves, so a move between two cards does not flicker. */
 export const PREVIEW_HIDE_MS = 220;
@@ -40,9 +40,9 @@ const place = (aside: HTMLElement, spot: Place, layer: Box | null) => {
 /**
  * The hover preview of the shells (Tag, 3-way, 4-way, and the 1v1 table in the floating HUD): a 320-420 px wide panel that slides out from the left edge while
  * a card is hovered or focused (card, name, type, ATK/DEF, owner, effect text). It takes no pointer events, so it never blocks the board.
- * The card, its name and its facts stand side by side at the top and the effect text runs the full width under them, so a normal text shows whole.
- * The text size follows the "Text size" setting. The panel grows taller with it (not wider). When the text does not fit the band, the art
- * shrinks to 104 px wide (it is never dropped for that), and only a text that is longer even then scrolls inside the panel: only then the text
+ * The card art is large (the whole width of the panel, as tall as the band allows) with the name, one compact facts line and ATK / DEF under it,
+ * then the effect text, so a normal text shows whole. The text size follows the "Text size" setting. The panel grows taller with it (not wider).
+ * When the text does not fit the band, the art shrinks to a smaller size (it is never dropped for that), and only a text that is longer even then scrolls inside the panel: only then the text
  * takes the pointer (a wheel scroll), and the pointer on it keeps the panel open.
  * Face-down cards of a rival show nothing.
  * A click on a board card pins the panel (`pinned`): the same window in the same place, with the same size and layout. It only freezes: it stays when
@@ -54,7 +54,7 @@ const place = (aside: HTMLElement, spot: Place, layer: Box | null) => {
  * It never goes to the other side. When the column is cut into short bands, the best one wins (the clicked card, the parts
  * kept clear and the board first).
  */
-export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, extras = [], avoid = null, hoverAnchor = null, ownSeats, onClose }: {
+export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, extras = [], avoid = null, hoverAnchor = null, ownSeats, edge = false, onClose }: {
   /** A board card, or the card of a prompt row (`DuelCardInfo`: no position, no owner). */
   card: DuelCard | DuelCardInfo | null;
   owner: { name: string; main: string; ink: string } | null;
@@ -69,6 +69,8 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   hoverAnchor?: HTMLElement | null;
   /** The seats of the viewer (and the partner in Tag): the panel is as wide as the free room up to the field zones of these seats. Absent: every board part limits it. */
   ownSeats?: readonly number[];
+  /** The HUD has edge drawers (the 4-way grid): the panel slides out from the tabs at the left edge, not from the right of a dock. */
+  edge?: boolean;
   /** The X button was pressed. `byKeyboard`: Enter or Space, so focus should go back to the card (a mouse click would show the card's hover peek again). */
   onClose?: (byKeyboard: boolean) => void;
 }) {
@@ -194,7 +196,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     const obstacles = measureObstacles(aside, frozen, own);
     if (hasTarget) obstacles.target = { left: target.left, top: target.top, right: target.right, bottom: target.bottom };
     const text = textRef.current;
-    const candidates = peekPlaces(layer, obstacles);
+    const candidates = peekPlaces(layer, obstacles, edge ? EDGE_LEFT_TABS_PX : EDGE_LEFT_PX);
     if (candidates.length === 0) {
       // Nothing to measure (no layout yet): the CSS places the panel.
       place(aside, FIRST_PLACE, null);
@@ -235,12 +237,17 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       const keep = coveredArea(rect, obstacles.keep);
       const board = coveredArea(rect, obstacles.board);
       const hidden = text ? Math.max(0, text.scrollHeight - text.clientHeight - 1) : 0;
-      const rank = [clipped, clicked, keep, hidden, board];
+      // 6. a band that is short makes the art smaller than the panel is wide: among bands that tie on the rest, the one with the larger art wins.
+      const art = aside.querySelector("img");
+      const style = getComputedStyle(aside);
+      const room = aside.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+      const smaller = art && art.clientWidth > 0 ? Math.max(0, Math.round(room - art.clientWidth)) : 0;
+      const rank = [clipped, clicked, keep, hidden, board, smaller];
       if (best == null || before(rank, best)) {
         best = rank;
         chosen = candidate;
       }
-      if (clipped === 0 && clicked === 0 && keep === 0 && board === 0 && hidden === 0) break;
+      if (clipped === 0 && clicked === 0 && keep === 0 && board === 0 && hidden === 0 && smaller === 0) break;
     }
     place(aside, chosen, measured);
     if (!frozen) hoverSpot.current = { key, place: chosen };
@@ -254,12 +261,11 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       setSqueezed("");
       setSpot(chosen);
     }
-  }, [placing, frozen, anchorOf, current, textSize, resizeTick, watch, own]);
+  }, [placing, frozen, anchorOf, current, textSize, resizeTick, watch, own, edge]);
   if (!current) return null;
 
-  const stats = cardStatsText(current);
-  const details = cardDetailsText(current);
-  const position = stats && "location" in current && current.position != null ? (isDefenseAt(current.location, current.position) ? "Defense Position" : "Attack Position") : null;
+  const { facts, combat } = cardInspectLines(current);
+  const position = combat && "location" in current && current.position != null ? (isDefenseAt(current.location, current.position) ? "Defense Position" : "Attack Position") : null;
   return (
     <aside
       ref={asideRef}
@@ -269,6 +275,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       data-motion={reducedMotion ? "none" : "slide"}
       aria-hidden={open ? undefined : "true"}
       data-pinned={frozen ? "true" : undefined}
+      data-edge={edge ? "true" : undefined}
       data-side={spot.side}
       data-hud-keep={frozen ? "" : undefined}
       aria-label={frozen ? "Pinned card" : undefined}
@@ -281,8 +288,8 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
         {current.code != null ? <img className={styles.previewArt} src={cardArtUrl(current.code, "full")} alt="" draggable={false} /> : null}
         <div className={styles.previewId}>
           <h3>{current.name ?? `Card ${current.code}`}</h3>
-          {details ? <p className={styles.previewType}>{details}</p> : null}
-          {stats ? <p className={styles.previewStats}>{stats}</p> : null}
+          {facts ? <p className={styles.previewType}>{facts}</p> : null}
+          {combat ? <p className={styles.previewStats}>{combat}</p> : null}
           {owner ? (
             <p className={styles.previewOwner}>
               <i aria-hidden="true" />Owner <b>{owner.name}</b>{position ? ` · ${position}` : ""}

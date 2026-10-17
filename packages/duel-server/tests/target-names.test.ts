@@ -1,13 +1,19 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
-import { chainTargetPhrase, parseTargetCardNote, publicTargetLabel, TARGET_CARD_NOTE_PREFIX } from "../src/target-names.js";
+import { chainTargetPhrase, describeTargets, parseTargetCardNote, publicTargetLabel, targetLabelFor, TARGET_CARD_NOTE_PREFIX, type TargetLabel, type TargetVisibility } from "../src/target-names.js";
 import { isNegatedOnField as isNegatedMulti } from "../src/views.js";
 import { isNegatedOnField as isNegatedLegacy } from "../src/legacy/views.js";
 import * as mainViews from "../src/views.js";
 import * as legacyViews from "../src/legacy/views.js";
-import { loadCardDatabase, type CardDatabase } from "../src/cards.js";
-import { engineDataDirectory } from "./engine-data-dir.js";
-import { describeWithCores, needs } from "./support/cores.js";
+import type { CardDatabase } from "../src/cards.js";
+
+const names: Record<number, string> = { 46986414: "Dark Magician", 89631139: "Blue-Eyes White Dragon", 70781052: "Summoned Skull" };
+const cards: CardDatabase = {
+  get: (code) => names[code] ? { code, name: names[code]!, description: "", type: 1, attack: 0, defense: 0, level: 6, attribute: 1, race: "" } : undefined,
+  search: () => [], deckCard: () => undefined, all: () => [], setnames: () => new Map(), cardData: () => null,
+  resolveLabel: () => "", system: () => undefined, victory: () => undefined, counter: () => undefined,
+  readScript: () => null, close() {},
+};
 
 describe("target names", () => {
   it("parses a note and rejects malformed ones", () => {
@@ -36,27 +42,94 @@ describe("target names", () => {
     expect(chainTargetPhrase([], 0)).toBe("0 cards");
     expect(chainTargetPhrase(["A", undefined], 2)).toBe("A and a card");
   });
+
+  it("preserves every audience's phrase and structured labels when sharing formatted descriptions", () => {
+    const zone = { controller: 0, location: OcgLocation.MZONE, sequence: 0 };
+    const states: Array<TargetLabel | undefined> = [
+      undefined, { zone }, { zone, label: "Public" },
+      { zone, label: "Public", privateLabels: { 0: "Public", 1: "Public", 2: "Public", 3: "Public" } },
+      { zone, label: "a face-down card", privateLabels: { 0: "Private 0", 2: "Private 2" } },
+      { zone, label: "a card", privateLabels: { 1: "Private 1", 3: "Private 3" } },
+    ];
+    for (const first of states) for (const second of states) for (const third of states) {
+      const targets = [first, second, third];
+      const description = describeTargets(targets);
+      for (const viewer of [0, 1, 2, 3, null]) {
+        const labels = targets.map((target) => targetLabelFor(target, viewer));
+        const projected = viewer == null ? description : description.private?.[viewer] ?? description;
+        expect(projected.phrase).toBe(chainTargetPhrase(labels, targets.length));
+        expect(projected.labels).toEqual(labels.map((label) => label ?? "a card"));
+      }
+    }
+    expect(describeTargets([])).toEqual({ phrase: "0 cards", labels: [] });
+  });
+
+  it("does not treat mixed face-up and face-down target flags as public", () => {
+    expect(publicTargetLabel({
+      location: OcgLocation.MZONE,
+      position: OcgPosition.FACEUP_ATTACK | OcgPosition.FACEDOWN_DEFENSE,
+      name: "Summoned Skull",
+    })).toBe("a face-down card");
+  });
+
+  it("does not treat overlay or combined locations as a public field slot", () => {
+    for (const location of [OcgLocation.MZONE | OcgLocation.OVERLAY, OcgLocation.MZONE | OcgLocation.HAND, 0, 0x4000]) {
+      expect(publicTargetLabel({ location, position: OcgPosition.FACEUP_ATTACK, name: "Summoned Skull" })).toBe("a card");
+    }
+  });
 });
 
 function targetTrackingTests<Context>(name: string, views: {
-  createEventContext(): Context;
+  createEventContext(): Context & { targetVisibility?: (zone: mainViews.StoredChainLink["zone"]) => TargetVisibility };
   noteTargetCardLog(ctx: Context, text: string): boolean;
   nameLinkTargets(ctx: Context, link: mainViews.StoredChainLink, cards: CardDatabase): boolean;
   observeChainTargetEvents(message: OcgMessage, chain: mainViews.StoredChainLink[], id: number, ctx?: Context, cards?: CardDatabase): mainViews.StoredDuelEvent[];
   linkTargetPhrase(link: mainViews.StoredChainLink): string;
   snapshotLinkTargets(link: mainViews.StoredChainLink): mainViews.StoredChainLink;
-  targetEventText(link: mainViews.StoredChainLink): string;
-  targetEventLabels(link: mainViews.StoredChainLink): string[];
+  targetEventText(link: mainViews.StoredChainLink, viewer?: number | null): string;
+  targetEventLabels(link: mainViews.StoredChainLink, viewer?: number | null): string[];
+  updateTargetEvent(event: mainViews.StoredDuelEvent, link: mainViews.StoredChainLink): void;
+  projectStoredEvent(event: mainViews.StoredDuelEvent, viewer: number | null): unknown;
 }) {
-  describeWithCores(`target tracking (${name})`, [needs.cards(engineDataDirectory)], () => {
-    let cards: CardDatabase;
-    beforeAll(() => { cards = loadCardDatabase(engineDataDirectory); });
+  describe(`target tracking (${name})`, () => {
+    function context() {
+      const ctx = views.createEventContext();
+      // Explicit query snapshots for these public-target tracking fixtures, independent of Lua notes.
+      ctx.targetVisibility = (zone) => new Map([0, 1, null].map((viewer) => [viewer, zone.sequence === 0 ? 46986414 : 89631139]));
+      return ctx;
+    }
     const grave = (sequence: number) => ({ controller: 0 as const, location: OcgLocation.GRAVE, sequence });
     const field = (sequence: number) => ({ controller: 0 as const, location: OcgLocation.MZONE, sequence });
     const link = (): mainViews.StoredChainLink => ({ index: 1, seat: 0, code: 83764718, zone: field(0), targets: [] });
 
+    it("stores no private overrides when all viewers have the same target text", () => {
+      const ctx = context(), chain = [link()];
+      views.noteTargetCardLog(ctx, `${TARGET_CARD_NOTE_PREFIX}0:4:0:46986414:1`);
+      const [event] = views.observeChainTargetEvents({ type: OcgMessageType.BECOME_TARGET,
+        cards: [{ ...field(0), position: OcgPosition.FACEUP_ATTACK }],
+      }, chain, 1, ctx, cards);
+      views.updateTargetEvent(event!, chain[0]!);
+      expect(chain[0]!.targetLabels!["0:4:0"]).not.toHaveProperty("privateLabels");
+      expect(event).not.toHaveProperty("privateText");
+      expect(event).not.toHaveProperty("privateTargetLabels");
+      for (const viewer of [0, 1, null]) expect(views.projectStoredEvent(event!, viewer)).toMatchObject({
+        text: "Chain Link 1 targets Dark Magician", targetLabels: ["Dark Magician"],
+      });
+    });
+
+    it("stores no empty private maps while a target note is pending", () => {
+      const ctx = context(), chain = [link()];
+      const [event] = views.observeChainTargetEvents({ type: OcgMessageType.BECOME_TARGET,
+        cards: [{ ...field(0), position: OcgPosition.FACEUP_ATTACK }],
+      }, chain, 1, ctx, cards);
+      views.updateTargetEvent(event!, chain[0]!);
+      expect(event).not.toHaveProperty("privateText");
+      expect(event).not.toHaveProperty("privateTargetLabels");
+      expect(views.projectStoredEvent(event!, null)).toMatchObject({ text: "Chain Link 1 targets 1 card", targetLabels: ["a card"] });
+    });
+
     it("keeps each target's name through graveyard compaction, a move and a swap", () => {
-      const ctx = views.createEventContext();
+      const ctx = context();
       const chain = [link()];
       views.noteTargetCardLog(ctx, `${TARGET_CARD_NOTE_PREFIX}0:16:0:46986414:1`);
       views.noteTargetCardLog(ctx, `${TARGET_CARD_NOTE_PREFIX}0:16:1:89631139:1`);
@@ -71,7 +144,7 @@ function targetTrackingTests<Context>(name: string, views: {
     });
 
     it("still matches a late name to the original card after its coordinates change", () => {
-      const ctx = views.createEventContext();
+      const ctx = context();
       const chain = [link()];
       views.observeChainTargetEvents({ type: OcgMessageType.BECOME_TARGET, cards: [{ ...grave(1), position: OcgPosition.FACEUP_ATTACK }] }, chain, 1, ctx, cards);
       views.observeChainTargetEvents({ type: OcgMessageType.REMOVE_CARDS, cards: [{ ...grave(0), position: OcgPosition.FACEUP_ATTACK }] }, chain, 2, ctx, cards);
@@ -82,7 +155,7 @@ function targetTrackingTests<Context>(name: string, views: {
     });
 
     it("settles the original two-target announcement after both cards move and their hidden pile shuffles", () => {
-      const ctx = views.createEventContext();
+      const ctx = context();
       const chain = [link()];
       views.observeChainTargetEvents({ type: OcgMessageType.BECOME_TARGET, cards: [{ ...grave(0), position: OcgPosition.FACEUP_ATTACK }, { ...grave(1), position: OcgPosition.FACEUP_ATTACK }] }, chain, 1, ctx, cards);
       const announcement = views.snapshotLinkTargets(chain[0]!);
@@ -100,7 +173,7 @@ function targetTrackingTests<Context>(name: string, views: {
     });
 
     it("settles cumulative announcements without adding later targets to the earlier wording", () => {
-      const ctx = views.createEventContext();
+      const ctx = context();
       const chain = [link()];
       views.observeChainTargetEvents({ type: OcgMessageType.BECOME_TARGET, cards: [{ ...field(0), position: OcgPosition.FACEUP_ATTACK }] }, chain, 1, ctx, cards);
       const first = views.snapshotLinkTargets(chain[0]!);
@@ -113,12 +186,73 @@ function targetTrackingTests<Context>(name: string, views: {
     });
 
     it("keeps hidden targets anonymous in the structured announcement labels", () => {
-      const ctx = views.createEventContext();
+      const ctx = context();
       const chain = [link()];
       views.noteTargetCardLog(ctx, `${TARGET_CARD_NOTE_PREFIX}0:4:0:46986414:8`);
       views.noteTargetCardLog(ctx, `${TARGET_CARD_NOTE_PREFIX}0:2:0:89631139:8`);
       views.observeChainTargetEvents({ type: OcgMessageType.BECOME_TARGET, cards: [{ ...field(0), position: OcgPosition.FACEDOWN_DEFENSE }, { controller: 0, location: OcgLocation.HAND, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE }] }, chain, 1, ctx, cards);
       expect(views.targetEventLabels(views.snapshotLinkTargets(chain[0]!))).toEqual(["a face-down card", "a card"]);
+    });
+
+    it("freezes visibility before a late note and projects private text and labels together", () => {
+      const ctx = views.createEventContext();
+      const visible = new Map<number | null, number>([[0, 70781052]]);
+      ctx.targetVisibility = () => visible;
+      const chain = [link()];
+      const [event] = views.observeChainTargetEvents({ type: OcgMessageType.BECOME_TARGET,
+        cards: [{ ...field(5), position: OcgPosition.FACEUP_ATTACK }],
+      }, chain, 1, ctx, cards);
+      const announcement = views.snapshotLinkTargets(chain[0]!);
+      // A subsequent reveal or replacement must never broaden an earlier announcement's audience.
+      visible.set(null, 70781052);
+      visible.set(1, 70781052);
+      views.noteTargetCardLog(ctx, `${TARGET_CARD_NOTE_PREFIX}0:4:5:70781052:1`);
+      expect(views.nameLinkTargets(ctx, announcement, cards)).toBe(true);
+      views.updateTargetEvent(event!, announcement);
+      for (const viewer of [1, null]) expect(views.projectStoredEvent(event!, viewer)).toMatchObject({
+        text: "Chain Link 1 targets a card", targetLabels: ["a card"],
+      });
+      expect(views.projectStoredEvent(event!, 0)).toMatchObject({
+        text: "Chain Link 1 targets Summoned Skull", targetLabels: ["Summoned Skull"],
+      });
+    });
+
+    it.each([undefined, 46986414])("does not name an unverified or replaced target (visible code: %s)", (code) => {
+      const ctx = views.createEventContext();
+      if (code != null) ctx.targetVisibility = () => new Map([[0, code], [1, code], [null, code]]);
+      const chain = [link()];
+      views.noteTargetCardLog(ctx, `${TARGET_CARD_NOTE_PREFIX}0:4:5:70781052:1`);
+      views.observeChainTargetEvents({ type: OcgMessageType.BECOME_TARGET,
+        cards: [{ ...field(5), position: OcgPosition.FACEUP_ATTACK }],
+      }, chain, 1, ctx, cards);
+      for (const viewer of [0, 1, null]) {
+        expect(views.targetEventText(chain[0]!, viewer)).toBe("Chain Link 1 targets a card");
+        expect(views.targetEventLabels(chain[0]!, viewer)).toEqual(["a card"]);
+      }
+    });
+
+    it("keeps each private target name with its own eligible viewer", () => {
+      const ctx = views.createEventContext();
+      ctx.targetVisibility = (zone) => new Map([[zone.sequence, zone.sequence === 0 ? 46986414 : 89631139]]);
+      const chain = [link()];
+      views.noteTargetCardLog(ctx, `${TARGET_CARD_NOTE_PREFIX}0:4:0:46986414:8`);
+      views.noteTargetCardLog(ctx, `${TARGET_CARD_NOTE_PREFIX}0:4:1:89631139:8`);
+      const [event] = views.observeChainTargetEvents({ type: OcgMessageType.BECOME_TARGET,
+        cards: [0, 1].map((sequence) => ({ ...field(sequence), position: OcgPosition.FACEDOWN_DEFENSE })),
+      }, chain, 1, ctx, cards);
+      views.updateTargetEvent(event!, chain[0]!);
+      expect(views.projectStoredEvent(event!, null)).toMatchObject({
+        text: "Chain Link 1 targets a face-down card and a face-down card",
+        targetLabels: ["a face-down card", "a face-down card"],
+      });
+      expect(views.projectStoredEvent(event!, 0)).toMatchObject({
+        text: "Chain Link 1 targets Dark Magician and a face-down card",
+        targetLabels: ["Dark Magician", "a face-down card"],
+      });
+      expect(views.projectStoredEvent(event!, 1)).toMatchObject({
+        text: "Chain Link 1 targets a face-down card and Blue-Eyes White Dragon",
+        targetLabels: ["a face-down card", "Blue-Eyes White Dragon"],
+      });
     });
   });
 }

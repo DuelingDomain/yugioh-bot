@@ -187,8 +187,10 @@ export function roofFitCorners(anchorSeat: number, seat: number): { corners: { x
  * Close pose on one field that shows the WHOLE field (the Extra Monster row between the strips, the monster and the
  * Spell/Trap rows, the piles) inside the free box: the biggest zoom whose projected field fits both the width and the
  * height with a small margin, centred in the box. The box already ends above the hands, so nothing here sits under them.
+ * `centreDrop` (px) is how far the box centre lies BELOW the origin of the projection, when the stage lifted its view for
+ * the home pose (see `liftView`): the close-up then takes the box the stage had before the lift, and stays centred in it.
  */
-export function fitSeatPose(anchorSeat: number, seat: number, fit: number, view: RoofView): RoofPose {
+export function fitSeatPose(anchorSeat: number, seat: number, fit: number, view: RoofView, centreDrop = 0): RoofPose {
   const base = seatPose(anchorSeat, seat);
   const slot = roofSlots(anchorSeat)[seat];
   if (!slot || !(fit > 0)) return base;
@@ -217,7 +219,7 @@ export function fitSeatPose(anchorSeat: number, seat: number, fit: number, view:
   pose.zoom = lo;
   // Centre it in the box (the box centre is the origin of the projection, so 0 is the middle): slide the world on the screen.
   const e = extent(lo);
-  const want = 0;
+  const want = centreDrop;
   pose.oy = (want - (e.minY + e.maxY) / 2) / fit;
   for (let i = 0; i < 3; i += 1) {
     const shots = corners.map((corner) => projectRoof(pose, fit, corner).y);
@@ -550,6 +552,75 @@ export function roofFit(view: RoofView): number {
   const h = view.bottom - view.top;
   if (!(w > 0) || !(h > 0)) return 0;
   return Math.min(w / ROOF_WORLD.width, h / ROOF_WORLD.depth);
+}
+
+/**
+ * The view with its bottom lowered, when needed, so the home pose ends above the hands: the near edge of your own field
+ * (its Spell/Trap row and piles) stays above `handTop` (stage px) and no hand or hand panel covers a zone. The home
+ * pose is fitted to the free box and its near edge can end below the box; that grows with the fit, so the box is
+ * shrunk (bisection: the near edge only moves up when the bottom does) until the edge clears the hands.
+ */
+export function clearHands(anchorSeat: number, view: RoofView, handTop: number, floor = 120): RoofView {
+  const { outer } = roofFitCorners(anchorSeat, anchorSeat);
+  if (!(handTop > view.top)) return view;
+  const edgeAt = (bottom: number) => {
+    const v = { ...view, bottom };
+    const fit = roofFit(v) || 1;
+    return (v.top + v.bottom) / 2 + projectRoof(ROOF_PRESETS.home, fit, { x: 0, y: outer, z: ROOF_FIELD_Z }).y;
+  };
+  if (edgeAt(view.bottom) <= handTop) return view;
+  let lo = Math.min(view.bottom, view.top + floor);
+  let hi = view.bottom;
+  if (edgeAt(lo) > handTop) return { ...view, bottom: lo };
+  for (let i = 0; i < 24; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (edgeAt(mid) <= handTop) lo = mid;
+    else hi = mid;
+  }
+  return { ...view, bottom: lo };
+}
+
+/**
+ * Moves the whole view up, without changing its size (so the fit stays), when the home pose's near edge ends below
+ * `handTop` and the far edge has room above it. The far field's edge may rise until it is `farTop` (stage px: the
+ * bottom of the far team plate and a little air). The shift is the smaller of the near overshoot and that room.
+ * What is still too low after the shift is for `clearHands`, which shrinks the view.
+ */
+export function liftView(anchorSeat: number, view: RoofView, handTop: number, farTop: number): { view: RoofView; lift: number } {
+  if (!(handTop > view.top)) return { view, lift: 0 };
+  const fit = roofFit(view);
+  if (!(fit > 0)) return { view, lift: 0 };
+  const mid = (view.top + view.bottom) / 2;
+  const edge = (seat: number) => mid + projectRoof(ROOF_PRESETS.home, fit, { x: 0, y: roofFitCorners(anchorSeat, seat).outer, z: ROOF_FIELD_Z }).y;
+  const overshoot = edge(anchorSeat) - handTop;
+  const room = edge(anchorSeat ^ 1) - farTop;
+  const lift = Math.max(0, Math.min(overshoot, room));
+  if (!(lift > 0)) return { view, lift: 0 };
+  return { view: { ...view, top: view.top - lift, bottom: view.bottom - lift }, lift };
+}
+
+/** True for the two poses the lift is made for: the near-team home pose and the far-team rival pose. */
+export function isLiftedPose(pose: RoofPose): boolean {
+  return [ROOF_PRESETS.home, ROOF_PRESETS.rival].some((p) => p.yaw === pose.yaw && p.tilt === pose.tilt && p.zoom === pose.zoom && p.fx === pose.fx && p.fy === pose.fy && p.oy === pose.oy);
+}
+
+/**
+ * Slides a pose DOWN on the screen by `drop` px, so a pose that is not the home pose (the overview, the fly-in end,
+ * a free camera) lands where it would in the box the stage had before `liftView`: the origin of the projection is the
+ * lifted box centre, and only the home and rival poses are meant to ride up with it. The perspective scales a plain
+ * offset, so the middle of all four fields is corrected in a short loop (same as `fitSeatPose`).
+ */
+export function dropPose(anchorSeat: number, pose: RoofPose, fit: number, drop: number): RoofPose {
+  if (!(drop > 0) || !(fit > 0)) return pose;
+  const corners = [0, 1, 2, 3].flatMap((seat) => roofFitCorners(anchorSeat, seat).corners);
+  const middle = (p: RoofPose) => {
+    const ys = corners.map((corner) => projectRoof(p, fit, corner).y);
+    return (Math.min(...ys) + Math.max(...ys)) / 2;
+  };
+  const want = middle(pose) + drop;
+  const out: RoofPose = { ...pose, oy: pose.oy + drop / fit };
+  for (let i = 0; i < 3; i += 1) out.oy += (want - middle(out)) / fit;
+  return out;
 }
 
 /** Centre of a HUD box that is pushed back into the view. A box wider than the view is centred on it. */

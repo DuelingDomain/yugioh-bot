@@ -97,13 +97,8 @@
   font-family: var(--font);
   font-size: var(--ct, 14px);
 }
-/* The side header (art beside the name and stats) keeps its own gaps under the skin's gap: 0. */
-[data-look="solid"] .root[data-header="side"] {
-  gap: 8px 14px;
-}
+/* The art takes the width set in inspector.module.css (the whole pane, capped by the window height). */
 [data-look="solid"] .art {
-  width: 100%;
-  max-width: 236px;
   margin: 0 auto 12px;
   border-radius: 7px;
   background: var(--ink-0);
@@ -129,15 +124,10 @@
   gap: 4px;
   margin-bottom: 0;
 }
-[data-look="solid"] .body .details,
-[data-look="solid"] .body .kind {
+[data-look="solid"] .body .details {
   color: var(--tx-2);
   font-size: var(--ct, 14px);
   line-height: 1.35;
-}
-[data-look="solid"] .body .kind {
-  color: var(--tx-3);
-  font-size: calc(var(--ct, 14px) * 0.95);
 }
 /* ATK / DEF line: a strip between two hairlines, numbers in the condensed numeric face (concept .insp-stats). */
 [data-look="solid"] .body .combat {
@@ -147,7 +137,7 @@
   border-bottom: 1px solid var(--hair);
   color: var(--tx-2);
   font-family: var(--font-num);
-  font-size: calc(var(--ct, 15px) * 1.45);
+  font-size: calc(var(--ct, 15px) * 1.3);
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 1.1;

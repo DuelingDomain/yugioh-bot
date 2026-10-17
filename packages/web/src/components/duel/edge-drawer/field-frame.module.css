@@ -1,0 +1,72 @@
+/* The frame every format puts its field in once the side columns are gone: a slim top bar, the field area,
+   a slim bottom bar. Nothing is laid over the field area. The field is the largest box that fits it.
+
+   Usage (CSS only, no JS):
+     <div class={frame} style="--bf-cols: 11.3; --bf-rows: 6.4">      cols/rows = the natural size of the field in zone units,
+       <header class={topBar}>...</header>                              including the gaps between rows and columns
+       <div class={area}><div class={fit}>...the field at --bf-z per zone...</div></div>
+       <footer class={bottomBar}>...</footer>
+     </div>
+   `.fit` is `--bf-cols * --bf-z` wide and `--bf-rows * --bf-z` high, where --bf-z is the largest zone width that
+   fits `.area`: min(area width / cols, area height / rows). There is no max-width and no clamp ceiling. Use
+   `--bf-z-min` to keep a floor on tiny windows. Drawers (edge-drawer.tsx) float over `.frame`; they take no room.
+
+   Tokens (set on `.frame`, or on an ancestor):
+     --bf-bar-top      height of the top bar, default 28px (0px hides it: also drop the element)
+     --bf-bar-bottom   height of the bottom bar, default 32px
+     --bf-pad          padding around the field inside the area, default 4px
+     --bf-z-min        smallest zone width, default 24px */
+
+.frame {
+  --bf-bar-top: 28px;
+  --bf-bar-bottom: 32px;
+  --bf-pad: 4px;
+  --bf-z-min: 24px;
+  --bf-cols: 10;
+  --bf-rows: 6;
+  position: relative;
+  display: grid;
+  grid-template-rows: var(--bf-bar-top) minmax(0, 1fr) var(--bf-bar-bottom);
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+/* A frame without a bar: add the modifier and the matching row collapses. */
+.frame[data-bars="top"] { grid-template-rows: var(--bf-bar-top) minmax(0, 1fr); }
+.frame[data-bars="bottom"] { grid-template-rows: minmax(0, 1fr) var(--bf-bar-bottom); }
+.frame[data-bars="none"] { grid-template-rows: minmax(0, 1fr); }
+
+.topBar, .bottomBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 clamp(8px, 1.2vw, 20px);
+  overflow: hidden;
+  font: 700 12px/1 var(--num, ui-sans-serif, system-ui, sans-serif);
+  letter-spacing: 0.04em;
+  color: rgb(236 232 247 / 0.86);
+  background: linear-gradient(to bottom, rgb(10 8 18 / 0.92), rgb(10 8 18 / 0.7));
+  white-space: nowrap;
+}
+.topBar { height: var(--bf-bar-top); border-bottom: 1px solid rgb(155 126 255 / 0.16); }
+.bottomBar { height: var(--bf-bar-bottom); border-top: 1px solid rgb(155 126 255 / 0.16); }
+
+/* The field area is a size container: `.fit` reads its width and height with cqw / cqh. */
+.area {
+  container-type: size;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+.fit {
+  --bf-z: max(var(--bf-z-min), min(calc((100cqw - 2 * var(--bf-pad)) / var(--bf-cols)), calc((100cqh - 2 * var(--bf-pad)) / var(--bf-rows))));
+  width: calc(var(--bf-cols) * var(--bf-z));
+  height: calc(var(--bf-rows) * var(--bf-z));
+  position: relative;
+}

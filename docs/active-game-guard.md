@@ -103,10 +103,24 @@ Both routes preserve the existing duel authentication/error responses:
    test host close, guest leave, rejection after start, and WS notification.
 4. Build shared, run targeted shared/web/WS tests, and typecheck touched packages.
 
-Verified on Node 22: 270 targeted shared tests (active lookup, seats, duels,
-series, access, and schema), 87 web tests (active route, seat/leave routes, and
-actor authentication), and 35 existing WebSocket tests (internal broadcast and
-duel events). Shared build and shared/web typechecks pass. The lookup test also
-asserts one executed statement and indexed seat/seat-loss lookups using SQLite's
-query plan. No components, pages, layouts, engine processes, or running services
-were changed.
+PR preparation after merging `origin/main` uses Node 22. The retained checks are
+real SQLite service tests (`active-duel`, `duel-seats`, `replay-forks`), route
+tests against real SQLite (`duels-active-route`, `duels-seat-routes`), and the
+real-engine `host-surrender-eot` tests. The engine tests require the engine data
+and built cores; report them as skipped when those files are unavailable.
+
+Removed pure unit/component tests: `packages/web/tests/active-game.test.ts`,
+`packages/web/tests/auth-layouts.test.tsx`,
+`packages/web/tests/components/active-game-guard.test.tsx`, and
+`packages/web/tests/components/duel-room-lobby-leave.test.tsx`.
+
+The frontend installs the active-game redirect on signed-in pages and a lobby
+leave dialog for unstarted casual rooms and game-one challenges. The shared lookup test also verifies a
+single SQL statement and indexed seat/loss lookups using SQLite's query plan.
+
+Local PR checks passed: shared build; shared, web, and duel-server TypeScript
+checks; 115 shared integration tests; and 57 web route integration tests. The
+216 real-engine cases were skipped because the worktree has no engine data or
+built cores. The web production build passed before the final lobby predicate
+correction; the corrected predicate passed the web TypeScript check and the
+existing lobby service/route integration checks.

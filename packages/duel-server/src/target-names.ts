@@ -6,8 +6,8 @@ import { OcgLocation, OcgPosition } from "ocgcore-wasm";
  * at the moment it becomes a target; the engine matches those notes to the messages by coordinates. Pure: views.ts
  * and the legacy views both use it.
  *
- * Privacy: only a card the whole table can see is named. A face-down card is "a face-down card" and a card in a
- * hidden place is "a card".
+ * Privacy: public text names only a card the whole table can see. Frozen visibility snapshots may give eligible
+ * seats a private name; everyone else gets "a face-down card" or "a card".
  */
 export const TARGET_CARD_NOTE_PREFIX = "YGD:TARGET_CARD:";
 
@@ -34,10 +34,19 @@ export interface TargetCardNote {
   position: number;
 }
 
-/** A target's original coordinates and its write-once public name, shared by announcement snapshots. */
+/** Viewer (null for spectators) to the independently visible code at the target's original slot. */
+export type TargetVisibility = ReadonlyMap<number | null, number>;
+
+/** Original coordinates, frozen viewer visibility and write-once names, shared by announcement snapshots. */
 export interface TargetLabel {
   zone: { controller: number; location: number; sequence: number };
+  visibleCodes?: TargetVisibility;
   label?: string;
+  privateLabels?: Record<number, string>;
+}
+
+export function targetLabelFor(target: TargetLabel | undefined, viewer: number | null = null): string | undefined {
+  return (viewer == null ? undefined : target?.privateLabels?.[viewer]) ?? target?.label;
 }
 
 /** Parse "controller:location:sequence:code:position" (the text after the prefix), or null when malformed. */
@@ -49,15 +58,13 @@ export function parseTargetCardNote(text: string): TargetCardNote | null {
   return { controller, location, sequence, code, position };
 }
 
-const ON_FIELD = OcgLocation.MZONE | OcgLocation.SZONE;
-
 /**
  * What the whole table may read for one target: its name when the card is face-up on the field, in the Graveyard or
  * face-up banished; "a face-down card" for a Set card; "a card" for anything in a hidden place or without a note.
  */
 export function publicTargetLabel(args: { location: number; position: number; name?: string }): string {
-  const faceUp = (args.position & OcgPosition.FACEUP) !== 0;
-  if ((args.location & ON_FIELD) !== 0) return faceUp ? (args.name ?? "a card") : "a face-down card";
+  const faceUp = (args.position & OcgPosition.FACEUP) !== 0 && (args.position & OcgPosition.FACEDOWN) === 0;
+  if (args.location === OcgLocation.MZONE || args.location === OcgLocation.SZONE) return faceUp ? (args.name ?? "a card") : "a face-down card";
   if (args.location === OcgLocation.GRAVE) return args.name ?? "a card";
   if (args.location === OcgLocation.REMOVED) return faceUp ? (args.name ?? "a card") : "a face-down card";
   return "a card";
@@ -77,4 +84,33 @@ export function chainTargetPhrase(labels: ReadonlyArray<string | undefined>, cou
   const known = labels.filter((label): label is string => label != null);
   if (known.length === 0) return `${count} card${count === 1 ? "" : "s"}`;
   return joinNames(labels.map((label) => label ?? "a card"));
+}
+
+export interface TargetDescription {
+  phrase: string;
+  labels: string[];
+  private?: Record<number, { phrase: string; labels: string[] }>;
+}
+
+/** Format an announcement once for events and log lines. Only differing audiences need another pass. */
+export function describeTargets(targets: readonly (TargetLabel | undefined)[]): TargetDescription {
+  const labels = targets.map((target) => target?.label);
+  const description: TargetDescription = {
+    phrase: chainTargetPhrase(labels, targets.length), labels: labels.map((label) => label ?? "a card"),
+  };
+  let viewers: Set<number> | undefined;
+  for (const target of targets) {
+    if (!target?.privateLabels) continue;
+    for (const [viewer, label] of Object.entries(target.privateLabels)) {
+      if (label !== target.label) (viewers ??= new Set()).add(Number(viewer));
+    }
+  }
+  if (!viewers) return description;
+  for (const viewer of viewers) {
+    const named = targets.map((target) => targetLabelFor(target, viewer));
+    (description.private ??= {})[viewer] = {
+      phrase: chainTargetPhrase(named, targets.length), labels: named.map((label) => label ?? "a card"),
+    };
+  }
+  return description;
 }

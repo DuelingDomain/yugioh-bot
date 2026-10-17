@@ -1,5 +1,5 @@
 import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
-import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
+import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript, EngineViewHistory } from "./engine.js";
 import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelErrorCode, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode, EngineIdentity } from "@yugidraft/shared/duels";
 
@@ -40,7 +40,7 @@ export interface WorkerCreateTimings {
 
 export type DuelWorkerRequest =
   | { id: number; op: "create"; options: DuelWorkerCreateOptions }
-  | { id: number; op: "view"; seat: number | null }
+  | { id: number; op: "view"; seat: number | null; history?: EngineViewHistory }
   | { id: number; op: "answer"; seat: number; promptId: string; answer: DuelAnswer }
   | { id: number; op: "search"; query: string; seat?: number }
   | { id: number; op: "eliminate"; seat: number; reason: number; atTurnEnd?: boolean }

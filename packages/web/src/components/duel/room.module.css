@@ -671,11 +671,11 @@
   /* The rival's hand (small backs, tucked) peeks above the field and the header pills end at 45px:
      the strip is that 45px plus the peek, so no pill sits on those cards. The 3dvh slope tracks the peek,
      which grows with the board. */
-  --hud-top: calc(36px + 3dvh);
+  --hud-top: 0px;
   /* Your hand is the last thing at the bottom, so the board's frame ends 5px above the screen edge. */
-  --hud-bottom: 5px;
+  --hud-bottom: 0px;
   /* The card peek always stands in the left column, right of the dock: the board starts right of it (see --pv-col-w in table/grid-hud.module.css). */
-  --hud-left: calc(72px + clamp(220px, 14vw, 284px) + 12px);
+  --hud-left: 14px;
   /* The corner stack is a little narrower than the gutter right of the board at 1280px. */
   --hud-corner-w: 168px;
   /* The Deck Master plate sits at the bottom of the left margin, as no bar is under it. */
@@ -688,30 +688,62 @@
   background: none;
 }
 .shell[data-hud="room"] .boardColumn {
-  /* The board is height-bound and centered: about 1.06 screen heights wide. When the screen is too narrow for that
+  /* The board is height-bound and centered: about 1.17 screen heights wide. When the screen is too narrow for that
      (narrow or nearly square screens), its bottom-right corner would go under the corner stack and hide your Deck
      pile. The right padding grows just enough to keep the board left of the stack (up to the stack's width plus its
      gaps, where the board starts to get narrower). It never leaves the board less than 660px: below 641px the field
      changes to its phone layout. On wide screens the term is negative and the minimum applies.
-     The math: the board is W = 105.6dvh wide and centered between --hud-left and the right padding p, so its right edge is at
+     The math: the board is W = 117dvh wide (--hud-board-w, measured: the playmat is 1.16 to 1.18 screen heights wide) and centered between --hud-left and the right padding p, so its right edge is at
      (100vw + --hud-left - p + W) / 2. Keeping that 182px (the stack's width plus its gap) left of the screen edge gives
      p = --hud-left + 2 x 182px + W - 100vw. */
-  --hud-right-need: calc(var(--hud-left) + 364px + 105.6dvh - 100vw);
-  --hud-right-max: min(calc(var(--hud-corner-w) + 28px), calc(100vw - var(--hud-left) - 660px));
-  padding: var(--hud-top) clamp(14px, var(--hud-right-need), var(--hud-right-max)) var(--hud-bottom) var(--hud-left);
+  --hud-board-w: 117dvh;
+  --hud-corner-need: calc(var(--hud-left) + 384px + var(--hud-board-w) - 100vw);
+  /* On a short screen the clock pill also stands in the right margin, at the board's top-right corner (see the max-height
+     rule below), and would cover the rival's Extra pile label, which stands about 80px inside the board's edge. Same math as the
+     corner stack with the pill's 262px (219px wide, 14px edge, a gap, 16px for the board being a little wider than
+     --hud-board-w). Off elsewhere (a very negative need). */
+  --hud-clock-need: -1000px;
+  --hud-clock-room: 0px;
+  --hud-right-need: max(var(--hud-corner-need), var(--hud-clock-need));
+  --hud-right-max: min(max(calc(var(--hud-corner-w) + 28px), var(--hud-clock-room)), calc(100vw - var(--hud-left) - 660px));
+  --hud-pr: clamp(14px, var(--hud-right-need), var(--hud-right-max));
+  /* Each LP tally stands outside the board's left edge (field.module.css .strip > .tally): its width plus 12px and the 26px
+     edge tab column (a little slack too).
+     It matches the playmat's --tally-w (3.1 x clamp(40px, 4.6cqh, 64px)), with dvh for cqh. */
+  --hud-tally-t: calc(3.1 * clamp(40px, 4.6dvh, 64px) + 40px);
+  /* The free width beside a board of full width. */
+  --hud-spare: calc(100vw - var(--hud-pr) - var(--hud-board-w));
+  /* The board is centered in the padded box, so its left edge is at L + max(0, (100vw - L - p - W) / 2), and the tally
+     needs that to be at least T. The smallest L that does it: T when the board is limited by width (T > spare), else
+     2T - spare. Never less than --hud-left. (It applies only on screens that keep the tallies outside, see below.) */
+  --hud-pad-left: var(--hud-left);
+  padding: var(--hud-top) var(--hud-pr) var(--hud-bottom) var(--hud-pad-left);
   border-left: 0;
+}
+/* The other screens keep each tally in its strip, so the board starts under the header pills (they end at about 84px at the
+   left) and the rival's tally does not stand under them. Those screens are narrow or square, so the board is limited by
+   its width and loses little. */
+@media not all and (min-width: 1010px) and (min-aspect-ratio: 7 / 5) {
+  .shell[data-hud="room"] { --hud-top: 90px; }
+}
+/* The tallies stand outside the board only on screens that are wide enough and wide against their height (the same
+   condition as in field.module.css; the squarer ones keep them in the strips). */
+@media (min-width: 1010px) and (min-aspect-ratio: 7 / 5) {
+  .shell[data-hud="room"] .boardColumn {
+    --hud-pad-left: max(var(--hud-left), min(var(--hud-tally-t), calc(2 * var(--hud-tally-t) - var(--hud-spare))));
+  }
 }
 /* Narrow desktops: the board is centered, so its right side would reach the Deck Master plate and the corner stack
    there. A little more room at the right moves the board left (the board is height-bound, so it keeps its size). */
 @media (max-width: 1320px) {
-  .shell[data-hud="room"] .boardColumn { padding-right: clamp(60px, var(--hud-right-need), var(--hud-right-max)); }
+  .shell[data-hud="room"] .boardColumn { --hud-pr: clamp(60px, var(--hud-right-need), var(--hud-right-max)); }
 }
 /* The shell already paints the ground and the lamp glows over the whole screen; the field's own copy would end at the
    padded box as a visible edge. */
 .shell[data-hud="room"] [data-duel-field="true"] { background: none; }
 /* The turn light fills the whole screen edge to edge for the same reason, not just the padded field box. */
 .shell[data-hud="room"] [data-turn-glow] {
-  left: calc(-1 * var(--hud-left));
+  left: calc(-1 * var(--hud-pad-left, var(--hud-left)));
   right: -14px;
 }
 .shell[data-hud="room"] [data-turn-glow][data-side="top"] {
@@ -740,7 +772,51 @@
   border-radius: 8px;
   pointer-events: auto;
 }
-.shell[data-hud="room"] .notices { top: var(--hud-top); }
+/* The top bar of the full-screen board: the board now fills the screen height, and the rival's hand backs hang from the
+   top edge in the middle, so the pills keep to the margins and the empty top strip beside the hand. Row one: the
+   identity pill, the clocks (they stand over the empty top strip, left of the hand), and the tools at the right. Row two:
+   the turn strip, under the identity pill. The phase name is dropped here: the phase hub on the board shows it. */
+.shell[data-hud="room"] .hudBar {
+  inset: 6px 14px auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: start;
+  gap: 6px 10px;
+}
+.shell[data-hud="room"] .hudBar > * { grid-row: 1; }
+.shell[data-hud="room"] .hudBar > :nth-child(1) { grid-column: 1; }
+.shell[data-hud="room"] .hudBar > [data-testid="hud-clocks"] { grid-column: 2; justify-self: start; margin: -4px 0 -4px; }
+.shell[data-hud="room"] .hudBar > :last-child { grid-column: 3; justify-self: end; }
+.shell[data-hud="room"] .hudBar > :nth-last-child(2):not([data-testid="hud-clocks"]) { grid-column: 1; grid-row: 2; justify-self: start; }
+.shell[data-hud="room"] .hudBar [class*="phaseName"] { display: none; }
+/* A short screen: the top strip is too low for the clocks beside the identity pill (they would cover the rival's Deck label),
+   so they go to the right margin under the tools, a little smaller. */
+@media (max-height: 820px) {
+  .shell[data-hud="room"] .boardColumn {
+    --hud-clock-need: calc(var(--hud-left) + 524px + var(--hud-board-w) - 100vw);
+    --hud-clock-room: 268px;
+  }
+  .shell[data-hud="room"] .hudBar > [data-testid="hud-clocks"] {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+    margin: 0;
+    transform: scale(0.72);
+    transform-origin: right top;
+  }
+}
+/* A mid-height screen (about 900px): the clock pill stands beside the identity pill, over the top strip, and its bottom edge
+   (46px) cuts the rival's Deck label at the board's top-left (it starts at about 40px). A smaller pill ends above it. */
+@media (min-height: 821px) and (max-height: 1000px) {
+  .shell[data-hud="room"] .hudBar > [data-testid="hud-clocks"] {
+    transform: scale(0.82);
+    transform-origin: left top;
+  }
+}
+/* The chain tower keeps clear of the Deck Master tab on the left screen edge. */
+.shell[data-hud="room"] [data-testid="chain-tower"] { left: 40px; }
+.shell[data-hud="room"] .notices { top: 48px; }
 
 /* ============================================================
    Narrow screens: one board column, tab bar at the bottom,

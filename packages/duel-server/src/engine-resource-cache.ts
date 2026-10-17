@@ -11,6 +11,7 @@ import { EngineResourceUnavailableError, type EngineResources, type ResourceOpti
 export class EngineResourceCache {
   private readonly entries = new Map<string, EngineResources>();
   private readonly jobs = new Map<string, Promise<EngineResources>>();
+  private readonly warmups = new Set<string>();
   private worker?: Worker;
   private sequence = 0;
   private readonly pending = new Map<number, { accept: (resources: EngineResources) => void; reject: (error: Error) => void }>();
@@ -18,6 +19,18 @@ export class EngineResourceCache {
   private hashes = 0;
   /** Number of complete resource hashes; useful for cache/latency diagnostics. */
   get hashCount(): number { return this.hashes; }
+
+  /** Read cold files while players prepare decks. A real start still calls get to
+   * validate metadata, then the engine worker checks the actual bytes again.
+   * A failed warmup is advisory; it must not reject a lobby read or suppress a start.
+   */
+  warm(dataDirectory: string, options: ResourceOptions): void {
+    if (this.closed) return;
+    const key = JSON.stringify([resolve(dataDirectory), options]);
+    if (this.warmups.has(key)) return;
+    this.warmups.add(key);
+    void this.get(dataDirectory, options).catch(() => {});
+  }
 
   private load(key: string, directory: string, options: ResourceOptions, roots: string[]): Promise<EngineResources> {
     if (!this.worker) {
@@ -78,5 +91,6 @@ export class EngineResourceCache {
     this.closed = true;
     if (this.worker) await this.worker.terminate();
     this.entries.clear();
+    this.warmups.clear();
   }
 }

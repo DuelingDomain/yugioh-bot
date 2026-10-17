@@ -32,12 +32,12 @@ export async function recordOpeningTiming(context: BrowserContext): Promise<Open
       if (room || connection || url.pathname.endsWith("/opening")) {
         record("response-headers", { path: url.pathname, method, status: response.status });
         const recordBody = (body: {
-          session?: { status?: string }; mySeat?: number | null;
+          session?: { status?: string }; mySeat?: number | null; starting?: true;
           opening?: { phase?: string; choice?: string | null; winnerSeat?: number | null };
           engine?: { revision?: number };
         }, bytes: number) => {
           record("response", { path: url.pathname, method, status: response.status, startedAt, bytes,
-            sessionStatus: body.session?.status, mySeat: body.mySeat,
+            sessionStatus: body.session?.status, mySeat: body.mySeat, starting: body.starting,
             opening: body.opening && { phase: body.opening.phase, choice: body.opening.choice, winnerSeat: body.opening.winnerSeat },
             revision: body.engine?.revision });
         };
@@ -82,6 +82,8 @@ export async function recordOpeningTiming(context: BrowserContext): Promise<Open
         once("result");
         once("opponent-choosing");
       }
+      const diceStatus = document.querySelector('[data-testid="dice-status"]')?.textContent ?? "";
+      if (/go(?:es)? first/.test(diceStatus)) once("dice-result", diceStatus);
       const opening = document.querySelector('[data-testid="opening-screen"]');
       if (opening?.getAttribute("data-stage") === "start") once("choice-shown", status);
       const field = document.querySelector('[aria-label="Duel field"]');

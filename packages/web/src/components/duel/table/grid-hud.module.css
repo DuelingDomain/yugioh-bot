@@ -700,26 +700,28 @@
 .preview[data-anchor="bottom"] { top: auto; bottom: var(--pv-bottom, 8px); }
 .preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
-/* The card, then the name and its facts. The art is a readable card (up to 200px wide) that grows with the room of the band: from 104px in a
-   short band to the full size in a tall one. A cut text shrinks it to 104px first (data-art="small"). */
-.previewHead { display: flex; flex: none; align-items: flex-start; gap: 16px; min-width: 0; }
+/* The art on top, then the name, the facts line and ATK / DEF. The art is the whole panel width, as tall as the band allows: it grows with the room of the
+   band (--pv-max-h, set by grid-preview.tsx; 280px is what the name, the lines and a few lines of text need) from 150px in a short band to the full
+   width in a tall one. A cut text shrinks it to about 60% first (data-art="small"). */
+.previewHead { display: flex; flex: none; flex-direction: column; align-items: stretch; gap: 10px; min-width: 0; }
 .previewArt {
   display: block;
   flex: none;
-  width: clamp(104px, calc((var(--pv-max-h, 640px) - 340px) * 0.7), min(200px, 46%));
-  aspect-ratio: 59 / 86;
+  width: min(100%, max(150px, calc((var(--pv-max-h, 760px) - 280px) * 421 / 614)));
+  aspect-ratio: 421 / 614;
   height: auto;
+  margin: 0 auto;
   border-radius: 4px;
   object-fit: contain;
   background: transparent;
 }
 /* A text that still scrolls shrinks the art to this size first (the art goes only when it is squeezed to a sliver: data-squeezed). */
-.preview[data-art="small"] .previewArt { width: 104px; }
+.preview[data-art="small"] .previewArt { width: min(100%, max(130px, calc((var(--pv-max-h, 760px) - 280px) * 0.6 * 421 / 614))); }
 .preview[data-squeezed="true"] .previewArt { display: none; }
-.previewId { flex: 1 1 0; min-width: 0; }
-.preview h3 { margin: 0; padding-right: 26px; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
-.previewType { margin: 4px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); line-height: 1.35; }
-.previewStats { margin: 8px 0 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 500; letter-spacing: 0.02em; }
+.previewId { flex: none; min-width: 0; }
+.preview h3 { margin: 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.previewType { margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); line-height: 1.35; }
+.previewStats { margin: 5px 0 0; font-size: calc(var(--pv-ct) * 1.25); font-weight: 500; letter-spacing: 0.02em; }
 /* No line clamp: the whole effect shows while it fits. */
 .previewText {
   flex: 0 1 auto;
@@ -739,7 +741,7 @@
 /* Only a text that does not fit scrolls, and only then it takes the pointer (a wheel scroll over it). */
 .previewText[data-overflow="true"] { padding-right: 6px; pointer-events: auto; }
 /* Inline flow, so a narrow panel wraps the line as one sentence instead of splitting it into columns. */
-.previewOwner { margin: 10px 0 0; line-height: 1.35; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.95); }
+.previewOwner { margin: 6px 0 0; line-height: 1.35; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.95); }
 .previewOwner i { display: inline-block; width: 0.6em; height: 0.6em; margin-right: 6px; vertical-align: 0.05em; border-radius: 50%; background: var(--seat-main, var(--duel-ink-3)); }
 .previewOwner b { color: var(--seat-ink, var(--duel-ink)); font-weight: 600; }
 
@@ -748,6 +750,8 @@
  * (a click on it never reaches the board under it: a target of a prompt may be covered), and adds the extra lines and the X button.
  */
 .preview[data-pinned="true"] { pointer-events: auto; }
+/* The X button gets a strip of its own above the art, so it never covers the corner of the card. */
+.preview[data-pinned="true"] { padding-top: 42px; }
 .previewExtras {
   flex: none;
   margin: 8px 0 0;
@@ -810,3 +814,88 @@
 }
 .masterUsable[data-state="picked"] { background: #5733d1; color: #fff; }
 .masterUsable svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- edge drawers of the 4-way grid (grid-edge.tsx) ---------- */
+/* The log, settings, Deck Master, chain and card panels slide out from tabs at the left edge. They stand between the two bars, so the header
+   and the turn controls stay in view. Nothing of them shows at rest but the 26px tab column, which the board keeps clear (--hud-left). */
+.edgeDrawer.edgeDrawer[data-side="left"] {
+  top: var(--hud-top, 46px);
+  bottom: var(--hud-bottom, 46px);
+  --bf-drawer-z: 45;
+}
+.edgePanel {
+  border-radius: 0 14px 14px 0;
+  background: rgb(9 15 29 / 0.97);
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink);
+}
+.edgeBody {
+  --hud-master-art-h: clamp(150px, 24dvh, 250px);
+  --hud-master-ability-h: clamp(80px, 14dvh, 150px);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 10px 12px;
+  overflow: hidden auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(155 126 255 / 0.55) transparent;
+}
+.edgeBody[data-pane="log"] { --ft: 1; padding: 6px; overflow: hidden; }
+.edgeBody > * { min-width: 0; }
+.edgeBody .tower,
+.edgeBody .masterWrap,
+.edgeBody .masterWrap[data-form="wide"] {
+  position: static;
+  width: 100%;
+}
+.edgeBody .tower { box-sizing: border-box; }
+
+/* The card peek slides out from the tabs (34px), not from the right of a dock (72px). */
+.preview[data-edge="true"] { left: 34px; }
+.preview[data-edge="true"]:not([data-open="true"]) { transform: translateX(calc(-100% - 34px)); }
+
+/* ---------- edge HUD bars: the turn controls in a slim row at the bottom right ---------- */
+/* The header pills ride 3px higher and the controls make a row of their own under the hand, so the board gets the whole height
+   between two 46px bars. A prompt opens above the row, over the board (it is a floating panel that appears for a decision only). */
+:global([data-edge-hud="true"]) .top { top: 5px; }
+:global([data-edge-hud="true"]) .corner {
+  bottom: 4px;
+  width: auto;
+  max-width: calc(100% - 44px);
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+:global([data-edge-hud="true"]) .corner > nav { width: auto; }
+/* The station track is a shared part: its compact stack (a column of three rows) becomes one row here. */
+/* The button size rule names the button element: a bare [class*="primary"] also matched the label span (primaryLabel) and gave it the
+   button height and padding, so the text sat at the top and off center. */
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="actions"] {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 3px 6px;
+}
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="chainSlot"],
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="chainSlot"] > * {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) button[class*="primary"],
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) button[class*="secondary"] {
+  width: auto;
+  min-height: 34px;
+  height: 34px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="chainSlot"] [class*="option"] {
+  min-height: 26px;
+  height: 26px;
+  font-size: calc(13px * var(--tt, 1));
+  min-width: 48px;
+  padding: 0 9px;
+}

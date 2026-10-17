@@ -168,10 +168,10 @@ export function RoomLobby({
     ? <p className={ui.hint} data-testid="practice-bot-note">{practiceBotNote(session.bestOf === 3 ? 3 : 1)}</p>
     : null;
   const canStart = !autoStart && isOrganizer && occupied === seatCount && readyCount === seatCount && session.status === "lobby";
-  // A plain table that has not started: leaving (Back, a link) asks first. Series and tournament games are not
-  // closed by a player; the active-game guard keeps those players in the match.
+  // Unstarted casual tables and game-one challenges ask before leaving. Tournament seats and later games
+  // stay under their existing match controls.
   const guardLeave = mySeat != null && session.status === "lobby" && !starting && room.opening == null
-    && series == null && session.seriesId == null;
+    && !tournamentGame && series?.tournamentMatchId == null && (session.gameNumber ?? 1) <= 1;
   const leaveDialog = useLobbyLeaveGuard({ slug, active: guardLeave, host: isOrganizer });
 
   return (

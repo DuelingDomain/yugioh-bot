@@ -1638,9 +1638,9 @@ it.each(["recovery", "replay"])("uses the creation deadline for %s journal opera
 });
 
 
-it.each(["active", "completed", "interrupted", "cancelled", "archived"] as const)("counts only in-progress Tables when three workers linger for $0 duels", async (status) => {
+it.each(["active", "completed", "interrupted", "cancelled", "archived"] as const)("reclaims idle finished Tables before admitting a new game (status: $0)", async (status) => {
   const workers: FakeWorker[] = [];
-  const { db, host } = openHost(() => { const worker = new FakeWorker(); workers.push(worker); return worker; }, { maxWorkers: 4 });
+  const { db, host } = openHost(() => { const worker = new FakeWorker(); workers.push(worker); return worker; }, { maxWorkers: 3 });
   const { p1, p2 } = seedPlayers(db);
   const tables = Array.from({ length: 4 }, () => readyLobby(db, p1, p2));
   const start = (slug: string) => post(host, { op: "start", slug, guildId: "g1", playerId: p1 });
@@ -1658,10 +1658,8 @@ it.each(["active", "completed", "interrupted", "cancelled", "archived"] as const
   } else {
     expect(result.status).toBe(200);
     expect(workers).toHaveLength(4);
-    const fifth = readyLobby(db, p1, p2);
-    expect(await start(fifth.session.slug)).toEqual({ status: 429, data: { error: "The duel server is busy. Try again in a minute." } });
   }
-  expect(workers.every((worker) => worker.running && worker.closed === 0)).toBe(true);
+  expect(workers.filter((worker) => worker.running)).toHaveLength(status === "active" ? 3 : 1);
 });
 
 it("frees the player's share immediately when a duel ends and worker close waits", async () => {
