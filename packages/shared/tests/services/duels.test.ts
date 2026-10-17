@@ -1033,14 +1033,15 @@ describe("duel lobby listing, history and leave", () => {
     const app = setup();
     const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
     if (action === "leave") app.duels.takeSeat(lobby.slug, "g1", app.p2, 1);
-    app.db.prepare("update duels set last_activity_at = '2000-01-01 00:00:00' where web_slug = ?").run(lobby.slug);
+    const previousActivity = new Date(Date.now() - 9 * 60_000).toISOString();
+    app.db.prepare("update duels set last_activity_at = ? where web_slug = ?").run(previousActivity, lobby.slug);
 
     if (action === "take") app.duels.takeSeat(lobby.slug, "g1", app.p2, 1);
     else app.duels.leave(lobby.slug, "g1", app.p2);
 
     const refreshed = app.duels.list("g1", app.p3).find((row) => row.slug === lobby.slug);
     expect(refreshed).toBeDefined();
-    expect(refreshed?.lastActivityAt).not.toBe("2000-01-01 00:00:00");
+    expect(refreshed?.lastActivityAt).not.toBe(previousActivity);
   });
 
   it("shows accessible lobbies and hides idle duels but keeps own tables", () => {

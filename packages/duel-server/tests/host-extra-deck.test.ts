@@ -71,6 +71,16 @@ async function blockedRoom(owner: number) {
   expect(await response.json()).toMatchObject({ startBlockedByOther: true });
   return session;
 }
+// Player input renews room activity without reading the room or renewing its deck block.
+async function advanceWithActivity(slug: string, duration: number) {
+  let remaining = duration;
+  while (remaining > 0) {
+    duels.touchWaiting(slug, "g", playerId);
+    const step = Math.min(remaining, 9 * 60_000);
+    await vi.advanceTimersByTimeAsync(step);
+    remaining -= step;
+  }
+}
 describe("duel Extra Deck safety with competitive checks off", () => {
   it("does not group distinct cards without text as copies in full validation", () => {
     const result = inspectDeck("normal", { main: [], extra: [778, 779, 780, 781], side: [] }, dataDirectory,
@@ -110,7 +120,7 @@ describe("duel Extra Deck safety with competitive checks off", () => {
     await sweepHost();
     const owner = seedIdentity(db, { name: "Fixture deck owner" }).playerId;
     const session = await blockedRoom(owner);
-    await vi.advanceTimersByTimeAsync(15 * 60_000);
+    await advanceWithActivity(session.slug, 15 * 60_000);
     expect(await (await post({ op: "view", slug: session.slug })).json()).not.toHaveProperty("startBlockedByOther");
     expect(duels.get(session.slug, "g").status).toBe("lobby");
     expect((await post({ op: "start", slug: session.slug })).status).toBe(200);
@@ -120,11 +130,11 @@ describe("duel Extra Deck safety with competitive checks off", () => {
     await sweepHost();
     const owner = seedIdentity(db, { name: "Fixture deck owner" }).playerId;
     const session = await blockedRoom(owner);
-    await vi.advanceTimersByTimeAsync(14 * 60_000);
+    await advanceWithActivity(session.slug, 14 * 60_000);
     expect((await post({ op: "start", slug: session.slug })).status).toBe(200);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(await (await post({ op: "view", slug: session.slug })).json()).toMatchObject({ startBlockedByOther: true });
-    await vi.advanceTimersByTimeAsync(14 * 60_000);
+    await advanceWithActivity(session.slug, 14 * 60_000);
     expect(await (await post({ op: "view", slug: session.slug })).json()).not.toHaveProperty("startBlockedByOther");
   });
   it.each(["active", "completed", "cancelled"])("sweeps a deck block when another process changes the lobby to %s", async status => {

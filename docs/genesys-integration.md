@@ -62,9 +62,13 @@ Retained integration/engine files:
 - `packages/shared/tests/services/duels-creation.test.ts`
 - `packages/web/tests/duel-hidden-waiting.test.tsx`
 - `packages/web/tests/duel-spectator-routes.test.ts`
-
 - `packages/shared/tests/services/card-artworks.test.ts`
 - `packages/web/tests/cube-artwork-swap.test.ts`
+
+- `packages/shared/tests/services/duels-creation-concurrency.test.ts`
+- `packages/shared/tests/services/duels.test.ts`
+- `packages/duel-server/tests/host-series.test.ts`
+- `packages/duel-server/tests/host-extra-deck.test.ts`
 
 Main's `packages/web/tests/duel-host-errors.test.ts` is also retained unchanged.
 
@@ -74,8 +78,8 @@ Node 22.23.3 verification after the main merge:
 
 - `npm ci` and shared/worker/web production builds passed.
 - `npx tsc --noEmit` passed for shared, web, duel-server, bot, ws, worker, and e2e.
-- 244 targeted integration tests passed: 133 shared (including two real CLI
-  subprocess checks), 50 duel-server SQLite/host-admission checks, 56 web
+- 250 targeted integration tests passed: 136 shared (including two real CLI
+  subprocess checks), 53 duel-server SQLite/host-admission checks, 56 web
   route/SQLite checks, and five real worker process checks.
 - The 32 `genesys-engine-real` worker cases were skipped because this worktree has
   no engine data or built cores. The retained `host-table-legality` file was not
@@ -89,6 +93,11 @@ Artwork integration fixtures now name catalog columns explicitly, so new nullabl
 Genesys columns do not break their seed rows. The real worker shutdown test injects
 its heartbeat filesystem fault during SIGTERM, after the first flush and before
 cleanup, avoiding a race with normal heartbeat writes.
+
+Waiting-room integration fixtures use non-expired timestamps for valid seat actions,
+verify passive room reads without a SQLite writer lock or activity renewal, and
+supply real player activity during retry/deck-block checks longer than the ten-minute
+idle deadline. The strict idle-expiration route check still passes.
 
 Read-only review found a saved-deck refresh race: a background focus request could
 replace a pending initial request and hide its error. Background refresh now waits
