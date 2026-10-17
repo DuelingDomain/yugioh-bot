@@ -44,6 +44,9 @@ const BLUE_EYES = card(89631139, "Blue-Eyes White Dragon", 0x11, 8);
 const POT = card(55144522, "Pot of Greed", 0x2);
 const FUSION = card(23995346, "Blue-Eyes Ultimate Dragon", 0x41, 12);
 const CARDS = [BLUE_EYES, POT, FUSION];
+// The banlist the facets route returns. Standard starts on the latest TCG list, so a test that wants no limits leaves this empty.
+const TCG_LIMITS = { "tcg-2026-09": { [POT.code]: 0, [BLUE_EYES.code]: 2 } };
+let banlists: Record<string, Record<number, number>> = {};
 const queries: CardQuery[] = [];
 const searchErrors: string[] = [];
 const deleted: number[] = [];
@@ -54,9 +57,10 @@ function savedDeck(main: number[]): SavedDeck {
 }
 
 beforeEach(() => {
+  banlists = {};
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/decks/cards/facets") {
-      return Response.json({ archetypes: [], banlists: { "tcg-2026-09": { [POT.code]: 0, [BLUE_EYES.code]: 2 } } });
+      return Response.json({ archetypes: [], banlists });
     }
     if (url === "/api/decks/import") {
       const { text, mode } = JSON.parse(String(init?.body));
@@ -171,10 +175,10 @@ describe("SavedDeckEditor", () => {
   });
 
   it("uses the chosen banlist for copy limits", async () => {
+    banlists = TCG_LIMITS;
     render(<SavedDeckEditor />);
-    await screen.findByRole("button", { name: "Pot of Greed" });
-
-    fireEvent.change(screen.getByLabelText("Banlist or Genesys points"), { target: { value: "tcg-2026-09" } });
+    // Standard starts on the latest TCG list, so the limit is there with no choice made.
+    expect(screen.getByLabelText("Banlist")).toHaveValue("tcg-2026-09");
     const pot = await screen.findByRole("button", { name: "Pot of Greed, Forbidden" });
     fireEvent.doubleClick(pot);
 
@@ -188,7 +192,7 @@ describe("SavedDeckEditor", () => {
     await screen.findByRole("button", { name: "Pot of Greed" });
     expect(queries.at(-1)?.excludeGenesysForbidden).not.toBe(true);
 
-    fireEvent.change(screen.getByLabelText("Banlist or Genesys points"), { target: { value: "genesys" } });
+    fireEvent.click(within(screen.getByRole("group", { name: "Format" })).getByRole("button", { name: "Genesys" }));
     await waitFor(() => expect(queries.at(-1)?.excludeGenesysForbidden).toBe(true));
     const meter = screen.getByRole("group", { name: "Genesys points" });
     expect(meter).toHaveTextContent(/^Points0\/.*pts$/);
@@ -196,7 +200,10 @@ describe("SavedDeckEditor", () => {
     // The rule cannot be cleared as a filter chip.
     expect(screen.queryByText("No Link/Pendulum")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Banlist or Genesys points"), { target: { value: "none" } });
+    // Genesys has no banlist: the select is off and says so.
+    expect(screen.getByLabelText("Banlist")).toBeDisabled();
+    expect(screen.getByLabelText("Banlist")).toHaveDisplayValue("Genesys uses points, not a banlist");
+    fireEvent.click(within(screen.getByRole("group", { name: "Format" })).getByRole("button", { name: "Standard" }));
     await waitFor(() => expect(queries.at(-1)?.excludeGenesysForbidden).not.toBe(true));
   });
 
@@ -371,10 +378,11 @@ describe("SavedDeckEditor", () => {
   });
 
   it("uses copy for one Forbidden card and makes problem rows select their card", async () => {
+    banlists = TCG_LIMITS;
     stored = savedDeck([POT.code, BLUE_EYES.code, BLUE_EYES.code, BLUE_EYES.code]);
     render(<SavedDeckEditor deckId="7" />);
     await screen.findByRole("button", { name: /Pot of Greed, Main Deck card/ });
-    fireEvent.change(screen.getByLabelText("Banlist or Genesys points"), { target: { value: "tcg-2026-09" } });
+    fireEvent.change(screen.getByLabelText("Banlist"), { target: { value: "tcg-2026-09" } });
     const details = screen.getByRole("complementary", { name: "Card details" });
     const problem = await within(details).findByRole("button", { name: "Pot of Greed 1 copy, Forbidden" });
     expect(within(details).getByText("3 copies, 2 allowed on TCG September 2026")).toBeInTheDocument();
@@ -881,10 +889,11 @@ describe("deck card copy", () => {
   });
 
   it("is blocked at the banlist limit", async () => {
+    banlists = TCG_LIMITS;
     stored = savedDeck([BLUE_EYES.code, BLUE_EYES.code]);
     render(<SavedDeckEditor deckId="7" />);
     await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, Main Deck card 1/ });
-    fireEvent.change(screen.getByLabelText("Banlist or Genesys points"), { target: { value: "tcg-2026-09" } });
+    fireEvent.change(screen.getByLabelText("Banlist"), { target: { value: "tcg-2026-09" } });
     await screen.findByRole("button", { name: "Pot of Greed, Forbidden" });
     rightClick(mainCards()[0]!, { ctrlKey: true });
     expect(mainCards()).toHaveLength(2);

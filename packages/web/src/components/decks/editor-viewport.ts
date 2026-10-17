@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 export function useEditorViewport(pool: boolean) {
   const [content, editorRef] = useState<HTMLElement | null>(null);
   const [isPhone, setIsPhone] = useState(false);
+  // Below 1500px the bar cannot fit the four format choices, the banlist and labelled Import/Export, so those two become icons.
+  const [isCompact, setIsCompact] = useState(false);
 
   useEffect(() => {
     const host = content?.parentElement;
@@ -20,7 +22,10 @@ export function useEditorViewport(pool: boolean) {
     if (pool) window.addEventListener("resize", measureTop);
 
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(([entry]) => {
-      if (entry) setIsPhone(entry.contentRect.width < 960);
+      if (entry) {
+        setIsPhone(entry.contentRect.width < 960);
+        setIsCompact(entry.contentRect.width < 1500);
+      }
       measureTop();
     });
     observer?.observe(content);
@@ -34,5 +39,5 @@ export function useEditorViewport(pool: boolean) {
     };
   }, [content, pool]);
 
-  return { editorRef, isPhone };
+  return { editorRef, isPhone, isCompact };
 }

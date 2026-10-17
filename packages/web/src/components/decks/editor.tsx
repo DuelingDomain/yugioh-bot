@@ -64,6 +64,7 @@ import {
   summarizeGenesys,
 } from "./genesys";
 import { GenesysBadge, GenesysCardLine, GenesysMeter } from "./genesys-ui";
+import { FORMAT_CHOICES, GENESYS_NO_BANLIST_NOTE, defaultBanlist, formatOf, formatParts, type DeckFormat } from "./format-model";
 import { useDeckFit } from "./deck-fit";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { useEditorViewport } from "./editor-viewport";
@@ -130,15 +131,6 @@ import {
 } from "./pool-model";
 import { DeckSectionGrid, type HoveredCopy, type SectionWarning } from "./section-grid";
 import styles from "./editor.module.css";
-
-const MODE_CHOICES = [
-  { value: "normal" as const, label: "Standard" },
-  { value: "domain" as const, label: "Domain" },
-] as const;
-
-/** The select in the bar: the banlists, and Genesys points in their place. */
-const GENESYS_CHOICE = "genesys";
-const RULE_CHOICES = [...BANLIST_CHOICES, { value: GENESYS_CHOICE, label: "Genesys points" }];
 
 const HISTORY_LIMIT = 100;
 const PHONE_TAB_ORDER = ["deck", "cards"] as const;
@@ -248,7 +240,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [metaRetry, setMetaRetry] = useState(0);
   const [selected, setSelected] = useState<SelectedStack | null>(null);
   const [inspectCode, setInspectCode] = useState<number | null>(null);
-  const [query, setQuery] = useState<CardQuery>(() => emptyCardQuery());
+  // A new deck is Standard, which starts on the latest TCG banlist. The format sets the banlist again whenever it changes.
+  const [query, setQuery] = useState<CardQuery>(() => ({ ...emptyCardQuery(), banlist: defaultBanlist("normal") }));
   const [view, setView] = useState<BrowserView>("grid");
   const [prefsReady, setPrefsReady] = useState(false);
   const [facets, setFacets] = useState<CardFacets | null>(null);
@@ -265,7 +258,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [poolCards, setPoolCards] = useState<DeckCardInfo[] | null>(null);
   const [poolError, setPoolError] = useState<string | null>(null);
   const [poolRetry, setPoolRetry] = useState(0);
-  const { editorRef, isPhone } = useEditorViewport(!!pool);
+  const { editorRef, isPhone, isCompact } = useEditorViewport(!!pool);
   const [phoneTab, setPhoneTab] = useState<"deck" | "cards">("deck");
   const phoneDir = useTabDirection(phoneTab, PHONE_TAB_ORDER);
   const [cardSheetOpen, setCardSheetOpen] = useState(false);
@@ -307,7 +300,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       ...current,
       sort: prefs.sort ?? current.sort,
       order: prefs.order ?? current.order,
-      banlist: pool ? "none" : prefs.banlist ?? current.banlist,
+      banlist: pool ? "none" : current.banlist,
       scope: prefs.scope ?? current.scope,
     }));
     if (prefs.view) setView(prefs.view);
@@ -317,8 +310,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   useEffect(() => {
     // A draft deck has no banlist; its choices must not replace the ones for normal decks.
     if (!prefsReady || pool) return;
-    saveEditorPrefs({ sort: query.sort, order: query.order, view, banlist: query.banlist, scope: query.scope });
-  }, [prefsReady, query.sort, query.order, query.banlist, query.scope, view]);
+    saveEditorPrefs({ sort: query.sort, order: query.order, view, scope: query.scope });
+  }, [prefsReady, query.sort, query.order, query.scope, view]);
 
   const catalogMode = useRef(mode);
   useEffect(() => {
@@ -459,11 +452,30 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     setMode(record.mode);
     setGenesys(record.genesys ?? null);
     if (record.genesys) lastCap.current = record.genesys.pointCap;
+    setFormatBanlist(formatOf(record.mode, record.genesys != null));
     setSelection({ deck: cloneDeck(record.deck), masterOrigin: null });
     setHistory({ past: [], future: [] });
     setParseError(null);
     setRepair(record.extraDeckRepair ?? null);
     setBaseline(snapshotOf(record.name, record.mode, record.deck, record.genesys));
+  }
+
+  /** The banlist a format starts on. A format change, a loaded deck and an import that changes the format all use it; the select can still change it by hand. */
+  function setFormatBanlist(format: DeckFormat) {
+    const banlist = defaultBanlist(format);
+    setQuery((current) => ({ ...current, banlist, limits: banlist === "none" ? [] : current.limits }));
+  }
+
+  /** The Genesys tag is not an undo step; the mode is. The banlist goes to the default of the new format. */
+  function chooseFormat(next: DeckFormat) {
+    if (busy || next === formatOf(mode, genesys != null)) return;
+    const wanted = formatParts(next);
+    if (wanted.genesys !== (genesys != null)) {
+      setGenesys(wanted.genesys ? { pointCap: lastCap.current } : null);
+      setSavedFlash(false);
+    }
+    commit(selection, wanted.mode);
+    setFormatBanlist(next);
   }
 
   function commit(next: DeckMasterSelection, nextMode: DuelMode = mode) {
@@ -523,7 +535,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     restore(next);
   }
 
-  // Genesys points replace the banlist, so a Genesys deck is built with no banlist. The chosen banlist stays in `query` for when Genesys goes off.
+  // Genesys points replace the banlist, so a Genesys deck is built with no banlist. Choosing a Genesys format already sets it to none; this keeps a loaded Genesys deck on none too.
   const banlistOff = pool != null || genesysOn || query.banlist === "none";
   const browserQuery = useMemo<CardQuery>(() => (genesysOn ? { ...query, banlist: "none", limits: [], excludeGenesysForbidden: true } : { ...query, genesysPoints: undefined, excludeGenesysForbidden: false }), [genesysOn, query]);
   const limits = banlistOff ? null : facets?.banlists[query.banlist] ?? null;
@@ -860,6 +872,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       throw new Error("No cards found. Import a YDK deck or a ydke:// link.");
     }
     const nextMode = raw.deckMaster != null ? "domain" : mode;
+    if (nextMode !== mode) setFormatBanlist(formatOf(nextMode, genesys != null));
     importBase.current = selection;
     commit(importForLibrary(raw, nextMode), nextMode);
     setSelected(null);
@@ -1271,24 +1284,14 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
               </>
             ) : (
               <>
-                <DeckSegmented label="Format" value={mode} disabled={busy} choices={MODE_CHOICES} className={styles["de-fmt"]} onChange={(value) => commit(selection, value)} />
+                <DeckSegmented label="Format" value={formatOf(mode, genesys != null)} disabled={busy} choices={FORMAT_CHOICES} full={isPhone} className={styles["de-fmt"]} onChange={chooseFormat} />
                 <DeckSelect
-                  label="Banlist or Genesys points"
-                  value={genesysOn ? GENESYS_CHOICE : query.banlist}
-                  choices={RULE_CHOICES}
+                  label="Banlist"
+                  value={genesysOn ? "none" : query.banlist}
+                  choices={genesysOn ? [{ value: "none", label: GENESYS_NO_BANLIST_NOTE }] : BANLIST_CHOICES}
+                  disabled={genesysOn}
                   className={styles["de-banf"]}
-                  onChange={(value) => {
-                    if (value === GENESYS_CHOICE) {
-                      setGenesys({ pointCap: lastCap.current });
-                      setSavedFlash(false);
-                      return;
-                    }
-                    if (genesysOn) {
-                      setGenesys(null);
-                      setSavedFlash(false);
-                    }
-                    setQuery((current) => ({ ...current, banlist: value, limits: value === "none" ? [] : current.limits }));
-                  }}
+                  onChange={(value) => setQuery((current) => ({ ...current, banlist: value, limits: value === "none" ? [] : current.limits }))}
                 />
               </>
             )}
@@ -1299,6 +1302,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
             {!pool ? (
               <DeckImportPopover
                 className={styles["de-import"]}
+                iconOnly={isCompact}
                 open={importOpen}
                 onOpenChange={(open) => { setImportOpen(open); if (open) setParseError(null); }}
                 disabled={busy}
@@ -1310,7 +1314,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
               />
             ) : null}
             {!isPhone ? (
-              <Popover label="Export" dialogLabel="Export deck" icon={<Download className="ic sm" aria-hidden />} role="menu" open={exportOpen} onOpenChange={setExportOpen} className={styles["de-export"]}>
+              <Popover label="Export" dialogLabel="Export deck" icon={<Download className="ic sm" aria-hidden />} role="menu" iconOnly={isCompact} open={exportOpen} onOpenChange={setExportOpen} className={styles["de-export"]}>
                 <SvButton variant="quiet" role="menuitem" onClick={() => { setExportOpen(false); downloadYdkFile(name, deck); }}>Download YDK</SvButton>
                 <SvButton variant="quiet" role="menuitem" onClick={() => { setExportOpen(false); void copyYdke(deck); }}>Copy as YDKE</SvButton>
               </Popover>
