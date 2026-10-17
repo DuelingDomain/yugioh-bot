@@ -28,6 +28,11 @@ import styles from "./master-badge.module.css";
  *
  * The badge is also the Deck Master Zone of its seat for the flights: a summon leaves from the art (`data-master-source`)
  * and a return lands on it (`data-master-dock`). It is always visible, so both flights start and end on it.
+ *
+ * Your own badge is a larger emblem with the whole card art. It stands in the free space left of your hand row (a fixed
+ * layer measured against the hand, see `measureEmblem`), never over the field at rest; a rival's badge stays in its plate as a
+ * small portrait. While the pop-over is open a click shield sits under it: the press that closes it is swallowed, and no
+ * hand card or zone below receives it. Presses inside the badge and the pop-over never bubble to the table either.
  */
 
 /** Where a table finds the master props of a seat (the same props the old plates took), and how Inspect opens the card. */
@@ -65,6 +70,113 @@ export function masterIsReady(master: Pick<HudMasterProps, "view" | "local" | "l
   return (master.canAct && anyLegal(keys, master.legalKeys)) || (master.canAct && card != null && master.legalActionsFor(card, keys).length > 0);
 }
 
+/** A card picture is 59 x 86: the emblem keeps that shape. */
+const CARD_RATIO = 59 / 86;
+/** The gap between the emblem and the first hand card, and the room kept between it and the name plate. */
+const EMBLEM_GAP = 14;
+const EMBLEM_PLATE_GAP = 8;
+/** The smallest emblem that still reads as a portrait; a tighter hand moves the emblem back onto its plate. */
+const EMBLEM_MIN_W = 44;
+const EMBLEM_FALLBACK_W = 46;
+const EMBLEM_FALLBACK_MIN_W = 28;
+
+export interface EmblemBox { left: number; top: number; width: number; height: number; docked: boolean }
+
+function visible(el: Element): DOMRect | null {
+  const r = el.getBoundingClientRect();
+  return r.width >= 20 && r.height >= 20 ? r : null;
+}
+
+/** The name plate that holds the badge slot: the first ancestor that is plate sized. */
+function plateOf(slot: HTMLElement | null): DOMRect | null {
+  let el: HTMLElement | null = slot?.parentElement ?? null;
+  for (let depth = 0; el && depth < 4; depth += 1, el = el.parentElement) {
+    const r = el.getBoundingClientRect();
+    if (r.width >= 100 && r.height >= 40) return r;
+  }
+  return null;
+}
+
+/**
+ * Where your emblem stands, in window pixels. It takes the visible height of your leftmost hand card (the part of the hand that is
+ * already clear of the field) and stands that tall just left of it, so field and hand keep their size. A hand that reaches the name
+ * plate squeezes the emblem down to EMBLEM_MIN_W; below that the emblem is a small portrait over the plate's badge slot instead.
+ * Null: nothing to measure yet.
+ */
+export function measureEmblem(slot: HTMLElement | null, seat: number): EmblemBox | null {
+  if (typeof document === "undefined") return null;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const row = document.querySelector<HTMLElement>(`[data-hand-seat="${seat}"][data-side="you"]`);
+  let first: { rect: DOMRect; el: HTMLElement } | null = null;
+  if (row) {
+    for (const el of Array.from(row.querySelectorAll<HTMLElement>("[data-hand-card], button[data-zones]"))) {
+      const rect = visible(el);
+      if (rect && (!first || rect.left < first.rect.left)) first = { rect, el };
+    }
+  }
+  if (first) {
+    const { rect, el } = first;
+    const top = Math.max(rect.top, 8);
+    const bottom = Math.min(rect.bottom, vh - 8);
+    const layoutH = el.offsetHeight > 0 ? el.offsetHeight : rect.height;
+    const layoutW = el.offsetWidth > 0 ? el.offsetWidth : rect.width;
+    let height = Math.min(bottom - top, layoutH);
+    let width = Math.min(Math.round(height * CARD_RATIO), layoutW);
+    height = Math.round(width / CARD_RATIO);
+    const right = rect.left - EMBLEM_GAP;
+    const plate = plateOf(slot);
+    // The room the emblem has: as tall as the hand card, or squeezed beside the plate, or lifted above the plate.
+    const options: Array<{ width: number; height: number; bottom: number }> = [{ width, height, bottom }];
+    if (plate && plate.left < right && plate.right + EMBLEM_PLATE_GAP > right - width && plate.bottom > bottom - height && plate.top < bottom) {
+      options.length = 0;
+      const squeezed = Math.floor(right - (plate.right + EMBLEM_PLATE_GAP));
+      options.push({ width: squeezed, height: Math.round(squeezed / CARD_RATIO), bottom });
+      const lifted = Math.min(height, plate.top - EMBLEM_PLATE_GAP - top);
+      options.push({ width: Math.round(lifted * CARD_RATIO), height: lifted, bottom: plate.top - EMBLEM_PLATE_GAP });
+    }
+    const best = options.filter((o) => o.width >= EMBLEM_MIN_W && right - o.width >= 8).sort((x, y) => y.height - x.height)[0];
+    if (best) return { left: Math.round(right - best.width), top: Math.round(best.bottom - best.height), width: best.width, height: best.height, docked: true };
+  }
+  const s = slot?.getBoundingClientRect();
+  if (!s || s.width < 4 || s.height < 4) return null;
+  const width = Math.round(Math.max(EMBLEM_FALLBACK_MIN_W, Math.min(EMBLEM_FALLBACK_W, s.width * 1.25)));
+  const height = Math.round(width / CARD_RATIO);
+  return {
+    left: Math.round(Math.max(4, Math.min(s.left + s.width / 2 - width / 2, vw - width - 4))),
+    top: Math.round(Math.max(4, Math.min(s.top + s.height / 2 - height / 2, vh - height - 4))),
+    width, height, docked: false,
+  };
+}
+
+/** Follows the hand: one frame loop, state only changes when the box moved a few pixels (a hovered card must not shake it). */
+function useEmblemBox(slot: { current: HTMLElement | null }, seat: number | undefined, enabled: boolean): EmblemBox | null {
+  const [box, setBox] = useState<EmblemBox | null>(null);
+  useEffect(() => {
+    if (!enabled || seat == null) {
+      setBox(null);
+      return undefined;
+    }
+    let frame = 0;
+    const tick = () => {
+      const next = measureEmblem(slot.current, seat);
+      setBox((now) => {
+        if (!next || !now) return next ?? null;
+        const near = next.docked === now.docked && Math.abs(next.left - now.left) <= 6 && Math.abs(next.top - now.top) <= 6
+          && Math.abs(next.width - now.width) <= 3 && Math.abs(next.height - now.height) <= 4;
+        return near ? now : next;
+      });
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [slot, seat, enabled]);
+  return box;
+}
+
+/** A press or click inside the badge or its pop-over belongs to it alone: the table (a hand card, a zone, a background) never sees it. */
+const contain = { onClick: (e: { stopPropagation: () => void }) => e.stopPropagation(), onPointerDown: (e: { stopPropagation: () => void }) => e.stopPropagation(), onMouseDown: (e: { stopPropagation: () => void }) => e.stopPropagation(), onDoubleClick: (e: { stopPropagation: () => void }) => e.stopPropagation() };
+
 const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
 
 /** The seat's badge, read from the table's `MasterBadgeContext`. Nothing without a context, a master or a Domain table. */
@@ -83,9 +195,15 @@ export function DeckMasterBadge({
   const wrapRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
+  const slotRef = useRef<HTMLSpanElement>(null);
   const viaKey = useRef(false);
   const popId = useId();
   const master = view?.deckMaster;
+  // Your own badge is the large emblem in a fixed layer; a rival's stays in its plate.
+  const emblem = side === "you" && local;
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useEffect(() => setHost(document.body), []);
+  const box = useEmblemBox(slotRef, view?.seat, emblem);
 
   const card = view ? masterCard(view) : null;
   const keys = view ? withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]) : [];
@@ -105,26 +223,17 @@ export function DeckMasterBadge({
     if (refocus) buttonRef.current?.focus({ preventScroll: true });
   }, []);
 
-  // Esc, a press outside and Tab out of the pop-over close it. A press on the badge itself is its own toggle.
+  // Esc and Tab out of the pop-over close it. A press outside is taken by the click shield under the pop-over (it closes, nothing else).
   useEffect(() => {
     if (!open) return undefined;
-    const down = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && (popRef.current?.contains(target) || wrapRef.current?.contains(target))) return;
-      setOpen(false);
-    };
     const key = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
       close(true);
     };
-    document.addEventListener("pointerdown", down, true);
     document.addEventListener("keydown", key, true);
-    return () => {
-      document.removeEventListener("pointerdown", down, true);
-      document.removeEventListener("keydown", key, true);
-    };
+    return () => document.removeEventListener("keydown", key, true);
   }, [open, close]);
 
   // The M key opens and closes your own pop-over (the shortcut the old Deck Master drawer had).
@@ -162,12 +271,27 @@ export function DeckMasterBadge({
     close(false);
     onInspect(card ? { type: "card", card } : { type: "info", card: master.card });
   };
-  const art = cardArtUrl(master.card.code, "small");
+  const art = cardArtUrl(master.card.code, emblem ? "full" : "small");
   const label = `${title}: ${name}, ${words.long.toLowerCase()}${ready ? ", ready" : ""}${summonLine ? `, ${summonLine}` : ""}`;
 
-  return (
-    <div ref={wrapRef} className={styles.wrap} data-side={side} data-local={local ? "true" : "false"} data-ready={ready ? "true" : undefined}
-      data-legal={legal && canAct ? "true" : "false"} data-open={open ? "true" : undefined} data-in-use={inUse ? "true" : undefined} data-testid="dm-badge-wrap" data-badge-seat={view.seat}>
+  const wrapProps = {
+    className: emblem ? `${styles.wrap} ${styles.emblem}` : styles.wrap,
+    "data-side": side,
+    "data-local": local ? "true" : "false",
+    "data-ready": ready ? "true" : undefined,
+    "data-legal": legal && canAct ? "true" : "false",
+    "data-open": open ? "true" : undefined,
+    "data-in-use": inUse ? "true" : undefined,
+    "data-emblem": emblem ? (box?.docked ? "docked" : "plate") : undefined,
+    "data-testid": "dm-badge-wrap",
+    "data-badge-seat": view.seat,
+  };
+  const wrapStyle: CSSProperties | undefined = emblem
+    ? box ? { left: box.left, top: box.top, width: box.width, height: box.height } : { visibility: "hidden" }
+    : undefined;
+
+  const body = (
+    <div ref={wrapRef} {...wrapProps} style={wrapStyle}>
       <button
         ref={buttonRef}
         type="button"
@@ -179,7 +303,9 @@ export function DeckMasterBadge({
         aria-haspopup={pickable ? undefined : "dialog"}
         aria-expanded={pickable ? undefined : open}
         aria-controls={open ? popId : undefined}
+        {...contain}
         onClick={(event) => {
+          event.stopPropagation();
           if (pickable) {
             onActivate(keys, card, event.currentTarget);
             return;
@@ -199,7 +325,7 @@ export function DeckMasterBadge({
       >
         {/* The Deck Master Zone of this seat: a summon flies out of the art and a return flies back into it. */}
         <span className={styles.art} data-master-dock={view.seat} data-master-source={view.seat} data-in-use={inUse ? "true" : undefined}>
-          {inUse ? <Crown className={styles.well} size={22} strokeWidth={1.6} aria-hidden /> : <img src={art} alt="" draggable={false} />}
+          {inUse ? <Crown className={styles.well} size={emblem ? 28 : 18} strokeWidth={1.6} aria-hidden /> : <img src={art} alt="" draggable={false} />}
         </span>
       </button>
       <span className={styles.crown} aria-hidden="true"><Crown size={11} strokeWidth={2} /></span>
@@ -224,9 +350,19 @@ export function DeckMasterBadge({
           }}
           onInspect={openCard}
           onTabOut={() => close(true)}
+          onDismiss={() => close(false)}
         />
       ) : null}
     </div>
+  );
+
+  if (!emblem) return body;
+  // The slot keeps the badge's place in the plate (the emblem's fallback anchor and the plate it keeps clear of); the emblem is a fixed layer.
+  return (
+    <>
+      <span ref={slotRef} className={styles.slot} data-testid="dm-badge-slot" aria-hidden="true" />
+      {host ? createPortal(body, host) : null}
+    </>
   );
 }
 
@@ -275,7 +411,7 @@ function usePopPlace(anchor: { current: HTMLElement | null }, popRef: { current:
 }
 
 function MasterPop({
-  popRef, id, anchor, side, title, view, local, words, summonLine, actions, canAct, onChoose, onInspect, onTabOut,
+  popRef, id, anchor, side, title, view, local, words, summonLine, actions, canAct, onChoose, onInspect, onTabOut, onDismiss,
 }: {
   popRef: { current: HTMLDivElement | null };
   id: string;
@@ -291,6 +427,7 @@ function MasterPop({
   onChoose: (option: DuelPromptOption) => void;
   onInspect: () => void;
   onTabOut: () => void;
+  onDismiss: () => void;
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
   useEffect(() => setHost(document.body), []);
@@ -353,6 +490,16 @@ function MasterPop({
 
   if (!host) return null;
   return createPortal(
+    <>
+    {/* The click shield: the press that closes the pop-over lands here and goes no further, so no hand card or zone under it reacts. */}
+    <div
+      className={styles.shield}
+      data-testid="dm-badge-shield"
+      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDismiss(); }}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onDismiss(); }}
+    />
     <div
       ref={popRef}
       id={id}
@@ -365,6 +512,7 @@ function MasterPop({
       data-local={local ? "true" : "false"}
       style={{ ...font.current, left: place.left, top: place.top, visibility: place.ready ? "visible" : "hidden" }}
       onKeyDown={onKeyDown}
+      {...contain}
     >
       <div className={styles.popTop}>
         <img className={styles.popArt} src={cardArtUrl(card.code, "full")} alt={card.name} draggable={false} />
@@ -392,7 +540,8 @@ function MasterPop({
           <span>Inspect</span>
         </button>
       </div>
-    </div>,
+    </div>
+    </>,
     host,
   );
 }

@@ -1,5 +1,6 @@
-/* The Deck Master portrait badge and its pop-over (master-badge.tsx). The badge is sized by its parent through
-   --dm-badge-size; the pop-over is a portal on the page body, so it carries its own tokens. */
+/* The Deck Master badge and its pop-over (master-badge.tsx). A rival's badge is a small portrait in its plate, sized by its parent
+   through --dm-badge-size (the height). Your own badge is the emblem: a fixed layer with the whole card, placed and sized in JS
+   (left, top, width, height) in the free space left of your hand. The pop-over is a portal on the page body, so it carries its own tokens. */
 
 .wrap {
   --d: var(--dm-badge-size, clamp(44px, 6.2vh, 72px));
@@ -7,10 +8,34 @@
   --ring-glow: rgb(139 92 246 / 0.4);
   position: relative;
   flex: none;
-  width: var(--d);
+  width: calc(var(--d) * 0.686);
   height: var(--d);
 }
 .wrap[data-local="false"] { --ring: rgb(155 126 255 / 0.7); }
+
+/* Your emblem: above the board and its FX layer, under flights, prompts and the pop-over. Size comes from the inline style. */
+.emblem {
+  --d: 100px;
+  position: fixed;
+  z-index: 12;
+  width: auto;
+  height: auto;
+}
+/* The emblem is the card itself, so the crown tag and the pills size from its width. */
+.emblem .crown { width: 22px; height: 22px; top: -8px; right: -8px; }
+.emblem .state { font-size: 11px; padding: 2px 8px; }
+.emblem .ready { top: -11px; font-size: 11px; padding: 2px 8px; }
+/* A hand too wide for the emblem: it falls back to a small portrait over the plate's badge slot. */
+.emblem[data-emblem="plate"] .state { display: none; }
+.emblem[data-emblem="plate"] .crown { width: 16px; height: 16px; min-width: 16px; min-height: 16px; top: -6px; right: -6px; }
+
+/* The empty place the badge keeps in its plate while the emblem stands in its own layer (it measures the plate from here). */
+.slot {
+  display: block;
+  width: calc(var(--dm-badge-size, 44px) * 0.686);
+  height: var(--dm-badge-size, 44px);
+  pointer-events: none;
+}
 
 .badge {
   position: relative;
@@ -19,9 +44,9 @@
   height: 100%;
   padding: 0;
   border: 2px solid var(--ring);
-  border-radius: 50%;
+  border-radius: 6px;
   background: #0c1224;
-  box-shadow: 0 0 12px var(--ring-glow);
+  box-shadow: 0 0 12px var(--ring-glow), 0 6px 14px rgb(0 0 0 / 0.45);
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
 }
@@ -29,7 +54,7 @@
 .badge:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 .wrap[data-open="true"] .badge { border-color: #f0cd78; }
 
-/* You can act with the master now: a gold ring that breathes, and the "Ready" tag. */
+/* You can act with the master now: a gold edge that breathes, and the "Ready" tag. */
 .wrap[data-ready="true"] { --ring: #f0cd78; }
 .wrap[data-ready="true"] .badge {
   box-shadow: 0 0 0 2px rgb(240 205 120 / 0.3), 0 0 20px 3px rgb(240 205 120 / 0.55);
@@ -45,22 +70,20 @@
 }
 :global([data-reduced-motion="true"]) .wrap[data-ready="true"] .badge { animation: none; }
 
+/* The whole card picture, never cropped to a circle. */
 .art {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
   overflow: hidden;
-  border-radius: 50%;
+  border-radius: 3px;
 }
-/* The art window of the card, cropped round: the picture is wider than the badge and pulled up to centre the art. */
 .art img {
-  position: absolute;
-  left: -35%;
-  top: -57%;
-  width: 170%;
-  max-width: none;
-  height: auto;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   user-select: none;
   pointer-events: none;
 }
@@ -74,10 +97,10 @@
   right: -3px;
   display: grid;
   place-items: center;
-  width: calc(var(--d) * 0.34);
-  height: calc(var(--d) * 0.34);
-  min-width: 18px;
-  min-height: 18px;
+  width: calc(var(--d) * 0.4);
+  height: calc(var(--d) * 0.4);
+  min-width: 16px;
+  min-height: 16px;
   border: 2px solid #0a1026;
   border-radius: 50%;
   background: #4a2fb0;
@@ -130,6 +153,16 @@
 :global([data-dm-compact]) .state { display: none; }
 
 /* ---------- pop-over ---------- */
+
+/* Under the pop-over, over everything else: the press that closes the pop-over stops here. */
+.shield {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--duel-z-menu, 100) - 1);
+  background: transparent;
+  touch-action: none;
+  cursor: default;
+}
 
 .pop {
   --duel-ink: #efe7d5;
