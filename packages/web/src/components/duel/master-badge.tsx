@@ -43,8 +43,8 @@ import styles from "./master-badge.module.css";
 export interface MasterBadgeSource {
   forSeat: (seat: number) => HudMasterProps | null;
   onInspect: (target: InspectTarget) => void;
-  /** Your emblem is set apart from the hand row (a gap, a divider and a label). The multi-seat tables set it; 1v1 does not. "lift" (Tag) stands the emblem on the name plate when the plate is in the way. */
-  apart?: boolean | "lift";
+  /** Your emblem is set apart from the hand row (a gap, a divider and a label). The multi-seat tables set it; 1v1 does not. "lift" (Tag) stands the emblem on the name plate when the plate is in the way. "corner" (3-way) stands it on the free table left of your field, larger than a hand card. */
+  apart?: boolean | "lift" | "corner";
 }
 
 export const MasterBadgeContext = createContext<MasterBadgeSource | null>(null);
@@ -96,7 +96,16 @@ const EMBLEM_MIN_W = 44;
 const EMBLEM_FALLBACK_W = 46;
 const EMBLEM_FALLBACK_MIN_W = 28;
 
-export interface EmblemBox { left: number; top: number; width: number; height: number; docked: boolean; gap?: number }
+/** The corner emblem may grow to this many times a hand card; it never goes under one. */
+const CORNER_MAX_SCALE = 1.4;
+/** The corner emblem keeps the label rail (line and vertical text) on its left clear, and the drawer tabs beyond that. */
+const CORNER_RAIL = 26;
+const CORNER_EDGE = 30;
+/** Room kept between the corner emblem and the field, and around the things it must clear. */
+const CORNER_FIELD_GAP = 10;
+const CORNER_CLEAR = 4;
+
+export interface EmblemBox { left: number; top: number; width: number; height: number; docked: boolean; gap?: number; corner?: boolean }
 
 function visible(el: Element): DOMRect | null {
   const r = el.getBoundingClientRect();
@@ -149,11 +158,13 @@ function smallPlateOf(slot: HTMLElement | null): DOMRect | null {
 function smallHandSpot(hand: DOMRect, slot: HTMLElement | null, vh: number, cardW: number, under: boolean, controls: DOMRect[]): EmblemBox | null {
   const blocked = (x: number, y: number, w: number, h: number) => overlapsControl(controls, x, y, w, h);
   const plate = smallPlateOf(slot);
-  const room = Math.floor(hand.left - 8 - 6);
+  // A phone hand that starts close to the edge gets a tighter margin at the screen edge, so the emblem can keep more of the hand card size.
+  const [near, edge] = hand.left - 8 - 6 >= cardW ? [8, 6] : [8, 2];
+  const room = Math.floor(hand.left - near - edge);
   const width = Math.min(Math.max(EMBLEM_FALLBACK_MIN_W, Math.round(cardW)), room);
   if (width >= EMBLEM_FALLBACK_MIN_W) {
     const height = Math.round(width / CARD_RATIO);
-    const left = Math.round(hand.left - 8 - width);
+    const left = Math.round(hand.left - near - width);
     // Level with the top of the hand, or else standing on a control that sits just under the hand row.
     const tops = [Math.round(hand.top), ...controls.filter((r) => r.left < left + width && r.right > left && r.top > hand.top).map((r) => Math.round(r.top - 1 - height))];
     for (const top of tops) {
@@ -169,12 +180,38 @@ function smallHandSpot(hand: DOMRect, slot: HTMLElement | null, vh: number, card
 }
 
 /**
+ * 3-way plaza: the free table at the bottom left, left of your field, holds the emblem (the hand row stays plain cards).
+ * It is as big as the room allows between one and CORNER_MAX_SCALE hand cards, as low as it can stand clear of your name tag,
+ * the camera chip, the rival plates and the table controls. Null: nothing fits, the emblem then stands by the hand.
+ */
+function cornerSpot(seat: number, handCard: DOMRect, vh: number, controls: DOMRect[]): EmblemBox | null {
+  const field = document.querySelector<HTMLElement>(`[data-seat-field="${seat}"]`)?.getBoundingClientRect();
+  if (!field) return null;
+  const clear = Array.from(document.querySelectorAll<HTMLElement>("[data-seat-name], [data-camera-chip], [data-holo]"), (el) => el.getBoundingClientRect())
+    .filter((r) => r.width > 0 && r.height > 0)
+    .concat(controls);
+  const right = Math.floor(field.left - CORNER_FIELD_GAP);
+  for (let scale = CORNER_MAX_SCALE; scale >= 0.995; scale -= 0.1) {
+    const width = Math.round(handCard.width * Math.max(1, scale));
+    const height = Math.round(handCard.height * Math.max(1, scale));
+    const left = right - width;
+    if (left - CORNER_RAIL < CORNER_EDGE) continue;
+    for (let bottom = vh - 8; bottom - height >= 8; bottom -= 4) {
+      const top = bottom - height;
+      const hit = clear.some((r) => left - CORNER_RAIL < r.right + CORNER_CLEAR && right > r.left - CORNER_CLEAR && top < r.bottom + CORNER_CLEAR && bottom > r.top - CORNER_CLEAR);
+      if (!hit) return { left, top, width, height, docked: true, gap: 34, corner: true };
+    }
+  }
+  return null;
+}
+
+/**
  * Where your emblem stands, in window pixels. It takes the visible height of your leftmost hand card (the part of the hand that is
  * already clear of the field) and stands that tall just left of it, so field and hand keep their size. A hand that reaches the name
  * plate squeezes the emblem down to EMBLEM_MIN_W; below that the emblem is a small portrait over the plate's badge slot instead.
  * Null: nothing to measure yet.
  */
-export function measureEmblem(slot: HTMLElement | null, seat: number, apart: boolean | "lift" = false): EmblemBox | null {
+export function measureEmblem(slot: HTMLElement | null, seat: number, apart: boolean | "lift" | "corner" = false): EmblemBox | null {
   if (typeof document === "undefined") return null;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -188,6 +225,10 @@ export function measureEmblem(slot: HTMLElement | null, seat: number, apart: boo
       const rect = visible(el);
       if (rect && (!first || rect.left < first.rect.left)) first = { rect, el };
     }
+  }
+  if (first && apart === "corner") {
+    const spot = cornerSpot(seat, first.rect, vh, controls);
+    if (spot) return spot;
   }
   if (first) {
     const { rect, el } = first;
@@ -246,7 +287,7 @@ export function measureEmblem(slot: HTMLElement | null, seat: number, apart: boo
 }
 
 /** Follows the hand: one frame loop, state only changes when the box moved a few pixels (a hovered card must not shake it). */
-function useEmblemBox(slot: { current: HTMLElement | null }, seat: number | undefined, enabled: boolean, apart: boolean | "lift"): EmblemBox | null {
+function useEmblemBox(slot: { current: HTMLElement | null }, seat: number | undefined, enabled: boolean, apart: boolean | "lift" | "corner"): EmblemBox | null {
   const [box, setBox] = useState<EmblemBox | null>(null);
   useEffect(() => {
     if (!enabled || seat == null) {
@@ -285,7 +326,7 @@ export function SeatMasterBadge({ seat, side, shortcut }: { seat: number | undef
 
 export function DeckMasterBadge({
   view, local, legalKeys, selectedKeys, canAct, legalActionsFor, title, onChooseAction, onActivate, onInspect, side, shortcut = false, apart = false,
-}: Omit<HudMasterProps, "wide" | "showInUse" | "onHoverCard"> & { onInspect: (target: InspectTarget) => void; side: BadgeSide; shortcut?: boolean; apart?: boolean | "lift" }) {
+}: Omit<HudMasterProps, "wide" | "showInUse" | "onHoverCard"> & { onInspect: (target: InspectTarget) => void; side: BadgeSide; shortcut?: boolean; apart?: boolean | "lift" | "corner" }) {
   const seats = useMasterSeats();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -381,6 +422,8 @@ export function DeckMasterBadge({
     "data-emblem": emblem ? (box?.docked ? "docked" : "plate") : undefined,
     // Set apart only while the emblem stands beside the hand; the small plate fallback keeps the plain badge.
     "data-apart": emblem && apart && box?.docked ? "true" : undefined,
+    // The 3-way corner: the label rail stands on the left of the card, not between the card and the hand.
+    "data-corner": emblem && box?.corner ? "true" : undefined,
     // A small portrait (a phone): its pills tuck inside the card so they cannot reach over the table.
     "data-tiny": emblem && box && box.width < 40 ? "true" : undefined,
     "data-testid": "dm-badge-wrap",

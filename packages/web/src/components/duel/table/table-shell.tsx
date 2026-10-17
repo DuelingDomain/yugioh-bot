@@ -635,7 +635,8 @@ function TableShellBody({
       true,
     ),
     onInspect: showMasterCard,
-    apart: true,
+    // The 3-way plaza has free table at the bottom left: the emblem stands there instead of in the hand row.
+    apart: plazaHud ? "corner" : true,
   } : null;
 
   // The 3-way plaza keeps its side content in edge drawers (plaza-drawers.tsx); the grid and the other tables keep the floating HUD.
