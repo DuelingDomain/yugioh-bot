@@ -6,8 +6,6 @@ import {
   fixtureLog,
   fixtureRoom,
   link,
-  masterInZone,
-  masterPrompt,
   newSeat,
   putMonster,
   putSpell,
@@ -344,7 +342,7 @@ const DEFENSE_ROWS = [
   [C.redEyes, C.gaia, C.cyberDragon, C.sangan, C.blackChaos],
 ] as const;
 
-export type Ffa3PreviewPick = "def" | "cards" | "cards2" | "attack" | "attack-direct" | "attack-listed" | "dm";
+export type Ffa3PreviewPick = "def" | "cards" | "cards2" | "attack" | "attack-direct" | "attack-listed";
 
 /**
  * A preview variant of the 3-way fixtures: `out` sweeps those seats (as the engine does: no LP, an empty board, the
@@ -359,7 +357,7 @@ export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]
   const states = Object.fromEntries(
     Object.entries(set.states).map(([id, state]) => {
       const engine = state.room.engine!;
-      const seats = engine.seats.map((view) => (opts.pick === "dm" && view.seat === REN ? masterInZone(view) : { ...view }));
+      const seats = engine.seats.map((view) => ({ ...view }));
       for (const seat of opts.out) {
         const view = seats[seat];
         view.lp = 0;
@@ -410,7 +408,6 @@ export function ffa3Variant(set: TableFixtureSet, opts: { out: readonly number[]
         );
         prompt = { id: "pick-def", seat: REN, kind: "cards", title: "Select 1 monster to destroy", min: 1, max: 1, options };
       }
-      if (opts.pick === "dm" && state.room.mySeat === REN) prompt = masterPrompt(REN);
       if ((opts.pick === "cards" || opts.pick === "cards2") && state.room.mySeat === REN) prompt = searchPrompt(REN, opts.pick === "cards2" ? 2 : undefined);
       const order = opts.out.map((seat) => [seat]);
       const room = { ...state.room, engine: { ...engine, seats, prompt, ...(order.length > 0 ? { eliminationOrder: order } : {}) } };
