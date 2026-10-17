@@ -233,7 +233,8 @@ export interface EditorPrefs {
   sort: CardSort;
   order: SortOrder;
   view: BrowserView;
-  banlist: string;
+  /** Old saves hold one. The editor no longer restores it: the deck format sets the banlist. */
+  banlist?: string;
   scope: CardQuery["scope"];
 }
 
