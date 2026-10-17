@@ -233,7 +233,7 @@ export function DeckMasterBadge({
 interface PopPlace { left: number; top: number; ready: boolean; flow: "side" | "above" | "below" }
 
 /** Beside the badge when there is room (right, else left), else above or below it. Kept inside the window. */
-function usePopPlace(anchor: { current: HTMLElement | null }, popRef: { current: HTMLElement | null }, side: BadgeSide): PopPlace {
+function usePopPlace(anchor: { current: HTMLElement | null }, popRef: { current: HTMLElement | null }, side: BadgeSide, mounted: boolean): PopPlace {
   const [place, setPlace] = useState<PopPlace>({ left: 0, top: 0, ready: false, flow: "side" });
   useLayoutEffect(() => {
     const run = () => {
@@ -270,7 +270,7 @@ function usePopPlace(anchor: { current: HTMLElement | null }, popRef: { current:
       window.removeEventListener("scroll", run, true);
       observer?.disconnect();
     };
-  }, [anchor, popRef, side]);
+  }, [anchor, popRef, side, mounted]);
   return place;
 }
 
@@ -294,7 +294,7 @@ function MasterPop({
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
   useEffect(() => setHost(document.body), []);
-  const place = usePopPlace(anchor, popRef, side);
+  const place = usePopPlace(anchor, popRef, side, host != null);
   const master = view.deckMaster!;
   const card = master.card;
   const lines = masterDetailLines(card);
