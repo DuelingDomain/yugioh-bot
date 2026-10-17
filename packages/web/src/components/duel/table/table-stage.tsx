@@ -431,14 +431,22 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       window.clearTimeout(again);
     };
   }, [floating, nearBox, legalKey, reducedMotion, regroup, zoom.zoomed, ownZoom, handMoves]);
+  // The near field across the box (px): the pick bar is centred on its middle and stays in its rows while a clear place exists there (it only
+  // moves up or down, off the targets). Planned from the pose, so it is the same at home, in a focus and in your own zoom.
+  const nearField = useMemo(() => {
+    if (!near || !(k > 0)) return undefined;
+    const b = boardBounds(near);
+    const dy = stageTop + (stageHeight - canvasHeight * k) / 2;
+    return { centerX: Math.round((box.width - STAGE.width * k) / 2 + ((b.l + b.r) / 2) * k), band: { top: Math.round(dy + b.t * k), bottom: Math.round(dy + b.b * k) } };
+  }, [near, k, box.width, stageTop, stageHeight, canvasHeight]);
   // The card-pick bar: the clear place nearest the middle of the box, always inside it, off the legal targets, your live hand (and a card
   // raised from it) and the HUD, and off the cards on the board while a clear place exists (see pick-bar-room.ts). The same plan holds at
   // home, in rival focus and in your own zoom: the camera never moves for it.
   const barRoom = useMemo(() => {
     if (!floating) return undefined;
     if (!zoom.zoomed && !nearBox) return undefined;
-    return planPickBarRoom({ box, targets, hand: handRect, hud: pinnedRect ? [...hudRects, pinnedRect] : hudRects, cards });
-  }, [floating, zoom.zoomed, handRect, nearBox, targets, cards, hudRects, pinnedRect, box]);
+    return planPickBarRoom({ box, targets, hand: handRect, hud: pinnedRect ? [...hudRects, pinnedRect] : hudRects, cards, centerX: nearField?.centerX, band: nearField?.band });
+  }, [floating, zoom.zoomed, handRect, nearBox, targets, cards, hudRects, pinnedRect, box, nearField]);
 
   // The chain-response panel (every option a card): a wide room of its own, big enough for large cards, wholly inside the box, off the HUD,
   // the chain's cards and your hand (it may cover the field). It is fixed to the middle of the screen (`fixed`): the same room at home, in a focus and

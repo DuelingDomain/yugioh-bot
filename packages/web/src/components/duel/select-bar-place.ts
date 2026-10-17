@@ -31,6 +31,10 @@ export interface BarPlaceInput {
   hands: readonly BarRect[];
   /** Score plates the top spot keeps clear of (the Rooftop's far team plate). Optional: other boards pass none. */
   plates?: readonly BarRect[];
+  /** Your own field. When set, the bar is always centred on its middle across and only moves up or down, off `targets`. */
+  field?: BarRect | null;
+  /** Every legal zone and card (the cards of your hand included): the bar never covers one while a clear row exists. */
+  targets?: readonly BarRect[];
 }
 
 export interface BarPlace {
@@ -59,7 +63,61 @@ function valid(rect: BarRect): boolean {
   return rect.right > rect.left && rect.bottom > rect.top;
 }
 
-export function placeSelectBar({ board, emz, hands, plates = [] }: BarPlaceInput): BarPlace {
+/** Air kept between the bar and a target. */
+const TARGET_AIR = 6;
+/** The height the bar is planned at (row and stacked), as in the 4-way grid. */
+const BAR_ROW_HEIGHT = 92;
+const BAR_STACK_HEIGHT = 136;
+
+/**
+ * The bar centred on the middle of YOUR field across (`field`), whatever else is in the middle band. Only its row moves: it starts
+ * at the middle band (the row `start`) and steps up or down, nearest first, to the first row that covers no target and no hand,
+ * in your field first, then anywhere on the board. Without a clear row it stays at the start. Width: the free span between the
+ * Extra Monster Zones around the centre when it lies in one, else the full bar.
+ */
+function placeOnField(input: BarPlaceInput, field: BarRect, start: number | null): BarPlace {
+  const { board, emz, hands, targets = [] } = input;
+  const height = board.bottom - board.top;
+  const left = (field.left + field.right) / 2 - board.left;
+  const centre = left + board.left;
+  const zones = emz.filter(valid).sort((a, b) => a.left - b.left);
+  // The free span round the centre: from the nearest zone edge on the left to the nearest on the right.
+  const before = zones.filter((zone) => zone.right <= centre).map((zone) => zone.right);
+  const after = zones.filter((zone) => zone.left >= centre).map((zone) => zone.left);
+  const inside = zones.some((zone) => zone.left < centre && zone.right > centre);
+  const span = inside ? 0 : Math.min(centre - (before.length > 0 ? Math.max(...before) : -Infinity), (after.length > 0 ? Math.min(...after) : Infinity) - centre) * 2 - 2 * BAR_EDGE;
+  const fit = Number.isFinite(span) && span < BAR_MAX_WIDTH ? Math.max(0, span) : null;
+  const narrow = fit != null && fit < BAR_MIN_WIDTH;
+  const width = fit == null || narrow ? BAR_MAX_WIDTH : Math.max(BAR_MIN_WIDTH, fit);
+  const stack = fit != null && !narrow && fit < BAR_ROW_FIT;
+  const barHeight = stack ? BAR_STACK_HEIGHT : BAR_ROW_HEIGHT;
+  const blocks = [...targets, ...hands].filter(valid);
+  const clear = (middle: number) => {
+    const box = { left: centre - width / 2, right: centre + width / 2, top: board.top + middle - barHeight / 2, bottom: board.top + middle + barHeight / 2 };
+    return blocks.every((block) => box.right <= block.left - TARGET_AIR || box.left >= block.right + TARGET_AIR || box.bottom <= block.top - TARGET_AIR || box.top >= block.bottom + TARGET_AIR);
+  };
+  const from = start ?? height / 2;
+  const rows = (low: number, high: number) => {
+    const out: number[] = [];
+    for (let d = 0; d <= height; d += 4) for (const sign of d === 0 ? [0] : [-1, 1]) {
+      const y = from + sign * d;
+      if (y - barHeight / 2 >= low && y + barHeight / 2 <= high) out.push(y);
+    }
+    return out;
+  };
+  const inField = rows(field.top - board.top, field.bottom - board.top);
+  const anywhere = rows(0, height);
+  const found = [...inField, ...anywhere].find(clear);
+  return { mode: "mid", top: Math.round(found ?? from), left: Math.round(left), fit: fit == null || narrow ? null : Math.round(fit), stack };
+}
+
+export function placeSelectBar(input: BarPlaceInput): BarPlace {
+  const { board, emz, hands, plates = [], field } = input;
+  const start = placeSelectBarAtMiddle({ board, emz, hands, plates });
+  return field && valid(field) ? placeOnField(input, field, start.mode === "mid" ? start.top : null) : start;
+}
+
+function placeSelectBarAtMiddle({ board, emz, hands, plates = [] }: BarPlaceInput): BarPlace {
   const height = board.bottom - board.top;
   const zones = emz.filter(valid);
   const handRects = hands.filter(valid);

@@ -209,12 +209,15 @@ export function clearBarRoom(pair: GridRect, blocks: readonly GridRect[], others
   return undefined;
 }
 
+const roomText = (plan: BarPlan | null) => (plan ? [plan.box.x, plan.box.y, plan.box.width, plan.box.height].map(Math.round).join(",") : undefined);
+
 /**
- * The pick bar at rest. It stays on YOUR field (`own`, when you play) as near the middle of it as it can be, where it covers
- * no target (the cards you can pick, your hand included) and no phase chip; it may sit over empty zones and other cards, as
- * they are not part of the pick. When your field has no such place (or you have none, a spectator), the same search runs in
- * the pair. When no place in the pair is clear of targets either, it tries in this order: a narrower bar in the pair that
- * covers no target, the dock at the bottom of the board box when that is clear, and last the pair room that covers the least.
+ * The pick bar at rest. When you play (`own`) it is always centred on the middle of YOUR field across, and only moves up or
+ * down: as near the middle of your field as it can be where it covers no target (the cards you can pick, your hand included);
+ * it may sit over empty zones, phase chips and other cards, as they are not part of the pick. When your field has no such place
+ * it moves down the pair at the same x, then it narrows; the dock at the bottom of the box (off the middle of the field, but
+ * clear of every target) is the last resort. A spectator (no `own`) gets the place in the pair nearest its middle: when it is
+ * clear of targets, else a narrower bar, the dock, and last the pair room that covers the least.
  */
 export function restBarRoom(
   pair: GridRect,
@@ -225,8 +228,20 @@ export function restBarRoom(
   chips: readonly GridRect[] = [],
   own: GridRect | null = null,
 ): string | undefined {
-  const mine = own ? planBarRoom(own, targets, others, PICK_BAR.max, chips) : null;
-  if (mine && mine.hit === 0) return pickBarRoom(own as GridRect, targets, others, chips);
+  if (own) {
+    // Always centred on my field across; only up or down moves it off the targets: first in my field, then down the pair, then narrower.
+    const cx = own.x + own.width / 2;
+    for (const room of [own, pair]) {
+      const mine = planBarRoom(room, targets, others, PICK_BAR.max, chips, cx);
+      if (mine && mine.hit === 0) return roomText(mine);
+    }
+    for (const width of DOCK_NARROW) {
+      const mine = planBarRoom(pair, targets, others, width, chips, cx);
+      if (mine && mine.hit === 0) return roomText(mine);
+    }
+    const dock = freeDockRoom(box, [...targets, ...others, ...hud]);
+    return dock ?? roomText(planBarRoom(pair, targets, others, PICK_BAR.max, chips, cx));
+  }
   const best = planBarRoom(pair, targets, others, PICK_BAR.max, chips);
   if (best && best.hit === 0) return pickBarRoom(pair, targets, others, chips);
   const narrow = clearBarRoom(pair, targets, others, chips);
@@ -275,7 +290,7 @@ interface BarPlan {
   hit: number;
 }
 
-function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: readonly GridRect[], maxWidth: number = PICK_BAR.max, chips: readonly GridRect[] = []): BarPlan | null {
+function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: readonly GridRect[], maxWidth: number = PICK_BAR.max, chips: readonly GridRect[] = [], lockX?: number): BarPlan | null {
   if (pair.width <= 0 || pair.height <= 0) return null;
   const width = Math.min(maxWidth, pair.width - 2 * PICK_BAR.edge);
   if (width < 200) return null;
@@ -285,9 +300,10 @@ function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: reado
     .map((r) => ({ x: r.x - PICK_BAR.clear, y: r.y - PICK_BAR.clear, width: r.width + 2 * PICK_BAR.clear, height: r.height + 2 * PICK_BAR.clear }));
   // The other zones (not targets now) are kept clear too where there is room: they weigh far less than a target.
   const rest = others.filter((r) => r.width > 0 && r.height > 0);
-  const centreX = pair.x + pair.width / 2;
+  // `lockX`: the bar stays centred on this x (the middle of my field) and only moves up or down.
+  const centreX = lockX ?? pair.x + pair.width / 2;
   const centreY = pair.y + pair.height / 2;
-  const reachX = Math.max(0, (pair.width - width) / 2 - PICK_BAR.edge);
+  const reachX = lockX != null ? 0 : Math.max(0, (pair.width - width) / 2 - PICK_BAR.edge);
   const reachY = Math.max(0, (pair.height - height) / 2 - PICK_BAR.edge);
   let best = null as BarPlan | null;
   // Steps out from the middle; up before down at the same distance (the half of the pair in front of you).
@@ -297,7 +313,8 @@ function planBarRoom(pair: GridRect, targets: readonly GridRect[], others: reado
         for (const sx of dx === 0 ? [0] : [-1, 1]) {
           const box = { x: centreX + sx * dx - width / 2, y: centreY + sy * dy - height / 2, width, height };
           const hit = blocks.reduce((sum, r) => sum + overlap(box, r), 0);
-          const cover = hit * OTHER_WEIGHT + chips.reduce((sum, r) => sum + overlap(box, r) * CHIP_WEIGHT, 0) + rest.reduce((sum, r) => sum + overlap(box, r), 0);
+          // Locked on the middle of my field, only a target counts: the bar may cover phase chips, empty zones and other cards.
+          const cover = lockX != null ? hit * OTHER_WEIGHT : hit * OTHER_WEIGHT + chips.reduce((sum, r) => sum + overlap(box, r) * CHIP_WEIGHT, 0) + rest.reduce((sum, r) => sum + overlap(box, r), 0);
           const far = Math.hypot(dx, dy);
           if (!best || cover < best.cover || (cover === best.cover && far < best.far)) best = { box, cover, far, hit };
         }
