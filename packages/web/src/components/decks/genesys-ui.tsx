@@ -24,12 +24,12 @@ type MarkCard = Pick<DeckCardInfo, "type" | "genesysPoints">;
  * in a search result row, and `lift` raises the chip above a strip across the foot of the card. `zero` also shows a
  * 0-point card (the Deck Master slot).
  */
-export function GenesysBadge({ card, variant = "tile", lift, zero }: { card: MarkCard | null | undefined; variant?: "tile" | "row" | "inline"; lift?: boolean; zero?: boolean }) {
+export function GenesysBadge({ card, variant = "tile", lift, zero }: { card: MarkCard | null | undefined; variant?: "tile" | "browse" | "row" | "inline"; lift?: boolean; zero?: boolean }) {
   // `zero` is for the Deck Master slot: a 0-point Master still shows "0 pts", so it is clear it was counted.
   const mark = genesysMark(card) ?? (zero && card ? ({ kind: "points", points: 0 } as const) : null);
   if (!mark) return null;
   return (
-    <span className={styles.badge} data-k={mark.kind} data-v={variant === "tile" ? undefined : variant} data-lift={lift && variant === "tile" ? "" : undefined} title={genesysMarkText(mark)}>
+    <span className={styles.badge} data-k={mark.kind} data-v={variant === "tile" ? undefined : variant} data-lift={lift && variant === "tile" ? "" : undefined} data-w={mark.kind === "points" && mark.points >= 100 ? "" : undefined} title={genesysMarkText(mark)}>
       {mark.kind === "forbidden" ? <Ban aria-hidden /> : <><b>{mark.kind === "unknown" ? "?" : mark.points}</b><small aria-hidden>pts</small></>}
     </span>
   );
