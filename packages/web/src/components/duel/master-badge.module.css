@@ -340,10 +340,11 @@
 .popActs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .act {
   display: inline-flex;
-  flex: 1 1 0;
+  flex: 1 1 auto;
   align-items: center;
   justify-content: center;
   gap: 5px;
+  white-space: nowrap;
   min-width: 78px;
   min-height: 34px;
   padding: 0 10px;
