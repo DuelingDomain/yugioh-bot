@@ -1,6 +1,7 @@
 import type { DuelCardInfo, DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
 import { applyEdits, cardAt, DECK, edit, ev, EXTRA, GY, HAND, link, MZ, SZ, withHandIds, type Edit, type EventSpec, type LabBoard, type LabStep } from "../../fx-lab/board";
 import { TABLE_CARDS as C } from "./common";
+import { FX_SCENE, fxSceneSteps, type FxSceneId } from "./fx-scenes";
 import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK } from "../../constants";
 
 /**
@@ -8,7 +9,7 @@ import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK } from "../../constants";
  * 1v1 board: events and board edits arrive together, as one engine batch does. The preview harness feeds them into a
  * fixture state, so the real table layers (MoveFx, ChainFx, BattleFx, the crumble) play them on a grid seat.
  */
-export type SceneId = "smf" | "ko" | "mirror" | PlaySceneId | MasterSceneId | DeckSceneId | EmzSceneId | HandChainSceneId;
+export type SceneId = "smf" | "ko" | "mirror" | PlaySceneId | MasterSceneId | DeckSceneId | EmzSceneId | HandChainSceneId | FxSceneId;
 
 /**
  * `handchain-<seat>` or `handchain-<seat>-<slot>`: that seat activates a monster from its hand and sends it to the
@@ -254,10 +255,11 @@ function deckToSpellZone(kind: "set" | "up", seat: number): LabStep[] {
 }
 
 export function isSceneId(value: string | null | undefined): value is SceneId {
-  return value === "smf" || value === "ko" || value === "mirror" || (value != null && (HAND_CHAIN_SCENE.test(value) || PLAY_SCENE.test(value) || MASTER_SCENE.test(value) || DECK_SCENE.test(value) || EMZ_SCENE.test(value)));
+  return value === "smf" || value === "ko" || value === "mirror" || (value != null && (HAND_CHAIN_SCENE.test(value) || PLAY_SCENE.test(value) || MASTER_SCENE.test(value) || DECK_SCENE.test(value) || EMZ_SCENE.test(value) || FX_SCENE.test(value)));
 }
 
-export function sceneSteps(id: SceneId): LabStep[] {
+export function sceneSteps(id: SceneId, seatCount = 4): LabStep[] {
+  if (FX_SCENE.test(id)) return fxSceneSteps(id, seatCount);
   const master = MASTER_SCENE.exec(id);
   if (master) return masterCycle(Number(master[1]));
   const handChainId = HAND_CHAIN_SCENE.exec(id);

@@ -37,7 +37,11 @@ export const buildStorm: WipeBuild = (ctx) => {
     return side === "opp" ? ROW_OPP_FALLBACK : ROW_YOU_FALLBACK;
   };
   const targetSide: "you" | "opp" = targets[0]?.side ?? (ctx.ownerSide === "you" ? "opp" : "you");
-  const rows = heavy ? [rowY("opp"), rowY("you")] : [rowY(targetSide)];
+  // Heavy Storm hits every Spell/Trap row: at a multi-seat table that is one line per field row of the board.
+  const fieldRows = ctx.scene.fields
+    ? ctx.fields.flatMap((f) => (f.st ? [(f.st.minY + f.st.maxY) / 2] : [])).filter((y, i, all) => all.findIndex((o) => Math.abs(o - y) < 40) === i)
+    : [];
+  const rows = heavy ? (fieldRows.length > 0 ? fieldRows : [rowY("opp"), rowY("you")]) : [rowY(targetSide)];
 
   // The gust front, in the world units of the demo (so it stays in step with the plan break times).
   const frontUv = (t: number): number => -0.12 + 1.3 * ramp(t, F0, F1);
@@ -51,8 +55,9 @@ export const buildStorm: WipeBuild = (ctx) => {
     ? [[0.82, 1, 0.95], [0.55, 0.9, 0.85], [1, 1, 1]]
     : [[1, 0.62, 0.82], [1, 0.9, 0.96], [0.75, 0.6, 1]];
   // Spawn left of the screen (a wide canvas shows more than the demo board).
-  const startX = Math.min(-640, bounds.minX - 80);
-  const startXF = Math.min(-660, bounds.minX - 100);
+  const span = ctx.focused ? ctx.focus : bounds;
+  const startX = Math.min(-640, span.minX - 80);
+  const startXF = Math.min(-660, span.minX - 100);
 
   const streaks = ctx.particles(
     ctx.count(heavy ? 600 : 320),

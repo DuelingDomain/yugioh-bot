@@ -236,7 +236,9 @@ export const buildTorrential: WipeBuild = (ctx) => {
     const m = ctx.rows[side].m;
     return m ? rowCentres(m) : demoRow(side === "opp" ? 158 : -158);
   };
-  zones.push(...rowFor("opp"), ...rowFor("you"));
+  // At a multi-seat table every hit field has its own row of jets.
+  if (ctx.scene.fields) for (const f of ctx.fields) zones.push(...(f.m ? rowCentres(f.m) : []));
+  else zones.push(...rowFor("opp"), ...rowFor("you"));
 
   // every victim stands over its own jet; its eruption time comes from the plan (gone = jet + 0.36 + 1.15)
   const claimed = new Set<number>();
@@ -429,10 +431,14 @@ export const buildTorrential: WipeBuild = (ctx) => {
   );
   // aftermath: dripping from the rows and ripples on the puddles
   const dripSrc: Array<[number, number]> = [];
-  for (const side of ["opp", "you"] as const) {
-    const st = ctx.rows[side].st;
-    const list = st ? rowCentres(st) : demoRow(side === "opp" ? 316 : -316);
-    for (const q of list) dripSrc.push([q.x, q.y - CH / 2 + 6]);
+  if (ctx.scene.fields) {
+    for (const f of ctx.fields) for (const q of f.st ? rowCentres(f.st) : []) dripSrc.push([q.x, q.y - CH / 2 + 6]);
+  } else {
+    for (const side of ["opp", "you"] as const) {
+      const st = ctx.rows[side].st;
+      const list = st ? rowCentres(st) : demoRow(side === "opp" ? 316 : -316);
+      for (const q of list) dripSrc.push([q.x, q.y - CH / 2 + 6]);
+    }
   }
   for (const z of zones) dripSrc.push([z.x, z.y - CH / 2 + 6]);
   const dripSpread = clamp(D - 2.75, 0.2, 0.9);

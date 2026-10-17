@@ -3,7 +3,7 @@ import { signatureCode } from "../signature-alias";
 import { clamp01, ramp } from "./ease";
 import { MIRROR, mirrorAt, mirrorGeo, mirrorHitSec } from "./mirror-math";
 import { DEMO_CW, DEMO_H, DEMO_W, hash1, timeWarp } from "./wipe-math";
-import type { FxPiles, FxRect, FxRows, FxScene, FxScenePiece, FxTint, FxVictim, FxWorld, Rgb } from "./types";
+import type { FxField, FxPiles, FxRect, FxRows, FxScene, FxScenePiece, FxTint, FxVictim, FxWorld, Rgb } from "./types";
 
 /**
  * Set pieces for destroys caused by a card effect (a trap, a spell, a monster effect). Pure:
@@ -203,7 +203,7 @@ export type SceneInput = {
   /** Spell/trap resolution: all cards finish breaking before any landing streak starts. */
   sequential?: boolean;
   piece: FxScenePiece;
-  victims: ReadonlyArray<{ rect: FxRect; code: number; defense: boolean; turned?: boolean; pile?: FxRect | null; st?: boolean }>;
+  victims: ReadonlyArray<{ rect: FxRect; code: number; defense: boolean; turned?: boolean; pile?: FxRect | null; st?: boolean; side?: "you" | "opp" }>;
   source: FxRect | null;
   attacker: FxRect | null;
   field: FxRect;
@@ -215,6 +215,9 @@ export type SceneInput = {
   world?: FxWorld;
   rows?: FxRows;
   piles?: FxPiles;
+  /** Wipes at a multi-seat table: every field, and the one field a piece is aimed at (see FxScene). */
+  fields?: FxField[];
+  focus?: FxRect;
 };
 
 const cx = (r: FxRect): number => r.x + r.w / 2;
@@ -503,6 +506,8 @@ export function planWipe(input: SceneInput): { scene: FxScene; cues: SceneCue[] 
       world,
       rows: input.rows,
       piles: input.piles,
+      fields: input.fields,
+      focus: input.focus,
       marks,
     },
     cues,

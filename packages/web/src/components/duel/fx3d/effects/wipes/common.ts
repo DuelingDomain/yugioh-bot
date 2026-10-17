@@ -818,6 +818,15 @@ export type WipeCtx = {
   bounds: WorldRectU;
   /** Rows of zones in world units per side (null when the board has none). */
   rows: Record<"you" | "opp", { m: WorldRectU | null; st: WorldRectU | null }>;
+  /**
+   * Every field the piece works on (rows of zones in world units). At a duel it is the two sides, "opp" first. At a
+   * multi-seat table it holds all the fields that are hit; `rows` then holds the first field of each side.
+   */
+  fields: Array<{ m: WorldRectU | null; st: WorldRectU | null }>;
+  /** The part of the world a piece aimed at one field (Raigeki) belongs to, with room above for the sky. Equals `bounds` when the piece is not aimed. */
+  focus: WorldRectU;
+  /** True when `focus` is a single field of a multi-seat table (not the whole canvas). */
+  focused: boolean;
   /** Cell centres of the monster and spell/trap zones (an estimate from the rows). Use them like ZONE_CENTERS in the demo. */
   zones: Pt[];
   /** World position to uv (0..1, y up) of the canvas: for `P.uCore`, `P.uShock`, `P.uGust`. */
@@ -898,9 +907,21 @@ export function createWipeCtx(env: FxEnv, request: { seed?: number }, scene: FxS
   const sideRows = (s: "you" | "opp") => ({ m: rectU(scene.rows?.[s].m), st: rectU(scene.rows?.[s].st) });
   const rows = { you: sideRows("you"), opp: sideRows("opp") };
   const bounds: WorldRectU = { minX: (0 - wd.cx) / u, maxX: (view.w - wd.cx) / u, minY: (wd.cy - view.h) / u, maxY: wd.cy / u };
+  const fields = scene.fields ? scene.fields.map((f) => ({ m: rectU(f.m), st: rectU(f.st) })) : [rows.opp, rows.you];
+  const focus: WorldRectU = scene.focus ? (rectU(scene.focus) as WorldRectU) : bounds;
   const zones: Pt[] = [];
-  for (const side of ["you", "opp"] as const) {
+  for (const side of scene.fields ? [] : (["you", "opp"] as const)) {
     for (const row of [rows[side].m, rows[side].st]) {
+      if (!row) continue;
+      const n = Math.max(1, Math.round((row.maxX - row.minX) / (DEMO_CW * 1.19)));
+      const step = (row.maxX - row.minX) / n;
+      const y = (row.minY + row.maxY) / 2;
+      for (let i = 0; i < n; i += 1) zones.push({ x: row.minX + step * (i + 0.5), y });
+    }
+  }
+
+  for (const field of scene.fields ? fields : []) {
+    for (const row of [field.m, field.st]) {
       if (!row) continue;
       const n = Math.max(1, Math.round((row.maxX - row.minX) / (DEMO_CW * 1.19)));
       const step = (row.maxX - row.minX) / n;
@@ -951,7 +972,12 @@ export function createWipeCtx(env: FxEnv, request: { seed?: number }, scene: FxS
   });
   // The side of a victim: the owner side is the side of the effect; a card on the other half of the board is the other side.
   const centreY = rows.you.m ? (rows.you.m.minY + rows.you.m.maxY) / 2 : -1;
-  victims.forEach((v) => {
+  victims.forEach((v, i) => {
+    const given = scene.victims[i].side;
+    if (given) {
+      v.side = given;
+      return;
+    }
     v.side = v.y <= (rows.you.m || rows.opp.m ? (centreY + (rows.opp.m ? (rows.opp.m.minY + rows.opp.m.maxY) / 2 : centreY + 1)) / 2 : 0) ? "you" : "opp";
   });
 
@@ -982,6 +1008,9 @@ export function createWipeCtx(env: FxEnv, request: { seed?: number }, scene: FxS
     u,
     bounds,
     rows,
+    fields,
+    focus,
+    focused: scene.focus != null,
     zones,
     uv: (x, y) => [(ox + x * u) / view.w, (oy + y * u) / view.h],
     count: (n) => Math.max(6, Math.round(n * env.quality)),

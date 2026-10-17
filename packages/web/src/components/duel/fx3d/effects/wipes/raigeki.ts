@@ -32,7 +32,7 @@ const BEAM_VS = WORLD_GLSL + `varying vec2 vW; void main(){ vW=toWorld((modelMat
 const BEAM_FS =
   GLSL_COMMON +
   `
-uniform float uT, uWid, uInt, uFront, uYTop, uYEnd, uHalfTop, uHalfGround, uStatic, uMul;
+uniform float uT, uWid, uInt, uFront, uYTop, uYEnd, uHalfTop, uHalfGround, uStatic, uMul, uX0, uX1, uSoft;
 varying vec2 vW;
 void main(){
   float y = vW.y, live = 1.-uStatic, tt = uT*live;
@@ -62,7 +62,8 @@ void main(){
   col += vec3(.9,.95,1.)*exp(-pow((y-uFront)/36.,2.))*body*1.2*live; // bright head while it drops
   float rev = smoothstep(uFront-8.,uFront+22.,y);
   float bot = smoothstep(uYEnd-40.,uYEnd+30.,y);
-  gl_FragColor = vec4(col*uInt*uMul*rev*bot,1.);
+  float sx = uSoft > 0. ? smoothstep(uX0, uX0+uSoft, vW.x)*(1.-smoothstep(uX1-uSoft, uX1, vW.x)) : 1.;
+  gl_FragColor = vec4(col*uInt*uMul*rev*bot*sx,sx);
 }`;
 
 const BEAM_HT = 230; // half width at the sky
@@ -72,7 +73,8 @@ type BeamLayer = { mesh: THREE.Mesh; u: Record<string, THREE.IUniform> };
 
 /** The beam is one shader quad: a wide, solid energy column (white-hot core, blue/violet body, stepped jagged edges, flowing veins). */
 function makeBeam(ctx: WipeCtx, yTop: number, yEnd: number, order: number, mul: number): BeamLayer {
-  const { minX, maxX } = ctx.bounds;
+  // Aimed at one field of a multi-seat table: the quad covers that field, soft at its sides.
+  const { minX, maxX } = ctx.focused ? { minX: ctx.focus.minX - 120, maxX: ctx.focus.maxX + 120 } : ctx.bounds;
   const bot = yEnd - 60;
   const geo = new THREE.PlaneGeometry(maxX - minX + 40, yTop - bot);
   const mat = new THREE.ShaderMaterial({
@@ -88,6 +90,9 @@ function makeBeam(ctx: WipeCtx, yTop: number, yEnd: number, order: number, mul: 
       uHalfGround: { value: BEAM_HG },
       uStatic: { value: 0 },
       uMul: { value: mul },
+      uX0: { value: minX },
+      uX1: { value: maxX },
+      uSoft: { value: ctx.focused ? 160 : 0 },
     },
     vertexShader: BEAM_VS,
     fragmentShader: BEAM_FS,
@@ -123,7 +128,7 @@ const setBeam = (layers: BeamLayer[], p: { t: number; wid: number; int: number; 
 const SKY_FS =
   GLSL_COMMON +
   `
-uniform float uT, uYEdge, uYTop, uAmt; uniform vec4 uFl[4]; varying vec2 vW;
+uniform float uT, uYEdge, uYTop, uAmt, uX0, uX1, uSoft; uniform vec4 uFl[4]; varying vec2 vW;
 void main(){
   vec2 p = vec2(vW.x*.0045, vW.y*.0055);
   float w = fbm(p*2.6+vec2(uT*.22,-uT*.1));
@@ -136,13 +141,15 @@ void main(){
   lit *= smoothstep(0.,.2,vy);
   float hi = smoothstep(.4,.8,n2*.6+n*.6);
   vec3 col = mix(vec3(.008,.008,.03),vec3(.26,.21,.5),hi) + vec3(.5,.6,1.)*lit*(.4+1.5*n2);
-  gl_FragColor = vec4(col, clamp(dens*1.05+lit*.3,0.,.92));
+  float sx = uSoft > 0. ? smoothstep(uX0, uX0+uSoft, vW.x)*(1.-smoothstep(uX1-uSoft, uX1, vW.x)) : 1.;
+  gl_FragColor = vec4(col, clamp(dens*1.05+lit*.3,0.,.92)*sx);
 }`;
 
 type Sky = { set(t: number, amt: number, fl: number): void };
 
 function makeSky(ctx: WipeCtx, yEdge: number, yTop: number): Sky {
-  const { minX, maxX } = ctx.bounds;
+  // Aimed at one field of a multi-seat table: the sky is a cloud over that field, soft at its sides.
+  const { minX, maxX } = ctx.focused ? { minX: ctx.focus.minX - 120, maxX: ctx.focus.maxX + 120 } : ctx.bounds;
   const geo = new THREE.PlaneGeometry(maxX - minX + 40, yTop - yEdge + 20);
   const mat = new THREE.ShaderMaterial({
     uniforms: {
@@ -152,6 +159,9 @@ function makeSky(ctx: WipeCtx, yEdge: number, yTop: number): Sky {
       uYTop: { value: yTop },
       uFl: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
       uAmt: { value: 0 },
+      uX0: { value: minX },
+      uX1: { value: maxX },
+      uSoft: { value: ctx.focused ? 160 : 0 },
     },
     vertexShader: BEAM_VS,
     fragmentShader: SKY_FS,
@@ -202,7 +212,11 @@ export const buildRaigeki: WipeBuild = (ctx) => {
   const P = ctx.post;
   const tex = ctx.tex;
   const D = ctx.duration;
-  const top = ctx.bounds.maxY;
+  const top = ctx.focus.maxY;
+  // Aimed at one field of a multi-seat table: the other fields keep most of their light.
+  const grade = ctx.focused ? 0.55 : 1;
+  // The same, for the size of the rings, glows and sprays: a field is narrower than the board of a duel.
+  const fit = ctx.focused ? clamp((ctx.focus.maxX - ctx.focus.minX) / 1500, 0.35, 1) : 1;
 
   // Which half of the board is hit: the half the victims stand on, or the opposite of the caster.
   const victims = ctx.victims.slice().sort((a, b) => a.x - b.x);
@@ -265,14 +279,14 @@ export const buildRaigeki: WipeBuild = (ctx) => {
     ] as const
   ).map(([t, x]) => {
     const y1 = lerp(top, yEnd, 0.45 + r() * 0.25);
-    return { t, b: mkB({ x: x + 40, y: yTop - 30 }, { x, y: y1 }, 2.4, { seg: 12, amp: 40, forks: 3 }) };
+    return { t, b: mkB({ x: (x + 40) * fit, y: yTop - 30 }, { x: x * fit, y: y1 }, 2.4, { seg: 12, amp: 40, forks: 3 }) };
   });
   const leader = mkB({ x: 0, y: yTop - 20 }, { x: 0, y: yEnd + 10 }, 3.2, { seg: 18, amp: 60, forks: 6 });
   const arcs = Array.from({ length: 14 }, (_, i) => {
     const sd = i % 2 ? 1 : -1;
     const y0 = lerp(yEnd + 30, Math.min(380, yTop - 40), r());
-    const x0 = sd * halfAt(y0) * 0.9;
-    return { b: mkB({ x: x0, y: y0 }, { x: x0 + sd * (110 + r() * 150), y: y0 - (20 + r() * 110) }, 2.8, { seg: 9, amp: 30, forks: 2 }) };
+    const x0 = sd * halfAt(y0) * 0.9 * (fit < 1 ? 0.85 : 1);
+    return { b: mkB({ x: x0, y: y0 }, { x: x0 + sd * (110 + r() * 150) * fit * 0.7, y: y0 - (20 + r() * 110) }, 2.8, { seg: 9, amp: 30, forks: 2 }) };
   });
   const edgeB = (
     [
@@ -283,7 +297,7 @@ export const buildRaigeki: WipeBuild = (ctx) => {
   ).map(([sd, mid]) => ({ mid, b: mkB({ x: sd * halfAt(yTop) * 0.88, y: yTop - 10 }, { x: sd * halfAt(yEnd) * 0.88, y: yEnd + 10 }, mid ? 3.6 : 3, { seg: 20, amp: mid ? 22 : 26, forks: mid ? 3 : 4 }) }));
   const gArcs = Array.from({ length: 8 }, (_, i) => {
     const sd = i % 2 ? 1 : -1;
-    return { b: mkB({ x: sd * (60 + r() * 180), y: yEnd + (r() - 0.5) * 30 }, { x: sd * (380 + r() * 180), y: yEnd + (r() - 0.5) * 90 }, 2.8, { seg: 10, amp: 22, forks: 2 }) };
+    return { b: mkB({ x: sd * (60 + r() * 180), y: yEnd + (r() - 0.5) * 30 }, { x: sd * (380 + r() * 180) * fit, y: yEnd + (r() - 0.5) * 90 }, 2.8, { seg: 10, amp: 22, forks: 2 }) };
   });
   const crackle = Array.from({ length: 6 }, () => {
     const x = (r() - 0.5) * 560;
@@ -308,13 +322,13 @@ export const buildRaigeki: WipeBuild = (ctx) => {
     ctx.count(130),
     () => {
       const sd = r() < 0.5 ? -1 : 1;
-      return { p: [(r() - 0.5) * 160, yEnd + (r() - 0.3) * 60], v: [sd * (500 + r() * 1100), 30 + r() * 140], delay: Th + r() * 0.2, life: 0.45 + r() * 0.45, size: 24 + r() * 40, stretch: 0.55, shape: 1, col: r() < 0.6 ? [0.7, 0.85, 1, 0.45] : [1, 0.8, 0.5, 0.45] };
+      return { p: [(r() - 0.5) * 160, yEnd + (r() - 0.3) * 60], v: [sd * (500 + r() * 1100) * fit, 30 + r() * 140], delay: Th + r() * 0.2, life: 0.45 + r() * 0.45, size: 24 + r() * 40, stretch: 0.55, shape: 1, col: r() < 0.6 ? [0.7, 0.85, 1, 0.45] : [1, 0.8, 0.5, 0.45] };
     },
     { drag: 1.6, P: [0, 0, 1, 0.05], order: 126 },
   );
   const spray = mkP(
     ctx.count(170),
-    () => ({ p: [(r() - 0.5) * 520, yEnd + r() * 30], v: [(r() - 0.5) * 700, 200 + r() * 700], delay: Th + r() * (Tn - Th), life: 0.5 + r() * 0.4, size: 8 + r() * 8, stretch: 0.7, shape: 1, col: r() < 0.5 ? [0.85, 0.93, 1, 1] : [1, 0.85, 0.5, 1] }),
+    () => ({ p: [(r() - 0.5) * 520 * fit, yEnd + r() * 30], v: [(r() - 0.5) * 700 * fit, 200 + r() * 700], delay: Th + r() * (Tn - Th), life: 0.5 + r() * 0.4, size: 8 + r() * 8, stretch: 0.7, shape: 1, col: r() < 0.5 ? [0.85, 0.93, 1, 1] : [1, 0.85, 0.5, 1] }),
     { drag: 0.9, G: [0, -900], P: [0, 0, 1, 0.05], order: 126 },
   );
   // embers and shards come from every monster: per-monster counts follow the quality of the canvas
@@ -342,12 +356,12 @@ export const buildRaigeki: WipeBuild = (ctx) => {
   );
   const linger = mkP(
     ctx.count(80),
-    () => ({ p: [(r() - 0.5) * 600, rowY + (r() - 0.5) * 140], v: [(r() - 0.5) * 50, 30 + r() * 90], delay: Tc - 0.1 + r() * 0.5, life: 1 + r() * 0.6, size: 3 + r() * 4, shape: 0, col: r() < 0.6 ? [1, 0.55, 0.15, 1] : [1, 0.85, 0.4, 1] }),
+    () => ({ p: [(r() - 0.5) * 600 * fit, rowY + (r() - 0.5) * 140], v: [(r() - 0.5) * 50, 30 + r() * 90], delay: Tc - 0.1 + r() * 0.5, life: 1 + r() * 0.6, size: 3 + r() * 4, shape: 0, col: r() < 0.6 ? [1, 0.55, 0.15, 1] : [1, 0.85, 0.4, 1] }),
     { drag: 0.8, P: [0, 0, 1, 0.1], order: 126 },
   );
   const smoke = mkP(
     ctx.count(90),
-    () => ({ p: [(r() - 0.5) * 560, rowY + (r() - 0.5) * 120], v: [(r() - 0.5) * 60, 40 + r() * 90], delay: Tc - 0.15 + r() * 0.45, life: 1 + r() * 0.4, size: 80 + r() * 60, col: [0.24, 0.23, 0.3, 0.42] }),
+    () => ({ p: [(r() - 0.5) * 560 * fit, rowY + (r() - 0.5) * 120], v: [(r() - 0.5) * 60, 40 + r() * 90], delay: Tc - 0.15 + r() * 0.45, life: 1 + r() * 0.4, size: 80 + r() * 60, col: [0.24, 0.23, 0.3, 0.42] }),
     { normal: true, drag: 1.1, P: [0, 0, 1, 0.2], order: 122 },
   );
 
@@ -384,9 +398,9 @@ export const buildRaigeki: WipeBuild = (ctx) => {
       const calm = 1 - ramp(t, Tc, D);
       // sky + grade
       sky.set(t, build * (1 - 0.85 * ramp(t, Tc, D)) * (1 - ramp(t, D - 0.35, D)), t < Th ? 0.35 + 0.9 * ramp(t, 0.2, 0.8) : 1.2);
-      P.uDarken.value = 0.32 * build * calm * (1 - 0.7 * live);
+      P.uDarken.value = 0.32 * grade * build * calm * (1 - 0.7 * live);
       P.uTint.value.setRGB(0.62, 0.78, 1.08);
-      P.uTintAmt.value = 0.4 * build * calm * (1 - 0.5 * live);
+      P.uTintAmt.value = 0.4 * grade * build * calm * (1 - 0.5 * live);
       P.uVig.value = 0.25 + 0.35 * build * calm;
       // beam
       const front = t < Ts ? yTop : lerp(yTop, yEnd - 40, ramp(t, Ts, Th));
@@ -396,9 +410,9 @@ export const buildRaigeki: WipeBuild = (ctx) => {
       const int = t < Ts ? 0 : (0.9 + 0.2 * hash1(Math.floor(t * 38) * 1.3)) * (1 - easeIn2(ramp(t, Tc - 0.1, Tc + 0.06)));
       setBeam([bBack, bFront], { t, wid, int, front });
       const bi = int * (t >= Ts ? 1 : 0);
-      skyGlow.set(0, yTop - 70, 800 * (0.4 + 0.6 * wid), 0.4 * bi * strike, 340);
-      foot.set(0, yEnd + 5, 760 * wid, 0.5 * bi * ramp(t, Th - 0.02, Th + 0.04), 170);
-      spill.set(0, rowY, 1300, 0.12 * bi * strike, 460);
+      skyGlow.set(0, yTop - 70, 800 * fit * (0.4 + 0.6 * wid), 0.4 * bi * strike, 340 * fit);
+      foot.set(0, yEnd + 5, 760 * fit * wid, 0.5 * bi * ramp(t, Th - 0.02, Th + 0.04), 170 * fit);
+      spill.set(0, rowY, 1300 * fit, 0.12 * bi * strike, 460 * fit);
       // whiteout + flashes
       const dc = t - Th;
       let fl = 0;
@@ -410,9 +424,9 @@ export const buildRaigeki: WipeBuild = (ctx) => {
         s.b.set(((t - (s.t - 0.07)) / 0.07) * 1.25, alphaOf(d) * 0.85);
         fl = Math.max(fl, d >= 0 ? 0.12 * Math.exp(-d / 0.07) : 0);
       }
-      P.uFlash.value.set(0.9, 0.95, 1, fl);
+      P.uFlash.value.set(0.9, 0.95, 1, ctx.focused ? fl * 0.55 : fl);
       P.uAberr.value = Math.min(1.2, fl * 1.1);
-      bigflash.set(0, yEnd, 1600, dc >= 0 ? 0.6 * Math.exp(-dc / 0.1) : 0);
+      bigflash.set(0, yEnd, 1600 * fit, dc >= 0 ? 0.6 * Math.exp(-dc / 0.1) : 0);
       leader.set(((t - (Ts - 0.1)) / 0.1) * 1.25, t > Ts - 0.1 && t < Th + 0.04 ? 1 : 0);
       arcs.forEach((a, i) => a.b.set(1.3, t > Th + 0.12 && t < Tc - 0.05 && hash1(Math.floor(t * 22) + i * 5.3) > 0.5 ? 0.9 * smoothstepJS(0.85, 1, wid) * bi : 0));
       edgeB.forEach((e, i) => e.b.set(1.3, t > Th + 0.1 && t < Tc && hash1(Math.floor(t * 26) + i * 6.1) > 0.3 ? 0.85 * smoothstepJS(0.85, 1, wid) * bi : 0));
@@ -425,23 +439,23 @@ export const buildRaigeki: WipeBuild = (ctx) => {
       // ground shockwave across the row
       const k1 = ramp(dc, 0, 0.5);
       const k2 = ramp(dc - 0.18, 0, 0.5);
-      waves[0].set(0, yEnd, 160 + 1500 * easeOut3(k1), dc >= 0 ? 0.9 * (1 - k1) : 0, 40 + 230 * easeOut3(k1));
-      waves[1].set(0, yEnd, 120 + 1100 * easeOut3(k2), dc - 0.18 >= 0 ? 0.6 * (1 - k2) : 0, 30 + 170 * easeOut3(k2));
+      waves[0].set(0, yEnd, (160 + 1500 * easeOut3(k1)) * fit, dc >= 0 ? 0.9 * (1 - k1) : 0, (40 + 230 * easeOut3(k1)) * fit);
+      waves[1].set(0, yEnd, (120 + 1100 * easeOut3(k2)) * fit, dc - 0.18 >= 0 ? 0.6 * (1 - k2) : 0, (30 + 170 * easeOut3(k2)) * fit);
       pulses.forEach((p, i) => {
         const ph = (((t - Th) / 0.3 + i / 3) % 1 + 1) % 1;
-        p.set(0, yEnd, 200 + 800 * ph, t > Th + 0.1 && t < Tn ? 0.2 * (1 - ph) * live : 0, 40 + 120 * ph);
+        p.set(0, yEnd, (200 + 800 * ph) * fit, t > Th + 0.1 && t < Tn ? 0.2 * (1 - ph) * live : 0, (40 + 120 * ph) * fit);
       });
       if (dc >= 0) {
         const k = ramp(dc, 0, 0.6);
-        P.uShock.value.set(shU, shV, easeOut3(k), lerp(0.05, 0.12, k));
+        P.uShock.value.set(shU, shV, easeOut3(k) * fit, lerp(0.05, 0.12, k) * fit);
         P.uShock2.value.set(0.03 * (1 - k), 0.3 * (1 - k) * (1 - k), 0);
         P.uShockCol.value.setRGB(0.6, 0.75, 1);
       }
       // particles
       for (const s of [stream, ground, spray, embers, shards, linger, smoke]) s.setT(t);
       // scorched ground + glowing embers
-      scorch.set(0, rowY - 10, 700, 0.85 * ramp(dc, 0.1, 0.35) * (1 - ramp(t, D - 0.5, D)), 210);
-      embGlow.set(0, rowY - 10, 700, 0.85 * ramp(t, tb, tb + 0.2) * (1 - ramp(t, Tc, D)) * (1 - 0.5 * live), 200);
+      scorch.set(0, rowY - 10, 700 * fit, 0.85 * ramp(dc, 0.1, 0.35) * (1 - ramp(t, D - 0.5, D)), 210);
+      embGlow.set(0, rowY - 10, 700 * fit, 0.85 * ramp(t, tb, tb + 0.2) * (1 - ramp(t, Tc, D)) * (1 - 0.5 * live), 200);
       // cards: all char, glow and break up together inside the beam (whole until the page hands them over at take)
       victims.forEach((v, k) => {
         const k0 = v.card;
