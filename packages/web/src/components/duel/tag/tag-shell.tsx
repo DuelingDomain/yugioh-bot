@@ -25,7 +25,7 @@ import { resolveBattleStep, StationTrack } from "../station-track";
 import { RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "../table/hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "../table/hud-shared";
 import { useForkLabels } from "../table/fork-labels";
-import { MasterBadgeScope, type MasterBadgeSource } from "../master-badge";
+import { MasterBadgeContext, type MasterBadgeSource } from "../master-badge";
 import { tagSeatCode } from "../table-format";
 import { OpponentBar } from "../table/opponent-bar";
 import { attackLockAt, toneBySeat } from "../table/seat-state";
@@ -380,7 +380,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   } : null;
 
   return (
-    <MasterBadgeScope value={masterBadges}>
+    <MasterBadgeContext.Provider value={masterBadges}>
     <div
       ref={rootRef}
       className={`${duelFontClasses} ${styles.shell}`}
@@ -599,6 +599,6 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
       ) : null}
       {replay ? null : modals}
     </div>
-    </MasterBadgeScope>
+    </MasterBadgeContext.Provider>
   );
 }

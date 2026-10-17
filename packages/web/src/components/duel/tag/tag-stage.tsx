@@ -6,6 +6,7 @@ import { ChainRoomContext, type ChainStripSize } from "../table/chain-room";
 import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
 import { LOCATION_FZONE, LOCATION_MZONE, LOCATION_PZONE, LOCATION_SZONE, zoneKey } from "../constants";
+import { SeatMasterBadge } from "../master-badge";
 import { isChainStripPrompt } from "../prompt-center";
 import { useStripRoom } from "../table/use-strip-room";
 import { hexToRgbTriplet } from "../table/seat-angle";
@@ -752,6 +753,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         pickable: pickIndex >= 0,
         hotkey: pickIndex >= 0 ? pickIndex + 1 : null,
         locked: aimedSeat === seat,
+        // The Deck Master badge of the member (Domain only; it is empty for a Standard seat view).
+        badge: room.session.mode === "domain" && view?.deckMaster ? <SeatMasterBadge seat={seat} side={near ? "you" : "opp"} /> : undefined,
       };
     });
     const out = loss.lostTeam === team;
