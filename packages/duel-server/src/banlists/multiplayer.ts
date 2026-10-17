@@ -84,7 +84,6 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   { code: 48995978, name: "Number 88: Gimmick Puppet of Leo", category: "alt-win", reason: `It ends the duel with a win for its controller when it has 3 counters.${NO_RESULT}`, formats: ALL },
   // --- global-state
   { code: 27204311, name: "Nibiru, the Primal Being", category: "global-state", reason: "It counts summons in a flag for each of two players and reads the flag of 'the opponent'.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
-  { code: 94145021, name: "Droll & Lock Bird", category: "global-state", reason: "It keeps a two-slot table of draws for each player.", formats: FFA },
   // --- chooser
   { code: 101402094, name: "Angelechy Opposition", category: "chooser", reason: "Its Extra Deck summon checks zones and summons to 1-tp without a reviewed eligible-opponent choice; recipient selection and zone checks are unproven at 3+ seats.", formats: ALL },
   { code: 57728570, name: "Crush Card Virus", category: "chooser", reason: "It reads the opponent hand, field and Deck, and asks one opponent to choose.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
