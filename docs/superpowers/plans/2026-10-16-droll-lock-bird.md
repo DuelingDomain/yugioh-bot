@@ -11,7 +11,7 @@
 - [x] If all checks pass, remove the FFA ban, update catalog expectations and documentation, and check the deck-check path for Tag and the web UI.
 - [x] Run only the relevant scenario/catalog tests and the duel-server, shared and web typechecks. Commit small changes with the requested co-author. Do not push.
 
-Use Node 22.23.3. The private data copy is `/tmp/droll-engine`, copied from `/home/sulman633/repos/yugioh-bot/data/duel-engine`. Its manifest records the worktree wrapper hash. The supplied bundle lacks two unrelated cards required by the current catalog: 100200298 and 101402094. Only the private copy receives those two CDB rows and their scripts, from the worktree's BabelCDB pin `a71a1d9ed1182d0e096a479bd15a57d374fd09f9` and CardScripts pin `f593bb7514a2fda449dc645450dc301328e5a64d`. The private manifest records these sources and its new CDB hash. Droll's CDB row, stock script, overlay and both cores are unchanged. No service or shared data changes are part of this task.
+Use Node 22.23.3. The private data copy is `/tmp/droll-engine`, copied from `/home/sulman633/repos/yugioh-bot/data/duel-engine`. Its manifest records the worktree wrapper hash. The supplied bundle lacks two unrelated cards required by the current catalog: 100200298 and 101402094. Only the private copy receives those two CDB rows and their scripts, from the worktree's pinned BabelCDB and CardScripts sources. The private manifest records these sources and its new CDB hash. Droll's CDB row, stock script, overlay and both cores are unchanged. No service or shared data changes are part of this task.
 
 Core SHA-256:
 
