@@ -48,20 +48,18 @@
 
 .railPlate { grid-area: plate; min-width: 0; padding: 4px 6px; }
 .railHand { grid-area: hand; min-width: 0; min-height: 0; height: 100%; }
-.railChip { grid-area: chip; display: none; }
 
 @media (max-width: 900px) {
   .rail {
     --rail-side: 0px;
     --hand-room: var(--stage-w);
     --tally-w: 100%;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "plate chip" "hand hand";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "plate" "hand";
     row-gap: 2px;
   }
   .rail[data-sv-rail="opp"] { --oh: 44px; --ohg: 5px; --r: 3px; height: auto; }
   .rail[data-sv-rail="you"] { --lh: var(--hand-h); --lhg: 6px; --r: 5px; height: auto; }
-  .railChip { display: block; }
 }
 
 @media (min-width: 1800px) {
@@ -430,4 +428,15 @@
   .railPlate [data-lp-seat] > div:first-child > span:first-child > span:first-child { max-width: 72px; }
   /* The "To act" label would push the tags off the narrow plate; the purple Turn tag already says it. */
   .rail[data-sv-rail="you"] .railPlate [data-lp-seat] > div:first-child > span:has([data-priority-full]) { display: none; }
+}
+
+/* The Deck Master badge sits at the right end of the name plate, beside the name and LP (master-badge.tsx). */
+.rail [data-dm-slot] {
+  --dm-badge-size: 56px;
+  top: 50%;
+  right: 10px;
+  translate: 0 -50%;
+}
+@media (max-width: 900px) {
+  .rail [data-dm-slot] { --dm-badge-size: 36px; top: 10px; right: 6px; translate: none; }
 }

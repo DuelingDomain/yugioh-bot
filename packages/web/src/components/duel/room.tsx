@@ -1810,9 +1810,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           inspectorNode={inspectorNode}
           logUnread={logUnread}
           promptDockNode={promptDockNode}
-          masterRail={masterRail}
-          legalActionsFor={legalActionsFor}
-          onChooseAction={onChooseAction}
           battleAim={battleAim}
           trackNode={trackNode}
           mobileTabs={mobileTabs}

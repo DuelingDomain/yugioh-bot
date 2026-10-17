@@ -547,7 +547,7 @@ export function Tally({
   ) : null;
   return (
     <div className={styles.tally} data-side={side} data-lp-seat={seatKey} data-active={active ? "true" : "false"} data-badge={badge ? "true" : undefined}>
-      {badge ? <div className={styles.tBadge}>{badge}</div> : null}
+      {badge ? <div className={styles.tBadge} data-dm-slot="">{badge}</div> : null}
       <div className={styles.tHead}>
         <span className={styles.tIdentity}>
           <span className={styles.tWho} aria-hidden={spectator && priorityLabel ? true : undefined}>{name}</span>

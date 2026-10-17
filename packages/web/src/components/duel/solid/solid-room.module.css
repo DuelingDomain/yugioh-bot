@@ -195,7 +195,6 @@
   box-shadow: 0 18px 40px -10px rgb(0 0 0 / 0.9);
 }
 .drawerLeft { --bf-drawer-size: clamp(300px, 26vw, 420px); }
-.drawerRight { --bf-drawer-size: clamp(252px, 20vw, 300px); }
 .insp {
   display: flex;
   flex-direction: column;
@@ -266,19 +265,6 @@
   max-height: min(40dvh, 420px);
 }
 .root > div[data-mode="flow"] { max-height: 52dvh; }
-
-.docks {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  /* The two docks carry their own panel (docks.module.css); the column adds no second frame. */
-  padding: 0;
-  overflow: visible;
-  border: 0;
-  background: none;
-}
-.docks > * { flex: 1 1 auto; min-height: 0; }
 
 .mobileBar { display: none; }
 
