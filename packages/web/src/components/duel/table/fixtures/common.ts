@@ -2,7 +2,7 @@ import { defaultDuelSettings, opponentSeatsOf, teamOfSeat } from "@yugidraft/sha
 import type { DuelCardInfo, DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelRoom, DuelSeatView } from "@yugidraft/shared/duels";
 import { CARDS } from "../../fx-lab/cards";
 import { ATTRIBUTE } from "../../attack-styles";
-import { LOCATION_DECK, LOCATION_HAND, LOCATION_MZONE, POS_FACEUP_ATTACK, TYPE_CONTINUOUS, TYPE_EFFECT, TYPE_MONSTER, TYPE_TRAP, zoneKey } from "../../constants";
+import { LOCATION_DECK, LOCATION_DMZONE, LOCATION_HAND, LOCATION_MZONE, POS_FACEUP_ATTACK, TYPE_CONTINUOUS, TYPE_EFFECT, TYPE_MONSTER, TYPE_TRAP, zoneKey } from "../../constants";
 import type { BattleAim, CameraState, TableFormat } from "../types";
 
 import { cardAt, hiddenAt, MZ, SZ, link } from "../../fx-lab/board";
@@ -364,6 +364,23 @@ const SEARCH_NAMES = [
 const SEARCH_CODES = [74677422, 4961232, 64335804, 37818794, 71408082, 88264978, 24611934, 29491334, 61140872, 63942330, 36262024, 31293090, 55460084, 19025379] as const;
 
 /** The `?pick=cards` prompt: a pick among many cards of your Deck, so the strip has more cards than any window shows. */
+/** The `?pick=dm` prompt: the idle command of your Deck Master in its zone (a Summon and a Set), so its slot reads Ready. */
+export function masterPrompt(seat: number): DuelPrompt {
+  const at = { controller: seat, location: LOCATION_DMZONE, sequence: 0 };
+  return {
+    id: "pick-dm", seat, kind: "choice", title: "Main Phase", context: { type: "action", phase: "main" },
+    options: [
+      { id: "summon:0", label: `Normal Summon ${TABLE_CARDS.darkMagicianGirl.name}`, ...at },
+      { id: "mset:0", label: `Set monster ${TABLE_CARDS.darkMagicianGirl.name}`, ...at },
+    ],
+  };
+}
+
+/** The Deck Master of `view` stands in its zone (a Dark Magician Girl, 500 LP to summon), as `?pick=dm` needs. */
+export function masterInZone(view: DuelSeatView): DuelSeatView {
+  return view.deckMaster ? { ...view, deckMaster: { ...view.deckMaster, card: TABLE_CARDS.darkMagicianGirl, inZone: true, returns: 1, nextCost: 500 } } : view;
+}
+
 export function searchPrompt(seat: number, count: number = SEARCH_NAMES.length): DuelPrompt {
   const options: DuelPromptOption[] = SEARCH_NAMES.slice(0, count).map((name, sequence) => ({
     id: `s${sequence}`,

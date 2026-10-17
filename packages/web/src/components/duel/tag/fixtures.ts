@@ -9,6 +9,8 @@ import {
   hiddenAt,
   fixtureRoom,
   link,
+  masterInZone,
+  masterPrompt,
   newSeat,
   putMonster,
   putSpell,
@@ -365,6 +367,19 @@ export function tagSearchVariant(set: TableFixtureSet): TableFixtureSet {
       const engine = state.room.engine;
       if (!engine || state.room.mySeat !== ASTER) return [id, state];
       return [id, { ...state, room: { ...state.room, engine: { ...engine, prompt: searchPrompt(ASTER) } } }];
+    }),
+  ) as unknown as TableFixtureSet["states"];
+  return { ...set, states };
+}
+
+/** The `?pick=dm` preview of the tag table (with `?mode=domain`): your Deck Master stands in its zone and you may Summon or Set it, so its slot reads Ready. */
+export function tagMasterVariant(set: TableFixtureSet): TableFixtureSet {
+  const states = Object.fromEntries(
+    Object.entries(set.states).map(([id, state]) => {
+      const engine = state.room.engine;
+      if (!engine || state.room.mySeat !== ASTER) return [id, state];
+      const seats = engine.seats.map((view) => (view.seat === ASTER ? masterInZone(view) : view));
+      return [id, { ...state, room: { ...state.room, engine: { ...engine, seats, prompt: masterPrompt(ASTER) } } }];
     }),
   ) as unknown as TableFixtureSet["states"];
   return { ...set, states };

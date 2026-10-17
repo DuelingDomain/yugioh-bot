@@ -2,17 +2,18 @@
 
 import { useMemo } from "react";
 
-import { TAG_FIXTURES, TAG_TEAM_NAMES, tagDomainVariant, tagSearchVariant } from "@/components/duel/tag/fixtures";
+import { TAG_FIXTURES, TAG_TEAM_NAMES, tagDomainVariant, tagMasterVariant, tagSearchVariant } from "@/components/duel/tag/fixtures";
 import { TagShell } from "@/components/duel/tag/tag-shell";
 import { PreviewHarness } from "@/components/duel/table/fixtures/preview-harness";
 import { useTableTextScale } from "@/components/duel/card-text-size";
 
-/** The 2v2 tag preview: the Rooftop shell on the fixtures, with the camera and lock the URL asks for (`?pick=cards`: a 14-card Deck pick; `?mode=domain`: a Domain table with Deck Masters). */
+/** The 2v2 tag preview: the Rooftop shell on the fixtures, with the camera and lock the URL asks for (`?pick=cards`: a 14-card Deck pick; `?mode=domain`: a Domain table with Deck Masters; add `?pick=dm` to put your master in its zone with a Summon and a Set). */
 export function TagPreview({ stateId, cam, lock, pick = null, mode = null }: { stateId: string | null; cam: string | null; lock: string | null; pick?: string | null; mode?: string | null }) {
   useTableTextScale();
   const set = useMemo(() => {
     const base = pick === "cards" ? tagSearchVariant(TAG_FIXTURES) : TAG_FIXTURES;
-    return mode === "domain" ? tagDomainVariant(base) : base;
+    const domain = mode === "domain" ? tagDomainVariant(base) : base;
+    return mode === "domain" && pick === "dm" ? tagMasterVariant(domain) : domain;
   }, [pick, mode]);
   return (
     <PreviewHarness
