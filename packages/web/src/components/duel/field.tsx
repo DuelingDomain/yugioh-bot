@@ -1070,6 +1070,8 @@ export const SeatField = memo(function SeatField({
   const vars: CssVars = {
     "--t": hexToRgbTriplet(toneHex.main),
     "--tink": toneHex.ink,
+    // The turn of this seat in degrees (raw, as the wrapper turns): a label that must read upright for the viewer (a rival's hand count) turns back by it.
+    "--seat-turn": `${angleDeg}deg`,
     // Without a scale the wrapper owns the text scale (--sf-ts): the 4-way grid sizes its fields from outside, and a
     // size change must not draw the whole field again.
     ...(scale != null ? { "--ts": textScale(scale).toFixed(2) } : {}),
