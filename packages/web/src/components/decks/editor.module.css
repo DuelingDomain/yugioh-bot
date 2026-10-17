@@ -73,7 +73,10 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-flag[data-s="ok"] { color: var(--chain-ink); }
 .de-tools { display: inline-flex; gap: 2px; }
 .de-dbar > .de-tools { margin-left: auto; }
-.de-dbar[data-gx] { flex-wrap: wrap; row-gap: 4px; }
+/* Genesys: the points meter keeps its place, and the deck check text takes the room between it and the tools. It never wraps, so a hover, a long message or new numbers cannot move the meter or the grid. */
+.de-dbar[data-gx] { flex-wrap: nowrap; }
+.de-deck .de-dbar[data-gx] .de-flag { flex: 1 1 0; min-width: 0; max-width: none; }
+.de-flagt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The points total stays in view while the deck scrolls. */
 .de-dbar[data-gx] { position: sticky; top: 0; z-index: 3; background: var(--ground); }
 .de-banf select:disabled { opacity: 1; color: var(--ink-2); font-size: 13px; }
