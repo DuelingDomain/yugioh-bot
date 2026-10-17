@@ -1,3 +1,5 @@
+import { recordProductEvent } from "../analytics/index.js";
+import { ExpectedError } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import type { Tournament as BaseTournament, TournamentMatch, TournamentPlayer, TournamentVisibility } from "../types/index.js";
 import type { DuelBestOf } from "../duels/index.js";
@@ -85,7 +87,7 @@ function assertBestOf(value: unknown): asserts value is DuelBestOf {
 
 function assertFormat(format: string): asserts format is TournamentFormat {
   if (format !== "round_robin" && format !== "single_elim") {
-    throw new Error("Unsupported tournament format");
+    throw new ExpectedError("Unsupported tournament format", 400);
   }
 }
 
@@ -94,7 +96,7 @@ export function createTournamentService(db: Database.Database) {
     const row = db.prepare("select * from tournaments where id = ?").get(tournamentId);
 
     if (!row) {
-      throw new Error("Tournament not found");
+      throw new ExpectedError("Tournament not found", 400);
     }
 
     return mapTournament(row);
@@ -145,7 +147,7 @@ export function createTournamentService(db: Database.Database) {
     const row = db.prepare("select * from tournament_matches where id = ?").get(tournamentMatchId);
 
     if (!row) {
-      throw new Error("Tournament match not found");
+      throw new ExpectedError("Tournament match not found", 400);
     }
 
     return mapTournamentMatch(row);
@@ -154,8 +156,9 @@ export function createTournamentService(db: Database.Database) {
   const validateWindow = (hours: number | null | undefined) => {
     if (hours === null || hours === undefined) return;
     if (!Number.isInteger(hours) || hours < MIN_REPORT_CONFIRM_HOURS || hours > MAX_REPORT_CONFIRM_HOURS) {
-      throw new Error(
+      throw new ExpectedError(
         `Confirm window must be an integer between ${MIN_REPORT_CONFIRM_HOURS} and ${MAX_REPORT_CONFIRM_HOURS} hours`,
+        400,
       );
     }
   };
@@ -198,6 +201,20 @@ export function createTournamentService(db: Database.Database) {
       if (latest) slugs.add(latest);
     }
     return [...slugs];
+  };
+
+  /**
+   * Drops the reports nobody confirmed. Call inside the transaction that closes the tournament:
+   * once it is closed a report that waits for a confirm no longer counts, so it is denied and its
+   * slot goes back to open. Confirmed results are not touched.
+   */
+  const voidUnconfirmedReports = (tournamentId: number) => {
+    db.prepare(
+      "update tournament_matches set status = 'open', match_id = null where tournament_id = ? and status = 'pending_approval'",
+    ).run(tournamentId);
+    db.prepare(
+      "update matches set status = 'denied', resolved_at = current_timestamp where tournament_id = ? and status = 'pending'",
+    ).run(tournamentId);
   };
 
   const insertPendingMatch = (
@@ -243,11 +260,11 @@ export function createTournamentService(db: Database.Database) {
       const tournament = findById(tournamentId);
 
       if (tournament.status !== "active") {
-        throw new Error("Tournament is not active");
+        throw new ExpectedError("Tournament is not active", 400);
       }
 
       if (winnerId !== reporterId && winnerId !== opponentId) {
-        throw new Error("Winner must be one of the match players");
+        throw new ExpectedError("Winner must be one of the match players", 400);
       }
 
       const tournamentMatch = db
@@ -267,7 +284,7 @@ export function createTournamentService(db: Database.Database) {
         .get(tournamentId, reporterId, opponentId, opponentId, reporterId);
 
       if (!tournamentMatch) {
-        throw new Error("Open tournament match not found");
+        throw new ExpectedError("Open tournament match not found", 400);
       }
 
       assertNoOpenSeries((tournamentMatch as any).id);
@@ -282,21 +299,21 @@ export function createTournamentService(db: Database.Database) {
       const tournament = findById(tournamentMatch.tournamentId);
 
       if (tournament.status !== "active") {
-        throw new Error("Tournament is not active");
+        throw new ExpectedError("Tournament is not active", 400);
       }
 
       if (tournamentMatch.status !== "open" || tournamentMatch.playerTwoId === null) {
-        throw new Error("Tournament match is not open");
+        throw new ExpectedError("Tournament match is not open", 400);
       }
 
       const playerIds = [tournamentMatch.playerOneId, tournamentMatch.playerTwoId];
 
       if (!playerIds.includes(reporterId)) {
-        throw new Error("You are not in this tournament match");
+        throw new ExpectedError("You are not in this tournament match", 400);
       }
 
       if (!playerIds.includes(winnerId)) {
-        throw new Error("Winner must be one of the match players");
+        throw new ExpectedError("Winner must be one of the match players", 400);
       }
 
       assertNoOpenSeries(tournamentMatch.id);
@@ -314,13 +331,14 @@ export function createTournamentService(db: Database.Database) {
     const tournament = findById(tournamentId);
 
     if (tournament.status !== "pending" && tournament.status !== "active") {
-      throw new Error(`Tournament cannot be cancelled in status '${tournament.status}'`);
+      throw new ExpectedError(`Tournament cannot be cancelled in status '${tournament.status}'`, 400);
     }
 
     db.prepare(
       "update tournaments set status = 'cancelled', ended_at = current_timestamp where id = ?",
     ).run(tournamentId);
     const changedDuelSlugs = cancelOpenSeries(tournamentId);
+    voidUnconfirmedReports(tournamentId);
 
     return { tournament: findById(tournamentId), changedDuelSlugs };
   });
@@ -329,13 +347,15 @@ export function createTournamentService(db: Database.Database) {
     const tournament = findById(tournamentId);
 
     if (tournament.status !== "active") {
-      throw new Error(`Tournament cannot be completed in status '${tournament.status}'`);
+      throw new ExpectedError(`Tournament cannot be completed in status '${tournament.status}'`, 400);
     }
 
     db.prepare(
       "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
     ).run(tournamentId);
     const changedDuelSlugs = cancelOpenSeries(tournamentId);
+    voidUnconfirmedReports(tournamentId);
+    recordProductEvent(db, "tournament_finished", tournament.createdByUserId, { format: tournament.format, participantCount: participantsFor(tournamentId).length });
 
     return { tournament: findById(tournamentId), changedDuelSlugs };
   });
@@ -346,7 +366,13 @@ export function createTournamentService(db: Database.Database) {
         "update tournaments set status = 'completed', ended_at = current_timestamp where id = ? and status = 'active'",
       )
       .run(tournamentId);
-    const changedDuelSlugs = closed.changes > 0 ? cancelOpenSeries(tournamentId) : [];
+    let changedDuelSlugs: string[] = [];
+    if (closed.changes > 0) {
+      changedDuelSlugs = cancelOpenSeries(tournamentId);
+      voidUnconfirmedReports(tournamentId);
+      const tournament = findById(tournamentId);
+      recordProductEvent(db, "tournament_finished", tournament.createdByUserId, { format: tournament.format, participantCount: participantsFor(tournamentId).length });
+    }
     return { tournament: findById(tournamentId), changedDuelSlugs };
   });
 
@@ -368,7 +394,7 @@ export function createTournamentService(db: Database.Database) {
     ): Tournament {
       assertFormat(format);
       const visibility = options?.visibility ?? "private";
-      if (visibility !== "open" && visibility !== "private") throw new Error("visibility must be open or private");
+      if (visibility !== "open" && visibility !== "private") throw new ExpectedError("visibility must be open or private", 400);
       validateWindow(options?.reportConfirmWindowHours);
       const bestOf = options?.bestOf ?? 3;
       assertBestOf(bestOf);
@@ -398,21 +424,28 @@ export function createTournamentService(db: Database.Database) {
         `,
       );
 
+      // Keep the pre-check outside the write transaction so a racing host's row survives rejection.
+      const insertWithEvent = db.transaction((webSlug: string) => {
+        const result = insert.run(
+          guildId,
+          name,
+          format,
+          createdByUserId,
+          webSlug,
+          options?.deadlineAt ?? null,
+          options?.reportConfirmWindowHours ?? null,
+          bestOf,
+          duelRulesJson,
+          visibility,
+        );
+        recordProductEvent(db, "tournament_created", createdByUserId, { format, participantCount: 0 });
+        return result;
+      });
+
       let result;
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
-          result = insert.run(
-            guildId,
-            name,
-            format,
-            createdByUserId,
-            generateWebSlug(),
-            options?.deadlineAt ?? null,
-            options?.reportConfirmWindowHours ?? null,
-            bestOf,
-            duelRulesJson,
-            visibility,
-          );
+          result = insertWithEvent.immediate(generateWebSlug());
           break;
         } catch (err: any) {
           if (err?.code === "SQLITE_CONSTRAINT_UNIQUE"
@@ -558,21 +591,26 @@ export function createTournamentService(db: Database.Database) {
       const tournament = findById(tournamentId);
 
       if (tournament.status !== "pending") {
-        throw new Error("Tournament has already started");
+        throw new ExpectedError("Tournament has already started", 400);
       }
 
       const existing = db.prepare("select 1 from tournament_participants where tournament_id = ? and player_id = ?").get(tournamentId, playerId);
 
       if (existing) {
-        throw new Error("You have already joined this tournament");
+        throw new ExpectedError("You have already joined this tournament", 400);
       }
 
-      db.prepare(
+      const insert = db.prepare(
         `
         insert into tournament_participants (tournament_id, player_id)
         values (?, ?)
       `,
-      ).run(tournamentId, playerId);
+      );
+      db.transaction(() => {
+        insert.run(tournamentId, playerId);
+        const player = db.prepare("select user_id from players where id=?").get(playerId) as { user_id: number };
+        recordProductEvent(db, "tournament_joined", player.user_id, { format: tournament.format, participantCount: participantsFor(tournamentId).length });
+      }).immediate();
     },
 
     participants(tournamentId: number): number[] {
@@ -583,7 +621,7 @@ export function createTournamentService(db: Database.Database) {
       const tournament = findById(tournamentId);
 
       if (tournament.status !== "pending") {
-        throw new Error("Tournament has already started");
+        throw new ExpectedError("Tournament has already started", 400);
       }
 
       const result = db
@@ -591,7 +629,7 @@ export function createTournamentService(db: Database.Database) {
         .run(tournamentId, playerId);
 
       if (result.changes === 0) {
-        throw new Error("You are not a participant in this tournament");
+        throw new ExpectedError("You are not a participant in this tournament", 400);
       }
     },
 
@@ -599,11 +637,11 @@ export function createTournamentService(db: Database.Database) {
       const tournament = findById(tournamentId);
 
       if (tournament.status !== "pending") {
-        throw new Error("Tournament has already started");
+        throw new ExpectedError("Tournament has already started", 400);
       }
 
       if (tournament.createdByUserId !== organizerUserId) {
-        throw new Error("Only the organizer can kick participants");
+        throw new ExpectedError("Only the organizer can kick participants", 400);
       }
 
       const result = db
@@ -611,7 +649,7 @@ export function createTournamentService(db: Database.Database) {
         .run(tournamentId, playerId);
 
       if (result.changes === 0) {
-        throw new Error("That player is not a participant in this tournament");
+        throw new ExpectedError("That player is not a participant in this tournament", 400);
       }
     },
 
@@ -642,11 +680,11 @@ export function createTournamentService(db: Database.Database) {
       const playerIds = participantsFor(tournamentId);
 
       if (tournament.status !== "pending") {
-        throw new Error("Tournament has already started");
+        throw new ExpectedError("Tournament has already started", 400);
       }
 
       if (playerIds.length < 2) {
-        throw new Error("Tournament needs at least two players");
+        throw new ExpectedError("Tournament needs at least two players", 400);
       }
 
       if (tournament.format === "round_robin") {
@@ -785,18 +823,18 @@ export function createTournamentService(db: Database.Database) {
           | { id: number; tournament_id: number; match_id: number | null; status: string }
           | undefined;
         if (!tm) {
-          throw new Error("Tournament match not found");
+          throw new ExpectedError("Tournament match not found", 400);
         }
 
         const tournament = findById(tm.tournament_id);
         if (tournament.createdByUserId !== requesterUserId) {
-          throw new Error("Only the organizer can reopen a match");
+          throw new ExpectedError("Only the organizer can reopen a match", 403);
         }
         if (tournament.format !== "round_robin") {
-          throw new Error("Reopening results is only available for round-robin events");
+          throw new ExpectedError("Reopening results is only available for round-robin events", 400);
         }
         if (tm.status !== "completed" || tm.match_id === null) {
-          throw new Error("Match is not completed");
+          throw new ExpectedError("Match is not completed", 400);
         }
 
         if (tournament.status === "completed") {
@@ -805,7 +843,7 @@ export function createTournamentService(db: Database.Database) {
               and status in ('pending', 'active') and id != ? limit 1`)
             .get(tournament.guildId, tournament.createdByUserId, tournament.name, tournament.id);
           if (collision) {
-            throw new Error("You already have a tournament called this that hasn't finished. Finish or rename it before reopening this match.");
+            throw new ExpectedError("You already have a tournament called this that hasn't finished. Finish or rename it before reopening this match.", 400);
           }
         }
 
@@ -864,7 +902,7 @@ export function createTournamentService(db: Database.Database) {
       const tournament = findById(tournamentId);
 
       if (tournament.status === "completed" || tournament.status === "cancelled") {
-        throw new Error(`Cannot edit settings of a ${tournament.status} tournament`);
+        throw new ExpectedError(`Cannot edit settings of a ${tournament.status} tournament`, 400);
       }
 
       if ("reportConfirmWindowHours" in patch) {

@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { findTournamentReadAccess } from "@yugidraft/shared/services";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -198,7 +199,7 @@ export async function POST(
 
     return NextResponse.json({ success: true, matchId });
   } catch (error) {
-    console.error("[api/tournaments/[slug]/report] error:", error);
+    report(error, { tags: { operation: "[api/tournaments/[slug]/report] error" } });
     return NextResponse.json(
       { error: "Failed to report match" },
       { status: 500 }

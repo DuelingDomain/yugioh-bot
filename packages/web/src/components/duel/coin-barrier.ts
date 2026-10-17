@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 // The coin barrier: what happens AFTER a coin toss waits until its last result is gone.
 //
 // A snapshot brings the toss and what follows it (an attack, a halved LP, a destroy) in one batch. The
@@ -156,7 +157,7 @@ export function releaseCoinBarriers(): void {
     try {
       listener();
     } catch (error) {
-      console.error("coin barrier waiter failed", error);
+      report(error, { tags: { operation: "coin barrier waiter failed" } });
     }
   }
 }

@@ -1,11 +1,11 @@
+import { SEAT_BOX_FULL_DEF } from "../table/geometry";
 import type { CameraAction as TableCameraAction, CameraLockReason, CameraState as TableCameraState } from "../table/types";
 
 /** The Rooftop adds one flag to the shared camera state. The duel never moves the camera in: only the viewer zooms in. */
 export type CameraState = TableCameraState & { aiming: boolean };
 export type CameraAction =
   | TableCameraAction
-  /** A prompt needs these field seats on screen: a focus on any other field goes back to the overview. */
-  | { type: "needSeats"; seats: readonly number[] }
+  /** The viewer is aiming an attack or a target: a flag only, the camera does not move for it. */
   | { type: "aiming"; on: boolean };
 
 /**
@@ -13,7 +13,7 @@ export type CameraAction =
  * table camera) and adds a few extra fields on top of CameraState: the target pose, a tween revision, and the pose to
  * restore after an FX lock. The "rival end" view rides on `look`; the fly-in intro rides on `toggleFly`.
  *
- * World units are the prototype's: a field is the SeatField box, 653 x 380, the near team strip sits at +y, the rival strip at -y.
+ * World units are the prototype's: a field is the wide SeatField box, 829 x 380, the near team strip sits at +y, the rival strip at -y.
  */
 
 export interface RoofPose {
@@ -30,11 +30,13 @@ export const ROOF_LIMITS = { zoomMin: 0.3, zoomMax: 3.4, tiltMin: 6, tiltMax: 66
 /**
  * Zoom 1 is the overview: the stage fits all four fields (ROOF_WORLD) into the free box, so every other zoom is relative
  * to that. The overview is the default view and the one every "back" returns to.
+ * Home and rival keep the whole strip in the box: they were 1.3 on the narrow 1440 unit world, 1.3 x 1440 / 1792 = 1.04 on the
+ * wide one, so the outer baton pills and piles stay on screen.
  */
 export const ROOF_PRESETS: Readonly<Record<"home" | "overview" | "rival" | "intro", RoofPose>> = {
-  home: { yaw: 0, tilt: 36, zoom: 1.3, fx: 0, fy: -30, oy: 64 },
+  home: { yaw: 0, tilt: 36, zoom: 1.04, fx: 0, fy: -30, oy: 64 },
   overview: { yaw: 0, tilt: 8, zoom: 1, fx: 0, fy: 0, oy: 0 },
-  rival: { yaw: 180, tilt: 36, zoom: 1.3, fx: 0, fy: 30, oy: 64 },
+  rival: { yaw: 180, tilt: 36, zoom: 1.04, fx: 0, fy: 30, oy: 64 },
   intro: { yaw: -150, tilt: 74, zoom: 0.25, fx: 0, fy: -500, oy: -150 },
 };
 
@@ -44,10 +46,15 @@ export const ROOF_ZOOM_MS = 360;
 export const ROOF_LOCK_IN_MS = 700;
 /**
  * Field plane size (the SeatField box at z = 112 px) and strip offset in world units. Fields sit 61 units apart.
+ * A field is the wide one of the 3-way table and the 4-way grid (SEAT_BOX_FULL_DEF: each of the five zone columns is a card
+ * height wide, so a Defense card lies at full size inside its own column, see `[data-def-full]` in field.module.css).
  * The two strips are 160 units apart (offsetY 80 each side of the helipad): 1A stands straight across from 2A and 1B
  * across from 2B, in the same columns, with room between each facing pair for one shared Extra Monster row.
  */
-export const ROOF_FIELD = { width: 653, height: 380, offsetY: 80, centerX: 357 } as const;
+export const ROOF_FIELD = { width: SEAT_BOX_FULL_DEF, height: 380, offsetY: 80, centerX: 445 } as const;
+
+/** Width of one team strip's two fields and the gap between them, in world units (1719). */
+export const ROOF_STRIP_SPAN = 2 * ROOF_FIELD.centerX + ROOF_FIELD.width;
 
 export interface RoofSlot {
   seat: number;
@@ -74,14 +81,13 @@ export function roofSlots(anchorSeat: number): Record<number, RoofSlot> {
 }
 
 /** Free width of the middle band between the two seat labels, in world units (the gap row between the strips). */
-const GAP_FREE_WIDTH = 900;
+const GAP_FREE_WIDTH = 1252;
 /**
  * The same with the shared Extra Monster Zones drawn in the gap: the two inner cells (column 4 of the left pair, column 2 of
- * the right pair) stand 233 units either side of the helipad, 466 apart. A cell is about 61 units wide, so the free width
- * between the inner edges is about 405. The scale this is multiplied by (fit x zoom) reads about 13% under what the tilted
- * gap really measures (326px between the inner cell edges at 1920, where 405 x 0.8 = 324), so the hub keeps a margin.
+ * the right pair) are about 509 units apart on the wide fields (375px between the inner cell edges at 1920x1080, at scale 0.736).
+ * The value is kept about 13% under that, so the hub keeps a margin.
  */
-const GAP_FREE_WIDTH_SHARED = 405;
+const GAP_FREE_WIDTH_SHARED = 440;
 
 /** Width of the smallest phase hub strip, in px. */
 export const XS_HUB_MIN = 170;
@@ -116,8 +122,8 @@ const SEAT_TILT = 22;
 
 /**
  * Close pose on one field before the screen is known: the biggest close-up a roomy screen gives, aimed at the field.
- * The camera stays on the viewer's side for every field: a far field is drawn to read upright from there, so a zoom is
- * easier to read than the rival's end (which turns its text upside down). The stage swaps it for `fitSeatPose` once it
+ * The camera stays on the viewer's side for every field: a far field faces its own owner, and the card panel on hover
+ * reads a card there. The stage swaps it for `fitSeatPose` once it
  * has measured the free box.
  */
 export function seatPose(anchorSeat: number, seat: number): RoofPose {
@@ -181,8 +187,10 @@ export function roofFitCorners(anchorSeat: number, seat: number): { corners: { x
  * Close pose on one field that shows the WHOLE field (the Extra Monster row between the strips, the monster and the
  * Spell/Trap rows, the piles) inside the free box: the biggest zoom whose projected field fits both the width and the
  * height with a small margin, centred in the box. The box already ends above the hands, so nothing here sits under them.
+ * `centreDrop` (px) is how far the box centre lies BELOW the origin of the projection, when the stage lifted its view for
+ * the home pose (see `liftView`): the close-up then takes the box the stage had before the lift, and stays centred in it.
  */
-export function fitSeatPose(anchorSeat: number, seat: number, fit: number, view: RoofView): RoofPose {
+export function fitSeatPose(anchorSeat: number, seat: number, fit: number, view: RoofView, centreDrop = 0): RoofPose {
   const base = seatPose(anchorSeat, seat);
   const slot = roofSlots(anchorSeat)[seat];
   if (!slot || !(fit > 0)) return base;
@@ -211,7 +219,7 @@ export function fitSeatPose(anchorSeat: number, seat: number, fit: number, view:
   pose.zoom = lo;
   // Centre it in the box (the box centre is the origin of the projection, so 0 is the middle): slide the world on the screen.
   const e = extent(lo);
-  const want = 0;
+  const want = centreDrop;
   pose.oy = (want - (e.minY + e.maxY) / 2) / fit;
   for (let i = 0; i < 3; i += 1) {
     const shots = corners.map((corner) => projectRoof(pose, fit, corner).y);
@@ -277,7 +285,6 @@ export function initialRoofCamera(opts: { anchorSeat: number; camera?: Partial<C
     mode,
     focusSeat,
     lookSeat,
-    upright: c.upright ?? false,
     compact: c.compact ?? "auto",
     aiming: c.aiming ?? false,
     fly: mode === "fly" ? { yawDeg: pose.yaw, tiltDeg: pose.tilt, zoom: pose.zoom, targetSeat: fly.targetSeat } : fly,
@@ -333,11 +340,6 @@ function goOverview(state: RoofCameraState, dur = ROOF_ZOOM_MS): RoofCameraState
   return moved(state, { mode: "overview", focusSeat: null, lookSeat: null, pose: { ...ROOF_PRESETS.overview } }, dur);
 }
 
-/** The saved view after a lock, turned into the overview (the lock itself has already eased the camera there). */
-function overviewResume(r: RoofResume): RoofResume {
-  return { mode: "overview", focusSeat: null, lookSeat: null, pose: { ...ROOF_PRESETS.overview }, fly: r.fly };
-}
-
 function focusOn(state: RoofCameraState, seat: number): RoofCameraState {
   if (state.mode === "focus" && state.focusSeat === seat) return state;
   return moved(state, { mode: "focus", focusSeat: seat, lookSeat: null, pose: seatPose(state.anchor, seat) }, ROOF_ZOOM_MS);
@@ -384,29 +386,11 @@ export function roofReducer(state: RoofCameraState, action: CameraAction): RoofC
       const dur = Math.abs(Math.log(action.factor)) > 0.1 ? 300 : 0;
       return moved(state, { mode: "fly", focusSeat: null, lookSeat: null, pose, fly: freeFly(pose, state.fly) }, dur);
     }
-    case "toggleUpright":
-      return { ...state, upright: !state.upright };
     case "toggleCompact":
       return { ...state, compact: state.compact === "auto" ? "on" : state.compact === "on" ? "off" : "auto" };
-    case "aiming": {
-      // An aim needs the rival field in view: a close-up on one field goes back to the overview first.
-      if (action.on && (state.mode === "focus" || state.mode === "look") && !state.lock) return { ...goOverview(state), aiming: true };
-      // Under an FX lock the camera is already on the overview: make the saved close-up the overview too.
-      if (action.on && state.lock && state.resume && (state.resume.mode === "focus" || state.resume.mode === "look")) {
-        return { ...state, aiming: true, resume: overviewResume(state.resume) };
-      }
+    case "aiming":
+      // An aim never moves the camera: a close-up stays, and the viewer steps to a rival field with its pill.
       return { ...state, aiming: action.on };
-    }
-    case "needSeats": {
-      if (state.lock) {
-        // Same under a lock: the close-up that comes back after the lock must not hide the field a prompt needs.
-        const r = state.resume;
-        if (r?.mode !== "focus" || !action.seats.some((seat) => seat !== r.focusSeat)) return state;
-        return { ...state, resume: overviewResume(r) };
-      }
-      if (state.mode !== "focus") return state;
-      return action.seats.some((seat) => seat !== state.focusSeat) ? goOverview(state) : state;
-    }
     case "lock": {
       const untilMs = action.nowMs + action.ms;
       if (state.lock) {
@@ -506,15 +490,13 @@ export function roofKeyAction(key: string, ctx: RoofKeyContext, mods: RoofKeyMod
     case "-":
     case "_":
       return { type: "zoom", factor: 1 / 1.18 };
-    case "s":
-      return { type: "toggleUpright" };
     default:
       return null;
   }
 }
 
 /** Name of the camera for the dock ("Home", "Corvin · partner", ...). */
-export function cameraLabel(state: Pick<RoofCameraState, "mode" | "focusSeat" | "anchor">, nameOf: (seat: number) => string): string {
+export function cameraLabel(state: Pick<RoofCameraState, "mode" | "focusSeat" | "anchor">, nameOf: (seat: number) => string, replay = false): string {
   switch (state.mode) {
     case "home":
       return "Home";
@@ -525,7 +507,7 @@ export function cameraLabel(state: Pick<RoofCameraState, "mode" | "focusSeat" | 
     case "focus": {
       const seat = state.focusSeat;
       if (seat == null) return "Home";
-      if (seat === state.anchor) return `${nameOf(seat)} · you`;
+      if (seat === state.anchor) return replay ? nameOf(seat) : `${nameOf(seat)} · you`;
       if (nearTeam(state.anchor, seat)) return `${nameOf(seat)} · partner`;
       return `${nameOf(seat)}'s chair`;
     }
@@ -562,7 +544,7 @@ export interface RoofView {
  * Width and depth of the roof world that must stay in view at zoom 1 (the overview): the four fields with their
  * name labels and the gap between the strips, plus a little air. The depth leaves room for the 8 degree tilt.
  */
-export const ROOF_WORLD = { width: 1440, depth: 970 } as const;
+export const ROOF_WORLD = { width: ROOF_STRIP_SPAN + 73, depth: 970 } as const;
 
 /** Fit factor of the roof world: the four fields at zoom 1 fill the free box. 0 for an empty box. */
 export function roofFit(view: RoofView): number {
@@ -570,6 +552,75 @@ export function roofFit(view: RoofView): number {
   const h = view.bottom - view.top;
   if (!(w > 0) || !(h > 0)) return 0;
   return Math.min(w / ROOF_WORLD.width, h / ROOF_WORLD.depth);
+}
+
+/**
+ * The view with its bottom lowered, when needed, so the home pose ends above the hands: the near edge of your own field
+ * (its Spell/Trap row and piles) stays above `handTop` (stage px) and no hand or hand panel covers a zone. The home
+ * pose is fitted to the free box and its near edge can end below the box; that grows with the fit, so the box is
+ * shrunk (bisection: the near edge only moves up when the bottom does) until the edge clears the hands.
+ */
+export function clearHands(anchorSeat: number, view: RoofView, handTop: number, floor = 120): RoofView {
+  const { outer } = roofFitCorners(anchorSeat, anchorSeat);
+  if (!(handTop > view.top)) return view;
+  const edgeAt = (bottom: number) => {
+    const v = { ...view, bottom };
+    const fit = roofFit(v) || 1;
+    return (v.top + v.bottom) / 2 + projectRoof(ROOF_PRESETS.home, fit, { x: 0, y: outer, z: ROOF_FIELD_Z }).y;
+  };
+  if (edgeAt(view.bottom) <= handTop) return view;
+  let lo = Math.min(view.bottom, view.top + floor);
+  let hi = view.bottom;
+  if (edgeAt(lo) > handTop) return { ...view, bottom: lo };
+  for (let i = 0; i < 24; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (edgeAt(mid) <= handTop) lo = mid;
+    else hi = mid;
+  }
+  return { ...view, bottom: lo };
+}
+
+/**
+ * Moves the whole view up, without changing its size (so the fit stays), when the home pose's near edge ends below
+ * `handTop` and the far edge has room above it. The far field's edge may rise until it is `farTop` (stage px: the
+ * bottom of the far team plate and a little air). The shift is the smaller of the near overshoot and that room.
+ * What is still too low after the shift is for `clearHands`, which shrinks the view.
+ */
+export function liftView(anchorSeat: number, view: RoofView, handTop: number, farTop: number): { view: RoofView; lift: number } {
+  if (!(handTop > view.top)) return { view, lift: 0 };
+  const fit = roofFit(view);
+  if (!(fit > 0)) return { view, lift: 0 };
+  const mid = (view.top + view.bottom) / 2;
+  const edge = (seat: number) => mid + projectRoof(ROOF_PRESETS.home, fit, { x: 0, y: roofFitCorners(anchorSeat, seat).outer, z: ROOF_FIELD_Z }).y;
+  const overshoot = edge(anchorSeat) - handTop;
+  const room = edge(anchorSeat ^ 1) - farTop;
+  const lift = Math.max(0, Math.min(overshoot, room));
+  if (!(lift > 0)) return { view, lift: 0 };
+  return { view: { ...view, top: view.top - lift, bottom: view.bottom - lift }, lift };
+}
+
+/** True for the two poses the lift is made for: the near-team home pose and the far-team rival pose. */
+export function isLiftedPose(pose: RoofPose): boolean {
+  return [ROOF_PRESETS.home, ROOF_PRESETS.rival].some((p) => p.yaw === pose.yaw && p.tilt === pose.tilt && p.zoom === pose.zoom && p.fx === pose.fx && p.fy === pose.fy && p.oy === pose.oy);
+}
+
+/**
+ * Slides a pose DOWN on the screen by `drop` px, so a pose that is not the home pose (the overview, the fly-in end,
+ * a free camera) lands where it would in the box the stage had before `liftView`: the origin of the projection is the
+ * lifted box centre, and only the home and rival poses are meant to ride up with it. The perspective scales a plain
+ * offset, so the middle of all four fields is corrected in a short loop (same as `fitSeatPose`).
+ */
+export function dropPose(anchorSeat: number, pose: RoofPose, fit: number, drop: number): RoofPose {
+  if (!(drop > 0) || !(fit > 0)) return pose;
+  const corners = [0, 1, 2, 3].flatMap((seat) => roofFitCorners(anchorSeat, seat).corners);
+  const middle = (p: RoofPose) => {
+    const ys = corners.map((corner) => projectRoof(p, fit, corner).y);
+    return (Math.min(...ys) + Math.max(...ys)) / 2;
+  };
+  const want = middle(pose) + drop;
+  const out: RoofPose = { ...pose, oy: pose.oy + drop / fit };
+  for (let i = 0; i < 3; i += 1) out.oy += (want - middle(out)) / fit;
+  return out;
 }
 
 /** Centre of a HUD box that is pushed back into the view. A box wider than the view is centred on it. */

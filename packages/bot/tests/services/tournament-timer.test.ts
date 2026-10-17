@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../../shared/tests/helpers/recording-observability.mjs";
 import { createPlayerService } from "@yugidraft/shared/services";
 import { createUserService } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
@@ -179,7 +180,7 @@ describe("tournament timer service", () => {
       const t1 = completedTournament(app, "A");
       const t2 = completedTournament(app, "B");
       const announced: number[] = [];
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warn = recording.report.mockClear().mockImplementation(() => {});
       const timer = createTournamentTimerService({
         tournaments: app.tournaments,
         matches: app.matches,
@@ -214,3 +215,5 @@ describe("tournament timer service", () => {
     spy.mockRestore();
   });
 });
+
+const recording = useRecordingObservability();

@@ -1,3 +1,4 @@
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { ClerkBackendError } from "@yugidraft/shared/clerk";
@@ -10,13 +11,18 @@ const s = vi.hoisted(() => ({
   getUser: vi.fn(),
   updateUserExternalId: vi.fn(),
   createBackend: vi.fn(),
+  useRest: false,
+  deleteWaitlistEntriesByEmail: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ getDb: () => s.db! }));
 vi.mock("@/lib/web-access", () => ({ requireWebAccess: s.access }));
-vi.mock("@yugidraft/shared/clerk", async original => ({
-  ...await original<typeof import("@yugidraft/shared/clerk")>(),
-  createClerkBackend: (...args: unknown[]) => { s.createBackend(...args); return { deleteUser: s.deleteUser, getUser: s.getUser, updateUserExternalId: s.updateUserExternalId }; },
-}));
+vi.mock("@yugidraft/shared/clerk", async original => {
+  const actual = await original<typeof import("@yugidraft/shared/clerk")>();
+  return {
+    ...actual,
+    createClerkBackend: (...args: unknown[]) => { s.createBackend(...args); if (s.useRest) return actual.createClerkBackend(args[0] as { secretKey: string }); return { deleteWaitlistEntriesByEmail: s.deleteWaitlistEntriesByEmail, deleteUser: s.deleteUser, getUser: s.getUser, updateUserExternalId: s.updateUserExternalId }; },
+  };
+});
 import { POST } from "../app/api/account/delete/route";
 import { syncClerkUser } from "../src/lib/clerk-sync";
 
@@ -36,14 +42,14 @@ beforeEach(() => {
     insert into saved_decks(guild_id,owner_user_id,name,mode,deck_json) values ('g',1,'Deck','normal','{}');
     insert into waitlist_signups(email,created_at,source) values ('one@example.com','2026-10-01','form');
   `);
-  vi.clearAllMocks();
+  vi.clearAllMocks(); s.useRest = false; s.deleteWaitlistEntriesByEmail.mockResolvedValue(undefined);
   vi.stubEnv("CLERK_SECRET_KEY", "sk_test_secret");
   vi.stubEnv("E2E_AUTH", "");
   vi.stubEnv("E2E_AUTH_SECRET", "");
   s.deleteUser.mockResolvedValue(undefined);
   signedIn();
 });
-afterEach(() => { s.db?.close(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+afterEach(() => { s.db?.close(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it("answers 401 when signed out, without touching Clerk or the database", async () => {
   s.access.mockResolvedValue({ ok: false, response: Response.json({ error: "unauthorized" }, { status: 401 }) });
@@ -138,15 +144,17 @@ it.each([
   ["an unexpected exception", new Error("kaboom")],
 ])("answers 503 retry_later and leaves the database untouched when Clerk fails with %s", async (_label, error) => {
   s.deleteUser.mockRejectedValue(error);
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const res = await POST(req({ confirm: "Yugi_1" }));
   expect(res.status).toBe(503);
   expect(await res.json()).toEqual({ error: "retry_later" });
   expect(rowOf(1)).toMatchObject({ clerk_user_id: "user_one", email: "one@example.com", username: "Yugi_1" });
   expect(s.db!.prepare("select count(*) n from saved_decks").get()).toEqual({ n: 1 });
   expect(s.db!.prepare("select count(*) n from waitlist_signups").get()).toEqual({ n: 1 });
-  expect([...log.mock.calls, ...warn.mock.calls].flat().join(" ")).not.toMatch(/one@example|sk_test_secret|user_one/);
+  expect(errors).toEqual([expect.objectContaining({
+    user: { id: "1" },
+    tags: { operation: "[account-delete] Clerk deletion deferred" },
+  })]);
+  expect(JSON.stringify({ errors, warnings })).not.toMatch(/one@example|sk_test_secret|user_one/);
 });
 
 it("answers 503 retry_later when the Clerk secret is missing, with the database untouched", async () => {
@@ -158,26 +166,26 @@ it("answers 503 retry_later when the Clerk secret is missing, with the database 
   expect(rowOf(1)?.email).toBe("one@example.com");
 });
 
-it("answers 500 server_error when the database step fails after Clerk, logging only the user ID", async () => {
+it("answers 500 server_error and reports the database step with the application user ID", async () => {
   s.db!.exec("create trigger boom before delete on waitlist_signups begin select raise(abort, 'one@example.com exploded'); end");
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
   const res = await POST(req({ confirm: "Yugi_1" }));
   expect(res.status).toBe(500);
   expect(await res.json()).toEqual({ error: "server_error" });
-  expect(s.deleteUser).toHaveBeenCalledOnce();
   // The transaction rolled back, so the owner command can finish the job.
   expect(rowOf(1)).toMatchObject({ clerk_user_id: "user_one", email: "one@example.com" });
-  const logged = log.mock.calls.flat().map(String).join(" ");
-  expect(logged).toContain("1");
-  expect(logged).not.toMatch(/example\.com|exploded|Yugi_1|Display Name|sk_test_secret/);
-  expect(log.mock.calls.flat().some(arg => arg instanceof Error)).toBe(false);
+  const logged = JSON.stringify(errors);
+  expect(logged).not.toMatch(/example\.com|Yugi_1|Display Name|sk_test_secret/);
+  expect(errors).toEqual([expect.objectContaining({
+    message: "[redacted] exploded",
+    user: { id: "1" },
+    tags: { operation: "[account-delete] database step failed after Clerk deletion" },
+  })]);
 });
 
-it("skips Clerk when the row has no Clerk user ID", async () => {
+it("deletes a local account with an email but no Clerk user ID", async () => {
   s.db!.exec("update users set clerk_user_id=null where id=1");
   const res = await POST(req({ confirm: "Yugi_1" }));
   expect(res.status).toBe(200);
-  expect(s.createBackend).not.toHaveBeenCalled();
   expect(s.deleteUser).not.toHaveBeenCalled();
   expect(rowOf(1)?.username).toBe("deleted-1");
 });
@@ -212,3 +220,27 @@ it("in E2E mode still checks the confirmation text", async () => {
   expect(res.headers.get("set-cookie")).toBeNull();
   expect(rowOf(1)?.email).toBe("one@example.com");
 });
+
+it.each([false, true])("finishes remote waitlist removal before erasing email (remote failure=%s)", async failure => {
+  s.useRest = true;
+  const entries = new Map([["entry1", "one@example.com"], ["other", "other@example.com"]]);
+  let userExists = true;
+  vi.stubGlobal("fetch", async (input: string, init: RequestInit) => {
+    const url = new URL(input);
+    if (url.pathname === "/v1/users/user_one") { userExists = false; return new Response(null, { status: 204 }); }
+    if (url.pathname === "/v1/waitlist_entries") return Response.json({ data: [...entries].map(([id, email_address]) => ({ id, email_address, status: "pending" })), total_count: entries.size });
+    if (url.pathname === "/v1/waitlist_entries/entry1" && init.method === "DELETE") {
+      expect(rowOf(1)?.email).toBe("one@example.com");
+      if (failure) return new Response(null, { status: 503 });
+      entries.delete("entry1"); return new Response(null, { status: 204 });
+    }
+    return new Response(null, { status: 404 });
+  });
+  const res = await POST(req({ confirm: "Yugi_1" }));
+  expect(res.status).toBe(failure ? 503 : 200);
+  expect(userExists).toBe(failure);
+  expect(entries.has("entry1")).toBe(failure);
+  expect(entries.has("other")).toBe(true);
+  expect(rowOf(1)?.email).toBe(failure ? "one@example.com" : null);
+});
+const { errors, warnings } = useConsoleObservability();

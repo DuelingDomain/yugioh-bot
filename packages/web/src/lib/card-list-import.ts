@@ -22,6 +22,8 @@ export interface ListDiagnostics {
   lookupLimited?: true;
   /** Distinct main cards listed under Extra and routed to Main by a saved-cube list import. */
   movedToMain?: number;
+  /** Each moved copy, grouped by its source and target section. */
+  messages?: string[];
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

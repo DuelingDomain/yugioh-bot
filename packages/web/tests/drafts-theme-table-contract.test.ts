@@ -204,7 +204,9 @@ describe("self claim and release", () => {
     const before = state(db);
     failLobbyInvalidation(db);
     const { POST } = await import("../app/api/drafts/[slug]/claim-cube/route");
-    await expect(POST(request("POST", { cubeId: 1 }), context)).rejects.toThrow("invalidation failed");
+    const response = await POST(request("POST", { cubeId: 1 }), context);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Something went wrong" });
     expect(state(db)).toEqual(before);
     expect(broadcast).not.toHaveBeenCalled();
   });
@@ -215,7 +217,9 @@ describe("self claim and release", () => {
     const before = state(db);
     failLobbyInvalidation(db);
     const { DELETE } = await import("../app/api/drafts/[slug]/claim-cube/route");
-    await expect(DELETE(request("DELETE"), context)).rejects.toThrow("invalidation failed");
+    const response = await DELETE(request("DELETE"), context);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Something went wrong" });
     expect(state(db)).toEqual(before);
     expect(broadcast).not.toHaveBeenCalled();
   });
@@ -251,7 +255,9 @@ describe("attach/detach", () => {
     const before = state(db);
     failLobbyInvalidation(db);
     const { DELETE } = await import("../app/api/drafts/[slug]/cubes/route");
-    await expect(DELETE(request("DELETE", { cubeId: 1 }), context)).rejects.toThrow("invalidation failed");
+    const response = await DELETE(request("DELETE", { cubeId: 1 }), context);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Something went wrong" });
     expect(state(db)).toEqual(before);
     expect(broadcast).not.toHaveBeenCalled();
   });
@@ -261,7 +267,9 @@ describe("attach/detach", () => {
     const before = state(db);
     failLobbyInvalidation(db);
     const { POST } = await import("../app/api/drafts/[slug]/cubes/route");
-    await expect(POST(request("POST", { kind: "blank", name: "Rollback" }), context)).rejects.toThrow("invalidation failed");
+    const response = await POST(request("POST", { kind: "blank", name: "Rollback" }), context);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Something went wrong" });
     expect(state(db)).toEqual(before);
     expect(db.prepare("select count(*) as count from cubes").get()).toEqual({ count: 3 });
     expect(broadcast).not.toHaveBeenCalled();

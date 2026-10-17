@@ -20,10 +20,11 @@ function core(mode: DuelMode) {
     const bytes = readFileSync(path);
     const sha = createHash("sha256").update(bytes).digest("hex");
     return { path, sha, binary: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+      ffa3Shared: readCoreCapabilities(dataDirectory, file, sha).ffa3SharedExtraZones,
       c6: readCoreCapabilities(dataDirectory, file, sha).ffa4SharedExtraZones,
       tagShared: readCoreCapabilities(dataDirectory, file, sha).tagSharedExtraZones };
   } catch {
-    return { path, sha: "", binary: undefined, c6: false, tagShared: false };
+    return { path, sha: "", binary: undefined, ffa3Shared: false, c6: false, tagShared: false };
   }
 }
 
@@ -130,6 +131,52 @@ for (const mode of ["normal", "domain"] as const) {
       } finally { game.close(); }
     });
 
+    it("FFA3 shares facing arrows and EMZ only between seats 0 and 1", async () => {
+      const { game, session } = await start(mode, "ffa3", loaded.binary, {
+        p0: { monsters: [null, null, null, null, null, "Imduk the World Chalice Dragon"] },
+        p1: { monsters: ["Mystical Elf"], extra: ["Link Spider"] },
+        p2: { monsters: ["Mystical Elf"], extra: ["Link Spider"] },
+      });
+      try {
+        [endTurn("p0"), specialSummon("Link Spider", "p1"), select({ card: "Mystical Elf", owner: "p1" })]
+          .forEach((step, i) => session.run(step, i + 1));
+        expect(game.view(1).prompt!.options.map(o => [o.controller, o.location, o.sequence]))
+          .toEqual([[1, OcgLocation.MZONE, 3], [1, OcgLocation.MZONE, 5]]);
+        session.run(zone("p1", "emz0", "p1"), 4);
+        [endTurn("p1"), specialSummon("Link Spider", "p2"), select({ card: "Mystical Elf", owner: "p2" })]
+          .forEach((step, i) => session.run(step, i + 5));
+        // Seat 2 cannot summon into the pair's linked main zone and its own EMZ
+        // remains free even when the same mirrored EMZ is occupied by seat 0.
+        expect(game.view(2).prompt!.options.map(o => [o.controller, o.location, o.sequence]))
+          .toEqual([[2, OcgLocation.MZONE, 5], [2, OcgLocation.MZONE, 6]]);
+        session.run(zone("p2", "emz1", "p2"), 8);
+        expect(game.view(null).seats.map(seat => seat.sharedExtraWith)).toEqual([1, 0, null]);
+        expect(game.view(null).seats[0]!.monsters[5]?.name).toBe("Imduk the World Chalice Dragon");
+        expect(game.view(null).seats[1]!.monsters[5]?.name).toBe("Link Spider");
+        expect(game.view(null).seats[2]!.monsters[6]?.name).toBe("Link Spider");
+      } finally { game.close(); }
+    });
+
+    it.each(["ffa3", "ffa4"] as const)("%s keeps survivor EMZ cards and never faces seats 0 and 2 after losses", async format => {
+      const { game } = await start(mode, format, loaded.binary, {
+        p0: { monsters: [null, null, null, null, null, "Link Spider"] },
+        p1: { monsters: [null, null, null, null, null, "Link Spider"] },
+        p2: { monsters: [null, null, null, null, null, null, "Imduk the World Chalice Dragon"] },
+      });
+      try {
+        game.eliminate(1, 0);
+        if (format === "ffa4") game.eliminate(3, 0);
+        for (const viewer of viewers(format)) {
+          const view = game.view(viewer);
+          expect(view.seats.map(seat => seat.sharedExtraWith)).toEqual(Array(seatCountFor(format)).fill(null));
+          expect(view.seats[0]!.monsters[5]?.name).toBe("Link Spider");
+          expect(view.seats[1]!.monsters.every(card => card === null)).toBe(true);
+          expect(view.seats[2]!.monsters[6]?.name).toBe("Imduk the World Chalice Dragon");
+          expect(view.result).toBeNull();
+        }
+      } finally { game.close(); }
+    });
+
     it.each<DuelFormat>(["ffa3", "tag", "1v1"])("publishes %s pairing on the real engine", async (format) => {
       const { game } = await start(mode, format, loaded.binary);
       try {
@@ -137,6 +184,7 @@ for (const mode of ["normal", "domain"] as const) {
           const view = game.view(viewer);
           for (const seat of view.seats) {
             if (format === "1v1") expect(seat).not.toHaveProperty("sharedExtraWith");
+            else if (format === "ffa3" && loaded.ffa3Shared) expect(seat.sharedExtraWith).toBe(seat.seat < 2 ? seat.seat ^ 1 : null);
             else if (format === "tag" && loaded.tagShared) expect(seat.sharedExtraWith).toBe(seat.seat ^ 1);
             else expect(seat.sharedExtraWith).toBeNull();
             expect(seat.lp).toBe(format === "tag" ? 16000 : 8000);

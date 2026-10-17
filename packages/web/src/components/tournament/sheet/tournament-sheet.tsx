@@ -8,6 +8,7 @@ import { LocatorFly, type Moment } from "../fx/locator-fly";
 import { useAnimations } from "../fx/use-animations";
 import { finishedSeries, pickMoment, tournamentEnding } from "../floor/floor-model";
 import { LiveView } from "../floor/live-view";
+import { CancelTournamentDialog } from "../cancel-tournament-dialog";
 import { hostToolsAvailable } from "../sheet-rules";
 import { StandingsFloor } from "../standings/standings-floor";
 import type { PlayerRatings } from "../sheet-contracts";
@@ -15,6 +16,7 @@ import { SECTION_IDS } from "../sheet-contracts";
 import { TournamentLobby } from "../tournament-lobby";
 import type { TournamentDetail } from "../types";
 import { useNarrow } from "../use-narrow";
+import { useOptionalRouter } from "../use-optional-router";
 import { HostDrawer } from "./host-drawer";
 import { Rail } from "./rail";
 import { TournamentBar } from "./tournament-bar";
@@ -47,6 +49,8 @@ export function TournamentSheet({ tournament, tournamentSlug, isHost, ratings, o
   const scrolled = useRef(false);
   const { motion, reduced, set: setMotion } = useAnimations();
   const [hostOpen, setHostOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const router = useOptionalRouter();
   const ending = tournamentEnding(tournament);
   const pending = tournament.status === "pending";
   const active = tournament.status === "active";
@@ -108,7 +112,15 @@ export function TournamentSheet({ tournament, tournamentSlug, isHost, ratings, o
             </div>
           </>
         )}
-        <HostDrawer open={hostOpen && showHost} tournament={tournament} tournamentSlug={tournamentSlug} ratings={ratings} onChanged={onChanged} onClose={() => setHostOpen(false)} />
+        <HostDrawer open={hostOpen && showHost} tournament={tournament} tournamentSlug={tournamentSlug} ratings={ratings} onChanged={onChanged} onClose={() => setHostOpen(false)} onCancel={() => { setHostOpen(false); setCancelOpen(true); }} />
+        {active && isHost && (
+          <CancelTournamentDialog
+            open={cancelOpen}
+            target={{ name: tournament.name, status: tournament.status, participantCount: tournament.participants.length, slug: tournamentSlug }}
+            onClose={() => setCancelOpen(false)}
+            onCancelled={() => router?.push("/tournaments")}
+          />
+        )}
         <LocatorFly moment={moment} motion={motion} root={root} />
       </SheetRoot>
     </div>

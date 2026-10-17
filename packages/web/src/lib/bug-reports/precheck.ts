@@ -1,3 +1,4 @@
+import { createRateLimiter } from "../rate-limit";
 import type { BugReport } from "@yugidraft/shared/services";
 import { issueTitle, redactText } from "../bug-report";
 import type { DuplicateCandidate } from "./similarity";
@@ -8,25 +9,17 @@ export const DUPLICATE_CHECK_LIMIT = { max: 10, windowMs: 10 * 60_000 } as const
 export const SAME_DUEL_WINDOW_MS = 10 * 60_000;
 
 type SlotResult = { ok: true } | { ok: false; retryAfterSeconds: number };
-type Slots = Map<string, number[]>;
+let hits = createRateLimiter(PRECHECK_LIMIT.windowMs);
+let duplicateHits = createRateLimiter(DUPLICATE_CHECK_LIMIT.windowMs);
 
-function take(slots: Slots, key: string, limit: { max: number; windowMs: number }, now: number): SlotResult {
-  const recent = (slots.get(key) ?? []).filter((at) => now - at < limit.windowMs);
-  if (recent.length >= limit.max) {
-    slots.set(key, recent);
-    return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil((recent[0]! + limit.windowMs - now) / 1000)) };
-  }
-  recent.push(now);
-  slots.set(key, recent);
-  return { ok: true };
+function take(limiter: ReturnType<typeof createRateLimiter>, key: string, max: number, now: number): SlotResult {
+  const retryAfterSeconds = limiter([[key, max]], now);
+  return retryAfterSeconds === null ? { ok: true } : { ok: false, retryAfterSeconds };
 }
-
-const hits: Slots = new Map();
-const duplicateHits: Slots = new Map();
 
 /** In-memory limit of pre-checks per player (30 in 10 minutes). The report route has its own, stricter, saved limit. */
 export function takePrecheckSlot(key: string, now = Date.now()): SlotResult {
-  return take(hits, key, PRECHECK_LIMIT, now);
+  return take(hits, key, PRECHECK_LIMIT.max, now);
 }
 
 /**
@@ -34,12 +27,12 @@ export function takePrecheckSlot(key: string, now = Date.now()): SlotResult {
  * and a refused one (409) is never saved, so the saved report limit cannot stop a player from using up the token's quota.
  */
 export function takeDuplicateCheckSlot(key: string, now = Date.now()): SlotResult {
-  return take(duplicateHits, key, DUPLICATE_CHECK_LIMIT, now);
+  return take(duplicateHits, key, DUPLICATE_CHECK_LIMIT.max, now);
 }
 
 export function resetPrecheckLimit(): void {
-  hits.clear();
-  duplicateHits.clear();
+  hits = createRateLimiter(PRECHECK_LIMIT.windowMs);
+  duplicateHits = createRateLimiter(DUPLICATE_CHECK_LIMIT.windowMs);
 }
 
 /** True when another player's report was made on the same turn of this duel, or in the last 10 minutes. */

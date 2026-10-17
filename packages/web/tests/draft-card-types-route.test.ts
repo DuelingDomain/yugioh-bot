@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import { fixtureUserId, fixtureDiscordId } from "./fixtures/identity";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
@@ -44,8 +45,8 @@ async function draftWith(picks: number[]) {
 }
 
 describe("draft card types from the duel engine", () => {
-  beforeEach(() => {
-    vi.resetModules();
+  beforeEach(async () => {
+    vi.resetModules(); await recording.install();
     callDuelHost.mockReset();
   });
   afterEach(async () => {
@@ -82,7 +83,7 @@ describe("draft card types from the duel engine", () => {
 
   it("still loads the room when the duel engine cannot be reached; cards just carry no types", async () => {
     await draftWith([11, 12]);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.report.mockClear().mockImplementation(() => {});
     callDuelHost.mockResolvedValue({ ok: false, response: { status: 503 } });
     const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
 
@@ -96,3 +97,5 @@ describe("draft card types from the duel engine", () => {
     warn.mockRestore();
   });
 });
+
+const recording = useRecordingObservability();

@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -73,7 +74,7 @@ export async function POST(
 
     return NextResponse.json({ error: "No more dev bots available" }, { status: 400 });
   } catch (error) {
-    console.error("[api/tournaments/[slug]/join-bot] error:", error);
+    report(error, { tags: { operation: "[api/tournaments/[slug]/join-bot] error" } });
     return NextResponse.json({ error: "Failed to add bot to tournament" }, { status: 500 });
   }
 }

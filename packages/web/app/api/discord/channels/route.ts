@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
@@ -34,7 +35,7 @@ export async function GET() {
 
     return NextResponse.json({ channels: textChannels });
   } catch (error) {
-    console.error("[api/discord/channels] error:", error);
+    report(error, { tags: { operation: "[api/discord/channels] error" } });
     return NextResponse.json({ error: "Failed to fetch channels" }, { status: 500 });
   }
 }

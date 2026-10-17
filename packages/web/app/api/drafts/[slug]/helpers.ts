@@ -1,3 +1,5 @@
+import { apiErrorResponse } from "@/lib/api-errors";
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards } from "@/lib/cube-pool";
@@ -52,7 +54,7 @@ function degrade<T>(slug: string, part: string, fallback: T, run: () => T): T {
     // would show stale data (a frozen timer) while the database is busy.
     const code = (error as { code?: unknown } | null)?.code;
     if (typeof code === "string" && code.startsWith("SQLITE_BUSY")) throw error;
-    console.error(`[api/drafts/${slug}] ${part} failed:`, error);
+    report(error, { tags: { operation: "[api/drafts/[slug]] failed" } });
     return fallback;
   }
 }
@@ -207,6 +209,14 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
   const isParticipant = currentPlayer
     ? players.some((p: any) => p.playerId === currentPlayer.id)
     : false;
+  if (!isParticipant && draft.created_by_user_id !== userId) {
+    // Booster pools belong to the draft. Only their source cube identity stays private.
+    delete config.poolSource;
+    if (config.mode === "theme") {
+      for (const key of ["allowedCubeIds", "customCardIds", "customExtraCardIds", "cubeCardIds", "poolCardIds",
+        "setNames", "includeNames", "excludeNames"] as const) delete config[key];
+    }
+  }
 
   // A player who passed the pick (nothing in the pack they may take) is done for the step too.
   const pickedPlayerIds = new Set(
@@ -333,8 +343,8 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
   let themeProgress: { main: number; mainTotal: number; extra: number; extraTotal: number } | undefined;
   if (isTheme) {
     const ids = draftModel.config.allowedCubeIds ?? [];
-    // The host's allowed theme pool is public; per-player assignments stay private.
-    if (ids.length > 0) {
+    // Cube details belong to the draft's host and seats; open-lobby visitors must join first.
+    if (ids.length > 0 && (isParticipant || draft.created_by_user_id === userId)) {
       const placeholders = ids.map(() => "?").join(",");
       const rows = db
         .prepare(`select id, name, archetype from cubes where guild_id = ? and id in (${placeholders})`)
@@ -471,18 +481,10 @@ export function draftLobbyErrorResponse(error: unknown): Response {
   if (error instanceof DraftLobbyServiceError) {
     return NextResponse.json({ error: error.message, code: error.code, ...error.details }, { status: error.status });
   }
-  const failure = error as { message?: string; code?: string; details?: Record<string, unknown> } | null;
-  if (failure?.code && Object.hasOwn(DRAFT_LOBBY_ERROR_STATUS, failure.code)) {
-    const code = failure.code as DraftLobbyErrorCode;
-    const details = failure.details ?? failure;
-    const body: Record<string, unknown> = { error: failure.message ?? "Lobby action failed", code };
-    for (const key of ["notReadyPlayerIds", "unclaimedPlayerIds", "errors", "warnings"] as const) {
-      if (key in details) body[key] = (details as Record<string, unknown>)[key];
-    }
-    return NextResponse.json(body, { status: DRAFT_LOBBY_ERROR_STATUS[code] });
+  if (error instanceof DraftLobbyApiError) {
+    return NextResponse.json({ error: error.message, code: error.code }, { status: DRAFT_LOBBY_ERROR_STATUS[error.code] });
   }
-  console.error("[draft lobby] action failed:", error);
-  return NextResponse.json({ error: "Failed to update draft lobby" }, { status: 500 });
+  return apiErrorResponse(error, "[draft lobby] action failed");
 }
 
 export type DraftLobbyContext = {
@@ -567,7 +569,7 @@ export function validLobbyRevision(value: unknown): value is number {
 
 export async function notifyDraftLobbySeats(slug: string) {
   const results = await Promise.allSettled([broadcaster.draft({ kind: "seats", slug })]);
-  for (const result of results) if (result.status === "rejected") console.error("[draft lobby] seats notification failed:", result.reason);
+  for (const result of results) if (result.status === "rejected") report(result.reason, { tags: { operation: "[draft lobby] seats notification failed" } });
 }
 
 export async function notifyDraftLobbyTick(result: DraftLobbyTickResult) {
@@ -582,7 +584,7 @@ export async function notifyDraftLobbyTick(result: DraftLobbyTickResult) {
     }));
   }
   const results = await Promise.allSettled(deliveries);
-  for (const delivery of results) if (delivery.status === "rejected") console.error("[draft lobby] transition notification failed:", delivery.reason);
+  for (const delivery of results) if (delivery.status === "rejected") report(delivery.reason, { tags: { operation: "[draft lobby] transition notification failed" } });
 }
 
 
@@ -669,7 +671,7 @@ export async function handleDraftStart(request: Request, params: Promise<{ slug:
     const denied = cubeReferenceAccess(context.db, draft.config.allowedCubeIds, { allowMissing: true });
     if (denied) return denied;
     assertStartCubeGuilds(context);
-    const cards = createCardCatalogService(context.db);
+    const cards = createCardCatalogService(context.db, { memberId: context.userId });
     const lookupBudget = createCardLookupBudget();
     if (!draft.config.cubeCardIds?.length && !draft.config.poolCardIds?.length) {
       await cards.syncDraftPool({

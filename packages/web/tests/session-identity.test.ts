@@ -1,8 +1,11 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { createUserService } from "@yugidraft/shared/services";
 import { ClerkBackendError } from "@yugidraft/shared/clerk";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+const recording = useRecordingObservability();
+const warnings: Array<{ message: string; fields: Record<string, unknown> }> = [];
 const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), getUser: vi.fn(), update: vi.fn(), cookie: undefined as string | undefined }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db! }));
 vi.mock("@clerk/nextjs/server", () => ({ auth: state.auth }));
@@ -12,11 +15,13 @@ import { resolveSessionIdentity } from "../src/lib/session-identity";
 import { signE2ESession } from "../src/lib/e2e-auth";
 const json = { id: "user_one", username: "yugi", first_name: "Yugi", last_name: null, image_url: "avatar", external_id: null, primary_email_address_id: "email", email_addresses: [{ id: "email", email_address: "yugi@example.com", verification: { status: "verified" } }], external_accounts: [{ provider: "oauth_discord", provider_user_id: "123", verification: { status: "verified" } }] };
 beforeEach(() => {
+  warnings.length = 0;
+  recording.log.mockImplementation((level, message, fields) => { if (level === "warn") warnings.push({ message, fields }); });
   state.db = new Database(":memory:"); migrate(state.db); state.db.pragma("foreign_keys=on");
   vi.clearAllMocks(); state.cookie = undefined; state.auth.mockResolvedValue({ userId: "user_one" }); state.getUser.mockResolvedValue(json); state.update.mockResolvedValue(json);
   vi.stubEnv("CLERK_SECRET_KEY", "test-secret"); vi.stubEnv("E2E_AUTH", "0");
 });
-afterEach(() => { state.db?.close(); vi.unstubAllEnvs(); });
+afterEach(() => { state.db?.close(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 it("uses a fresh row without a backend call", async () => {
   createUserService(state.db!).resolveClerkProfile({ clerkUserId: "user_one", username: "yugi", displayName: "Yugi", email: null, emailVerified: false, discordUserId: null, imageUrl: null });
   expect(await resolveSessionIdentity()).toMatchObject({ ok: true, identity: { name: "Yugi", clerkUserId: "user_one", discordUserId: null } });
@@ -47,6 +52,19 @@ it.each([0, 429, 500, 404])("maps backend status %s without advancing synced_at"
 it("maps a missing secret to unavailable", async () => {
   vi.stubEnv("CLERK_SECRET_KEY", ""); expect(await resolveSessionIdentity()).toEqual({ ok: false, status: 503 }); expect(state.getUser).not.toHaveBeenCalled();
 });
+it.each([
+  { error: new ClerkBackendError("Clerk request timed out", 0, null, null), reason: "timeout" },
+  { error: new ClerkBackendError("private provider message", 429, null, null), reason: "rate_limited" },
+  { error: new Error("private user id and token"), reason: "session_check_failed" },
+])("logs a safe reason and duration for $reason", async ({ error, reason }) => {
+  state.getUser.mockRejectedValue(error);
+  expect(await resolveSessionIdentity()).toEqual({ ok: false, status: 503 });
+  expect(warnings).toEqual([{ message: "[web-access] session check unavailable", fields: {
+    reason, durationMs: expect.any(Number),
+  } }]);
+  const diagnostic = warnings[0].fields as { durationMs: number };
+  expect(diagnostic.durationMs).toBeGreaterThanOrEqual(0);
+});
 it("bypasses Clerk entirely only with the enabled gate and a signed cookie for an existing user", async () => {
   const user = createUserService(state.db!).createNonLogin("Offline"); const secret = "x".repeat(32);
   vi.stubEnv("E2E_AUTH", "1"); vi.stubEnv("E2E_AUTH_SECRET", secret); state.cookie = signE2ESession(user.id, secret);
@@ -64,4 +82,17 @@ it("keeps two histories separate and returns the conflict to forced refresh", as
  const { POST } = await import("../app/api/account/refresh/route"); const res = await POST();
  expect(res.status).toBe(200); expect(await res.json()).toEqual({ user: { id: String(signedIn.id) }, conflict: "both_have_history" });
  expect(users.findById(imported.id)?.clerkUserId).toBeNull(); expect(users.findById(signedIn.id)?.discordUserId).toBeNull(); expect(state.db!.prepare("select created_by_user_id from cubes order by id").all()).toEqual([{ created_by_user_id: imported.id }, { created_by_user_id: signedIn.id }]);
+});
+
+it("records first sign-in once for the resolved user even after outbox cleanup", async () => {
+  const users = createUserService(state.db!);
+  const imported = users.ensureDiscord({ discordUserId: "123", displayName: "Imported" });
+  state.db!.prepare("insert into cubes(guild_id,name,created_by_user_id) values('g','History',?)").run(imported.id);
+  await Promise.all([resolveSessionIdentity(), resolveSessionIdentity()]);
+  expect(state.db!.prepare("select name,user_id,props_json from product_events where name='first_sign_in'").all()).toEqual([
+    { name: "first_sign_in", user_id: imported.id, props_json: "{}" },
+  ]);
+  state.db!.exec("delete from product_events");
+  await resolveSessionIdentity({ forceSync: true });
+  expect(state.db!.prepare("select count(*) as n from product_events where name='first_sign_in'").get()).toEqual({ n: 0 });
 });

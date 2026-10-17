@@ -4,7 +4,7 @@ import { multiTableTextStyle, tableTextBig, useCardTextSize, useMultiTableTextFl
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { teamOfSeat } from "@yugidraft/shared/duels";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
-import { isBattlePhase, LOCATION_HAND } from "../constants";
+import { isBattlePhase } from "../constants";
 import { DuelResultScreen } from "../duel-result";
 import { SeatField } from "../field";
 import { MoveSourceBoundary } from "../fx-boundary";
@@ -16,25 +16,29 @@ import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { fieldWaitsForReveal } from "../field-gate";
 import { PhaseHub } from "../phase-hub";
-import { optionZoneKeys, PromptTray, promptTrayVisible } from "../prompts";
+import { PromptTray, promptTrayVisible } from "../prompts";
 import { useResultGate } from "../result-reveal";
 import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
 import { resolveBattleStep, StationTrack } from "../station-track";
 import { RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "../table/hud-layer";
-import { clockStrip, hudClockBank, stationTrackProps } from "../table/hud-shared";
+import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "../table/hud-shared";
+import { useForkLabels } from "../table/fork-labels";
+import { MasterBadgeContext, type MasterBadgeSource } from "../master-badge";
 import { tagSeatCode } from "../table-format";
 import { OpponentBar } from "../table/opponent-bar";
 import { attackLockAt, toneBySeat } from "../table/seat-state";
-import { tableLayout } from "../table/geometry";
+import { controllerLayout } from "../table/geometry";
 import hudStyles from "../table/grid-hud.module.css";
 import { AimArrow } from "../table/aim-arrow";
 import { useAimFlow } from "../table/use-aim-flow";
 import { useTableUi } from "../table/use-table-ui";
 import { tableZoneAnchor } from "../table/zone-find";
-import { SEAT_TONE_HEX, type TableController } from "../table/types";
-import { lastEventId, lockForEvents } from "./fx-lock";
+import { carriedCamera, useReadOnlyReplayController, useReplayCarry, type ReplayCarryRef } from "../table/replay-mode";
+import { SEAT_TONE_HEX, type ReplayShellMode, type TableController } from "../table/types";
+import type { InspectTarget } from "../inspector";
+import { lastEventId, lockForEvents, otherPlayerActed } from "./fx-lock";
 import { resolveTagExtras, tagCameraYields, tagInputSuspended, type TagShellPreviewProps } from "./live-tag";
 import { initialRoofCamera, roofReducer } from "./roof-camera";
 import { CameraDock } from "./roof-map";
@@ -59,6 +63,8 @@ export type TagShellProps = TagShellPreviewProps & {
   preview?: boolean;
 };
 
+type TagShellRootProps = TagShellProps & { replayCarry?: ReplayCarryRef };
+
 /** A preview lock has no end: a time this far off never comes before the page reloads (and fits a timer). */
 const OPEN_LOCK_MS = 1_000_000_000;
 
@@ -71,16 +77,33 @@ const NO_KEYS = new Set<string>();
  * (table UI, aim flow, reveal gate, pick continuation), and keeps the engine in the room: it only gets a controller.
  */
 export function TagShell(props: TagShellProps) {
+  return props.replay ? <ReplayTagShell {...props} replay={props.replay} /> : <TagShellRoot {...props} />;
+}
+
+/**
+ * The Rooftop in replay mode (see `ReplayShellMode`). The controller is made read-only here, whatever the caller passes.
+ * A new reset key remounts the table, so the loss history, the effect cursor and any camera lock of the old frame go;
+ * the carry ref hands the next mount the camera the viewer chose and the panel they had open.
+ */
+function ReplayTagShell(props: TagShellProps & { replay: ReplayShellMode }) {
+  const carry = useReplayCarry();
+  const controller = useReadOnlyReplayController(props.controller);
+  // Created here, not in the keyed root, so a seek does not reload the viewer's preferences.
+  const own = useDuelPreferences();
+  return <TagShellRoot key={props.replay.resetKey} {...props} controller={controller} preferences={props.preferences ?? own} replayCarry={carry} />;
+}
+
+function TagShellRoot(props: TagShellRootProps) {
   return props.preferences ? <TagShellBody {...props} preferences={props.preferences} /> : <TagShellOwnPreferences {...props} />;
 }
 
 /** A shell with no room above it (a preview): it keeps its own preferences, created once. */
-function TagShellOwnPreferences(props: TagShellProps) {
+function TagShellOwnPreferences(props: TagShellRootProps) {
   const preferences = useDuelPreferences();
   return <TagShellBody {...props} preferences={preferences} />;
 }
 
-function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
+function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences }) {
   const {
     preferences,
     controller: supplied,
@@ -99,8 +122,13 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     inputSuspended = false,
     boardRef: roomBoardRef,
     preview = false,
-    chainMode = null,
+    chainMode: chainModeProp = null,
+    noResultScreen = false,
+    replay,
+    replayCarry,
+    resetKey,
   } = props;
+  const chainMode = replay ? null : chainModeProp;
   const { teamNames, mode } = resolveTagExtras(props, supplied);
 
   // A hidden panel prompt (see fieldWaitsForReveal) must not be answered from the field, and nothing glows for it yet.
@@ -112,7 +140,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     return hidden ? { ...gated, legalKeys: NO_KEYS } : gated;
   }, [roomBusy, supplied]);
   const localPick = usePickContinuation(pickContinuation ? null : given.prompt, given.engine.revision);
-  const pick = pickContinuation ?? localPick;
+  const pick = replay ? localPick : pickContinuation ?? localPick;
   const onAnswer = useCallback<TableController["onAnswer"]>((answer) => {
     if (given.busy || !given.canAct || !given.prompt) return;
     if (!pickContinuation) pick.noteAnswer(given.prompt, answer);
@@ -123,16 +151,16 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   // A wide screen swaps the bars and side columns for the floating HUD (table/hud-layer.tsx). The Card pane is a flyout
   // there: a hover must not fill it, only a click or Inspect does, so the list pane stays the starting one.
   const hud = !narrow;
-  const hudState = useHudPane({ camera: true });
-  const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined, hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
+  const hudState = useHudPane({ camera: true, initialPane: replayCarry?.current.hudPane });
+  const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
-  const { engine, room, viewerSeat, nameOf, prompt } = base;
+  const { engine, room, viewerSeat, cameraSeat, nameOf, prompt } = base;
   const layout = useMemo(
-    () => tableLayout("tag", engine, viewerSeat),
+    () => controllerLayout("tag", engine, { viewerSeat, cameraSeat }),
     // The layout depends on who sits where, never on a card: the seat list is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [engine.seats.length, viewerSeat],
+    [engine.seats.length, viewerSeat, cameraSeat],
   );
   const rootRef = useRef<HTMLDivElement>(null);
   const textSize = useCardTextSize();
@@ -147,7 +175,18 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
-  useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
+  // A replay suspends input while another card view loads: the open flyout stays (the table is hidden and inert meanwhile).
+  useEffect(() => { if (inputSuspended && !replay) closeHud(); }, [inputSuspended, replay, closeHud]);
+  const resetSeen = useRef(resetKey);
+  const resetUi = ui.reset;
+  const closePrivateHud = hudState.closePrivate;
+  useEffect(() => {
+    if (resetSeen.current === resetKey) return;
+    resetSeen.current = resetKey;
+    resetUi();
+    // Only what is private to the old view closes; an open Log, Settings or Camera flyout stays.
+    closePrivateHud();
+  }, [resetKey, resetUi, closePrivateHud]);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const [hideResult, setHideResult] = useState(false);
@@ -155,7 +194,9 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   const session = room.session;
   const domain = mode === "domain";
   const spectator = viewerSeat == null;
-  const viewerOut = engine.seats.some((seat) => seat.seat === viewerSeat && (seat.eliminated || seat.pendingElimination));
+  // A pending loss can still require an answer in a fork. Only elimination ends that seat's control.
+  const viewerOut = engine.seats.some((seat) => seat.seat === viewerSeat &&
+    (seat.eliminated || (session.kind !== "replay-fork" && seat.pendingElimination)));
   const terminal = session.status !== "active";
   const hasResult = engine.result != null || terminal;
   const resultReady = useResultGate({
@@ -166,30 +207,57 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     reducedMotion: controller.reducedMotion,
     board: boardRef,
   });
-  const showResult = !hideResult && resultReady && hasResult;
+  const showResult = !replay && !noResultScreen && !hideResult && resultReady && hasResult;
 
   // ---------- roof camera ----------
   const [camera, dispatchCamera] = useReducer(roofReducer, undefined, () =>
     initialRoofCamera({
       anchorSeat: layout.anchorSeat,
-      camera: { ...initialCamera, ...(initialLock ? { lock: { reason: initialLock, untilMs: performance.now() + OPEN_LOCK_MS } } : {}) },
+      camera: replayCarry?.current.camera ?? { ...initialCamera, ...(initialLock && !replay ? { lock: { reason: initialLock, untilMs: performance.now() + OPEN_LOCK_MS } } : {}) },
     }),
   );
-
-  // The FX lock follows engine events newer than the last one handled. With reduced motion, or while the connection is
-  // down (the FX replay nothing), no lock starts but the cursor still moves, so old events never lock the camera later.
-  const lastEvent = useRef<number>(lastEventId(engine.events, 0));
+  // A replay seek remounts the table: remember what the viewer chose, so the next mount starts from it (no lock).
   useEffect(() => {
-    const lock = fxActive ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
+    if (!replayCarry) return;
+    // While an FX lock holds the overview, the camera the viewer chose is the one it will return to.
+    const chosen = camera.lock && camera.resume ? { ...camera, mode: camera.resume.mode, focusSeat: camera.resume.focusSeat, lookSeat: camera.resume.lookSeat, fly: camera.resume.fly } : camera;
+    replayCarry.current.camera = carriedCamera(chosen);
+  }, [replayCarry, camera]);
+  useEffect(() => {
+    if (replayCarry) replayCarry.current.hudPane = hudState.pane;
+  }, [replayCarry, hudState.pane]);
+  useEffect(() => {
+    if (replayCarry) replayCarry.current.sidePane = ui.pane;
+  }, [replayCarry, ui.pane]);
+
+  // The camera never zooms in by itself, and a close-up the viewer chose is not left for the viewer's own actions, a response
+  // window or a chain. Two things follow the engine events newer than the last one handled (the cursor):
+  // - Another player's action (activate, summon, set, attack) that touches a field other than the one in close-up sends the
+  //   close-up (only a close-up: not Home, Rival end or Fly) to the overview, once. Nothing sends it back: it stays out until
+  //   the viewer zooms in. This also holds with reduced motion (the move is a jump, with no animation).
+  // - On the overview, an attack, chain link or destroy locks the camera for its FX (the view does not change).
+  // With reduced motion no lock starts; while the connection is down (the FX replay nothing) no lock starts and no move
+  // happens. In both cases the cursor still moves, so old events never move the camera later.
+  const lastEvent = useRef<number>(lastEventId(engine.events, 0));
+  const fork = room.session.kind === "replay-fork";
+  const live = fxActive && !replay && !fork;
+  const cameraRef = useRef(camera);
+  cameraRef.current = camera;
+  useEffect(() => {
+    const now = cameraRef.current;
+    if (live && now.mode === "focus" && !now.lock && otherPlayerActed(engine.events, lastEvent.current, viewerSeat, now.focusSeat, engine.turnSeat)) {
+      dispatchCamera({ type: "overview" });
+    }
+    const lock = live && now.mode === "overview" ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
     if (!lock) {
       lastEvent.current = lastEventId(engine.events, lastEvent.current);
       return;
     }
     lastEvent.current = lock.lastId;
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
-  }, [engine.events, fxActive, controller.reducedMotion]);
+  }, [engine.events, engine.turnSeat, live, controller.reducedMotion, viewerSeat]);
 
-  // An aim holds the camera where it is: a close-up goes back to the overview, and no click zooms in until the aim ends.
+  // An aim never moves the camera either (the flag only keeps a tap on a field from zooming): the pills can still step to a rival field.
   useEffect(() => {
     dispatchCamera({ type: "aiming", on: flow.aiming });
   }, [flow.aiming]);
@@ -197,27 +265,8 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
   const centeredUnrevealed = centered && !controller.revealed;
-  // A prompt that picks zones on other fields than the focused one takes the camera back to the overview, so every
-  // target stays in view and clickable. The prompt id keys it: a new prompt checks again, a click on a field does not.
-  // The plain action menu (play a card, change phase) is not a pick: the hand is always in reach, and the rail can step
-  // to the field that holds the card.
-  const pickPrompt = promptMine && !(prompt?.kind === "choice" && prompt.context?.type === "action");
-  const promptId = pickPrompt ? prompt?.id ?? null : null;
-  const promptSeats = useMemo(() => {
-    if (!pickPrompt || !prompt) return [];
-    // A hand card is not on any field (the hand dock is always in reach): only board zones count.
-    return [
-      ...new Set(
-        prompt.options
-          .filter((option) => option.controller != null && option.location !== LOCATION_HAND && optionZoneKeys(option).length > 0)
-          .map((option) => option.controller as number),
-      ),
-    ];
-  }, [pickPrompt, prompt]);
-  useEffect(() => {
-    if (promptId != null && promptSeats.length > 0) dispatchCamera({ type: "needSeats", seats: promptSeats });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promptId]);
+  // No prompt moves the camera: a close-up stays through a target pick too. A field with targets that is out of view gets a hint on
+  // its nameplate pill (tag-stage.tsx); the viewer presses the pill to look at it.
   const gates = gridKeyGates({ prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudOpen });
   useRoofKeys({
     mode: camera.mode,
@@ -293,25 +342,44 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     />
   );
   const cameraDock = (
-    <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} />
+    <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} replay={replay != null} />
   );
   const side = (
     <TagSide
       controller={controller}
       ui={ui}
       preferences={preferences}
-      connection={connection}
-      settingsTools={settingsTools}
+      connection={replay ? undefined : connection}
+      settingsTools={replay ? undefined : settingsTools}
+      replay={replay != null}
       sheetOpen={sheetOpen}
       onSheetOpenChange={setSheetOpen}
       tray={tray}
       leftClassName={styles.left}
       mastersClassName={styles.masters}
-      hud={hud ? { state: hudState, hover: ui.hover, rowCard: rowPreview.card, trayVisible: promptTrayVisible(prompt, viewerSeat, !terminal && !viewerOut, centered), menuCard: ui.menu?.card ?? null, camera: cameraDock } : undefined}
+      hud={hud ? { state: hudState, hover: ui.hover, rowCard: rowPreview.card, trayVisible: !replay && promptTrayVisible(prompt, viewerSeat, !terminal && !viewerOut, centered), menuCard: ui.menu?.card ?? null, camera: cameraDock } : undefined}
     />
   );
 
+  // The Deck Master badges (on every member chip) read their seat's master from here, with this table's keys and prompt.
+  const forkLabels = useForkLabels();
+  const showMasterCard = (target: InspectTarget) => {
+    if (hud) { ui.setInspect(target); hudState.setPane("card"); }
+    else { ui.inspectCard(target); setSheetOpen(true); }
+  };
+  const masterBadges: MasterBadgeSource | null = domain ? {
+    forSeat: (seat) => hudMasterProps(
+      { legalKeys: controller.legalKeys, selectedKeys: controller.selectedKeys, canAct, prompt, onAnswer: controller.onAnswer, onActivate: controller.onActivate, onHoverCard: controller.onHoverCard },
+      engine.seats.find((view) => view.seat === seat),
+      seat === viewerSeat && !replay,
+      seat === viewerSeat && !replay && !forkLabels ? "Your Master" : `${nameOf(seat)}'s Master`,
+      true,
+    ),
+    onInspect: showMasterCard,
+  } : null;
+
   return (
+    <MasterBadgeContext.Provider value={masterBadges}>
     <div
       ref={rootRef}
       className={`${duelFontClasses} ${styles.shell}`}
@@ -335,14 +403,15 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
         nameOf={nameOf}
         teamNames={teamNames}
         preferences={preferences}
-        connection={connection}
-        headerTools={headerTools}
-        onExit={hasResult && resultReady ? () => actions?.onExit?.() : undefined}
-        onShowResult={hasResult && hideResult ? () => setHideResult(false) : undefined}
-        hud={hud ? { baton: <TagBaton engine={engine} nameOf={nameOf} toneOf={toneOf} />, clock: hudClockBank(room.clock, session, controller.reducedMotion, (seat) => tagSeatCode("tag", seat)) } : undefined}
+        connection={replay ? undefined : connection}
+        headerTools={replay ? undefined : headerTools}
+        replay={replay ? { tools: replay.tools } : undefined}
+        onExit={!replay && hasResult && resultReady ? () => actions?.onExit?.() : undefined}
+        onShowResult={!replay && hasResult && hideResult ? () => setHideResult(false) : undefined}
+        hud={hud ? { baton: <TagBaton engine={engine} nameOf={nameOf} toneOf={toneOf} />, clock: replay ? null : hudClockBank(room.clock, session, controller.reducedMotion, (seat) => tagSeatCode("tag", seat)) } : undefined}
       />
-      {hud ? null : clockStrip(room.clock, session, controller.reducedMotion)}
-      {room.series && !showResult ? (
+      {hud || replay ? null : clockStrip(room.clock, session, controller.reducedMotion)}
+      {room.series && !showResult && !replay ? (
         <SeriesBanner
           room={room}
           slug={session.slug}
@@ -361,6 +430,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
             <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
               <TagStage
                 inspectIdleCards={hud}
+                replay={replay != null}
                 aimSeats={flow.aimSeats}
                 controller={controller}
                 layout={layout}
@@ -376,7 +446,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                     battleStep={battleStep}
                     turn={engine.turn}
                     turnSeat={engine.turnSeat}
-                    mySeat={viewerSeat}
+                    mySeat={replay ? null : viewerSeat}
                     playerName={nameOf}
                     tone={engine.turnSeat != null ? toneOf(engine.turnSeat) : null}
                     actionOptions={promptMine ? actionOptions : []}
@@ -455,30 +525,36 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
         </section>
         {narrow || hud ? null : (
           <aside className={styles.right} aria-label="Camera">
-            <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} />
+            <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} replay={replay != null} />
           </aside>
         )}
       </div>
 
       {hud ? (
         <div className={`${hudStyles.bottom} ${styles.tagBottom}`} data-testid="hud-bottom" data-tag-track>
-          <StationTrack
-            {...trackProps}
-            phases="hub"
-            clock={null}
-            attackLock={attackLockAt("tag", engine.seats.length || 4, engine.turn, prompt)}
-            attackLockTestId="tag-attack-lock"
-          />
+          {replay ? <div className={styles.replayCorner} data-testid="replay-transport">{replay.transport}</div> : null}
+          {replay ? null : (
+            <StationTrack
+              {...trackProps}
+              phases="hub"
+              clock={null}
+              attackLock={attackLockAt("tag", engine.seats.length || 4, engine.turn, prompt)}
+              attackLockTestId="tag-attack-lock"
+            />
+          )}
         </div>
       ) : (
-        <TagTrack
-          engine={engine}
-          nameOf={nameOf}
-          prompt={prompt}
-          toneOf={toneOf}
-        >
-          <StationTrack {...trackProps} clock={null} />
-        </TagTrack>
+        <>
+          {replay ? <div className={styles.replayBar} data-testid="replay-transport">{replay.transport}</div> : null}
+          <TagTrack
+            engine={engine}
+            nameOf={nameOf}
+            prompt={prompt}
+            toneOf={toneOf}
+          >
+            {replay ? null : <StationTrack {...trackProps} clock={null} />}
+          </TagTrack>
+        </>
       )}
       {narrow ? side : null}
 
@@ -521,7 +597,8 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
           onNavigate={(next) => actions?.onNavigate?.(next)}
         />
       ) : null}
-      {modals}
+      {replay ? null : modals}
     </div>
+    </MasterBadgeContext.Provider>
   );
 }

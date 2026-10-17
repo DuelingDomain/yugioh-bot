@@ -22,9 +22,10 @@ import baseStyles from "../field.module.css";
 import { slot, stKeys, withExact, type FieldCallbacks } from "../field-keys";
 import { useDuelFieldModel, type DuelFieldModel, type DuelFieldProps } from "../field-model";
 import type { BattleAim } from "../battle-fx";
+import { MONSTER_ROW_ATTR } from "../direct-target";
 import { Emblem, Notches } from "./emblem";
+import { FieldCracks } from "../field-cracks/field-cracks";
 import { PlaneSvg } from "./plane-svg";
-import { DmChip } from "./dm-chip";
 import rails from "./rails.module.css";
 import table from "./table.module.css";
 
@@ -32,8 +33,6 @@ import table from "./table.module.css";
 export type SolidFieldProps = DuelFieldProps & {
   /** The duel clock of one seat, drawn in that player's gap of the centre band. Nothing when the duel has no clock. */
   renderClock?: (seat: number) => ReactNode;
-  /** Opens the Deck Masters sheet (the mobile chips). */
-  onOpenMasters?: () => void;
   /**
    * The room's attack aim (preview, aim, locked). When given, the arrow is drawn on the plane (`PlaneSvg`); the room
    * then passes `aim={null}` to `BattleFx` so only one arrow shows. Leave it out to keep the flat V1 arrow.
@@ -150,6 +149,8 @@ function Half({ view, seatIndex, opponent, ownerLabel, masterRule, callbacks, ac
           <ZoneSlot {...monsterZoneProps(view, sequence, { flip: opponent, callbacks })} />
         </Cell>
       ))}
+      {/* The row of the five Monster Zones as one box: a direct attack aims at it (direct-target.ts). It takes no clicks. */}
+      <div {...{ [MONSTER_ROW_ATTR]: seatIndex }} aria-hidden="true" style={{ gridColumn: "2 / 7", gridRow: monsterRow, pointerEvents: "none" }} />
       {opponent ? (
         <>
           <PileCell view={view} kind="deck" ownerLabel={ownerLabel} flip column="left" callbacks={callbacks} col={1} row={1} />
@@ -184,13 +185,13 @@ function Half({ view, seatIndex, opponent, ownerLabel, masterRule, callbacks, ac
  * `data-sv-clock="you"` in column 6); 4 your Monster row; 5 your Spell/Trap row.
  */
 export function SolidField(props: SolidFieldProps) {
-  const { engine, mySeat, masterRule, reducedMotion, legalKeys, selectedKeys, onActivate, onHoverCard, bottomName, topName,
-    showExtraZones = true, renderClock, onOpenMasters, battleAim = null } = props;
+  const { engine, masterRule, reducedMotion, legalKeys, selectedKeys, onActivate, onHoverCard, bottomName, topName,
+    showExtraZones = true, renderClock, battleAim = null } = props;
   const boardRef = useRef<HTMLElement | null>(null);
   const model = useDuelFieldModel({ ...props, boardRef });
   const { bottomIndex, topIndex, bottom, top, callbacks, topLabel, bottomLabel, battle, activity, priorityLabel,
     leftEmz, rightEmz, leftEmzKeys, rightEmzKeys, emzOff, equipLinks } = model;
-  const spectator = mySeat == null;
+  const spectator = model.spectator;
   const showEmz = showExtraZones && masterRule >= 4;
 
   const rail = (side: "opp" | "you") => {
@@ -209,8 +210,10 @@ export function SolidField(props: SolidFieldProps) {
             seatKey={view?.seat}
             active={activity.turnSeat === index}
             priorityLabel={priorityLabel(index, name)}
+            acting={model.actingSeat === index}
             spectator={spectator}
             reducedMotion={reducedMotion}
+            badge={view ? props.masterBadge?.(view.seat, side) : null}
           />
         </div>
         <div className={rails.railHand} data-side={side}>
@@ -229,11 +232,6 @@ export function SolidField(props: SolidFieldProps) {
             <div className={baseStyles.handRail}><div className={cn(baseStyles.hand, mine && baseStyles.handLocal)} /></div>
           )}
         </div>
-        {onOpenMasters && view?.deckMaster?.card ? (
-          <div className={rails.railChip}>
-            <DmChip seat={view.seat} view={view} mine={mine} onOpen={onOpenMasters} />
-          </div>
-        ) : null}
       </div>
     );
   };
@@ -252,6 +250,9 @@ export function SolidField(props: SolidFieldProps) {
       {rail("opp")}
       <div className={table.fieldwrap}>
         <div className={table.plane} data-sv-plane="" data-light={activity.turnSeat === bottomIndex ? "you" : "opp"}>
+          {/* The plane is one mat for both players: each half cracks from its own LP, split at the clock row. */}
+          <FieldCracks seat={topIndex} lp={top?.lp} part="top" avoidSelector="[data-sv-clock]" splitSelector='[data-sv-clock="opp"]' />
+          <FieldCracks seat={bottomIndex} lp={bottom?.lp} part="bottom" avoidSelector="[data-sv-clock]" splitSelector='[data-sv-clock="opp"]' />
           <Emblem />
           <Notches />
           <Half view={top} seatIndex={topIndex} opponent ownerLabel={topLabel} masterRule={masterRule} callbacks={callbacks} activity={activity} />

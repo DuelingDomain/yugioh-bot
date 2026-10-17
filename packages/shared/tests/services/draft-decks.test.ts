@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../helpers/recording-observability.mjs";
 import { seedIdentity, seedUser } from "../helpers/identity.js";
 import { checkDeckAgainstPool } from "../../src/duels/pool.js";
 import Database from "better-sqlite3";
@@ -14,6 +15,12 @@ import {
 import { createSavedDeckService } from "../../src/services/saved-decks.js";
 import { createTournamentService } from "../../src/services/tournaments.js";
 import { createTournamentDuelService } from "../../src/services/tournament-duels.js";
+
+// Automatic draft completion also creates services; keep their engine source deterministic.
+vi.mock("../../src/services/card-artworks.js", async original => ({
+  ...await original<typeof import("../../src/services/card-artworks.js")>(),
+  loadArtworkIdentityCatalog: () => new Map(),
+}));
 
 const EXTRA_IDS = [11, 12];
 
@@ -49,7 +56,7 @@ function playDraft(db: Database.Database, playerIds: number[], hostId: string) {
 }
 
 it("leaves the fourth copy in the pool across all deck sections", () => {
-  expect(buildDraftDeck([{ catalogId: 1, extra: false }, { catalogId: 1, extra: false }, { catalogId: 1, extra: true }, { catalogId: 1, extra: true }])).toEqual({ main: [1, 1], extra: [1], side: [] });
+  expect(buildDraftDeck(Array.from({ length: 4 }, () => ({ catalogId: 1, type: "Effect Monster" })))).toEqual({ main: [1, 1, 1], extra: [], side: [] });
 });
 
 it("rejects a fourth copy when saved against a draft pool", () => {
@@ -58,7 +65,7 @@ it("rejects a fourth copy when saved against a draft pool", () => {
 
 describe("buildDraftDeck", () => {
   it("includes forced copies by artwork identity, with one extra slot per forced pick", () => {
-    const normal = { catalogId: 1, extra: false, name: "Card", type: "Effect Monster" };
+    const normal = { catalogId: 1, name: "Card", type: "Effect Monster" };
     const forced = { ...normal, catalogId: 2, name: " CARD ", forced: true };
     expect(buildDraftDeck([normal, normal, normal, forced, normal]).main).toEqual([1, 1, 1, 2]);
     expect(buildDraftDeck([normal, normal, normal, forced, forced]).main).toEqual([1, 1, 1, 2, 2]);
@@ -66,19 +73,26 @@ describe("buildDraftDeck", () => {
       .toEqual([1, 1, 1, 2]);
   });
 
+  it("keeps the artwork copy identity when only one artwork has engine type bits", () => {
+    const original = { catalogId: 901, name: "Test Card", type: "Effect Monster", deckType: 0x21 };
+    const artwork = { ...original, catalogId: 902, deckType: "Effect Monster" };
+    expect(buildDraftDeck([original, original, original, artwork]).main).toEqual([901, 901, 901]);
+    expect(buildDraftDeck([original, original, original, { ...artwork, forced: true }]).main).toEqual([901, 901, 901, 902]);
+  });
+
   it("puts main picks in main, extra deck monsters in extra, and keeps copies", () => {
     const deck = buildDraftDeck([
-      { catalogId: 1, extra: false },
-      { catalogId: 1, extra: false },
-      { catalogId: 11, extra: true },
+      { catalogId: 1 },
+      { catalogId: 1 },
+      { catalogId: 11, type: "Fusion Monster" },
     ]);
     expect(deck).toEqual({ main: [1, 1], extra: [11], side: [] });
   });
 
   it("moves overflow to side so the deck stays one the duel start accepts", () => {
     const cards = [
-      ...Array.from({ length: 80 }, (_, i) => ({ catalogId: i + 1, extra: false })),
-      ...Array.from({ length: 16 }, (_, i) => ({ catalogId: 1000 + i, extra: true })),
+      ...Array.from({ length: 80 }, (_, i) => ({ catalogId: i + 1 })),
+      ...Array.from({ length: 16 }, (_, i) => ({ catalogId: 1000 + i, type: "Fusion Monster" })),
     ];
     const deck = buildDraftDeck(cards);
     expect(deck.main).toHaveLength(60);
@@ -111,6 +125,24 @@ describe("draftDeckNote", () => {
 });
 
 describe("saving a deck when a draft finishes", () => {
+  it("uses an injected engine map for building, pool counts, and nested saved-deck validation", () => {
+    const db = new Database(":memory:");
+    try {
+      migrate(db); seed(db);
+      const alice = addPlayer(db, "u1", "Alice");
+      const bob = addPlayer(db, "u2", "Bob");
+      const { drafts, draftId } = playDraft(db, [alice, bob], "u1");
+      db.prepare("delete from saved_decks").run();
+      db.prepare("update draft_players set deck_saved_at = null").run();
+      const codes = drafts.pool(draftId, alice).map(card => card.catalogCardId);
+      const engine = new Map(codes.map(code => [code, { name: `Engine Fusion ${code}`, type: 0x41 }]));
+      const service = createDraftDeckService(db, engine);
+      expect(service.mainPoolCount(draftId, alice)).toBe(0);
+      expect(service.saveForDraft(draftId)).toContain(seedUser(db, "u1").userId);
+      expect(createSavedDeckService(db, engine).findByDraft("g1", seedUser(db, "u1").userId, draftId)?.deck)
+        .toEqual({ main: [], extra: codes, side: [] });
+    } finally { db.close(); }
+  });
   it("saves one deck per human player, skips bots, and does not make a second one", () => {
     const db = new Database(":memory:");
     migrate(db);
@@ -120,7 +152,7 @@ describe("saving a deck when a draft finishes", () => {
     const bot = addPlayer(db, "bot_player_dev_1", "Bot 1");
     const { drafts, draftId } = playDraft(db, [alice, bob, bot], "u1");
 
-    const decks = createSavedDeckService(db);
+    const decks = createSavedDeckService(db, new Map());
     for (const owner of ["u1", "u2"]) {
       const deck = decks.findByDraft("g1", seedUser(db, owner).userId, draftId);
       expect(deck).not.toBeNull();
@@ -135,8 +167,8 @@ describe("saving a deck when a draft finishes", () => {
 
     // Running it again (or backfilling) makes no new deck.
     const before = (db.prepare("select count(*) n from saved_decks").get() as { n: number }).n;
-    expect(createDraftDeckService(db).saveForDraft(draftId)).toEqual([]);
-    expect(createDraftDeckService(db).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([]);
+    expect(createDraftDeckService(db, new Map()).saveForDraft(draftId)).toEqual([]);
+    expect(createDraftDeckService(db, new Map()).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([]);
     expect((db.prepare("select count(*) n from saved_decks").get() as { n: number }).n).toBe(before);
     db.close();
   });
@@ -152,13 +184,13 @@ describe("saving a deck when a draft finishes", () => {
     db.prepare("delete from saved_decks").run();
     db.prepare("update draft_players set deck_saved_at = null").run();
 
-    const service = createDraftDeckService(db);
+    const service = createDraftDeckService(db, new Map());
     expect(service.ensureForUser("other-guild", seedUser(db, "u1").userId)).toEqual([]);
-    expect(createSavedDeckService(db).findByDraft("g1", seedUser(db, "u1").userId, draftId)).toBeNull();
+    expect(createSavedDeckService(db, new Map()).findByDraft("g1", seedUser(db, "u1").userId, draftId)).toBeNull();
 
     expect(service.ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([draftId]);
-    expect(createSavedDeckService(db).findByDraft("g1", seedUser(db, "u1").userId, draftId)).not.toBeNull();
-    expect(createSavedDeckService(db).findByDraft("g1", seedUser(db, "u2").userId, draftId)).not.toBeNull();
+    expect(createSavedDeckService(db, new Map()).findByDraft("g1", seedUser(db, "u1").userId, draftId)).not.toBeNull();
+    expect(createSavedDeckService(db, new Map()).findByDraft("g1", seedUser(db, "u2").userId, draftId)).not.toBeNull();
     db.close();
   });
 });
@@ -176,11 +208,11 @@ describe("a draft deck the player removed", () => {
 
   it("does not come back when the player deletes it and the decks load again", () => {
     const { db, draftId } = finishedDraft();
-    const decks = createSavedDeckService(db);
+    const decks = createSavedDeckService(db, new Map());
     decks.delete(decks.findByDraft("g1", seedUser(db, "u1").userId, draftId)!.id, "g1", seedUser(db, "u1").userId);
 
-    expect(createDraftDeckService(db).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([]);
-    expect(createDraftDeckService(db).saveForDraft(draftId)).toEqual([]);
+    expect(createDraftDeckService(db, new Map()).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([]);
+    expect(createDraftDeckService(db, new Map()).saveForDraft(draftId)).toEqual([]);
     expect(decks.findByDraft("g1", seedUser(db, "u1").userId, draftId)).toBeNull();
     // The other player's deck is untouched.
     expect(decks.findByDraft("g1", seedUser(db, "u2").userId, draftId)).not.toBeNull();
@@ -191,9 +223,9 @@ describe("a draft deck the player removed", () => {
     const { db, draftId } = finishedDraft();
     db.prepare("update saved_decks set draft_id = null where owner_user_id = ?").run(seedUser(db, "u1").userId);
 
-    expect(createDraftDeckService(db).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([]);
+    expect(createDraftDeckService(db, new Map()).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([]);
     expect(db.prepare("select count(*) n from saved_decks where owner_user_id = ?").get(seedUser(db, "u1").userId)).toEqual({ n: 1 });
-    expect(createSavedDeckService(db).findByDraft("g1", seedUser(db, "u1").userId, draftId)).toBeNull();
+    expect(createSavedDeckService(db, new Map()).findByDraft("g1", seedUser(db, "u1").userId, draftId)).toBeNull();
     db.close();
   });
 
@@ -202,9 +234,9 @@ describe("a draft deck the player removed", () => {
     db.prepare("update draft_players set deck_saved_at = null").run();
     migrate(db);
     expect(db.prepare("select count(*) n from draft_players where deck_saved_at is null").get()).toEqual({ n: 0 });
-    const decks = createSavedDeckService(db);
+    const decks = createSavedDeckService(db, new Map());
     decks.delete(decks.findByDraft("g1", seedUser(db, "u2").userId, draftId)!.id, "g1", seedUser(db, "u2").userId);
-    expect(createDraftDeckService(db).ensureForUser("g1", seedUser(db, "u2").userId)).toEqual([]);
+    expect(createDraftDeckService(db, new Map()).ensureForUser("g1", seedUser(db, "u2").userId)).toEqual([]);
     db.close();
   });
 });
@@ -220,13 +252,13 @@ describe("a deck made by hand for a draft", () => {
     // A draft that ended before decks were saved; the player then saves a deck for it by hand.
     db.prepare("delete from saved_decks").run();
     db.prepare("update draft_players set deck_saved_at = null").run();
-    const decks = createSavedDeckService(db);
+    const decks = createSavedDeckService(db, new Map());
     const made = decks.create("g1", seedUser(db, "u1").userId, { name: "Mine", mode: "normal", deck: { main: [1, 2, 3], extra: [], side: [] }, draftId });
     expect(db.prepare("select deck_saved_at from draft_players where player_id = ?").get(alice)).not.toEqual({ deck_saved_at: null });
     expect(db.prepare("select deck_saved_at from draft_players where player_id = ?").get(bob)).toEqual({ deck_saved_at: null });
 
     decks.delete(made.id, "g1", seedUser(db, "u1").userId);
-    expect(createDraftDeckService(db).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([]);
+    expect(createDraftDeckService(db, new Map()).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([]);
     expect(decks.findByDraft("g1", seedUser(db, "u1").userId, draftId)).toBeNull();
     db.close();
   });
@@ -254,8 +286,8 @@ describe("which finished drafts the backfill covers", () => {
 
   it("saves a recent draft and an older draft that has a tournament, not an older draft without one", () => {
     const { db, old, oldWithTournament, recent } = oldDrafts();
-    expect(createDraftDeckService(db).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([oldWithTournament, recent].sort((a, b) => a - b));
-    const decks = createSavedDeckService(db);
+    expect(createDraftDeckService(db, new Map()).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([oldWithTournament, recent].sort((a, b) => a - b));
+    const decks = createSavedDeckService(db, new Map());
     expect(decks.findByDraft("g1", seedUser(db, "u1").userId, old)).toBeNull();
     expect(decks.findByDraft("g1", seedUser(db, "u1").userId, oldWithTournament)).not.toBeNull();
     expect(decks.findByDraft("g1", seedUser(db, "u1").userId, recent)).not.toBeNull();
@@ -267,7 +299,7 @@ describe("which finished drafts the backfill covers", () => {
     const tournamentId = (db.prepare("select tournament_id from drafts where id = ?").get(oldWithTournament) as { tournament_id: number }).tournament_id;
     const alice = (db.prepare("select id from players where user_id = ?").get(seedUser(db, "u1").userId) as { id: number }).id;
     db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tournamentId, alice);
-    createDraftDeckService(db).ensureForUser("g1", seedUser(db, "u1").userId);
+    createDraftDeckService(db, new Map()).ensureForUser("g1", seedUser(db, "u1").userId);
     expect(createTournamentDuelService(db).registration(tournamentId, alice)?.deck.main.length).toBeGreaterThan(0);
     db.close();
   });
@@ -280,7 +312,7 @@ describe("which finished drafts the backfill covers", () => {
     expect(savedAt(old)).toBe(2);
     expect(savedAt(oldWithTournament)).toBe(0);
     expect(savedAt(recent)).toBe(0);
-    expect(createDraftDeckService(db).ensureForUser("g1", seedUser(db, "u1").userId)).not.toContain(old);
+    expect(createDraftDeckService(db, new Map()).ensureForUser("g1", seedUser(db, "u1").userId)).not.toContain(old);
     db.close();
   });
 });
@@ -297,17 +329,17 @@ describe("a failure while saving one player's deck", () => {
     db.prepare("update draft_players set deck_saved_at = null").run();
     db.exec(`create trigger fail_bob before insert on saved_decks when new.owner_user_id = ${seedUser(db, 'u1').userId}
              begin select raise(abort, 'boom'); end`);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = recording.report.mockClear().mockImplementation(() => {});
 
-    expect(createDraftDeckService(db).saveForDraft(draftId)).toEqual([seedUser(db, "u2").userId]);
-    expect(createSavedDeckService(db).findByDraft("g1", seedUser(db, "u2").userId, draftId)).not.toBeNull();
-    expect(createSavedDeckService(db).findByDraft("g1", seedUser(db, "u1").userId, draftId)).toBeNull();
+    expect(createDraftDeckService(db, new Map()).saveForDraft(draftId)).toEqual([seedUser(db, "u2").userId]);
+    expect(createSavedDeckService(db, new Map()).findByDraft("g1", seedUser(db, "u2").userId, draftId)).not.toBeNull();
+    expect(createSavedDeckService(db, new Map()).findByDraft("g1", seedUser(db, "u1").userId, draftId)).toBeNull();
     expect(log).toHaveBeenCalled();
 
     // The failed player is tried again on the next backfill.
     db.exec("drop trigger fail_bob");
-    expect(createDraftDeckService(db).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([draftId]);
-    expect(createSavedDeckService(db).findByDraft("g1", seedUser(db, "u1").userId, draftId)).not.toBeNull();
+    expect(createDraftDeckService(db, new Map()).ensureForUser("g1", seedUser(db, "u1").userId)).toEqual([draftId]);
+    expect(createSavedDeckService(db, new Map()).findByDraft("g1", seedUser(db, "u1").userId, draftId)).not.toBeNull();
     log.mockRestore();
     db.close();
   });
@@ -329,7 +361,7 @@ describe("linking the draft deck to the tournament entry", () => {
       draftId, format: "round_robin", createdByUserId: seedUser(db, "u1").userId,
     });
     const duels = createTournamentDuelService(db);
-    const decks = createSavedDeckService(db);
+    const decks = createSavedDeckService(db, new Map());
     for (const [playerId, owner] of [[alice, "u1"], [bob, "u2"]] as const) {
       const registration = duels.registration(result.tournamentId, playerId);
       const saved = decks.findByDraft("g1", seedUser(db, owner).userId, draftId)!;
@@ -351,13 +383,13 @@ describe("linking the draft deck to the tournament entry", () => {
       draftId, format: "round_robin", createdByUserId: seedUser(db, "u1").userId,
     });
     const duels = createTournamentDuelService(db);
-    const decks = createSavedDeckService(db);
+    const decks = createSavedDeckService(db, new Map());
     const mine = decks.findByDraft("g1", seedUser(db, "u1").userId, draftId)!;
     const trimmed = { ...mine.deck, main: mine.deck.main.slice(0, 2) };
     decks.update(mine.id, "g1", seedUser(db, "u1").userId, { name: mine.name, mode: "normal", deck: trimmed });
     duels.registerDeck({ tournamentId: result.tournamentId, playerId: alice, savedDeckId: mine.id, deck: trimmed });
 
-    expect(createDraftDeckService(db).linkTournament(result.tournamentId)).toEqual([]);
+    expect(createDraftDeckService(db, new Map()).linkTournament(result.tournamentId)).toEqual([]);
     expect(duels.registration(result.tournamentId, alice)?.deck.main).toHaveLength(2);
     db.close();
   });
@@ -374,7 +406,7 @@ describe("linking the draft deck to the tournament entry", () => {
     });
     db.prepare("update tournament_participants set deck_json = null, saved_deck_id = null, deck_registered_at = null where player_id = ?").run(bob);
 
-    const service = createDraftDeckService(db);
+    const service = createDraftDeckService(db, new Map());
     expect(service.linkTournament(result.tournamentId, bob)).toEqual([bob]);
     expect(createTournamentDuelService(db).registration(result.tournamentId, bob)).not.toBeNull();
     db.close();
@@ -394,15 +426,17 @@ describe("making a tournament from a draft when the deck save fails", () => {
     // A failure outside the per-player saves: registering a deck on an entry breaks.
     db.exec(`create trigger fail_register before update of deck_json on tournament_participants
              begin select raise(abort, 'boom'); end`);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = recording.report.mockClear().mockImplementation(() => {});
 
     const result = createDraftTournamentService(db).createTournamentFromDraft({
       draftId, format: "round_robin", createdByUserId: seedUser(db, "u1").userId,
     });
     expect(result.tournamentId).toBeGreaterThan(0);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("[draft-tournament]"), expect.anything());
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({ name: "SqliteError" }), { tags: { operation: "[draft-tournament] could not save the draft decks for draft" } });
     expect(db.prepare("select tournament_id from drafts where id = ?").get(draftId)).toEqual({ tournament_id: result.tournamentId });
     log.mockRestore();
     db.close();
   });
 });
+
+const recording = useRecordingObservability();

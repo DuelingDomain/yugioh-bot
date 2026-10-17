@@ -1,3 +1,5 @@
+import { recordProductEvent } from "../analytics/index.js";
+import { ExpectedError, report } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { generateSingleElimFirstRound } from "../tournaments/formats.js";
 import { createScoringService } from "./scoring.js";
@@ -41,6 +43,8 @@ export type ConfirmedResultInput = {
   playerTwoId: number;
   winnerId: number;
   source: MatchSource;
+  /** Required for engine results. Omitted for independent manual results. The persisted kind is authoritative. */
+  sourceDuelId?: number;
   /** tournament_matches.id; the slot must be open (not completed). */
   tournamentMatchId?: number | null;
   /** Player who caused the record (organizer); null for an engine result. */
@@ -78,7 +82,7 @@ export function createMatchService(db: Database.Database) {
       fn();
     } catch (err) {
       if (strictScoring) throw err;
-      console.error("[scoring] failed", err);
+      report(err, { tags: { operation: "[scoring] failed" } });
     }
   };
 
@@ -86,7 +90,7 @@ export function createMatchService(db: Database.Database) {
     const row = db.prepare("select * from matches where id = ?").get(matchId);
 
     if (!row) {
-      throw new Error("Match not found");
+      throw new ExpectedError("Match not found", 400);
     }
 
     return mapMatch(row);
@@ -97,11 +101,11 @@ export function createMatchService(db: Database.Database) {
       match.reporterId === match.playerOneId ? match.playerTwoId : match.playerOneId;
 
     if (match.status !== "pending") {
-      throw new Error("Match is not pending");
+      throw new ExpectedError("Match is not pending", 400);
     }
 
     if (playerId !== opponentId) {
-      throw new Error("Only the opponent can approve this match");
+      throw new ExpectedError("Only the opponent can approve this match", 400);
     }
   };
 
@@ -130,6 +134,13 @@ export function createMatchService(db: Database.Database) {
       return;
     }
 
+    const finishTournament = () => {
+      db.prepare("update tournaments set status = 'completed', ended_at = current_timestamp where id = ?").run(match.tournamentId);
+      const participants = db.prepare("select count(*) as n from tournament_participants where tournament_id=?").get(match.tournamentId) as { n: number };
+      recordProductEvent(db, "tournament_finished", tournament.created_by_user_id, { format: tournament.format, participantCount: participants.n });
+      safe(() => scoring.recordTournamentResult(match.tournamentId!), strictScoring);
+    };
+
     if (tournament.format === "round_robin") {
       const remaining = db
         .prepare(
@@ -138,10 +149,7 @@ export function createMatchService(db: Database.Database) {
         .get(match.tournamentId) as { count: number };
 
       if (remaining.count === 0) {
-        db.prepare(
-          "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
-        ).run(match.tournamentId);
-        safe(() => scoring.recordTournamentResult(match.tournamentId!), strictScoring);
+        finishTournament();
       }
       return;
     }
@@ -196,10 +204,7 @@ export function createMatchService(db: Database.Database) {
       .filter((winnerId: unknown): winnerId is number => typeof winnerId === "number");
 
     if (winners.length <= 1) {
-      db.prepare(
-        "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
-      ).run(match.tournamentId);
-      safe(() => scoring.recordTournamentResult(match.tournamentId!), strictScoring);
+      finishTournament();
       return;
     }
 
@@ -246,11 +251,11 @@ export function createMatchService(db: Database.Database) {
   return {
     report(input: ReportMatchInput): Match {
       if (input.reporterId === input.opponentId) {
-        throw new Error("Players cannot report matches against themselves");
+        throw new ExpectedError("Players cannot report matches against themselves", 400);
       }
 
       if (input.winnerId !== input.reporterId && input.winnerId !== input.opponentId) {
-        throw new Error("Winner must be one of the match players");
+        throw new ExpectedError("Winner must be one of the match players", 400);
       }
 
       const result = db
@@ -285,33 +290,52 @@ export function createMatchService(db: Database.Database) {
     approve(matchId: number, approverId: number): Match {
       const match = findById(matchId);
       ensureOpponentCanResolve(match, approverId);
+      // A report that waited past the end of its tournament no longer counts: no Elo, no points.
+      if (match.tournamentId !== null) {
+        const tournament = db
+          .prepare("select status from tournaments where id = ?")
+          .get(match.tournamentId) as { status: string } | undefined;
+        if (tournament && (tournament.status === "cancelled" || tournament.status === "completed")) {
+          throw new ExpectedError(`Tournament is ${tournament.status}; this report can no longer be confirmed`, 400);
+        }
+      }
 
-      db.prepare(
+      // Only a still pending report can be approved: a cancel that denied it in the meantime wins.
+      const approve = db.prepare(
         `
         update matches
         set status = 'approved', approver_id = ?, resolved_at = current_timestamp
-        where id = ?
+        where id = ? and status = 'pending'
       `,
-      ).run(approverId, matchId);
+      );
+      return db.transaction(() => {
+        const approved = approve.run(approverId, matchId);
+        if (approved.changes !== 1) {
+          throw new ExpectedError("Match is not pending", 400);
+        }
 
-      const approvedMatch = findById(matchId);
-      completeTournamentMatch(approvedMatch);
-      safe(() => scoring.recordMatchResult(matchId));
+        const approvedMatch = findById(matchId);
+        completeTournamentMatch(approvedMatch);
+        safe(() => scoring.recordMatchResult(matchId));
 
-      return findById(matchId);
+        return findById(matchId);
+      }).immediate();
     },
 
     deny(matchId: number, denierId: number): Match {
       const match = findById(matchId);
       ensureOpponentCanResolve(match, denierId);
 
-      db.prepare(
+      const denied = db.prepare(
         `
         update matches
         set status = 'denied', approver_id = ?, resolved_at = current_timestamp
-        where id = ?
+        where id = ? and status = 'pending'
       `,
       ).run(denierId, matchId);
+      if (denied.changes !== 1) {
+        throw new ExpectedError("Match is not pending", 400);
+      }
 
       if (match.tournamentId !== null) {
         db.prepare(
@@ -329,23 +353,33 @@ export function createMatchService(db: Database.Database) {
     /** Strict scoring propagates errors to the caller's recording transaction. */
     recordConfirmedResult(input: ConfirmedResultInput, options: { strictScoring?: boolean } = {}): Match {
       if (input.playerOneId === input.playerTwoId) {
-        throw new Error("Players cannot play matches against themselves");
+        throw new ExpectedError("Players cannot play matches against themselves", 400);
       }
       if (input.winnerId !== input.playerOneId && input.winnerId !== input.playerTwoId) {
-        throw new Error("Winner must be one of the match players");
+        throw new ExpectedError("Winner must be one of the match players", 400);
       }
 
       const insertAndAdvance = db.transaction((): number => {
+        if (input.sourceDuelId !== undefined) {
+          const source = Number.isSafeInteger(input.sourceDuelId) && input.sourceDuelId > 0
+            ? db.prepare<[number, string], { kind: string }>("select kind from duels where id = ? and guild_id = ?").get(input.sourceDuelId, input.guildId) : undefined;
+          if (!source) throw new ExpectedError("Source duel not found", 400);
+          if (source.kind !== "play") throw new ExpectedError("Replay forks cannot record match results", 400);
+        }
         let slot: any = null;
         if (input.tournamentMatchId != null) {
+          if (db.prepare(`select 1 from duels d join duel_series s on s.id = d.series_id
+            where s.tournament_match_id = ? and d.kind != 'play' limit 1`).get(input.tournamentMatchId)) {
+            throw new ExpectedError("Replay forks cannot be linked to a tournament result", 400);
+          }
           slot = db.prepare("select * from tournament_matches where id = ?").get(input.tournamentMatchId);
-          if (!slot) throw new Error("Tournament match not found");
-          if (slot.status === "completed") throw new Error("Tournament match is already completed");
-          if (slot.match_id !== null) throw new Error("Tournament match has a pending result");
+          if (!slot) throw new ExpectedError("Tournament match not found", 400);
+          if (slot.status === "completed") throw new ExpectedError("Tournament match is already completed", 400);
+          if (slot.match_id !== null) throw new ExpectedError("Tournament match has a pending result", 400);
           const samePlayers =
             (slot.player_one_id === input.playerOneId && slot.player_two_id === input.playerTwoId) ||
             (slot.player_one_id === input.playerTwoId && slot.player_two_id === input.playerOneId);
-          if (!samePlayers) throw new Error("Players do not match the tournament match");
+          if (!samePlayers) throw new ExpectedError("Players do not match the tournament match", 400);
         }
 
         const result = db
@@ -396,19 +430,22 @@ export function createMatchService(db: Database.Database) {
         return match;
       }
 
-      db.prepare(
+      const approve = db.prepare(
         `
         update matches
         set status = 'approved', approver_id = null, resolved_at = current_timestamp
         where id = ?
       `,
-      ).run(matchId);
+      );
+      return db.transaction(() => {
+        approve.run(matchId);
 
-      const approvedMatch = findById(matchId);
-      completeTournamentMatch(approvedMatch);
-      safe(() => scoring.recordMatchResult(matchId));
+        const approvedMatch = findById(matchId);
+        completeTournamentMatch(approvedMatch);
+        safe(() => scoring.recordMatchResult(matchId));
 
-      return findById(matchId);
+        return findById(matchId);
+      }).immediate();
     },
 
     findOverduePendingConfirmations(now: string): Match[] {

@@ -1,3 +1,4 @@
+import { PageViews } from "@/lib/analytics/page-views";
 import { ClerkProvider } from "@clerk/nextjs";
 import { MarketingSessionHint } from "@/components/auth/marketing-session-hint";
 import { waitlistHref } from "@/components/auth/marketing-links";
@@ -34,7 +35,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   await connection();
-  const content = <><DuelNavigationGuard />{children}</>;
+  const content = <><PageViews /><DuelNavigationGuard />{children}</>;
   return (
     <html lang="en" className={`${russoOne.variable} ${chakraPetch.variable} dark`}>
       <body className="min-h-screen bg-bg-deep text-text-primary antialiased">

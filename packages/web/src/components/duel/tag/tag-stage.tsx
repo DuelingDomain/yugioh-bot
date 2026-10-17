@@ -5,7 +5,8 @@ import { seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
 import { ChainRoomContext, type ChainStripSize } from "../table/chain-room";
 import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
-import { zoneKey } from "../constants";
+import { LOCATION_FZONE, LOCATION_MZONE, LOCATION_PZONE, LOCATION_SZONE, zoneKey } from "../constants";
+import { SeatMasterBadge } from "../master-badge";
 import { isChainStripPrompt } from "../prompt-center";
 import { useStripRoom } from "../table/use-strip-room";
 import { hexToRgbTriplet } from "../table/seat-angle";
@@ -16,6 +17,10 @@ import { HelipadHub, type HubSeatTone } from "./helipad-hub";
 import { OwnHand, PartnerHand } from "./tag-hand";
 import {
   clampCenter,
+  clearHands,
+  liftView,
+  isLiftedPose,
+  dropPose,
   easeCam,
   easeFly,
   lockLabel,
@@ -39,9 +44,9 @@ import { CameraRail } from "./camera-rail";
 import { Baton, RoofDecor, TeamStrip } from "./roof-world";
 import { SharedExtraBand } from "./shared-band";
 import { batonOrder, lastTeamDamage, responseWindow, rivalPickOptions, teamGlyph, teamLoss, teamLp } from "./tag-logic";
+import { useForkLabels } from "../table/fork-labels";
 import { plateState, TeamLpPlate, type PlateMember } from "./team-lp-plate";
 import styles from "./tag-stage.module.css";
-import cameraStyles from "./tag-camera.module.css";
 
 export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
   /**
@@ -53,9 +58,13 @@ export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
   teamNames?: readonly [string, string];
   /** The HUD pins an idle card's peek while its field comes into focus. */
   inspectIdleCards?: boolean;
+  /** Replay: the camera seat is not "you". No YOU tag on the plate, and the partner hand does not claim to be team-only. */
+  replay?: boolean;
 }
 
 const TAG = "tag" as const;
+/** Locations of the field zones: a pick there sits on a field, unlike a pile, a Deck or a hand. */
+const FIELD_LOCATIONS: ReadonlySet<number> = new Set([LOCATION_MZONE, LOCATION_SZONE, LOCATION_FZONE, LOCATION_PZONE]);
 const HALF_W = ROOF_FIELD.width / 2;
 const HALF_H = ROOF_FIELD.height / 2;
 /** Space between the phase hub and the chain hub while both are on the helipad. */
@@ -65,8 +74,6 @@ const FAR_ANCHOR_Y = -ROOF_FIELD.offsetY - ROOF_FIELD.height - 46;
 /** A screen this wide has free room left of the fields for the camera rail; a narrower one gets a row under the far plate. */
 const RAIL_COLUMN_MIN = 900;
 const RAIL_ROW = 46;
-/** Screen size of a field's focus button, in CSS px: large enough to hit with a finger, whatever the zoom. */
-const FOCUS_BTN_PX = 36;
 /**
  * A click on one of these does its own job (play a card, pick a zone, press a button): it never moves the camera.
  * On a phone, everything else on a field (the mat, the name label) or on a seat chip focuses that field, and so does a
@@ -115,6 +122,8 @@ const STRIP_KEY_HUD = "[data-team-plate], [data-camera-rail], [data-testid='hove
  * "key" could be hidden for a small corner of the hub (the 2B chip at 1366 home). Counted in both, a plate costs its area first.
  */
 const STRIP_SOFT_HUD = "[data-hub], [data-chain-panel], [data-lock-chip], [data-partner-hand], [data-team-plate]";
+/** The air between the response room and the plates or the hand it keeps off (px). */
+const STRIP_BAND_AIR = 10;
 const STRIP_OWN_HAND = '[data-hand-seat][data-side="you"] [data-zones]';
 
 /**
@@ -122,8 +131,9 @@ const STRIP_OWN_HAND = '[data-hand-seat][data-side="you"] [data-zones]';
  * the chain hub and the hands. It draws the fields only through `renderSeatField`. FX, the prompt panel and any overlay
  * are slots over the whole box, so they measure the real screen position of `[data-zones]` and `[data-lp-seat]` nodes.
  */
-export function TagStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub: phaseHub, teamNames, inspectIdleCards = false }: TagBoardProps) {
+export function TagStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub: phaseHub, teamNames, inspectIdleCards = false, replay = false }: TagBoardProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion, prompt, promptSeat } = controller;
+  const forkLabels = useForkLabels();
   const [phone, setPhone] = useState(false);
   const [chainSize, setChainSize] = useState<ChainStripSize | null>(null);
   useLayoutEffect(() => {
@@ -179,6 +189,56 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   }, []);
   const stripCount = !phone && promptCenter && prompt && isChainStripPrompt(prompt) ? prompt.options.length : 0;
   const stripAnchor = useMemo(() => ({ x: viewBox.width / 2, y: viewBox.height / 2 }), [viewBox.width, viewBox.height]);
+  // The panel is fixed to the middle of the screen in every view (overview, focus, close-up): the camera moves the world, never this room. Down, it
+  // takes the band between the far team plate and the near one or the top of your hand (the way the 4-way takes the band of the fields), so it covers
+  // neither plate nor your hand. Measured at rest; with no plate on screen it is the whole viewport.
+  const [stripBand, setStripBand] = useState<{ top: number; bottom: number } | null>(null);
+  const bandKey = `${prompt?.id ?? ""}|${viewBox.width}x${viewBox.height}|${camera.mode}|${camera.focusSeat ?? ""}|${camera.lock?.reason ?? ""}`;
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || stripCount === 0 || viewBox.height <= 0) {
+      setStripBand(null);
+      return;
+    }
+    const measure = () => {
+      const board = root.getBoundingClientRect();
+      const rectOf = (selector: string) => {
+        const r = root.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+        return r && r.height > 0 ? { top: r.top - board.top, bottom: r.bottom - board.top } : null;
+      };
+      const far = rectOf('[data-team-plate="far"]');
+      const near = rectOf('[data-team-plate="near"]');
+      const hand = rectOf(STRIP_OWN_HAND);
+      // The plates are the far one above and the near one below; where a view puts them the other way round, the band is the one between them.
+      const flipped = far != null && near != null && far.top > near.top;
+      const upper = flipped ? near : far;
+      const lower = flipped ? far : near;
+      const top = upper ? Math.round(upper.bottom + STRIP_BAND_AIR) : 0;
+      const stops = [lower?.top, hand?.top].filter((v): v is number => v != null).map((v) => v - STRIP_BAND_AIR);
+      const bottom = stops.length > 0 ? Math.round(Math.min(...stops)) : viewBox.height;
+      const next = bottom - top > 120 ? { top: Math.max(0, top), bottom: Math.min(viewBox.height, bottom) } : null;
+      setStripBand((current) => (current?.top === next?.top && current?.bottom === next?.bottom ? current : next));
+    };
+    // At rest, then again when the camera move ends (a transition on the stage) and a little later in case none fires.
+    let frame = window.requestAnimationFrame(measure);
+    const again = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    };
+    root.addEventListener("transitionend", again, true);
+    const settle = window.setTimeout(measure, 450);
+    const late = window.setTimeout(measure, 1200);
+    return () => {
+      root.removeEventListener("transitionend", again, true);
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(settle);
+      window.clearTimeout(late);
+    };
+  }, [bandKey, stripCount, viewBox.height]);
+  const stripFixed = useMemo(
+    () => (stripBand ? { x: 0, y: stripBand.top, width: viewBox.width, height: stripBand.bottom - stripBand.top } : { x: 0, y: 0, width: viewBox.width, height: viewBox.height }),
+    [stripBand, viewBox.width, viewBox.height],
+  );
   const stripSources = useMemo(() => engine.chain.flatMap((link) => (link.zone ? [zoneKey(link.zone.controller, link.zone.location, link.zone.sequence)] : [])), [engine.chain]);
   const { room: stripRoom, pending: stripPending } = useStripRoom({
     rootRef,
@@ -187,6 +247,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     count: stripCount,
     box: viewBox,
     anchor: stripAnchor,
+    fixed: stripFixed,
     keyHud: STRIP_KEY_HUD,
     softHud: STRIP_SOFT_HUD,
     hand: STRIP_OWN_HAND,
@@ -239,7 +300,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   };
 
   /** Measures the stage box: the free view rect (above the hands, under the plates) and the overview fit. Null for an empty box. */
-  const measure = (root: HTMLElement): { w: number; h: number; view: RoofView; fit: number } | null => {
+  const measure = (root: HTMLElement): { w: number; h: number; view: RoofView; fit: number; base: RoofView; drop: number } | null => {
     const w = root.clientWidth;
     const h = root.clientHeight;
     if (w <= 0 || h <= 0) return null;
@@ -248,7 +309,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       root.querySelector<HTMLElement>("[data-partner-hand]")?.offsetHeight ?? 0,
     );
     const narrow = narrowRef.current;
-    let hudH = Math.max(ownPlateRef.current?.offsetHeight ?? 0, handH) + 10;
+    // A wide screen keeps slim gaps around the field (the bigger field); a phone keeps its roomier ones.
+    const gap = narrow ? { hand: 10, bottom: 8, plate: 8 } : { hand: 4, bottom: 4, plate: 4 };
+    let hudH = Math.max(ownPlateRef.current?.offsetHeight ?? 0, handH) + gap.hand;
     if (narrow) {
       // A phone has no room for the plate and the hands side by side: the plate takes the bottom row, the own hand sits
       // above it and the partner hand above that (see the narrow block in the CSS). The band is as tall as the stack.
@@ -262,23 +325,59 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         .map((node) => node.getBoundingClientRect().top - rootTop);
       if (tops.length > 0) hudH = Math.max(hudH, h - Math.min(...tops) + 4);
     }
+    // The own plate and the own hand share the bottom row. The hand sits at the middle of the stage, and slides right only as far as
+    // the plate needs, never into the partner hand (the hand count stands right of the dock, 64px).
+    const dock = root.querySelector<HTMLElement>("[data-hand-dock]");
+    const ownPlate = ownPlateRef.current;
+    if (narrow || !dock || !ownPlate) root.style.removeProperty("--hx");
+    else {
+      const half = dock.offsetWidth / 2;
+      const partnerHand = root.querySelector<HTMLElement>("[data-partner-hand]");
+      const clear = ownPlate.offsetLeft + ownPlate.offsetWidth + 14 + half;
+      const limit = (partnerHand ? partnerHand.offsetLeft : w) - 10 - 64 - half;
+      root.style.setProperty("--hx", `${Math.min(Math.max(w / 2, clear), Math.max(w / 2, limit)).toFixed(1)}px`);
+    }
     // The far team plate hangs from the top edge: its height is not free space for the fields.
     const plateH = farPlateRef.current?.offsetHeight ?? 0;
-    const bottom = Math.max(60, h - hudH - 8);
+    const bottom = Math.max(60, h - hudH - gap.bottom);
     // A narrow screen has no side room for the camera rail: it takes its own row under the plate, kept in every mode so
     // the fit does not jump when a focus starts.
     const railRow = w < RAIL_COLUMN_MIN ? RAIL_ROW : 0;
-    const railTop = 6 + (plateH > 0 ? plateH + 8 : 0);
+    const railTop = 6 + (plateH > 0 ? plateH + gap.plate : 0);
     root.style.setProperty("--rail-top", `${railTop}px`);
-    const view = { left: 8, right: w - 8, top: Math.min(railTop + railRow, bottom - 40), bottom };
+    const viewTop = narrow ? railTop : 6;
+    let view: RoofView = { left: 8, right: w - 8, top: Math.min(viewTop + railRow, bottom - 40), bottom };
+    const base = view;
+    if (!narrow) {
+      // The home pose is fitted to the free box and its near edge can end below it: the hand dock and the partner's
+      // hand are in that row. First lift the whole box (same size, same fit) as far as the far field has room under the
+      // far plate; only what is still too low shrinks the box until your Spell/Trap row and piles stay above both.
+      const rootTop = root.getBoundingClientRect().top;
+      const handTops = [dock, root.querySelector<HTMLElement>("[data-partner-hand]")]
+        .filter((node): node is HTMLElement => node != null)
+        .map((node) => node.getBoundingClientRect().top - rootTop);
+      if (handTops.length > 0) {
+        const handTop = Math.min(...handTops) - 2;
+        // The far edge may rise to 8px under the far plate (the plate hangs from the top edge, 6px down).
+        const farTop = 6 + plateH + 8;
+        view = clearHands(anchorRef.current, liftView(anchorRef.current, view, handTop, farTop).view, handTop);
+      }
+    }
     const fit = roofFit(view) || 1;
     fitRef.current = fit;
-    return { w, h, view, fit };
+    const drop = (base.top + base.bottom) / 2 - (view.top + view.bottom) / 2;
+    return { w, h, view, fit, base, drop };
   };
 
-  /** The pose the world ends on: a close-up is fitted to the free box so the whole field shows; any other pose is as it is. */
-  const resolvePose = (pose: RoofPose, m: { fit: number; view: RoofView }): RoofPose =>
-    modeRef.current === "focus" && focusSeatRef.current != null ? fitSeatPose(anchorRef.current, focusSeatRef.current, m.fit, m.view) : pose;
+  /**
+   * The pose the world ends on. A close-up is fitted to the free box so the whole field shows. The home and rival poses
+   * ride up with the lifted view (that is what the lift is for). Every other pose (the overview, the fly-in end, a free
+   * camera) is slid back down by the lift, so all four fields stay between the far plate and the hands.
+   */
+  const resolvePose = (pose: RoofPose, m: { fit: number; base: RoofView; drop: number }): RoofPose => {
+    if (modeRef.current === "focus" && focusSeatRef.current != null) return fitSeatPose(anchorRef.current, focusSeatRef.current, m.fit, m.base, m.drop);
+    return isLiftedPose(pose) ? pose : dropPose(anchorRef.current, pose, m.fit, m.drop);
+  };
 
   const apply = useCallback(() => {
     const root = rootRef.current;
@@ -286,8 +385,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     if (!root || !world) return;
     const m = measure(root);
     if (!m) return;
-    const { view, fit } = m;
+    const { fit } = m;
     fitRef.current = fit;
+    const { view } = m;
     const cx = (view.left + view.right) / 2;
     const cy = (view.top + view.bottom) / 2;
     root.style.setProperty("--cx", `${cx.toFixed(1)}px`);
@@ -307,9 +407,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const pose = poseRef.current;
     world.style.transform = roofTransform(pose, fit);
     paintedFitRef.current = fit;
-    // The focus buttons keep one size on screen: world units grow when the view zooms out.
-    const unit = FOCUS_BTN_PX / Math.max(fit * pose.zoom, 0.05);
-    root.querySelectorAll<HTMLElement>("[data-field-focus]").forEach((node) => node.style.setProperty("--focus-btn", `${unit.toFixed(1)}px`));
     pillsRef.current?.style.setProperty("--flip", Math.cos((pose.yaw * Math.PI) / 180) < 0 ? "180deg" : "0deg");
 
     const box = root.getBoundingClientRect();
@@ -318,7 +415,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const hub = hubRef.current;
     const phases = phaseHubRef.current;
     const padAt = pad ? { x: pad.left - box.left, y: pad.top - box.top } : null;
-    const padSeen = padAt != null && padAt.x >= view.left && padAt.x <= view.right && padAt.y >= view.top && padAt.y <= view.bottom;
+    // The helipad rides with the lifted view in the home and rival poses; in any other pose it sits in the box before the lift.
+    const hubView = isLiftedPose(targetRef.current) ? view : m.base;
+    const padSeen = padAt != null && padAt.x >= hubView.left && padAt.x <= hubView.right && padAt.y >= hubView.top && padAt.y <= hubView.bottom;
     if (phases && pad && padAt) {
       // The phase hub sits in the gap between the two strips, on the helipad. The size comes from the gap the camera
       // ends on (so it does not flip during a tween): the biggest strip that fits the gap, with the chain hub stacked
@@ -342,7 +441,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       }
       if (fitted) {
         phases.removeAttribute("data-off");
-        const at = clampCenter(padAt, { w: Math.max(phases.offsetWidth, hub?.offsetWidth ?? 0), h: stackH }, view);
+        const at = clampCenter(padAt, { w: Math.max(phases.offsetWidth, hub?.offsetWidth ?? 0), h: stackH }, hubView);
         const top = at.y - stackH / 2;
         place(phases, at.x, top + phases.offsetHeight / 2);
         if (hub) place(hub, at.x, top + phases.offsetHeight + PHASE_HUB_GAP + hub.offsetHeight / 2);
@@ -351,11 +450,11 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         placedRef.current.delete(phases);
       }
       if (!fitted && hub) {
-        const at = clampCenter(padAt, { w: hub.offsetWidth, h: hub.offsetHeight }, view);
+        const at = clampCenter(padAt, { w: hub.offsetWidth, h: hub.offsetHeight }, hubView);
         place(hub, at.x, at.y);
       }
     } else if (hub && pad) {
-      const at = clampCenter({ x: pad.left - box.left, y: pad.top - box.top }, { w: hub.offsetWidth, h: hub.offsetHeight }, view);
+      const at = clampCenter({ x: pad.left - box.left, y: pad.top - box.top }, { w: hub.offsetWidth, h: hub.offsetHeight }, hubView);
       place(hub, at.x, at.y);
     }
     const plate = farPlateRef.current;
@@ -492,16 +591,37 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         .map(({ seat, code, rgb }) => ({ seat, code, rgb })),
     [layout.slots, slotsOf, toneOf],
   );
-  // A close-up needs a free camera: not under an FX lock, and not while an attack is aimed (the aim wants every rival).
-  // A click on a field never moves the camera on a wide screen (a misclick would zoom): the corner button, the rail, the dock and the
-  // keys do. A phone has no room for the corner buttons: a tap on the field, its name or a plate chip focuses it there.
-  const focusFree = !camera.lock && !camera.aiming && controller.aim == null;
+  // A close-up needs a free camera: not under an FX lock. An aim or a pick leaves it free: the viewer steps to a rival field with its pill.
+  // A click on a field never moves the camera on a wide screen (a misclick would zoom): the nameplate pills, the rail, the dock and the
+  // keys do. A phone also focuses a field on a tap on the field, its name or a plate chip.
+  const focusFree = !camera.lock;
   const focusField = (seat: number) => {
     if (!focusFree) return;
     // In close-up a tap on a field never moves the camera, not on the field in view and not on a neighbour that
-    // shows at its edge: only the toggle button, the rail, the switcher and the keys do.
+    // shows at its edge: only the nameplate pills, the rail, the switcher and the keys do.
     if (camera.mode === "focus") return;
     dispatchCamera({ type: "focus", seat });
+  };
+  // A nameplate pill is the zoom toggle: it zooms onto its field, a second press on the same pill zooms out, and a press on
+  // another pill steps to that field. Only a press does it; the camera never zooms by itself.
+  // While a field is in close-up and a target pick or an attack aim has legal zones on a field out of view, that field's pill gets a
+  // soft hint (the camera never moves for it: the viewer presses the pill). The action menu and chain windows are not picks.
+  const hintSeats = useMemo(() => {
+    if (camera.mode !== "focus" || !controller.canAct) return [];
+    const pickMine = prompt != null && promptSeat === viewerSeat && !(prompt.kind === "choice" && (prompt.context?.type === "action" || prompt.context?.type === "chain"));
+    if (!pickMine && !camera.aiming && controller.aim == null) return [];
+    const seats = new Set<number>();
+    for (const key of legalKeys) {
+      const [controllerSeat, location] = key.split(":").map(Number);
+      // Only a zone on the field counts: a card in a Graveyard, a banished pile, a Deck or a hand is not on the field the pill zooms to.
+      if (Number.isInteger(controllerSeat) && FIELD_LOCATIONS.has(location) && controllerSeat !== camera.focusSeat) seats.add(controllerSeat);
+    }
+    return [...seats];
+  }, [camera.mode, camera.focusSeat, camera.aiming, controller.canAct, controller.aim, prompt, promptSeat, viewerSeat, legalKeys]);
+  const toggleZoom = (seat: number) => {
+    if (!focusFree) return;
+    if (camera.mode === "focus" && camera.focusSeat === seat) dispatchCamera({ type: "overview" });
+    else dispatchCamera({ type: "focus", seat });
   };
   const onStageClick = (event: MouseEvent<HTMLDivElement>) => {
     if (camera.mode === "focus") return;
@@ -580,7 +700,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       // `data-side="you"` is the viewer's own field only (e2e own-zone locators); a spectator has none.
       dataSide: relation === "self" ? "you" : relation === "partner" ? "partner" : "opp",
       angleDeg: near ? 0 : 180,
-      upright: camera.upright,
       tone: layout.slots.find((s) => s.seat === seat)?.tone ?? "violet",
       density: near ? "full" : "rival",
       hand: "none",
@@ -598,35 +717,17 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const transform = near
       ? `translate3d(${slot.x - HALF_W}px, ${slot.y - HALF_H}px, ${ROOF_FIELD_Z}px)`
       : `translate3d(${slot.x}px, ${slot.y}px, ${ROOF_FIELD_Z}px) rotate(180deg) translate(${-HALF_W}px, ${-HALF_H}px)`;
-    const focused = camera.mode === "focus" && camera.focusSeat === seat;
     return (
       <div
         key={seat}
         className={styles.fieldHold}
         data-field-hold={seat}
+        data-def-full="true"
         data-relation={relation}
         data-out={outOf(seat) ? "true" : undefined}
         style={{ width: ROOF_FIELD.width, height: ROOF_FIELD.height, transform }}
       >
         {renderSeatField(props)}
-        {!focusFree || isNarrow ? null : (
-          // One button per field is the zoom toggle: it zooms in from the overview, and in the close-up on this field it
-          // is the way back (same place, same button, the icon and the label change).
-          <button
-            type="button"
-            className={cameraStyles.focusBtn}
-            data-field-focus={seat}
-            data-focused={focused ? "true" : undefined}
-            data-near={near ? "true" : "false"}
-            aria-label={focused ? "Back to overview" : `Focus ${nameOf(seat)}'s field`}
-            title={focused ? "Back to overview (Esc)" : `Focus ${nameOf(seat)}'s field`}
-            onClick={() => (focused ? dispatchCamera({ type: "overview" }) : focusField(seat))}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d={focused ? "M9 4v5H4M15 4v5h5M4 15h5v5M20 15h-5v5" : "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"} />
-            </svg>
-          </button>
-        )}
       </div>
     );
   };
@@ -645,16 +746,19 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         code: layout.slots.find((s) => s.seat === seat)?.code ?? `${team + 1}${i === 0 ? "A" : "B"}`,
         rgb: tone.rgb,
         ink: tone.ink,
-        you: seat === viewerSeat,
+        you: !replay && seat === viewerSeat,
         hand: view?.hand.length ?? 0,
         deck: view?.deckCount ?? 0,
         clockMs: room.clock?.remainingMs[seat] ?? null,
+        clock: room.clock,
         clockRuns: seat === (promptSeat ?? engine.turnSeat),
         now: seat === engine.turnSeat,
         response,
         pickable: pickIndex >= 0,
         hotkey: pickIndex >= 0 ? pickIndex + 1 : null,
         locked: aimedSeat === seat,
+        // The Deck Master badge of the member (Domain only; it is empty for a Standard seat view).
+        badge: room.session.mode === "domain" && view?.deckMaster ? <SeatMasterBadge seat={seat} side={near ? "you" : "opp"} /> : undefined,
       };
     });
     const out = loss.lostTeam === team;
@@ -728,6 +832,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
               rgbOf={(seat) => toneOf(seat).rgb}
               out={outSeats}
               holderRef={(node) => { pillsRef.current = node; }}
+              zoom={{ seat: camera.mode === "focus" ? camera.focusSeat : null, free: focusFree, onToggle: toggleZoom, pickSeats, hintSeats, calm: reducedMotion, onPick }}
             />
             <TeamStrip near glyph={teamGlyph(anchorTeam, anchorTeam)} teamName={teamName(anchorTeam)} out={loss.lostTeam === anchorTeam} />
             <TeamStrip near={false} glyph={teamGlyph(anchorTeam, 1 - anchorTeam)} teamName={teamName(1 - anchorTeam)} out={loss.lostTeam === 1 - anchorTeam} />
@@ -743,7 +848,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
                   near={nearView}
                   far={farView}
                   x={(firstAt.near ? firstAt : secondAt).x}
-                  upright={camera.upright}
                   nameOf={nameOf}
                   relationOf={relationOf}
                   outOf={outOf}
@@ -795,6 +899,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
             onHoverCard={controller.onHoverCard}
             label={`${nameOf(partnerView.seat)} hand`}
             partnerName={nameOf(partnerView.seat).split(" ")[0]}
+            teamOnly={!replay && !forkLabels}
           />
         ) : null}
         {camera.mode === "focus" && !camera.lock ? (
@@ -803,6 +908,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
             seats={railSeats}
             nameOf={nameOf}
             out={outSeats}
+            hintSeats={hintSeats}
+            calm={reducedMotion}
             dispatch={dispatchCamera}
           />
         ) : null}

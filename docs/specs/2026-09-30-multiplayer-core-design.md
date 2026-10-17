@@ -164,7 +164,7 @@ override; **?** unknown. The sample was read through targeted grep of player-bea
 | 37 | Prohibition `c43711255.lua` | U | `SetTargetRange(0x7f,0x7f)` |
 | 38 | Cosmic Cyclone `c8267140.lua` | U | `LOCATION_ONFIELD, LOCATION_ONFIELD` |
 | 39 | Nibiru `c27204311.lua` | O | `GlobalCheck` flag counter per player; tokens to `1-tp` |
-| 40 | Droll & Lock Bird `c94145021.lua` | O | `GlobalCheck`; line 35 maps draw events through `{0,1,PLAYER_ALL}` |
+| 40 | Droll & Lock Bird `c94145021.lua` | O | Stock `GlobalCheck` maps events through `{0,1,PLAYER_ALL}`. The existing EVENT-BITS overlay fixes this; real Standard and Domain scenarios prove FFA3, FFA4 and Tag (2026-10-16). The FFA ban is removed. |
 | 41 | Imperial Order `c61740673.lua` | U | `SetTargetRange(LOCATION_SZONE, LOCATION_SZONE)` |
 | 42 | Crush Card Virus `c57728570.lua` | O | lines 46-63: opponent hand, Deck and field each with its own chooser |
 | 43 | Ring of Destruction `c83555666.lua` | O | lines 25-41: damage to both, `GetLP(1-tp)` needs a bound opponent |

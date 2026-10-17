@@ -1,3 +1,4 @@
+import { ExpectedError } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import {
   DRAFT_LOBBY_ERROR_STATUS, isValidLobbySeats,
@@ -5,8 +6,7 @@ import {
 } from "../types/index.js";
 
 /** Coded failures can be mapped directly to the T01 HTTP error contract. */
-export class DraftLobbyServiceError extends Error {
-  readonly status: number;
+export class DraftLobbyServiceError extends ExpectedError {
   readonly notReadyPlayerIds?: number[];
   readonly unclaimedPlayerIds?: number[];
   readonly errors?: string[];
@@ -15,9 +15,8 @@ export class DraftLobbyServiceError extends Error {
   constructor(message: string, readonly code: DraftLobbyErrorCode, readonly details: {
     notReadyPlayerIds?: number[]; unclaimedPlayerIds?: number[]; errors?: string[]; warnings?: string[];
   } = {}) {
-    super(message);
+    super(message, DRAFT_LOBBY_ERROR_STATUS[code]);
     this.name = "DraftLobbyServiceError";
-    this.status = DRAFT_LOBBY_ERROR_STATUS[code];
     Object.assign(this, details);
   }
 }

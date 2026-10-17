@@ -114,6 +114,7 @@ describe("invite landing failures", () => {
     events=[];
     render(<DraftInviteGate slug="night"><Body /></DraftInviteGate>);
     expect(await screen.findByRole("heading",{name:"Lobby"})).toBeInTheDocument();
+    await waitFor(() => expect(events).toContain("GET /api/drafts/night"));
     expect(events).toEqual([
       'POST /api/drafts/night/invite {"code":"ABC123"}',
       'replaceState /draft/night?x=1#top',

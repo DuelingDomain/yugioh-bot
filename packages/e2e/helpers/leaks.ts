@@ -1,5 +1,4 @@
 // Leak scan: did a player's browser receive the code of a card that this seat may not know?
-// This file has no Playwright import, so `node --test` can check it (see tests-unit/).
 //
 // How it works
 // - The truth comes from the engine. `replay-journal.ts --json` replays the duel journal and prints, per viewer

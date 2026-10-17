@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,14 +11,9 @@ import { opponentSeatsOf, seatCountFor, type DuelEngineView, type DuelFormat } f
 import { createDuelService } from "@yugidraft/shared/services";
 import type { CardDatabase } from "../src/cards.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
-import { pinnedEngineVersion } from "../src/multi-scripts.js";
+import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { mapPrompt, resolveAnswer } from "../src/prompts.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
-
-vi.mock("../src/multi-scripts.js", async (importOriginal) => ({
-  ...await importOriginal<typeof import("../src/multi-scripts.js")>(),
-  activeMultiScriptsHash: () => null,
-}));
 
 const SECRET = "seat-left-error-test";
 const cards = { get: () => undefined, resolveLabel: () => "", system: () => undefined } as unknown as CardDatabase;
@@ -41,7 +36,8 @@ function fixture(format: DuelFormat, state: "eliminated" | "pendingElimination" 
     settings: { validateDeck: false, turnSeconds: 0 } });
   for (const player of players.slice(1)) service.takeSeat(session.slug, "g1", player);
   for (const player of players) service.setDeck(session.slug, "g1", player, { main: Array(40).fill(1), extra: [], side: [] });
-  service.activate(session.slug, "g1", players[0]!, ["1", "2", "3", "4"], pinnedEngineVersion("fixture", count, null),
+  service.activate(session.slug, "g1", players[0]!, ["1", "2", "3", "4"],
+    pinnedEngineVersion("fixture", count, activeMultiScriptsHash(dataDirectory)),
     null, { firstTurnDraw: false });
   const opponents = opponentSeatsOf(format, 0);
   const left = opponents[0]!;
@@ -72,12 +68,21 @@ function fixture(format: DuelFormat, state: "eliminated" | "pendingElimination" 
     const raw = JSON.stringify({ op: "respond", slug: session.slug, guildId: "g1", playerId: players[0],
       command: { revision: 0, promptId: "p1", answer: { choice } } });
     return host!.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+      headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") } }));
   }
   return { post, service, slug: session.slug, worker };
 }
 
 describe("host opponent picks for a seat that has left", () => {
+  it("returns a generic 500 when the worker fails while answering", async () => {
+    const t = fixture("ffa3", "eliminated");
+    t.worker.answer = async () => { throw new TypeError("fixture worker detail"); };
+    const response = await t.post("opt:1");
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Something went wrong" });
+    expect(t.service.privateState(t.slug, "g1").commands).toEqual([]);
+  });
+
   it.each((["ffa3", "ffa4", "tag"] as const).flatMap((format) =>
     (["eliminated", "pendingElimination", "allEliminated"] as const).map((state) => ({ format, state }))))(
     "returns the seat-left code for a removed option in $format with $state", async ({ format, state }) => {

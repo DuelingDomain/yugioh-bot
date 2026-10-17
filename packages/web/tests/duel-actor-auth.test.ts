@@ -10,7 +10,7 @@ vi.mock("@/lib/session-identity", async () => {
 });
 vi.mock("@/lib/db", () => ({ getDb: () => state.db! }));
 
-const discordUserId = "196382527131222016";
+const discordUserId = "900000000000000007";
 let userId: number;
 
 beforeEach(() => {
@@ -40,6 +40,7 @@ describe("requireDuelActor signed-in access", () => {
     expect(actor.ok).toBe(true);
     if (!actor.ok) throw new Error("expected signed-in actor");
     expect(actor.guildId).toBe("guild-1");
+    expect(actor.userId).toBe(userId);
     expect(actor.playerId).toBe(62);
     expect(actor.playerId).not.toBe(userId);
     expect(state.db!.prepare("select user_id,discord_user_id from players where id=?").get(actor.playerId))
@@ -149,39 +150,39 @@ describe("cube creator ownership", () => {
 
   it("compares integer owner IDs without asking Discord for owner writes", async () => {
     const cubeId = cube();
-    const { cubeWriteAccess } = await import("../src/lib/cube-access");
-    expect(await cubeWriteAccess(state.db!, cubeId, { userId, discordUserId })).toBeNull();
+    const { cubeOwnerAccess } = await import("../src/lib/cube-access");
+    expect(await cubeOwnerAccess(state.db!, cubeId, { userId })).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });
 
   it("rejects a former admin who is not the creator", async () => {
     const cubeId = cube();
     const admin = createUserService(state.db!).ensureDiscord({ discordUserId: "900000000000000102", displayName: "Admin" });
-    const { cubeWriteAccess } = await import("../src/lib/cube-access");
-    expect((await cubeWriteAccess(state.db!, cubeId, { userId: admin.id, discordUserId: admin.discordUserId! }))?.status).toBe(403);
+    const { cubeOwnerAccess } = await import("../src/lib/cube-access");
+    expect((await cubeOwnerAccess(state.db!, cubeId, { userId: admin.id }))?.status).toBe(404);
     expect(fetch).not.toHaveBeenCalledWith(`https://discord.com/api/v10/guilds/guild-1/members/${admin.id}`, expect.any(Object));
   });
 
   it("denies a non-creator without external checks", async () => {
     const cubeId = cube();
 
-    const { cubeWriteAccess } = await import("../src/lib/cube-access");
-    const response = await cubeWriteAccess(state.db!, cubeId, { userId: userId + 1, discordUserId: "900000000000000102" });
-    expect(response?.status).toBe(403);
+    const { cubeOwnerAccess } = await import("../src/lib/cube-access");
+    const response = await cubeOwnerAccess(state.db!, cubeId, { userId: userId + 1 });
+    expect(response?.status).toBe(404);
   });
 
   it("denies a non-creator even without Discord", async () => {
     const cubeId = cube();
 
-    const { cubeWriteAccess } = await import("../src/lib/cube-access");
-    const response = await cubeWriteAccess(state.db!, cubeId, { userId: userId + 1, discordUserId: null });
-    expect(response?.status).toBe(403);
+    const { cubeOwnerAccess } = await import("../src/lib/cube-access");
+    const response = await cubeOwnerAccess(state.db!, cubeId, { userId: userId + 1 });
+    expect(response?.status).toBe(404);
   });
 
   it("does not expose a cube from a historical guild even to its owner", async () => {
     const cubeId = cube("historical-guild");
-    const { cubeWriteAccess } = await import("../src/lib/cube-access");
-    expect((await cubeWriteAccess(state.db!, cubeId, { userId, discordUserId }))?.status).toBe(404);
+    const { cubeOwnerAccess } = await import("../src/lib/cube-access");
+    expect((await cubeOwnerAccess(state.db!, cubeId, { userId }))?.status).toBe(404);
     expect(fetch).not.toHaveBeenCalled();
   });
 });

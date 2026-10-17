@@ -1,3 +1,5 @@
+import { apiErrorResponse } from "@/lib/api-errors";
+import { report } from "@yugidraft/shared/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -16,7 +18,7 @@ export async function GET(request: Request) {
     return NextResponse.json(findTournamentListPage(getDb(), env.discordGuildId, actor.userId, cursor));
   } catch (error) {
     if (error instanceof InvalidListCursorError) return NextResponse.json({ error: error.message }, { status: 400 });
-    console.error("[api/tournaments] error:", error);
+    report(error, { tags: { operation: "[api/tournaments] error" } });
     return NextResponse.json({ error: "Failed to load tournaments" }, { status: 500 });
   }
 }
@@ -25,8 +27,13 @@ export async function POST(request: NextRequest) {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
 
-  const body = await request.json();
-  const { name, format } = body as { name: string; format: string };
+  let body: { name: string; format: string; visibility?: unknown };
+  try { body = await request.json(); }
+  catch (error) {
+    if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    throw error;
+  }
+  const { name, format } = body;
   const visibility = body.visibility === undefined ? "private" : body.visibility;
   if (!isTournamentVisibility(visibility)) return NextResponse.json({ error: "visibility must be open or private" }, { status: 400 });
 
@@ -119,8 +126,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to create tournament";
-    console.error("[api/tournaments POST] error:", error);
-    return NextResponse.json({ error: message }, { status: error instanceof TournamentDuelError ? error.status : 400 });
+    if (error instanceof TournamentDuelError) return NextResponse.json({ error: error.message }, { status: error.status });
+    return apiErrorResponse(error, "[api/tournaments POST] error");
   }
 }

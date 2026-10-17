@@ -1,7 +1,9 @@
 import type { CSSProperties, ReactNode } from "react";
 import { signInFontClasses } from "./fonts";
 import { PackTilt } from "./pack-tilt";
+import { SignInCommunity } from "./sign-in-community";
 import { SignInSymbols } from "./sign-in-symbols";
+import { TrailerFacade } from "./trailer-facade";
 import { marketingHomeHref } from "./marketing-links";
 import styles from "./sign-in-shell.module.css";
 
@@ -84,10 +86,17 @@ export function SignInShell({ children, marketingUrl, packState = "sealed", tone
       </header>
 
       <main className={`${styles["wrap"]} ${styles["a-grid"]}`}>
-        <div className={styles["a-form"]} id="form-zone" tabIndex={-1}>{children}</div>
+        <div className={styles["a-form"]} id="form-zone" tabIndex={-1}>
+          <div className={styles.identity}>
+            <p><strong>Dueling Domain</strong> is an unofficial fan-made tool for trading card game drafts, deck building and browser duels.</p>
+            <p>Sign-in is handled by Clerk for your Dueling Domain account. Not affiliated with or endorsed by Konami or Discord.</p>
+          </div>
+          {children}
+          <SignInCommunity />
+        </div>
 
-        <div className={styles["a-stage"]} aria-hidden="true">
-          <div className={styles["pack-stage3d"]}>
+        <div className={styles["a-stage"]}>
+          <div className={styles["pack-stage3d"]} aria-hidden="true">
             <div className={styles["pack-enter"]}>
               <div className={styles["pack-bob"]}>
                 <PackTilt>
@@ -153,7 +162,7 @@ export function SignInShell({ children, marketingUrl, packState = "sealed", tone
               </div>
             </div>
           </div>
-          <div className={styles["pack-hint"]}>
+          <div className={styles["pack-hint"]} aria-hidden="true">
             <i>
               <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="2.5" y="5.5" width="7" height="5" rx="1" />
@@ -163,6 +172,7 @@ export function SignInShell({ children, marketingUrl, packState = "sealed", tone
             <span className={styles["t1"]}>Sealed until you sign in</span>
             <span className={styles["t2"]}>Pack’s open</span>
           </div>
+          <TrailerFacade />
         </div>
       </main>
     </div>

@@ -1,3 +1,4 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -49,10 +50,6 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error("[api/drafts/[slug]/export] error:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to export" },
-      { status: 400 }
-    );
+    return apiErrorResponse(error, "[api/drafts/[slug]/export]");
   }
 }

@@ -1,4 +1,5 @@
-import { createHmac } from "node:crypto";
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -6,7 +7,7 @@ import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import { emptyCardQuery, normalizeDuelSettings, type DuelAnswer, type DuelCardInfo, type DuelEngineView } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
-import { pinnedEngineVersion } from "../src/multi-scripts.js";
+import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
 import { createScriptErrorRecorder, topScriptErrors } from "../src/script-error-store.js";
 import { cardScriptHash } from "../src/card-script-hash.js";
 import { loadCardDatabase } from "../src/cards.js";
@@ -18,7 +19,8 @@ import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 
 // Keep the host's real worker callbacks and recorder; replace only the core transport.
 // One deterministic accepted answer reproduces an error on recovery and replay.
-vi.mock("../src/worker-client.js", () => ({
+vi.mock("../src/worker-client.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/worker-client.js")>(),
   GameWorker: class implements DuelGameWorker {
     running = true;
     private step = 0;
@@ -69,7 +71,7 @@ const secret = "auto-block-test";
 async function request(host: DuelHost, body: Record<string, unknown>, status = 200): Promise<any> {
   const raw = JSON.stringify(body);
   const response = await host.handle(new Request("http://local/internal/duel", { method: "POST", body: raw,
-    headers: { "content-type": "application/json", "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") } }));
+    headers: { "content-type": "application/json", ...await signedHeaders(raw, secret, "http://local/internal/duel", "duel-host") } }));
   const result = await response.json(); expect(response.status, JSON.stringify(result)).toBe(status); return result;
 }
 describe("automatic blocks through host and replay", () => {
@@ -77,7 +79,7 @@ describe("automatic blocks through host and replay", () => {
     vi.stubEnv("DUEL_DATA_DIR", DATA);
     vi.stubEnv("DUEL_SCRIPT_ERROR_BLOCK_DUELS", "2");
     vi.stubEnv("DUEL_1V1_ENGINE", engine);
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    output.warnings.length = 0;
     const db = new Database(":memory:"); migrate(db);
     const players = [0, 1].map(i => seedIdentity(db, { guildId: "g", name: `P${i}`, userId: seedUser(db, `auto${i}`).userId }).playerId);
     const duels = createDuelService(db);
@@ -91,8 +93,9 @@ describe("automatic blocks through host and replay", () => {
     duels.takeSeat(session.slug, "g", players[1]!);
     players.forEach((player, seat) => duels.setDeck(session.slug, "g", player, options.decks[seat]!));
     const version = JSON.parse(readFileSync(`${DATA}/manifest.json`, "utf8")).bundleVersion;
-    duels.activate(session.slug, "g", players[0]!, options.seed, pinnedEngineVersion(version, 2, null), null,
-      { engine, scriptErrorMode: "tolerant", firstTurnDraw: false, startupScripts: options.startupScripts!.map(script => script.content) });
+    const resources = getCurrentEngineResources(DATA, { mode: "normal", engine });
+    duels.activateRecorded(session.slug, "g", players[0]!, options.seed, resources.bundleVersion, null,
+      { engine, scriptErrorMode: "tolerant", firstTurnDraw: false, startupScripts: options.startupScripts!.map(script => script.content) }, resources.identity);
     const prior = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Earlier", mode: "normal", settings: options.settings });
     duels.takeSeat(prior.slug, "g", players[1]!);
     const policy = createAutoBlockPolicy(db, { bundleVersion: version, scriptHash: (code, kind, helpers) => cardScriptHash(loadCardDatabase(DATA), code, kind, undefined, helpers) });
@@ -137,6 +140,7 @@ describe("automatic blocks through host and replay", () => {
       expect(topScriptErrors(db)[0]!.count).toBe(count);
       duels.complete(session.slug, "g", 0, "Replay test");
       const replay = await request(host, { ...base, op: "replay", playerId: players[0] });
+      expect(replay.verification).toBe("exact");
       expect(JSON.stringify(replay)).toContain("Card script error:");
       expect(JSON.stringify(replay)).not.toContain("Its effect script is being investigated");
       expect(topScriptErrors(db)[0]!.count).toBe(count);
@@ -145,6 +149,8 @@ describe("automatic blocks through host and replay", () => {
       await host.close(); host = makeHost();
       expect(await request(host, { ...base, op: "replay", playerId: players[0] })).toEqual(replay);
       expect(topScriptErrors(db)[0]!.count).toBe(count);
-    } finally { await host.close(); db.close(); log.mockRestore(); vi.unstubAllEnvs(); }
+    } finally { await host.close(); db.close(); vi.unstubAllEnvs(); }
   }, 30000);
 });
+
+const output = useConsoleObservability();

@@ -5,6 +5,7 @@ import type { DuelCard } from "@yugidraft/shared/duels";
 import { LOCATION_HAND, zoneKey } from "../constants";
 import { CardFace } from "../card-face";
 import { UsableGlow } from "../usable-glow";
+import { useForkLabels } from "../table/fork-labels";
 import { TAG_DOM } from "./live-tag";
 import type { DuelActivateHandler, DuelHoverHandler, InspectTarget } from "../table/types";
 import styles from "./tag-stage.module.css";
@@ -24,7 +25,7 @@ export interface HandProps {
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
   reducedMotion: boolean;
-  /** Ignored: the own hand is always `TAG_DOM.handLabel` and the partner hand names its owner. Kept so callers still compile. */
+  /** The own hand is `TAG_DOM.handLabel` and the partner hand names its owner; only a replay fork names the own hand by seat. */
   label?: string;
 }
 
@@ -39,9 +40,11 @@ function keyOf(seat: number, card: DuelCard, index: number): string {
  * `aria-description`, never part of the name. The row keeps `data-side="you"` (the helpers' own-hand locator) and
  * adds `data-relation="self"`.
  */
-export function OwnHand({ seat, cards, legalKeys, selectedKeys, onActivate, onInspect, onHoverCard, reducedMotion }: HandProps) {
+export function OwnHand({ seat, cards, legalKeys, selectedKeys, onActivate, onInspect, onHoverCard, reducedMotion, label }: HandProps) {
+  // A fork plays one seat at a time while the camera stays on another: its hand is named by seat, never "Your hand".
+  const named = useForkLabels() && label != null;
   return (
-    <div className={`${styles.hud} ${styles.handDock}`} data-hand-dock role="group" aria-label={TAG_DOM.handLabel}>
+    <div className={`${styles.hud} ${styles.handDock}`} data-hand-dock role="group" aria-label={named ? label : TAG_DOM.handLabel}>
       <div className={styles.handRow} data-hand-seat={seat} data-side="you" data-relation="self">
         {cards.map((card, index) => {
           const key = keyOf(seat, card, index);
@@ -91,7 +94,7 @@ export function OwnHand({ seat, cards, legalKeys, selectedKeys, onActivate, onIn
  * carry `data-side="you"`: the e2e helpers read `[data-hand-seat][data-side='you']` (board.ts) and `data-side="you"`
  * zones as the viewer's own, so the partner hand must not match them. It keeps `data-hand-seat` for the FX hooks.
  */
-export function PartnerHand({ seat, cards, legalKeys, onInspect, onHoverCard, partnerName }: Omit<HandProps, "selectedKeys" | "onActivate" | "reducedMotion"> & { partnerName: string }) {
+export function PartnerHand({ seat, cards, legalKeys, onInspect, onHoverCard, partnerName, teamOnly = true }: Omit<HandProps, "selectedKeys" | "onActivate" | "reducedMotion"> & { partnerName: string; teamOnly?: boolean }) {
   return (
     <div
       className={`${styles.hud} ${styles.phand}`}
@@ -108,7 +111,7 @@ export function PartnerHand({ seat, cards, legalKeys, onInspect, onHoverCard, pa
           <circle cx="12" cy="12" r="3" />
         </svg>
         <span data-partner-caption>
-          <b>{partnerName}</b>&rsquo;s hand &middot; only your team sees it
+          <b>{partnerName}</b>&rsquo;s hand{teamOnly ? " \u00b7 only your team sees it" : ""}
         </span>
       </div>
       <div className={styles.prow}>

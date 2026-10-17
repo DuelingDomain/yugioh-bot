@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,7 +27,7 @@ describe("access and list indexes", () => {
     // Simulate production data before the index exists.
     db.exec("drop index if exists drafts_web_slug_unique; insert into users(id,username,display_name) values(101,'host','Host')");
     addDraft("sensitive-slug", "One"); addDraft("sensitive-slug", "Two");
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warning = recording.log.mockClear().mockImplementation(() => {});
     migrate(db); migrate(db);
     expect(indexes()).toContain("drafts_web_slug_idx");
     expect(indexes()).not.toContain("drafts_web_slug_unique");
@@ -38,7 +39,7 @@ describe("access and list indexes", () => {
   it("upgrades the fallback after duplicates are reconciled", () => {
     db.exec("drop index if exists drafts_web_slug_unique; insert into users(id,username,display_name) values(101,'host','Host')");
     addDraft("duplicate", "One"); addDraft("duplicate", "Two");
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    recording.log.mockClear().mockImplementation(() => {});
     migrate(db);
     db.exec("update drafts set web_slug='repaired' where name='Two'");
     migrate(db); migrate(db);
@@ -55,3 +56,5 @@ describe("access and list indexes", () => {
     expect(indexes()).toEqual(expect.arrayContaining(["drafts_guild_status_created_idx", "tournaments_guild_status_created_idx", "drafts_web_slug_unique"]));
   });
 });
+
+const recording = useRecordingObservability();

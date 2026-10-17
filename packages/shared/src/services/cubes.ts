@@ -1,6 +1,12 @@
+import { recordProductEvent } from "../analytics/index.js";
+import { ExpectedError } from "../observability/index.js";
+import type { CardIdentityCatalog } from "../duels/pool.js";
+import { routeDeckSections, type DeckSectionMove, type DeckCardType } from "../duels/extra-deck.js";
+import { createDeckTypeLookup, hasKnownDeckCardType } from "./deck-sections.js";
 import type Database from "better-sqlite3";
 import type { Card, Cube, CubeCard, CubePool, CubePools, DraftConfig } from "../types/index.js";
 import { isExtraDeckFrame, type CardCatalogService } from "./card-catalog.js";
+import { CardFetchLimitError } from "./card-fetch.js";
 import { createCardLookupBudget } from "./card-lookup-budget.js";
 import type { CubeAnalysis } from "./deal.js";
 import { DEFAULT_CUBE_COPIES, MAX_COPIES_PER_PLAYER, MAX_CUBE_COPIES, MIN_CUBE_COPIES } from "./constants.js";
@@ -19,6 +25,17 @@ export interface CubeImportEntry {
   id: number;
   copies: number;
   pool?: CubePool;
+}
+
+interface CubeRoutingReport { moves?: DeckSectionMove[]; messages?: string[] }
+function cubeRoutingReport(groups: Array<{ codes: number[]; pool?: CubePool; reportCodes?: number[] }>, cards: ReadonlyMap<number, Card>, findType: (code: number) => DeckCardType | undefined): CubeRoutingReport {
+  const input = { main: [] as number[], extra: [] as number[], side: [] as number[] };
+  for (const group of groups) {
+    if (group.pool === undefined) continue;
+    input[group.pool].push(...(group.reportCodes ?? group.codes).filter(code => cards.has(code)));
+  }
+  const { moves, messages } = routeDeckSections(input, code => findType(code) ?? cards.get(code));
+  return moves.length ? { moves, messages } : {};
 }
 
 function requiredPoolSize(rounds: number, themePackSize: number, burnUnpicked: boolean): number {
@@ -44,7 +61,7 @@ export function cubePoolSizes(db: Database.Database, cubeId: number, pool: CubeP
 /** Copies of one card in a cube: any whole number from 1 to MAX_CUBE_COPIES. */
 function assertCubeCopies(value: number): number {
   if (!Number.isInteger(value) || value < MIN_CUBE_COPIES || value > MAX_CUBE_COPIES) {
-    throw new Error(`Copies must be a whole number from ${MIN_CUBE_COPIES} to ${MAX_CUBE_COPIES}`);
+    throw new ExpectedError(`Copies must be a whole number from ${MIN_CUBE_COPIES} to ${MAX_CUBE_COPIES}`, 400);
   }
   return value;
 }
@@ -74,21 +91,21 @@ function mapCubeCard(row: any): CubeCard {
 const CUBE_META_KEYS = ["draftType"] as const;
 
 /** A cube in the guild already has this name, ignoring case. */
-export class CubeNameTakenError extends Error {
+export class CubeNameTakenError extends ExpectedError {
   constructor(name: string) {
-    super(`A cube named "${name}" already exists`);
+    super(`A cube named "${name}" already exists`, 409);
     this.name = "CubeNameTakenError";
   }
 }
 
-export function createCubeService(db: Database.Database, catalog: CardCatalogService) {
+export function createCubeService(db: Database.Database, catalog: CardCatalogService, engine?: CardIdentityCatalog) {
   const touch = db.prepare("update cubes set updated_at = ? where id = ?");
   const bump = (cubeId: number) => touch.run(new Date().toISOString(), cubeId);
 
   const findCube = (cubeId: number): Cube => {
     const row = db.prepare("select * from cubes where id = ?").get(cubeId);
     if (!row) {
-      throw new Error(`Cube ${cubeId} not found`);
+      throw new ExpectedError(`Cube ${cubeId} not found`, 400);
     }
     return mapCube(row);
   };
@@ -104,9 +121,12 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     const result = db
       .prepare(
         `insert into cubes (guild_id, name, archetype, banlist, created_by_user_id, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?)`,
+         values (?, ?, ?, ?, ?, ?, ?)
+         on conflict(guild_id, created_by_user_id, name) do nothing`,
       )
       .run(guildId, name, archetype, banlist, createdByUserId, now, now);
+    if (result.changes === 0) throw new CubeNameTakenError(name);
+    recordProductEvent(db, "cube_created", createdByUserId);
     return Number(result.lastInsertRowid);
   };
 
@@ -128,29 +148,43 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       }>).map((r) => r.catalog_card_id),
     );
 
+  const deckTypes = createDeckTypeLookup(db, engine);
+  const isCubeExtra = (card: Card | undefined, findType: ReturnType<typeof deckTypes.snapshot>) => card !== undefined && isExtraDeckFrame(findType(card.ygoprodeckId) ?? card);
+  const selectPools = db.prepare("select catalog_card_id, pool, max_copies, source from cube_cards where cube_id = ? order by rowid asc");
+  const repairPool = db.prepare("update cube_cards set pool = ? where cube_id = ? and catalog_card_id = ? and pool = ?");
+  const inspectPools = (cubeId: number, findType: ReturnType<typeof deckTypes.snapshot>) => selectPools.all(cubeId).map(mapCubeCard).map(card => {
+    const type = findType(card.catalogCardId);
+    const actual = hasKnownDeckCardType(type) ? (isExtraDeckFrame(type) ? "extra" : "main") : card.pool;
+    return { card, actual };
+  });
   const getCubePools = (cubeId: number): CubePools => {
-    const rows = db
-      .prepare(
-        "select catalog_card_id, pool, max_copies, source from cube_cards where cube_id = ? order by rowid asc",
-      )
-      .all(cubeId)
-      .map(mapCubeCard);
-    return {
-      main: rows.filter((c) => c.pool === "main"),
-      extra: rows.filter((c) => c.pool === "extra"),
-    };
+    const findType = deckTypes.snapshot();
+    let entries = inspectPools(cubeId, findType);
+    if (entries.some(({ card, actual }) => card.pool !== actual)) {
+      entries = db.transaction(() => {
+        const current = inspectPools(cubeId, findType);
+        for (const { card, actual } of current) {
+          if (card.pool === actual) continue;
+          repairPool.run(actual, cubeId, card.catalogCardId, card.pool);
+          card.pool = actual;
+        }
+        return current;
+      }).immediate();
+    }
+    const rows = entries.map(({ card }) => card);
+    return { main: rows.filter(card => card.pool === "main"), extra: rows.filter(card => card.pool === "extra") };
   };
 
   /**
    * Import several passcode lists in one go. Every passcode is looked up first, then all the
    * cards are written in one transaction, so a failed lookup writes nothing. A passcode the card
    * database rejects or does not know is returned in `unknown`. One copy per occurrence, capped
-   * at MAX_CUBE_COPIES; a card sits in one pool, so a later group wins.
+   * at MAX_CUBE_COPIES; a card sits in the pool set by its real type; later groups set its copy total.
    */
   const importPasscodeGroups = async (
     cubeId: number,
-    groups: Array<{ codes: number[]; pool?: CubePool }>,
-  ): Promise<{ added: number; unknown: number[]; lookupLimited?: true }> => {
+    groups: Array<{ codes: number[]; pool?: CubePool; reportCodes?: number[] }>,
+  ): Promise<{ added: number; unknown: number[]; lookupLimited?: true } & CubeRoutingReport> => {
     const lookupBudget = createCardLookupBudget();
     const cards = new Map<number, Card>();
     const unknown: number[] = [];
@@ -163,6 +197,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       try {
         card = await catalog.syncCardById(id, { lookupBudget });
       } catch (error) {
+        if (error instanceof CardFetchLimitError) throw error;
         // YGOPRODeck answers HTTP 400 for a passcode it does not have. A lost connection is
         // different: stop, and nothing has been written yet.
         if (error instanceof Error && error.message.startsWith("Could not reach the card database")) throw error;
@@ -171,9 +206,10 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       else if (!cards.has(id)) unknown.push(id);
     }
 
+    const findType = deckTypes.snapshot();
     const written = new Set<number>();
     db.transaction(() => {
-      for (const { codes, pool } of groups) {
+      for (const { codes } of groups) {
         const counts = new Map<number, number>();
         for (const id of codes) counts.set(id, (counts.get(id) ?? 0) + 1);
         for (const [id, count] of counts) {
@@ -182,7 +218,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
           upsertCard.run(
             cubeId,
             id,
-            pool ?? (isExtraDeckFrame(card) ? "extra" : "main"),
+            isCubeExtra(card, findType) ? "extra" : "main",
             Math.min(count, MAX_CUBE_COPIES),
             null,
           );
@@ -191,24 +227,25 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       }
       bump(cubeId);
     })();
-    return { added: written.size, unknown, ...(lookupBudget.lookupLimited ? { lookupLimited: true as const } : {}) };
+    return { added: written.size, unknown, ...cubeRoutingReport(groups, cards, findType), ...(lookupBudget.lookupLimited ? { lookupLimited: true as const } : {}) };
   };
 
   return {
     /** Add copies atomically, reading existing totals inside the write transaction. */
-    importResolvedCards(cubeId: number, entries: readonly CubeImportEntry[]): { added: number; copies: number; movedToMain?: number } {
+    importResolvedCards(cubeId: number, entries: readonly CubeImportEntry[]): { added: number; copies: number; movedToMain?: number } & CubeRoutingReport {
       return db.transaction(() => {
         const cube = findCube(cubeId);
         if (entries.length === 0) return { added: 0, copies: 0 };
         const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((card) => [card.ygoprodeckId, card]));
+        const findType = deckTypes.snapshot();
         const totals = new Map<number, { copies: number; pool: CubePool }>();
         const movedToMain = new Set<number>();
         for (const { id, copies, pool } of entries) {
           assertCubeCopies(copies);
           const card = cards.get(id);
-          if (!card || !catalog.hasCatalogRow(id)) throw new Error(`Card ${id} is missing from the catalog`);
+          if (!card || !catalog.hasCatalogRow(id)) throw new ExpectedError(`Card ${id} is missing from the catalog`, 400);
           const previous = totals.get(id);
-          const extra = isExtraDeckFrame(card);
+          const extra = isCubeExtra(card, findType);
           if (pool === "extra" && !extra) movedToMain.add(id);
           totals.set(id, {
             copies: Math.min(MAX_CUBE_COPIES, (previous?.copies ?? 0) + copies),
@@ -240,18 +277,18 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
           db.prepare("update cubes set config_json = ? where id = ?").run(JSON.stringify(config), cubeId);
         }
         bump(cubeId);
-        return { added: totals.size, copies: gained, ...(movedToMain.size ? { movedToMain: movedToMain.size } : {}) };
+        return { added: totals.size, copies: gained, ...cubeRoutingReport(entries.map(entry => ({ codes: Array<number>(entry.copies).fill(entry.id), pool: entry.pool })), cards, findType), ...(movedToMain.size ? { movedToMain: movedToMain.size } : {}) };
       })();
     },
 
     /** Subtract authored copies from the requested pools in one transaction. Missing rows are harmless. */
     subtractCards(cubeId: number, entries: readonly (CubeImportEntry & { pool: CubePool })[]): void {
-      if (!Array.isArray(entries)) throw new Error("entries must be a list");
-      if (entries.length > 1000) throw new Error("Subtract at most 1000 entries at a time");
+      if (!Array.isArray(entries)) throw new ExpectedError("entries must be a list", 400);
+      if (entries.length > 1000) throw new ExpectedError("Subtract at most 1000 entries at a time", 400);
       for (const entry of entries) {
-        if (!entry || !Number.isSafeInteger(entry.id) || entry.id <= 0) throw new Error("Each entry needs a valid id");
+        if (!entry || !Number.isSafeInteger(entry.id) || entry.id <= 0) throw new ExpectedError("Each entry needs a valid id", 400);
         assertCubeCopies(entry.copies);
-        if (entry.pool !== "main" && entry.pool !== "extra") throw new Error("Each entry needs a main or extra pool");
+        if (entry.pool !== "main" && entry.pool !== "extra") throw new ExpectedError("Each entry needs a main or extra pool", 400);
       }
       db.transaction(() => {
         findCube(cubeId);
@@ -270,7 +307,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     },
 
     createBlank(guildId: string, name: string, createdByUserId: number): Cube {
-      return findCube(insertCubeRow(guildId, name, createdByUserId, null, null));
+      return db.transaction(() => findCube(insertCubeRow(guildId, name, createdByUserId, null, null))).immediate();
     },
 
     async createFromArchetype(
@@ -291,17 +328,20 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       assertCubeCopies(maxCopies);
 
       const { main, extra } = await catalog.syncByArchetype(archetype, { banlist });
-      const cubeId = insertCubeRow(guildId, name, createdByUserId, archetype, banlist ?? null);
+      const findType = deckTypes.snapshot();
+      return db.transaction(() => {
+        const cubeId = insertCubeRow(guildId, name, createdByUserId, archetype, banlist ?? null);
 
-      for (const card of main) {
-        upsertCard.run(cubeId, card.ygoprodeckId, "main", maxCopies, null);
-      }
-      for (const card of extra) {
-        upsertCard.run(cubeId, card.ygoprodeckId, "extra", maxCopies, null);
-      }
+        for (const card of main) {
+          upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
+        }
+        for (const card of extra) {
+          upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
+        }
 
-      bump(cubeId);
-      return findCube(cubeId);
+        bump(cubeId);
+        return findCube(cubeId);
+      }).immediate();
     },
 
     /**
@@ -318,24 +358,28 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     ): Cube {
       return db.transaction(() => {
         // Checked here, inside the write, so two saves of the same name cannot both pass an earlier check.
-        const clash = db.prepare("select 1 from cubes where guild_id = ? and lower(name) = lower(?)").get(guildId, name);
+        const clash = db.prepare("select 1 from cubes where guild_id = ? and created_by_user_id = ? and lower(name) = lower(?)").get(guildId, createdByUserId, name);
         if (clash) throw new CubeNameTakenError(name);
         const cubeId = insertCubeRow(guildId, name, createdByUserId, null, null);
         const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((c) => [c.ygoprodeckId, c]));
-        for (const { id, copies, pool } of entries) {
+        const findType = deckTypes.snapshot();
+        for (const { id, copies } of entries) {
           const card = cards.get(id);
           if (!card) continue;
-          upsertCard.run(cubeId, id, pool === "extra" || isExtraDeckFrame(card) ? "extra" : "main", assertCubeCopies(copies), null);
+          upsertCard.run(cubeId, id, isCubeExtra(card, findType) ? "extra" : "main", assertCubeCopies(copies), null);
         }
         if (opts.copyExtraFromCubeId !== undefined) {
           const rows = db
             .prepare(
               `select cc.catalog_card_id, cc.max_copies from cube_cards cc
                  join cubes c on c.id = cc.cube_id
-                where cc.cube_id = ? and cc.pool = 'extra' and c.guild_id = ? order by cc.rowid asc`,
+                where cc.cube_id = ? and cc.pool = 'extra' and c.guild_id = ? and c.created_by_user_id = ? order by cc.rowid asc`,
             )
-            .all(opts.copyExtraFromCubeId, guildId) as Array<{ catalog_card_id: number; max_copies: number }>;
-          for (const r of rows) upsertCard.run(cubeId, r.catalog_card_id, "extra", r.max_copies, null);
+            .all(opts.copyExtraFromCubeId, guildId, createdByUserId) as Array<{ catalog_card_id: number; max_copies: number }>;
+          for (const r of rows) {
+            const card = catalog.findByIds([r.catalog_card_id])[0];
+            upsertCard.run(cubeId, r.catalog_card_id, isCubeExtra(card, findType) ? "extra" : "main", r.max_copies, null);
+          }
         }
         bump(cubeId);
         return findCube(cubeId);
@@ -354,9 +398,12 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       findCube(cubeId);
       for (const e of entries) assertCubeCopies(e.copies);
       const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((c) => [c.ygoprodeckId, c]));
+      const findType = deckTypes.snapshot();
       let skippedExtra = 0;
       const unknownIds: number[] = [];
       db.transaction(() => {
+        // Repair old labels before deciding which cards the Main replacement removes.
+        getCubePools(cubeId);
         db.prepare("delete from cube_cards where cube_id = ? and pool = 'main'").run(cubeId);
         for (const { id, copies } of entries) {
           const card = cards.get(id);
@@ -364,7 +411,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
             unknownIds.push(id);
             continue;
           }
-          if (isExtraDeckFrame(card)) {
+          if (isCubeExtra(card, findType)) {
             skippedExtra += 1;
             continue;
           }
@@ -402,7 +449,10 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       source: string | null = null,
     ): void {
       assertCubeCopies(maxCopies);
-      upsertCard.run(cubeId, catalogCardId, pool, maxCopies, source);
+      const card = catalog.findByIds([catalogCardId])[0];
+      if (!card) throw new ExpectedError(`Card ${catalogCardId} is missing from the catalog`, 400);
+      const findType = deckTypes.snapshot();
+      upsertCard.run(cubeId, catalogCardId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, source);
       bump(cubeId);
     },
 
@@ -425,7 +475,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       cubeId: number,
       codes: number[],
       opts: { pool?: CubePool } = {},
-    ): Promise<{ added: number; unknown: number[]; lookupLimited?: true }> {
+    ): Promise<{ added: number; unknown: number[]; lookupLimited?: true } & CubeRoutingReport> {
       return importPasscodeGroups(cubeId, [{ codes, pool: opts.pool }]);
     },
 
@@ -437,19 +487,20 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       opts: { banlist?: string; maxCopies?: number } = {},
     ): Promise<{ added: number }> {
       const { main, extra } = await catalog.syncByArchetype(archetype, { banlist: opts.banlist });
+      const findType = deckTypes.snapshot();
       const present = existingCardIds(cubeId);
       const maxCopies = assertCubeCopies(opts.maxCopies ?? DEFAULT_CUBE_COPIES);
       let added = 0;
       for (const card of main) {
         if (!present.has(card.ygoprodeckId)) {
-          upsertCard.run(cubeId, card.ygoprodeckId, "main", maxCopies, null);
+          upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
           present.add(card.ygoprodeckId);
           added += 1;
         }
       }
       for (const card of extra) {
         if (!present.has(card.ygoprodeckId)) {
-          upsertCard.run(cubeId, card.ygoprodeckId, "extra", maxCopies, null);
+          upsertCard.run(cubeId, card.ygoprodeckId, isCubeExtra(card, findType) ? "extra" : "main", maxCopies, null);
           present.add(card.ygoprodeckId);
           added += 1;
         }
@@ -501,7 +552,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       }
       const dupe = db
         .prepare(
-          "select id from cubes where guild_id = (select guild_id from cubes where id = ?) and name = ? and id != ?",
+          "select id from cubes where (guild_id, created_by_user_id) = (select guild_id, created_by_user_id from cubes where id = ?) and name = ? and id != ?",
         )
         .get(cubeId, trimmed, cubeId) as { id: number } | undefined;
       if (dupe) {
@@ -552,10 +603,10 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
 
     findCube,
 
-    listCubes(guildId: string): Cube[] {
+    listCubes(guildId: string, userId: number): Cube[] {
       return db
-        .prepare("select * from cubes where guild_id = ? order by name asc")
-        .all(guildId)
+        .prepare("select * from cubes where guild_id = ? and created_by_user_id = ? order by name asc")
+        .all(guildId, userId)
         .map(mapCube);
     },
 
@@ -563,53 +614,56 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     // draft-template service; owner arguments are application user IDs) -----
 
     save(guildId: string, name: string, config: DraftConfig, createdByUserId: number): Cube {
-      const trimmed = name.trim();
-      // Saving over an existing cube replaces its draft config but keeps what the cube is for.
-      const previous = db.prepare("select config_json from cubes where guild_id = ? and name = ?").get(guildId, trimmed) as
-        | { config_json: string | null }
-        | undefined;
-      if (previous) {
-        let old: Record<string, unknown> = {};
-        try {
-          old = JSON.parse(previous.config_json ?? "{}") as Record<string, unknown>;
-        } catch {
-          // An unreadable old config has nothing to keep.
+      return db.transaction(() => {
+        const trimmed = name.trim();
+        // Saving over an existing cube replaces its draft config but keeps what the cube is for.
+        const previous = db.prepare("select config_json from cubes where guild_id = ? and name = ? and created_by_user_id = ?").get(guildId, trimmed, createdByUserId) as
+          | { config_json: string | null }
+          | undefined;
+        if (previous) {
+          let old: Record<string, unknown> = {};
+          try {
+            old = JSON.parse(previous.config_json ?? "{}") as Record<string, unknown>;
+          } catch {
+            // An unreadable old config has nothing to keep.
+          }
+          const kept: Record<string, unknown> = {};
+          for (const key of CUBE_META_KEYS) if (old[key] !== undefined && !(key in config)) kept[key] = old[key];
+          config = { ...kept, ...config };
         }
-        const kept: Record<string, unknown> = {};
-        for (const key of CUBE_META_KEYS) if (old[key] !== undefined && !(key in config)) kept[key] = old[key];
-        config = { ...kept, ...config };
-      }
-      db.prepare(
-        `
-          insert into cubes (guild_id, name, config_json, created_by_user_id)
-          values (?, ?, ?, ?)
-          on conflict(guild_id, name) do update set
-            config_json = excluded.config_json,
-            created_by_user_id = excluded.created_by_user_id,
-            updated_at = current_timestamp
-        `,
-      ).run(guildId, trimmed, JSON.stringify(config), createdByUserId);
-      const row = db.prepare("select * from cubes where guild_id = ? and name = ?").get(guildId, trimmed);
-      return mapCube(row);
+        const result = db.prepare(
+          `
+            insert into cubes (guild_id, name, config_json, created_by_user_id)
+            values (?, ?, ?, ?)
+            on conflict(guild_id, created_by_user_id, name) do update set
+              config_json = excluded.config_json,
+              updated_at = current_timestamp
+          `,
+        ).run(guildId, trimmed, JSON.stringify(config), createdByUserId);
+        if (result.changes === 0) throw new CubeNameTakenError(trimmed);
+        if (!previous) recordProductEvent(db, "cube_created", createdByUserId);
+        const row = db.prepare("select * from cubes where guild_id = ? and created_by_user_id = ? and name = ?").get(guildId, createdByUserId, trimmed);
+        return mapCube(row);
+      }).immediate();
     },
 
-    findByName(guildId: string, name: string): Cube | undefined {
-      const row = db.prepare("select * from cubes where guild_id = ? and name = ?").get(guildId, name);
+    findByName(guildId: string, name: string, userId: number): Cube | undefined {
+      const row = db.prepare("select * from cubes where guild_id = ? and name = ? and created_by_user_id = ?").get(guildId, name, userId);
       return row ? mapCube(row) : undefined;
     },
 
-    list(guildId: string): Cube[] {
+    list(guildId: string, userId: number): Cube[] {
       return db
-        .prepare("select * from cubes where guild_id = ? order by name asc")
-        .all(guildId)
+        .prepare("select * from cubes where guild_id = ? and created_by_user_id = ? order by name asc")
+        .all(guildId, userId)
         .map(mapCube);
     },
 
-    delete(guildId: string, name: string): void {
+    delete(guildId: string, name: string, userId: number): void {
       db.prepare(
-        "delete from cube_cards where cube_id in (select id from cubes where guild_id = ? and name = ?)",
-      ).run(guildId, name);
-      db.prepare("delete from cubes where guild_id = ? and name = ?").run(guildId, name);
+        "delete from cube_cards where cube_id in (select id from cubes where guild_id = ? and name = ? and created_by_user_id = ?)",
+      ).run(guildId, name, userId);
+      db.prepare("delete from cubes where guild_id = ? and name = ? and created_by_user_id = ?").run(guildId, name, userId);
     },
   };
 }

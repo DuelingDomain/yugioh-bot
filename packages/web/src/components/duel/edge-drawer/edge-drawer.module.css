@@ -1,0 +1,156 @@
+/* Edge drawers for the duel screen. Side content (Deck Master, log, chat, inspect) lives here instead of in
+   columns that take room from the field. A drawer is closed by default: only its small edge tab shows. It
+   is `position: absolute` inside the nearest positioned ancestor (the duel stage), or `fixed` with the
+   `fixed` data flag. The root lets clicks through, so a closed drawer never blocks the field.
+
+   Tuning (set on the drawer's `style`, or on an ancestor):
+     --bf-drawer-size    panel width (left/right) or height (bottom). Default min(360px, 88vw) / min(320px, 58dvh).
+     --bf-tab-offset     where the tab sits along the edge: a length or percent. Default 50%.
+     --bf-drawer-z       stacking. Default 40.
+   Colours fall back to the duel palette; the duel sets --gold and --pen on its root. */
+
+.root {
+  --bf-gold: var(--gold, #e4b64f);
+  --bf-gold-ink: var(--gold-ink, #f4d690);
+  --bf-violet: var(--pen, #9b7eff);
+  --bf-violet-ink: var(--pen-ink, #c6b6ff);
+  --bf-surface: #100e19;
+  --bf-line: rgb(155 126 255 / 0.28);
+  --bf-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --bf-slide: 220ms;
+  position: absolute;
+  z-index: var(--bf-drawer-z, 40);
+  pointer-events: none;
+}
+.root[data-fixed="true"] { position: fixed; }
+
+/* The slide box is the size of the panel. It moves; the tab rides on its outer face, so a closed drawer
+   leaves exactly the tab on screen. */
+.slide {
+  position: absolute;
+  transition: transform var(--bf-slide) var(--bf-ease);
+  will-change: transform;
+}
+
+.panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--bf-surface);
+  color: #ece8f7;
+  pointer-events: auto;
+  box-shadow: 0 0 28px rgb(0 0 0 / 0.55);
+  outline: none;
+  visibility: visible;
+  transition: visibility 0s linear 0s;
+}
+.root[data-state="closed"] .panel {
+  visibility: hidden;
+  pointer-events: none;
+  transition: visibility 0s linear var(--bf-slide);
+}
+
+/* ---- left ---- */
+.root[data-side="left"] { top: 0; bottom: 0; left: 0; width: 0; }
+.root[data-side="left"] .slide { top: 0; bottom: 0; left: 0; width: var(--bf-drawer-size, min(360px, 88vw)); }
+.root[data-side="left"][data-state="closed"] .slide { transform: translateX(-100%); }
+.root[data-side="left"] .panel { border-right: 1px solid var(--bf-line); }
+.root[data-side="left"] .tabSlot { left: 100%; top: var(--bf-tab-offset, 50%); transform: translateY(-50%); }
+
+/* ---- right ---- */
+.root[data-side="right"] { top: 0; bottom: 0; right: 0; width: 0; }
+.root[data-side="right"] .slide { top: 0; bottom: 0; right: 0; width: var(--bf-drawer-size, min(360px, 88vw)); }
+.root[data-side="right"][data-state="closed"] .slide { transform: translateX(100%); }
+.root[data-side="right"] .panel { border-left: 1px solid var(--bf-line); }
+.root[data-side="right"] .tabSlot { right: 100%; top: var(--bf-tab-offset, 50%); transform: translateY(-50%); }
+
+/* ---- bottom ---- */
+.root[data-side="bottom"] { left: 0; right: 0; bottom: 0; height: 0; }
+.root[data-side="bottom"] .slide { left: 0; right: 0; bottom: 0; height: var(--bf-drawer-size, min(320px, 58dvh)); }
+.root[data-side="bottom"][data-state="closed"] .slide { transform: translateY(100%); }
+.root[data-side="bottom"] .panel { border-top: 1px solid var(--bf-line); }
+.root[data-side="bottom"] .tabSlot { bottom: 100%; left: var(--bf-tab-offset, 50%); transform: translateX(-50%); }
+
+.tabSlot { position: absolute; pointer-events: auto; }
+
+/* ---- the tab ---- */
+.tab {
+  --tone: var(--bf-violet);
+  --tone-ink: var(--bf-violet-ink);
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 26px;
+  min-height: 26px;
+  padding: 6px 5px;
+  border: 1px solid rgb(155 126 255 / 0.24);
+  background: rgb(16 14 25 / 0.82);
+  color: rgb(236 232 247 / 0.62);
+  font: 700 10px/1 var(--num, ui-sans-serif, system-ui, sans-serif);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  position: relative;
+  transition: color 140ms linear, border-color 140ms linear, background-color 140ms linear, box-shadow 200ms linear;
+}
+.tab[data-tone="gold"] { --tone: var(--bf-gold); --tone-ink: var(--bf-gold-ink); }
+.tab:hover, .tab[aria-expanded="true"] { color: var(--tone-ink); border-color: color-mix(in srgb, var(--tone) 60%, transparent); background: rgb(24 20 38 / 0.94); }
+.tab:focus-visible { outline: 2px solid var(--tone); outline-offset: 2px; }
+
+/* The tab sits on the screen edge, so its outer corners are square and the inner ones are rounded. */
+.tab[data-side="left"] { flex-direction: column; border-left: 0; border-radius: 0 8px 8px 0; }
+.tab[data-side="right"] { flex-direction: column; border-right: 0; border-radius: 8px 0 0 8px; }
+.tab[data-side="bottom"] { flex-direction: row; padding: 5px 9px; border-bottom: 0; border-radius: 8px 8px 0 0; }
+.tab[data-side="left"] .label, .tab[data-side="right"] .label { writing-mode: vertical-rl; }
+.tab[data-side="left"] .label { transform: rotate(180deg); }
+
+.icon { display: inline-flex; width: 14px; height: 14px; align-items: center; justify-content: center; flex: none; }
+.icon > svg { width: 100%; height: 100%; }
+.label { white-space: nowrap; }
+
+.count {
+  min-width: 15px;
+  padding: 2px 3px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tone) 85%, #000);
+  color: #0c0a14;
+  font: 800 9px/1 var(--num, ui-sans-serif, system-ui, sans-serif);
+  letter-spacing: 0;
+  text-align: center;
+}
+
+/* Attention: a steady soft glow in the accent colour, with a single brighter beat when it turns on.
+   Never an infinite pulse. */
+.tab[data-attention="true"] {
+  color: var(--tone-ink);
+  border-color: color-mix(in srgb, var(--tone) 70%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--tone) 38%, transparent), inset 0 0 8px color-mix(in srgb, var(--tone) 14%, transparent);
+  animation: tabBeat 1400ms var(--bf-ease) 1;
+}
+@keyframes tabBeat {
+  0% { box-shadow: 0 0 0 color-mix(in srgb, var(--tone) 0%, transparent), inset 0 0 0 transparent; }
+  35% { box-shadow: 0 0 20px color-mix(in srgb, var(--tone) 70%, transparent), inset 0 0 10px color-mix(in srgb, var(--tone) 24%, transparent); }
+  100% { box-shadow: 0 0 10px color-mix(in srgb, var(--tone) 38%, transparent), inset 0 0 8px color-mix(in srgb, var(--tone) 14%, transparent); }
+}
+
+.srOnly { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+@media (pointer: coarse) {
+  .tab { min-width: 36px; min-height: 36px; }
+}
+
+/* Reduced motion: the drawer does not travel across the screen. The box still jumps to its place (at once
+   when opening, after the fade when closing) and the panel fades. The tab glow stays, without the beat. */
+@media (prefers-reduced-motion: reduce) {
+  .slide { transition: none; }
+  .root[data-state="closed"] .slide { transition: transform 0s linear 140ms; }
+  .panel { opacity: 1; transition: opacity 140ms linear, visibility 0s linear 0s; }
+  .root[data-state="closed"] .panel { opacity: 0; transition: opacity 140ms linear, visibility 0s linear 140ms; }
+  .tab { transition: none; }
+  .tab[data-attention="true"] { animation: none; }
+}

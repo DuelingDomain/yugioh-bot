@@ -1,5 +1,6 @@
+import { useConsoleObservability } from "../../shared/tests/helpers/recording-observability.mjs";
+import { signedHeaders } from "./helpers/signed-request.js";
 import Database from "better-sqlite3";
-import { createHmac } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +16,8 @@ import { seedIdentity, seedUser } from "./helpers/identity.js";
 it("serves signed artwork families and preserves chosen passcodes through deck submission and worker startup", async () => {
   const dir = mkdtempSync(join(tmpdir(), "host-artworks-"));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "fixture" }));
+  // The fake worker never loads this core; resource identity still hashes its file.
+  writeFileSync(join(dir, "ocgcore.standard.wasm"), "fake-worker-fixture");
   writeFileSync(join(dir, "strings.conf"), ""); mkdirSync(join(dir, "card-scripts"));
   writeFileSync(join(dir, "card-scripts/c10.lua"), "-- canonical script");
   const cdb = new Database(join(dir, "cards.cdb"));
@@ -42,15 +45,15 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
   const post = async (body: object, playerId = players[0]) => {
     const raw = JSON.stringify({ guildId: "g", playerId, slug: room.slug, ...body });
     return host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": `sha256=${createHmac("sha256",secret).update(raw).digest("hex")}` } }));
+      headers: { ...await signedHeaders(raw, secret, "http://localhost/internal/duel", "duel-host") } }));
   };
   try {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      expect(loadCardDatabase(dir).artworkScriptFallbacks()).toEqual([{ passcode: 30, main: 10, requested: 30 }, { passcode: 50, main: 10, requested: 50 }]);
-      expect(loadCardDatabase(dir).readScript("c50.lua")).toBe("-- canonical script");
-      expect(warning).toHaveBeenCalledWith(expect.stringMatching(/c50\.lua.*c10\.lua.*GetID/));
-    } finally { warning.mockRestore(); }
+    output.warnings.length = 0;
+    expect(loadCardDatabase(dir).artworkScriptFallbacks()).toEqual([{ passcode: 30, main: 10, requested: 30 }, { passcode: 50, main: 10, requested: 50 }]);
+    expect(loadCardDatabase(dir).readScript("c50.lua")).toBe("-- canonical script");
+    expect(output.warnings).toContainEqual({
+      message: "[cards] Using an artwork script fallback; validate this engine bundle before deployment.", fields: {},
+    });
     expect(loadCardDatabase(dir).readScript("c99.lua")).toBeNull();
     expect((await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: "{}" }))).status).toBe(401);
     expect(await (await post({ op: "card-artworks", codes: [50] })).json()).toEqual({ passcode: 10, artworks: [
@@ -73,3 +76,5 @@ it("serves signed artwork families and preserves chosen passcodes through deck s
     expect(created[0].decks).toEqual(players.map(() => ({ main: [50], extra: [], side: [30] })));
   } finally { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); }
 });
+
+const output = useConsoleObservability();

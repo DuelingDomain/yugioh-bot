@@ -101,3 +101,90 @@ it("joins duel pages with their visibility and sends visibility changes over the
   view.unmount();
   expect(socket.emit).toHaveBeenCalledWith("duel:leave", { slug: "alpha", guildId: "g1" });
 });
+
+it.each(["duel", "presence"] as const)("refreshes a rejected token and reconnects the %s hook", async (hook) => {
+  vi.useFakeTimers();
+  let fetches = 0;
+  vi.stubGlobal("fetch", vi.fn(async () => {
+    fetches++;
+    if (fetches === 1) sockets[0].join.mockImplementationOnce((_event, _payload, ack) => ack(null, { ok: false, error: "invalid token" }));
+    return Response.json({ token: fetches === 1 ? "previous" : "current", guildId: "g1", expiresAt: Date.now() + 300_000 });
+  }));
+  const view = renderHook(() => hook === "duel" ? useDuelWebsocket("alpha", 0, async () => {}) : useDuelPresence("alpha"));
+  await act(async () => {});
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(sockets[0].join.mock.calls.map((call) => call[1])).toEqual(hook === "duel"
+    ? [{ token: "previous", visible: true }, { token: "current", visible: true }]
+    : [{ token: "previous", observe: true }, { token: "current", observe: true }]);
+  expect(view.result.current).toMatchObject(hook === "duel" ? { connected: true } : { onlineSeats: [1] });
+});
+
+it("bounds token rejection retries for the presence hook", async () => {
+  vi.useFakeTimers();
+  let attempts = 0;
+  vi.stubGlobal("fetch", async () => {
+    attempts++;
+    sockets[0].join.mockImplementation((_event, _payload, ack) => ack(null, { ok: false, error: "invalid token" }));
+    return Response.json({ token: "rejected", guildId: "g1", expiresAt: Date.now() + 300_000 });
+  });
+  const view = renderHook(() => useDuelPresence("alpha"));
+  await act(async () => {});
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+  expect(attempts).toBe(2);
+  expect(view.result.current).toBeNull();
+});
+
+it("recovers the duel subscription on the same socket with capped token retry backoff", async () => {
+  vi.useFakeTimers();
+  let attempts = 0;
+  let refusing = true;
+  vi.stubGlobal("fetch", async () => {
+    attempts++;
+    sockets[0].join.mockImplementation((_event, _payload, ack) => ack(null, refusing
+      ? { ok: false, error: attempts % 2 ? "invalid token" : "expired token" }
+      : { ok: true, onlineSeats: [1], spectatorCount: 0 }));
+    return Response.json({ token: `token-${attempts}`, guildId: "g1", expiresAt: Date.now() + 300_000 });
+  });
+  const { result, unmount } = renderHook(() => useDuelWebsocket("alpha", 0, async () => {}));
+  await act(async () => {});
+  expect(attempts).toBe(2);
+  expect(result.current.connected).toBe(false);
+  for (const delay of [3000, 6000, 12000, 24000, 30000, 30000]) {
+    const before = attempts;
+    await act(async () => { await vi.advanceTimersByTimeAsync(delay - 1); });
+    expect(attempts).toBe(before);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(attempts).toBe(before + 2);
+    expect(result.current.connected).toBe(false);
+  }
+  refusing = false;
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+  expect(result.current).toMatchObject({ connected: true, recovering: false, presence: { onlineSeats: [1] } });
+  expect(sockets).toHaveLength(1);
+  expect(sockets[0].id).toBe("first");
+
+  refusing = true;
+  await act(async () => { sockets[0].handlers.get("duel:subscription-expired")?.({ slug: "alpha" }); });
+  const before = attempts;
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(attempts).toBe(before + 2);
+  unmount();
+  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  expect(attempts).toBe(before + 2);
+});
+
+it.each(["duel", "presence"] as const)("keeps network recovery after a token refresh for the %s hook", async (hook) => {
+  vi.useFakeTimers();
+  let fetches = 0;
+  vi.stubGlobal("fetch", vi.fn(async () => {
+    fetches++;
+    if (fetches === 1) sockets[0].join.mockImplementationOnce((_event, _payload, ack) => ack(null, { ok: false, error: "invalid token" }));
+    if (fetches === 2) return new Response(null, { status: 503 });
+    return Response.json({ token: "current", guildId: "g1", expiresAt: Date.now() + 300_000 });
+  }));
+  const view = renderHook(() => hook === "duel" ? useDuelWebsocket("alpha", 0, async () => {}) : useDuelPresence("alpha"));
+  await act(async () => {});
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(view.result.current).toMatchObject(hook === "duel" ? { connected: true } : { onlineSeats: [1] });
+});

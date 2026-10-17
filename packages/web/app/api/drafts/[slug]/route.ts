@@ -1,9 +1,10 @@
+import { report } from "@yugidraft/shared/observability";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
 import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
-import { cubeReferenceAccess } from "@/lib/cube-access";
+import { draftCubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards, sanitizePoolSource } from "@/lib/cube-pool";
 import { env } from "@/lib/env";
 import { boosterDraftConfigError, cardsPerPlayerError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, DraftTerminalError } from "@yugidraft/shared/services";
@@ -51,7 +52,7 @@ export async function GET(
     const fetchFailure = cardFetchErrorResponse(error);
     if (fetchFailure) return fetchFailure;
     if (error && typeof error === "object" && "code" in error) return draftLobbyErrorResponse(error);
-    console.error(`[api/drafts/${slug}] load failed:`, error);
+    report(error, { tags: { operation: "[api/drafts/[slug]] load failed" } });
     return NextResponse.json(
       { error: "Failed to load draft" },
       { status: 500 }
@@ -122,7 +123,7 @@ export async function DELETE(
     }
     const fetchFailure = cardFetchErrorResponse(error);
     if (fetchFailure) return fetchFailure;
-    console.error("[api/drafts/[slug] DELETE] error:", error);
+    report(error, { tags: { operation: "[api/drafts/[slug] DELETE] error" } });
     return NextResponse.json(
       { error: "Failed to cancel draft" },
       { status: 500 }
@@ -178,7 +179,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         ? boosterDraftConfigError({ customExtraCardIds: candidate.customExtraCardIds }) ?? themeDraftNumberError(candidate)
         : boosterDraftConfigError(candidate);
       if (numberError) throw new DraftLobbyApiError(numberError, "INVALID_CONFIG");
-      const denied = cubeReferenceAccess(db, candidate.allowedCubeIds, { allowMissing: true });
+      // Check the submitted source before sanitization can remove an inaccessible ID.
+      const references = patch && "poolSource" in patch ? { ...candidate, poolSource: patch.poolSource } : candidate;
+      const denied = draftCubeReferenceAccess(db, references, userId, base);
       if (denied) return denied;
       const assignmentError = hostThemeAssignmentError(db, existing.guildId, candidate, roster);
       if (assignmentError) throw new DraftLobbyApiError(assignmentError, "INVALID_CONFIG");
@@ -203,7 +206,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (!mergedConfig.setNames?.length && !mergedConfig.customCardIds?.length) {
         throw new DraftLobbyApiError("Select at least one set or paste custom card IDs", "INVALID_CONFIG");
       }
-      const cards = createCardCatalogService(db);
+      const cards = createCardCatalogService(db, { memberId: userId });
       const lookupBudget = createCardLookupBudget();
       await cards.syncDraftPool({
         setNames: mergedConfig.setNames ?? [], customCardIds: mergedConfig.customCardIds ?? [],

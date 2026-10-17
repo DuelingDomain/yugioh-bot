@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "./helpers/recording-observability.mjs";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -59,6 +60,26 @@ it("rejects corrupt remaps before changing saved data",()=>{
  }finally{db.close();}
 });
 
+it("remaps persisted Extra repair notice codes while preserving the notice and unrelated numbers", () => {
+ const dir = bundle(), db = sharedDb.openDatabase(":memory:");
+ try {
+  seedIdentity(db, { userId: 1, playerId: 1, guildId: "g", name: "Fixture owner" });
+  const notice = { applied: true, mainCount: 3, message: "2 cards moved to Main.", moves: [
+   { code: 100000001, name: "Fixture preview", from: "extra", to: "main" },
+   { code: 100000001, name: "Fixture preview", from: "extra", to: "main" },
+   { code: 999, name: "Fixture unchanged", from: "extra", to: "main" },
+  ] };
+  const deck = { main: [100000001, 100000001, 999], extra: [], side: [], extraDeckRepair: notice, unrelatedNumber: 100000001 };
+  db.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g',1,'repaired','normal',?)").run(JSON.stringify(deck));
+  sharedDb.applyEngineCardRemaps(db, dir);
+  const saved = JSON.parse((db.prepare("SELECT deck_json FROM saved_decks").get() as { deck_json: string }).deck_json);
+  expect(saved).toEqual({ ...deck, main: [12, 12, 999], extraDeckRepair: {
+   ...notice, moves: notice.moves.map(move => ({ ...move, code: move.code === 100000001 ? 12 : move.code })),
+  } });
+  expect(sharedDb.applyEngineCardRemaps(db, dir).skipped).toBe(true);
+ } finally { db.close(); }
+});
+
 it("creates missing official catalog metadata and migrates registration, series and sandbox fields",()=>{
  const dir=bundle(),db=sharedDb.openDatabase(":memory:");
  const oldDeck=JSON.stringify({main:[100000001],extra:[],side:[],deckMaster:100000001});
@@ -95,7 +116,7 @@ it("creates missing official catalog metadata and migrates registration, series 
 
 it.each(["bad json","null","[]",'"string"',"42","true"])("skips and logs invalid saved JSON %s while migrating valid rows",invalid=>{
  const dir=bundle(),db=sharedDb.openDatabase(":memory:");
- const warning=vi.spyOn(console,"warn").mockImplementation(()=>{});
+ const warning=recording.log.mockClear().mockImplementation(()=>{});
  try{
   seedIdentity(db,{userId:1,playerId:1,guildId:"g"});
   db.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('g',1,'a','normal',?)").run(JSON.stringify({main:[100000001],extra:[],side:[]}));
@@ -108,8 +129,8 @@ it.each(["bad json","null","[]",'"string"',"42","true"])("skips and logs invalid
   expect(db.prepare("SELECT config_json FROM cubes WHERE id=1").get()).toEqual({config_json:invalid});
   expect(db.prepare("SELECT config_json FROM cubes WHERE id=2").get()).toEqual({config_json:'{"customCardIds":[12]}'});
   expect(warning).toHaveBeenCalledTimes(2);
-  expect(warning).toHaveBeenCalledWith(expect.stringContaining("saved_decks.deck_json row 2"));
-  expect(warning).toHaveBeenCalledWith(expect.stringContaining("cubes.config_json row 1"));
+  const message = invalid === "bad json" ? "[card-remaps] Skipping saved JSON that cannot be parsed" : "[card-remaps] Skipping saved JSON that is not an object";
+  expect(warning.mock.calls).toEqual([["warn", message, {}], ["warn", message, {}]]);
   expect(db.prepare("SELECT bundle_version FROM engine_card_remap_runs").all()).toEqual([{bundle_version:"next"}]);
   expect(sharedDb.applyEngineCardRemaps(db,dir).skipped).toBe(true);
  }finally{warning.mockRestore();db.close();}
@@ -118,7 +139,7 @@ it.each(["bad json","null","[]",'"string"',"42","true"])("skips and logs invalid
 
 it.each([true,false])("never rewrites or deletes real alternate-art catalog/artwork rows from an older remap artifact (loaded=%s)", loaded => {
  const dir=bundle({100000001:12,57160137:57160136}),db=sharedDb.openDatabase(":memory:");
- const warning=vi.spyOn(console,"warn").mockImplementation(()=>{});
+ const warning=recording.log.mockClear().mockImplementation(()=>{});
  try {
   seedIdentity(db,{userId:1,playerId:1,guildId:"g"});
   const cdb=new Database(join(dir,"cards.cdb"));
@@ -236,3 +257,5 @@ it("refreshes a copied preview only once, even if engine text changes next week"
   expect(db.prepare("SELECT * FROM card_catalog").get()).toEqual(before);
  }finally{db.close();}
 });
+
+const recording = useRecordingObservability();

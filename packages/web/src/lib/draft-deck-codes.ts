@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type Database from "better-sqlite3";
 import { NextResponse } from "next/server";
 import { mapDeckCodes, type DuelDeck, type DuelDeckValidation } from "@yugidraft/shared/duels";
@@ -7,20 +8,36 @@ import { callDuelHost } from "@/lib/duel-host";
 /** What stops a series from starting: the HTTP status, the message, and the check report if any. */
 export type DraftDeckMapResult =
   | { ok: true }
-  | { ok: false; status: 400 | 409 | 503; error: string; report?: DuelDeckValidation };
+  | { ok: false; status: 400 | 409 | 503; error: string; report?: DuelDeckValidation; playerId?: number };
 
 /** One attempt per registration change: a newer registration made during the host call is mapped again. */
 const MAX_ATTEMPTS = 3;
 
 /** The same host mapping used for draft picks, saved decks and duel checks. */
-export async function normalizeDraftCardCodes(input: { guildId: string; playerId: number; codes: number[]; preserveArtwork?: boolean }): Promise<
-  { ok: true; codes: Map<number, number | null> } | { ok: false; response: NextResponse }
+export async function normalizeDraftCardCodes(input: {
+  guildId: string; playerId: number; codes: number[]; preserveArtwork?: boolean;
+  lookupLimit?: number; cacheOnly?: boolean; includeCanonical?: boolean;
+}): Promise<
+  { ok: true; codes: Map<number, number | null>; canonicalCodes: Map<number, number | null>; lookupLimitedCodes: Set<number>; lookupRemaining?: number } | { ok: false; response: NextResponse }
 > {
   const ids = [...new Set(input.codes)];
   const mapped = new Map<number, number | null>();
+  const canonical = new Map<number, number | null>();
+  const limited = new Set<number>();
+  let remaining = input.lookupLimit;
   for (let at = 0; at < ids.length; at += 1000) {
     const chunk = ids.slice(at, at + 1000);
-    const result = await callDuelHost({ op: "normalize-codes", guildId: input.guildId, playerId: input.playerId, codes: chunk, ...(input.preserveArtwork ? { preserveArtwork: true } : {}) });
+    let result: Awaited<ReturnType<typeof callDuelHost>>;
+    try {
+      result = await callDuelHost({ op: "normalize-codes", guildId: input.guildId, playerId: input.playerId, codes: chunk,
+        ...(input.preserveArtwork ? { preserveArtwork: true } : {}),
+        ...(remaining === undefined ? {} : { lookupLimit: remaining }),
+        ...(input.cacheOnly ? { cacheOnly: true } : {}),
+        ...(input.includeCanonical ? { includeCanonical: true } : {}),
+      });
+    } catch {
+      return { ok: false, response: NextResponse.json({ error: "Duel engine unavailable, try again" }, { status: 503 }) };
+    }
     if (!result.ok) return result;
     const codes = (result.data as { codes?: Record<string, unknown> } | null)?.codes;
     if (!codes || typeof codes !== "object" || chunk.some((id) => {
@@ -29,9 +46,22 @@ export async function normalizeDraftCardCodes(input: { guildId: string; playerId
     })) {
       return { ok: false, response: NextResponse.json({ error: "Invalid engine response" }, { status: 502 }) };
     }
-    for (const id of chunk) mapped.set(id, codes[id] as number | null);
+    const details = result.data as { canonicalCodes?: Record<string, unknown>; lookupRemaining?: unknown; lookupLimited?: unknown };
+    const validCode = (value: unknown) => value === null || (typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 0xffffffff);
+    if ((details.canonicalCodes !== undefined && (!details.canonicalCodes || typeof details.canonicalCodes !== "object" || chunk.some(id => !validCode(details.canonicalCodes![id]))))
+      || (details.lookupRemaining !== undefined && (typeof details.lookupRemaining !== "number" || !Number.isSafeInteger(details.lookupRemaining) || details.lookupRemaining < 0 || details.lookupRemaining > (remaining ?? 0)))
+      || (details.lookupLimited !== undefined && (!Array.isArray(details.lookupLimited) || details.lookupLimited.some(id => typeof id !== "number" || !chunk.includes(id))))) {
+      return { ok: false, response: NextResponse.json({ error: "Invalid engine response" }, { status: 502 }) };
+    }
+    for (const id of chunk) {
+      mapped.set(id, codes[id] as number | null);
+      canonical.set(id, (details.canonicalCodes?.[id] ?? codes[id]) as number | null);
+    }
+    for (const id of (details.lookupLimited ?? []) as number[]) limited.add(id);
+    // A missing remainder never grants a fresh budget to the next batch.
+    if (remaining !== undefined) remaining = typeof details.lookupRemaining === "number" ? details.lookupRemaining : 0;
   }
-  return { ok: true, codes: mapped };
+  return { ok: true, codes: mapped, canonicalCodes: canonical, lookupLimitedCodes: limited, lookupRemaining: remaining };
 }
 
 /** Known engine artwork ids are preserved. Unresolved ids stay in the deck, so loading never loses cards and pool validation rejects them. */
@@ -96,7 +126,7 @@ export async function mapDraftTournamentDecks(
         const { deck, report } = checked.data as { deck?: DuelDeck; report?: DuelDeckValidation };
         if (!deck || !report || !Array.isArray(report.issues)) return unavailable;
         if (report.issues.length > 0) {
-          return { ok: false, status: 400, error: "A deck in this match is not legal for the tournament.", report };
+          return { ok: false, status: 400, error: "A deck in this match is not legal for the tournament.", report, playerId };
         }
         const mapped = JSON.stringify(deck);
         settled = mapped === row.deck_json || update.run(mapped, input.tournamentId, playerId, row.deck_json).changes > 0;
@@ -111,7 +141,7 @@ export async function mapDraftTournamentDecks(
     }
     return { ok: true };
   } catch (error) {
-    console.warn("[draft-deck-codes] could not map the draft deck codes:", error);
+    report(error, { tags: { operation: "[draft-deck-codes] could not map the draft deck codes" } });
     return unavailable;
   }
 }

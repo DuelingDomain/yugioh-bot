@@ -82,6 +82,7 @@ describe("preset registry", () => {
       "negation-veiler-1v1",
     ]);
     expect(PRESETS.filter((preset) => preset.needs === "multi-core").map((preset) => preset.id).sort()).toEqual([
+      "ffa3-attack-defender",
       "ffa3-elimination-chain-control",
       "ffa3-elimination-chain-loss",
       "ffa3-elimination-cut-turn",

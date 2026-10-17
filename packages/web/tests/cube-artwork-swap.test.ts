@@ -3,17 +3,17 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createDraftService, createCubeService, createCardCatalogService } from "@yugidraft/shared/services";
 import { migrate } from "@yugidraft/shared/db";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
-const { getDb, requireWebAccess, cubeWriteAccess, callDuelHost } = vi.hoisted(() => ({ getDb: vi.fn(), requireWebAccess: vi.fn(), cubeWriteAccess: vi.fn(), callDuelHost: vi.fn() }));
+const { getDb, requireWebAccess, cubeOwnerAccess, callDuelHost } = vi.hoisted(() => ({ getDb: vi.fn(), requireWebAccess: vi.fn(), cubeOwnerAccess: vi.fn(), callDuelHost: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb }));
 vi.mock("@/lib/web-access", () => ({ requireWebAccess }));
-vi.mock("@/lib/cube-access", () => ({ cubeWriteAccess }));
+vi.mock("@/lib/cube-access", () => ({ cubeOwnerAccess }));
 vi.mock("@/lib/duel-host", () => ({ callDuelHost }));
 vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g" } }));
 let db: Database.Database;
 beforeEach(() => {
   vi.clearAllMocks(); db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
   seedFixtureUsers(db, ["u", "p1", "p2"]);
-  requireWebAccess.mockResolvedValue({ ok: true, userId: fixtureUserId("u"), discordUserId: fixtureDiscordId("u"), userName: "Yugi" }); cubeWriteAccess.mockResolvedValue(null);
+  requireWebAccess.mockResolvedValue({ ok: true, userId: fixtureUserId("u"), discordUserId: fixtureDiscordId("u"), userName: "Yugi" }); cubeOwnerAccess.mockReturnValue(null);
   db.exec(`insert into cubes (id,guild_id,name,created_by_user_id) values (1,'g','Cube',${fixtureUserId("u")});
     insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (10,'Dragon','Normal Monster','normal','full','small','[]','now');
     insert into cube_cards (cube_id,catalog_card_id,pool,max_copies,source) values (1,10,'main',2,'custom');`);
@@ -41,8 +41,8 @@ it("does not overwrite a target art already present in the cube", async () => {
   expect(db.prepare("select sum(max_copies) as n from cube_cards").get()).toEqual({ n: 3 });
 });
 it("enforces cube write access before contacting the engine", async () => {
-  cubeWriteAccess.mockResolvedValue(Response.json({ error: "Forbidden" }, { status: 403 }));
-  expect((await swap()).status).toBe(403); expect(callDuelHost).not.toHaveBeenCalled();
+  cubeOwnerAccess.mockReturnValue(Response.json({ error: "Cube not found" }, { status: 404 }));
+  expect((await swap()).status).toBe(404); expect(callDuelHost).not.toHaveBeenCalled();
 });
 
 function themeDraft() {
@@ -170,7 +170,7 @@ it("rolls back artwork rows and config together when the cube update fails", asy
   const config = JSON.stringify({ customCardIds: [10, 11] });
   db.prepare("update cubes set config_json = ? where id = 1").run(config);
   db.exec("create trigger reject_cube_update before update on cubes begin select raise(abort, 'cube update failed'); end");
-  expect((await swap()).status).toBe(400);
+  expect((await swap()).status).toBe(500);
   expect(db.prepare("select catalog_card_id from cube_cards").all()).toEqual([{ catalog_card_id: 10 }]);
   expect(db.prepare("select config_json from cubes where id = 1").get()).toEqual({ config_json: config });
   expect(db.prepare("select 1 from card_catalog where ygoprodeck_id = 11").get()).toBeUndefined();

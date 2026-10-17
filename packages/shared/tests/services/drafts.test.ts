@@ -62,7 +62,7 @@ describe("shared draft service", () => {
     try {
       seedCatalogCards(db, 62);
       db.prepare("update card_catalog set card_sets_json = '[]' where ygoprodeck_id > 60").run();
-      db.prepare("update card_catalog set frame_type = 'fusion' where ygoprodeck_id = 62").run();
+      db.prepare("update card_catalog set type = 'Fusion Monster', frame_type = 'fusion' where ygoprodeck_id = 62").run();
       const players = Array.from({ length: 3 }, (_, i) => insertPlayer(db, "guild-1", `u${i}`, `P${i}`));
       const baseIds = Array.from({ length: 60 }, (_, i) => i + 1);
       const pool = source === "set" ? { setNames: ["Metal Raiders"] } : { includeNames: baseIds.map((id) => `Card ${id}`) };
@@ -869,4 +869,34 @@ describe("shared draft service", () => {
       expect(new Set(wave).size).toBe(wave.length); // all distinct in the wave
     }
   });
+});
+
+it("records draft lifecycle counts and rolls back a start if its event cannot be recorded", () => {
+  const { db, drafts } = setup({ seedSource: () => 7 });
+  try {
+    seedCatalogCards(db, 4);
+    const a = insertPlayer(db, "g", "one", "One");
+    const b = insertPlayer(db, "g", "two", "Two");
+    const owner = seedUser(db, "one").userId;
+    const draft = drafts.create("g", null, "Private draft", { cubeCardIds: [1, 2, 3, 4], packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2 }, owner, a.id);
+    drafts.join(draft.id, b.id);
+    db.exec("create trigger reject_event before insert on product_events when new.name='draft_started' begin select raise(abort, 'record failed'); end");
+    expect(() => drafts.start(draft.id)).toThrow("record failed");
+    expect(drafts.findById(draft.id).status).toBe("pending");
+    db.exec("drop trigger reject_event");
+    drafts.start(draft.id, new Date(Date.now() - 10_000));
+    while (drafts.findById(draft.id).status === "active") {
+      for (const player of [a, b]) {
+        const card = drafts.currentPackOptions(draft.id, player.id)[0];
+        if (card) drafts.pickCard(draft.id, player.id, card.id, "manual");
+      }
+    }
+    const events = db.prepare("select name,user_id,props_json from product_events where name like 'draft_%' order by id").all();
+    expect(events).toEqual([
+      { name: "draft_created", user_id: owner, props_json: '{"mode":"booster","seatCount":1}' },
+      { name: "draft_started", user_id: owner, props_json: '{"mode":"booster","seatCount":2}' },
+      { name: "draft_completed", user_id: owner, props_json: expect.any(String) },
+    ]);
+    expect(JSON.parse((events[2] as { props_json: string }).props_json)).toMatchObject({ mode: "booster", seatCount: 2, durationSeconds: expect.any(Number) });
+  } finally { db.close(); }
 });

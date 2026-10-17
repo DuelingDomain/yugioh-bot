@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
-import { createDraftLobbyService, createDraftService, createTournamentService } from "@yugidraft/shared/services";
+import { createDuelService, createDraftLobbyService, createDraftService, createTournamentService } from "@yugidraft/shared/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "./fixtures/identity";
 
@@ -17,11 +17,11 @@ vi.mock("@/lib/session-identity", async () => {
 });
 vi.mock("@/lib/notify", () => ({ announcer: { announce }, broadcaster: { draft, tournament } }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange: duelChange }));
-vi.mock("@yugidraft/shared/notify", async (original) => {
-  const actual = await original<typeof import("@yugidraft/shared/notify")>();
-  return { ...actual, httpTransport: (...args: Parameters<typeof actual.httpTransport>) => {
+vi.mock("@yugidraft/shared/internal-auth", async (original) => {
+  const actual = await original<typeof import("@yugidraft/shared/internal-auth")>();
+  return { ...actual, signedTransport: (...args: Parameters<typeof actual.signedTransport>) => {
     transport(...args);
-    return actual.httpTransport(...args);
+    return actual.signedTransport(...args);
   } };
 });
 
@@ -251,7 +251,8 @@ describe.each([undefined, "0", "true", "1"])("Discord flag %s", flag => {
 
   it("short circuits both invite helpers while off", async () => {
     const { sendDuelInvite, announceDuelInvite } = await import("../src/lib/announce-bot");
-    const invite = { slug: "room", guildId: "g1", opponentDiscordUserId: "123", challengerName: "A", duelName: "Room", bestOf: 1 as const, ranked: false, tournamentName: null };
+    const duel = createDuelService(db).create({ guildId: "g1", organizerPlayerId: a, name: "Invite fixture", mode: "normal" });
+    const invite = { slug: duel.slug, guildId: "g1", opponentDiscordUserId: "123", challengerName: "A", duelName: "Room", bestOf: 1 as const, ranked: false, tournamentName: null };
     expect(await sendDuelInvite(invite)).toBe(enabled);
     expect(announceDuelInvite(invite)).toBe(enabled ? undefined : false);
     expect(announce).toHaveBeenCalledTimes(enabled ? 2 : 0);

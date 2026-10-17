@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { expect, it } from "vitest";
@@ -53,8 +53,8 @@ describeWithCores("live Domain card restriction at every multiplayer seat", need
     const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000, createWorker: () => worker });
     const post = async (player: number, body: Record<string, unknown>): Promise<{ status: number; body: Record<string, any> }> => {
       const raw = JSON.stringify({ slug: room.slug, guildId: "g1", playerId: player, ...body });
-      const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
-      const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", headers: { "content-type": "application/json", "x-announce-signature": signature }, body: raw }));
+
+      const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", headers: { "content-type": "application/json", ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") }, body: raw }));
       const finished = await finishTestDiceOpening(host, { slug: room.slug, ...body },
         { status: response.status, data: await response.json() as Record<string, any> }, async (next) => {
           const result = await post(player, next); return { status: result.status, data: result.body };
@@ -76,10 +76,29 @@ describeWithCores("live Domain card restriction at every multiplayer seat", need
       expect(creates).toBe(0);
       service.setDeck(room.slug, "g1", players[seat]!, invalid);
       const refused = await post(players[0]!, { op: "start" });
-      expect(refused.status).toBe(400);
-      expect(refused.body.error).toMatch(/outside the Deck Master's Domain/);
-      expect(creates).toBe(0);
-      expect(service.get(room.slug, "g1").status).toBe("lobby");
+      if (seat === 0) {
+        expect(refused.status).toBe(400);
+        expect(refused.body.error).toMatch(/outside the Deck Master's Domain/);
+      } else {
+        expect(refused.status).toBe(200);
+        expect(refused.body).toMatchObject({
+          startBlocked: "Start blocked: another player's deck needs attention.", startBlockedByOther: true,
+        });
+        expect(refused.body).not.toHaveProperty("error");
+      }
+      for (const actor of players) {
+        const view = await post(actor, { op: "view" });
+        expect(view.status).toBe(200);
+        if (actor === players[seat]) {
+          expect(view.body.startBlocked).toMatchObject({ reason: expect.stringMatching(/outside the Deck Master's Domain/) });
+          expect(view.body).not.toHaveProperty("startBlockedByOther");
+        } else {
+          expect(view.body.startBlockedByOther).toBe(true);
+          expect(view.body).not.toHaveProperty("startBlocked");
+        }
+        expect(creates).toBe(0);
+        expect(service.get(room.slug, "g1").status).toBe("lobby");
+      }
       expect((await post(players[seat]!, { op: "deck", deck: decks[seat] })).status).toBe(200);
       expect((await post(players[0]!, { op: "start" })).status).toBe(200);
       expect(creates).toBe(1);

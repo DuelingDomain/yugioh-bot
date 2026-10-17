@@ -40,24 +40,33 @@ export function useDuelPresence(slug: string | null): Presence | null {
       clearTimeout(timer);
       request?.abort();
       request = new AbortController();
+      let tokenRejected = false;
       try {
-        const response = await fetch(`/api/duels/${encodeURIComponent(slug)}/connection`, {
-          cache: "no-store", signal: AbortSignal.any([request.signal, AbortSignal.timeout(8000)]),
-        });
-        if (!current()) return;
-        if (!response.ok) {
-          if (response.status === 401 || response.status === 403 || response.status === 404) { clear(); return; }
-          throw new Error("Presence subscription unavailable");
+        let credentials!: DuelConnectionResponse;
+        let result!: DuelJoinAck;
+        for (let retry = 0; retry < 2; retry++) {
+          tokenRejected = false;
+          const response = await fetch(`/api/duels/${encodeURIComponent(slug)}/connection`, {
+            cache: "no-store", signal: AbortSignal.any([request.signal, AbortSignal.timeout(8000)]),
+          });
+          if (!current()) return;
+          if (!response.ok) {
+            if (response.status === 401 || response.status === 403 || response.status === 404) { clear(); return; }
+            throw new Error("Presence subscription unavailable");
+          }
+          credentials = await response.json() as DuelConnectionResponse;
+          if (!current()) return;
+          guildId = credentials.guildId;
+          result = await new Promise<DuelJoinAck>((resolve, reject) => {
+            socket.timeout(5000).emit("duel:join", { token: credentials.token, observe: true },
+              (error: Error | null, answer: DuelJoinAck) => error ? reject(error) : resolve(answer));
+          });
+          if (!current()) return;
+          if (result?.ok) break;
+          tokenRejected = result?.error === "invalid token" || result?.error === "expired token";
+          if (!tokenRejected || retry === 1) throw new Error("Presence subscription rejected");
         }
-        const credentials = await response.json() as DuelConnectionResponse;
-        if (!current()) return;
-        guildId = credentials.guildId;
-        const result = await new Promise<DuelJoinAck>((resolve, reject) => {
-          socket.timeout(5000).emit("duel:join", { token: credentials.token, observe: true },
-            (error: Error | null, answer: DuelJoinAck) => error ? reject(error) : resolve(answer));
-        });
-        if (!current()) return;
-        if (!result?.ok) throw new Error("Presence subscription rejected");
+        if (!result.ok) return;
         subscribed = true;
         retryDelay = 1000;
         setSnapshot({ slug, presence: { onlineSeats: result.onlineSeats, spectatorCount: result.spectatorCount } });
@@ -66,8 +75,10 @@ export function useDuelPresence(slug: string | null): Presence | null {
         if (!current()) return;
         subscribed = false;
         setSnapshot(null);
-        timer = setTimeout(() => void join(), retryDelay);
-        retryDelay = Math.min(retryDelay * 2, 15_000);
+        if (!tokenRejected) {
+          timer = setTimeout(() => void join(), retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 15_000);
+        }
       }
     };
     socket.on("connect", () => { clear(); void join(); });

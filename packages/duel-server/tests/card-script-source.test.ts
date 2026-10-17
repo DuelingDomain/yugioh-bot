@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -14,7 +15,7 @@ it("server and production export hashes agree for near aliases, artwork fallback
     { code: 100, name: "Card", alias: 10 },
     { code: 200, name: "Missing", alias: 300 }, { code: 300, name: "Missing" },
   ]);
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const warn = recording.log.mockClear().mockImplementation(() => {});
   try {
     for (const code of [100, 200, 300]) rmSync(join(dir, "card-scripts", `c${code}.lua`));
     writeFileSync(join(dir, "card-scripts", "utility.lua"), "-- fixture shared helper");
@@ -61,3 +62,5 @@ it("reads only requested metadata while preserving core aliases, basename priori
     } finally { source.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+const recording = useRecordingObservability();

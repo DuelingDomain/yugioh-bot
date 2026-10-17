@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import type Database from "better-sqlite3";
 import type { MatchService, TournamentService } from "@yugidraft/shared/services";
 import type { WorkerEffects } from "./effects.js";
@@ -12,7 +13,7 @@ export function createTournamentTimer({ db, matches, tournaments, effects }: {
     try {
       await run();
     } catch (error) {
-      console.warn("[tournament-timer] effect", error);
+      report(error, { tags: { operation: "[tournament-timer] effect" } });
     }
   };
   const publish = async (id: number) => {
@@ -32,7 +33,7 @@ export function createTournamentTimer({ db, matches, tournaments, effects }: {
           if (resolved.tournamentId) await publish(resolved.tournamentId);
           await safely(() => effects.discord({ kind: "match-resolved", matchId: resolved.id }));
         } catch (error) {
-          console.warn("[tournament-timer] auto-approve failed", overdue.id, error);
+          report(error, { tags: { operation: "[tournament-timer] auto-approve failed" } });
         }
       }
       for (const due of tournaments.findOverdueActive(now.toISOString())) {
@@ -43,7 +44,7 @@ export function createTournamentTimer({ db, matches, tournaments, effects }: {
             await safely(() => effects.duel(slug, closed.tournament.guildId));
           }
         } catch (error) {
-          console.warn("[tournament-timer] deadline failed", due.id, error);
+          report(error, { tags: { operation: "[tournament-timer] deadline failed" } });
         }
       }
 

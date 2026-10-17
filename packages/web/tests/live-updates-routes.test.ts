@@ -26,6 +26,7 @@ vi.mock("@/lib/duel-host", () => ({ callDuelHost }));
 // Use the same service source as the in-memory fixtures without requiring a build.
 vi.mock("@yugidraft/shared/services", () => import("../../shared/src/services/index"));
 vi.mock("@yugidraft/shared/duels", () => import("../../shared/src/duels/index"));
+vi.mock("@yugidraft/shared/observability", () => import("../../shared/src/observability/index"));
 
 function fixture(packSize = 2) {
   const players = createPlayerService(db);

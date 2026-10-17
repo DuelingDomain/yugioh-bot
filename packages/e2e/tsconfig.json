@@ -21,7 +21,6 @@
     "live/**/*.ts",
     "tests/**/*.ts",
     "helpers/**/*.ts",
-    "stack/**/*.mjs",
-    "tests-unit/**/*.ts"
+    "stack/**/*.mjs"
   ]
 }

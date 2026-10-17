@@ -1,5 +1,7 @@
 # FFA3 columns implementation plan
 
+> **Superseded (owner, 2026-10-11).** FFA3 seats 0 and 1 are a fixed facing pair that share one Extra Monster Zone row. Only the column pick is superseded: the engine no longer sends the column-pick prompt (engine commit 927a99f2c), and the table has no cross-opponent column alignment UI. The engine still sends the ordinary "choose an opponent" prompt for other cards, and the table keeps its pick UI. This page is kept as history.
+
 **Goal:** Apply the owner's 2026-10-05 column rule, R-FFA-THREE-COLUMNS.
 
 **Architecture:** Add column_peer_of independently of across_of. With three living FFA3 seats, only an activated effect's chosen opponent is a column peer. With two living seats, each is the other's peer in all column callbacks. Keep the existing opponent probe and prompt protocol. Extend Lua geometry guards only for columns. Keep each card overlay's stock hash.

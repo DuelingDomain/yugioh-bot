@@ -1,3 +1,4 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -19,7 +20,12 @@ export async function POST(
     const db = getDb();
     const access = findTournamentReadAccess(db, slug, env.discordGuildId, actor.userId);
     if (!access?.canRead) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
-    const body = await request.json();
+    let body: { playerId?: unknown };
+    try { body = await request.json(); }
+    catch (error) {
+      if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      throw error;
+    }
     const playerId = Number(body?.playerId);
     if (!playerId || !Number.isInteger(playerId)) {
       return NextResponse.json({ error: "playerId is required" }, { status: 400 });
@@ -46,8 +52,6 @@ export async function POST(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to kick participant";
-    console.error("[api/tournaments/[slug]/kick] error:", error);
-    return NextResponse.json({ error: message }, { status: 400 });
+    return apiErrorResponse(error, "[api/tournaments/[slug]/kick] error");
   }
 }

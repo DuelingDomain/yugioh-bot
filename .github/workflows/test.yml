@@ -13,8 +13,9 @@ name: Test
 #   new-card-smoke  four real-engine smoke shards for the automatic card-data PR, followed by one sticky report.
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
 #
-# Pull requests and pushes to main always run unit. They run cores, engine, engine-legacy, native and rule-coverage
-# only when changes sets engine=true (the bot smoke also requests cores). A manual run runs all regular jobs,
+# Pushes to main run all regular release suites before Deploy can start. Pull requests always run unit and
+# select cores, engine, engine-legacy, native and rule-coverage by changed paths (bot smoke also requests cores).
+# A manual run runs all regular jobs,
 # including nduel-nightly unless nightly=false; bot smoke also needs its branch and new_card_smoke input.
 # The schedule runs cores and nduel-nightly only.
 
@@ -58,12 +59,13 @@ env:
 
 jobs:
   # Which layers a change can affect (scripts/ci/changed-layers.mjs). Pull requests diff from the merge base; pushes
-  # to main diff from the previous tip (github.event.before). Manual runs, the schedule and a push without a usable
+  # to main diff from the previous tip (github.event.before) for golden inputs, but always set engine=true.
+  # Manual runs, the schedule and a push without a usable
   # diff set engine=true and golden=true.
   #   engine      the duel engine, its shared dependencies, e2e, the engine bundle inputs, the lockfile, the ADR-0002
   #               rules or this workflow changed: cores, engine, engine-legacy, native and rule-coverage run.
   #   golden      core patches/pins, overlays, native tooling or data pins changed: check golden in the native job.
-  # Changes outside these paths (for example web-only UI changes) run only the unit jobs.
+  # PR changes outside these paths (for example web-only UI changes) run only the unit jobs.
   changes:
     name: Changed layers
     runs-on: ubuntu-latest
@@ -263,7 +265,7 @@ jobs:
           cp "$dist/ocgcore.multi.sync.wasm" "$BUNDLE_DIR/ocgcore.multi.wasm"
           cp "$dist/ocgcore.multi-domain.sync.wasm" "$BUNDLE_DIR/ocgcore.multi-domain.wasm"
           for stem in ocgcore.multi ocgcore.multi-domain; do
-            printf 'tag=ci-%s\nsource=%s\nsha256=%s\ncapabilities=ffa4-facing-extra-zones\ninstalled=%s\nnote=built by .github/workflows/test.yml\n' \
+            printf 'tag=ci-%s\nsource=%s\nsha256=%s\ncapabilities=ffa3-facing-extra-zones,ffa4-facing-extra-zones,tag-facing-extra-zones\ninstalled=%s\nnote=built by .github/workflows/test.yml\n' \
               "${GITHUB_SHA::12}" "$dist/$stem.sync.wasm" \
               "$(sha256sum "$dist/$stem.sync.wasm" | cut -d' ' -f1)" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BUNDLE_DIR/$stem.SOURCE"
@@ -506,13 +508,16 @@ jobs:
       - name: Test worker
         run: npm test --workspace=packages/worker
 
+      - name: Test WS
+        run: npm test --workspace=packages/ws
+
       - name: Build web with a dummy Clerk public key
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
         run: npm run build --workspace=packages/web
 
       - name: Deployment script tests
-        run: npx vitest run scripts/staging/deploy.test.ts
+        run: npx vitest run scripts/deployment/deploy.test.ts
 
       - name: Typecheck
         run: npm run typecheck
@@ -553,9 +558,6 @@ jobs:
           if (result.error) throw result.error;
           process.exit(result.status ?? 1);
           JS
-
-      - name: Test e2e helpers
-        run: npm run test:unit --workspace=@yugidraft/e2e
 
   unit-web:
     name: Web unit tests (${{ matrix.shard }}/4)

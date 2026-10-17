@@ -1,3 +1,7 @@
+import { recordProductEvent } from "../analytics/index.js";
+import { assertExtraDeckCards, ExtraDeckCardError, isExtraDeckCard, type DeckSectionMove } from "../duels/extra-deck.js";
+import { createDeckTypeLookup, hasKnownDeckCardType } from "./deck-sections.js";
+import type { CardIdentityCatalog } from "../duels/pool.js";
 import type Database from "better-sqlite3";
 import type { DuelDeck, DuelMode, SavedDeck } from "../duels/index.js";
 
@@ -8,7 +12,7 @@ const UINT32_MAX = 0xffff_ffff;
 export class SavedDeckServiceError extends Error {
   readonly status: number;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, readonly code?: string) {
     super(message);
     this.name = "SavedDeckServiceError";
     this.status = status;
@@ -111,6 +115,11 @@ function normalizeDeck(deck: unknown): DuelDeck {
   return normalized;
 }
 
+/** Validate storage rules without a write, so previews and saves use the same limits. */
+export function validateSavedDeckWrite(input: SavedDeckWrite): { name: string; mode: DuelMode; deck: DuelDeck } {
+  return { name: normalizeName(input.name), mode: normalizeMode(input.mode), deck: normalizeDeck(input.deck) };
+}
+
 /** undefined stays undefined (callers decide the default); null clears. */
 function normalizeDraftId(draftId: unknown): number | null | undefined {
   if (draftId === undefined || draftId === null) return draftId;
@@ -142,7 +151,7 @@ function mapSavedDeck(row: SavedDeckRow): SavedDeck {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new SavedDeckServiceError("Saved deck is corrupt", 500);
   }
-  const deck = parsed as DuelDeck;
+  const deck = parsed as DuelDeck & { extraDeckRepair?: SavedDeck["extraDeckRepair"] };
   if (!Array.isArray(deck.main) || !Array.isArray(deck.extra) || !Array.isArray(deck.side)) {
     throw new SavedDeckServiceError("Saved deck is corrupt", 500);
   }
@@ -159,10 +168,43 @@ function mapSavedDeck(row: SavedDeckRow): SavedDeck {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     draftId: row.draft_id ?? null,
+    ...(deck.extraDeckRepair ? { extraDeckRepair: deck.extraDeckRepair } : {}),
   };
 }
 
-export function createSavedDeckService(db: Database.Database): SavedDeckService {
+export function createSavedDeckService(db: Database.Database, engine?: CardIdentityCatalog): SavedDeckService {
+  const findCard = createDeckTypeLookup(db, engine);
+  const validateExtra = (deck: DuelDeck) => {
+    try { assertExtraDeckCards(deck, findCard.snapshot()); }
+    catch (error) {
+      if (error instanceof ExtraDeckCardError) throw new SavedDeckServiceError(error.message, error.status, error.code);
+      throw error;
+    }
+  };
+  // Inspect without a lock. Unknown codes stay put until type evidence is available.
+  const inspectRow = (row: SavedDeckRow, lookup: ReturnType<typeof findCard.snapshot>): { saved: SavedDeck; repairedJson?: string } => {
+    const saved = mapSavedDeck(row);
+    const cards = new Map([...new Set(saved.deck.extra)].map(code => [code, lookup(code)]));
+    const extra: number[] = [];
+    const moves: DeckSectionMove[] = [];
+    for (const code of saved.deck.extra) {
+      const card = cards.get(code);
+      if (hasKnownDeckCardType(card) && !isExtraDeckCard(card)) {
+        moves.push({ code, name: card?.name ?? `card ${code}`, from: "extra", to: "main" });
+      } else extra.push(code);
+    }
+    if (!moves.length) return { saved };
+    const mainCount = saved.deck.main.length + moves.length;
+    const applied = mainCount <= MAX_SECTION_CARDS;
+    const count = `${moves.length} ${moves.length === 1 ? "card" : "cards"}`;
+    const message = applied
+      ? `${count} moved from Extra Deck to Main Deck.${mainCount > 60 ? ` Main Deck now has ${mainCount} cards; trim it to 60 or fewer before playing.` : ""}`
+      : `${count} in Extra Deck belong in Main Deck. Moving them would make ${mainCount} Main cards, above the ${MAX_SECTION_CARDS}-card save limit. Move cards to Side Deck or remove cards before saving.`;
+    saved.extraDeckRepair = { applied, moves, mainCount, message };
+    if (!applied) return { saved };
+    saved.deck = { ...saved.deck, main: [...saved.deck.main, ...moves.map(move => move.code)], extra };
+    return { saved, repairedJson: JSON.stringify({ ...JSON.parse(row.deck_json), ...saved.deck, extraDeckRepair: saved.extraDeckRepair }) };
+  };
   const selectOwned = db.prepare<[number, string, number], SavedDeckRow>(
     `select id, name, mode, deck_json, created_at, updated_at, draft_id
      from saved_decks
@@ -199,15 +241,35 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
     `delete from saved_decks where id = ? and guild_id = ? and owner_user_id = ?`,
   );
 
+  const guardedRepair = db.prepare("update saved_decks set deck_json = ? where id = ? and deck_json = ?");
+  const repairRow = (row: SavedDeckRow, lookup: ReturnType<typeof findCard.snapshot>): SavedDeck => {
+    const { saved, repairedJson } = inspectRow(row, lookup);
+    if (repairedJson !== undefined) {
+      const result = guardedRepair.run(repairedJson, row.id, row.deck_json);
+      if (result.changes !== 1) throw new SavedDeckServiceError("Deck changed during repair; read it again", 409);
+      console.info(`[saved-decks] Moved ${saved.extraDeckRepair!.moves.length} Extra cards to Main.`);
+    }
+    return saved;
+  };
   const loadOwned = (id: number, guildId: string, ownerUserId: number): SavedDeck => {
     const row = selectOwned.get(id, guildId, ownerUserId);
     if (!row) throw new SavedDeckServiceError("Deck not found", 404);
-    return mapSavedDeck(row);
+    const lookup = findCard.snapshot();
+    const inspection = inspectRow(row, lookup);
+    if (inspection.repairedJson === undefined) return inspection.saved;
+    return db.transaction(() => {
+      const current = selectOwned.get(id, guildId, ownerUserId);
+      if (!current) throw new SavedDeckServiceError("Deck not found", 404);
+      return repairRow(current, lookup);
+    }).immediate();
   };
 
   return {
     list(guildId: string, ownerUserId: number): SavedDeck[] {
-      return selectList.all(guildId, ownerUserId).map(mapSavedDeck);
+      const lookup = findCard.snapshot();
+      const inspections = selectList.all(guildId, ownerUserId).map(row => inspectRow(row, lookup));
+      if (inspections.every(result => result.repairedJson === undefined)) return inspections.map(result => result.saved);
+      return db.transaction(() => selectList.all(guildId, ownerUserId).map(row => repairRow(row, lookup))).immediate();
     },
 
     get(id: number, guildId: string, ownerUserId: number): SavedDeck {
@@ -215,42 +277,46 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
     },
 
     create(guildId: string, ownerUserId: number, input: SavedDeckWrite): SavedDeck {
-      const name = normalizeName(input.name);
-      const mode = normalizeMode(input.mode);
-      const deck = normalizeDeck(input.deck);
-      const draftId = normalizeDraftId(input.draftId) ?? null;
-      let result;
-      try {
-        result = insertRow.run(guildId, ownerUserId, name, mode, JSON.stringify(deck), draftId);
-      } catch (error) {
-        rethrowDraftConstraint(error);
-      }
-      if (draftId !== null) markDraftDeckSaved.run(draftId, guildId, ownerUserId);
-      return loadOwned(Number(result.lastInsertRowid), guildId, ownerUserId);
+      return db.transaction(() => {
+        const { name, mode, deck } = validateSavedDeckWrite(input);
+        validateExtra(deck);
+        const draftId = normalizeDraftId(input.draftId) ?? null;
+        let result;
+        try {
+          result = insertRow.run(guildId, ownerUserId, name, mode, JSON.stringify(deck), draftId);
+        } catch (error) {
+          rethrowDraftConstraint(error);
+        }
+        if (draftId !== null) markDraftDeckSaved.run(draftId, guildId, ownerUserId);
+        recordProductEvent(db, "deck_saved", ownerUserId, { mode });
+        return loadOwned(Number(result.lastInsertRowid), guildId, ownerUserId);
+      }).immediate();
     },
 
     update(id: number, guildId: string, ownerUserId: number, input: SavedDeckWrite): SavedDeck {
-      const existing = loadOwned(id, guildId, ownerUserId);
-      const name = normalizeName(input.name);
-      const mode = normalizeMode(input.mode);
-      const deck = normalizeDeck(input.deck);
-      const draftId = normalizeDraftId(input.draftId);
-      try {
-        updateRow.run(
-          name,
-          mode,
-          JSON.stringify(deck),
-          draftId === undefined ? (existing.draftId ?? null) : draftId,
-          id,
-          guildId,
-          ownerUserId,
-        );
-      } catch (error) {
-        rethrowDraftConstraint(error);
-      }
-      const linkedDraftId = draftId === undefined ? (existing.draftId ?? null) : draftId;
-      if (linkedDraftId !== null) markDraftDeckSaved.run(linkedDraftId, guildId, ownerUserId);
-      return loadOwned(id, guildId, ownerUserId);
+      return db.transaction(() => {
+        const existing = loadOwned(id, guildId, ownerUserId);
+        const { name, mode, deck } = validateSavedDeckWrite(input);
+        validateExtra(deck);
+        const draftId = normalizeDraftId(input.draftId);
+        try {
+          updateRow.run(
+            name,
+            mode,
+            JSON.stringify(deck),
+            draftId === undefined ? (existing.draftId ?? null) : draftId,
+            id,
+            guildId,
+            ownerUserId,
+          );
+        } catch (error) {
+          rethrowDraftConstraint(error);
+        }
+        const linkedDraftId = draftId === undefined ? (existing.draftId ?? null) : draftId;
+        if (linkedDraftId !== null) markDraftDeckSaved.run(linkedDraftId, guildId, ownerUserId);
+        recordProductEvent(db, "deck_saved", ownerUserId, { mode });
+        return loadOwned(id, guildId, ownerUserId);
+      }).immediate();
     },
 
     delete(id: number, guildId: string, ownerUserId: number): void {
@@ -262,8 +328,14 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
 
     findByDraft(guildId: string, ownerUserId: number, draftId: number): SavedDeck | null {
       const row = selectByDraft.get(guildId, ownerUserId, draftId);
-      return row ? mapSavedDeck(row) : null;
+      if (!row) return null;
+      const lookup = findCard.snapshot();
+      const inspection = inspectRow(row, lookup);
+      if (inspection.repairedJson === undefined) return inspection.saved;
+      return db.transaction(() => {
+        const current = selectByDraft.get(guildId, ownerUserId, draftId);
+        return current ? repairRow(current, lookup) : null;
+      }).immediate();
     },
   };
 }
-

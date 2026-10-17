@@ -1,3 +1,4 @@
+import { log, report } from "@yugidraft/shared/observability";
 import type Database from "better-sqlite3";
 import { scriptEngineKind, scriptHelperNames, type ScriptEngineKind } from "./card-script-hash.js";
 import type { DuelScriptError } from "./script-errors.js";
@@ -9,7 +10,7 @@ export function autoBlockConfigFromEnv() {
   const integer = (name: string, fallback: number, min: number, max: number) => {
     const value = process.env[name] ? Number(process.env[name]) : fallback;
     if (!Number.isSafeInteger(value) || value < min || value > max) {
-      console.warn(`${name} must be an integer from ${min} to ${max}; using default ${fallback}`);
+      log("warn", "Invalid integer setting; using default", { setting: name, min, max, fallback });
       return fallback;
     }
     return value;
@@ -60,8 +61,7 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
       let currentHash: string | null = null;
       try { currentHash = options.scriptHash(resolveCode(row.code), row.engine_kind, scriptHelperNames(JSON.parse(row.helper_scripts))); }
       catch (failure) {
-        console.error(JSON.stringify({ event: "card_script_auto_block_hash_failed", code: row.code,
-          engineKind: row.engine_kind, failure: failure instanceof Error ? failure.message : String(failure) }));
+        report(failure, { tags: { operation: "Card script hash failed" } });
       }
       if (currentHash !== row.script_hash) {
         db.prepare("UPDATE card_script_auto_blocks SET cleared_at = ? WHERE code = ? AND engine_kind = ?")
@@ -92,6 +92,7 @@ export function createAutoBlockPolicy(db: Database.Database, options: {
         .map(row => row.cleared_at).filter((at): at is string => at !== null).sort().at(-1) ?? null;
       const time = now(), at = new Date(time).toISOString();
       const result = db.prepare(`WITH eligible AS (SELECT duel_id, helper_scripts FROM card_script_error_occurrences WHERE resolved_code IN (${placeholders}) AND script_hash = ? AND script_error_mode = 'tolerant' AND engine_kind = ?
+          AND NOT EXISTS (SELECT 1 FROM duels d WHERE d.id = card_script_error_occurrences.duel_id AND d.kind != 'play')
           AND julianday(created_at) >= julianday(?) AND julianday(created_at) <= julianday(?)
           AND (? IS NULL OR julianday(created_at) > julianday(?)))
         SELECT count(DISTINCT duel_id) AS duels, count(*) AS errors,

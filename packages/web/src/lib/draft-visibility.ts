@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { createDraftVisibilityService, DraftVisibilityServiceError } from "@yugidraft/shared/services";
 import { getDb } from "./db";
@@ -31,7 +32,7 @@ export async function runDraftCreatorRoute(
     if (error instanceof DraftVisibilityServiceError) {
       return NextResponse.json({ error: error.message }, { status: error.status, headers: { "Cache-Control": "no-store" } });
     }
-    console.error("[draft visibility] action failed:", error);
+    report(error, { tags: { operation: "[draft visibility] action failed" } });
     return NextResponse.json({ error: "Failed to update draft" }, { status: 500 });
   }
 }

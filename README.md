@@ -174,14 +174,14 @@ Source attribution: [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm), [EDOP
 | `WS_INTERNAL_URL` | Yes (web + duel + worker) | Internal WS URL; `http://ws:4002` in Compose |
 | `BUG_REPORT_GITHUB_TOKEN` | No (web runtime) | Server-side token for issue creation; fine-grained PATs need resource owner `DuelingDomain`, Issues write access and org approval if required; empty keeps reports local |
 | `BUG_REPORT_GITHUB_REPO` | No | Defaults to `DuelingDomain/yugioh-bot` |
-| `DUEL_FX_LAB`, `DUEL_SCENARIOS`, `DRAFT_TEST_BOTS` | No | Server feature gates; staging enables scenarios only |
-| `E2E_AUTH`, `E2E_AUTH_SECRET` | Isolated E2E only | Literal `1` and ≥32-character secret enable signed-cookie test login; absent from production/staging Compose |
-| `DUEL_INTERNAL_SECRET` | Yes (web + duel) | Shared HMAC secret for web → private duel host (`x-announce-signature`). Generate with `openssl rand -hex 32`. Never expose port 4003 |
+| `DUEL_FX_LAB`, `DUEL_SCENARIOS`, `DRAFT_TEST_BOTS` | No | Server feature gates; enable only for isolated tests |
+| `E2E_AUTH`, `E2E_AUTH_SECRET` | Isolated E2E only | Literal `1` and ≥32-character secret enable signed-cookie test login; absent from production Compose |
+| `DUEL_INTERNAL_SECRET` | Yes (web + duel) | Shared HMAC secret for web → private duel host (`x-internal-signature`, purpose `duel-host`). Generate with `openssl rand -hex 32`. Never expose port 4003 |
 | `DUEL_INTERNAL_URL` | Yes (web) | Internal URL of the duel host. Host: `http://127.0.0.1:4003`. Compose: `http://duel:4003` |
 | `DUEL_DATA_DIR` | No | Canonical engine bundle. Defaults to `./data/duel-engine`. Use an absolute path when the process cwd is not the worktree |
 | `DUEL_1V1_ENGINE` | No | Global choice for new 1v1 games: `legacy` (default) or `pinned`. Domain uses this choice; Standard can override it. See `docs/deployment/duel-engine-switch.md` |
 | `DUEL_STANDARD_1V1_ENGINE` | No | Standard 1v1 choice: `legacy` or `pinned`. Compose defaults missing or empty values to `pinned`; native runs fall back to `DUEL_1V1_ENGINE`. Roll back with `legacy` in `.env`, then recreate `duel`. Each game of a series reads the switch at its start |
-| `MULTIPLAYER_TABLES` | No | `1`, `true` or `on` opens Tag, 3-player and 4-player tables. The code default is off (1v1 only), but `docker-compose.yml` and `docker-compose.staging.yml` default it to `1` (on). `0` closes new multi tables. Set it on `duel` and `web` |
+| `MULTIPLAYER_TABLES` | No | `1`, `true` or `on` opens Tag, 3-player and 4-player tables. The code default is off (1v1 only), but `docker-compose.yml` defaults it to `1` (on). `0` closes new multi tables. Set it on `duel` and `web` |
 | `DUEL_INTERNAL_HOST` | No | Duel host bind address. Defaults to `127.0.0.1` (`0.0.0.0` in Compose) |
 | `DUEL_INTERNAL_PORT` | No | Duel host port. Defaults to `4003` |
 | `DUEL_ARCHIVE_AFTER_MS` | No | Delay before terminal tables are archived from live listings; default `600000` (10 minutes). Records remain in SQLite |
@@ -226,6 +226,8 @@ The stack runs 5 services:
 - **caddy** — Reverse proxy ([HTTPS and redirects](docs/deployment/vm-runbook.md#deployment-pipeline))
 
 ## Deployment
+
+Staging is removed; it returns later on a separate server.
 
 ### VM Deployment (Hetzner / Any VPS)
 

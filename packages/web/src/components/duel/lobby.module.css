@@ -3,7 +3,7 @@
 .head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
 .headText { display: grid; gap: 6px; }
 .headActions { display: flex; flex-wrap: wrap; gap: 10px; }
-.section { display: grid; gap: 12px; }
+.section { display: grid; gap: 12px; container-type: inline-size; }
 .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--duel-rule-lo); }
 .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 
@@ -19,27 +19,79 @@
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .activity { color: var(--duel-ink-4); font-size: 12.5px; }
 .go { display: inline-flex; flex: none; align-items: center; gap: 7px; height: 34px; padding: 0 14px; border: 1px solid var(--duel-rule); border-radius: 7px; color: var(--duel-ink); font-size: 13.5px; font-weight: 450; transition: border-color 160ms, background-color 160ms, color 160ms; }
-.rowLink:hover .go { border-color: rgb(155 126 255 / 0.6); background: var(--duel-pen-soft); color: var(--duel-pen-ink); }
+.rowLink:hover .go { border-color: color-mix(in srgb, var(--duel-pen) 60%, transparent); background: var(--duel-pen-soft); color: var(--duel-pen-ink); }
 .close { display: flex; align-items: center; padding-right: 12px; }
 
 .historyRow { flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 18px; }
 .historyRow .rowMain { flex: 1 1 260px; }
 .historyActions { display: flex; gap: 8px; }
-.versus { color: var(--duel-ink-2); font-size: 14px; }
+.versus { color: var(--duel-ink-2); font-size: calc(14px * var(--tt, 1)); }
 .dot { margin-inline: 6px; color: var(--duel-ink-4); }
 .outcome { font-weight: 500; }
 .won { color: var(--duel-chain-ink); }
 .lost { color: var(--duel-loss-ink); }
+.details { display: grid; gap: 6px; margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--duel-rule-lo); }
+.detailsToggle { display: none; align-items: center; gap: 4px; width: fit-content; cursor: pointer; font-family: inherit; background: none; color: var(--duel-ink-3); font-size: calc(12.5px * var(--tt, 1)); }
+.detailsToggle[aria-expanded="true"] > svg { rotate: 180deg; }
+.detailsToggle:focus-visible, .copyBtn:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+.meta { display: flex; flex-wrap: wrap; gap: 2px 14px; color: var(--duel-ink-3); font-size: calc(12.5px * var(--tt, 1)); }
+.players { display: flex; flex-wrap: wrap; gap: 2px 16px; color: var(--duel-ink-2); font-size: calc(13px * var(--tt, 1)); list-style: none; }
+.players li { overflow-wrap: anywhere; }
+.slug { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--duel-ink-4); font-size: calc(12px * var(--tt, 1)); }
+.slug code { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.copyBtn { cursor: pointer; font-family: inherit; background: none; display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 8px; border: 1px solid var(--duel-rule-lo); border-radius: 6px; color: var(--duel-ink-3); font-size: calc(12px * var(--tt, 1)); }
+.copyBtn:hover { border-color: var(--duel-rule); color: var(--duel-ink); }
 .reason { color: var(--duel-ink-3); }
 
-.empty { padding: 44px 16px; border: 1px dashed var(--duel-rule-lo); border-radius: 12px; color: var(--duel-ink-3); text-align: center; }
-.errorBlock { display: grid; justify-items: start; gap: 10px; }
-.reconnect { color: var(--duel-chain-ink); font-size: 13.5px; }
+.empty { display: grid; justify-items: center; gap: 12px; padding: 44px 16px; border: 1px dashed var(--duel-rule-lo); border-radius: 12px; color: var(--duel-ink-3); text-align: center; }
+.more { display: flex; justify-content: center; padding-top: 4px; }
+.more button[aria-disabled="true"] { opacity: 0.42; cursor: default; }
+.endNote { text-align: center; }
+.endNote:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+.adminHint { color: var(--duel-pen-ink); font-size: calc(12.5px * var(--tt, 1)); }
 
-@media (max-width: 560px) {
+/* Match history filters: 12-column grid (dates 4, selects 2, text 6). The breakpoints follow the width of the list section,
+   not the screen, because the app shell puts a sidebar next to it above 820px. */
+.filters { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; padding: 14px; border: 1px solid var(--duel-rule-lo); border-radius: 12px; background: color-mix(in srgb, var(--duel-panel) 50%, transparent); }
+.fieldFrom, .fieldTo { grid-column: span 4; min-width: 0; }
+.fieldFormat { grid-column: span 2; min-width: 0; }
+.fieldText { grid-column: span 6; min-width: 0; display: block; }
+/* Without the Status box the Format box takes its place; without the Card box the name box takes the whole row. */
+.noStatus .fieldFormat { grid-column: span 4; }
+.noCard .fieldText { grid-column: 1 / -1; }
+.rangeError { grid-column: 1 / -1; }
+.presets { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dateInput { color-scheme: dark; }
+.preset { cursor: pointer; background: none; font-family: inherit; transition: border-color 160ms, background-color 160ms, color 160ms; }
+.preset:hover { border-color: color-mix(in srgb, var(--duel-pen) 60%, transparent); background: var(--duel-pen-soft); color: var(--duel-pen-ink); }
+.preset:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+.errorBlock { display: grid; justify-items: start; gap: 10px; }
+.reconnect { color: var(--duel-chain-ink); font-size: calc(13.5px * var(--tt, 1)); }
+
+@container (max-width: 720px) {
+  .filters .fieldFrom, .filters .fieldTo, .filters .fieldFormat { grid-column: span 6; }
+  .filters.noStatus .fieldFormat { grid-column: 1 / -1; }
+}
+
+/* The section is about 32px narrower than the screen: 528px here is the old 560px screen width. */
+@container (max-width: 528px) {
+  /* Touch targets of at least 32px. */
+  .copyBtn, .detailsToggle { min-height: 32px; }
+  .detailsToggle { padding-inline: 4px; margin-left: -4px; }
+  .presets > button.preset { height: 32px; }
+  .details { display: none; }
+  .detailsOpen { display: grid; }
+  .detailsToggle { display: inline-flex; }
+  .controls { width: 100%; }
   .rowLink { flex-direction: column; align-items: flex-start; gap: 12px; }
   .row { flex-wrap: wrap; }
   .close { padding: 0 12px 12px 18px; flex-basis: 100%; }
   .historyActions { width: 100%; }
   .historyActions > a { flex: 1; }
+}
+
+/* Only the filter grid needs the narrower rule. */
+@container (max-width: 480px) {
+  .filters { grid-template-columns: minmax(0, 1fr); padding: 12px; }
+  .filters .fieldFrom, .filters .fieldTo, .filters .fieldFormat, .filters .fieldText { grid-column: 1 / -1; }
 }

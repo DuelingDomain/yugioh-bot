@@ -1,8 +1,12 @@
+import { apiErrorResponse } from "./api-errors";
 import { NextResponse } from "next/server";
-import { isCardFetchError } from "@yugidraft/shared/services";
+import { CardFetchLimitError, isCardFetchError } from "@yugidraft/shared/services";
 
 export function cardFetchErrorResponse(error: unknown): Response | undefined {
   if (!isCardFetchError(error)) return;
+  if (error instanceof CardFetchLimitError) {
+    return NextResponse.json({ error: error.message }, { status: 429, headers: { "Retry-After": String(error.retryAfter) } });
+  }
   if (error.status != null && error.status !== 429 && (error.status < 500 || error.status >= 600)) {
     return NextResponse.json({ error: "Unknown set" }, { status: 400 });
   }
@@ -16,8 +20,7 @@ export function withCardFetchErrors<Args extends unknown[]>(handler: (...args: A
     try { return await handler(...args); }
     catch (error) {
       const response = cardFetchErrorResponse(error);
-      if (response) return response;
-      throw error;
+      return response ?? apiErrorResponse(error, "[card fetch API]");
     }
   };
 }

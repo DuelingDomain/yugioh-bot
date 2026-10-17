@@ -1,12 +1,15 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import type { DuelCardInfo } from "@yugidraft/shared/duels";
-import { cardArtUrl } from "../constants";
+import { Link2 } from "lucide-react";
+import type { DuelClock } from "@yugidraft/shared/duels";
+import { clockSeconds, isLowClock } from "../clock-beep";
+import { useLiveClockMs } from "../use-live-clock";
 import { LifePoints } from "../life-points";
 import { hexToRgbTriplet } from "./seat-angle";
 import { FOLLOW_ATTR, followTransform } from "./view-zoom";
 import { SEAT_TONE_HEX, type SeatStatus, type SeatTone } from "./types";
+import { useForkLabels } from "./fork-labels";
 import styles from "./holo-lp.module.css";
 
 export interface HoloLpProps {
@@ -19,9 +22,15 @@ export interface HoloLpProps {
   deckCount: number;
   /** Clock left of this seat in ms, or null when the duel has no clock. */
   clockMs: number | null;
+  /** The duel clock. With it the panel shows this seat's live time (ticking while the seat answers); without it, `clockMs` as given. */
+  clock?: DuelClock | null;
   status: SeatStatus;
   /** True for the viewer's own panel: a little larger, no projector beam. */
   me: boolean;
+  /** In a fork: the seat that answers (default: `me`). The camera seat keeps `me` for its size and place, but is not "you". */
+  acting?: boolean;
+  /** A replay has no player: the name stands alone, without "(you)". */
+  replay?: boolean;
   /** Top-left of the panel in stage px. */
   x: number;
   y: number;
@@ -47,17 +56,18 @@ export interface HoloLpProps {
   fit?: number;
   /** LP this seat lost last (its newest LP event): the old LP is struck out and a "-1,200" chip shows beside the numerals. */
   lastDamage?: number | null;
-  /** A rival's Deck Master: a small art thumb at the top right of the panel. A click inspects it. */
-  master?: DuelCardInfo | null;
-  onInspectMaster?: (card: DuelCardInfo) => void;
-  /** The seat just left the duel: the LP is struck out, a chip says its place ("Eliminated, 3rd"), and the panel fades away. */
-  exiting?: boolean;
+  /** The Deck Master portrait badge of this seat (master-badge.tsx): round art at the top right corner of the panel, over its edge. */
+  badge?: ReactNode;
   /** The seat is out but its board still waits for the battle to end (crumble-gate.ts): the plate keeps its LP and hides the elimination marks. */
   held?: boolean;
+  /** The seat just left the duel and its panel is on its way out (use-seat-exits.ts): the state line is hidden, a place chip shows. */
+  exiting?: boolean;
   placeLabel?: string | null;
+  /** The name of the facing seat this one shares its Extra Monster Zones and columns with (a plaza pair): a small link glyph with a tooltip. */
+  linkedWith?: string | null;
   /** The seats regroup after an elimination: the panel waits, then glides to its new corner. */
   glide?: boolean;
-  /** Hangs under the panel (your Deck Master chip). It sits outside the panel body, so it never changes the panel's own box. */
+  /** Hangs under the panel. It sits outside the panel body, so it never changes the panel's own box. */
   footer?: ReactNode;
   /** The footer chip stays within the panel's width. */
   footerTight?: boolean;
@@ -77,7 +87,7 @@ const STATE_LABEL: Partial<Record<SeatStatus, string>> = {
 
 export function formatClock(ms: number | null): string | null {
   if (ms == null || !Number.isFinite(ms)) return null;
-  const total = Math.max(0, Math.round(ms / 1000));
+  const total = clockSeconds(ms);
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
@@ -112,8 +122,11 @@ export function HoloLp({
   handCount,
   deckCount,
   clockMs,
+  clock: duelClock = null,
   status,
   me,
+  acting,
+  replay = false,
   x,
   y,
   width,
@@ -124,23 +137,27 @@ export function HoloLp({
   onHover,
   floating = false,
   fit,
-  master = null,
-  onInspectMaster,
+  badge = null,
   lastDamage = null,
   exiting = false,
   held = false,
   placeLabel = null,
+  linkedWith = null,
   glide = false,
   footer = null,
   footerTight = false,
   reducedMotion,
   follow = false,
 }: HoloLpProps) {
+  const forkLabels = useForkLabels();
   const hex = SEAT_TONE_HEX[tone];
   const stateLabel = STATE_LABEL[status];
   const turn = status === "turn";
   const out = status === "eliminated";
-  const clock = formatClock(clockMs);
+  const liveMs = useLiveClockMs(duelClock, seat);
+  const shownMs = duelClock ? liveMs : clockMs;
+  const clock = formatClock(shownMs);
+  const lowClock = shownMs != null && isLowClock(shownMs);
   const follows = follow && !floating && fit == null;
   const style: CSSProperties & Record<string, string | number> = {
     "--t": hexToRgbTriplet(hex.main),
@@ -155,7 +172,12 @@ export function HoloLp({
     <>
       <div className={styles.top} data-holo-text="true">
         <i aria-hidden="true" />
-        <b>{me ? `${name} (you)` : name}</b>
+        <b>{forkLabels ? ((acting ?? me) ? `${name} (acting)` : name) : me && !replay ? `${name} (you)` : name}</b>
+        {linkedWith ? (
+          <span className={styles.linked} title={`Shares Extra Monster Zones and columns with ${linkedWith}`} aria-label={`Shares Extra Monster Zones and columns with ${linkedWith}`} role="img" data-pair-badge="">
+            <Link2 size={12} strokeWidth={2.2} aria-hidden="true" />
+          </span>
+        ) : null}
         {turn ? <span className={styles.turnChip}>Turn</span> : null}
       </div>
       <div className={styles.main} data-lp-seat={seat} data-holo-text="true">
@@ -176,7 +198,7 @@ export function HoloLp({
           <DeckIcon />
           {deckCount}
         </span>
-        {clock ? <span className={styles.clock}>{clock}</span> : null}
+        {clock ? <span className={styles.clock} data-low={lowClock ? "true" : undefined}>{clock}</span> : null}
       </div>
       {stateLabel && !exiting ? <div className={styles.state}>{out && placeLabel ? `Eliminated, ${placeLabel}` : stateLabel}</div> : null}
       {status === "choosing" ? <div className={styles.think}>choosing...</div> : null}
@@ -222,18 +244,7 @@ export function HoloLp({
       ) : (
         <div className={styles.body}>{body}</div>
       )}
-      {master ? (
-        <button
-          type="button"
-          className={styles.master}
-          data-master-thumb={seat}
-          aria-label={`${name}'s Master: ${master.name}`}
-          title={`${name}'s Master: ${master.name}`}
-          onClick={() => onInspectMaster?.(master)}
-        >
-          <img src={cardArtUrl(master.code, "small")} alt="" draggable={false} />
-        </button>
-      ) : null}
+      {badge ? <div className={styles.badge} data-dm-slot="">{badge}</div> : null}
       {exiting ? <span className={styles.exitChip} data-exit-chip>{placeLabel ? `Eliminated, ${placeLabel}` : "Eliminated"}</span> : null}
       <span className={styles.beam} aria-hidden="true" />
       {footer ? <div className={styles.footer} data-tight={footerTight ? "true" : undefined}>{footer}</div> : null}

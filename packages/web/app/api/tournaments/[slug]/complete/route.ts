@@ -1,3 +1,4 @@
+import { apiErrorResponse } from "@/lib/api-errors";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -34,11 +35,22 @@ export async function POST(
     }
 
     if (tournament.status !== "active") {
-      return NextResponse.json({ error: `Cannot end a ${tournament.status} tournament` }, { status: 400 });
+      return NextResponse.json({ error: `Cannot end a ${tournament.status} tournament` }, { status: 409 });
     }
 
-    const tournaments = createTournamentService(db);
-    const { tournament: completed, changedDuelSlugs } = tournaments.completeWithChanges(tournament.id);
+    // A change from another process (the bot, the deadline close) between the check and the
+    // transaction finds the status changed and gets the same 409.
+    let completed: { id: number; status: string };
+    let changedDuelSlugs: string[];
+    try {
+      ({ tournament: completed, changedDuelSlugs } = createTournamentService(db).completeWithChanges(tournament.id));
+    } catch (error) {
+      const now = db.prepare("select status from tournaments where id = ?").get(tournament.id) as { status: string } | undefined;
+      if (now && now.status !== "active") {
+        return NextResponse.json({ error: `Cannot end a ${now.status} tournament` }, { status: 409 });
+      }
+      throw error;
+    }
 
     const matches = createMatchService(db);
     if (env.discordBotEnabled && matches.claimTournamentCompletionAnnouncement(completed.id)) {
@@ -50,8 +62,6 @@ export async function POST(
 
     return NextResponse.json({ id: completed.id, status: completed.status });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to end tournament";
-    console.error("[api/tournaments/[slug]/complete] error:", error);
-    return NextResponse.json({ error: message }, { status: 400 });
+    return apiErrorResponse(error, "[api/tournaments/[slug]/complete] error");
   }
 }

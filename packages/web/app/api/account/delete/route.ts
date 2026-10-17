@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { ClerkBackendError, createClerkBackend } from "@yugidraft/shared/clerk";
 import { createUserService, deleteUserAccount } from "@yugidraft/shared/services";
@@ -13,8 +14,8 @@ const headers = { "Cache-Control": "no-store" };
 const fail = (error: string, status: number) => Response.json({ error }, { status, headers });
 
 /**
- * Self-serve account deletion. The person types their current username to confirm. The Clerk user is deleted
- * first (a 404 counts as gone), then any in-flight profile sync settles before the database transaction
+ * Self-serve account deletion. The person types their current username to confirm. Remove the Clerk waitlist
+ * entry before deleting the Clerk user (404 counts as gone), then settle in-flight profile sync before the transaction
  * anonymises or removes the account. Later syncs fail at Clerk's getUser (404), so none can re-create a row.
  * A Clerk failure changes nothing (503). A database failure after Clerk is
  * logged with the user ID only (500); `npm run ops -- delete-user --apply` finishes it.
@@ -32,22 +33,26 @@ export async function POST(request: Request) {
   if (typeof confirm !== "string" || confirm.trim() !== user.username) return fail("confirm_mismatch", 400);
 
   const e2e = isE2EAuthEnabled();
-  if (!e2e && user.clerkUserId) {
+  if (!e2e && (user.clerkUserId || user.email)) {
     const secretKey = process.env.CLERK_SECRET_KEY;
     try {
       if (!secretKey) throw new ClerkBackendError("Clerk secret is unavailable", 0, "missing_secret", null);
-      await createClerkBackend({ secretKey }).deleteUser(user.clerkUserId);
+      const backend = createClerkBackend({ secretKey });
+      if (user.email) await backend.deleteWaitlistEntriesByEmail(user.email);
+      if (user.clerkUserId) {
+        await backend.deleteUser(user.clerkUserId);
+        await settleClerkSync(user.clerkUserId);
+      }
     } catch (error) {
-      console.error(`[account-delete] Clerk deletion failed for user ${access.userId} (status ${error instanceof ClerkBackendError ? error.status : 0})`);
+      report(error, { userId: access.userId, tags: { operation: "[account-delete] Clerk deletion deferred" } });
       return fail("retry_later", 503);
     }
-    await settleClerkSync(user.clerkUserId);
   }
 
   try {
     deleteUserAccount(db, access.userId);
-  } catch {
-    console.error(`[account-delete] database step failed after Clerk deletion for user ${access.userId}; finish with the delete-user ops command`);
+  } catch (error) {
+    report(error, { userId: access.userId, tags: { operation: "[account-delete] database step failed after Clerk deletion" } });
     return fail("server_error", 500);
   }
 

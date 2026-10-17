@@ -39,6 +39,7 @@ export function SignInFootLinks({ marketingUrl, waitlist = true, lead }: SignInF
       <p className={styles.legal}>
         <a href={TERMS_URL}>Terms</a>
         <a href={PRIVACY_URL}>Privacy</a>
+        <a href="mailto:support@duelingdomain.com">Contact</a>
       </p>
     </>
   );

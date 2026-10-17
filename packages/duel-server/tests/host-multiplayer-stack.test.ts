@@ -1,5 +1,6 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHash, createHmac } from "node:crypto";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -15,19 +16,14 @@ import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
 const SECRET = "test-stack-multiplayer";
-const STACKS = ["e2e", "staging"] as const;
+const STACKS = ["e2e"] as const;
 type Stack = typeof STACKS[number];
 
 // Read only the explicit launch settings. Do not inherit Vitest's default flag or read an env file.
-function tableFlag(stack: Stack, service: "duel" | "web"): string | undefined {
-  if (stack === "e2e") {
-    const source = readFileSync(new URL("../../e2e/stack/start.mjs", import.meta.url), "utf8");
-    const launch = source.split(`run("${service}",`)[1]?.split(/\nrun\(/)[0];
-    return launch?.match(/^\s+MULTIPLAYER_TABLES:\s*process\.env\.E2E_MULTIPLAYER_TABLES \?\? "([^"]+)"/m)?.[1];
-  }
-  const source = readFileSync(new URL("../../../docker-compose.staging.yml", import.meta.url), "utf8");
-  const launch = source.split(new RegExp(`^  ${service}:\\s*$`, "m"))[1]?.split(/^  \w+:\s*$/m)[0];
-  return launch?.match(/^\s+- MULTIPLAYER_TABLES=\$\{STAGING_MULTIPLAYER_TABLES:-([^}]+)\}/m)?.[1];
+function tableFlag(_stack: Stack, service: "duel" | "web"): string | undefined {
+  const source = readFileSync(new URL("../../e2e/stack/start.mjs", import.meta.url), "utf8");
+  const launch = source.split(`run("${service}",`)[1]?.split(/\nrun\(/)[0];
+  return launch?.match(/^\s+MULTIPLAYER_TABLES:\s*process\.env\.E2E_MULTIPLAYER_TABLES \?\? "([^"]+)"/m)?.[1];
 }
 
 function useStack(stack: Stack) {
@@ -47,7 +43,7 @@ function hostTable(count: number) {
   const post = async (op: string, extra: Record<string, unknown> = {}, seat = 0): Promise<{ status: number; data: DuelRoom & { slug: string; error?: string } }> => {
     const raw = JSON.stringify({ op, guildId: "g", playerId: players[seat], ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+      headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") } }));
     return finishTestDiceOpening(host, { op, ...extra },
       { status: response.status, data: await response.json() as DuelRoom & { slug: string; error?: string } }, () => post("view", extra, seat));
   };

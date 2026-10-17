@@ -1,10 +1,11 @@
+import { report } from "@yugidraft/shared/observability";
 import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
 import { parseDraftConfig } from "@/components/draft/list/drafts-list-model";
 import { normalizeBoosterDraftNumbers } from "@/lib/booster-draft-validation";
-import { cubeReferenceAccess } from "@/lib/cube-access";
+import { draftCubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
 import { findDraftListPage, InvalidListCursorError, boosterDraftConfigError, cardsPerPlayerError, themeDraftNumberError, createCardLookupBudget, createCardCatalogService, createDraftService, createPlayerService, isDraftVisibility } from "@yugidraft/shared/services";
 import { DEFAULT_LOBBY_SEATS, isValidLobbySeats } from "@yugidraft/shared/types";
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ items, nextCursor: result.nextCursor, themeDraftsEnabled: themeDraftsEnabled() });
   } catch (error) {
     if (error instanceof InvalidListCursorError) return NextResponse.json({ error: error.message }, { status: 400 });
-    console.error("[api/drafts] error:", error);
+    report(error, { tags: { operation: "[api/drafts] error" } });
     return NextResponse.json({ error: "Failed to load drafts" }, { status: 500 });
   }
 }
@@ -78,9 +79,9 @@ async function handlePOST(request: NextRequest) {
   }
 
   const db = getDb();
-  const config = sanitizePoolSource(db, guildId, { ...rawConfig, lobbySeats });
-  const denied = cubeReferenceAccess(db, config?.allowedCubeIds);
+  const denied = draftCubeReferenceAccess(db, rawConfig, actor.userId);
   if (denied) return denied;
+  const config = sanitizePoolSource(db, guildId, { ...rawConfig, lobbySeats });
 
   // Theme mode: no card-pool sync — the pool lives in the theme cubes, which the
   // host adds inside the draft after creation. So a theme draft starts blank.
@@ -138,7 +139,7 @@ async function handlePOST(request: NextRequest) {
   const player = players.findOrCreate(guildId, actor.userId, actor.userName);
   const drafts = createDraftService(db);
 
-  const cards = createCardCatalogService(db);
+  const cards = createCardCatalogService(db, { memberId: actor.userId });
   const lookupBudget = createCardLookupBudget();
   await cards.syncDraftPool({
     setNames: config.setNames ?? [],

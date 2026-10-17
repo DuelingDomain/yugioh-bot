@@ -1,3 +1,4 @@
+import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 
 export class BugReportServiceError extends Error {
@@ -137,6 +138,8 @@ export function createBugReportService(db: Database.Database) {
           JSON.stringify(input.context ?? {}),
           input.duplicateOf ?? null,
         );
+        const player = db.prepare("select user_id from players where id=?").get(input.playerId) as { user_id: number };
+        recordProductEvent(db, "bug_reported", player.user_id);
         return Number(info.lastInsertRowid);
       });
       return get(run(), input.guildId);

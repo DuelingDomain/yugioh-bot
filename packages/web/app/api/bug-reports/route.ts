@@ -1,3 +1,4 @@
+import { log, report as reportError } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { BugReportServiceError, createBugReportService, createDuelService, createPlayerService } from "@yugidraft/shared/services";
 import { parseBugReportRequest } from "@/lib/bug-report";
@@ -52,6 +53,18 @@ export async function POST(request: Request) {
     if (error instanceof BugReportServiceError) return serviceErrorResponse(error);
     throw error;
   }
+  // The duel facts and the log come from the server, never from the browser's copy. A duel the player may not see
+  // (invite-only, or not found) is not kept: no saved slug, no replay link, no slug in the issue.
+  const built = await buildReportContext({ guildId, playerId: player.id, duels: createDuelService(db), duelSlug: report.duelSlug, client: report.context });
+  if (built.replayFork) {
+    return NextResponse.json({ error: "Bug reports from replay forks are disabled to protect private duel data." },
+      { status: 409, headers: { "cache-control": "private, no-store" } });
+  }
+  report.context = built.context;
+  const duelSlug = built.duelVerified ? report.duelSlug : undefined;
+  // The page path of such a duel names the slug too, so it is masked.
+  if (report.duelSlug && !duelSlug) report.path = report.path.split(report.duelSlug).join("[duel]");
+
   if (report.duplicateOf !== undefined) {
     const slot = takeDuplicateCheckSlot(`${guildId}:${actor.userId}`);
     if (!slot.ok) {
@@ -68,18 +81,10 @@ export async function POST(request: Request) {
       // GitHub cannot be asked (no token, or it failed): accept only an issue one of our reports opened, and do not comment.
       target = { number: report.duplicateOf, url: `https://github.com/${bugReportRepo()}/issues/${report.duplicateOf}`, verified: false, checkError: checked.error };
     } else {
-      console.warn(`[api/bug-reports] issue #${report.duplicateOf} cannot take a report: ${checked.error}`);
+      log("warn", "[api/bug-reports] issue cannot take a report");
       return NextResponse.json({ error: "That issue is not open for reports. Send your report as a new one." }, { status: 409 });
     }
   }
-
-  // The duel facts and the log come from the server, never from the browser's copy. A duel the player may not see
-  // (invite-only, or not found) is not kept: no saved slug, no replay link, no slug in the issue.
-  const built = await buildReportContext({ guildId, playerId: player.id, duels: createDuelService(db), duelSlug: report.duelSlug, client: report.context });
-  report.context = built.context;
-  const duelSlug = built.duelVerified ? report.duelSlug : undefined;
-  // The page path of such a duel names the slug too, so it is masked.
-  if (report.duelSlug && !duelSlug) report.path = report.path.split(report.duelSlug).join("[duel]");
 
   let saved;
   try {
@@ -95,7 +100,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof BugReportServiceError) return serviceErrorResponse(error);
-    console.error("[api/bug-reports] save failed", error);
+    reportError(error, { tags: { operation: "[api/bug-reports] save failed" } });
     return NextResponse.json({ error: "Could not save the report" }, { status: 500 });
   }
 
@@ -117,7 +122,7 @@ export async function POST(request: Request) {
     const commented = target.verified ? await commentOnIssue(target.number, issueInput, redact) : { ok: false as const, error: `${target.checkError}; no comment was added` };
     if (!commented.ok) {
       reports.recordIssueError(saved.id, guildId, commented.error);
-      console.warn(`[api/bug-reports] report ${saved.id} saved as +1 for #${target.number} without a comment: ${commented.error}`);
+      log("warn", "[api/bug-reports] duplicate report saved without a comment");
     }
     return NextResponse.json({ id: saved.id, issue: { number: target.number, url: target.url }, duplicate: true });
   }
@@ -130,11 +135,11 @@ export async function POST(request: Request) {
     if (issue.warning) {
       // The issue exists, so the player gets it; the note is for the triage owner.
       reports.recordIssueError(saved.id, guildId, issue.warning);
-      console.warn(`[api/bug-reports] report ${saved.id} opened issue #${issue.number}: ${issue.warning}`);
+      log("warn", "[api/bug-reports] issue opened with a warning");
     }
     return NextResponse.json({ id: saved.id, issue: { number: issue.number, url: issue.url } });
   }
   reports.recordIssueError(saved.id, guildId, issue.error);
-  console.warn(`[api/bug-reports] report ${saved.id} saved without an issue: ${issue.error}`);
+  log("warn", "[api/bug-reports] report saved without an issue");
   return NextResponse.json({ id: saved.id, issue: null });
 }

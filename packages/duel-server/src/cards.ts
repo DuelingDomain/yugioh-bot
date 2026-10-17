@@ -1,8 +1,10 @@
+import { log } from "@yugidraft/shared/observability";
 import { indexScripts } from "./card-script-source.js";
 import Database from "better-sqlite3";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { canonicalCardCode, type DeckCardInfo, type DuelCardInfo } from "@yugidraft/shared/duels";
+import { canonicalCardCode, type DeckCardInfo, type DuelCardInfo, type DuelDeck } from "@yugidraft/shared/duels";
+import { createCardNameSearch } from "./card-name-search.js";
 import type { ScriptOverlay } from "./multi-scripts.js";
 import {
   OcgType,
@@ -24,7 +26,7 @@ export interface CardTextEntry {
 export interface CardDatabase {
   /** Bundle directory for policies that follow prerelease passcode graduations. */
   readonly dataDirectory?: string;
-  search(query: string, matches?: (card: OcgCardData) => boolean): DuelCardInfo[];
+  search(query: string, matches?: (card: OcgCardData) => boolean, ownDeck?: ReadonlySet<number>): DuelCardInfo[];
   get(code: number): DuelCardInfo | undefined;
   /** The deck editor's view of a card: duel info plus setcodes, scales, Link Arrows and card pool. */
   deckCard(code: number): DeckCardInfo | undefined;
@@ -220,26 +222,7 @@ function loadFromDisk(root: string): LoadedCardDatabase {
   const warnedFallbacks = new Set<string>();
   const database: LoadedCardDatabase = {
     dataDirectory: root,
-    search(query: string, matches?: (card: OcgCardData) => boolean) {
-      const needle = query.trim().toLowerCase();
-      if (!needle && !matches) return [];
-      const found: DuelCardInfo[] = [];
-      // An exact passcode comes first, so a lookup by code never falls past the result cap.
-      const exact = /^\d+$/.test(needle) ? info.get(Number(needle)) : undefined;
-      const exactData = exact ? datas.get(exact.code) : undefined;
-      if (exact && (!matches || (exactData && matches(exactData)))) found.push(exact);
-      for (const card of info.values()) {
-        if (card === exact) continue;
-        if (needle && !card.name.toLowerCase().includes(needle) && !String(card.code).includes(needle)) continue;
-        if (matches) {
-          const data = datas.get(card.code);
-          if (!data || !matches(data)) continue;
-        }
-        found.push(card);
-        if (found.length >= 50) break;
-      }
-      return found;
-    },
+    search: createCardNameSearch(info.values(), code => datas.get(code) ?? null),
     get(code) {
       return info.get(code);
     },
@@ -296,7 +279,7 @@ function loadFromDisk(root: string): LoadedCardDatabase {
             resolvedName = scriptName;
             if (!warnedFallbacks.has(normalized)) {
               warnedFallbacks.add(normalized);
-              console.warn(`[cards] Artwork script fallback ${normalized} → ${scriptName}; core self_code and GetID() remain ${match[1]}, not ${main}. Validate this engine bundle before deployment.`);
+              log("warn", "[cards] Using an artwork script fallback; validate this engine bundle before deployment.");
             }
           }
         }
@@ -334,6 +317,13 @@ export function loadCardDatabase(dataDirectory: string): LoadedCardDatabase {
 
 export function cardInfoLabel(cards: CardDatabase, code: number): string {
   return cards.get(code)?.name ?? `Card ${code}`;
+}
+
+/** Only this seat's duel cards; include the Deck Master and legal main passcodes for alternate artworks. */
+export function deckSearchCodes(cards: Pick<CardDatabase, "get">, deck: DuelDeck): ReadonlySet<number> {
+  const codes = new Set([...deck.main, ...deck.extra, ...(deck.deckMaster == null ? [] : [deck.deckMaster])]);
+  for (const code of codes) codes.add(cards.get(code)?.canonicalPasscode ?? code);
+  return codes;
 }
 
 export function attributeLabel(attribute: number): string {

@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { signedHeaders } from "./helpers/signed-request.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,13 +9,9 @@ import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelEngineView } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { EngineLoopError } from "../src/engine-loop-error.js";
-import { pinnedEngineVersion } from "../src/multi-scripts.js";
+import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-
-vi.mock("../src/multi-scripts.js", async original => ({
-  ...await original<typeof import("../src/multi-scripts.js")>(), activeMultiScriptsHash: () => null,
-}));
 
 const SECRET = "engine-loop-test";
 const cleanups: Array<() => Promise<void>> = [];
@@ -32,7 +28,7 @@ function fixture() {
   const session = service.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Loop", mode: "normal", format: "ffa3", settings: { validateDeck: false, turnSeconds: 0 } });
   players.slice(1).forEach(player => service.takeSeat(session.slug, "g", player));
   players.forEach(player => service.setDeck(session.slug, "g", player, { main: Array(40).fill(1), extra: [], side: [] }));
-  service.activate(session.slug, "g", players[0]!, ["1", "2", "3", "4"], pinnedEngineVersion("fixture", 3, null), null, { firstTurnDraw: false });
+  service.activate(session.slug, "g", players[0]!, ["1", "2", "3", "4"], pinnedEngineVersion("fixture", 3, activeMultiScriptsHash(dataDirectory)), null, { firstTurnDraw: false });
   const worker: DuelGameWorker = {
     running: true, create: vi.fn(async () => {}), search: async () => [],
     view: vi.fn(async seat => ({
@@ -52,7 +48,7 @@ function fixture() {
   const post = async (body: Record<string, unknown>) => {
     const raw = JSON.stringify({ slug: session.slug, guildId: "g", playerId: players[0], ...body });
     const response = await host!.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+      headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") } }));
     return { status: response.status, data: await response.json() as any };
   };
   return { worker, spawn, changes, service, slug: session.slug, post };

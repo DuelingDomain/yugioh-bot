@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../../shared/tests/helpers/recording-observability.mjs";
 import { beforeEach, afterEach } from "vitest";
 import { createDraftLobbyService, createPlayerService, createUserService } from "@yugidraft/shared/services";
 import { describe, expect, it, vi } from "vitest";
@@ -5,6 +6,7 @@ import Database from "better-sqlite3";
 import { migrate } from "../../src/db/schema.js";
 import { createDraftService, createGuildSettingsService, createMatchService } from "@yugidraft/shared/services";
 import { ChannelType } from "discord.js";
+import { forkEventFixture } from "../helpers/replay-fork-events.js";
 import { createAnnounceHandlers } from "../../src/announce/handlers.js";
 
 beforeEach(() => vi.stubEnv("DISCORD_BOT_ENABLED", "1"));
@@ -32,7 +34,7 @@ describe("announce handlers", () => {
     const messenger = { postStatus: vi.fn(), updateStatus: vi.fn().mockRejectedValue(new Error("Cannot edit")) };
     const handlers = createAnnounceHandlers({ client: { channels: { fetch: vi.fn().mockResolvedValue({ type: ChannelType.GuildText, guildId: "g1", send }) } } as any,
       db: {} as any, drafts: { findById: () => draft } as any, messenger, guildSettings: {} as any });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.report.mockClear().mockImplementation(() => {});
     try {
       await handlers.onDraftStarted({ draftId: 1, channelId: "stored", name: "Night", webSlug: "night" });
       expect(messenger.updateStatus).toHaveBeenCalledWith(draft);
@@ -79,7 +81,7 @@ describe("announce handlers", () => {
   it.each(["missing", "non-text"])("skips a %s channel permanently without retrying", async kind => {
     const { db, handlers, send, fetchChannel } = completed();
     fetchChannel.mockResolvedValue(kind === "missing" ? null : { type: ChannelType.GuildVoice, isTextBased: () => false, send });
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = recording.log.mockClear().mockImplementation(() => {});
     try {
       await expect(handlers.onDraftCompleted(completionPayload)).resolves.toBeUndefined();
       expect(db.prepare("select complete_message_id from drafts where id=13").get())
@@ -87,7 +89,7 @@ describe("announce handlers", () => {
       await handlers.onDraftCompleted(completionPayload);
       expect(fetchChannel).toHaveBeenCalledTimes(1);
       expect(send).not.toHaveBeenCalled();
-      expect(error).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("skipped for 13"));
+      expect(error).toHaveBeenCalledExactlyOnceWith("warn", "[announce] draft completion skipped", {});
     } finally { error.mockRestore(); db.close(); }
   });
 
@@ -98,7 +100,7 @@ describe("announce handlers", () => {
       claimAtFetch = db.prepare("select complete_message_id from drafts where id=13").get();
       throw new Error("Unknown Channel");
     });
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = recording.log.mockClear().mockImplementation(() => {});
     try {
       await expect(handlers.onDraftCompleted(completionPayload)).resolves.toBeUndefined();
       expect(claimAtFetch).toEqual({ complete_message_id: "worker-claimed" });
@@ -107,14 +109,14 @@ describe("announce handlers", () => {
       await handlers.onDraftCompleted(completionPayload);
       expect(fetchChannel).toHaveBeenCalledTimes(1);
       expect(send).not.toHaveBeenCalled();
-      expect(error).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("skipped for 13"));
+      expect(error).toHaveBeenCalledExactlyOnceWith("warn", "[announce] draft completion skipped", {});
     } finally { error.mockRestore(); db.close(); }
   });
 
   it("delivers at most once: a failed send stays claimed and is never retried", async () => {
     const { db, handlers, send, fetchChannel } = completed();
     send.mockRejectedValue(new Error("Discord unavailable"));
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = recording.report.mockClear().mockImplementation(() => {});
     try {
       await expect(handlers.onDraftCompleted(completionPayload)).resolves.toBeUndefined();
       await handlers.onDraftCompleted(completionPayload);
@@ -122,7 +124,7 @@ describe("announce handlers", () => {
       expect(fetchChannel).toHaveBeenCalledTimes(1);
       expect(db.prepare("select status,complete_message_id from drafts where id=13").get())
         .toEqual({ status: "completed", complete_message_id: "worker-claimed" });
-      expect(error).toHaveBeenCalledWith(expect.stringContaining("delivery failed for 13"), expect.any(Error));
+      expect(error).toHaveBeenCalledWith(expect.objectContaining({ name: "Error" }), { tags: { operation: "[announce] draft completion delivery failed for" } });
     } finally { error.mockRestore(); db.close(); }
   });
 
@@ -252,8 +254,11 @@ describe("announce handlers", () => {
   });
 
   describe("duel invite DM", () => {
+    const databases: Database.Database[] = [];
+    afterEach(() => { for (const db of databases.splice(0)) db.close(); });
     const invite = {
-      guildId: "g1",
+      duelId: 1, slug: "abc",
+      guildId: "fork-events-test",
       opponentDiscordUserId: "900000000000000111",
       challengerName: "Yugi",
       duelName: "Yugi vs Kaiba",
@@ -264,9 +269,11 @@ describe("announce handlers", () => {
     };
 
     function build(users: unknown) {
+      const { db, source } = forkEventFixture(); databases.push(db);
+      db.prepare("update duels set web_slug='abc' where id=?").run(source.id);
       return createAnnounceHandlers({
         client: { channels: { fetch: vi.fn() }, users } as any,
-        db: { prepare: vi.fn() } as any,
+        db,
         guildSettings: {} as any,
         drafts: {} as any,
         messenger: {} as any,
@@ -306,15 +313,15 @@ describe("announce handlers", () => {
     });
 
     it("logs a DM failure and does not throw", async () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warn = recording.log.mockClear().mockImplementation(() => {});
       const send = vi.fn().mockRejectedValue(new Error("Cannot send messages to this user"));
       await expect(build({ fetch: vi.fn().mockResolvedValue({ send }) }).onDuelInvite(invite)).resolves.toBeUndefined();
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("900000000000000111"), expect.any(Error));
+      expect(warn).toHaveBeenCalledWith("warn", "[announce] Could not deliver duel invite", {});
       warn.mockRestore();
     });
 
     it("logs an unknown user and does not throw", async () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warn = recording.log.mockClear().mockImplementation(() => {});
       await expect(
         build({ fetch: vi.fn().mockRejectedValue(new Error("Unknown User")) }).onDuelInvite(invite),
       ).resolves.toBeUndefined();
@@ -397,3 +404,5 @@ describe("Nudge delivery validation", () => {
     } finally { app.db.close(); }
   });
 });
+
+const recording = useRecordingObservability();

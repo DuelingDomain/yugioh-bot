@@ -429,6 +429,31 @@
   box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14);
 }
 .master[data-away="true"] .masterArt { filter: saturate(0.55); }
+/*
+ * The Deck Master Zone while the master is out of it ("in use"): an empty card-shaped slot, drawn as a solid soft
+ * well (no dashed cut-out) with a short label. The slot keeps the size of the art, so the plate does not move, and
+ * the return flight lands in it.
+ */
+.masterArt[data-in-use="true"] {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, rgb(27 39 64 / 0.55), rgb(10 14 24 / 0.7));
+  box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.1), inset 0 2px 10px rgb(0 0 0 / 0.55);
+}
+.masterInUse {
+  padding: 0 2px;
+  color: var(--duel-ink-3);
+  font-size: calc(10px * var(--tt, 1));
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+}
+.master[data-in-use="true"] .masterId b { color: var(--duel-ink-2); }
+.masterUse { color: var(--duel-pen-ink); font-size: calc(11px * var(--tt, 1)); line-height: 1.25; }
+/* "Next summon: N LP" (or "Free"), shown in every state of the master. Balanced so a narrow panel never strands "LP" on its own line. */
+.masterSummon { text-wrap: balance; color: var(--duel-ink-2); font-size: calc(11px * var(--tt, 1)); font-weight: 600; line-height: 1.25; }
 .masterId { display: grid; flex: 1 1 0; gap: 2px; min-width: 0; }
 .masterId small { overflow: hidden; color: var(--duel-ink-3); font-size: calc(12px * var(--tt, 1)); letter-spacing: 0.02em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 /* The name is at most two lines, then an ellipsis. */
@@ -444,19 +469,18 @@
   overflow-wrap: anywhere;
 }
 
-/* One row: the summon words share the width, Inspect is a square icon button. */
-.masterActions { display: flex; gap: 4px; min-width: 0; }
+/* Summon and Set share a row with Inspect (a square icon button); every other action (Activate) is last and takes a whole
+   row, wrapping onto as many lines as its words need. Nothing ends in an ellipsis: the plate grows by a line instead. */
+.masterActions { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .masterActions button {
   display: flex;
   flex: 1 1 0;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
   min-width: 0;
-  height: 30px;
-  padding: 0 4px;
-  overflow: hidden;
-  white-space: nowrap;
+  min-height: 30px;
+  padding: 2px 4px;
   border: 1px solid var(--duel-rule);
   border-radius: 8px;
   background: rgb(239 231 213 / 0.04);
@@ -465,8 +489,11 @@
   font-size: calc(12px * var(--tt, 1));
   cursor: pointer;
 }
-/* A long label ends in an ellipsis at the right; the full text stays in the title and the accessible name. */
-.masterActionText { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.masterActions button[data-kind="other"] { flex: 1 1 100%; }
+.masterActionText { min-width: 0; overflow-wrap: break-word; text-align: center; line-height: 1.15; }
+/* The cost sits under the word ("Summon" over "500 LP"); the dot is for text readers and copies. */
+.masterActionDot { display: none; }
+.masterActionCost { display: block; font-size: 0.92em; font-weight: 500; opacity: 0.85; }
 .masterActions .masterInspect { flex: none; width: 30px; padding: 0; }
 .masterInspectText { display: none; }
 /* With no summon legal, Inspect is alone in the row: it fills it and shows its word. */
@@ -573,9 +600,9 @@
 .masterWrap[data-form="tall"] .masterFly dd,
 .masterWrap[data-form="wide"] .masterFly dd { text-align: right; white-space: nowrap; }
 /* The tall plate is higher: the dock flyout (after the plate in the layer) ends above it. The flyout top (56px), a
-   10px gap, the plate's bottom offset, its rest (132px) and its tallest card (222px). */
+   10px gap, the plate's bottom offset and the plate's height (`--hud-master-tall-h`, measured; 354px = rest 132 + card 222 at least). */
 .masterWrap[data-form="tall"] ~ .flyout {
-  max-height: max(200px, calc(100% - 66px - var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) - 354px));
+  max-height: max(200px, calc(100% - 66px - var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) - var(--hud-master-tall-h, 354px)));
 }
 
 /*
@@ -619,7 +646,7 @@
 }
 .masterAbility:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
 .masterAbilityNone { color: var(--duel-ink-3); }
-.masterWrap[data-form="wide"] .masterActions button { height: 32px; }
+.masterWrap[data-form="wide"] .masterActions button { min-height: 32px; }
 .masterWrap[data-form="wide"] .masterActions .masterInspect { width: auto; padding: 0 12px; }
 .masterWrap[data-form="wide"] .masterInspectText { display: inline; }
 /* The dock flyout (after the plate in the layer) ends above the wide plate: its card, ability text and actions. */
@@ -633,32 +660,34 @@
 /* ---------- hover preview: slides out from the left edge, beside the dock (never over its icons) ---------- */
 /*
  * --ct is the effect text size (the Text size setting); the rest of the panel derives from it. The panel takes no
- * pointer events: the art gives way first (down to nothing), so the whole effect text shows at normal card lengths.
- * A longer text scrolls inside the panel and takes the pointer only then (grid-preview.tsx).
- * The width stops short of the first board column (a hovered card must never sit under its own preview); a bigger
- * text size makes the panel taller, not wider. --pv-reserve is the room kept free at the bottom of the layer (the
- * Tag team plate, or the tall Deck Master plate: its 331px, the bottom offset and a 10px gap).
+ * pointer events. It is wide (320 to 420 px): the card, the name and the facts stand side by side at the top, and the
+ * effect text runs the full width under them, so the whole text reads with no scroll box at normal card lengths.
+ * It may stand over the Deck Master plate while it shows a card (z-index above the plate), and it grows down to the bottom
+ * of the layer; it stops short of the controls, the chain tower and the field zones of the viewer's own board (grid-preview.tsx
+ * measures them and sets --pv-bottom, --pv-max-h and --pv-w). A text that does not fit shrinks the art to 104px (data-art="small"),
+ * and a text that is longer even then scrolls inside the panel and takes the pointer only then (grid-preview.tsx).
  */
 .preview {
-  --pv-ct: var(--ct, 15.5px);
-  /* The peek column at the left edge (peek-layout.ts peekWidth says the same in JS): 14% of the window, 220 to 284 px. The shells keep the board
-     right of 72px + this width + 12px (their --hud-left), so the preview never covers a field. */
-  --pv-col-w: clamp(220px, 14vw, 284px);
+  --pv-ct: calc(var(--ct, 15.5px) * 1.06);
+  /* The width the panel asks for (peek-layout.ts peekWidth says the same in JS): 22% of the window, 320 to 420 px. The shells keep the board right of
+     the narrower column (their --hud-left: 14vw, 220 to 284 px); the panel takes the free room beside the board, up to the own field zones (grid-preview.tsx). */
+  --pv-col-w: clamp(320px, 22vw, 420px);
   --pv-reserve: 270px;
   position: absolute;
   left: 72px;
-  /* --pv-bottom, --pv-max-h and --pv-w come from grid-preview.tsx: the free band of the real layout (below the chain tower, above the Deck Master plate). */
+  /* --pv-bottom, --pv-max-h and --pv-w come from grid-preview.tsx: the free band of the real layout (below the chain tower, down to the controls). */
   top: 50px;
+  /* Above the Deck Master plate and the chain panel's neighbours, below the flyouts. */
   z-index: 34;
   display: flex;
   flex-direction: column;
   width: var(--pv-w, var(--pv-col-w));
   max-height: var(--pv-max-h, max(300px, calc(100% - 50px - var(--pv-reserve))));
-  padding: 12px 12px 14px;
+  padding: 14px 16px 16px;
   overflow: hidden;
   border: 1px solid rgb(155 126 255 / 0.5);
   border-radius: 14px;
-  background: rgb(9 15 29 / 0.97);
+  background: rgb(9 15 29 / 0.98);
   box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.85);
   font-family: var(--duel-f-ui);
   color: var(--duel-ink);
@@ -667,49 +696,62 @@
   transition: transform 0.18s ease-out, visibility 0s linear 0.18s;
   visibility: hidden;
 }
-.masterWrap[data-form="tall"]:not([data-slot="other"]) ~ .preview {
-  --pv-reserve: calc(var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) + 341px);
-}
 /* grid-preview.tsx stands the panel on the bottom of its free band. */
 .preview[data-anchor="bottom"] { top: auto; bottom: var(--pv-bottom, 8px); }
 .preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
-/* The art gives way first: its shrink weight dwarfs the text's, down to a small card. It stays centered and blends in.
-   In a band over about 420px (--pv-max-h, from grid-preview.tsx) it keeps a floor of up to 180px, so a very long text scrolls instead of taking the art to 0. */
+/* The art on top, then the name, the facts line and ATK / DEF. The art is the whole panel width, as tall as the band allows: it grows with the room of the
+   band (--pv-max-h, set by grid-preview.tsx; 280px is what the name, the lines and a few lines of text need) from 150px in a short band to the full
+   width in a tall one. A cut text shrinks it to about 60% first (data-art="small"). */
+.previewHead { display: flex; flex: none; flex-direction: column; align-items: stretch; gap: 10px; min-width: 0; }
+.previewArt {
+  display: block;
+  flex: none;
+  width: min(100%, max(150px, calc((var(--pv-max-h, 760px) - 280px) * 421 / 614)));
+  aspect-ratio: 421 / 614;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 4px;
+  object-fit: contain;
+  background: transparent;
+}
+/* A text that still scrolls shrinks the art to this size first (the art goes only when it is squeezed to a sliver: data-squeezed). */
+.preview[data-art="small"] .previewArt { width: min(100%, max(130px, calc((var(--pv-max-h, 760px) - 280px) * 0.6 * 421 / 614))); }
 .preview[data-squeezed="true"] .previewArt { display: none; }
-.previewArt { display: block; flex: 0 1000 auto; width: 100%; min-height: clamp(0px, calc(var(--pv-max-h, 0px) - 330px), 180px); aspect-ratio: 59 / 86; margin: 0 0 10px; border-radius: 4px; object-fit: contain; background: transparent; }
-.preview h3 { flex: none; margin: 0; padding-right: 22px; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
-.previewType { flex: none; margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); }
-.previewStats { flex: none; margin: 6px 0 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 500; letter-spacing: 0.02em; }
-/* No line clamp: the whole effect shows while it fits. After the art is at its minimum, the rest fades out. */
+.previewId { flex: none; min-width: 0; }
+.preview h3 { margin: 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.previewType { margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); line-height: 1.35; }
+.previewStats { margin: 5px 0 0; font-size: calc(var(--pv-ct) * 1.25); font-weight: 500; letter-spacing: 0.02em; }
+/* No line clamp: the whole effect shows while it fits. */
 .previewText {
   flex: 0 1 auto;
-  /* A short band of the column (under the chain tower, above a life-point plate) makes the text scroll, it never clips the owner line under it. */
-  min-height: 3em;
-  margin: 8px 0 0;
+  /* A short band of the column (under the chain tower, above a control) makes a very long text scroll, it never clips the lines under it. */
+  min-height: 4.5em;
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid rgb(255 255 255 / 0.1);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  color: var(--duel-ink-2);
+  color: var(--duel-ink);
   font-size: var(--pv-ct);
-  line-height: 1.45;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 /* Only a text that does not fit scrolls, and only then it takes the pointer (a wheel scroll over it). */
 .previewText[data-overflow="true"] { padding-right: 6px; pointer-events: auto; }
 /* Inline flow, so a narrow panel wraps the line as one sentence instead of splitting it into columns. */
-.previewOwner { flex: none; margin: 10px 0 0; line-height: 1.35; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.95); }
+.previewOwner { margin: 6px 0 0; line-height: 1.35; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.95); }
 .previewOwner i { display: inline-block; width: 0.6em; height: 0.6em; margin-right: 6px; vertical-align: 0.05em; border-radius: 50%; background: var(--seat-main, var(--duel-ink-3)); }
 .previewOwner b { color: var(--seat-ink, var(--duel-ink)); font-weight: 600; }
-
-/* The wrapper of the name, type, stats, text and owner: the hover panel stacks them under the art, so it adds no box. */
-.previewBody { display: contents; }
 
 /*
  * The pinned panel (a click on a board card) is the same window, frozen in the same place: same size, same layout. It only takes the pointer
  * (a click on it never reaches the board under it: a target of a prompt may be covered), and adds the extra lines and the X button.
  */
 .preview[data-pinned="true"] { pointer-events: auto; }
+/* The X button gets a strip of its own above the art, so it never covers the corner of the card. */
+.preview[data-pinned="true"] { padding-top: 42px; }
 .previewExtras {
   flex: none;
   margin: 8px 0 0;
@@ -743,4 +785,117 @@
 
 @media (prefers-reduced-motion: reduce) {
   .preview { transition: none; }
+}
+
+/* A summon or pick is legal from the zone: the card gets the soft violet glow of a usable hand card, and a nib tag on top.
+   The plate clips its content, so the halo stays inside the 8px padding. These rules come last to win over the tall and wide forms. */
+.masterWrap .masterArt { position: relative; }
+.masterWrap .masterArt[data-usable="true"] {
+  box-shadow: inset 0 0 0 1px rgb(214 200 255 / 0.7), 0 0 4px rgb(155 126 255 / 0.85), 0 0 7px rgb(155 126 255 / 0.32);
+}
+.masterWrap .master[data-selected="true"] .masterArt[data-usable="true"] {
+  box-shadow: inset 0 0 0 1px rgb(244 214 144 / 0.95), 0 0 4px rgb(244 214 144 / 0.8), 0 0 7px rgb(155 126 255 / 0.7);
+}
+.masterUsable {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 14px;
+  border: 1px solid rgb(155 126 255 / 0.9);
+  border-radius: 999px;
+  background: #0c1224;
+  color: rgb(214 200 255);
+  translate: -50% 0;
+  pointer-events: none;
+}
+.masterUsable[data-state="picked"] { background: #5733d1; color: #fff; }
+.masterUsable svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- edge drawers of the 4-way grid (grid-edge.tsx) ---------- */
+/* The log, settings, Deck Master, chain and card panels slide out from tabs at the left edge. They stand between the two bars, so the header
+   and the turn controls stay in view. Nothing of them shows at rest but the 26px tab column, which the board keeps clear (--hud-left). */
+.edgeDrawer.edgeDrawer[data-side="left"] {
+  top: var(--hud-top, 46px);
+  bottom: var(--hud-bottom, 46px);
+  --bf-drawer-z: 45;
+}
+.edgePanel {
+  border-radius: 0 14px 14px 0;
+  background: rgb(9 15 29 / 0.97);
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink);
+}
+.edgeBody {
+  --hud-master-art-h: clamp(150px, 24dvh, 250px);
+  --hud-master-ability-h: clamp(80px, 14dvh, 150px);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 10px 12px;
+  overflow: hidden auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(155 126 255 / 0.55) transparent;
+}
+.edgeBody[data-pane="log"] { --ft: 1; padding: 6px; overflow: hidden; }
+.edgeBody > * { min-width: 0; }
+.edgeBody .tower,
+.edgeBody .masterWrap,
+.edgeBody .masterWrap[data-form="wide"] {
+  position: static;
+  width: 100%;
+}
+.edgeBody .tower { box-sizing: border-box; }
+
+/* The card peek slides out from the tabs (34px), not from the right of a dock (72px). */
+.preview[data-edge="true"] { left: 34px; }
+.preview[data-edge="true"]:not([data-open="true"]) { transform: translateX(calc(-100% - 34px)); }
+
+/* ---------- edge HUD bars: the turn controls in a slim row at the bottom right ---------- */
+/* The header pills ride 3px higher and the controls make a row of their own under the hand, so the board gets the whole height
+   between two 46px bars. A prompt opens above the row, over the board (it is a floating panel that appears for a decision only). */
+:global([data-edge-hud="true"]) .top { top: 5px; }
+:global([data-edge-hud="true"]) .corner {
+  bottom: 4px;
+  width: auto;
+  max-width: calc(100% - 44px);
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+:global([data-edge-hud="true"]) .corner > nav { width: auto; }
+/* The station track is a shared part: its compact stack (a column of three rows) becomes one row here. */
+/* The button size rule names the button element: a bare [class*="primary"] also matched the label span (primaryLabel) and gave it the
+   button height and padding, so the text sat at the top and off center. */
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="actions"] {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 3px 6px;
+}
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="chainSlot"],
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="chainSlot"] > * {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) button[class*="primary"],
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) button[class*="secondary"] {
+  width: auto;
+  min-height: 34px;
+  height: 34px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+:global([data-edge-hud="true"][data-hud="true"]) .corner :global([data-compact="true"][data-phases="hub"]) [class*="chainSlot"] [class*="option"] {
+  min-height: 26px;
+  height: 26px;
+  font-size: calc(13px * var(--tt, 1));
+  min-width: 48px;
+  padding: 0 9px;
 }

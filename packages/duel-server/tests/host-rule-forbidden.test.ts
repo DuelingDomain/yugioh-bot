@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { expect, it } from "vitest";
@@ -64,9 +64,9 @@ describeWithCores("live host forbidden list (" + mode + ")",
       createWorker: () => worker });
     const post = async (player: number, body: Record<string, unknown>): Promise<{ status: number; body: Record<string, any> }> => {
       const raw = JSON.stringify({ slug: room.slug, guildId: "g1", playerId: player, ...body });
-      const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
+
       const response = await host.handle(new Request("http://localhost/internal/duel", {
-        method: "POST", headers: { "content-type": "application/json", "x-announce-signature": signature }, body: raw,
+        method: "POST", headers: { "content-type": "application/json", ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") }, body: raw,
       }));
       const finished = await finishTestDiceOpening(host, { slug: room.slug, ...body },
         { status: response.status, data: await response.json() as Record<string, any> }, async (next) => {
@@ -81,6 +81,7 @@ describeWithCores("live host forbidden list (" + mode + ")",
       for (let index = 0; index < count; index++) {
         const submitted = await post(players[index]!, { op: "deck", deck: index === seat ? invalid : legal });
         expect(submitted.status, JSON.stringify(submitted.body)).toBe(index === seat ? 400 : 200);
+        if (index === seat) expect(submitted.body.error).toMatch(/is forbidden in /);
       }
       expect(service.get(room.slug, "g1").seats.map((s) => s.ready)).toEqual(players.map((_, index) => index !== seat));
       expect((await post(players[0]!, { op: "start" })).status).toBe(409);
@@ -88,10 +89,29 @@ describeWithCores("live host forbidden list (" + mode + ")",
       // A deck from a prior service path must also fail the real check at start.
       service.setDeck(room.slug, "g1", players[seat]!, invalid);
       const refused = await post(players[0]!, { op: "start" });
-      expect(refused.status).toBe(400);
-      expect(refused.body.error).toMatch(/is forbidden in /);
-      expect(service.get(room.slug, "g1").status).toBe("lobby");
-      expect(creates).toBe(0);
+      if (seat === 0) {
+        expect(refused.status).toBe(400);
+        expect(refused.body.error).toMatch(/is forbidden in /);
+      } else {
+        expect(refused.status).toBe(200);
+        expect(refused.body).toMatchObject({
+          startBlocked: "Start blocked: another player's deck needs attention.", startBlockedByOther: true,
+        });
+        expect(refused.body).not.toHaveProperty("error");
+      }
+      for (const actor of players) {
+        const view = await post(actor, { op: "view" });
+        expect(view.status).toBe(200);
+        if (actor === players[seat]) {
+          expect(view.body.startBlocked).toMatchObject({ reason: expect.stringMatching(/is forbidden in /) });
+          expect(view.body).not.toHaveProperty("startBlockedByOther");
+        } else {
+          expect(view.body.startBlockedByOther).toBe(true);
+          expect(view.body).not.toHaveProperty("startBlocked");
+        }
+        expect(service.get(room.slug, "g1").status).toBe("lobby");
+        expect(creates).toBe(0);
+      }
       expect((await post(players[seat]!, { op: "deck", deck: legal })).status).toBe(200);
       const started = await post(players[0]!, { op: "start" });
       expect(started.status, JSON.stringify(started.body)).toBe(200);

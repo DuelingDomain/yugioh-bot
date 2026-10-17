@@ -9,8 +9,3 @@ function s.mvop(e,tp,eg,ep,ev,re,r,rp)
 	if aux.MPColumnGeometry() and (#eg~=1 or Duel.MPSeatOf(eg:GetFirst())~=aux.MPColumnPeerSeat(aux.MPGeometrySeat(tp))) then return end
 	return mp_mvop(e,tp,eg,ep,ev,re,r,rp)
 end
-
--- R-FFA-THREE-COLUMNS: choose the column opponent before cards or zones.
-if aux.MPColumnEffects then
-	s.initial_effect=aux.MPColumnEffects(s.initial_effect,{s.mvop})
-end

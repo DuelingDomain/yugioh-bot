@@ -1,5 +1,7 @@
 "use client";
 
+import { report } from "@yugidraft/shared/observability";
+
 import { useEffect } from "react";
 
 /** Duel room crash screen: shows the error and reports it to the server log. */
@@ -7,7 +9,7 @@ export default function DuelRoomError({ error, reset }: { error: Error & { diges
   const details = `${error.name}: ${error.message}\n${error.stack ?? ""}`;
 
   useEffect(() => {
-    console.error(error);
+    report(error, { tags: { operation: "Error path in web/app/(app)/duels/[slug]/error.tsx" } });
     void fetch("/api/duels/client-error", {
       method: "POST",
       headers: { "content-type": "application/json" },

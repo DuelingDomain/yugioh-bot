@@ -1,3 +1,4 @@
+import { ExpectedError } from "@yugidraft/shared/observability";
 import type { DuelDeck } from "@yugidraft/shared/duels";
 
 /** A passcode is 1 to 10 plain digits: no hex, exponent, sign or decimal point. */
@@ -26,7 +27,7 @@ export function parseYdk(text: string): DuelDeck {
     const lower = line.toLowerCase();
     if (lower === "#deckmaster" || lower.startsWith("#deckmaster")) {
       if (sawDeckMaster) {
-        throw new Error("YDK contains multiple #deckmaster sections.");
+        throw new ExpectedError("YDK contains multiple #deckmaster sections.", 400);
       }
       sawDeckMaster = true;
       section = "deckmaster";
@@ -48,10 +49,10 @@ export function parseYdk(text: string): DuelDeck {
     const code = parseCode(line);
     if (section === "deckmaster") {
       if (code == null) {
-        throw new Error("Invalid Deck Master id in #deckmaster.");
+        throw new ExpectedError("Invalid Deck Master id in #deckmaster.", 400);
       }
       if (deckMaster != null) {
-        throw new Error("YDK #deckmaster must contain exactly one card id.");
+        throw new ExpectedError("YDK #deckmaster must contain exactly one card id.", 400);
       }
       deckMaster = code;
       continue;
@@ -68,7 +69,12 @@ export function parseYdk(text: string): DuelDeck {
 
 function decodeYdkeList(part: string): number[] {
   if (!part) return [];
-  const binary = atob(part);
+  let binary: string;
+  try { binary = atob(part); }
+  catch (error) {
+    if (error instanceof DOMException && error.name === "InvalidCharacterError") throw new ExpectedError("Invalid character", 400);
+    throw error;
+  }
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   const codes: number[] = [];
@@ -99,7 +105,7 @@ export function parseDeckText(text: string): DuelDeck {
 export function applyDomainMaster(deck: DuelDeck): DuelDeck {
   if (deck.deckMaster != null) return deck;
   if (deck.side.length > 1) {
-    throw new Error("Domain has no Side Deck. Only a single Deck Master may be imported from the Side section.");
+    throw new ExpectedError("Domain has no Side Deck. Only a single Deck Master may be imported from the Side section.", 400);
   }
   if (deck.side.length === 1) {
     return { main: deck.main, extra: deck.extra, side: [], deckMaster: deck.side[0] };
@@ -138,16 +144,5 @@ export function selectDomainMaster(state: DeckMasterSelection, code?: number): D
   return { deck: { ...restored, deckMaster: code }, masterOrigin: null };
 }
 
-export function serializeYdk(deck: DuelDeck): string {
-  const lines = [
-    "#main",
-    ...deck.main.map(String),
-    "#extra",
-    ...deck.extra.map(String),
-    "!side",
-    ...deck.side.map(String),
-    "",
-  ];
-  if (deck.deckMaster != null) lines.unshift("#deckmaster", String(deck.deckMaster));
-  return lines.join("\n");
-}
+// Keep the legacy single-deck parsers above compatible with editor, lobby and cube imports.
+export { serializeYdk, encodeYdke, decodeYdke, splitImportText } from "@yugidraft/shared/decks";

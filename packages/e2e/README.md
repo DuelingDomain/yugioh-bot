@@ -51,7 +51,7 @@ The test measures the success frame without delaying app navigation. The current
 
 A readable main-frame timeline, total duration, hop count and measured success duration are printed and attached on every outcome. Server redirect requests and client-side navigations are included; subframes and API fetches are excluded. Query strings and fragments are removed except `existing_player=1` and a redacted `error` marker. A trace is kept only when the run fails; the video is kept on every run. Both are under `packages/e2e/test-results/live-login/`; the HTML report is in `packages/e2e/playwright-report/live-login/`. These browser artifacts contain real sign-in activity and should stay local.
 
-This test **never runs in CI**: the standalone config rejects `CI`, and the test also has a CI skip guard. The default e2e config searches only `tests/` for `.setup.ts` and `.spec.ts`; live tests live in `live/` and end in `.live.ts`. CI’s `test:unit` command runs only the pure timeline helper tests, without launching a browser or signing in.
+This test **never runs in CI**: the standalone config rejects `CI`, and the test also has a CI skip guard. The default e2e config searches only `tests/` for `.setup.ts` and `.spec.ts`; live tests live in `live/` and end in `.live.ts`.
 
 ## The isolated stack
 
@@ -72,6 +72,30 @@ Playwright `webServer` runs `stack/start.mjs`. It starts four processes on non-l
 - Discord is not called: web and worker run with `DISCORD_BOT_ENABLED=0`. `stack/fetch-stub.mjs` is preloaded into both services and retains only the card-set and card-image stubs. Web gets `WEB_URL`, the E2E gate/secret and the dummy publishable key; no Discord login credentials are needed.
 - The stack refuses to start on a live port (3000, 3001, 3002, 3100, 3110, 4001, 4002, 4003, 4010) or on a busy port.
 - Concurrent runs: set `E2E_SLOT=N` (one digit, 0 to 9). Ports become web `3301+10N`, ws `3303+10N`, ws internal `4304+10N`, duel `4305+10N`, and the state folder `.stack-N` replaces `.stack`. Each slot needs its own build. See `stack/MANUAL.md`.
+
+## RPS startup timing
+
+`duel-bot-opening-timing.spec.ts` measures a real 1v1 loss to the practice bot in
+its separate duel window. Set `E2E_RPS_OPENING=1`; otherwise this spec is skipped.
+Build the selected slot first, then run from the repo root:
+
+```bash
+E2E_SLOT=0 npm run stack:build --workspace=packages/e2e
+E2E_SLOT=0 E2E_WORKERS=1 E2E_RPS_OPENING=1 E2E_BOT_STEP_MS=900 \
+  npx playwright test duel-bot-opening-timing -c packages/e2e/playwright.config.ts --repeat-each=3
+```
+
+Set `E2E_DUEL_DATA_DIR` for a different read-only engine bundle. Use
+`E2E_OPENING_FULL_MOTION=1` for full motion, and `E2E_OPENING_BOARD_VIEW=3d` for
+the 3D board. Each browser loss prints `BOT_OPENING_TIMING` and attaches the JSON.
+Times use the browser's monotonic clock. They cover the loss message, socket
+invalidations, HTTP headers and body reads, field DOM observation, a double-RAF
+paint opportunity, and completion of the first field images. Paint timing is an
+approximation; image timing uses the stack's offline card-art fixture.
+
+The test keeps bot picks hidden and cancels human-win attempts. Each attempt has
+its own evidence recorder. After startup it closes the pages and keeps the
+authenticated context available for the final room read and the privacy scan.
 
 ## Test login
 
@@ -166,10 +190,6 @@ Limits: only duels with recorded answers replay (a duel that never started has n
 | `live-tables-rules.spec.ts` | A private lobby is hidden from other players, and Close removes it. |
 | `table-hand-label.spec.ts` | FFA3 and FFA4 table preview (`/dev/table-preview`): a six-card hand leaves the own field name clear at 1440x900 and 1280x720. |
 | `multiplayer-flag-off.spec.ts` | Runs only with `E2E_MULTIPLAYER_TABLES=0`: no Tag, 3-player or 4-player option, and the API refuses them. |
-
-## Unit tests of the evidence helpers
-
-`npm run test:unit --workspace=packages/e2e` runs `node --test` on `tests-unit/` (login, seed, isolated supervisor/build fixtures, timeline merge and rendering, leak compare). No browser or full stack. Node 22.23.2 runs the TypeScript files directly. Some CLI/supervisor tests need subprocesses and temporary sockets, so run the full suite outside restricted sandboxes.
 
 ## Scale to 4 players
 

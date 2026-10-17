@@ -1,20 +1,25 @@
-x-user: &user "${UID:-0}:${GID:-0}"  # Host UID/GID in dev; root by default.
-
 services:
   ws:
+    image: yugioh-bot-ws:latest
     build:
       context: .
       target: ws
     restart: unless-stopped
+    init: true
     mem_limit: ${WS_MEM_LIMIT:-384m}
-    user: *user
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
+      - OWNER_USER_IDS=${OWNER_USER_IDS:-}
       - WEB_URL=${WEB_URL:?WEB_URL is required}
       - WS_PORT=3001
       - WS_INTERNAL_PORT=4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
-    command: node packages/ws/dist/server.js
+    command: node --import ./packages/ws/dist/instrument.js packages/ws/dist/server.js
     volumes:
       - ./data:/app/data
     healthcheck:
@@ -25,16 +30,24 @@ services:
       start_period: 20s
 
   duel:
+    image: yugioh-bot-duel:latest
     build:
       context: .
       target: duel-bundled
       additional_contexts:
         engine: ./.deploy-duel-engine
     restart: unless-stopped
-    user: *user
+    init: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
+      - OWNER_USER_IDS=${OWNER_USER_IDS:-}
       - DUEL_DATA_DIR=/app/data/duel-engine
+      - DUEL_REPORT_DIR=/app/data/duel-reports
       # The deploy installs on the host. Restarts verify the existing volume without replacing it.
       - DUEL_BUNDLE_SRC=${DUEL_BUNDLE_SRC_ON_START:-}
       - DUEL_INTERNAL_HOST=0.0.0.0
@@ -43,7 +56,16 @@ services:
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
       - DUEL_ARCHIVE_AFTER_MS=${DUEL_ARCHIVE_AFTER_MS:-600000}
+      - DUEL_SNAPSHOT_RETENTION_ENABLED=${DUEL_SNAPSHOT_RETENTION_ENABLED:-0}
+      - DUEL_TURN_BACKFILL_ENABLED=${DUEL_TURN_BACKFILL_ENABLED:-1}
+      - DUEL_SNAPSHOT_RETENTION_DAYS=${DUEL_SNAPSHOT_RETENTION_DAYS:-30}
+      - DUEL_SNAPSHOT_RETENTION_INTERVAL_MS=${DUEL_SNAPSHOT_RETENTION_INTERVAL_MS:-21600000}
       - DUEL_IDLE_WORKER_MS=${DUEL_IDLE_WORKER_MS:-300000}
+      - DUEL_MAX_WORKERS=${DUEL_MAX_WORKERS:-12}
+      - DUEL_MAX_TABLES_PER_PLAYER=${DUEL_MAX_TABLES_PER_PLAYER:-3}
+      - DUEL_WORKER_HEAP_MB=${DUEL_WORKER_HEAP_MB:-256}
+      - DUEL_OP_TIMEOUT_MS=${DUEL_OP_TIMEOUT_MS:-15000}
+      - DUEL_CREATE_TIMEOUT_MS=${DUEL_CREATE_TIMEOUT_MS:-120000}
       # Tag, 3-player and 4-player tables. Off by default: only 1v1 tables start. The web service needs the same value.
       - MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-1}
       # The global 1v1 choice; Domain uses legacy by default. Standard has its own choice below.
@@ -61,15 +83,23 @@ services:
       - ./data:/app/data
 
   web:
+    image: yugioh-bot-web:latest
     build:
       context: .
       target: web
       args:
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required}
+        NEXT_PUBLIC_POSTHOG_KEY: ${NEXT_PUBLIC_POSTHOG_KEY:-}
     restart: unless-stopped
-    user: *user
+    init: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
+      - DUEL_DATA_DIR=/app/data/duel-engine
       - CARD_IMAGE_CACHE_DIR=/app/data/card-images
       - DISCORD_BOT_ENABLED=0
       - WEB_URL=${WEB_URL:?WEB_URL is required}
@@ -79,6 +109,12 @@ services:
       - DISCORD_DEFAULT_CHANNEL_ID=${DISCORD_DEFAULT_CHANNEL_ID:-}
       - DISCORD_REMINDER_CHANNEL_ID=${DISCORD_REMINDER_CHANNEL_ID:-}
       - CLERK_SECRET_KEY=${CLERK_SECRET_KEY:?CLERK_SECRET_KEY is required at runtime}
+      - CLERK_WEBHOOK_SIGNING_SECRET=${CLERK_WEBHOOK_SIGNING_SECRET:-}
+      - DISCORD_ADMIN_WEBHOOK_URL=${DISCORD_ADMIN_WEBHOOK_URL:-}
+      - DISCORD_JOIN_REQUEST_ALERTS_ENABLED=${DISCORD_JOIN_REQUEST_ALERTS_ENABLED:-1}
+      - DISCORD_SIGNUP_ALERTS_ENABLED=${DISCORD_SIGNUP_ALERTS_ENABLED:-0}
+      - DISCORD_ADMIN_SHOW_FULL_EMAIL=${DISCORD_ADMIN_SHOW_FULL_EMAIL:-0}
+      - DISCORD_ADMIN_DASHBOARD_URL=${DISCORD_ADMIN_DASHBOARD_URL:-}
       # Direct Discord proof recovers pre-cutover players while Clerk is in Waitlist mode.
       - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
       - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET:-}
@@ -103,14 +139,25 @@ services:
       - duel
 
   worker:
+    image: yugioh-bot-worker:latest
     build:
       context: .
       target: worker
     restart: unless-stopped
-    user: *user
+    init: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     stop_grace_period: 150s
     environment:
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
       - DATABASE_PATH=/app/data/bot.sqlite
+      - OWNER_USER_IDS=${OWNER_USER_IDS:-}
+      - POSTHOG_KEY=${POSTHOG_KEY:-}
+      - POSTHOG_PERSONAL_API_KEY=${POSTHOG_PERSONAL_API_KEY:-}
+      - POSTHOG_PROJECT_ID=${POSTHOG_PROJECT_ID:-}
+      - POSTHOG_HOST=${POSTHOG_HOST:-}
       - CARD_IMAGE_CACHE_DIR=/app/data/card-images
       - CARD_IMAGE_CACHE_MAX_BYTES=${CARD_IMAGE_CACHE_MAX_BYTES:-16106127360}
       - WORKER_HEALTH_PATH=/tmp/yugidraft-worker-health.json
@@ -130,10 +177,14 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
     environment:
       - SITE_DOMAIN=${SITE_DOMAIN:?Set SITE_DOMAIN in .env (localhost for local dev)}
       - MARKETING_DOMAIN=${MARKETING_DOMAIN:-marketing-disabled.localhost}
       - LEGACY_DOMAIN=${LEGACY_DOMAIN:-legacy-disabled.localhost}
+      - NEXT_PUBLIC_POSTHOG_KEY=${NEXT_PUBLIC_POSTHOG_KEY:-}
     ports:
       - "80:80"
       - "443:443"

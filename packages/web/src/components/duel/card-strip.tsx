@@ -293,7 +293,7 @@ export function CardStrip({
           </div>
         ) : null}
       </div>
-      <div className={styles.frame} data-prev={more.prev} data-next={more.next} data-up={more.up} data-down={more.down}>
+      <div className={styles.frame} data-strip-frame data-prev={more.prev} data-next={more.next} data-up={more.up} data-down={more.down}>
         {more.prev ? (
           <button type="button" className={styles.arrow} data-side="prev" tabIndex={-1}
             aria-label="Show earlier cards" onMouseDown={keepFocus} onClick={() => page(-1)}>

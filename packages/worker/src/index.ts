@@ -1,3 +1,5 @@
+import { report } from "@yugidraft/shared/observability";
+import { awaitObservabilityShutdown } from "@yugidraft/shared/observability/node-bootstrap";
 import { config } from "dotenv";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +13,7 @@ import {
   createImageCacheCleanup,
 } from "@yugidraft/shared/services";
 import { effectsFromEnv } from "./effects.js";
+import { drainProductEvents } from "./analytics-drain.js";
 import { createLoop } from "./loop.js";
 import { createDraftTimer } from "./draft-timer.js";
 import { createTournamentTimer } from "./tournament-timer.js";
@@ -33,6 +36,12 @@ const writeHealth = () => writeFileSync(healthPath, JSON.stringify({ pid: proces
 const draftTimer = createDraftTimer({ db, drafts: createDraftService(db), effects, startedAt });
 const tournamentTimer = createTournamentTimer({ db, matches: createMatchService(db), tournaments: createTournamentService(db), effects });
 const jobs = [
+  createLoop(() => drainProductEvents(db, {
+    key: process.env.POSTHOG_KEY ?? "",
+    host: process.env.POSTHOG_HOST,
+    personalApiKey: process.env.POSTHOG_PERSONAL_API_KEY ?? "",
+    projectId: process.env.POSTHOG_PROJECT_ID ?? "",
+  }), 10_000),
   createLoop(async () => { await draftTimer.tick(); writeHealth(); }, 1000),
   createLoop(() => tournamentTimer.tick(), 60_000),
   createSetSync({
@@ -52,20 +61,29 @@ const jobs = [
 let draining: Promise<void> | undefined;
 function stop() {
   return draining ??= (async () => {
-    await Promise.all(jobs.map(job => job.stop()));
-    rmSync(healthPath, { force: true });
-    db.close();
+    const cleanup = async (run: () => unknown) => {
+      try { await run(); }
+      catch (error) {
+        report(error, { tags: { operation: "[worker] cleanup failed" } });
+        process.exitCode = 1;
+      }
+    };
+    try {
+      await Promise.all(jobs.map(job => cleanup(() => job.stop())));
+      await cleanup(() => rmSync(healthPath, { force: true }));
+      await cleanup(() => db.close());
+    } finally { await awaitObservabilityShutdown(); }
   })();
 }
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {
-    void stop().catch(error => { console.error(error); process.exitCode = 1; });
+    void stop().catch(error => { report(error, { tags: { operation: "Error path in worker/src/index.ts" } }); process.exitCode = 1; });
   });
 }
 try {
   await Promise.all(jobs.map(job => job.start()));
 } catch (error) {
-  console.error("[worker] startup failed", error);
+  report(error, { tags: { operation: "[worker] startup failed" } });
   await stop();
   process.exitCode = 1;
 }

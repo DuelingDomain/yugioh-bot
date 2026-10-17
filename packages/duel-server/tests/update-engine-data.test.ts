@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import * as filesystem from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -220,6 +221,40 @@ describe("engine data update", () => {
       return download(commit, ...args);
     });
     await expect(runUpdate({ root, overrides: nextPins, request, validate: false })).rejects.toThrow("Download failed (500)");
+    expect(await readPins(root)).toEqual(oldPins);
+  });
+
+  it("settles an in-flight candidate download before cleaning up a failed update", async () => {
+    const { root, request } = await loadedDataFixture("identical");
+    const download = releasedData.downloadReleasedCardData;
+    let release!: () => void, started!: () => void, finished!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const candidateStarted = new Promise<void>(resolve => { started = resolve; });
+    const candidateFinished = new Promise<void>(resolve => { finished = resolve; });
+    let candidateDirectory = "";
+    const cleanup = vi.spyOn(filesystem, "rm");
+    vi.spyOn(releasedData, "downloadReleasedCardData").mockImplementation((commit, ...args) => {
+      if (commit === oldPins.database) throw new Error("Download failed (500)");
+      candidateDirectory = args[0];
+      return (async () => {
+        started();
+        try { await gate; return await download(commit, ...args); }
+        finally { finished(); }
+      })();
+    });
+    const outcome = runUpdate({ root, overrides: nextPins, request, validate: false })
+      .then(() => null, error => error);
+    try {
+      await candidateStarted;
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(cleanup).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await candidateFinished;
+      await outcome;
+      await rm(candidateDirectory, { recursive: true, force: true });
+    }
+    expect(await outcome).toMatchObject({ message: "Download failed (500)" });
     expect(await readPins(root)).toEqual(oldPins);
   });
 
@@ -617,12 +652,13 @@ describe("engine data update", () => {
   });
 
   it("reports changed listed cards without overlays and all format gaps", () => {
-    const scripts = new Map([["official/c94145021.lua", "Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)"]]);
-    expect(findListedChanges(scripts, ["official/c94145021.lua"], new Set())).toEqual([
-      expect.objectContaining({ code: 94145021, changed: true, formatGap: true }),
+    // Skull Invitation remains FFA-only; Droll & Lock Bird now has real-core multiplayer proof.
+    const scripts = new Map([["official/c98139712.lua", "Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)"]]);
+    expect(findListedChanges(scripts, ["official/c98139712.lua"], new Set())).toEqual([
+      expect.objectContaining({ code: 98139712, changed: true, formatGap: true }),
     ]);
-    expect(findListedChanges(scripts, [], new Set([94145021]))).toEqual([
-      expect.objectContaining({ code: 94145021, changed: false, formatGap: true }),
+    expect(findListedChanges(scripts, [], new Set([98139712]))).toEqual([
+      expect.objectContaining({ code: 98139712, changed: false, formatGap: true }),
     ]);
   });
 

@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import * as THREE from "three";
 
 /**
@@ -268,7 +269,7 @@ export class PostPass {
       }
       return true;
     } catch (error) {
-      console.warn("[fx3d] post pass unavailable", error);
+      report(error, { tags: { operation: "[fx3d] post pass unavailable" } });
       this.broken = true;
       return false;
     }
@@ -291,7 +292,7 @@ export class PostPass {
       return true;
     } catch (error) {
       r.setRenderTarget(null);
-      console.warn("[fx3d] post pass failed", error);
+      report(error, { tags: { operation: "[fx3d] post pass failed" } });
       this.broken = true;
       return false;
     }

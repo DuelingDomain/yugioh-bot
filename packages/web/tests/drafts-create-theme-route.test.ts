@@ -43,8 +43,8 @@ describe("POST /api/drafts (theme mode)", () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();
     seedFixtureUsers(db, FIXTURE_KEYS);
-    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Blue-Eyes', ${fixtureUserId("u")})`).run();
-    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', ${fixtureUserId("u")})`).run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Blue-Eyes', ${fixtureUserId("creator-user")})`).run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', ${fixtureUserId("creator-user")})`).run();
     return db;
   }
 
@@ -176,8 +176,8 @@ describe("POST /api/drafts (theme mode)", () => {
     migrate(db);
     seedFixtureUsers(db, FIXTURE_KEYS);
     // two cubes to allow
-    db.prepare(`insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1', 'Blue-Eyes', ${fixtureUserId("u")}, 't', 't')`).run();
-    db.prepare(`insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1', 'Dark Magician', ${fixtureUserId("u")}, 't', 't')`).run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1', 'Blue-Eyes', ${fixtureUserId("creator-user")}, 't', 't')`).run();
+    db.prepare(`insert into cubes (guild_id, name, created_by_user_id, created_at, updated_at) values ('guild-1', 'Dark Magician', ${fixtureUserId("creator-user")}, 't', 't')`).run();
     db.close();
 
     const { POST } = await import("../app/api/drafts/route");

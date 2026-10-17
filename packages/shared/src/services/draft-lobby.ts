@@ -1,3 +1,4 @@
+import { errorResponseBody, report } from "../observability/index.js";
 import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import {
@@ -164,6 +165,7 @@ export function createDraftLobbyService(db: Database.Database) {
   const project = (draftId: number, viewerUserId: number | undefined, now: Date): DraftLobbyResponse => {
     const { draft, row } = pending(draftId);
     const rows = roster(draftId), setup = setupHash(draft);
+    const viewerIsMember = viewerUserId === draft.createdByUserId || rows.some(player => player.user_id === viewerUserId);
     const players: LobbyPlayer[] = rows.map((player) => {
       const isBot = isTestBotDiscordId(player.discord_user_id);
       const ready = isReady(draft, player, setup);
@@ -172,16 +174,16 @@ export function createDraftLobbyService(db: Database.Database) {
         ...(player.finished_at === null ? {} : { finishedAt: player.finished_at }), joinedAt: player.joined_at,
         isHost: player.user_id === draft.createdByUserId, isYou: player.user_id === viewerUserId,
         isBot, ready, readyAt: ready && !isBot ? player.ready_at : null,
-        cubeId: draft.config.mode !== "theme" ? null : draft.config.themeSelection === "player_pick" ? player.cube_id
+        cubeId: !viewerIsMember || draft.config.mode !== "theme" ? null : draft.config.themeSelection === "player_pick" ? player.cube_id
           : draft.config.themeSelection === "host_assigned" && viewerUserId === draft.createdByUserId
             ? draft.config.themeAssignments?.[String(player.player_id)] ?? null : null,
       };
     });
     const analysis = preflight(draft, rows), targetSeats = draft.config.lobbySeats ?? null;
     const ready = players.filter((p) => p.ready).length, allReady = ready === players.length;
-    // Pool/assignment diagnostics include private identities. Public viewers still
-    // see blockers, but no host-assigned cube IDs, names or assignment maps.
+    // Visitors see generic blockers; cube diagnostics require a host or a seat.
     const hideAssigned = draft.config.themeSelection === "host_assigned" && viewerUserId !== draft.createdByUserId;
+    const hideDetails = hideAssigned || !viewerIsMember;
     return { players, lobby: { revision: row.lobby_revision, serverNow: now.toISOString(), targetSeats,
       joined: players.length, ready, allReady, autoStart: { enabled: row.lobby_auto_start === 1,
         held: row.lobby_auto_held === 1, eligible: targetSeats !== null && players.length === targetSeats && allReady
@@ -189,9 +191,9 @@ export function createDraftLobbyService(db: Database.Database) {
             && rows.some((p) => isUnclaimedHuman(draft, p))) },
       start: row.lobby_start_token && row.lobby_start_at && row.lobby_start_kind
         ? { token: row.lobby_start_token, kind: row.lobby_start_kind, startsAt: row.lobby_start_at } : null,
-      errors: hideAssigned && analysis.errors.length ? ["Host-assigned setup needs host attention"] : analysis.errors,
-      warnings: hideAssigned && analysis.warnings.length ? ["Host-assigned pools have preflight warnings"] : analysis.warnings,
-      lastStartError: hideAssigned && row.lobby_start_error ? "Start failed; host attention required" : row.lobby_start_error,
+      errors: hideDetails && analysis.errors.length ? [hideAssigned ? "Host-assigned setup needs host attention" : "Draft setup needs host attention"] : analysis.errors,
+      warnings: hideDetails && analysis.warnings.length ? [hideAssigned ? "Host-assigned pools have preflight warnings" : "Draft pools have preflight warnings"] : analysis.warnings,
+      lastStartError: hideDetails && row.lobby_start_error ? "Start failed; host attention required" : row.lobby_start_error,
     } };
   };
 
@@ -395,14 +397,14 @@ export function createDraftLobbyService(db: Database.Database) {
               // assignment/deal back before the failure and Hold are committed.
               return { started: drafts.start(id, now, { scheduleToken: row.lobby_start_token }), changed };
             } catch (error) {
-              console.warn("[draft-lobby] start failed", id, error);
-              return fail(error instanceof Error ? error.message : "Draft start failed");
+              const { body } = errorResponseBody(error, { tags: { operation: "[draft-lobby] start failed" } });
+              return fail(body.error);
             }
           }).immediate();
           if (transition.started) result.started.push(transition.started);
           if (transition.changed) result.changedSlugs.push(transition.changed);
         } catch (error) {
-          console.warn("[draft-lobby] tick failed", id, error);
+          const { body } = errorResponseBody(error, { tags: { operation: "[draft-lobby] tick failed" } });
           try {
             const changed = db.transaction(() => {
               const current = db.prepare("select web_slug from drafts where id = ? and status = 'pending'")
@@ -410,12 +412,12 @@ export function createDraftLobbyService(db: Database.Database) {
               if (!current) return null;
               clearDraftLobbyStart(db, id);
               db.prepare(`update drafts set lobby_revision = lobby_revision + 1, lobby_auto_held = lobby_auto_start,
-                lobby_start_error = ? where id = ?`).run(error instanceof Error ? error.message : "Lobby tick failed", id);
+                lobby_start_error = ? where id = ?`).run(body.error, id);
               return current.web_slug;
             }).immediate();
             if (changed) result.changedSlugs.push(changed);
           } catch (recoveryError) {
-            console.warn("[draft-lobby] failed to record tick error", id, recoveryError);
+            report(recoveryError, { tags: { operation: "[draft-lobby] failed to record tick error" } });
           }
         }
       }

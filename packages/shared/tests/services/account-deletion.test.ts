@@ -71,6 +71,23 @@ beforeEach(() => {
 afterEach(() => db.close());
 
 describe("deleteUserAccount", () => {
+  it("scrubs fork names even when the source is gone and the user has no history", () => {
+    exec("insert into users(id,username,display_name) values(3,'three','Gone Source');");
+    const setup = { replayFork: { ownerUserId: 2, control: "all-manual", origin: {
+      sourceSlug: "removed-source", sourceVersion: "v1", frameId: "frame", step: 0,
+      prefixCount: 0, prefixHash: "a".repeat(64),
+      sourceSeats: [{ seat: 0, displayName: "Gone Source" }, { seat: 1, displayName: "Other Name" }],
+    } } };
+    db.prepare(`insert into duels(guild_id,web_slug,name,organizer_player_id,mode,status,kind,setup_json)
+      values('g','fork','Fork',2,'normal','active','replay-fork',?)`).run(JSON.stringify(setup));
+    expect(deleteUserAccount(db, 3)).toMatchObject({ mode: "removed", counts: { replay_fork_names: 1 } });
+    const saved = db.prepare("select setup_json from duels where web_slug='fork'").get() as { setup_json: string };
+    expect(saved.setup_json).not.toContain("Gone Source");
+    expect(JSON.parse(saved.setup_json).replayFork.origin.sourceSeats).toEqual([
+      { seat: 0, displayName: "Seat 1" }, { seat: 1, displayName: "Seat 2" },
+    ]);
+  });
+
   it("removes a user holding only invite grants and cascades those grants", () => {
     exec(`insert into users(id,clerk_user_id,username,display_name) values(3,'user_three','three','Three');
       insert into draft_invite_grants(draft_id,user_id) values(1,2),(1,3);`);
@@ -105,7 +122,7 @@ describe("deleteUserAccount", () => {
     // Nothing else changed.
     const after = dump();
     for (const table of Object.keys(before)) {
-      if (["users", "players", "saved_decks", "waitlist_signups"].includes(table)) continue;
+      if (["users", "players", "saved_decks", "waitlist_signups", "product_events"].includes(table)) continue;
       expect(after[table], table).toEqual(before[table]);
     }
     expect(db.pragma("foreign_key_check")).toEqual([]);
@@ -254,4 +271,18 @@ describe("previewUserDeletion", () => {
           insert into saved_decks(guild_id,owner_user_id,name,mode,deck_json) values ('g',3,'Deck','normal','{}')`);
     expect(previewUserDeletion(db, 3).mode).toBe("removed");
   });
+});
+
+it("replaces queued user events with one deletion job in the account transaction", () => {
+  db.prepare("insert into product_events(name,user_id,props_json,occurred_at,event_uuid) values('deck_saved',1,'{}',1,'event-one'),('deck_saved',2,'{}',1,'event-two')").run();
+  db.exec("create trigger reject_event before insert on product_events when new.name='$delete_person' begin select raise(abort, 'record failed'); end");
+  expect(() => deleteUserAccount(db, 1)).toThrow("record failed");
+  expect(db.prepare("select email from users where id=1").get()).toEqual({ email: EMAIL });
+  expect(db.prepare("select count(*) as n from product_events").get()).toEqual({ n: 2 });
+  db.exec("drop trigger reject_event");
+  deleteUserAccount(db, 1); deleteUserAccount(db, 1);
+  expect(db.prepare("select name,user_id,props_json from product_events order by id").all()).toEqual([
+    { name: "deck_saved", user_id: 2, props_json: "{}" },
+    { name: "$delete_person", user_id: 1, props_json: "{}" },
+  ]);
 });

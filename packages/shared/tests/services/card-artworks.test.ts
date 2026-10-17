@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../helpers/recording-observability.mjs";
 import { seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -237,12 +238,12 @@ describe("card artwork mapping", () => {
     const before = db.prepare("select * from card_artworks order by artwork_id").all();
     const withoutEngine = createCardCatalogService(db, { identityCatalog: new Map(),
       fetch: async () => ({ ok: true, json: async () => ({ data: [fixtures[2]] }) }) });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.log.mockClear().mockImplementation(() => {});
     try {
       await expect(withoutEngine.syncCardByName("Dark Magician")).resolves.toBeUndefined();
       await expect(withoutEngine.syncCardByName("Dark Magician")).resolves.toBeUndefined();
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0][0]).toContain("conflicting artwork mains");
+      expect(warn.mock.calls[0][1]).toContain("conflicting artwork mains");
     } finally { warn.mockRestore(); }
     expect(db.prepare("select * from card_artworks order by artwork_id").all()).toEqual(before);
   });
@@ -393,7 +394,7 @@ describe("artwork fetch limits", () => {
   });
 
   it("shares a four-request limit and spaces starts across catalog services", async () => {
-    vi.resetModules();
+    vi.resetModules(); await recording.install();
     const { createCardCatalogService: create } = await import("../../src/services/card-catalog.js");
     const { db } = setup();
     vi.useFakeTimers();
@@ -422,7 +423,7 @@ describe("artwork fetch limits", () => {
   });
 });
 
-it.each(["absolute", "relative", "default"])("resolves the %s engine path from cwd and filters legacy alternate options", (mode) => {
+it.each(["absolute", "relative", "default"])("resolves the %s engine path and filters legacy alternate options", (mode) => {
   const dir = mkdtempSync(join(tmpdir(), "card-art-engine-"));
   const engineDir = join(dir, "data/duel-engine");
   mkdirSync(engineDir, { recursive: true });
@@ -433,7 +434,8 @@ it.each(["absolute", "relative", "default"])("resolves the %s engine path from c
     insert into texts values (89631139,'Blue-Eyes White Dragon'),(89631146,'Blue-Eyes White Dragon');`);
   engine.close();
   vi.stubEnv("DUEL_DATA_DIR", mode === "absolute" ? engineDir : mode === "relative" ? relative(dir, engineDir) : undefined);
-  const cwd = vi.spyOn(process, "cwd").mockReturnValue(dir);
+  vi.stubEnv("DATABASE_PATH", join(dir, "data", "bot.sqlite"));
+  const cwd = vi.spyOn(process, "cwd").mockReturnValue(mode === "default" ? join(dir, "packages", "web") : dir);
   try {
     expect(canonicalCardCode(89631146, loadArtworkIdentityCatalog())).toBe(89631139);
     const { db } = setup();
@@ -450,15 +452,15 @@ it.each(["absolute", "relative", "default"])("resolves the %s engine path from c
 });
 
 it("warns only once when the engine identity database is missing", async () => {
-  vi.resetModules();
+  vi.resetModules(); await recording.install();
   const { loadArtworkIdentityCatalog: load } = await import("../../src/services/card-artworks.js");
   vi.stubEnv("DUEL_DATA_DIR", join(tmpdir(), "missing-artwork-engine"));
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const warn = recording.log.mockClear().mockImplementation(() => {});
   try {
     expect(load().size).toBe(0);
     expect(load().size).toBe(0);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain("artwork");
+    expect(warn.mock.calls[0][1]).toContain("artwork");
   } finally { warn.mockRestore(); vi.unstubAllEnvs(); }
 });
 
@@ -483,7 +485,7 @@ describe("artwork migration", () => {
 });
 
 it("materializes engine-only arts under the existing API family main", async () => {
-  vi.resetModules(); // Isolate the rate-limit cooldown exercised by earlier tests.
+  vi.resetModules(); await recording.install(); // Isolate the rate-limit cooldown exercised by earlier tests.
   const { createCardCatalogService: create } = await import("../../src/services/card-catalog.js");
   const { db } = setup();
   db.exec(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values
@@ -503,3 +505,5 @@ it("materializes engine-only arts under the existing API family main", async () 
   expect([10,11,12].map(catalog.canonicalId)).toEqual([10,10,10]);
   expect(db.prepare("select card_id,source,is_main from card_artworks where artwork_id = 11").get()).toEqual({ card_id: 10, source: "engine", is_main: 0 });
 });
+
+const recording = useRecordingObservability();

@@ -28,6 +28,12 @@ function tamperPayload(token: string): string {
 }
 
 describe("duel connection tokens", () => {
+  it("refuses tokens issued with the previous key", () => {
+    const input = claims();
+    const payload = Buffer.from(JSON.stringify(input));
+    const signature = createHmac("sha256", SECRET).update(payload).digest("base64url");
+    expect(verifyDuelConnectionToken(`${payload.toString("base64url")}.${signature}`, SECRET)).toBeNull();
+  });
   it("round-trips strict claims", () => {
     const input = claims({ seat: null });
     const token = createDuelConnectionToken(input, SECRET);
@@ -55,7 +61,7 @@ describe("duel connection tokens", () => {
   it("rejects extra or missing claim fields", () => {
     const valid = claims();
     const payload = Buffer.from(JSON.stringify({ ...valid, role: "admin" }), "utf8");
-    const signature = createHmac("sha256", SECRET).update(payload).digest("base64url");
+    const signature = createHmac("sha256", createHmac("sha256", SECRET).update("yugidraft:duel-room:v2").digest()).update(payload).digest("base64url");
     const extra = `${payload.toString("base64url")}.${signature}`;
     expect(verifyDuelConnectionToken(extra, SECRET, valid.expiresAt - 1)).toBeNull();
 
@@ -69,7 +75,7 @@ describe("duel connection tokens", () => {
       }),
       "utf8",
     );
-    const missingSig = createHmac("sha256", SECRET).update(missingSeat).digest("base64url");
+    const missingSig = createHmac("sha256", createHmac("sha256", SECRET).update("yugidraft:duel-room:v2").digest()).update(missingSeat).digest("base64url");
     expect(
       verifyDuelConnectionToken(`${missingSeat.toString("base64url")}.${missingSig}`, SECRET, valid.expiresAt - 1),
     ).toBeNull();
@@ -87,4 +93,9 @@ describe("duel connection tokens", () => {
     expect(verifyDuelConnectionToken("a.b.c", SECRET)).toBeNull();
     expect(verifyDuelConnectionToken(createDuelConnectionToken(claims(), SECRET), "")).toBeNull();
   });
+});
+
+it("rejects unsafe player identities and seats outside the four-seat contract", () => {
+  expect(() => createDuelConnectionToken(claims({ playerId: Number.MAX_SAFE_INTEGER + 1 }), SECRET)).toThrow();
+  expect(() => createDuelConnectionToken(claims({ seat: 4 }), SECRET)).toThrow();
 });

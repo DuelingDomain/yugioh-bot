@@ -19,7 +19,7 @@ import styles from "./grid-hud.module.css";
  * The panes the HUD can open. `master`, `other` and `card` are not dock icons: a Deck Master token and a card click open
  * them. `camera` is the fourth dock icon of the Tag Rooftop only (its camera dock).
  */
-export type HudPane = "card" | "log" | "settings" | "master" | "other" | "camera";
+export type HudPane = "card" | "log" | "settings" | "master" | "other" | "camera" | "chain";
 
 export const DOCK_PANES = ["log", "settings"] as const;
 /** The dock of a table with a camera panel. */
@@ -34,6 +34,7 @@ export const HUD_PANE_LABEL: Record<HudPane, string> = {
   master: "Deck Master",
   other: "Deck Master",
   camera: "Camera",
+  chain: "Chain",
 };
 
 type SeatTones = ReadonlyMap<number, { main: string; ink: string }>;
@@ -63,7 +64,8 @@ export function useHudDismiss(active: boolean, suspended: boolean, onClose: () =
     };
     const onDown = (event: Event) => {
       const target = event.target as Element | null;
-      if (target?.closest?.("[data-hud-keep]") || keep.current?.(target)) return;
+      // An edge drawer (its tab included) closes itself; a press on its tab must not close it first and let the click open it again.
+      if (target?.closest?.("[data-hud-keep], [data-edge-drawer]") || keep.current?.(target)) return;
       close.current();
     };
     window.addEventListener("keydown", onKey, true);
@@ -121,7 +123,7 @@ export function GridFlyout({ pane, tabs, panels, keepMounted, onSelect, onClose,
   /** A chain is live: the flyout opens clear of the chain tower. */
   chainLive: boolean;
 }) {
-  const open = pane != null && pane !== "master" && pane !== "other";
+  const open = pane != null && pane !== "master" && pane !== "other" && pane !== "chain";
   const shown = open ? pane : null;
   return (
     <aside className={styles.flyout} hidden={!open} data-open={open ? "true" : "false"} data-pane={shown ?? undefined}

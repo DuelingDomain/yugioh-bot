@@ -11,6 +11,23 @@ import { configDefaults, defineConfig } from "vitest/config";
 // tests there (for example tests/engine-nseat.test.ts and tests/engine.test.ts have pure projection and parsing tests),
 // so those tests do not run in the unit job. Every file not in the list passes.
 const NEEDS_ENGINE = [
+  // Additional restored integration tests that need the installed engine data or script corpus.
+  "tests/battle-command-attack-targets.test.ts",
+  "tests/direct-attack-event.test.ts",
+  "tests/engine-process-limit.test.ts",
+  "tests/engine-resource-cache.test.ts",
+  "tests/failure-to-scenario-first-draw.test.ts",
+  "tests/failure-to-scenario-format.test.ts",
+  "tests/fixtures/private-table-data.test.ts",
+  "tests/fuzz-first-turn-draw.test.ts",
+  "tests/multi-scripts-manifest.test.ts",
+  "tests/multi-scripts-seat-helpers.test.ts",
+  "tests/scenarios/multiplayer/scan.test.ts",
+  "tests/script-error-loads.test.ts",
+  "tests/script-error-noise.test.ts",
+  "tests/script-error-repro.test.ts",
+  "tests/target-names.test.ts",
+  "tests/engine-declare-search.test.ts",
   "tests/prerelease-engine.test.ts",
   "tests/host-surrender-eot.test.ts",
   "tests/scenarios/multiplayer/leave-chains.test.ts",
@@ -79,7 +96,6 @@ const NEEDS_ENGINE = [
   "tests/ocgcore-wrapper-abi.test.ts",
   "tests/practice-bot.test.ts",
   "tests/presets.test.ts",
-  "tests/scripted-bot.test.ts",
   "tests/summons.test.ts",
   "tests/differential/differential-extended.test.ts",
   "tests/differential/differential.test.ts",
@@ -105,7 +121,7 @@ const NEEDS_ENGINE = [
 
 export default defineConfig({
   test: {
-    exclude: [...configDefaults.exclude, "domain-core/**", "tests/support/fixtures/**", ...NEEDS_ENGINE],
+    exclude: [...configDefaults.exclude, "domain-core/**", ...NEEDS_ENGINE],
     setupFiles: ["./tests/support/setup.ts"],
   },
 });

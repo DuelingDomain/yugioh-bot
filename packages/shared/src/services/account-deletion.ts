@@ -1,4 +1,6 @@
+import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
+import { isReplayForkSetup } from "../duels/replay-fork.js";
 import { userHistory } from "./user-history.js";
 
 /** What every kept row of a deleted account says in place of the person's name. */
@@ -61,7 +63,7 @@ function scrubDuelName(name: string, personNames: readonly string[]): string {
  *
  * Copied personal data that is scrubbed in the anonymised case: `players.display_name`,
  * `players.discord_user_id`, the default "<name> vs <name>" `duels.name` of duels they played or organised,
- * and `bug_reports.context_json.userAgent`. Everything else that mentions a person is a join at read time.
+ * `setup_json.replayFork.origin.sourceSeats[].displayName`, and `bug_reports.context_json.userAgent`. Everything else that mentions a person is a join at read time.
  */
 export function deleteUserAccount(db: Database.Database, userId: number): AccountDeletionSummary {
   const run = db.transaction((): AccountDeletionSummary => {
@@ -75,6 +77,34 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
       .filter(name => name.trim() !== "" && name !== DELETED_PLAYER_NAME)
       .sort((a, b) => b.length - a.length);
 
+    // Dedicated privacy write: normal host setup writes must keep the fork origin immutable.
+    // Match source seats by identity, so a name change since the fork does not evade deletion.
+    // Without a source seat, names cannot be attributed safely; use a seat label instead.
+    const forks = db.prepare<[], { id: number; guild_id: string; setup_json: string | null }>(
+      "select id, guild_id, setup_json from duels where kind = 'replay-fork'").all();
+    const sourceSeats = db.prepare<[string, string], { seat: number; user_id: number | null }>(`
+      select s.seat, p.user_id from duels d join duel_seats s on s.duel_id=d.id
+      left join players p on p.id=s.player_id
+      where d.web_slug=? and d.guild_id=?
+    `);
+    const writeFork = db.prepare("update duels set setup_json = ? where id = ?");
+    let scrubbedForks = 0;
+    for (const fork of forks) {
+      let setup: unknown;
+      try { setup = JSON.parse(fork.setup_json ?? "null"); } catch { continue; }
+      if (!setup || typeof setup !== "object" || !("replayFork" in setup) || !isReplayForkSetup(setup.replayFork)) continue;
+      const source = sourceSeats.all(setup.replayFork.origin.sourceSlug, fork.guild_id);
+      let changed = false;
+      for (const seat of setup.replayFork.origin.sourceSeats) {
+        const identity = source.find(entry => entry.seat === seat.seat);
+        const name = identity?.user_id === userId ? DELETED_PLAYER_NAME
+          : !identity ? `Seat ${seat.seat + 1}` : seat.displayName;
+        if (name !== seat.displayName) { seat.displayName = name; changed = true; }
+      }
+      if (changed) scrubbedForks += writeFork.run(JSON.stringify(setup), fork.id).changes;
+    }
+    note("replay_fork_names", scrubbedForks);
+
     note("saved_decks", db.prepare("delete from saved_decks where owner_user_id = ?").run(userId).changes);
     if (user.email) note("waitlist_signups", db.prepare("delete from waitlist_signups where email = ?").run(user.email).changes);
 
@@ -82,6 +112,8 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     if (Object.keys(userHistory(db, userId)).length === 0) {
       note("players", db.prepare("delete from players where user_id = ?").run(userId).changes);
       note("users", db.prepare("delete from users where id = ?").run(userId).changes);
+      db.prepare("delete from product_events where user_id=?").run(userId);
+      recordProductEvent(db, "$delete_person", userId);
       return { userId, mode: "removed", counts };
     }
 
@@ -123,6 +155,10 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
       where id = ? and (clerk_user_id is not null or email is not null or email_verified <> 0 or discord_user_id is not null
         or username <> ? or display_name <> ? or synced_at is not null)
     `).run(deletedUsername(userId), DELETED_PLAYER_NAME, userId, deletedUsername(userId), DELETED_PLAYER_NAME).changes);
+    if (counts.users) {
+      db.prepare("delete from product_events where user_id=?").run(userId);
+      recordProductEvent(db, "$delete_person", userId);
+    }
     return { userId, mode: "anonymised", counts };
   });
   return run.immediate();

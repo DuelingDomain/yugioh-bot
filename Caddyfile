@@ -1,23 +1,52 @@
+(posthog_ingest) {
+    handle /ingest/static/* {
+        uri strip_prefix /ingest
+        reverse_proxy https://eu-assets.i.posthog.com {
+            header_up Host {upstream_hostport}
+            header_up -Cookie
+            header_up -Authorization
+            header_up -Referer
+        }
+    }
+    @ingest path /ingest /ingest/*
+    handle @ingest {
+        uri strip_prefix /ingest
+        reverse_proxy https://eu.i.posthog.com {
+            header_up Host {upstream_hostport}
+            header_up -Cookie
+            header_up -Authorization
+            header_up -Referer
+        }
+    }
+}
+
 {$SITE_DOMAIN} {
-    # The private app must stay out of search, including on the current host.
+    request_body {
+        max_size 1MB
+    }
+    # Allow crawling so search engines can read noindex, including on redirects.
+    # Authentication still protects private app content.
     header >X-Robots-Tag "noindex, nofollow"
     header {
         Strict-Transport-Security "max-age=31536000"
         X-Content-Type-Options "nosniff"
         Referrer-Policy "strict-origin-when-cross-origin"
         X-Frame-Options "DENY"
-        Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'unsafe-inline' https://clerk.app.duelingdomain.com https://challenges.cloudflare.com https://*.protect.clerk.com; connect-src 'self' wss://{$SITE_DOMAIN} https://clerk.app.duelingdomain.com https://*.protect.clerk.com:* https://clerk-telemetry.com https://*.clerk-telemetry.com https://img.clerk.com; img-src 'self' data: blob: https://img.clerk.com https://images.ygoprodeck.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src https://challenges.cloudflare.com https://*.protect.clerk.com; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'unsafe-inline' https://clerk.app.duelingdomain.com https://challenges.cloudflare.com https://*.protect.clerk.com; connect-src 'self' wss://{$SITE_DOMAIN} https://clerk.app.duelingdomain.com https://*.protect.clerk.com:* https://clerk-telemetry.com https://*.clerk-telemetry.com https://img.clerk.com; img-src 'self' data: blob: https://img.clerk.com https://images.ygoprodeck.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src https://challenges.cloudflare.com https://*.protect.clerk.com https://www.youtube-nocookie.com; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     }
     handle /robots.txt {
         header Content-Type "text/plain; charset=utf-8"
         respond "User-agent: *
-Disallow: /
+Allow: /
 " 200
     }
     handle /socket.io/* {
         reverse_proxy ws:3001
     }
-    reverse_proxy web:3000
+    import posthog_ingest
+    handle {
+        reverse_proxy web:3000
+    }
 }
 
 # Canonical host, including old HTTP IP links posted in Discord.
@@ -35,7 +64,7 @@ www.{$SITE_DOMAIN}, http:// {
         X-Frame-Options DENY
         Strict-Transport-Security "max-age=31536000"
         # Inline styles are used by the SVG effects and generated dust particles.
-        Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; connect-src 'self'; frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     }
 
     # The app shares a routing hint, never a credential, on .duelingdomain.com.
@@ -60,10 +89,16 @@ www.{$SITE_DOMAIN}, http:// {
     handle @waitlist {
         reverse_proxy web:3000
     }
+    import posthog_ingest
     handle /login {
         redir https://{$SITE_DOMAIN}/login 302
     }
+    @notFound path /404 /404.html
+    handle @notFound {
+        error 404
+    }
     handle {
+        encode zstd gzip
         # Files aren't fingerprinted; browsers revalidate after a short cache.
         header ?Cache-Control "public, max-age=300, must-revalidate"
         @media {
@@ -75,11 +110,17 @@ www.{$SITE_DOMAIN}, http:// {
         header @fonts Cache-Control "public, max-age=31536000"
         @manifest path /site.webmanifest
         header @manifest Content-Type "application/manifest+json"
+        @llms path /llms.txt
+        header @llms Content-Type "text/plain; charset=utf-8"
+        templates @marketingHome {
+            mime text/html
+        }
         try_files {path} {path}.html {path}/index.html =404
         file_server
     }
     handle_errors 404 {
         header Cache-Control "no-store"
+        header X-Robots-Tag "noindex"
         rewrite * /404.html
         file_server
     }

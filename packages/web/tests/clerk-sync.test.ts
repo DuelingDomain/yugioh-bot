@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { createUserService } from "@yugidraft/shared/services";
@@ -14,8 +15,8 @@ it("fetches outside a transaction and retries external ID repair twice", async (
  const outcome = await syncClerkUser("user_sync"); expect(outcome.user.clerkUserId).toBe("user_sync"); await vi.waitFor(() => expect(s.update).toHaveBeenCalledTimes(3)); expect(s.update).toHaveBeenLastCalledWith("user_sync", String(outcome.user.id));
 });
 it("does not fail a committed sync if external ID repair remains unavailable", async () => {
- s.update.mockRejectedValue(new Error("secret or identity must never be logged")); const log = vi.spyOn(console, "warn").mockImplementation(() => {});
- try { const result = await syncClerkUser("user_sync"); expect(createUserService(s.db!).findById(result.user.id)?.clerkUserId).toBe("user_sync"); await vi.waitFor(() => expect(log).toHaveBeenCalledExactlyOnceWith("[clerk-sync] External identity repair failed")); expect(s.update).toHaveBeenCalledTimes(3); expect(log.mock.calls.flat().join(" ")).not.toContain("secret or identity"); } finally { log.mockRestore(); }
+ s.update.mockRejectedValue(new Error("secret or identity must never be logged")); const log = recording.log.mockClear().mockImplementation(() => {});
+ try { const result = await syncClerkUser("user_sync"); expect(createUserService(s.db!).findById(result.user.id)?.clerkUserId).toBe("user_sync"); await vi.waitFor(() => expect(log).toHaveBeenCalledExactlyOnceWith("warn", "[clerk-sync] External identity repair failed", {})); expect(s.update).toHaveBeenCalledTimes(3); expect(log.mock.calls.flat().join(" ")).not.toContain("secret or identity"); } finally { log.mockRestore(); }
 });
 it("clears an unsuccessful in-flight request so a later request can retry", async () => {
  s.get.mockRejectedValueOnce(new Error("failed")); await expect(syncClerkUser("user_sync")).rejects.toThrow("failed"); expect((await syncClerkUser("user_sync")).user.clerkUserId).toBe("user_sync"); expect(s.get).toHaveBeenCalledTimes(2);
@@ -86,4 +87,17 @@ it("returns the committed outcome while external ID repair is still pending", as
   expect(result).not.toBeNull();
   expect(createUserService(s.db!).findById(result!.user.id)?.clerkUserId).toBe("user_sync");
  } finally { finishRepair(json); await sync; }
+});
+
+const recording = useRecordingObservability();
+it.each([null, "900000000000000999"])("does not restore stale recovery metadata over a local Discord link of %s", async current => {
+ const users = createUserService(s.db!);
+ const existing = users.ensureDiscord({ discordUserId: "900000000000000101", displayName: "Original" });
+ users.claimExistingDiscordUser(existing.id, existing.discordUserId!, "user_sync");
+ s.db!.prepare("insert into players(guild_id,user_id,discord_user_id,display_name) values('g',?,?,?)").run(existing.id, current, "Original");
+ s.db!.prepare("update users set discord_user_id=? where id=?").run(current, existing.id);
+ s.get.mockResolvedValue({ ...json, external_id: String(existing.id), private_metadata: { existingPlayerDiscordId: "900000000000000101" } });
+ expect((await syncClerkUser("user_sync")).user.discordUserId).toBeNull();
+ expect(s.db!.prepare("select discord_user_id from players").get()).toEqual({ discord_user_id: null });
+ expect(users.findByDiscordId("900000000000000101")).toBeUndefined();
 });

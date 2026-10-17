@@ -384,6 +384,10 @@
 .bpills { pointer-events: none; }
 
 .bpill {
+  /* A button when the stage passes `zoom` (the zoom toggle): drop the button chrome, keep the plate look. */
+  margin: 0;
+  font: inherit;
+  appearance: none;
   position: absolute;
   left: 0;
   top: 0;
@@ -405,6 +409,68 @@
   white-space: nowrap;
   pointer-events: none;
 }
+
+/* The plate is the zoom toggle: the whole pill takes the pointer. The hover and focus lift is small (a brighter rim and
+   text, no movement), so the pills still read as labels first; the zoomed pill carries a warm fill. */
+button.bpill {
+  pointer-events: auto;
+  cursor: pointer;
+  color: inherit;
+  transition: border-color 0.15s, filter 0.15s;
+}
+
+button.bpill:hover:not(:disabled),
+button.bpill:focus-visible {
+  border-color: rgb(var(--c) / 0.95);
+  filter: brightness(1.3);
+}
+
+button.bpill:hover:not(:disabled) span,
+button.bpill:focus-visible span {
+  color: #fff;
+}
+
+button.bpill:focus-visible {
+  outline: 3px solid rgb(217 141 82 / 0.95);
+  outline-offset: 5px;
+}
+
+button.bpill:disabled { cursor: default; }
+
+/* The pill of the field in close-up: warm accent fill and rim, whatever the turn state. */
+button.bpill[data-zoomed="true"] {
+  border-color: rgb(217 141 82);
+  background: linear-gradient(rgb(217 141 82 / 0.3), rgb(217 141 82 / 0.3)), rgb(8 12 22 / 0.94);
+}
+
+button.bpill[data-zoomed="true"] span { color: #f6d9bd; }
+
+/* Targets for the open prompt or aim sit on a field out of view: a soft gold dot after the name that pulses slowly. The camera
+   does not move; the viewer presses the pill. */
+.bhint {
+  flex: none;
+  margin-left: -4px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: rgb(240 192 96);
+  box-shadow: 0 0 0 4px rgb(240 192 96 / 0.3), 0 0 14px rgb(240 192 96 / 0.8);
+  animation: bhintPulse 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+button.bpill[data-targets="true"] { border-color: rgb(240 192 96 / 0.85); }
+
+@keyframes bhintPulse {
+  0%, 100% { transform: scale(1); opacity: 0.95; }
+  50% { transform: scale(1.35); opacity: 0.6; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bhint { animation: none; }
+}
+
+.bhint[data-calm="true"] { animation: none; }
 
 .bpill b {
   flex: none;
@@ -728,6 +794,9 @@
   gap: calc(5 * var(--u));
 }
 
+/* One grid cell per member: the chip and, beside it, the rival's Deck Master thumb. */
+.mchipWrap { position: relative; min-width: 0; }
+
 .mchip {
   position: relative;
   min-width: 0;
@@ -737,6 +806,18 @@
   border-left: 3px solid rgb(var(--seat));
   background: rgb(var(--seat) / 0.07);
   transition: box-shadow 0.3s;
+}
+
+/* The Deck Master portrait badge, in a reserved gap at the chip's right end (it never covers the clock). */
+.mchipWrap[data-has-badge="true"] .mchip { padding-right: calc(36 * var(--u)); }
+/* The Deck Master portrait badge, on the chip's right. It sizes itself from --dm-badge-size; its state pill is hidden by data-dm-compact (the pop-over says it). */
+.mbadge {
+  --dm-badge-size: calc(34 * var(--u));
+  position: absolute;
+  z-index: 2;
+  right: calc(4 * var(--u));
+  top: 50%;
+  translate: 0 -50%;
 }
 
 .m1 {
@@ -806,6 +887,11 @@
   color: var(--ink);
   border-color: rgb(var(--seat) / 0.7);
   background: rgb(var(--seat) / 0.15);
+}
+
+.clk[data-low="true"] {
+  color: var(--duel-loss-ink, #ff9489);
+  border-color: rgb(255 148 137 / 0.7);
 }
 
 .mchip[data-now="true"] {
@@ -1276,6 +1362,26 @@
   pointer-events: none;
 }
 
+/* ---------- slim bars (wide screens) ----------
+   The bigger field: a team plate is one slim row (team, state and life points on one line, then the two member chips, each on one line),
+   so the plates take less height and the roof gets the room. The hands are a little larger, and the field takes the
+   rest of the stage (see measure() in tag-stage.tsx). */
+@media (min-width: 901px) {
+  .plate { gap: calc(8 * var(--u)); padding: calc(3 * var(--u)) calc(6 * var(--u)) calc(3 * var(--u)) calc(9 * var(--u)); }
+  .pmain { display: flex; align-items: center; gap: calc(10 * var(--u)); min-width: 0; }
+  .pr1 { height: auto; gap: 6px; }
+  .pr1 .glyph { font-size: calc(14 * var(--u)); }
+  .tstate { margin-left: 0; }
+  .pr2 { margin: 0; --lp-size: calc(21 * var(--u)); }
+  .mchip { display: flex; align-items: center; gap: calc(8 * var(--u)); }
+  .m2 { margin-top: 0; }
+  .clk { margin-left: 0; }
+  .mbadge { --dm-badge-size: calc(34 * var(--u)); right: calc(3 * var(--u)); }
+  .handDock { height: calc(117 * var(--u)); }
+  .hcard { width: calc(65 * var(--u)); }
+  .pcd { width: calc(49 * var(--u)); }
+}
+
 /* ---------- narrow screens: the plate, the own hand and the partner hand stack at the bottom ----------
    No room for them side by side. The plate takes the bottom row; --plate-h and --hand-h come from apply() in tag-stage.tsx. */
 @media (max-width: 900px) {
@@ -1315,6 +1421,21 @@
 .band .bandGrid {
   grid-template-rows: var(--z);
   height: var(--z);
+}
+
+/*
+ * Every prompt panel but the card strip (it has its own measured room, below) grows with the screen, as in the 3-way and 4-way tables: the unit is
+ * 1px on a laptop and up to 1.4px on a 1440p screen, so the type and the card art are larger (the card art is about 90 px high at 1080p). The
+ * viewport is fixed to the screen, so a camera move never scales it. The width of the panel keeps its own rule.
+ */
+.viewport :global([data-prompt-panel]:not([data-strip="true"])) {
+  --duel-unit: clamp(1px, 0.0625vw, 1.4px);
+  --duel-t-xs: calc(max(13px, calc(12 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-sm: calc(max(14px, calc(13 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-body: calc(max(15px, calc(14 * var(--duel-unit))) * var(--tt, 1));
+  --duel-t-head: calc(max(16px, calc(16 * var(--duel-unit))) * var(--tt, 1));
+  --pc-title: calc(clamp(19px, calc(19 * var(--duel-unit)), 28px) * var(--tt, 1));
+  --pc-sub: calc(clamp(15px, calc(15 * var(--duel-unit)), 21px) * var(--tt, 1));
 }
 
 /*

@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 
 const host = vi.hoisted(() => ({ requireDuelActor: vi.fn(), callDuelHost: vi.fn(), duelErrorResponse: vi.fn() }));
-vi.mock("@/lib/duel-host", () => host);
+vi.mock("@/lib/duel-host", async original => ({
+  ...await original<typeof import("../../src/lib/duel-host")>(), ...host,
+}));
 import { POST } from "../../app/api/duels/[slug]/chain-mode/route";
 
 const request = (body: unknown) => new NextRequest("http://test/api/duels/t/chain-mode", {
@@ -41,9 +43,10 @@ describe("POST /api/duels/[slug]/chain-mode", () => {
 
   it("lets a failed room lookup answer through duelErrorResponse", async () => {
     actor(() => { throw new Error("Duel not found"); });
-    host.duelErrorResponse.mockReturnValue(NextResponse.json({ error: "Duel not found" }, { status: 404 }));
+    host.duelErrorResponse.mockReturnValue(NextResponse.json({ error: "Not found", code: "ACCESS_DENIED" }, { status: 404 }));
     const response = await POST(request({ mode: "off" }), params);
     expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Not found", code: "ACCESS_DENIED" });
     expect(host.callDuelHost).not.toHaveBeenCalled();
   });
 

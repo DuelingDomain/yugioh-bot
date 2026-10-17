@@ -114,6 +114,19 @@ describe("the strip", () => {
     expect(strip(container)?.getAttribute("aria-label")).toContain("Mystical Space Typhoon");
   });
 
+  it.each([false, true])("labels another player's card with its activator in the chain sheet (history=%s)", (history) => {
+    const card = info(80921533, "Mausoleum of the Emperor", "Each player can pay LP to Normal Summon.", 2);
+    const zone = z(1, SZONE, 5);
+    const events = history ? [activate(1, 0, card, zone)] : [];
+    const chain: DuelChainLink[] = history ? [] : [{ index: 1, seat: 0, code: card.code, name: card.name, zone }];
+    const { container } = render(stripped(events, { chain, playerName: (seat) => ["Alice", "Bob"][seat], mySeat: null }));
+    flush(60);
+    act(() => { fireEvent.click(strip(container)!); });
+    expect(hero(container)?.textContent).toContain("Mausoleum of the Emperor");
+    expect(hero(container)?.textContent).toContain("Alice");
+    expect(hero(container)?.textContent).not.toContain("Bob");
+  });
+
   it("does not reveal the name, art or text of a source absent from the viewer's redacted board", () => {
     const seats = structuredClone(FFA4_FIXTURES.states["chain-2"].room.engine!.seats);
     seats[1].spells[1] = { ...z(1, SZONE, 1), position: 8 };

@@ -32,7 +32,6 @@ export function initialCamera(layout: TableLayout, partial: Partial<CameraState>
     mode: "home",
     focusSeat: null,
     lookSeat: null,
-    upright: false,
     compact: "auto",
     fly: FLY_HOME,
     lock: null,
@@ -162,8 +161,6 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
       if (state.mode !== "fly") return state;
       return { ...state, fly: { ...state.fly, zoom: clamp(state.fly.zoom * action.factor, ZOOM_MIN, ZOOM_MAX), free: true } };
     }
-    case "toggleUpright":
-      return { ...state, upright: !state.upright };
     case "toggleCompact":
       return { ...state, compact: state.compact === "auto" ? "on" : state.compact === "on" ? "off" : "auto" };
     case "lock": {
@@ -238,8 +235,6 @@ export function cameraActionForKey(
       return { type: "overview" };
     case "f":
       return { type: "toggleFly" };
-    case "s":
-      return { type: "toggleUpright" };
     case "e":
       // 3-way: enlarge your own field, or go back from it. The reducer ignores it on any other table.
       return layout.format === "ffa3" ? { type: "enlarge", seat: layout.anchorSeat } : null;

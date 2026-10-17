@@ -1,3 +1,4 @@
+import { report } from "@yugidraft/shared/observability";
 import { duelFxClock } from "../fx-clock";
 import * as THREE from "three";
 import { battleSeekMs, joinBattleClock } from "../battle-clock";
@@ -140,7 +141,7 @@ export class Fx3dEngine implements Fx3dApi {
     try {
       instance = factory(env, request);
     } catch (error) {
-      console.warn("[fx3d] effect failed to start", id, error);
+      report(error, { tags: { operation: "[fx3d] effect failed to start" } });
       return Promise.resolve();
     }
     if (request.artCode) this.art.prefetch(request.artCode);
@@ -199,7 +200,7 @@ export class Fx3dEngine implements Fx3dApi {
       } else this.renderer.compile(scene, this.camera);
       if (!this.disposed && !this.lost) this.prepareBattle(scene);
     } catch (error) {
-      if (!this.disposed) console.warn("[fx3d] battle warm-up failed", error);
+      if (!this.disposed) report(error, { tags: { operation: "[fx3d] battle warm-up failed" } });
     } finally {
       if (!this.disposed) {
         for (const { name, mesh } of meshes) this.kit.releaseMesh(name, mesh);
@@ -224,7 +225,7 @@ export class Fx3dEngine implements Fx3dApi {
       this.renderer.render(scene, this.camera);
       this.renderer.clear();
     } catch (error) {
-      console.warn("[fx3d] battle preparation failed", error);
+      report(error, { tags: { operation: "[fx3d] battle preparation failed" } });
     } finally {
       this.renderer.setViewport(viewport);
       this.renderer.setScissor(scissor);
@@ -291,7 +292,7 @@ export class Fx3dEngine implements Fx3dApi {
           shakeRot += s.rot * run.shake;
         }
       } catch (error) {
-        console.warn("[fx3d] effect failed", error);
+        report(error, { tags: { operation: "[fx3d] effect failed" } });
         this.finish(run);
       }
     }
@@ -307,7 +308,7 @@ export class Fx3dEngine implements Fx3dApi {
       if (postSec != null && this.post.render(this.scene, this.camera, postSec, this.view.w / this.view.h)) return;
       this.renderer.render(this.scene, this.camera);
     } catch (error) {
-      console.warn("[fx3d] render failed", error);
+      report(error, { tags: { operation: "[fx3d] render failed" } });
     }
   }
 

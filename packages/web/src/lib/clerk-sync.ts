@@ -1,3 +1,4 @@
+import { log } from "@yugidraft/shared/observability";
 import { createClerkBackend, ClerkBackendError, profileFromClerkUser } from "@yugidraft/shared/clerk";
 import { createUserService, type LinkOutcome } from "@yugidraft/shared/services";
 import { getDb } from "./db";
@@ -15,7 +16,13 @@ export function syncClerkUser(clerkUserId: string): Promise<LinkOutcome> {
     // Remote I/O must finish before the shared service acquires SQLite's writer lock.
     const json = await backend.getUser(clerkUserId);
     if (!json || json.id !== clerkUserId) throw new ClerkBackendError("Clerk user is unavailable", 0, "missing_user", null);
-    const outcome = createUserService(getDb()).resolveClerkProfile(profileFromClerkUser(json));
+    const users = createUserService(getDb());
+    const profile = profileFromClerkUser(json);
+    const current = users.findByClerkId(clerkUserId);
+    const hasDiscord = json.external_accounts.some(account => account.provider === "oauth_discord" && account.verification?.status === "verified");
+    // Bootstrap metadata preserves a current link; it cannot restore a removed one.
+    if (!hasDiscord && current && current.discordUserId !== profile.discordUserId) profile.discordUserId = null;
+    const outcome = users.resolveClerkProfile(profile);
     // Recovery metadata bootstraps the link until Clerk owns it; then unlinking
     // the external account must also revoke application recovery.
     const recoveredDiscord = json.private_metadata?.existingPlayerDiscordId;
@@ -27,7 +34,7 @@ export function syncClerkUser(clerkUserId: string): Promise<LinkOutcome> {
       void (async () => {
         for (let attempt = 0; attempt < 3; attempt++) {
           try { await backend.updateUserExternalId(clerkUserId, String(outcome.user.id)); break; }
-          catch { if (attempt === 2) console.warn("[clerk-sync] External identity repair failed"); }
+          catch { if (attempt === 2) log("warn", "[clerk-sync] External identity repair failed"); }
         }
       })().catch(() => {});
     }

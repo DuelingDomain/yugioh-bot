@@ -2,7 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest, type NextMiddleware, type NextFetchEvent } from "next/server";
 import { E2E_SESSION_COOKIE, isE2EAuthEnabled, verifyE2ESession } from "@/lib/e2e-auth";
 import { fxLabEnabled, isFxLabPublicPath } from "@/lib/fx-lab";
-const PUBLIC = ["/sign-in(.*)", "/sign-up(.*)", "/sso-callback(.*)", "/welcome-back", "/access", "/login", "/favicon.ico", "/icon.svg", "/apple-icon.png", "/icons/(.*)"];
+const PUBLIC = ["/sign-in(.*)", "/sign-up(.*)", "/sso-callback(.*)", "/welcome-back", "/monitoring", "/access", "/login", "/favicon.ico", "/icon.svg", "/apple-icon.png", "/icons/(.*)"];
 const isPublic = createRouteMatcher(PUBLIC);
 function beforeAuth(request: NextRequest): Response | null {
   const path = request.nextUrl.pathname;
@@ -14,7 +14,8 @@ function beforeAuth(request: NextRequest): Response | null {
   return null;
 }
 function unauthorized(request: NextRequest) {
-  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401,
+    headers: { "cache-control": "private, no-store" } });
   const url = new URL("/sign-in", request.url);
   url.searchParams.set("redirect_url", request.nextUrl.pathname + request.nextUrl.search);
   return NextResponse.redirect(url);
@@ -22,6 +23,10 @@ function unauthorized(request: NextRequest) {
 // Construct Clerk lazily: an E2E request must never initialize its middleware.
 let clerkProxy: NextMiddleware | undefined;
 export default async function proxy(request: NextRequest, event: NextFetchEvent) {
+  if (request.nextUrl.pathname === "/monitoring") return NextResponse.next();
+  // Clerk calls this signed endpoint without a browser session. Do not initialize
+  // session middleware here; the route verifies the signature before any writes.
+  if (request.method === "POST" && request.nextUrl.pathname === "/api/webhooks/clerk") return NextResponse.next();
   // Disabled test endpoints remain unavailable even when Clerk cannot initialize.
   if (request.nextUrl.pathname.startsWith("/api/test-auth/") && !isE2EAuthEnabled()) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });

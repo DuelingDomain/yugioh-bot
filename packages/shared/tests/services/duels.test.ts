@@ -741,6 +741,7 @@ describe("duel snapshots archive and cancel", () => {
     expect(cancelled.endedAt).toBeTruthy();
     expect(cancelled.archivedAt).toBeTruthy();
     expect(app.duels.room(session.slug, "g1", app.p1).clock).toBeNull();
+    expect(app.db.prepare("select turn_count from duels where id=?").get(session.id)).toEqual({ turn_count: 5 });
     expect(app.duels.cancel(session.slug, "g1", app.p1)).toEqual(cancelled);
     app.db.close();
   });
@@ -1258,4 +1259,47 @@ describe("rock-paper-scissors opening", () => {
     expect(duels.openingState(slug, "g1")).toBeNull();
     expect(duels.room(slug, "g1", p1).opening).toBeNull();
   });
+});
+
+describe("terminal turn counts", () => {
+  it("stores a 1v1 complete turn before clearing the live clock", () => {
+    const app = setup(); const duel = readyDuel(app); start(app, duel.slug);
+    app.duels.complete(duel.slug, "g1", 0, "Finished", { public: { ...board(null), turn: 8 }, seat0: board(0), seat1: board(1) });
+    expect(app.db.prepare("select turn_count,clock_json from duels where id=?").get(duel.id)).toEqual({ turn_count: 8, clock_json: null });
+    app.db.close();
+  });
+  it("stores an interrupted turn when only a clock exists", () => {
+    const app = setup(); const duel = readyDuel(app); start(app, duel.slug);
+    app.db.prepare("update duels set clock_json=? where id=?").run(JSON.stringify({ turn: 9, remainingMs: [60000, 60000], activeSeat: 0, startedAt: Date.now() }), duel.id);
+    app.duels.interrupt(duel.slug, "g1", "Interrupted");
+    expect(app.db.prepare("select turn_count,clock_json from duels where id=?").get(duel.id)).toEqual({ turn_count: 9, clock_json: null });
+    app.db.close();
+  });
+  it("stores the supplied live turn on untimed active cancellation", () => {
+    const app = setup(); const duel = readyDuel(app); start(app, duel.slug);
+    app.db.prepare("update duels set series_id=null,ranked=0,clock_json=null where id=?").run(duel.id);
+    app.duels.cancel(duel.slug, "g1", app.p1, 10);
+    expect(app.db.prepare("select turn_count,clock_json from duels where id=?").get(duel.id)).toEqual({ turn_count: 10, clock_json: null });
+    app.db.close();
+  });
+});
+
+it.each(["completed", "interrupted"] as const)("records a live duel ending %s with application identity and bounded props once", endedBy => {
+  const app = setup();
+  try {
+    const { slug } = readyDuel(app);
+    app.db.exec("create trigger reject_event before insert on product_events when new.name='duel_started' begin select raise(abort, 'record failed'); end");
+    expect(() => start(app, slug)).toThrow("record failed");
+    expect(app.duels.get(slug, "g1").status).toBe("lobby");
+    app.db.exec("drop trigger reject_event");
+    app.duels.setSetup(slug, "g1", { engine: "pinned" });
+    start(app, slug);
+    const finish = () => endedBy === "completed" ? app.duels.complete(slug, "g1", 0, "Private reason", { public: board(null) })
+      : app.duels.interrupt(slug, "g1", "Private reason", { public: board(null) });
+    finish(); finish();
+    expect(app.db.prepare("select name,user_id,props_json from product_events order by id").all()).toEqual([
+      { name: "duel_started", user_id: seedUser(app.db, "u1").userId, props_json: '{"mode":"normal","format":"1v1","seatCount":2,"engine":"pinned"}' },
+      { name: "duel_finished", user_id: seedUser(app.db, "u1").userId, props_json: JSON.stringify({ mode: "normal", format: "1v1", seatCount: 2, engine: "pinned", endedBy, turnCount: 1 }) },
+    ]);
+  } finally { app.db.close(); }
 });

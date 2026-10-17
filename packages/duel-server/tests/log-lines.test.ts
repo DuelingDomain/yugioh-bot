@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
-import type { DuelCardInfo, DuelFormat, DuelSummonKind } from "@yugidraft/shared/duels";
-import { OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
+import { describe, expect, it, vi } from "vitest";
+import { seatCountFor, type DuelCardInfo, type DuelFormat, type DuelSummonKind } from "@yugidraft/shared/duels";
+import { OcgLocation, OcgMessageType, OcgPosition, type OcgCardQueryInfo, type OcgCoreSync, type OcgDuelHandle, type OcgMessage } from "ocgcore-wasm";
 import type { CardDatabase } from "../src/cards.js";
-import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines, type LogLine } from "../src/log-lines.js";
+import { createLogCardVisibility, destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleTargetCardCodes, type LogLine } from "../src/log-lines.js";
+import { createRevealMap, noteReveal } from "../src/views.js";
 
 const NAMES: Record<number, string> = { 1: "Stardust Dragon", 2: "Mystical Space Typhoon", 3: "Pot of Greed", 4: "Man-Eater Bug" };
 const info = (code: number): DuelCardInfo => ({
@@ -25,6 +26,141 @@ const summon = (type: OcgMessageType.SUMMONING | OcgMessageType.SPSUMMONING | Oc
 function seen(lines: LogLine[], viewer: number | null): string[] {
   return lines.filter((line) => line.audience === "all" || line.audience === viewer).map((line) => line.text);
 }
+
+describe("lazy hint visibility", () => {
+  it("normalizes escaped placeholders without any visibility lookup", () => {
+    const isKnown = vi.fn();
+    expect(hintLogLine(1n, 2, { ...cards, resolveLabel: () => "  Choose  [%%ls].  " }, { viewers: [0, 1, null], isKnown }))
+      .toEqual({ text: "Choose [%ls].", audience: "all" });
+    expect(isKnown).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "Choose an effect.", "[%ls]", "Stardust Dragon", "Stardust Dragon: [%ls]"])("looks up only codes affecting %j", (template) => {
+    const isKnown = vi.fn((viewer: number | null, code: number) => viewer === 0 && code === 1);
+    const database = { ...cards, resolveLabel: () => template };
+    const line = hintLogLine(1n, 2, database, { viewers: [0, 1, null], isKnown });
+    if (!template) {
+      expect(line).toBeUndefined();
+    } else {
+      expect(line).toEqual({
+        text: template.replaceAll("Stardust Dragon", "a card").replaceAll("%ls", "a card"), audience: "all",
+        ...(template.includes("Stardust Dragon") ? { privateText: { 0: template.replaceAll("%ls", "a card") } } : {}),
+      });
+    }
+    const expectedCodes = [
+      ...(template.includes("Stardust Dragon") ? [1] : []), ...(template.includes("%ls") ? [2] : []),
+    ];
+    for (const viewer of [null, 0, 1]) {
+      expect(isKnown.mock.calls.filter(([seat]) => seat === viewer).map(([, code]) => code)).toEqual(expectedCodes);
+    }
+  });
+
+  it("uses announced identities without queries and reference-counts their expiry", () => {
+    const duelQueryLocation = vi.fn(() => []);
+    const visibility = createLogCardVisibility({
+      lib: { duelQueryLocation } as unknown as OcgCoreSync, handle: {} as OcgDuelHandle,
+      format: "ffa4", reveals: createRevealMap(4), deckMasters: [1], queryCache: new Map(),
+    });
+    const event = { id: 1, kind: "set" as const, text: "", publicText: "", card: info(2), revealCardTo: [0, 3] };
+    visibility.addEvent(event);
+    visibility.addEvent({ ...event, id: 2 });
+    for (const viewer of visibility.viewers) expect(visibility.isKnown(viewer, 1)).toBe(true);
+    for (const viewer of [0, 3]) expect(visibility.isKnown(viewer, 2)).toBe(true);
+    visibility.removeEvent(event);
+    expect(visibility.isKnown(3, 2)).toBe(true);
+    expect(duelQueryLocation).not.toHaveBeenCalled();
+    for (const viewer of [1, 2, null]) expect(visibility.isKnown(viewer, 2)).toBe(false);
+    visibility.removeEvent(event);
+    expect(visibility.isKnown(3, 2)).toBe(false);
+    expect(duelQueryLocation).toHaveBeenCalledTimes(28);
+  });
+
+  it("stops at a visible match, ignores unrelated cards, shares target queries and rechecks reveals", () => {
+    const unrelated = { code: 3, get position(): OcgPosition { throw new Error("Unrelated card visibility was inspected"); } };
+    const duelQueryLocation = vi.fn(() => [unrelated, { code: 2, position: OcgPosition.FACEDOWN_DEFENSE }]);
+    const reveals = createRevealMap(4);
+    const queryCache = new Map();
+    const args = { lib: { duelQueryLocation } as unknown as OcgCoreSync, handle: {} as OcgDuelHandle,
+      format: "ffa4" as const, reveals, deckMasters: [], queryCache };
+    const visibility = createLogCardVisibility(args);
+    const zone = { controller: 0, location: OcgLocation.DECK, sequence: 1 };
+    noteReveal(reveals, 3, 0, zone.location, zone.sequence, 2);
+    expect(visibility.isKnown(3, 2)).toBe(true);
+    expect(duelQueryLocation).toHaveBeenCalledTimes(1);
+    expect([...visibleTargetCardCodes(args, zone)]).toEqual([[3, 2]]);
+    expect(duelQueryLocation).toHaveBeenCalledTimes(1);
+    noteReveal(reveals, 1, 0, zone.location, zone.sequence, 2);
+    expect(visibility.isKnown(1, 2)).toBe(true);
+    expect(duelQueryLocation).toHaveBeenCalledTimes(1);
+    queryCache.clear();
+    duelQueryLocation.mockReturnValue([]);
+    expect(visibility.isKnown(3, 2)).toBe(false);
+    expect(duelQueryLocation).toHaveBeenCalledTimes(29);
+  });
+});
+
+describe("target slot visibility", () => {
+  const zone = { controller: 0, location: OcgLocation.MZONE, sequence: 5 };
+  function snapshot(query: Partial<OcgCardQueryInfo> | null, location: number = OcgLocation.MZONE, format: DuelFormat = "1v1", revealTo?: number) {
+    const queries = Array.from({ length: 6 }, (_, sequence) => sequence === 5 ? query : null);
+    const lib = { duelQueryLocation: () => queries } as unknown as OcgCoreSync;
+    const reveals = createRevealMap(seatCountFor(format));
+    if (revealTo != null) noteReveal(reveals, revealTo, 0, location, 5, 70781052);
+    return visibleTargetCardCodes({ lib, handle: {} as OcgDuelHandle, format, reveals }, { ...zone, location });
+  }
+
+  it("names an MR5 Extra Monster Zone target only for viewers who can see its query", () => {
+    expect([...snapshot({ code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE })]).toEqual([[0, 70781052]]);
+    expect([...snapshot({ code: 70781052, position: OcgPosition.FACEUP_ATTACK })]).toEqual([[0, 70781052], [1, 70781052], [null, 70781052]]);
+  });
+
+  it.each([0, OcgPosition.FACEUP_ATTACK | OcgPosition.FACEDOWN_DEFENSE])("keeps unproven query position %i private", (position) => {
+    expect([...snapshot({ code: 70781052, position: position as OcgPosition })]).toEqual([[0, 70781052]]);
+  });
+
+  it("fails closed for missing cards and non-queryable Domain or overlay locations", () => {
+    expect([...snapshot(null)]).toEqual([]);
+    for (const location of [0, 0x4000, OcgLocation.MZONE | OcgLocation.OVERLAY]) {
+      expect([...snapshot({ code: 70781052, position: OcgPosition.FACEUP_ATTACK }, location)]).toEqual([]);
+    }
+  });
+
+  it("honors public queries and viewer-scoped confirmations", () => {
+    const hidden = { code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE };
+    expect([...snapshot({ ...hidden, isPublic: true })]).toEqual([[0, 70781052], [1, 70781052], [null, 70781052]]);
+    expect([...snapshot(hidden, OcgLocation.MZONE, "1v1", 1)]).toEqual([[0, 70781052], [1, 70781052]]);
+  });
+
+  it("gives Tag partners Set and hand identities while keeping the Extra Deck private", () => {
+    const hidden = { code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE };
+    for (const location of [OcgLocation.MZONE, OcgLocation.HAND]) {
+      expect([...snapshot(hidden, location, "tag")]).toEqual([[0, 70781052], [2, 70781052]]);
+    }
+    expect([...snapshot(hidden, OcgLocation.EXTRA, "tag")]).toEqual([[0, 70781052]]);
+  });
+
+  it("caches raw zone queries while freezing each announcement's own reveal audience", () => {
+    const duelQueryLocation = vi.fn(() => Array.from({ length: 6 }, () => ({
+      code: 70781052, position: OcgPosition.FACEDOWN_DEFENSE,
+    })));
+    const lib = { duelQueryLocation } as unknown as OcgCoreSync;
+    const reveals = createRevealMap(4);
+    const queryCache = new Map();
+    const args = { lib, handle: {} as OcgDuelHandle, format: "ffa4" as const, reveals, queryCache };
+    const before = visibleTargetCardCodes(args, zone);
+    noteReveal(reveals, 3, 0, zone.location, zone.sequence, 70781052);
+    const after = visibleTargetCardCodes(args, zone);
+    expect([...before]).toEqual([[0, 70781052]]);
+    expect([...after]).toEqual([[0, 70781052], [3, 70781052]]);
+    expect(duelQueryLocation).toHaveBeenCalledTimes(1);
+    queryCache.clear();
+    duelQueryLocation.mockReturnValue([]);
+    expect([...visibleTargetCardCodes(args, zone)]).toEqual([]);
+    expect([...visibleTargetCardCodes(args, zone)]).toEqual([]);
+    expect(duelQueryLocation).toHaveBeenCalledTimes(2);
+    expect([...after]).toEqual([[0, 70781052], [3, 70781052]]);
+  });
+});
 
 describe("summon log lines", () => {
   it.each<[DuelSummonKind, string]>([
@@ -57,6 +193,12 @@ describe("summon log lines", () => {
       expect(seen(lines, 0)).toEqual(["Player 1 Special Summons a face-down monster", "Player 1 Special Summons Stardust Dragon"]);
       expect(lines.map((line) => line.text).join(" ")).not.toMatch(/Synchro|Xyz|Ritual/);
     }
+  });
+
+  it("does not publish a summon identity when the position is unknown", () => {
+    const lines = summonLogLines(summon(OcgMessageType.SPSUMMONING, 0 as OcgPosition), cards, "fusion");
+    for (const viewer of [1, null]) expect(seen(lines, viewer)).toEqual(["Player 1 Special Summons a monster"]);
+    expect(seen(lines, 0)).toContain("Player 1 Special Summons Stardust Dragon");
   });
 });
 
@@ -137,6 +279,7 @@ describe("move log lines", () => {
   it("says banished for a face-up banish and nothing for a face-down one", () => {
     expect(seen(moveLogLines(move(1, field, at(0, OcgLocation.REMOVED, 0, OcgPosition.FACEUP_ATTACK)), cards, "1v1"), 1)).toEqual(["Player 1's Stardust Dragon was banished"]);
     expect(moveLogLines(move(1, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.REMOVED, 0, OcgPosition.FACEDOWN_ATTACK)), cards, "1v1")).toEqual([]);
+    expect(moveLogLines(move(1, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.REMOVED, 0, 0 as OcgPosition)), cards, "1v1")).toEqual([]);
   });
 
   it("marks only public banished field departures for a possible destruction rewrite", () => {
@@ -182,9 +325,22 @@ describe("move log lines", () => {
 
   it("names a Deck Master leaving the Deck Master Zone, which the core reports as location 0", () => {
     const master = at(0, 0 as OcgLocation, 0);
-    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.GRAVE, 0)), cards, "1v1"), 1)).toEqual(["Player 1's Stardust Dragon was sent to the Graveyard"]);
-    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.REMOVED, 0)), cards, "1v1"), null)).toEqual(["Player 1's Stardust Dragon was banished"]);
-    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.HAND, 0)), cards, "1v1"), 1)).toEqual(["Stardust Dragon was added to Player 1's hand"]);
+    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.GRAVE, 0)), cards, "1v1", [1]), 1)).toEqual(["Player 1's Stardust Dragon was sent to the Graveyard"]);
+    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.REMOVED, 0)), cards, "1v1", [1]), null)).toEqual(["Player 1's Stardust Dragon was banished"]);
+    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.HAND, 0)), cards, "1v1", [1]), 1)).toEqual(["Stardust Dragon was added to Player 1's hand"]);
+  });
+
+  it("does not treat an unplaced card as a public Deck Master just because its source is 0", () => {
+    const unplaced = at(0, 0 as OcgLocation, 0);
+    const lines = moveLogLines(move(4, unplaced, at(0, OcgLocation.HAND, 0)), cards, "1v1", [1]);
+    expect(seen(lines, 0)).toContain("You added Man-Eater Bug to your hand");
+    for (const viewer of [1, null]) expect(seen(lines, viewer)).toEqual(["Player 1 added a card to their hand"]);
+    expect(moveLogLines(move(4, unplaced, at(0, OcgLocation.DECK, 0)), cards, "1v1", [1])).toEqual([]);
+  });
+
+  it.each([OcgLocation.MZONE, OcgLocation.SZONE, OcgLocation.REMOVED, OcgLocation.EXTRA])("requires an explicit face-up position before naming a source in %i", (location) => {
+    const lines = moveLogLines(move(4, at(0, location, 0, 0 as OcgPosition), at(0, OcgLocation.HAND, 0)), cards, "1v1");
+    for (const viewer of [1, null]) expect(seen(lines, viewer).join(" ")).not.toContain("Man-Eater Bug");
   });
 
   it("says nothing for field arrivals and moves within one place", () => {

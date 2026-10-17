@@ -51,13 +51,13 @@
 <main class="privacy-copy" id="privacy">
   <p class="eyebrow">Dueling Domain</p>
   <h1>Privacy</h1>
-  <p class="privacy-date">Last updated: <time datetime="2026-10-12">12 October 2026</time></p>
+  <p class="privacy-date">Last updated: <time datetime="2026-10-17">17 October 2026</time></p>
 
   <h2>Who we are</h2>
   <p>Dueling Domain is an unofficial fan project. You can reach us at <a href="mailto:support@duelingdomain.com">support@duelingdomain.com</a>.</p>
 
   <h2>What we collect on this site</h2>
-  <p>When you join the waitlist, we save your email address, which form you used, your browser's user agent and the time you joined. We use your IP address temporarily in memory to limit repeated submissions; we do not store it with your signup. Our server keeps logs for security, which may include IP addresses. They are kept for a limited time and then deleted automatically. The marketing page also records an anonymous page view through PostHog, without cookies or local storage.</p>
+  <p>When you join the waitlist, we save your email address, which form you used, your browser's user agent and the time you joined. We use your IP address temporarily in memory to limit repeated submissions; we do not store it with your signup. Our server keeps logs for security, which may include IP addresses. They are kept for a limited time and then deleted automatically. When analytics is enabled, the landing page also sends an anonymous page view to PostHog, without analytics cookies or local storage.</p>
 
   <h2>Why we use it</h2>
   <p>We use your waitlist information to send alpha invites and alpha news about Dueling Domain only, and to keep the form working and prevent abuse. We do not sell your information, use it for ads, share it for targeted advertising or market anyone else's products.</p>
@@ -66,7 +66,7 @@
   <p>By submitting a waitlist form, you consent to these alpha emails. Consent is our legal basis for sending them. You can withdraw it at any time by emailing us to unsubscribe or delete your signup. Withdrawing consent does not affect processing that was lawful before you withdrew it.</p>
 
   <h2>Who processes your information</h2>
-  <p>Hetzner hosts the site, the app and their databases on a server in Nuremberg, Germany. Clerk runs sign-in for the app. When you join the waitlist, we pass your email address to Clerk so we can approve you from there, and Clerk sends the waitlist and invite emails. PostHog hosts product analytics in the EU region. Sentry hosts error reports in the EU region. These providers may process information outside your country; the protections available there may differ.</p>
+  <p>Hetzner hosts the site, the app and their databases on a server in Nuremberg, Germany. Clerk runs sign-in for the app. When you join the waitlist, we pass your email address to Clerk so we can approve you from there, and Clerk sends the waitlist and invite emails. PostHog hosts product analytics in the EU region. Sentry hosts error reports and performance traces in the EU region. These providers may process information outside your country; the protections available there may differ. If you play the launch trailer, YouTube (Google) receives your IP address and device information and may store cookies or local storage under Google's privacy policy.</p>
   <!-- FONT-PRIVACY:START -->
   <p>Russo One and Chakra Petch are served from our own host. Loading these fonts does not contact Google or another font provider.</p>
   <!-- FONT-PRIVACY:END -->
@@ -79,12 +79,13 @@
   <p>When you use Report bug, we keep the report with your account. To track the fix, we also post the description you write and technical details (the page, duel state, screen size) as an issue on our public GitHub project. Names are removed from that issue, but anyone can read it, so do not put personal information in the description.</p>
 
   <h2>Analytics and error reports</h2>
-  <p>We use PostHog for product analytics, hosted in the EU region. On some pages, the browser sends anonymous page views without cookies or local storage. We do not use autocapture or session recording. PostHog derives a daily anonymous visitor hash on its server.</p>
-  <p>The app sends events about how drafts, duels, tournaments, cubes, decks and bug reports are used. These events are linked only to your internal numeric account ID. We never send PostHog your email address, username, Discord ID, card names, deck lists or free text. We do not use this data for ads or sell it. Deleting your account also deletes your app analytics data in PostHog.</p>
-  <p>We use Sentry, hosted in the EU region, for error reports from the app and its servers. Reports include technical details of the error: the stack trace, page or route, browser and device type, and release. They are linked only to your internal numeric account ID. Request bodies, cookies, sign-in details and email addresses are removed before sending. Error reports are kept for up to 90 days, then expire on Sentry's retention schedule.</p>
+  <p>When enabled, PostHog receives anonymous page views from the landing page and selected sign-up, access, dashboard, draft, duel, tournament and cube pages in the app. These include your browser's user agent but are not linked to your account. Page addresses use route templates without individual item IDs, query strings or fragments. These page views use no analytics cookies or local storage. We disable automatic click tracking and session recording. Our analytics proxy removes Cookie, Authorization and Referer headers before forwarding requests to PostHog in the EU.</p>
+  <p>Server events cover waitlist joins, account creation, first sign-in and use of drafts, duels, tournaments, cubes, saved decks and bug reports. We also store when you first sign in with your account. Events include their time and ID, your internal numeric account ID (or a random event ID for waitlist joins), and limited properties such as game mode, format, player count, engine, outcome, turns and duration. They do not include email addresses, usernames, Discord IDs, card names, deck lists or text you enter. We do not use analytics for ads or sell it.</p>
+  <p>Events queue in our database for a background worker to send. Worker cleanup removes sent records after seven days and unsent records after thirty days. Deleting your account clears its queued events and queues a request to delete your PostHog person profile and associated events. This request runs in the background.</p>
+  <p>When enabled, Sentry receives error reports and a sample of performance traces from the app and its servers. Reports can include error messages, stack traces, routes, browser and device information, and release details. If an account ID is attached, it is your internal numeric ID. We disable request-body and cookie collection and apply filters for personal fields, full URLs, email addresses and credentials before sending. PostHog analytics and Sentry reports follow each service's configured retention settings.</p>
 
   <h2>Cookies</h2>
-  <p>The marketing page sets no cookies. We use no analytics cookies. The app uses strictly necessary sign-in cookies to keep you signed in and secure your account. It also sets one small cookie, <code>dd_signed_in</code>, on duelingdomain.com while you are signed in, so this site can send you straight to the app. It holds no personal information and is removed when you sign out or delete your account.</p>
+  <p>The marketing page sets no cookies until you press play on the launch trailer. The sign-in pages show the same trailer. On both, pressing play loads an embedded YouTube player in privacy-enhanced mode, which can set cookies; nothing loads from YouTube before that click. We use no analytics cookies. The app uses strictly necessary sign-in cookies to keep you signed in and secure your account. It also sets one small cookie, <code>dd_signed_in</code>, on duelingdomain.com while you are signed in, so this site can send you straight to the app. It holds no personal information and is removed when you sign out or delete your account.</p>
 
   <h2>How long we keep it</h2>
   <p>We keep waitlist emails until the alpha ends or you ask us to delete them, whichever comes first. We delete your waitlist information within 30 days of a request.</p>
@@ -110,6 +111,7 @@
     <p>© 2026 Dueling Domain</p>
     <p><a href="/privacy">Privacy</a></p>
     <p><a href="/terms">Terms</a></p>
+    <p><a href="mailto:support@duelingdomain.com">support@duelingdomain.com</a></p>
   </div>
 </footer>
 </body>

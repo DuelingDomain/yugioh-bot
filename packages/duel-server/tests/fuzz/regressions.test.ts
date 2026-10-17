@@ -10,6 +10,10 @@ import { runAndVerify } from "./run-one.js";
  */
 const REGRESSIONS: Array<Scenario & { defect: string }> = [
   {
+    defect: "privacy-text: Summoned Skull named in a viewer log while hidden",
+    seed: 644659237, mode: "domain", masterRule: 5, maxSteps: 287,
+  },
+  {
     defect: "stale reason_effect: a lost-target destroy read a freed effect (core use-after-free, Lua error)",
     seed: 10, mode: "domain", masterRule: 5, maxSteps: 400,
   },

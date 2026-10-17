@@ -1,6 +1,7 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createHash, createHmac } from "node:crypto";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +16,7 @@ import { GameWorker, type GameOptions } from "../src/worker-client.js";
 import { buildPracticeBotDeck, chooseSurrenderedAnswer } from "../src/practice-bot.js";
 import { resolveCard } from "../src/presets/catalog.js";
 import { compileBoard, type BoardSpec } from "../src/presets/board.js";
-import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
+import { getCurrentEngineResources } from "../src/engine-resource-resolver.js";
 import { loadSource, replaySource, type DuelSource } from "../scripts/lib/replay-source.js";
 import { parseJournalText } from "../scripts/lib/journal-file.js";
 import { loadNSource, replaySeats } from "../scripts/failure-to-scenario.js";
@@ -88,9 +89,11 @@ e:SetCode(EVENT_PHASE_START+PHASE_END)
 e:SetOperation(function() Duel.SelectYesNo(0,30) end)
 Duel.RegisterEffect(e,0)`);
   scripts.push(...extraScripts);
-  service.activate(session.slug, "g", players[0]!, ["1", "2", "3", "4"], pinnedEngineVersion(JSON.parse(readFileSync(`${DATA}/manifest.json`, "utf8")).bundleVersion, count, count > 2 ? activeMultiScriptsHash(DATA) : null),
+  // These fixtures exercise surrender and recovery, including interrupted games without boards.
+  const resources = getCurrentEngineResources(DATA, { mode, format, engine: "pinned" });
+  service.activateRecorded(session.slug, "g", players[0]!, ["1", "2", "3", "4"], resources.bundleVersion,
     { turn: 1, remainingMs: Array(count).fill(60_000), activeSeat: 0, startedAt: Date.now() },
-    { startupScripts: scripts, firstTurnDraw: mode === "domain" });
+    { startupScripts: scripts, firstTurnDraw: mode === "domain", scriptErrorMode: "tolerant" }, resources.identity);
   const workers: TestWorker[] = [];
   let failReplays = false;
   const makeHost = () => {
@@ -103,7 +106,7 @@ Duel.RegisterEffect(e,0)`);
   const post = async (op: string, seat = 0, extra: Record<string, unknown> = {}, expectedStatus = 200) => {
     const raw = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId: players[seat], ...extra });
     const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
-      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+      headers: { ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") } }));
     const data = await response.json() as DuelRoom & { error?: string };
     expect(response.status, data.error).toBe(expectedStatus);
     return data;

@@ -942,22 +942,28 @@
    card thumb. Rows and buttons stay 32px or more high for touch. */
 :global([data-prompt-dense]) .panel { gap: calc(8 * var(--duel-unit, 1px)); padding: calc(10 * var(--duel-unit, 1px)) calc(12 * var(--duel-unit, 1px)); }
 :global([data-prompt-dense]) .titles h2 {
-  font-size: clamp(14px, calc(16 * var(--duel-unit, 1px)), 19px);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: var(--pc-title);
+  line-height: 1.25;
+  /* The title wraps (two lines or more) and is never cut with an ellipsis; text-wrap balance keeps the lines even. */
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  text-wrap: balance;
 }
-:global([data-prompt-dense]) .titles p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:global([data-prompt-dense]) .titles p { font-size: var(--pc-sub); white-space: normal; overflow: visible; text-overflow: clip; text-wrap: pretty; }
 /* The chain-response room (use-strip-room.ts) has its own measured height: the title and the text wrap there, so no word is cut with an ellipsis. */
 :global([data-strip-room]) .panel[data-strip="true"] .titles h2,
 :global([data-strip-room]) .panel[data-strip="true"] .titles p { white-space: normal; overflow: visible; text-overflow: clip; }
 :global([data-prompt-dense]) .rows { gap: calc(4 * var(--duel-unit, 1px)); }
 :global([data-prompt-dense]) .rowMain {
-  min-height: max(34px, calc(40 * var(--duel-unit, 1px)));
+  min-height: max(44px, calc(46 * var(--duel-unit, 1px)));
   padding-block: calc(3 * var(--duel-unit, 1px));
 }
-:global([data-prompt-dense]) .row[data-plain="true"] .rowMain { min-height: max(32px, calc(34 * var(--duel-unit, 1px))); }
-:global([data-prompt-dense]) .rowArt { width: calc(30 * var(--duel-unit, 1px)); }
-:global([data-prompt-dense]) .sourceArt { width: calc(30 * var(--duel-unit, 1px)); }
+:global([data-prompt-dense]) .row[data-plain="true"] .rowMain { min-height: max(40px, calc(40 * var(--duel-unit, 1px))); }
+:global([data-prompt-dense]) .rowArt { width: calc(40 * var(--duel-unit, 1px)); }
+/* The source card is readable art (about 96 to 125 px high from a laptop to a 1440p screen), the recall card the same. */
+:global([data-prompt-dense]) .sourceArt { width: calc(64 * var(--duel-unit, 1px)); }
+:global([data-prompt-dense]) .recall { grid-template-columns: calc(64 * var(--duel-unit, 1px)) minmax(0, 1fr); }
+:global([data-prompt-dense]) .hide { width: calc(30 * var(--duel-unit, 1px)); height: calc(30 * var(--duel-unit, 1px)); }
 :global([data-prompt-dense]) .effect { padding-block: calc(4 * var(--duel-unit, 1px)); }
-:global([data-prompt-dense]) .btn { min-height: max(32px, calc(34 * var(--duel-unit, 1px))); }
+:global([data-prompt-dense]) .btn { min-height: max(40px, calc(40 * var(--duel-unit, 1px))); }

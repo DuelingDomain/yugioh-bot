@@ -15,15 +15,16 @@ import { PositionFx } from "../position-fx";
 import type { PrioritySlot } from "../priority-chips";
 import type { DuelPreferences } from "../preferences";
 import { SummonFx } from "../summon-fx";
-import { tableLayout } from "../table/geometry";
+import { controllerLayout } from "../table/geometry";
 import { toneBySeat } from "../table/seat-state";
 import { SEAT_TONE_HEX, type TableController } from "../table/types";
 import { tagResponseOrder } from "./live-tag";
 import { chainDecidingSeat } from "./use-chain-passes";
 import { withDestroyCards } from "../destroy-cards";
+import { usePreviousSeats, withMasterSummonMoves } from "../master-summon-moves";
 
 /** The part of the live controller the effects read. `TableController` fits, so the shell passes its own. */
-export type TagFxController = Pick<TableController, "engine" | "room" | "viewerSeat" | "nameOf" | "prompt" | "reducedMotion">;
+export type TagFxController = Pick<TableController, "engine" | "room" | "viewerSeat" | "cameraSeat" | "nameOf" | "prompt" | "reducedMotion">;
 
 export interface TagFxProps {
   controller: TagFxController;
@@ -70,13 +71,14 @@ export function tagPriority(engine: DuelEngineView, passed: readonly number[], c
  * board overlay slot. The chain chips use the Tag response order instead of the seat order.
  */
 export function TagFx({ controller, preferences, fxActive = true, passedSeats = [] }: TagFxProps) {
-  const { engine, room, viewerSeat, nameOf, prompt, reducedMotion } = controller;
+  const { engine, room, viewerSeat, cameraSeat, nameOf, prompt, reducedMotion } = controller;
   const events = useMemo(() => dedupeTeamDamage(engine.events), [engine.events]);
+  const previousSeats = usePreviousSeats(engine.seats);
   const layout = useMemo(
-    () => tableLayout("tag", engine, viewerSeat),
+    () => controllerLayout("tag", engine, { viewerSeat, cameraSeat }),
     // The layout depends on who sits where, never on a card: the seat list is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [engine.seats.length, viewerSeat],
+    [engine.seats.length, viewerSeat, cameraSeat],
   );
   const seatTones = useMemo(() => new Map([...toneBySeat(layout)].map(([seat, tone]) => [seat, SEAT_TONE_HEX[tone]])), [layout]);
   const choosing = chainDecidingSeat(engine, prompt);
@@ -90,12 +92,12 @@ export function TagFx({ controller, preferences, fxActive = true, passedSeats = 
     <FxBoundary>
       <CoinTossFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <DuelFeedback events={events} duelKey={duelKey} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={reducedMotion} />
-      <SummonFx events={withDestroyCards(events)} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
-      <MoveFx events={withDestroyCards(events)} duelKey={duelKey} reducedMotion={reducedMotion} />
+      <SummonFx seats={engine.seats} events={withMasterSummonMoves(withDestroyCards(events), previousSeats, engine.seats)} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
+      <MoveFx events={withMasterSummonMoves(withDestroyCards(events), previousSeats, engine.seats)} duelKey={duelKey} reducedMotion={reducedMotion} />
       <PositionFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <ChainFx events={withDestroyCards(events)} chain={engine.chain} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={room.session.status !== "active" || engine.result != null} table="tag" seats={engine.seats} promptOpen={ownPromptOpen(prompt, viewerSeat)} />
       <MasterReturnFx events={events} seats={engine.seats} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} />
-      <BattleFx events={withDestroyCards(events)} seats={engine.seats} reducedMotion={reducedMotion} active aim={null} nameOf={nameOf} />
+      <BattleFx events={withDestroyCards(events)} seats={engine.seats} reducedMotion={reducedMotion} active aim={null} result={engine.result} nameOf={nameOf} />
       <DestroyFx events={withDestroyCards(events)} reducedMotion={reducedMotion} active mySeat={viewerSeat ?? 0} />
     </FxBoundary>
   );

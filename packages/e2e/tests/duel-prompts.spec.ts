@@ -7,7 +7,7 @@ import { FILLER, withFiller } from "../helpers/decks";
 test("a number prompt and an order prompt can be answered and do not stick", async ({ player }) => {
   const alice = await player("p1");
   const bob = await player("p2");
-  await startDuel(alice, bob, "number", { main: withFiller(["Card Advance"], 14) }, { main: withFiller([], 14) });
+  const { slug } = await startDuel(alice, bob, "number", { main: withFiller(["Card Advance"], 14) }, { main: withFiller([], 14) });
 
   await useCard(alice.page, handCard(alice.page, "Card Advance"), "Activate");
   await pickLegalZone(alice.page, "st");
@@ -37,6 +37,7 @@ test("a number prompt and an order prompt can be answered and do not stick", asy
   await expect(order).toHaveCount(0);
   await expect(chainList(alice.page)).toHaveCount(0);
   await endTurn(alice.page, 2);
+  expect((await alice.page.request.post(`/api/duels/${slug}/surrender`)).ok()).toBe(true);
 });
 
 test("a card-name prompt for one duelist and a card pick for the other both work", async ({ player }) => {
@@ -56,7 +57,7 @@ test("a card-name prompt for one duelist and a card pick for the other both work
 
   // Alice names a card by search.
   await alice.page.getByLabel("Search card name").fill("Celtic Guardian");
-  await alice.page.getByRole("button", { name: "Celtic Guardian" }).click();
+  await alice.page.getByRole("option", { name: /Celtic Guardian/ }).click();
 
   // Bob picks one of the two copies from his deck. It is mandatory, so there is no cancel.
   const pick = bob.page.getByRole("group", { name: "Select the card(s) to add to your hand" });

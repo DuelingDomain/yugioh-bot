@@ -797,7 +797,6 @@ export const FORBIDDEN_EVIDENCE: Record<number, Evidence[]> = {
   95308449: [ev(95308449, 12, "aux.GlobalCheck"), ev(95308449, 39, "tp==c:GetOwner()")],
   28566710: [ev(28566710, 64, "Duel.Win(0,WIN_REASON_LAST_TURN)"), ev(28566710, 66, "Duel.Win(1,WIN_REASON_LAST_TURN)")],
   27204311: [ev(27204311, 34, "RegisterFlagEffect(tc:GetSummonPlayer()"), ev(27204311, 38, "GetFlagEffect(1-tp,id)>=5")],
-  94145021: [ev(94145021, 17, "aux.GlobalCheck"), ev(94145021, 42, "ev==1-tp or ev==PLAYER_ALL")],
   57728570: [ev(57728570, 43, "GetFieldGroup(tp,0,LOCATION_MZONE|LOCATION_HAND)"), ev(57728570, 52, "SelectYesNo(1-tp")],
   15305240: [ev(15305240, 30, "SelectMatchingCard(1-tp"), ev(15305240, 34, "SwapControl(c1,c2,0,0)")],
   30426226: [ev(30426226, 19, "GetFieldGroup(tp,LOCATION_MZONE,LOCATION_MZONE)"), ev(30426226, 29, "SwapControl(g1,g2)")],

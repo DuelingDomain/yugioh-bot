@@ -1,7 +1,9 @@
+import { log } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
+import { migrateCubeOwnerNames } from "./cube-owner-names.js";
 
 function hasColumn(db: Database.Database, table: string, column: string) {
   return (db.pragma(`table_info(${table})`) as Array<{ name: string }>).some((info) => info.name === column);
@@ -98,7 +100,7 @@ create table cubes_identity_new (
   created_by_user_id integer not null references users(id),
   created_at text not null default current_timestamp,
   updated_at text not null default current_timestamp,
-  unique (guild_id, name)
+  unique (guild_id, created_by_user_id, name)
 );
 create table drafts_identity_new (
   id integer primary key autoincrement,
@@ -409,7 +411,7 @@ export function migrate(db: Database.Database) {
       created_by_user_id text not null,
       created_at text not null default current_timestamp,
       updated_at text not null default current_timestamp,
-      unique (guild_id, name)
+      unique (guild_id, created_by_user_id, name)
     );
 
     create table if not exists cube_cards (
@@ -904,6 +906,7 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "winner_seat", "integer");
   addColumnIfMissing(db, "duels", "archived_at", "text");
   addColumnIfMissing(db, "duels", "last_activity_at", "text");
+  addColumnIfMissing(db, "duels", "started_at", "text");
   addColumnIfMissing(db, "duels", "snapshot_public_json", "text");
   addColumnIfMissing(db, "duels", "snapshot_seat0_json", "text");
   addColumnIfMissing(db, "duels", "snapshot_seat1_json", "text");
@@ -913,7 +916,44 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "invite_code", "text");
   addColumnIfMissing(db, "duels", "format", "text not null default '1v1'");
   addColumnIfMissing(db, "duels", "snapshot_seats_json", "text");
+  addColumnIfMissing(db, "duels", "turn_count", "integer");
+  addColumnIfMissing(db, "duels", "snapshot_compacted_at", "text");
   addColumnIfMissing(db, "duels", "setup_json", "text");
+  addColumnIfMissing(db, "duels", "kind", "text not null default 'play' check (kind in ('play', 'replay-fork'))");
+  db.exec(`
+    create trigger if not exists duels_kind_immutable
+    before update of kind on duels
+    when new.kind is not old.kind
+    begin
+      select raise(abort, 'Duel kind is immutable');
+    end;
+    create index if not exists duels_snapshot_retention_idx on duels (julianday(ended_at), id)
+      where snapshot_compacted_at is null and status in ('completed','interrupted','cancelled');
+    create table if not exists replay_fork_requests (
+      owner_user_id integer not null references users(id) on delete cascade,
+      request_id text not null,
+      source_slug text not null,
+      source_version text not null,
+      cursor_digest text not null,
+      fork_duel_id integer not null references duels(id) on delete cascade,
+      created_at text not null default current_timestamp,
+      primary key (owner_user_id, request_id)
+    );
+    create index if not exists replay_fork_requests_duel_idx on replay_fork_requests (fork_duel_id);
+    create table if not exists duel_replay_verifications (
+      duel_id integer not null references duels(id) on delete cascade,
+      bundle_version text not null,
+      source_version text not null,
+      resource_stamp text not null,
+      board_stamp text not null,
+      result text not null check (result in ('verified','unverified')),
+      reason text check (reason in ('board_mismatch','command_mismatch','no_saved_board')),
+      checked_at text not null default current_timestamp,
+      primary key (duel_id,bundle_version),
+      check ((result='verified' and reason is null) or (result='unverified' and reason is not null))
+    );
+  `);
+  addColumnIfMissing(db, "duel_replay_verifications", "core_family", "text check (core_family in ('legacy','pinned','multi'))");
 
   db.transaction(() => {
     const seatInfo = db.prepare<[], { name: string; notnull: number }>("pragma table_info(duel_seats)").all();
@@ -942,6 +982,9 @@ export function migrate(db: Database.Database) {
 
   db.exec(`
     create index if not exists duels_guild_archived_created_idx on duels (guild_id, archived_at, created_at);
+    create index if not exists duels_play_history_idx
+      on duels (guild_id, julianday(coalesce(ended_at, created_at)) desc, id desc)
+      where kind = 'play';
     create index if not exists duels_archive_due_idx on duels (ended_at) where archived_at is null;
     create table if not exists duel_invite_grants (
       duel_id integer not null references duels(id) on delete cascade,
@@ -1019,8 +1062,31 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "best_of", "integer not null default 1");
   addColumnIfMissing(db, "duels", "ranked", "integer not null default 0");
   db.exec("create index if not exists duels_series_idx on duels (series_id, game_number) where series_id is not null");
+  db.exec(`create index if not exists duels_cancelled_fork_retention_idx on duels (julianday(ended_at), id)
+    where status='cancelled' and kind='replay-fork' and series_id is null`);
   // Rock-paper-scissors before game 1: the opening state (JSON) while it runs, null otherwise.
   addColumnIfMissing(db, "duels", "opening_json", "text");
+  db.exec(`
+    create table if not exists duel_creation_requests (
+      guild_id text not null,
+      organizer_player_id integer not null references players(id),
+      request_key text not null,
+      fingerprint text not null,
+      duel_id integer not null references duels(id) on delete cascade,
+      changed_slugs_json text not null,
+      created_at text not null default (datetime('now')),
+      primary key (guild_id, organizer_player_id, request_key)
+    );
+    create index if not exists duels_host_live_idx on duels(guild_id, organizer_player_id, id)
+      where kind = 'play' and status in ('lobby', 'active');
+    create index if not exists duels_waiting_idle_idx on duels(datetime(coalesce(last_activity_at, created_at)), id)
+      where kind = 'play' and status = 'lobby' and started_at is null and opening_json is null;
+  `);
+  addColumnIfMissing(db, "duel_creation_requests", "created_at", "text");
+  db.exec(`
+    update duel_creation_requests set created_at = datetime('now') where created_at is null;
+    create index if not exists duel_creation_requests_age_idx on duel_creation_requests(created_at);
+  `);
   // Between games the loser chooses to go first or second (index into the series players, and 'first' | 'second').
   addColumnIfMissing(db, "duel_series", "first_chooser", "integer");
   addColumnIfMissing(db, "duel_series", "first_choice", "text");
@@ -1092,6 +1158,21 @@ export function migrate(db: Database.Database) {
   `);
   db.exec("create index if not exists bug_reports_duel_idx on bug_reports (guild_id, duel_slug, created_at)");
 
+  db.exec(`
+    create table if not exists product_events (
+      id integer primary key autoincrement,
+      name text not null,
+      user_id integer,
+      props_json text not null,
+      occurred_at integer not null,
+      sent_at integer,
+      attempts integer not null default 0,
+      next_attempt_at integer not null default 0,
+      event_uuid text not null
+    );
+    create index if not exists product_events_unsent_idx on product_events(id) where sent_at is null;
+  `);
+
   // Public, email-only signups are independent of Discord players and guilds.
   db.exec(`
     create table if not exists waitlist_signups (
@@ -1101,6 +1182,23 @@ export function migrate(db: Database.Database) {
       source text not null,
       user_agent text
     );
+  `);
+
+  // Claim before external I/O: form retries and Clerk deliveries share one alert attempt.
+  // Hashes avoid another stored copy of an email; kinds keep optional sign-up alerts separate.
+  db.exec(`
+    create table if not exists join_request_notifications (
+      kind text not null check (kind in ('join', 'signup')),
+      subject_hash text not null,
+      attempted_at text not null,
+      primary key (kind, subject_hash)
+    );
+    create table if not exists clerk_webhook_receipts (
+      svix_id text primary key not null,
+      received_at text not null
+    );
+    create index if not exists clerk_webhook_receipts_received_idx
+      on clerk_webhook_receipts (received_at, svix_id);
   `);
 
   addColumnIfMissing(db, "card_script_error_occurrences", "engine_kind", "text");
@@ -1119,7 +1217,10 @@ export function migrate(db: Database.Database) {
   db.exec("create index if not exists card_script_error_revision_idx on card_script_error_occurrences (resolved_code, script_hash, created_at)");
   migrateConfigPoolsToCubeCards(db);
   migrateIdentity(db);
+  migrateCubeOwnerNames(db);
   migrateAccessIndexes(db);
+
+  addColumnIfMissing(db, "users", "first_sign_in_at", "integer");
 
   // Draft privacy follows identity migration so grants reference application users.
   // Adding the default also makes every existing draft private; codes stay lazy.
@@ -1230,7 +1331,7 @@ function migrateAccessIndexes(db: Database.Database) {
       group by web_slug having count(*) > 1 limit 1`).get();
     if (duplicate) {
       db.exec("create index if not exists drafts_web_slug_idx on drafts(web_slug)");
-      console.warn("[db] Duplicate draft web slugs detected; using a non-unique lookup index. Reconcile duplicates before enforcing uniqueness.");
+      log("warn", "[db] Duplicate draft web slugs detected; using a non-unique lookup index. Reconcile duplicates before enforcing uniqueness.");
     } else {
       db.exec("create unique index if not exists drafts_web_slug_unique on drafts(web_slug) where web_slug is not null; drop index if exists drafts_web_slug_idx;");
     }

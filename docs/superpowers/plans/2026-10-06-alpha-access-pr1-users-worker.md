@@ -1920,13 +1920,15 @@ The marker is never passed to Discord fetch. A failed send retains it and logs t
 - [ ] **Step 5: Test signed status dispatch and single completion delivery.** Extend announce/server.test.ts's complete handler object with onDraftStatus in every fixture, then:
 
 ```ts
+import {signedRequestHeaders} from "@yugidraft/shared/internal-auth";
 it("dispatches signed draft-status", async () => {
   const handler=vi.fn(async () => {});
   const app=createAnnounceServer({secret,handlers:{onDraftCreated:handler,onDraftStarted:handler,onDraftCompleted:handler,
     onDraftStatus:handler,onTournamentCreated:handler,onTournamentStarted:handler,onMatchReportPending:handler,
     onMatchResolved:handler,onTournamentCompleted:handler,onDuelInvite:handler}});
   const body=JSON.stringify({draftId:13});
-  const response=await app.handle(new Request("http://x/internal/announce/draft-status",{method:"POST",headers:{"x-announce-signature":sign(body)},body}));
+  const url="http://x/internal/announce/draft-status";
+  const response=await app.handle(new Request(url,{method:"POST",headers:signedRequestHeaders({url,method:"POST",body,secret,purpose:"bot-announce"}),body}));
   expect(response.status).toBe(204); expect(handler).toHaveBeenCalledWith({draftId:13});
 });
 ```
@@ -2029,7 +2031,7 @@ Expected: PASS for bot suites/typecheck, first grep has zero matches (exit 1), s
 - Create: `packages/worker/src/index.ts`, `packages/worker/src/loop.ts`, `packages/worker/src/effects.ts`, `packages/worker/src/draft-timer.ts`, `packages/worker/src/tournament-timer.ts`, `packages/worker/src/set-sync.ts`, `packages/worker/src/image-cleanup.ts`, `packages/worker/src/healthcheck.ts`.
 - Create tests: `packages/worker/tests/loop.test.ts`, `packages/worker/tests/timers.test.ts`, `packages/worker/tests/jobs.test.ts`, `packages/worker/tests/effects.test.ts`.
 - Create: `packages/shared/src/services/image-cache-cleanup.ts`, `packages/shared/tests/services/image-cache-cleanup.test.ts`.
-- Modify: `packages/shared/src/services/index.ts:1`, `packages/shared/src/notify/signed-post.ts:11–32`, `packages/shared/tests/notify/signed-post.test.ts:7`, `packages/bot/src/services/draft-cleanup.ts:21,100–160`, `package-lock.json`.
+- Modify: `packages/shared/src/services/index.ts:1`, `packages/shared/src/internal-auth/request.ts`, `packages/shared/tests/internal-auth/transport.test.ts`, `packages/bot/src/services/draft-cleanup.ts:21,100–160`, `package-lock.json`.
 - Read/reference: `packages/bot/src/services/draft-timer.ts:5–66`, `packages/bot/src/services/tournament-timer.ts:5–111`, `packages/bot/src/index.ts:202–275,396–462`, `packages/bot/src/lib/notify-duel.ts:8–26`. Do not import bot modules into worker. The additional loop/effects/healthcheck modules separate scheduling, network effects and a no-port health probe.
 
 **Interfaces:**
@@ -2141,30 +2143,16 @@ export function createLoop(run:()=>Promise<void>,intervalMs?:number) {
 }
 ```
 
-In shared signed-post.ts preserve HMAC/error/result code and change the function/config and request option:
+Use `signedTransport` from `@yugidraft/shared/internal-auth` with an explicit receiver purpose and a 5000 ms timeout. It signs the method, path with query, timestamp and exact body using the shared v2 signer and returns network failures as a result.
 
-```ts
-export function httpTransport(cfg: {url:string;secret:string;timeoutMs?:number}): SignedPostTransport {
-  return {async post(path,body){
-    if(!cfg.url||!cfg.secret)return {ok:false,status:0,text:"not configured"};
-    const sig="sha256="+createHmac("sha256",cfg.secret).update(body).digest("hex");
-    try {
-      const res=await fetch(`${cfg.url}${path}`,{method:"POST",headers:{"content-type":"application/json","x-announce-signature":sig},body,
-        signal:AbortSignal.timeout(cfg.timeoutMs??5000)});
-      return {ok:res.ok,status:res.status,text:await res.text()};
-    }catch(error){return {ok:false,status:0,text:error instanceof Error?error.message:"Network error"};}
-  }};
-}
-```
-
-Add to signed-post.test.ts (restore stubbed globals after each test):
+Add to internal-auth/transport.test.ts (restore stubbed globals after each test):
 
 ```ts
 it("bounds a stalled request",async()=>{
   vi.stubGlobal("fetch",vi.fn((_url,init:RequestInit)=>new Promise<Response>((_resolve,reject)=>{
     init.signal!.addEventListener("abort",()=>reject(init.signal!.reason),{once:true});
   })));
-  const result=await httpTransport({url:"http://bot",secret:"secret",timeoutMs:5}).post("/x","{}");
+  const result=await signedTransport({url:"http://bot",secret:"secret",purpose:"bot-announce",timeoutMs:5}).post("/x","{}");
   expect(result.ok).toBe(false);expect(result.status).toBe(0);
   vi.unstubAllGlobals();
 });
@@ -2173,7 +2161,8 @@ it("bounds a stalled request",async()=>{
 `src/effects.ts`:
 
 ```ts
-import {createAnnouncer,createBroadcaster,httpTransport,type AnnouncePayload,type SignedPostTransport} from "@yugidraft/shared/notify";
+import {createAnnouncer,createBroadcaster,type AnnouncePayload} from "@yugidraft/shared/notify";
+import {signedTransport,type SignedPostTransport} from "@yugidraft/shared/internal-auth";
 import type {DraftBroadcastPayload,TournamentBroadcastPayload} from "@yugidraft/shared/ws";
 export type WorkerEffects={
   discordEnabled:boolean;
@@ -2196,8 +2185,8 @@ export function createEffects(input:{enabled:boolean;ws:SignedPostTransport;bot:
 }
 export function effectsFromEnv(env:NodeJS.ProcessEnv):WorkerEffects {
   return createEffects({enabled:env.DISCORD_BOT_ENABLED==="1",
-    ws:httpTransport({url:env.WS_INTERNAL_URL??"",secret:env.WS_INTERNAL_SECRET??""}),
-    bot:httpTransport({url:env.BOT_ANNOUNCE_URL??"",secret:env.BOT_ANNOUNCE_SECRET??""})});
+    ws:signedTransport({url:env.WS_INTERNAL_URL??"",secret:env.WS_INTERNAL_SECRET??"",purpose:"ws-broadcast",timeoutMs:5000}),
+    bot:signedTransport({url:env.BOT_ANNOUNCE_URL??"",secret:env.BOT_ANNOUNCE_SECRET??"",purpose:"bot-announce",timeoutMs:5000})});
 }
 ```
 
@@ -2603,7 +2592,7 @@ Operational single-replica enforcement is the Compose singleton service and runb
 ```bash
 export PATH=$HOME/.nvm/versions/node/v22.23.2/bin:$PATH
 npm run build --workspace=packages/shared
-npm test --workspace=packages/shared -- tests/notify/signed-post.test.ts tests/services/image-cache-cleanup.test.ts
+npm test --workspace=packages/shared -- tests/internal-auth/transport.test.ts tests/services/image-cache-cleanup.test.ts
 npm test --workspace=packages/worker
 npm run build --workspace=packages/worker
 npm run typecheck --workspace=packages/worker
@@ -2613,7 +2602,7 @@ rg -n 'discord.js|@yugioh-discord-bot/bot|packages/bot' packages/worker
 
 Expected: all checks PASS; dependency grep has no matches. Run tests before implementation steps to observe the missing-module/old-behavior failures, then after each module group. Completion HTTP integration requires the bot handler contract above; do not compensate by introducing a second bot timer.
 
-- [ ] **Checkpoint: stage only this task's files (`packages/worker/package.json`, `packages/worker/tsconfig.json`, `packages/worker/tsconfig.build.json`, `packages/worker/vitest.config.ts`, `packages/worker/src/index.ts`, `packages/worker/src/loop.ts`, `packages/worker/src/effects.ts`, `packages/worker/src/draft-timer.ts`, `packages/worker/src/tournament-timer.ts`, `packages/worker/src/set-sync.ts`, `packages/worker/src/image-cleanup.ts`, `packages/worker/src/healthcheck.ts`, `packages/worker/tests/loop.test.ts`, `packages/worker/tests/timers.test.ts`, `packages/worker/tests/jobs.test.ts`, `packages/worker/tests/effects.test.ts`, `packages/shared/src/services/image-cache-cleanup.ts`, `packages/shared/tests/services/image-cache-cleanup.test.ts`, `packages/shared/src/services/index.ts`, `packages/shared/src/notify/signed-post.ts`, `packages/shared/tests/notify/signed-post.test.ts`, `packages/bot/src/services/draft-cleanup.ts`, `package-lock.json`) and stop for orchestrator review; the orchestrator commits.**
+- [ ] **Checkpoint: stage only this task's files (`packages/worker/package.json`, `packages/worker/tsconfig.json`, `packages/worker/tsconfig.build.json`, `packages/worker/vitest.config.ts`, `packages/worker/src/index.ts`, `packages/worker/src/loop.ts`, `packages/worker/src/effects.ts`, `packages/worker/src/draft-timer.ts`, `packages/worker/src/tournament-timer.ts`, `packages/worker/src/set-sync.ts`, `packages/worker/src/image-cleanup.ts`, `packages/worker/src/healthcheck.ts`, `packages/worker/tests/loop.test.ts`, `packages/worker/tests/timers.test.ts`, `packages/worker/tests/jobs.test.ts`, `packages/worker/tests/effects.test.ts`, `packages/shared/src/services/image-cache-cleanup.ts`, `packages/shared/tests/services/image-cache-cleanup.test.ts`, `packages/shared/src/services/index.ts`, `packages/shared/src/internal-auth/request.ts`, `packages/shared/tests/internal-auth/transport.test.ts`, `packages/bot/src/services/draft-cleanup.ts`, `package-lock.json`) and stop for orchestrator review; the orchestrator commits.**
 
 ### Task 8: Integrate coordinated deployment, seeds, isolated E2E and operational docs
 
@@ -2634,7 +2623,7 @@ Expected: all checks PASS; dependency grep has no matches. Run tests before impl
 - Consumes session `{user:{id:string;discordUserId:string|null;name?:string|null}}`; E2E NextAuth credentials stay `{discordId,name,secret}` and profile email remains unverified. No Clerk/offline-cookie design from PR 2.
 - Consumes worker `node packages/worker/dist/index.js`; environment `DATABASE_PATH` and `CARD_IMAGE_CACHE_DIR` must be absolute; `DISCORD_BOT_ENABLED==="1"`; `WS_INTERNAL_URL/SECRET`, `BOT_ANNOUNCE_URL/SECRET`; default `CARD_IMAGE_CACHE_MAX_BYTES=16106127360`, set cron `0 6 * * *`/UTC, image cron `0 4 * * *`/UTC. `WORKER_HEALTH_PATH` stores `{pid:number,at:number}`; `node packages/worker/dist/healthcheck.js` exits 0 while fresh/alive, 1 otherwise; SIGTERM stops/drains/closes DB.
 - Consumes `createDraftService(db).create(guildId:string,channelId:string|null,name:string,config:DraftConfig,userId:number,playerId:number):Draft`, `.join(draftId:number,playerId:number):void`, `.start(draftId:number,now?:Date):Draft`, `.findById(draftId:number):Draft`; `.expireCurrentPickStep` already commits/deck-saves transactionally. `Draft.status/currentPickStep/webSlug` report committed state.
-- Consumes bot `createAnnounceServer({secret:string,handlers:AnnounceHandlers})` with `.handle(Request):Promise<Response>`; `createAnnounceHandlers({client,db,drafts,messenger,guildSettings})`; worker `createEffects({enabled:boolean,ws:SignedPostTransport,bot:SignedPostTransport}):WorkerEffects`; HMAC-SHA256 over exact body, `x-announce-signature` header.
+- Consumes bot `createAnnounceServer({secret:string,handlers:AnnounceHandlers})` with `.handle(Request):Promise<Response>`; `createAnnounceHandlers({client,db,drafts,messenger,guildSettings})`; worker `createEffects({enabled:boolean,ws:SignedPostTransport,bot:SignedPostTransport}):WorkerEffects`; purpose-derived HMAC-SHA256 over version, method, path with query, timestamp and exact body, `x-internal-signature: t=<unix seconds>,v2=<hex>` header.
 - Produces one worker for each production, dev, staging or E2E database; production migration happens once before all consumers. E2E players expose `userId:number` separately from `discordId:string`, health paths belong to each slot. Root scripts `dev:worker`, reset restart includes worker; wildcard `workspaces:["packages/*"]` already discovers it.
 
 - [ ] **Step 1: Change seed/session expectations and run them to establish the failure.**
@@ -2887,7 +2876,7 @@ test("offline NextAuth uses app IDs while an unattended draft advances",async({r
 `packages/bot/tests/announce/worker-smoke.test.ts` exercises the actual HMAC endpoint without logging into Discord:
 
 ```ts
-import {createHmac} from "node:crypto";
+import {signedRequestHeaders} from "@yugidraft/shared/internal-auth";
 import Database from "better-sqlite3";
 import {ChannelType} from "discord.js";
 import {expect,it,vi} from "vitest";
@@ -2908,7 +2897,8 @@ it("worker status and duplicate completion reach signed bot HTTP and send once",
       client:{channels:{fetch:vi.fn(async()=>({type:ChannelType.GuildText,send}))},users:{fetch:vi.fn()}} as any});
     const secret="worker-smoke",app=createAnnounceServer({secret,handlers}),ws=recordingTransport();
     const effects=createEffects({enabled:true,ws:ws.transport,bot:{async post(path,body){
-      const response=await app.handle(new Request(`http://bot${path}`,{method:"POST",headers:{"x-announce-signature":"sha256="+createHmac("sha256",secret).update(body).digest("hex")},body}));
+      const url=`http://bot${path}`;
+      const response=await app.handle(new Request(url,{method:"POST",headers:signedRequestHeaders({url,method:"POST",body,secret,purpose:"bot-announce"}),body}));
       return {ok:response.ok,status:response.status,text:await response.text()};
     }}});
     await effects.discord({kind:"draft-status",draftId:draft.id});expect(updateStatus).toHaveBeenCalledTimes(1);
@@ -3029,7 +3019,7 @@ docker compose -f docker-compose.yml run --rm --no-deps worker node --input-type
     console.log("identity migration verified");
   } finally {db.close();}
 '
-docker compose -f docker-compose.yml up -d ws duel web bot worker caddy
+docker compose -f docker-compose.yml up -d --no-build ws duel web bot worker caddy
 for service in ws worker; do
   healthy=0
   for attempt in $(seq 1 36); do

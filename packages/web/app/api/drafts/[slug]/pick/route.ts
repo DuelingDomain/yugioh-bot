@@ -1,3 +1,5 @@
+import { apiErrorResponse } from "@/lib/api-errors";
+import { report } from "@yugidraft/shared/observability";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireWebAccess } from "@/lib/web-access";
@@ -20,7 +22,7 @@ const MAX_BOT_ROUNDS = 200;
 function reportBotError(error: unknown): void {
   const message = error instanceof Error ? error.message : "";
   if (!/already picked|already finished|current pack|current wave|no card to pick|Draft must be active/.test(message)) {
-    console.error("[draft] bot pick failed:", error);
+    report(error, { tags: { operation: "[draft] bot pick failed" } });
   }
 }
 
@@ -38,7 +40,12 @@ export async function POST(
     const denied = draftReadAccess(db, slug, guildId, actor.userId);
     if (denied) return denied;
 
-    const body = await request.json();
+    let body: unknown;
+    try { body = await request.json(); }
+    catch (error) {
+      if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      throw error;
+    }
     const { cardId } = body as { cardId?: unknown };
 
     if (cardId === undefined || cardId === null || typeof cardId !== "number" || !Number.isInteger(cardId)) {
@@ -146,15 +153,6 @@ export async function POST(
 
     return NextResponse.json(response);
   } catch (error) {
-    if (error instanceof Error) {
-      console.error("[api/drafts/[slug]/pick] error:", error.message);
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    console.error("[api/drafts/[slug]/pick] unexpected error:", error);
-    return NextResponse.json(
-      { error: "Failed to pick card" },
-      { status: 500 }
-    );
+    return apiErrorResponse(error, "[api/drafts/[slug]/pick]");
   }
 }

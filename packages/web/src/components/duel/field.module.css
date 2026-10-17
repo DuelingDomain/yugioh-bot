@@ -125,6 +125,10 @@
   --lp-h: calc(var(--tally-h) * 0.68);
   --lp-fs: calc(var(--lp-h) * 0.94);
   --tally-w: calc(var(--tally-h) * 3.1);
+  /* The least height of a hand strip (the tally sits in it) and the width the tally takes from the hand beside it. The
+     floating HUD room moves the tallies out beside the board, so both are 0 there. */
+  --strip-floor: var(--tally-h);
+  --hand-gutter: calc(var(--tally-w) + var(--sg));
 
   /* Multiples of --z: board width, arena height, opponent hand (fully visible), your hand (minimum). */
   --wk: 6.822;
@@ -155,9 +159,9 @@
   --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad));
   --zw: calc(var(--avail-w) / var(--wk));
   --zh: min(
-    calc((var(--avail-h) - 2 * var(--tally-h)) / var(--hk)),
-    calc((var(--avail-h) - var(--tally-h) - var(--res-bot-px)) / (var(--hk) + var(--lkr))),
-    calc((var(--avail-h) - var(--tally-h) - var(--res-top-px)) / (var(--hk) + var(--ohkr))),
+    calc((var(--avail-h) - 2 * var(--strip-floor)) / var(--hk)),
+    calc((var(--avail-h) - var(--strip-floor) - var(--res-bot-px)) / (var(--hk) + var(--lkr))),
+    calc((var(--avail-h) - var(--strip-floor) - var(--res-top-px)) / (var(--hk) + var(--ohkr))),
     calc((var(--avail-h) - var(--res-top-px) - var(--res-bot-px)) / (var(--hk) + var(--ohkr) + var(--lkr)))
   );
   --z: clamp(30px, min(var(--zw), var(--zh)), 320px);
@@ -166,19 +170,19 @@
   --g: calc(var(--z) * 0.075);
   --gy: calc(var(--z) * 0.04);
   --r: calc(var(--z) * 0.035);
-  --pk: 0.86;
+  --pk: 1;
   --pile-col: var(--cw);
 
   /* Both hands are whole rows beside the LP tallies. Spare height (tall or narrow boards) grows them
      (the growth shares are divided by 1 + --lift-k so the reserve grows with the card and still fits). */
-  --top-min: max(var(--tally-h), calc(var(--z) * var(--ohkr) + var(--res-top-px)));
-  --bot-min: max(var(--tally-h), calc(var(--z) * var(--lkr) + var(--res-bot-px)));
+  --top-min: max(var(--strip-floor), calc(var(--z) * var(--ohkr) + var(--res-top-px)));
+  --bot-min: max(var(--strip-floor), calc(var(--z) * var(--lkr) + var(--res-bot-px)));
   --spare: max(0px, calc(var(--avail-h) - var(--hk) * var(--z) - var(--top-min) - var(--bot-min)));
   --oh: min(calc(var(--z) * var(--ohk) + var(--spare) * 0.345), calc(var(--z) * 1.05));
   --ohcw: calc(var(--oh) * 0.686);
   --ohg: calc(var(--ohcw) * 0.06);
   --top-res: calc(var(--oh) * var(--top-lift-k) + var(--res-top-px));
-  --top-h: max(var(--tally-h), calc(var(--oh) * (1 - var(--top-hide)) + var(--top-res) + var(--hpad)));
+  --top-h: max(var(--strip-floor), calc(var(--oh) * (1 - var(--top-hide)) + var(--top-res) + var(--hpad)));
   --lh-rest: min(calc(var(--z) * var(--lk) + var(--spare) * 0.517), calc(var(--z) * 1.15), 260px);
   /* Your cards are drawn larger than the room the strip keeps for them (--lh-rest): the extra height rises
      from the strip's bottom edge over the front Spell/Trap row (the strip stacks above the board) instead of
@@ -187,8 +191,8 @@
   --lhcw: calc(var(--lh) * 0.686);
   --lhg: calc(var(--z) * 0.07);
   --bot-res: calc(var(--lh-rest) * var(--lift-k) + var(--z) * var(--mark-k) + var(--res-bot-px));
-  --bot-h: max(var(--tally-h), calc(var(--lh-rest) + var(--bot-res) + var(--hpad)));
-  --hw-top: calc(var(--z) * var(--wk) - var(--tally-w) - var(--sg));
+  --bot-h: max(var(--strip-floor), calc(var(--lh-rest) + var(--bot-res) + var(--hpad)));
+  --hw-top: calc(var(--z) * var(--wk) - var(--hand-gutter));
   --hw-bot: var(--hw-top);
 
   --fs-name: clamp(13px, calc(var(--z) * 0.125), 18px);
@@ -216,25 +220,85 @@
 }
 
 /* Floating HUD room (1v1): the board is height-bound, so every pixel of chrome inside the frame is card. The
-   padding is trimmed and the opponent's hand backs are smaller (they peek less above the board). There is no
-   station track under the board here, so your hand sits in the bottom strip and only its top edge (about 0.08 zone
-   heights) reaches the front Spell/Trap row: the zones stay clickable. A lifted (legal) card, its glow and its nib
-   tag rise over that row instead of getting their own reserve, and the hover lift still raises the card to full
-   size. Phones keep the compact rules below. */
+   padding is trimmed and the LP tallies are slim: each tally is the floor of its hand strip, so a strip costs no more
+   than the tally itself. The rival's backs hang from the top edge of the screen (most of each card is hidden above the
+   board, under the slim top bar). Your hand rests at the bottom edge of the screen: the strip holds the top part of the
+   cards and the rest is below the edge (see `--hand-sink`), so no resting hand card covers a Spell/Trap zone. The
+   hover lift still raises the card to full size. Phones keep the compact rules below. */
 @container (min-width: 641px) {
   :global([data-hud="room"]) .playmat {
     --py: 2px;
     --gs: 1px;
-    --hpad: 2px;
-    --lk: 0.89;
+    --hpad: 1px;
+    --tally-h: clamp(40px, calc(100cqh * 0.046), 64px);
+    --lk: 0.55;
+    --lh-k: 1;
+    --lh-max: 400px;
     --res-bot-px: 0px;
     --lift-k: 0;
     --mark-k: 0;
-    /* The rival's backs are about 30% larger than before (0.36 to 0.47 of a zone). Less of each card hides above the
-       board (0.5 to 0.38), so the part that peeks up under the header pills stays as tall as it was
-       (0.47 x 0.38 = 0.18 zone) and the cards grow downward, into the strip the LP tally already holds open. */
-    --ohk: 0.47;
-    --top-hide: 0.38;
+    --ohk: 0.44;
+    --top-hide: 0.5;
+    --top-lift-k: 0.03;
+    --res-top-px: 2px;
+    /* The part of a drawn hand card that is below the strip, that is below the bottom edge of the screen. */
+    --hand-sink: max(0px, calc(var(--lh) - var(--lh-rest) - var(--hpad)));
+  }
+
+  /* A touch screen has no hover to raise a card to full size, so a hand card drawn larger than its strip would hang below
+     the screen edge for good, and the legal ones would have to rest raised over the Spell/Trap row. There the hand is drawn
+     at the size the strip keeps for it: --hand-sink is 0, nothing sticks out of the strip. */
+  @media (hover: none) {
+    :global([data-hud="room"]) .playmat {
+      --lh: var(--lh-rest);
+    }
+  }
+
+  /* The strips hold only the hands. Each tally stands outside the board's left edge, level with the rows of its own
+     half: the rival's below the top strip, yours above the bottom strip. That needs a margin as wide as the tally, so it
+     is only for screens that are wide enough and wide against their height (room.module.css gives the margin with the same
+     condition). A squarer or narrower screen keeps each tally in its strip, beside the hand, as in the phone layout. */
+  @media (min-width: 1010px) and (min-aspect-ratio: 7 / 5) {
+    :global([data-hud="room"]) .playmat {
+      --strip-floor: 0px;
+      --hand-gutter: 0px;
+    }
+
+    :global([data-hud="room"]) .strip {
+      grid-template-columns: minmax(0, 1fr);
+      column-gap: 0;
+    }
+
+    :global([data-hud="room"]) .strip > .tally {
+      position: absolute;
+      right: calc(100% + var(--pl) + 12px);
+      width: var(--tally-w);
+    }
+
+    /* Under the turn strip of the top bar, which stands in this margin (room.module.css .hudBar: it ends at about 90px). */
+    :global([data-hud="room"]) .stripTop > .tally {
+      top: max(100%, 94px);
+    }
+
+    :global([data-hud="room"]) .stripBottom > .tally {
+      bottom: 100%;
+    }
+
+    /* In the wide margin the badge stands beside the name plate, at the board side of the left margin: the rival's above
+       its tally, yours above yours, so the badge never covers the field and the tally keeps its place. */
+    :global([data-hud="room"]) .tally > .tBadge {
+      --dm-badge-size: clamp(64px, 9dvh, 100px);
+      top: auto;
+      right: auto;
+      left: 0;
+      translate: none;
+    }
+    :global([data-hud="room"]) .stripTop > .tally > .tBadge {
+      top: calc(100% + 18px);
+    }
+    :global([data-hud="room"]) .stripBottom > .tally > .tBadge {
+      bottom: calc(100% + 18px);
+    }
   }
 }
 
@@ -306,10 +370,22 @@
 }
 
 .tally {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
   min-width: 0;
+}
+
+/* The Deck Master badge (master-badge.tsx). It never takes room from the tally: it floats at the tally's outer corner.
+   Compact layout: pinned to the right end of the tally, over the gap before the hand. */
+.tBadge {
+  --dm-badge-size: calc(var(--tally-h) * 0.82);
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: calc(var(--sg) * -1 - var(--dm-badge-size) * 0.5);
+  translate: 0 -50%;
 }
 
 .tHead {
@@ -348,6 +424,17 @@
   font-size: var(--fs-name);
   font-weight: 600;
   text-overflow: ellipsis;
+}
+
+.tActing {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid rgb(138 108 255 / 0.4);
+  border-radius: 3px;
+  color: var(--ink);
+  background: rgb(138 108 255 / 0.12);
+  font-size: calc((10px + 2px * var(--ft, 0)) * var(--tt, 1));
+  line-height: 1.25;
 }
 
 .tTurn {
@@ -606,6 +693,45 @@
   pointer-events: none;
 }
 
+/* Your hand starts at the top of its strip and hangs below the screen edge. A hovered card is lifted by the part that
+   hangs, so its bottom edge (and the ATK / DEF plate) stays on screen. */
+:global([data-hud="room"]) .handLocal {
+  align-items: flex-start;
+  padding-bottom: 0;
+}
+
+@media (hover: hover) {
+  :global([data-hud="room"]) .handLocal .handCard .zone:hover .frame,
+  :global([data-hud="room"]) .handLocal .handCard .zone:has(:focus-visible) .frame {
+    transform: translateY(calc(var(--lh) * -0.04 - var(--hand-sink, 0px))) scale(var(--hand-hover, 2));
+  }
+
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-legal="true"]:hover .frame,
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-legal="true"]:has(:focus-visible) .frame {
+    transform: translateY(calc(var(--lh) * -0.06 - var(--hand-sink, 0px))) scale(var(--hand-hover, 2));
+  }
+
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"]:hover .frame,
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"]:has(:focus-visible) .frame {
+    transform: translateY(calc(var(--lh) * -0.1 - var(--hand-sink, 0px))) scale(var(--hand-hover, 2));
+  }
+}
+
+/* Touch screens without hover (a wide tablet gets this room too): the hand is drawn at the size of its strip (see
+   --lh above), and a legal or selected card does not rest raised either, so no hand card rises over the Spell/Trap row.
+   The usable-card glow and the selected ring show the state. */
+@media (hover: none) {
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-legal="true"] .frame,
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .frame {
+    transform: none;
+  }
+
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-legal="true"] .zoneHit::before,
+  :global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+    content: none;
+  }
+}
+
 /* A legal or selected card rests a little higher than its box: this strip keeps that visible edge on the card. */
 :global([data-hud="room"]) .handLocal .handCard .zone[data-legal="true"] .zoneHit::before,
 :global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
@@ -851,6 +977,69 @@
   cursor: not-allowed;
 }
 
+/* A shared Extra Monster Zone seen from one of its two seats (plaza): both seats of the pair give it the same soft violet tint
+   (no motion), so it reads as one linked row. A card of the facing seat in it shows as a calm ghost with a small link glyph;
+   nothing there can be targeted from this side. */
+.zone[data-link] .frame {
+  box-shadow: inset 0 0 14px -4px rgb(155 126 255 / 0.4), 0 0 0 1px rgb(155 126 255 / 0.26);
+  transition:
+    box-shadow 0.18s ease-out,
+    border-color 0.18s ease-out,
+    opacity 0.18s ease-out,
+    transform 0.18s var(--ease);
+}
+
+.zone[data-link="taken"] .frame {
+  filter: saturate(0.5);
+  opacity: 0.55;
+  box-shadow: inset 0 0 12px -4px rgb(155 126 255 / 0.3), 0 0 0 1px rgb(155 126 255 / 0.2);
+}
+
+.zone[data-link="taken"] .zoneHit {
+  cursor: help;
+}
+
+.zoneLink {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 4;
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(10 12 26 / 0.7);
+  color: rgb(190 170 255 / 0.9);
+  pointer-events: none;
+}
+
+/* Hover or keyboard focus on either cell of a linked Extra Monster Zone lights BOTH cells the same way (one violet light, same
+   strength): the zone you point at and its mirror on the partner's field. The two cells carry one data-link-id (see linkIdOf in
+   field.tsx), and the rule sits on the table stage, so it reaches the partner's field in another DOM subtree. A pair of seats is
+   always 0+1 or 2+3; the id names the pair and which of the two zones, so the four ids below are all there are. Only :hover and
+   :focus-visible count: a click leaves no light behind. */
+:global([data-table-stage]):has([data-link-id="0-1-5"]:hover, [data-link-id="0-1-5"] :focus-visible) [data-link-id="0-1-5"] .frame,
+:global([data-table-stage]):has([data-link-id="0-1-6"]:hover, [data-link-id="0-1-6"] :focus-visible) [data-link-id="0-1-6"] .frame,
+:global([data-table-stage]):has([data-link-id="2-3-5"]:hover, [data-link-id="2-3-5"] :focus-visible) [data-link-id="2-3-5"] .frame,
+:global([data-table-stage]):has([data-link-id="2-3-6"]:hover, [data-link-id="2-3-6"] :focus-visible) [data-link-id="2-3-6"] .frame {
+  border-color: rgb(190 170 255 / 0.7);
+  box-shadow: inset 0 0 18px -2px rgb(168 144 255 / 0.75), 0 0 0 1px rgb(190 170 255 / 0.7), 0 0 14px -2px rgb(155 126 255 / 0.6);
+  opacity: 1;
+  filter: none;
+}
+
+:global([data-table-stage]):has([data-link-id="0-1-5"]:hover, [data-link-id="0-1-5"] :focus-visible) [data-link-id="0-1-5"] .zoneName,
+:global([data-table-stage]):has([data-link-id="0-1-6"]:hover, [data-link-id="0-1-6"] :focus-visible) [data-link-id="0-1-6"] .zoneName,
+:global([data-table-stage]):has([data-link-id="2-3-5"]:hover, [data-link-id="2-3-5"] :focus-visible) [data-link-id="2-3-5"] .zoneName,
+:global([data-table-stage]):has([data-link-id="2-3-6"]:hover, [data-link-id="2-3-6"] :focus-visible) [data-link-id="2-3-6"] .zoneName {
+  color: rgb(214 200 255);
+}
+
+:global([data-reduced="true"]) .zone[data-link] .frame {
+  transition: none;
+}
+
 .zone:hover,
 .zone:has(:focus-visible) {
   z-index: 6;
@@ -923,6 +1112,11 @@
     transform 0.18s var(--ease);
 }
 
+/* A card flying to this zone hides what shows the card, also what React adds meanwhile; the outline and the zone label stay. */
+.frame[data-card-hidden] > :not([data-zone-label]) {
+  visibility: hidden;
+}
+
 .zone[data-kind="emz"] .frame {
   border-color: var(--sheet-hi);
 }
@@ -962,15 +1156,32 @@
   justify-content: flex-end;
 }
 
+/* A pile is as big as a zone card, so its label sits on a small plate over the card's edge (the near edge: the bottom of
+   your piles, the top of the rival's) and takes no room of its own. */
 .pileLabel {
+  position: absolute;
+  bottom: calc(var(--z) * 0.02);
+  left: 50%;
+  z-index: 3;
   display: inline-flex;
   align-items: baseline;
   gap: 0.3em;
+  max-width: 100%;
+  padding: 0.1em 0.45em;
+  border-radius: 4px;
+  background: rgb(6 8 14 / 0.86);
+  box-shadow: inset 0 0 0 1px rgb(200 165 95 / 0.22);
   font-size: var(--n4);
   line-height: 1.15;
   color: var(--ink-2);
   white-space: nowrap;
   pointer-events: none;
+  translate: -50% 0;
+}
+
+.zone[data-side="opp"] .pileLabel {
+  top: calc(var(--z) * 0.02);
+  bottom: auto;
 }
 
 .plShort {
@@ -1278,7 +1489,7 @@
 
 .openChip {
   position: absolute;
-  bottom: calc(var(--z) * 0.03 + var(--n4) * 1.15 + 3px);
+  bottom: calc(var(--z) * 0.02 + var(--n4) * 1.5 + 6px);
   left: 50%;
   z-index: 8;
   display: inline-flex;
@@ -1429,6 +1640,10 @@
   .glow {
     opacity: 1;
     animation: none;
+  }
+
+  .zone[data-link] .frame {
+    transition: none;
   }
 }
 
@@ -1640,6 +1855,29 @@
   pointer-events: none;
 }
 
+/* Multi-seat tables: the zone is an empty well while the master is out of it. A solid soft slot, no dashed cut-out. */
+.masterArt[data-in-use="true"] {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, rgb(27 39 64 / 0.5), rgb(10 14 24 / 0.65));
+  box-shadow: inset 0 0 0 1px var(--sheet-hi), inset 0 2px 10px rgb(0 0 0 / 0.5);
+}
+
+.masterInUse {
+  color: var(--ink-3, var(--ink));
+  font-size: calc(11 * var(--k));
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.masterSummon {
+  margin: 0;
+  color: var(--ink-2, var(--ink));
+  font-size: calc(12 * var(--k));
+  font-weight: 600;
+}
+
 .masterDock[data-selected="true"] .mark {
   background: var(--pen-fill);
   color: #fff;
@@ -1810,7 +2048,7 @@
     --lift-k: 0.16;
     --mark-k: 0.085;
     --res-top-px: 6px;
-    --pk: 0.8;
+    --pk: 1;
     --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad));
     /* Both tallies sit above their hands (full width rows), so the hands can be wide and barely overlap. */
     --fixed-h: calc(2 * var(--tally-h) + 2 * var(--gs) + var(--res-top-px) + var(--res-bot-px));
@@ -2003,7 +2241,7 @@
 /* ---------- seat field: one seat of a 3 or 4 seat table ----------
    A standalone board of 5.83 x 3.39 zone sizes. --z comes from --sf-z (default 112px, the 3-way prototype size);
    everything else is a multiple of --z, so the table stage scales and turns the whole box. --t is the seat tone
-   (an rgb triplet) and --lab the turn of labels (the counter-rotation, so text reads level at any seat angle). */
+   (an rgb triplet). Cards, labels and stats all turn with the field, so everything faces the seat that owns it. */
 
 .seatField {
   --z: var(--sf-z, 112px);
@@ -2011,11 +2249,10 @@
   --g: calc(var(--z) * 0.075);
   --gy: calc(var(--z) * 0.071);
   --r: calc(var(--z) * 0.035);
-  --pk: 0.86;
+  --pk: 1;
   --pile-col: var(--cw);
   --pad: calc(var(--z) * 0.125);
   --ts: var(--sf-ts, 1);
-  --lab: 0deg;
   /* On-screen text floors, in this field's own px: 12px for labels and 14px for names and counts, times the Text size
      setting (--tt). --sk is the whole scale from the field's px to the screen (stage fit times pose scale; 1 in the grid).
      The floor fades out below 0.5 (--fk) and is capped by the zone size: a docked or overview field is a thumbnail, and floored
@@ -2082,6 +2319,27 @@
   border: 1px solid var(--sheet-lo);
   border-radius: 3px;
   pointer-events: none;
+}
+
+/* The band the 4-way grid cuts away or hands to the facing field's shared Extra Monster Zones: the cracks keep out of it.
+   It is only a measuring box. */
+.sfCrackAvoid {
+  display: none;
+}
+
+.seatField[data-emz="none"] .sfCrackAvoid {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: block;
+  height: calc(var(--z) * 1.196 + 6px);
+  pointer-events: none;
+}
+
+/* The Rooftop keeps that row as mat. */
+:global([data-roof-world]) .seatField[data-emz="none"] .sfCrackAvoid {
+  display: none;
 }
 
 .sfRule {
@@ -2347,17 +2605,6 @@
   inset: calc((var(--z) - var(--cw)) / 2 - 1px) calc((var(--z) - var(--cw)) / -2 - 1px);
 }
 
-/* Labels, stats, counters and marks turn against the field so they read level (--lab). */
-.seatField .pileLabel,
-.seatField .plate,
-.seatField .overlayBadge,
-.seatField .mark,
-.seatField .zoneName,
-.seatField .pendulumMark,
-.seatField .openChip {
-  rotate: var(--lab);
-}
-
 .seatField .plate {
   font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
 }
@@ -2367,7 +2614,7 @@
   font-size: min(max(calc(var(--z) * 0.116 * var(--ts)), var(--fl)), calc(var(--cardw) * 0.2));
 }
 
-/* At a big text size the hand card is too narrow for "1400 / 1200" at the text floor: the plate shows ATK only, like a quarter-turned field. */
+/* At a big text size the hand card is too narrow for "1400 / 1200" at the text floor: the plate shows ATK only. */
 [data-text-big="true"] .seatField .handCard .plate {
   font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
 }
@@ -2375,27 +2622,6 @@
 [data-text-big="true"] .seatField .handCard .plate .plateSep,
 [data-text-big="true"] .seatField .handCard .plate .plateDef {
   display: none;
-}
-
-/* A field turned a quarter: the level plate has only a card's width to sit in, so it shows one stat (ATK, or DEF in defense) and sizes to it. */
-.seatField[data-quarter="true"] .plate {
-  right: auto;
-  left: 50%;
-  width: max-content;
-  translate: -50% 0;
-}
-
-.seatField[data-quarter="true"] .plate .plateSep,
-.seatField[data-quarter="true"] .plate .plateDef {
-  display: none;
-}
-
-.seatField[data-quarter="true"] .zone[data-defense="true"] .plate b {
-  display: none;
-}
-
-.seatField[data-quarter="true"] .zone[data-defense="true"] .plate .plateDef {
-  display: inline;
 }
 
 /* A docked rival is a thumbnail at about a third of its size: its pile counts would be 4px text lying over the next pile. */
@@ -2421,7 +2647,6 @@
     0 0 8px rgb(0 0 0 / 0.85);
   text-transform: uppercase;
   translate: -50% 100%;
-  rotate: var(--lab);
   white-space: nowrap;
   /* A long name stops at the board's width instead of running off the table area. */
   max-width: 10em;
@@ -2487,7 +2712,6 @@
   pointer-events: none;
   text-transform: uppercase;
   translate: -50% -50%;
-  rotate: var(--lab);
 }
 
 /* The viewer's hand sits right below the board and turns with it. */
@@ -2506,12 +2730,12 @@
   pointer-events: none;
 }
 
-/* 3-way table: your hand is drawn as large as a board card (1.1 zone sizes tall, was 0.76), because the lane under your
+/* 3-way table: your hand is drawn as large as a board card (1.22 zone sizes tall, was 0.76), because the lane under your
    field is free. It rises over the field's bottom pad only (no zone), and its box is only as tall as the cards need, so it
    ends above the camera hint of a short screen. Real sizes, no transform: the stage and the prompt room measure this
-   element. Hovering zooms less (1.7x of a card that is already 1.45x larger). A phone keeps the small hand. */
+   element. Hovering zooms less (1.7x of a card that is already about 1.6x larger). A phone keeps the small hand. */
 :global([data-table-stage="ffa3"]:not([data-portrait])) .seatField {
-  --lh: calc(var(--z) * 1.1);
+  --lh: calc(var(--z) * 1.22);
   --hand-rise: calc(var(--z) * 0.12);
   --hand-hover: 1.7;
 }

@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { TypedServer } from "./events.js";
-import { verifyBroadcastSignature } from "./auth.js";
+import { readSignedRequest } from "@yugidraft/shared/internal-auth";
+import { log, report } from "@yugidraft/shared/observability";
 import { draftSocketRoom } from "./rooms.js";
 import { isTalkLine, type TalkLineId } from "@yugidraft/shared/ws";
 
@@ -101,8 +102,11 @@ function parseDuelChanged(v: unknown): { slug: string; guildId: string } | null 
 type BroadcastOptions = {
   io: TypedServer;
   secret: string;
+  maxBytes?: number;
   beforeDraftBroadcast?: (slug: string) => void;
   beforeTournamentBroadcast?: (slug: string) => void;
+  /** Check the stored target and prune unauthorized subscriptions before duel events. */
+  beforeDuelBroadcast?: (slug: string, guildId: string) => boolean;
 };
 
 export function createInternalHttpHandler(opts: BroadcastOptions) {
@@ -110,12 +114,9 @@ export function createInternalHttpHandler(opts: BroadcastOptions) {
     const url = new URL(req.url);
     if (req.method !== "POST") return new Response("Not found", { status: 404 });
 
-    const body = await req.text();
-    if (!verifyBroadcastSignature(body, req.headers.get("x-announce-signature") ?? undefined, opts.secret)) {
-      return new Response("Unauthorized", { status: 401 });
-    }
-    let parsed: unknown;
-    try { parsed = JSON.parse(body); } catch { return new Response("Bad JSON", { status: 400 }); }
+    const result = await readSignedRequest(req, { secret: opts.secret, purpose: "ws-broadcast", maxBytes: opts.maxBytes });
+    if (!result.ok) return new Response(result.status === 401 ? "Unauthorized" : result.status === 413 ? "Request too large" : "Bad JSON", { status: result.status });
+    const parsed = result.body;
 
     switch (url.pathname) {
       case "/internal/draft/status": {
@@ -216,6 +217,10 @@ export function createInternalHttpHandler(opts: BroadcastOptions) {
       case "/internal/duel/changed": {
         const data = parseDuelChanged(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        if (!opts.beforeDuelBroadcast) return new Response("Duel access unavailable", { status: 503 });
+        try {
+          if (!opts.beforeDuelBroadcast(data.slug, data.guildId)) return new Response("Not found", { status: 404 });
+        } catch { return new Response("Duel access unavailable", { status: 503 }); }
         opts.io.to(`duel:${data.guildId}:${data.slug}`).emit("duel:changed", { slug: data.slug });
         return new Response(null, { status: 204 });
       }
@@ -228,18 +233,36 @@ export function createInternalHttpHandler(opts: BroadcastOptions) {
 export function listenInternalHttp(opts: BroadcastOptions & { port: number }): Server {
   const handle = createInternalHttpHandler(opts);
   const server = createServer(async (nodeReq, nodeRes) => {
-    const chunks: Buffer[] = [];
-    for await (const chunk of nodeReq) chunks.push(chunk as Buffer);
-    const buf = Buffer.concat(chunks);
-    const url = `http://${nodeReq.headers.host ?? "localhost"}${nodeReq.url ?? "/"}`;
-    const res = await handle(new Request(url, {
-      method: nodeReq.method,
-      headers: nodeReq.headers as any,
-      body: buf.length ? buf : undefined,
-    }));
-    nodeRes.writeHead(res.status, Object.fromEntries(res.headers));
-    const text = await res.text();
-    nodeRes.end(text);
+    try {
+      const maxBytes = opts.maxBytes ?? 65536;
+      const url = `http://${nodeReq.headers.host ?? "localhost"}${nodeReq.url ?? "/"}`;
+      const rejectSize = () => {
+        log("warn", "internal request rejected", { purpose: "ws-broadcast", path: new URL(url).pathname, reason: "body too large" });
+        nodeReq.pause();
+        nodeRes.writeHead(413, { connection: "close" });
+        nodeRes.end("Request too large");
+      };
+      if (Number(nodeReq.headers["content-length"]) > maxBytes) { rejectSize(); return; }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of nodeReq.iterator({ destroyOnReturn: false })) {
+        size += chunk.length;
+        if (size > maxBytes) { rejectSize(); return; }
+        chunks.push(chunk as Buffer);
+      }
+      const buf = Buffer.concat(chunks, size);
+      const res = await handle(new Request(url, {
+        method: nodeReq.method,
+        headers: nodeReq.headers as any,
+        body: buf.length ? buf : undefined,
+      }));
+      nodeRes.writeHead(res.status, Object.fromEntries(res.headers));
+      nodeRes.end(await res.text());
+    } catch (error) {
+      report(error, { tags: { operation: "Internal request handler failed" } });
+      if (!nodeRes.headersSent) nodeRes.writeHead(500);
+      nodeRes.end("Something went wrong");
+    }
   });
   server.listen(opts.port, () => console.log(`[ws-internal] listening on :${opts.port}`));
   return server;

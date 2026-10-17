@@ -1,6 +1,9 @@
+import { report } from "../observability/index.js";
+import { isExtraDeckCard } from "../duels/extra-deck.js";
 import type Database from "better-sqlite3";
 import type { DuelDeck } from "../duels/index.js";
-import { isExtraDeckFrame } from "./card-catalog.js";
+import type { CardIdentityCatalog } from "../duels/pool.js";
+import { createDeckTypeLookup } from "./deck-sections.js";
 import { createSavedDeckService } from "./saved-decks.js";
 import { createTournamentDuelService, TournamentDuelError } from "./tournament-duels.js";
 
@@ -25,7 +28,7 @@ export function isTestBotDiscordId(discordUserId: string | null | undefined): bo
   return typeof discordUserId === "string" && discordUserId.startsWith(TEST_BOT_DISCORD_PREFIX);
 }
 
-type DraftDeckCard = { catalogId: number; extra: boolean; name?: string | null; type?: string | null; forced?: boolean };
+type DraftDeckCard = { catalogId: number; name?: string | null; type?: string | number | null; deckType?: string | number | null; forced?: boolean };
 
 /** Match artwork identity using the catalog's name and type; unknown ids stay separate. */
 function cardIdentity(card: DraftDeckCard): string {
@@ -48,8 +51,8 @@ function forcedCounts(cards: DraftDeckCard[]): Map<string, number> {
  * Splits a drafted pool into a deck. Extra Deck monsters go in extra, everything else in main.
  * A section over its limit puts the overflow in side (up to 15), so the deck stays one the duel
  * start accepts; cards that fit nowhere stay in the draft pool, where the deck editor finds them.
- * `catalogIds` are in pick order. Keep the pool's catalog ids at rest: this synchronous service
- * has no engine catalog. The web layer maps BOTH the deck and its pool to canonical engine
+ * `catalogIds` are in pick order. Keep the pool's catalog ids at rest. The web layer maps BOTH
+ * the deck and its pool to canonical engine
  * passcodes on load and validation, including old saves with artwork ids.
  */
 export function buildDraftDeck(cards: DraftDeckCard[]): DuelDeck {
@@ -66,7 +69,7 @@ export function buildDraftDeck(cards: DraftDeckCard[]): DuelDeck {
     const count = copies.get(identity) ?? 0;
     if (count >= 3 + (forced.get(identity) ?? 0)) continue;
     copies.set(identity, count + 1);
-    if (card.extra) {
+    if (isExtraDeckCard({ type: card.deckType ?? card.type })) {
       if (extra.length < DRAFT_DECK_EXTRA_MAX) extra.push(card.catalogId);
       else overflow(card.catalogId);
     } else if (main.length < DRAFT_DECK_MAIN_MAX) main.push(card.catalogId);
@@ -152,7 +155,8 @@ export function draftDeckName(draft: { name: string; ended_at?: string | null; c
   return `${label.length > room ? label.slice(0, room).trimEnd() : label}${tail}`;
 }
 
-export function createDraftDeckService(db: Database.Database): DraftDeckService {
+export function createDraftDeckService(db: Database.Database, engine?: CardIdentityCatalog): DraftDeckService {
+  const findType = createDeckTypeLookup(db, engine);
   const selectDraft = db.prepare<[number], DraftRow>(
     "select id, guild_id, name, tournament_id, ended_at, created_at from drafts where id = ? and status = 'completed'",
   );
@@ -208,15 +212,16 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
      from tournaments t where t.id = ?`,
   );
 
-  const picksOf = (draftId: number, playerId: number) =>
-    selectPicks.all(draftId, playerId).map((row) => ({
+  const picksOf = (draftId: number, playerId: number) => {
+    const lookup = findType.snapshot();
+    return selectPicks.all(draftId, playerId).map((row) => ({
       catalogId: row.catalog_card_id,
       name: row.name,
       type: row.type,
+      deckType: lookup(row.catalog_card_id)?.type ?? row.type,
       forced: row.forced === 1,
-      // A card missing from the catalog counts as Main, like the web pool loader.
-      extra: row.type != null && isExtraDeckFrame({ type: row.type, frameType: row.frame_type ?? "" }),
     }));
+  };
 
   const service: DraftDeckService = {
     mainPoolCount(draftId, playerId) {
@@ -225,7 +230,7 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
       const forced = forcedCounts(cards);
       for (const card of cards) {
         const identity = cardIdentity(card);
-        if (!card.extra) counts.set(identity, Math.min(3 + (forced.get(identity) ?? 0), (counts.get(identity) ?? 0) + 1));
+        if (!isExtraDeckCard({ type: card.deckType ?? card.type })) counts.set(identity, Math.min(3 + (forced.get(identity) ?? 0), (counts.get(identity) ?? 0) + 1));
       }
       return [...counts.values()].reduce((sum, count) => sum + count, 0);
     },
@@ -233,7 +238,7 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
     linkTournament(tournamentId, onlyPlayerId) {
       const info = selectTournamentGuild.get(tournamentId);
       if (!info || info.draft_id === null) return [];
-      const saved = createSavedDeckService(db);
+      const saved = createSavedDeckService(db, engine);
       const duels = createTournamentDuelService(db);
       const linked: number[] = [];
       for (const row of selectUnregistered.all(tournamentId)) {
@@ -255,7 +260,7 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
     saveForDraft(draftId) {
       const draft = selectDraft.get(draftId);
       if (!draft) return [];
-      const saved = createSavedDeckService(db);
+      const saved = createSavedDeckService(db, engine);
       const created: number[] = [];
       for (const human of selectHumans.all(draftId)) {
         if (isTestBotDiscordId(human.discord_user_id) || human.deck_saved_at !== null) continue;
@@ -279,7 +284,7 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
         try {
           if (savePlayer()) created.push(human.user_id);
         } catch (error) {
-          console.error(`[draft-decks] could not save the deck of player ${human.player_id} for draft ${draftId}:`, error);
+          report(error, { tags: { operation: "[draft-decks] could not save the deck of player for draft" } });
         }
       }
       const tournamentId = selectDraftTournament.get(draftId)?.tournament_id ?? null;

@@ -1,5 +1,5 @@
+import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
@@ -30,9 +30,10 @@ class FakeWorker implements DuelGameWorker {
   result: DuelEngineView["result"] = null;
   private stopped = false;
   get running() { return !this.stopped; }
-  constructor(private readonly failCreate = false) {}
+  constructor(private readonly failCreate = false, private readonly createGate?: Promise<void>) {}
   async create(options: GameOptions) {
     if (this.failCreate) throw new Error("engine did not start");
+    await this.createGate;
     this.createdOptions = options;
   }
   async view(seat: number | null) { return fakeView(seat, this.result); }
@@ -57,14 +58,30 @@ function setup() {
 }
 type App = ReturnType<typeof setup>;
 
-function openHost(app: App, random: () => number = Math.random, onChange?: (slug: string, guildId: string) => void) {
+/** Await timer-driven activation without polling the room or advancing the fake opening clock. */
+function startNotice(app: App) {
+  let resolveStarted!: () => void;
+  const started = new Promise<void>(resolve => { resolveStarted = resolve; });
+  return { started, onChange: (slug: string, guildId: string) => {
+    if (app.duels.get(slug, guildId).status === "active") resolveStarted();
+  } };
+}
+
+function openHost(app: App, random: () => number = Math.random, onChange?: (slug: string, guildId: string) => void, pollIntervalMs: number | null = 60 * 60 * 1000) {
   const workers: FakeWorker[] = [];
-  const control = { failCreate: false };
+  let resolveCreating!: () => void;
+  const creating = new Promise<void>(resolve => { resolveCreating = resolve; });
+  const control = { failCreate: false, createGate: undefined as Promise<void> | undefined, creating };
   const host = createDuelHost({
     db: app.db, dataDirectory: DATA, secret: SECRET, searchCards: () => [],
-    archiveAfterMs: 60 * 60 * 1000, idleWorkerMs: 60 * 60 * 1000, pollIntervalMs: 60 * 60 * 1000,
+    archiveAfterMs: 60 * 60 * 1000, idleWorkerMs: 60 * 60 * 1000, pollIntervalMs: pollIntervalMs ?? undefined,
     openingRps: true, random, onChange,
-    createWorker: () => { const worker = new FakeWorker(control.failCreate); workers.push(worker); return worker; },
+    createWorker: () => {
+      const worker = new FakeWorker(control.failCreate, control.createGate);
+      workers.push(worker);
+      resolveCreating();
+      return worker;
+    },
   });
   hosts.push(host);
   return { host, workers, control };
@@ -72,9 +89,9 @@ function openHost(app: App, random: () => number = Math.random, onChange?: (slug
 
 async function post(host: DuelHost, body: Record<string, unknown>) {
   const raw = JSON.stringify({ guildId: GUILD, ...body });
-  const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
+
   const response = await host.handle(new Request("http://localhost/internal/duel", {
-    method: "POST", headers: { "content-type": "application/json", "x-announce-signature": signature }, body: raw,
+    method: "POST", headers: { "content-type": "application/json", ...await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") }, body: raw,
   }));
   let data: any = null;
   try { data = JSON.parse(await response.text()); } catch { data = null; }
@@ -223,8 +240,9 @@ describe("rock-paper-scissors opening", () => {
   it("makes a missing pick at random after about 30 seconds, and a winner who does not choose goes first", async () => {
     vi.useFakeTimers();
     const app = setup();
+    const notice = startNotice(app);
     const randoms = [0.5];
-    const { host, workers } = openHost(app, () => randoms.shift() ?? 0);
+    const { host, workers } = openHost(app, () => randoms.shift() ?? 0, notice.onChange);
     const slug = openTable(app);
     await post(host, { op: "start", slug, playerId: app.p1 });
     await post(host, { op: "opening-pick", slug, playerId: app.p1, move: "rock" });
@@ -241,6 +259,7 @@ describe("rock-paper-scissors opening", () => {
 
     await vi.advanceTimersByTimeAsync(34_000);
     await settle();
+    await notice.started;
     expect(app.duels.get(slug, GUILD).status).toBe("active");
     expect(workers).toHaveLength(1);
     expect(seatPlayer(app, slug, 0)).toBe(app.p2);
@@ -257,12 +276,13 @@ describe("rock-paper-scissors opening", () => {
     expect(view.data.opening.round).toBe(2);
   });
 
-  it("plays against the practice bot: the human sees the result first, then the bot goes first when it wins", async () => {
+  it("chooses for the winning practice bot within 1.5 seconds without a room read or sweep", async () => {
     vi.useFakeTimers();
     const app = setup();
+    const notice = startNotice(app);
     // The bot's random pick: index 1 is paper.
     const randoms = [0.5];
-    const { host, workers } = openHost(app, () => randoms.shift() ?? 0);
+    const { host, workers } = openHost(app, () => randoms.shift() ?? 0, notice.onChange);
     const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Bot", mode: "normal" });
     app.duels.setDeck(table.slug, GUILD, app.p1, deckFor());
     app.duels.markReady(table.slug, GUILD, app.p1);
@@ -281,21 +301,139 @@ describe("rock-paper-scissors opening", () => {
     expect(lost.data.opening.reveal.picks).toEqual(["rock", "paper"]);
     expect(workers).toHaveLength(0);
 
-    // A look at the room during the reveal does not start the duel either.
-    await vi.advanceTimersByTimeAsync(2_000);
-    const during = await post(host, { op: "view", slug: table.slug, playerId: app.p1 });
-    expect(during.data.session.status).toBe("lobby");
+    // The human can see the result during the short pause; no host read advances it.
+    await vi.advanceTimersByTimeAsync(750);
+    expect(app.duels.room(table.slug, GUILD, app.p1).session.status).toBe("lobby");
     expect(workers).toHaveLength(0);
 
-    // The reveal ends: the bot chooses to go first and the duel starts.
-    await vi.advanceTimersByTimeAsync(1_500);
+    // The bot's short pause ends, long before the one-hour sweep or the human choice timeout.
+    await vi.advanceTimersByTimeAsync(300);
     await settle();
+    await notice.started;
     expect(app.duels.get(table.slug, GUILD).status).toBe("active");
     expect(app.duels.get(table.slug, GUILD).seats.find((seat) => seat.seat === 0)?.isBot).toBe(true);
     expect(workers).toHaveLength(1);
   });
 
-  it("starts the duel when somebody looks at the room after the bot's reveal ended", async () => {
+  it("invalidates at the bot's choice and again when the first active view is ready", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    const notice = startNotice(app);
+    const changed = vi.fn((slug: string, guildId: string) => {
+      notice.onChange(slug, guildId);
+      return { slug, guildId, phase: app.duels.openingState(slug, guildId)?.phase ?? null,
+        status: app.duels.get(slug, guildId).status };
+    });
+    const { host, workers, control } = openHost(app, () => 0.5, changed);
+    let release!: () => void;
+    control.createGate = new Promise<void>((resolve) => { release = resolve; });
+    const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Bot", mode: "normal" });
+    app.duels.setDeck(table.slug, GUILD, app.p1, deckFor());
+    app.duels.markReady(table.slug, GUILD, app.p1);
+    await post(host, { op: "add-bot", slug: table.slug, playerId: app.p1 });
+    await post(host, { op: "start", slug: table.slug, playerId: app.p1 });
+    await post(host, { op: "opening-pick", slug: table.slug, playerId: app.p1, move: "rock" });
+    changed.mockClear();
+    try {
+      await vi.advanceTimersByTimeAsync(1_050);
+      await control.creating;
+      expect(changed.mock.results.map((result) => result.value)).toEqual([
+        { slug: table.slug, guildId: GUILD, phase: "start", status: "lobby" },
+      ]);
+      expect(workers).toHaveLength(1);
+      expect(workers[0]!.createdOptions).toBeNull();
+      release();
+      await notice.started;
+      expect(changed.mock.results.map((result) => result.value)).toEqual([
+        { slug: table.slug, guildId: GUILD, phase: "start", status: "lobby" },
+        { slug: table.slug, guildId: GUILD, phase: null, status: "active" },
+      ]);
+      const view = await post(host, { op: "view", slug: table.slug, playerId: app.p1 });
+      expect(view.data.session.status).toBe("active");
+      expect(view.data.engine).not.toBeNull();
+    } finally {
+      release();
+    }
+  });
+
+  it("keeps a room view at 750 ms in the bot result pause", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    const { host, workers } = openHost(app, () => 0.5);
+    const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Bot", mode: "normal" });
+    app.duels.setDeck(table.slug, GUILD, app.p1, deckFor());
+    app.duels.markReady(table.slug, GUILD, app.p1);
+    await post(host, { op: "add-bot", slug: table.slug, playerId: app.p1 });
+    await post(host, { op: "start", slug: table.slug, playerId: app.p1 });
+    await post(host, { op: "opening-pick", slug: table.slug, playerId: app.p1, move: "rock" });
+    await vi.advanceTimersByTimeAsync(750);
+    const view = await post(host, { op: "view", slug: table.slug, playerId: app.p1 });
+    expect(view.status).toBe(200);
+    expect(view.data.session.status).toBe("lobby");
+    expect(view.data.opening).toMatchObject({ phase: "choose", winnerSeat: 1, choice: null });
+    expect(view.data.engine).toBeNull();
+    expect(workers).toHaveLength(0);
+  });
+
+  it.each(["bot", "human"] as const)("serves the saved %s choice while engine creation waits, and keeps mutations queued", async (winner) => {
+    vi.useFakeTimers();
+    const app = setup();
+    const { host, workers, control } = openHost(app, () => 0.5);
+    let release!: () => void;
+    control.createGate = new Promise<void>((resolve) => { release = resolve; });
+    let slug: string;
+    if (winner === "bot") {
+      const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Bot", mode: "normal" });
+      slug = table.slug;
+      app.duels.setDeck(slug, GUILD, app.p1, deckFor());
+      app.duels.markReady(slug, GUILD, app.p1);
+      await post(host, { op: "add-bot", slug, playerId: app.p1 });
+    } else slug = openTable(app);
+    await post(host, { op: "start", slug, playerId: app.p1 });
+    await post(host, { op: "opening-pick", slug, playerId: app.p1, move: "rock" });
+    let chosen: ReturnType<typeof post> | undefined;
+    if (winner === "human") {
+      await post(host, { op: "opening-pick", slug, playerId: app.p2, move: "paper" });
+      chosen = post(host, { op: "opening-choose", slug, playerId: app.p2, choice: "second" });
+    }
+    try {
+      await vi.advanceTimersByTimeAsync(1_050);
+      await control.creating;
+      expect(workers).toHaveLength(1);
+      expect(workers[0]!.createdOptions).toBeNull();
+      let room: Awaited<ReturnType<typeof post>> | undefined;
+      const reading = post(host, { op: "view", slug, playerId: app.p1 }).then((value) => { room = value; });
+      let mutationDone = false;
+      const mutating = post(host, { op: "opening-choose", slug, playerId: app.p1, choice: "first" }).then(() => { mutationDone = true; });
+      await settle();
+      expect(room?.status).toBe(200);
+      expect(room?.data.session.status).toBe("lobby");
+      expect(room?.data.opening).toMatchObject({ phase: "start", choice: winner === "bot" ? "first" : "second" });
+      expect(room?.data.engine).toBeNull();
+      expect(room?.data.starting).toBe(true);
+      expect(room?.data.myDeck).toEqual(deckFor());
+      expect(mutationDone).toBe(false);
+      expect(workers).toHaveLength(1);
+      // Authentication and guild scoping still apply to reads that skip the engine queue.
+      const invalid = await post(host, { op: "view", slug, playerId: 0 });
+      expect(invalid.status).toBe(400);
+      const wrongGuild = await post(host, { op: "view", slug, guildId: "other", playerId: app.p1 });
+      expect(wrongGuild.status).toBe(404);
+      release();
+      await settle();
+      await Promise.all([reading, mutating, chosen]);
+      expect(mutationDone).toBe(true);
+      const active = await post(host, { op: "view", slug, playerId: app.p1 });
+      expect(active.data.session.status).toBe("active");
+      expect(active.data.engine).not.toBeNull();
+      expect(workers).toHaveLength(1);
+    } finally {
+      release();
+      await chosen;
+    }
+  });
+
+  it("starts the duel on a room read after the bot's short choice pause if the timer was lost", async () => {
     vi.useFakeTimers();
     const app = setup();
     const randoms = [0.5];
@@ -307,10 +445,31 @@ describe("rock-paper-scissors opening", () => {
     await post(host, { op: "start", slug: table.slug, playerId: app.p1 });
     await post(host, { op: "opening-pick", slug: table.slug, playerId: app.p1, move: "rock" });
     // The timer is lost (a restart): only the room view can notice the bot's choice is due.
-    vi.setSystemTime(Date.now() + 3_500);
+    vi.setSystemTime(Date.now() + 1_050);
     const view = await post(host, { op: "view", slug: table.slug, playerId: app.p1 });
     expect(view.data.session.status).toBe("active");
     expect(workers).toHaveLength(1);
+  });
+
+  it.each([1_500, 2_000, 2_500])("schedules an overdue bot choice after a %i ms restart gap with the default poll", async (gap) => {
+    vi.useFakeTimers();
+    const app = setup();
+    const { host } = openHost(app, () => 0.5);
+    const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Bot", mode: "normal" });
+    app.duels.setDeck(table.slug, GUILD, app.p1, deckFor());
+    app.duels.markReady(table.slug, GUILD, app.p1);
+    await post(host, { op: "add-bot", slug: table.slug, playerId: app.p1 });
+    await post(host, { op: "start", slug: table.slug, playerId: app.p1 });
+    await post(host, { op: "opening-pick", slug: table.slug, playerId: app.p1, move: "rock" });
+    await host.close();
+    vi.setSystemTime(Date.now() + gap);
+    const notice = startNotice(app);
+    const restarted = openHost(app, () => 0.5, notice.onChange, null);
+    // The recovery scan must arm an immediate timer, rather than wait for the human deadline.
+    await settle();
+    await notice.started;
+    expect(app.duels.get(table.slug, GUILD).status).toBe("active");
+    expect(restarted.workers).toHaveLength(1);
   });
 
   it("lets the human choose after beating the practice bot", async () => {
@@ -413,5 +572,29 @@ describe("rock-paper-scissors opening", () => {
     const slug = openTable(app);
     const start = await post(host, { op: "start", slug, playerId: app.p1 });
     expect(start.data.session.status).toBe("active");
+  });
+
+  it("logs one safe timing record per engine start", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const app = setup();
+    const { host } = openHost(app);
+    const slug = openTable(app);
+    try {
+      await post(host, { op: "start", slug, playerId: app.p1 });
+      expect(info).not.toHaveBeenCalled();
+      await post(host, { op: "opening-pick", slug, playerId: app.p1, move: "rock" });
+      await post(host, { op: "opening-pick", slug, playerId: app.p2, move: "paper" });
+      await post(host, { op: "opening-choose", slug, playerId: app.p2, choice: "first" });
+      await post(host, { op: "view", slug, playerId: app.p1 });
+      expect(info).toHaveBeenCalledTimes(1);
+      const log = JSON.parse(info.mock.calls[0]![0]);
+      expect(log).toEqual({
+        event: "duel_start", slug, outcome: "ready", totalMs: expect.any(Number),
+        resourceChecksMs: expect.any(Number), workerSpawnMs: expect.any(Number),
+        cardDbLoadMs: null, engineCreateMs: expect.any(Number), firstViewMs: expect.any(Number),
+      });
+      expect(JSON.stringify(log)).not.toContain(DATA);
+      expect(JSON.stringify(log)).not.toContain(SECRET);
+    } finally { info.mockRestore(); }
   });
 });

@@ -59,9 +59,9 @@ function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, o
   const taken = holder !== null && !mine && table.unique;
   const showHolder = table.selection === "player_pick" && holder !== null;
 
-  // Only the cube's owner may delete it. Other hosts can take it out of the draft.
+  // Only the cube's owner may edit or delete it. Other hosts can take it out of the draft.
   const entry = library.find((c) => c.id === cube.id);
-  const canDelete = entry?.canEdit === true;
+  const canEdit = entry?.canEdit === true;
 
   const remove = async () => {
     if (typeof window !== "undefined" && !window.confirm(`Delete "${cube.name}" from your library for good? This can't be undone.`)) return;
@@ -111,14 +111,14 @@ function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, o
         )}
         {isHost && (
           <span className={styles.cubeHostActs}>
-            <Link
+            {canEdit && <Link
               className={cn(svButtonClass("quiet"), styles.smallBtn)}
               href={`/cubes/${cube.id}?from=${encodeURIComponent(`/draft/${slug}`)}`}
               aria-label={`Edit cube ${cube.name}`}
             >
               Edit
-            </Link>
-            {canDelete ? (
+            </Link>}
+            {canEdit ? (
               <ThemeMenu name={cube.name} busy={busy} onDetach={() => void table.detach(cube.id)} onDelete={() => void remove()} />
             ) : (
               <button

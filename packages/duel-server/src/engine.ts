@@ -1,4 +1,5 @@
 import { ChainOptions } from "./chain-options.js";
+import { ChainActivator } from "./chain-activator.js";
 import { scriptErrorCoreFactory } from "./script-load-scope.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
@@ -25,7 +26,7 @@ import createCore, {
   type OcgResponse,
   type OcgOpCode,
 } from "ocgcore-wasm";
-import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
+import { deckSearchCodes, isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
 import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, directAttackSeat, filterPromptOptions, isOpponentPick, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
@@ -40,7 +41,6 @@ import {
   isNoDuelist,
   moveReveals,
   nextBattleStep,
-  linkTargetPhrase,
   nameLinkTargets,
   noteChainTargetLog,
   noteDestroyLog,
@@ -56,8 +56,7 @@ import {
   projectView,
   resetEventBatch,
   snapshotLinkTargets,
-  targetEventLabels,
-  targetEventText,
+  updateTargetEvent,
   type DomainSeatState,
   type LogEntry,
   type StoredChainLink,
@@ -68,10 +67,10 @@ import { readCoreCapabilities } from "./core-capabilities.js";
 import { chooseSurrenderedAnswer } from "./practice-bot.js";
 import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, MSG_SURRENDER_WINDOW_CLOSED, parseDuelistMessages, rawMessageCapture, withoutDuelistParseWarnings, type RawDuelistMessage } from "./raw-messages.js";
 import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
-import { fillPlaceholders } from "./text.js";
 import { firstTurnDrawFor } from "./first-turn-draw.js";
 import { attackTargetQueryScript, mergeAttackTargetPick, readAttackTargetQuery, type AttackTargetQuery } from "./attack-target-pick.js";
-import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines } from "./log-lines.js";
+import { createLogCardVisibility, destroyedAndBanishedLogText, destroyedLogText, hintLogLine, moveLogLines, summonLogLines, visibleTargetCardCodes, type TargetQueryCache } from "./log-lines.js";
+import type { TargetDescription } from "./target-names.js";
 
 /** A wasm the engine loaded: the bytes, the file name and the sha256 of the bytes (core identity for reports). */
 export interface LoadedWasm {
@@ -224,10 +223,16 @@ export function eliminationCodeOf(promptId: string): number | null {
 /** Entries the ring buffer keeps. */
 export const DIAGNOSTICS_LIMIT = 200;
 
+/** Internal replay cursors. Filtering stored history before projection avoids formatting old private text. */
+export interface EngineViewHistory {
+  logAfter?: number;
+  eventsAfter?: number;
+}
+
 export interface EngineGame {
-  view(seat: number | null): DuelEngineView;
+  view(seat: number | null, history?: EngineViewHistory): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
-  searchCards(query: string): DuelCardInfo[];
+  searchCards(query: string, seat?: number): DuelCardInfo[];
   /**
    * Surrender removes a duelist immediately through Debug.SurrenderDuelist, or flags the loss while the
    * current chain finishes. Leaving seats auto-pass; required choices use the deterministic fallback.
@@ -245,6 +250,8 @@ export interface EngineGame {
    * same points gives the same duel, so every call must be journaled by the caller.
    */
   setChainMode(seat: number, mode: DuelChainMode): boolean;
+  /** Fork control after its copied prefix. Required choices from pending-loss seats stay Manual. */
+  setManualLossAnswers?(enabled: boolean): void;
   /** The last entries (oldest first) of the triage ring buffer. For the host report only, never for a view. */
   diagnostics(): EngineDiagnostic[];
   /** Core identity (wasm sha and file) and the counters since the last prompt. For reports and triage only. */
@@ -376,7 +383,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     throw new Error(multi ? `Exactly ${seatCount} decks are required for a ${format} duel` : "Exactly two decks are required");
   }
   const start = engineStartConfig(options.settings);
-  const firstTurnDraw = options.firstTurnDraw ?? firstTurnDrawFor(options.mode, options.masterRule, format);
+  const firstTurnDraw = options.firstTurnDraw ?? firstTurnDrawFor(options.mode, options.masterRule, format, options.settings);
   const flags = (duelFlagsFor(options.masterRule) & ~OcgDuelMode.FIRST_TURN_DRAW)
     | (firstTurnDraw ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
   const seed = parseSeed(options.seed);
@@ -587,7 +594,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const events: StoredDuelEvent[] = [];
   const chainMemory: StoredChainLink[] = [];
   const chainOptions = new ChainOptions(cards);
+  const chainActivator = new ChainActivator();
   const respond = (prompt: PendingPrompt, response: OcgResponse) => {
+    chainActivator.recordResponse(prompt.seat, response, prompt.message);
     try {
       chainOptions.recordResponse(prompt, response);
     } catch (error) {
@@ -596,6 +605,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     lib.duelSetResponse(handle, response);
   };
   const reveals = createRevealMap(seatCount);
+  const targetQueryCache: TargetQueryCache = new Map();
+  eventContext.targetVisibility = (zone) => visibleTargetCardCodes({ lib, handle, format, reveals, queryCache: targetQueryCache }, zone);
   let nextLogId = 1;
   let nextEventId = 1;
   let lastSelectHint: string | undefined;
@@ -608,10 +619,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let lastPlaceSeat: number | undefined;
   let synchroSummon: MapPromptExtras["synchroSummon"];
   let sawRetry = false;
-  const hintCardName = () => (lastHintCard ? cards.get(lastHintCard)?.name : undefined);
 
-  const appendLog = (text: string, audience: "all" | number = "all"): LogEntry => {
-    const entry = { id: nextLogId++, text, audience };
+  const deckMasters = options.mode === "domain" ? options.decks.flatMap((deck) => deck.deckMaster ? [deck.deckMaster] : []) : [];
+  const hintVisibility = createLogCardVisibility({ lib, handle, format, reveals, deckMasters, queryCache: targetQueryCache });
+  const appendLog = (text: string, audience: "all" | number = "all", privateText?: Record<number, string>): LogEntry => {
+    const entry = { id: nextLogId++, text, audience, ...(privateText ? { privateText } : {}) };
     log.push(entry);
     if (log.length > 400) log.splice(0, log.length - 400);
     return entry;
@@ -644,16 +656,29 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let autoPickSeat: number | null = null;
   // Target lines whose names have not all arrived: the core can deliver a card's note in a later process call than the
   // target message, so the lines are written now and their text is completed by settleTargetNames.
-  const unnamedTargets: Array<{ link: StoredChainLink; event: StoredDuelEvent; lines: Array<{ entry: LogEntry; text: (phrase: string) => string }> }> = [];
+  type TargetLogLine = { entry: LogEntry; text: (phrase: string) => string };
+  const unnamedTargets: Array<{ link: StoredChainLink; event: StoredDuelEvent; lines: TargetLogLine[] }> = [];
+  const updateTargetLines = (lines: TargetLogLine[], description: TargetDescription) => {
+    for (const line of lines) {
+      line.entry.text = line.text(description.phrase);
+      if (line.entry.privateText) delete line.entry.privateText;
+      if (!description.private) continue;
+      for (const [viewer, named] of Object.entries(description.private)) {
+        const text = line.text(named.phrase);
+        if (text !== line.entry.text) (line.entry.privateText ??= {})[Number(viewer)] = text;
+      }
+    }
+  };
   /** The log lines of a chain link's target: the public line, and a private note when the player had no choice. */
   const logChainTarget = (event: StoredDuelEvent) => {
     const link = event.chainIndex != null ? chainMemory.find((entry) => entry.index === event.chainIndex) : undefined;
     if (!link || !event.targetAnnouncement) return;
     const snapshot = snapshotLinkTargets(link);
+    // CHAINING publicly announces its source, even when the effect activates from a hidden zone.
     const source = cards.get(link.code)?.name ?? `Card ${link.code}`;
-    const lines: Array<{ entry: LogEntry; text: (phrase: string) => string }> = [];
+    const lines: TargetLogLine[] = [];
     const add = (text: (phrase: string) => string, audience: "all" | number) => {
-      lines.push({ entry: appendLog(text(linkTargetPhrase(snapshot)), audience), text });
+      lines.push({ entry: appendLog("", audience), text });
     };
     add((phrase) => `Chain Link ${link.index}: ${source} targets ${phrase}`, "all");
     if (autoPickSeat === link.seat) {
@@ -661,8 +686,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       autoPickSeat = null;
     }
     const complete = nameLinkTargets(eventContext, snapshot, cards);
-    event.text = event.publicText = targetEventText(snapshot);
-    event.targetLabels = targetEventLabels(snapshot);
+    updateTargetLines(lines, updateTargetEvent(event, snapshot));
     if (!complete) {
       unnamedTargets.push({ link: snapshot, event, lines });
       // Match the event ring's bound even if a broken reporter never supplies the missing notes.
@@ -673,19 +697,16 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     for (let index = unnamedTargets.length - 1; index >= 0; index -= 1) {
       const pending = unnamedTargets[index]!;
       if (!nameLinkTargets(eventContext, pending.link, cards)) continue;
-      pending.event.text = pending.event.publicText = targetEventText(pending.link);
-      pending.event.targetLabels = targetEventLabels(pending.link);
-      const phrase = linkTargetPhrase(pending.link);
-      for (const line of pending.lines) line.entry.text = line.text(phrase);
+      updateTargetLines(pending.lines, updateTargetEvent(pending.event, pending.link));
       unnamedTargets.splice(index, 1);
     }
   };
 
-  const recordEvent = (message: OcgMessage) => {
+  const recordEvent = (message: OcgMessage, activator?: number) => {
     // Moves first: a card's move precedes the summon/set/activate/destroy event it belongs to.
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
-    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
+    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext, activator);
     try {
       chainOptions.observe(message, chainMemory, stored);
     } catch (error) {
@@ -721,14 +742,17 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     nextEventId += 1;
     markDestroyedLine(stored);
     events.push(stored);
-    if (events.length > 400) events.splice(0, events.length - 400);
+    hintVisibility.addEvent(stored);
+    if (events.length > 400) {
+      for (const expired of events.splice(0, events.length - 400)) hintVisibility.removeEvent(expired);
+    }
   };
 
   const flushDeferredDestroys = () => {
     for (const stored of drainDeferredDestroys(eventContext, cards, nextEventId)) pushEvent(stored);
   };
 
-  const applyMessage = (message: OcgMessage) => {
+  const applyMessage = (message: OcgMessage, activator?: number) => {
     eliminationGroup = null;
     battleStep = nextBattleStep(battleStep, message);
     switch (message.type) {
@@ -746,13 +770,15 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           // Placeholders are filled when the prompt is built, against the card the prompt names.
           lastSelectHint = cards.resolveLabel(message.hint) || cards.system(Number(message.hint));
         } else if (message.hint_type === OcgHintType.EVENT || message.hint_type === OcgHintType.MESSAGE) {
-          const text = fillPlaceholders(cards.resolveLabel(message.hint) || cards.system(Number(message.hint)) || "", [hintCardName()]);
           const duplicateRecipient = logHintRecipientsLeft > 0 && loggedHintCall;
           if (logHintRecipientsLeft > 0) {
             logHintRecipientsLeft -= 1;
             loggedHintCall = true;
           }
-          if (text && !duplicateRecipient) appendLog(text);
+          if (!duplicateRecipient) {
+            const line = hintLogLine(message.hint, lastHintCard, cards, hintVisibility);
+            if (line) appendLog(line.text, line.audience, line.privateText);
+          }
         } else if (message.hint_type === OcgHintType.CARD) {
           lastHintCard = Number(message.hint) || undefined;
         }
@@ -771,7 +797,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       case OcgMessageType.CHAINING:
         startedChainLinks.delete(message.chain_size);
         liveChainSize = message.chain_size;
-        appendLog(`${playerLabel(format, message.controller)}'s ${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
+        // The core publicly announces the activation's code; this is an explicit reveal.
+        appendLog(`${playerLabel(format, activator ?? message.controller)}'s ${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
         return;
       case OcgMessageType.SPSUMMONED:
         synchroSummon = undefined;
@@ -893,7 +920,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         return;
       case OcgMessageType.MOVE:
         moveReveals(reveals, message.from, message.to, message.card);
-        for (const line of moveLogLines(message, cards, format)) {
+        for (const line of moveLogLines(message, cards, format, deckMasters)) {
           const entry = appendLog(line.text, line.audience);
           // Parsed overlay locations name the host's field zone, but the material itself was not on the field.
           if (line.leftField && message.from.overlay_sequence == null) {
@@ -1045,6 +1072,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     while (!result) {
       if (processCalls++ >= CORE_PROCESS_CALL_LIMIT) throw new EngineLoopError();
       scriptErrors.enterProcess();
+      targetQueryCache.clear();
       let status: ReturnType<typeof lib.duelProcess>;
       try { status = lib.duelProcess(handle); }
       finally { scriptErrors.leaveProcess(); }
@@ -1059,15 +1087,17 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         messages.forEach((message, index) => {
           while (nextExtra < extras.length && extras[nextExtra]!.after <= index) applyRaw(extras[nextExtra++]!);
           options.onCoreMessage?.(message);
-          applyMessage(message);
-          recordEvent(message);
+          const activator = chainActivator.observe(message);
+          applyMessage(message, activator);
+          recordEvent(message, activator);
         });
         while (nextExtra < extras.length) applyRaw(extras[nextExtra++]!);
       } else {
         for (const message of messages) {
           options.onCoreMessage?.(message);
-          applyMessage(message);
-          recordEvent(message);
+          const activator = chainActivator.observe(message);
+          applyMessage(message, activator);
+          recordEvent(message, activator);
         }
       }
       flushDeferredDestroys();
@@ -1164,6 +1194,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
 
   /** Bound automatic answers while the current chain or cut-short turn finishes. */
   const LEAVING_ANSWER_LIMIT = 200;
+  let manualLossAnswers = false;
 
   const mustCloseResponseWindow = () => pending?.seat === closedResponseSeat
     && (pending?.message.type === OcgMessageType.SELECT_EFFECTYN
@@ -1177,6 +1208,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const answerForLeavingSeats = () => {
     for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow()); step += 1) {
       const current = pending;
+      // A fork's creator must answer required choices while the core finishes the loss.
+      // The core's signal to close an optional response window still needs to be consumed.
+      if (manualLossAnswers && !eliminated.has(current.seat) && !mustCloseResponseWindow()) break;
       closedResponseSeat = null;
       if (step >= LEAVING_ANSWER_LIMIT) {
         throw new Error(`Seat ${current.seat} is still in the duel after ${LEAVING_ANSWER_LIMIT} automatic answers (open prompt ${current.id}, ${current.prompt.kind})`);
@@ -1206,9 +1240,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   }
 
   const game: EngineGame = {
-    view(seat) {
+    setManualLossAnswers(enabled) { manualLossAnswers = enabled; },
+    view(seat, history) {
       if (closed) throw new Error("Engine is closed");
       if (seat != null && !(Number.isInteger(seat) && seat >= 0 && seat < seatCount)) throw new Error("Invalid seat");
+      const logAfter = history?.logAfter, eventsAfter = history?.eventsAfter;
       const projected = scriptErrors.query(() => projectView({
         lib,
         coreCapabilities,
@@ -1223,8 +1259,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         lp: Array.from({ length: seatCount }, (_, index) => lpOf(index)),
         prompt: pending?.prompt ?? null,
         promptSeat: pending?.seat ?? null,
-        log,
-        events,
+        log: logAfter == null ? log : log.filter((entry) => entry.id > logAfter),
+        events: eventsAfter == null ? events : events.filter((entry) => entry.id > eventsAfter),
         chain: chainMemory,
         result,
         reveals,
@@ -1361,6 +1397,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // suffix it adds, so the old prompt and its events are not counted twice.
       const oldMessages = tap ? withoutDuelistParseWarnings(() => lib.duelGetMessage(handle)) : lib.duelGetMessage(handle);
       const oldBytes = tap?.take().at(-1)?.byteLength ?? 0;
+      targetQueryCache.clear();
       if (!scriptErrors.query(() => lib.loadScript(handle, "duel-eliminate.lua", surrender
         ? `Debug.SurrenderDuelist(${seat})`
         : `Debug.EliminateDuelist(${seat},${Math.trunc(reason)})`), true)) {
@@ -1377,8 +1414,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       let nextExtra = 0;
       fresh.forEach((message, index) => {
         while (nextExtra < extras.length && extras[nextExtra]!.after <= index) applyRaw(extras[nextExtra++]!);
-        applyMessage(message);
-        recordEvent(message);
+        const activator = chainActivator.observe(message);
+        applyMessage(message, activator);
+        recordEvent(message, activator);
       });
       while (nextExtra < extras.length) applyRaw(extras[nextExtra++]!);
       flushDeferredDestroys();
@@ -1428,11 +1466,16 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     coreInfo() {
       return { wasmSha: loaded.sha, wasmFile: loaded.file, callsSinceLastPrompt, messagesSinceLastPrompt };
     },
-    searchCards(query) {
+    searchCards(query, seat) {
       if (closed) throw new Error("Engine is closed");
+      if (seat !== undefined && (!Number.isInteger(seat) || seat < 0 || seat >= options.decks.length
+        || pending?.message.type !== OcgMessageType.ANNOUNCE_CARD || pending.seat !== seat)) {
+        throw new EngineAnswerError("No card announcement is waiting for this seat");
+      }
       if (pending?.message.type === OcgMessageType.ANNOUNCE_CARD) {
         const opcodes = pending.message.opcodes as OcgOpCode[];
-        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes));
+        const ownDeck = seat === undefined ? undefined : deckSearchCodes(cards, options.decks[seat]!);
+        return cards.search(query, (data) => cardMatchesOpcode(data, opcodes), ownDeck);
       }
       return cards.search(query);
     },

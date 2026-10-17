@@ -72,7 +72,34 @@ describe("POST /api/tournaments/[slug]/complete", () => {
     expect(row.ended_at).not.toBeNull();
   });
 
-  it("returns 400 when the tournament is not active", async () => {
+  it("reports a failed tournament write and returns a generic 500", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "tourney-complete-"));
+    const dbPath = join(tempDir, "t.sqlite");
+    tempDirs.push(tempDir);
+    process.env.DATABASE_PATH = dbPath;
+    await seedActive(dbPath);
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(dbPath);
+    db.exec("create trigger failed_write before update on tournaments begin select raise(abort, 'fixture database detail'); end");
+    db.close();
+    const { setObservabilityAdapter } = await import("@yugidraft/shared/observability");
+    const errors: unknown[] = [];
+    setObservabilityAdapter({ report: error => { errors.push(error); }, log() {}, async flush() {} });
+    try {
+      const { POST } = await import("../../app/api/tournaments/[slug]/complete/route");
+      const response = await POST(new Request("http://localhost/api/tournaments/slug-1/complete", { method: "POST" }),
+        { params: Promise.resolve({ slug: "slug-1" }) });
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "Something went wrong" });
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({ message: "fixture database detail" });
+    } finally {
+      const { consoleAdapter } = await import("../../../shared/dist/observability/console-adapter");
+      setObservabilityAdapter(consoleAdapter);
+    }
+  });
+
+  it("returns 409 when the tournament is not active", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "tourney-complete-"));
     const dbPath = join(tempDir, "t.sqlite");
     tempDirs.push(tempDir);
@@ -95,7 +122,7 @@ describe("POST /api/tournaments/[slug]/complete", () => {
       new Request("http://localhost/api/tournaments/slug-1/complete", { method: "POST" }),
       { params: Promise.resolve({ slug: "slug-1" }) },
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.error).toMatch(/cannot end a pending/i);
   });

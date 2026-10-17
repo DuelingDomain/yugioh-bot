@@ -316,6 +316,8 @@
 
 .cell {
   min-width: 0;
+  /* A scroll to a card (the chain card, arrow keys) keeps room for its chain badge above the art. */
+  scroll-margin-block: calc(12 * var(--pv-u));
 }
 
 .card {
@@ -459,6 +461,117 @@
 .mark {
   background: var(--pv-pen-fill);
   color: #fff;
+}
+
+/* ---------- chain marks: the card a chain link activated from ---------- */
+
+/* The same medallion as the badge on the field pile (chain-fx.module.css): the link number in a gold ring with the
+   chain-link chip. It sits a third outside the card's top right corner, as the field badge does. A card two links
+   activated from shows two side by side, each stepping 82% to the left. */
+.chainMarks {
+  --b: calc(22 * var(--pv-u));
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 0;
+  translate: 34% -34%;
+  pointer-events: none;
+}
+
+.chainMarks[data-size="detail"] {
+  --b: calc(26 * var(--pv-u));
+}
+
+.chainBadge {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  box-sizing: border-box;
+  width: var(--b);
+  height: var(--b);
+  margin-left: calc(var(--b) * -0.18);
+  border: 2px solid var(--duel-chain, #e4b64f);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 28%, #2b2048, #120d1f 72%);
+  color: var(--duel-chain-ink, #f4d690);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.65), inset 0 0 0 1px rgb(244 214 144 / 0.22), 0 2px 7px rgb(0 0 0 / 0.55);
+}
+
+.chainNum {
+  font-family: var(--pv-f-num);
+  font-size: calc(var(--b) * 0.58);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.chainChip {
+  position: absolute;
+  left: -24%;
+  bottom: -22%;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 52%;
+  height: 52%;
+  border: 1.5px solid var(--duel-chain, #e4b64f);
+  border-radius: 50%;
+  background: #120d1f;
+  color: var(--duel-chain-ink, #f4d690);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6);
+}
+
+/* Resolving: the gold medallion with the purple halo, as on the field. */
+.chainBadge[data-status="resolving"] {
+  border-color: var(--duel-pen-ink, #c6b6ff);
+  background: var(--duel-chain, #e4b64f);
+  color: #1a1206;
+  box-shadow: 0 0 0 3px rgb(155 126 255 / 0.6), 0 2px 8px rgb(0 0 0 / 0.55);
+}
+
+/* Negated: grey with a red slash. */
+.chainBadge[data-negated="true"] {
+  border-color: var(--duel-loss, #e45a4d);
+  background: #26242c;
+  color: var(--duel-loss-ink, #ff9489);
+  box-shadow: 0 0 0 2px rgb(228 90 77 / 0.55), 0 2px 7px rgb(0 0 0 / 0.55);
+}
+
+.chainBadge[data-negated="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: linear-gradient(to top right, transparent 44%, var(--duel-loss, #e45a4d) 46% 54%, transparent 56%);
+}
+
+/* A selected card wears the check on the right: the chain mark moves to the left corner. */
+.card[data-selected="true"] .chainMarks {
+  right: auto;
+  left: 0;
+  flex-direction: row;
+  translate: -34% -34%;
+}
+
+/* "Chain 1 · resolving" under the place in the pile. */
+.previewChain {
+  color: var(--duel-chain-ink, #f4d690);
+  font-size: var(--pv-t-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.previewChain[data-phase="resolving"] {
+  color: var(--pv-pen-ink);
+}
+
+.previewChain[data-phase="negated"] {
+  color: var(--duel-loss-ink, #ff9489);
 }
 
 /* ---------- phones: still centred, over the whole viewport ---------- */

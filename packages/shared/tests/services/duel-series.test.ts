@@ -1,3 +1,4 @@
+import { useConsoleObservability, useRecordingObservability } from "../helpers/recording-observability.mjs";
 import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
@@ -310,7 +311,7 @@ describe("series result recording", () => {
       when new.kind = 'match_win'
       begin select raise(abort, 'forced scoring failure'); end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       expect(() => app.duels.complete(duel.slug, "g1", seatOf(duel, app.p1), "done")).not.toThrow();
     } finally {
@@ -353,7 +354,7 @@ describe("series result recording", () => {
         select raise(abort, 'forced match save failure');
       end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       expect(() => app.duels.complete(finalGame.slug, "g1", seatOf(finalGame, app.p1), "done"))
         .not.toThrow();
@@ -408,7 +409,7 @@ describe("series result recording", () => {
         select raise(abort, 'forced series link failure');
       end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       expect(() => app.duels.complete(duel.slug, "g1", seatOf(duel, app.p1), "done")).not.toThrow();
     } finally {
@@ -446,7 +447,7 @@ describe("series result recording", () => {
       create temp trigger fail_match_save before insert on matches
       begin select raise(abort, 'forced match save failure'); end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       expect(() => app.duels.complete(duel.slug, "g1", seatOf(duel, app.p2), reason, { public: board, seat0: board, seat1: board }))
         .not.toThrow();
@@ -1163,6 +1164,19 @@ describe("tournament series", () => {
     return { app, t, slot, register };
   }
 
+  it("lets tournament player one create a casual table without changing the match", () => {
+    const { app, slot, register } = tournamentSetup();
+    register(app.p1, validDeck(1));
+    register(app.p2, validDeck(1000));
+    const playerOne = Number(slot.player_one_id);
+    const match = app.series.startTournamentMatch({ guildId: "g1", tournamentMatchId: slot.id, actorPlayerId: playerOne });
+    expect(app.duels.waitingHostedTable("g1", playerOne)).toBeNull();
+    const created = app.duels.createRequest({ guildId: "g1", organizerPlayerId: playerOne, fingerprint: "casual" }, () => ({ session: app.duels.create({ guildId: "g1", organizerPlayerId: playerOne, name: "Casual", mode: "normal" }) }));
+    expect(created.session.status).toBe("lobby");
+    expect(app.duels.get(match.duel.slug, "g1").status).toBe("lobby");
+    app.db.close();
+  });
+
   it("rejects a missing deck, a stranger, a BYE and an inactive tournament", () => {
     const { app, t, slot, register } = tournamentSetup();
     expectStatus(() => app.series.startTournamentMatch({ guildId: "g1", tournamentMatchId: slot.id, actorPlayerId: app.p1 }), 409);
@@ -1429,39 +1443,38 @@ describe("tournament series guards", () => {
     expect(app.db.prepare("select count(*) as c from duels where series_id = ?").get(started.series.id)).toEqual({ c: 1 });
   });
 
-  it("logs a tournament result failure and preserves the completed duel and series", () => {
-    const { app, slot, started, ready } = guardSetup(1);
-    ready();
-    start(app, started.duel.slug);
-    app.db.prepare("update tournament_matches set status = 'completed' where id = ?").run(slot.id);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
+  describe("result failure recovery", () => {
+    const output = useConsoleObservability();
+
+    it("logs a tournament result failure and preserves the completed duel and series", () => {
+      const { app, slot, started, ready } = guardSetup(1);
+      ready();
+      start(app, started.duel.slug);
+      app.db.prepare("update tournament_matches set status = 'completed' where id = ?").run(slot.id);
       expect(() => app.duels.complete(started.duel.slug, "g1", seatOf(started.duel, app.p1), "done")).not.toThrow();
       expect(seriesRow(app, started.series.id)).toMatchObject({ status: "completed", wins0: 1, wins1: 0, winner_player_id: app.p1, match_id: null, ended_at: expect.any(String) });
       expect(duelRow(app, started.duel.slug)).toMatchObject({ status: "completed", archived_at: expect.any(String) });
       expect(matchRows(app)).toHaveLength(0);
       expect(app.series.openForTournamentMatch(slot.id)).toBeNull();
-      expect(spy).toHaveBeenCalledTimes(1);
-      const logged = spy.mock.calls[0]!
-        .map((arg) => JSON.stringify(arg, (_key, value) => (value instanceof Error ? value.message : value)))
-        .join(" ");
-      expect(logged).toContain(`"seriesId":${started.series.id}`);
-      expect(logged).toContain(`"tournamentMatchId":${slot.id}`);
-      expect(logged).toContain(`"duelId":${started.duel.id}`);
-      expect(logged).toContain("already completed");
-    } finally {
-      spy.mockRestore();
-    }
-    app.db.prepare("update tournament_matches set status = 'open' where id = ?").run(slot.id);
-    const store = createSeriesStore(app.db);
-    expect(store.listUnrecordedResults("g1").map((row) => row.id)).toEqual([started.series.id]);
-    expect(store.retryResult(started.series.id, "g1")).toMatchObject({ ok: true });
-    const match = matchRows(app)[0]!;
-    expect(seriesRow(app, started.series.id)).toMatchObject({ status: "completed", match_id: match.id });
-    expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id))
-      .toEqual({ status: "completed", match_id: match.id });
-    expect(store.retryResult(started.series.id, "g1")).toMatchObject({ ok: true, match: { id: match.id } });
-    expect(matchRows(app)).toHaveLength(1);
+      expect(output.warnings.filter(({ message }) => message === "[duel-series] recording the series result failed")).toEqual([{
+        message: "[duel-series] recording the series result failed",
+        fields: {
+          seriesId: started.series.id, tournamentMatchId: slot.id, duelId: started.duel.id,
+          reason: "Tournament match is already completed",
+        },
+      }]);
+      expect(output.errors).toEqual([]);
+      app.db.prepare("update tournament_matches set status = 'open' where id = ?").run(slot.id);
+      const store = createSeriesStore(app.db);
+      expect(store.listUnrecordedResults("g1").map((row) => row.id)).toEqual([started.series.id]);
+      expect(store.retryResult(started.series.id, "g1")).toMatchObject({ ok: true });
+      const match = matchRows(app)[0]!;
+      expect(seriesRow(app, started.series.id)).toMatchObject({ status: "completed", match_id: match.id });
+      expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id))
+        .toEqual({ status: "completed", match_id: match.id });
+      expect(store.retryResult(started.series.id, "g1")).toMatchObject({ ok: true, match: { id: match.id } });
+      expect(matchRows(app)).toHaveLength(1);
+    });
   });
 
   it("a failed series link rolls back slot completion, tournament progression and scoring", () => {
@@ -1475,7 +1488,7 @@ describe("tournament series guards", () => {
       when new.match_id is not null
       begin select raise(abort, 'forced series link failure'); end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       expect(() => app.duels.complete(started.duel.slug, "g1", seatOf(started.duel, app.p1), "done")).not.toThrow();
     } finally {
@@ -1519,7 +1532,7 @@ describe("tournament series guards", () => {
       when new.kind = 'placement'
       begin select raise(abort, 'forced placement failure'); end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       expect(() => app.duels.complete(started.duel.slug, "g1", seatOf(started.duel, app.p1), "done")).not.toThrow();
     } finally {
@@ -1559,7 +1572,7 @@ describe("tournament series guards", () => {
       create temp trigger fail_match_save before insert on matches
       begin select raise(abort, 'forced match save failure'); end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       expect(() => app.duels.complete(started.duel.slug, "g1", seatOf(started.duel, app.p1), "done")).not.toThrow();
     } finally {
@@ -1600,7 +1613,7 @@ describe("tournament series guards", () => {
       create temp trigger fail_match_save before insert on matches
       begin select raise(abort, 'forced match save failure'); end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       playGame(app, started.duel.slug, app.p1);
     } finally {
@@ -1632,7 +1645,7 @@ describe("tournament series guards", () => {
       create temp trigger fail_match_save before insert on matches
       begin select raise(abort, 'forced match save failure'); end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       playGame(app, started.duel.slug, app.p1);
     } finally {
@@ -1662,7 +1675,7 @@ describe("tournament series guards", () => {
       create temp trigger fail_match_save before insert on matches
       begin select raise(abort, 'forced match save failure'); end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       playGame(app, started.duel.slug, app.p1);
     } finally {
@@ -1704,7 +1717,7 @@ describe("tournament series guards", () => {
       create temp trigger fail_match_save before insert on matches
       begin select raise(abort, 'forced match save failure'); end;
     `);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       playGame(app, started.duel.slug, app.p1);
     } finally {
@@ -1738,7 +1751,7 @@ describe("tournament series guards", () => {
         begin select raise(abort, 'forced replay scoring failure'); end;
       `);
     }
-    const replaySpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const replaySpy = recording.report.mockClear().mockImplementation(() => {});
     try {
       playGame(app, replay.duel.slug, failReplay && legacy ? app.p1 : app.p2);
     } finally {
@@ -1814,7 +1827,7 @@ describe("tournament series guards", () => {
       values (?, ?, 1, 'completed', 'not json')
     `).run(t.id, app.p3);
     const beforeSlots = app.db.prepare("select * from tournament_matches order by id").all();
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       expect(() => app.duels.complete(started.duel.slug, "g1", seatOf(started.duel, app.p1), "done")).not.toThrow();
     } finally {
@@ -1839,7 +1852,7 @@ describe("tournament series guards", () => {
     ready();
     start(app, started.duel.slug);
     app.db.prepare("update duel_series set deck0_json = 'not json' where id = ?").run(started.series.id);
-    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const spy = recording.report.mockClear().mockImplementation(() => {});
     try {
       app.duels.complete(started.duel.slug, "g1", seatOf(started.duel, app.p1), "done");
     } finally {
@@ -1969,3 +1982,5 @@ describe("room and list", () => {
     expect(items.find((item) => item.name === "Plain")?.series).toBeNull();
   });
 });
+
+const recording = useRecordingObservability();

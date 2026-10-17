@@ -1,3 +1,4 @@
+import { useRecordingObservability } from "../helpers/recording-observability.mjs";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../helpers/lobby-identity.js";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -174,6 +175,17 @@ describe("draft lobby projection and acknowledgement", () => {
       expect(other.read("guest").players.every((p) => p.cubeId === null)).toBe(true);
       expect(other.read().players[0].cubeId).toBe(selection === "host_assigned" ? other.cubeId : null);
     }
+  });
+
+  it("hides cube claims and pool diagnostics from a viewer without a seat", () => {
+    const app = themeSetup();
+    app.claim(app.ids[0]);
+    app.db.prepare("update drafts set lobby_start_error = ? where id = ?").run("Cube 1: private pool detail", app.draft.id);
+    const outsider = app.read("outsider");
+    expect(outsider.players.every(player => player.cubeId === null)).toBe(true);
+    expect(outsider.lobby.warnings).not.toEqual(app.read().lobby.warnings);
+    expect(JSON.stringify(outsider)).not.toContain("Cube 1:");
+    expect(app.read("guest").players[0].cubeId).toBe(app.cubeId);
   });
 
   it("clears just the affected acknowledgement and supports revision CAS for route transactions", () => {
@@ -569,12 +581,12 @@ describe("manual and automatic deadlines", () => {
     expect(app.drafts.findById(app.draft.id).status).toBe("pending");
     expect(app.db.prepare("select count(*) as n from draft_deal").get()).toEqual({ n: 0 });
     expect(app.db.prepare("select count(*) as n from draft_packs").get()).toEqual({ n: 0 });
-    expect(app.read().lobby).toMatchObject({ start: null, lastStartError: "Injected deal failure", autoStart: { held: true } });
+    expect(app.read().lobby).toMatchObject({ start: null, lastStartError: "Something went wrong", autoStart: { held: true } });
   });
 
   it.each(["manual", "auto"] as const)("isolates a bad config in a %s lobby and starts a later valid lobby", (kind) => {
     const app = setup({ lobbySeats: 2 });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = recording.report.mockClear().mockImplementation(() => {});
     if (kind === "manual") {
       app.lobby.scheduleStart(app.draft.id, fixtureUserId("host"), { revision: app.read().lobby.revision, force: true }, now);
     } else {
@@ -590,7 +602,7 @@ describe("manual and automatic deadlines", () => {
     expect(app.lobby.tick(later(5000))).toMatchObject({
       started: [{ id: other.id, status: "active" }], changedSlugs: [app.draft.webSlug, other.webSlug],
     });
-    expect(warn).toHaveBeenCalledExactlyOnceWith("[draft-lobby] tick failed", app.draft.id, expect.any(SyntaxError));
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "SyntaxError" }), { tags: { operation: "[draft-lobby] tick failed" } });
     expect(app.db.prepare("select status, lobby_start_token, lobby_auto_held, lobby_start_error from drafts where id = ?")
       .get(app.draft.id)).toEqual({
         status: "pending", lobby_start_token: null, lobby_auto_held: kind === "auto" ? 1 : 0,
@@ -623,3 +635,5 @@ describe("manual and automatic deadlines", () => {
     expect(() => app.lobby.leave(app.draft.id, fixtureUserId("guest"), now)).toThrowError(expect.objectContaining({ code: "DRAFT_NOT_PENDING" }));
   });
 });
+
+const recording = useRecordingObservability();
