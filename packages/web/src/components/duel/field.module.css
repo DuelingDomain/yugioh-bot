@@ -2571,6 +2571,43 @@
   inset: calc((var(--z) - var(--cw)) / 2 - 1px) calc((var(--z) - var(--cw)) / -2 - 1px);
 }
 
+/* Domain tables (3-way, 4-way, Tag): the Deck Master Zone, a zone card (--cw x --z) in a column of its own left of the Field Spell
+   Zone, on the monster row (master-zone-context.ts). The seat box keeps its width, so the zones and cards keep the size they
+   had; the room for the new column comes from the gaps only: the outer pad (0.125z to 0.03z left, 0.045z right), the two
+   spacer tracks (0.0893z to 0.03z and 0.015z) and the gap between columns (--g, 0.075z to 0.02z). A wide field (every zone column
+   a full card height wide) loses none of the card's air, because the card sits in the middle of its column. The 5 zone columns
+   still fit: the middle track is 5z + 4g wide there (5 x cw + 4g in a narrow field). */
+.seatField[data-dmz="true"][data-dmz] {
+  --g: calc(var(--z) * 0.02);
+}
+
+.seatField[data-dmz="true"][data-dmz] .sfGrid {
+  left: calc(var(--z) * 0.03);
+  width: calc(100% - var(--z) * 0.075);
+  grid-template-columns:
+    var(--cw) calc(var(--z) * 0.03) var(--pile-col) calc(var(--z) * 0.015) minmax(0, 1fr) calc(var(--z) * 0.015) var(--pile-col);
+}
+
+.seatField[data-dmz="true"][data-dmz] .sfGrid .piles[data-side="left"] { grid-column: 3; }
+.seatField[data-dmz="true"][data-dmz] .sfEmz,
+.seatField[data-dmz="true"][data-dmz] .sfRows { grid-column: 5; }
+.seatField[data-dmz="true"][data-dmz] .sfGrid .piles[data-side="right"] { grid-column: 7; }
+
+/* The facing pair's Extra Monster Zones stay over zone columns 2 and 4: the old offsets counted the old pad and gap. */
+.seatField[data-dmz="true"][data-dmz] .emzPair {
+  padding-left: calc(var(--z) * var(--pl, 0) - var(--z) * 0.075 + var(--g));
+  gap: calc(var(--z) * var(--pg, 0.06) - 2 * (var(--z) * 0.075 - var(--g)));
+}
+
+.sfDm {
+  position: relative;
+  grid-row: 2;
+  grid-column: 1;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: auto;
+}
+
 .seatField .plate {
   font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
 }
