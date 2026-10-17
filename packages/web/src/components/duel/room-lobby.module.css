@@ -65,6 +65,7 @@
 .presence[data-present="true"] { color: var(--duel-ok); }
 .presence[data-present="true"] i { background: var(--duel-ok); }
 
+.idleNote { margin: 0; color: var(--duel-ink-3); font-size: 12.5px; line-height: 1.5; }
 .help { color: var(--duel-ink-3); font-size: 13.5px; line-height: 1.55; max-width: 72ch; }
 .footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding-top: 16px; border-top: 1px solid var(--duel-rule-lo); }
 .footer:empty { display: none; }
