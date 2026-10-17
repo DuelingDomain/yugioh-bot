@@ -19,6 +19,8 @@ export type ImportDeck = { main: number[]; extra: number[]; side: number[]; deck
 
 export type ImportError = { code: string; message: string; passcode?: number; line?: number; count?: number };
 export type ImportWarning = { code: string; message: string; from?: number; to?: number; line?: number; count?: number };
+/** Information that needs no action, such as a card that uses the game's own copy. It is not a warning. */
+export type ImportNote = { code: string; message: string; from?: number; to?: number; line?: number; count?: number };
 
 export type ImportDuplicate =
   | { kind: "saved"; deckId: number; name: string }
@@ -32,6 +34,8 @@ export type ImportPreviewRow = {
   counts: { main: number; extra: number; side: number };
   errors: ImportError[];
   warnings: ImportWarning[];
+  /** Absent when an older server answers. */
+  notes?: ImportNote[];
   mode?: ImportMode;
   duplicateOf?: ImportDuplicate | null;
 };
