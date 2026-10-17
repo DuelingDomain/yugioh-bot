@@ -1,6 +1,5 @@
 // One time-ordered list of everything that happened in a test: every player's browser events, the stack log
-// lines, the duel journal answers and the watcher notes. This file has no Playwright import, so `node --test`
-// can check it (see tests-unit/).
+// lines, the duel journal answers and the watcher notes.
 
 export type TimelineLevel = "error" | "warn" | "info";
 export type TimelineKind = "console" | "page-error" | "request" | "ws" | "stack" | "answer" | "room" | "stall" | "leak" | "test";

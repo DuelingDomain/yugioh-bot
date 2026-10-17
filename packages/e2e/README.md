@@ -51,7 +51,7 @@ The test measures the success frame without delaying app navigation. The current
 
 A readable main-frame timeline, total duration, hop count and measured success duration are printed and attached on every outcome. Server redirect requests and client-side navigations are included; subframes and API fetches are excluded. Query strings and fragments are removed except `existing_player=1` and a redacted `error` marker. A trace is kept only when the run fails; the video is kept on every run. Both are under `packages/e2e/test-results/live-login/`; the HTML report is in `packages/e2e/playwright-report/live-login/`. These browser artifacts contain real sign-in activity and should stay local.
 
-This test **never runs in CI**: the standalone config rejects `CI`, and the test also has a CI skip guard. The default e2e config searches only `tests/` for `.setup.ts` and `.spec.ts`; live tests live in `live/` and end in `.live.ts`. CI’s `test:unit` command runs only the pure timeline helper tests, without launching a browser or signing in.
+This test **never runs in CI**: the standalone config rejects `CI`, and the test also has a CI skip guard. The default e2e config searches only `tests/` for `.setup.ts` and `.spec.ts`; live tests live in `live/` and end in `.live.ts`.
 
 ## The isolated stack
 
@@ -190,10 +190,6 @@ Limits: only duels with recorded answers replay (a duel that never started has n
 | `live-tables-rules.spec.ts` | A private lobby is hidden from other players, and Close removes it. |
 | `table-hand-label.spec.ts` | FFA3 and FFA4 table preview (`/dev/table-preview`): a six-card hand leaves the own field name clear at 1440x900 and 1280x720. |
 | `multiplayer-flag-off.spec.ts` | Runs only with `E2E_MULTIPLAYER_TABLES=0`: no Tag, 3-player or 4-player option, and the API refuses them. |
-
-## Unit tests of the evidence helpers
-
-`npm run test:unit --workspace=packages/e2e` runs `node --test` on `tests-unit/` (login, seed, isolated supervisor/build fixtures, timeline merge and rendering, leak compare). No browser or full stack. Node 22.23.2 runs the TypeScript files directly. Some CLI/supervisor tests need subprocesses and temporary sockets, so run the full suite outside restricted sandboxes.
 
 ## Scale to 4 players
 
