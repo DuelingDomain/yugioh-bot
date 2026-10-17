@@ -630,6 +630,7 @@ function TableShellBody({
       true,
     ),
     onInspect: showMasterCard,
+    apart: true,
   } : null;
 
   // The 3-way plaza keeps its side content in edge drawers (plaza-drawers.tsx); the grid and the other tables keep the floating HUD.

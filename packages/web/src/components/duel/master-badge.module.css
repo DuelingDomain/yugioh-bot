@@ -7,6 +7,8 @@
   --ring: rgb(139 92 246 / 0.8);
   --ring-glow: rgb(139 92 246 / 0.4);
   position: relative;
+  /* Its own stacking context: the glow sits behind the badge without leaving the wrap. */
+  isolation: isolate;
   flex: none;
   width: calc(var(--d) * 0.686);
   height: var(--d);
@@ -48,27 +50,42 @@
   background: #0c1224;
   box-shadow: 0 0 12px var(--ring-glow), 0 6px 14px rgb(0 0 0 / 0.45);
   cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  transition: border-color 0.2s ease, transform 0.15s ease;
+  /* The card is the size reference of the cost strip (container units). */
+  container-type: inline-size;
 }
 .badge:hover { transform: scale(1.04); }
 .badge:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 .wrap[data-open="true"] .badge { border-color: #f0cd78; }
 
-/* You can act with the master now: a gold edge that breathes, and the "Ready" tag. */
+/* You can act with the master now: a gold edge, a soft gold glow that breathes, and the "Ready" tag.
+   The glow is a pre-blurred layer behind the card: the blur is painted once, and only its opacity and scale animate, so the
+   compositor does the work on its own layer (no repaint per frame; an animated box-shadow or blur radius repaints and stutters). */
 .wrap[data-ready="true"] { --ring: #f0cd78; }
-.wrap[data-ready="true"] .badge {
-  box-shadow: 0 0 0 2px rgb(240 205 120 / 0.3), 0 0 20px 3px rgb(240 205 120 / 0.55);
-  animation: dm-breathe 3.2s ease-in-out infinite;
+.wrap[data-ready="true"] .badge { box-shadow: 0 0 0 1px rgb(240 205 120 / 0.45), 0 6px 14px rgb(0 0 0 / 0.45); }
+.wrap[data-ready="true"]::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  border-radius: 14px;
+  background: radial-gradient(closest-side, rgb(255 226 140 / 0.95), rgb(240 190 90 / 0.75) 62%, rgb(240 190 90 / 0.35));
+  filter: blur(10px);
+  opacity: 0.8;
+  transform: scale(1);
+  pointer-events: none;
+  will-change: opacity, transform;
+  animation: dm-glow 2.4s ease-in-out infinite alternate;
 }
-@keyframes dm-breathe {
-  0%, 100% { box-shadow: 0 0 0 2px rgb(240 205 120 / 0.25), 0 0 14px 1px rgb(240 205 120 / 0.4); }
-  50% { box-shadow: 0 0 0 3px rgb(240 205 120 / 0.4), 0 0 26px 5px rgb(240 205 120 / 0.65); }
+@keyframes dm-glow {
+  from { opacity: 0.55; transform: scale(0.99); }
+  to { opacity: 0.95; transform: scale(1.06); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .wrap[data-ready="true"] .badge { animation: none; }
+  .wrap[data-ready="true"]::before { animation: none; will-change: auto; }
   .badge { transition: none; }
 }
-:global([data-reduced-motion="true"]) .wrap[data-ready="true"] .badge { animation: none; }
+:global([data-reduced-motion="true"]) .wrap[data-ready="true"]::before { animation: none; will-change: auto; }
 
 /* The whole card picture, never cropped to a circle. */
 .art {
@@ -148,6 +165,88 @@
 }
 .state[data-place="field"],
 .state[data-place="elsewhere"] { color: #f0cd78; border-color: rgb(240 205 120 / 0.5); }
+
+/* ---------- set apart (the multi-seat tables) ---------- */
+
+/* The place pill gives way to the strip on the card. */
+.wrap[data-apart="true"] .state { display: none; }
+/* Next summon cost and place, on a shaded strip at the foot of the card (it scales with the card width). */
+.strip {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 10px 2px 3px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(180deg, rgb(5 8 20 / 0), rgb(5 8 20 / 0.82) 34%, rgb(5 8 20 / 0.95));
+  font-family: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.strip b {
+  color: #f6dc92;
+  font-size: clamp(9px, 17cqw, 15px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.8);
+}
+.strip i {
+  color: #c3bba8;
+  font-size: clamp(7px, 11cqw, 11px);
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.strip[data-place="field"] i,
+.strip[data-place="elsewhere"] i { color: #f0cd78; }
+@container (max-width: 50px) { .strip i { display: none; } }
+
+/* The gold divider between the master and the first hand card, with the vertical label beside it (the gap is measured in JS). */
+.divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(100% + var(--dm-gap, 34px) - 11px);
+  width: 2px;
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgb(240 205 120 / 0.45);
+  background: linear-gradient(180deg, rgb(240 205 120 / 0), #f0cd78 16%, #d9a944 84%, rgb(240 205 120 / 0));
+  pointer-events: none;
+}
+.divider::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: -2px;
+  width: 6px;
+  height: 6px;
+  background: #f6dc92;
+  transform: rotate(45deg);
+}
+.divider em {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  right: 4px;
+  color: #e4b64f;
+  font-family: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-align: center;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.9);
+  text-transform: uppercase;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  rotate: 180deg;
+}
 
 /* A small slot (a Tag chip) leaves the state pill out; the pop-over still says where the card is. */
 :global([data-dm-compact]) .state { display: none; }
