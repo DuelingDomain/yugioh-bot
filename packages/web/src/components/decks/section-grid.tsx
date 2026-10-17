@@ -272,7 +272,7 @@ export function DeckSectionGrid({
                   <CardArt code={code} name={name} />
                   {genesys ? <GenesysBadge card={catalog.get(code)} /> : <LimitBadge limit={copyLimit(code, catalog, limits)} />}
                   <ArtChip otherArts={arts} corner open={menuOpen} onOpen={(anchor) => openMenu(anchor, code, index)} />
-                  {masterable ? <MasterChip name={name} onSet={() => onMaster({ code, section })} /> : null}
+                  {masterable ? <MasterChip name={name} onSet={() => onMaster({ code, section })} genesys={genesys} /> : null}
                   {missing ? <span className={cn("num", styles.unknownTag)}>{code}</span> : null}
                 </button>
               </li>
