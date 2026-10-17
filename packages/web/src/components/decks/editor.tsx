@@ -1106,7 +1106,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     : sizeTone;
   const flag = verdict && sizeTone !== "bad"
     ? verdict.tone === "bad" || (sizeTone === "ok" && verdict.tone === "warn") ? verdict.flag
-      : sizeTone === "ok" ? `${sizeFlag} ${verdict.flag}.` : sizeFlag
+      : sizeFlag // the meter already shows the points, so a good Genesys total adds no words here
     : sizeFlag;
 
   function showProblem(problem: CopyProblem) {
@@ -1390,7 +1390,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
             ) : null}
             {isPhone ? <details className={styles["de-pchk"]} data-s={tone}><summary>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span>{flag}</span><ChevronDown className="ic sm" aria-hidden /></summary><DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /></details> : null}
             <div className={styles["de-dbar"]} data-gx={genesysSummary ? "" : undefined}>
-              {!isPhone && shownCode != null ? <button className={styles["de-flag"]} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}{flag}</button> : null}
+              {!genesysSummary && !isPhone && shownCode != null ? <button className={styles["de-flag"]} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}{flag}</button> : null}
               {genesysSummary ? (
                 <GenesysMeter
                   summary={genesysSummary}
@@ -1402,6 +1402,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                   }}
                 />
               ) : null}
+              {genesysSummary && !isPhone && shownCode != null ? <button className={styles["de-flag"]} title={flag} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span className={styles["de-flagt"]}>{flag}</span></button> : genesysSummary && !isPhone ? <span className={styles["de-flag"]} aria-hidden="true" /> : null}
               <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton></span>
               {isPhone ? historyControls : null}
             </div>
