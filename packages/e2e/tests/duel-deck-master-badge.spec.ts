@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../helpers/fixtures";
 import { createTable, enterDuelRoom, importDeckUploadAndReady, uniqueTableName } from "../helpers/duel";
-import { expectReadyToAct, handCard, pickLegalZone, useCard } from "../helpers/board";
+import { expectReadyToAct, handCard, pickLegalZone, useCard, yourHand } from "../helpers/board";
 import { cardCode } from "../helpers/cards";
 import { withFiller, ydkUpload } from "../helpers/decks";
 
@@ -47,15 +47,8 @@ const clearFlights = (page: Page): Promise<void> => page.evaluate(() => { (windo
 const centerOf = (box: { x: number; y: number; width: number; height: number }) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 const gap = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
 
-// Domain duel against the practice bot: the Deck Master badge sits in the name plate, glows when the master can act, opens
-// its pop-over on the first click, and the summon flies out of the badge and the recall flies back into it.
-test("the Deck Master badge opens on one click, summons from the pop-over, and the master flies out and back", async ({ player }) => {
-  const host = await player("p5");
-  const page = host.page;
-  await recordFlights(page, cardCode(DECK_MASTER));
-  // The e2e config reduces motion; this test needs the flights.
-  await page.emulateMedia({ reducedMotion: "no-preference" });
-
+/** The table: a Domain duel against the practice bot, your Deck Master Celtic Guardian, Dark Hole in the deck. */
+async function startBotDuel(page: Page): Promise<void> {
   const table = uniqueTableName("dm badge");
   await createTable(page, table, { domain: true, ordered: true, looseDecks: true, noBanlist: true });
   await page.getByRole("button", { name: "Add practice bot" }).click();
@@ -66,6 +59,42 @@ test("the Deck Master badge opens on one click, summons from the pop-over, and t
   await start.click();
   await enterDuelRoom(page);
   await expectReadyToAct(page);
+}
+
+/** What a press landed on, by the part of the table it belongs to. Recorded in the capture phase, so no handler can hide it. */
+async function recordPresses(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const log: string[] = [];
+    (window as unknown as { __dmPresses: string[] }).__dmPresses = log;
+    const name = (node: EventTarget | null): string => {
+      const el = node instanceof Element ? node : null;
+      if (!el) return "none";
+      if (el.closest('[data-testid="dm-badge-shield"]')) return "shield";
+      if (el.closest('[data-testid="dm-badge-pop"]')) return "pop";
+      if (el.closest('[data-testid="dm-badge-wrap"]')) return "emblem";
+      const zone = el.closest<HTMLElement>("[data-kind]");
+      if (el.closest("[data-hand-card]")) return "hand";
+      if (zone) return `zone:${zone.dataset.kind}`;
+      return "other";
+    };
+    for (const type of ["pointerdown", "mousedown", "click"]) {
+      document.addEventListener(type, (event) => { log.push(`${type}:${name(event.target)}`); }, true);
+    }
+  });
+}
+const presses = (page: Page): Promise<string[]> => page.evaluate(() => (window as unknown as { __dmPresses: string[] }).__dmPresses.slice());
+const clearPresses = (page: Page): Promise<void> => page.evaluate(() => { (window as unknown as { __dmPresses: string[] }).__dmPresses.length = 0; });
+
+// Domain duel against the practice bot: your Deck Master emblem stands left of your hand, glows when the master can act, opens
+// its pop-over on the first click, and the summon flies out of the emblem and the recall flies back into it.
+test("the Deck Master emblem opens on one click, summons from the pop-over, and the master flies out and back", async ({ player }) => {
+  const host = await player("p5");
+  const page = host.page;
+  await recordFlights(page, cardCode(DECK_MASTER));
+  await recordPresses(page);
+  // The e2e config reduces motion; this test needs the flights.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await startBotDuel(page);
 
   const mine = page.locator('[data-testid="dm-badge-wrap"][data-local="true"]');
   const rival = page.locator('[data-testid="dm-badge-wrap"][data-local="false"]');
@@ -81,6 +110,69 @@ test("the Deck Master badge opens on one click, summons from the pop-over, and t
   await expect(mine.getByTestId("dm-badge-state")).toHaveText("In zone");
   expect(await badge.evaluate((node) => getComputedStyle(node).boxShadow)).not.toBe("none");
   await expect(pop).toHaveCount(0);
+
+  // Your emblem is a large portrait with the whole card (not a round crop), left of your hand, and it covers no zone of the field.
+  const art = mine.locator("[data-master-dock]");
+  const emblem = (await mine.boundingBox())!;
+  expect(emblem.width, "the emblem is large").toBeGreaterThanOrEqual(48);
+  expect(emblem.height, "the emblem is tall").toBeGreaterThanOrEqual(70);
+  expect(Math.abs(emblem.width / emblem.height - 59 / 86), "the emblem keeps the card shape").toBeLessThan(0.08);
+  await expect(mine).toHaveAttribute("data-emblem", "docked");
+  const picture = art.locator("img");
+  await expect(picture).toBeVisible();
+  await expect.poll(() => picture.evaluate((img: HTMLImageElement) => img.naturalWidth), "the art loaded").toBeGreaterThan(0);
+  expect(await picture.evaluate((img) => getComputedStyle(img).objectFit), "the art fills the emblem").toBe("cover");
+  expect(await art.evaluate((node) => parseFloat(getComputedStyle(node).borderTopLeftRadius)), "the art is not a circle crop").toBeLessThan(12);
+  const firstCard = (await yourHand(page).locator("button").first().boundingBox())!;
+  expect(emblem.x + emblem.width, "the emblem stands left of the hand").toBeLessThanOrEqual(firstCard.x);
+  const covered = await page.evaluate((box) => {
+    const hit: string[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-zones][data-kind]"))) {
+      if (el.dataset.kind === "hand" || el.closest("[data-hand-card]")) continue;
+      const r = el.getBoundingClientRect();
+      const w = Math.min(r.right, box.x + box.width) - Math.max(r.left, box.x);
+      const h = Math.min(r.bottom, box.y + box.height) - Math.max(r.top, box.y);
+      if (w > 1 && h > 1) hit.push(`${el.dataset.kind}:${el.dataset.zones}`);
+    }
+    return hit;
+  }, emblem);
+  expect(covered, "the emblem covers no field zone at rest").toEqual([]);
+
+  // A press on the emblem, inside the pop-over, and outside it (which only closes it) never reaches a hand card or a zone.
+  await clearPresses(page);
+  await badge.click();
+  await expect(pop).toBeVisible();
+  await pop.getByTestId("dm-badge-name").click();
+  await expect(pop).toBeVisible();
+  const aimAt = async (selector: string): Promise<{ x: number; y: number }> => {
+    const point = await page.evaluate((sel) => {
+      for (const el of Array.from(document.querySelectorAll<HTMLElement>(sel))) {
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        if (r.width < 8 || x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
+        // Under the shield only: a point the pop-over itself covers would test nothing.
+        if (document.elementFromPoint(x, y)?.closest('[data-testid="dm-badge-shield"]')) return { x, y };
+      }
+      return null;
+    }, selector);
+    expect(point, `a point of ${selector} that the pop-over does not cover`).not.toBeNull();
+    return point!;
+  };
+  const overHand = await aimAt("[data-hand-seat][data-side='you'] [data-hand-card]");
+  await page.mouse.click(overHand.x, overHand.y);
+  await expect(pop).toHaveCount(0);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await badge.click();
+  await expect(pop).toBeVisible();
+  const overZone = await aimAt("[data-kind='mz'][data-side='you'], [data-kind='st'][data-side='you']");
+  await page.mouse.click(overZone.x, overZone.y);
+  await expect(pop).toHaveCount(0);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  const log = await presses(page);
+  expect(log.length, "the presses were recorded").toBeGreaterThan(6);
+  expect(log.filter((entry) => /:(hand|zone:|other)/.test(entry)), "no hand card, zone or background got a press").toEqual([]);
+  expect(log.filter((entry) => entry.endsWith(":shield")).length, "the outside presses stopped at the shield").toBeGreaterThanOrEqual(4);
 
   // One click opens the pop-over, with the card, the place, the cost and all three buttons. Esc closes it.
   await badge.click();
@@ -133,4 +225,63 @@ test("the Deck Master badge opens on one click, summons from the pop-over, and t
   expect(back.length, "the return flight was seen").toBeGreaterThan(2);
   const home = centerOf((await dock.boundingBox())!);
   expect(gap(back[back.length - 1], home), "the flight ends in the badge").toBeLessThan(badgeSize);
+});
+
+// Hand cards overlap the Spell/Trap row above them (and a hovered card grows over it). A press on the visible part of a hand card
+// selects that card; a press on the visible part of a zone selects that zone. Checked with real hit-testing, at rest and while hovered.
+test("the visible edge of a hand card and of the Spell/Trap zone above it each take the press", async ({ player }) => {
+  const host = await player("p5");
+  const page = host.page;
+  await startBotDuel(page);
+
+  type Probe = { what: string; x: number; y: number; want: string; got: string };
+  const probe = (): Promise<Probe[]> => page.evaluate(() => {
+    const out: Array<{ what: string; x: number; y: number; want: string; got: string }> = [];
+    const key = (el: Element | null): string => {
+      const card = el?.closest<HTMLElement>("[data-hand-card]");
+      if (card) return `hand:${card.dataset.handId ?? card.querySelector<HTMLElement>("[data-zones]")?.dataset.zones}`;
+      const zone = el?.closest<HTMLElement>("[data-kind]");
+      return zone ? `${zone.dataset.kind}:${zone.dataset.zones}` : "other";
+    };
+    const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-hand-seat][data-side='you'] [data-hand-card]"));
+    const zones = Array.from(document.querySelectorAll<HTMLElement>("[data-kind='st'][data-side='you'], [data-kind='mz'][data-side='you']"));
+    for (const card of cards) {
+      const box = card.getBoundingClientRect();
+      // A usable card rests a little above its box: the visible top is the picture's top (a hover-grown picture does not count: it takes no press).
+      const pic = card.querySelector<HTMLElement>("[data-card-frame]")?.getBoundingClientRect();
+      const grown = !!pic && pic.height >= box.height * 1.2;
+      const r = { left: box.left, width: box.width, top: pic && !grown ? Math.min(box.top, pic.top) : box.top };
+      if (r.width < 8 || r.top > innerHeight - 6) continue;
+      const cx = r.left + r.width / 2;
+      const want = key(card);
+      // The top edge of the visible card, then the strip above it where the zone above shows.
+      const y = Math.max(r.top + 4, 0);
+      out.push({ what: "top edge of the hand card", x: cx, y, want, got: key(document.elementFromPoint(cx, y)) });
+      // A hover-grown card covers the row above on purpose: the zone strip is only checked for cards at their resting size.
+      for (const zone of grown ? [] : zones) {
+        const z = zone.getBoundingClientRect();
+        if (z.width < 8 || cx < z.left + 2 || cx > z.right - 2 || z.bottom < r.top - 2 || z.top > r.top) continue;
+        const zy = Math.min(z.bottom - 3, r.top - 3);
+        if (zy <= z.top) continue;
+        out.push({ what: `zone ${zone.dataset.kind} above the hand card, just over its top edge`, x: cx, y: zy, want: key(zone), got: key(document.elementFromPoint(cx, zy)) });
+      }
+    }
+    return out;
+  });
+  const bad = (rows: Probe[]) => rows.filter((row) => row.want !== row.got).map((row) => `${row.what} at ${Math.round(row.x)},${Math.round(row.y)}: wanted ${row.want}, got ${row.got}`);
+
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(400);
+  const rest = await probe();
+  expect(rest.length, "the hand has cards to probe").toBeGreaterThan(2);
+  expect(bad(rest), "at rest").toEqual([]);
+
+  // Each card hovered in turn: it grows over the row above, and the edge of the card and of the zone must still take their own press.
+  const cards = yourHand(page).locator("[data-hand-card]");
+  const count = await cards.count();
+  for (let i = 0; i < count; i += 1) {
+    await cards.nth(i).hover({ position: { x: 20, y: 40 } });
+    await page.waitForTimeout(350);
+    expect(bad(await probe()), `card ${i + 1} of ${count} hovered`).toEqual([]);
+  }
 });
