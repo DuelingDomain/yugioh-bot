@@ -151,7 +151,7 @@ describe("hosted table creation", () => {
     expect(duels.waitingHostedTable("g", host)).toMatchObject({ slug: old.slug, canReplace: false });
   });
 
-  it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("expires an abandoned empty %s table at 15 minutes", format => {
+  it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("expires an abandoned empty %s table at ten minutes", format => {
     const old = create({ format });
     duels.addPracticeBot(old.slug, "g", host, deck);
     db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where id = ?").run(old.id);
@@ -159,34 +159,34 @@ describe("hosted table creation", () => {
     expect(duels.get(old.slug, "g").status).toBe("cancelled");
   });
 
-  it("renews the idle limit on a host room poll but not a spectator poll", () => {
+  it("renews the idle limit on host input but rejects spectator input", () => {
     const old = create();
     const age = () => db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where id = ?").run(old.id);
-    age(); duels.touchWaiting(old.slug, "g", guest);
+    age(); expect(() => duels.touchWaiting(old.slug, "g", guest)).toThrow(/not seated/);
     expect(duels.expireWaitingTables(Date.now(), 10)).toHaveLength(1);
     const next = create();
-    db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where id = ?").run(next.id);
+    db.prepare("update duels set last_activity_at = datetime('now', '-9 minutes') where id = ?").run(next.id);
     duels.touchWaiting(next.slug, "g", host);
     expect(duels.expireWaitingTables(Date.now(), 10)).toEqual([]);
   });
 
-  it("does not expire a lobby with another human", () => {
+  it("expires an idle lobby with another human", () => {
     const old = create(); duels.takeSeat(old.slug, "g", guest);
     db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where id = ?").run(old.id);
-    expect(duels.expireWaitingTables(Date.now(), 10)).toEqual([]);
-    expect(duels.get(old.slug, "g").status).toBe("lobby");
+    expect(duels.expireWaitingTables(Date.now(), 10).map(row => row.slug)).toEqual([old.slug]);
+    expect(duels.get(old.slug, "g").status).toBe("cancelled");
   });
 });
 
 
-it("keeps a pending named challenge, allows a new game, and lets the host cancel explicitly", () => {
+it("expires an idle named challenge, allows a new game, and keeps cancellation idempotent", () => {
   const series = createDuelSeriesService(db);
   const challenge = series.createChallenge({ guildId: "g", challengerPlayerId: host, opponentPlayerId: guest, bestOf: 3, ranked: false, mode: "normal" });
   expect(duels.waitingHostedTable("g", host)).toMatchObject({ slug: challenge.duel.slug, canReplace: false, canCancel: true, reason: "challenge", opponentName: "Guest" });
   db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where id = ?").run(challenge.duel.id);
-  expect(duels.expireWaitingTables(Date.now(), 10)).toEqual([]);
+  expect(duels.expireWaitingTables(Date.now(), 10).map(row => row.slug)).toEqual([challenge.duel.slug]);
   const open = create();
-  expect(duels.get(challenge.duel.slug, "g").status).toBe("lobby");
+  expect(duels.get(challenge.duel.slug, "g").status).toBe("cancelled");
   const next = create();
   expect(duels.get(open.slug, "g").status).toBe("cancelled");
   expect(duels.get(next.slug, "g").status).toBe("lobby");
@@ -262,7 +262,7 @@ it.each(["lobby", "active"] as const)("excludes a dev sandbox in %s from replace
   expect(duels.get(sandbox.slug, "g").status).toBe(state);
   db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where id = ?").run(sandbox.id);
   const before = db.prepare("select * from duels where id = ?").get(sandbox.id);
-  duels.touchWaiting(sandbox.slug, "g", host);
+  expect(() => duels.touchWaiting(sandbox.slug, "g", host)).toThrow("This room has no waiting deadline");
   expect(db.prepare("select * from duels where id = ?").get(sandbox.id)).toEqual(before);
   expect(() => duels.cancelWaiting(sandbox.slug, "g", host)).toThrow();
   expect(duels.expireWaitingTables(Date.now(), 10)).toEqual([]);

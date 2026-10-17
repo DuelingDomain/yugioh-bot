@@ -40,6 +40,7 @@ import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE } from "@
 import { selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
 import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { cn } from "@/lib/utils";
+import { useDuelRoomActivity } from "@/lib/hooks/use-duel-room-activity";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, prepareDeckTextImport, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
 import { ArtworkPicker, artCountLabel } from "@/components/artwork/artwork-picker";
@@ -200,7 +201,8 @@ function EditorState({ pool, backHref, children }: { pool: boolean; backHref: st
   return <SheetRoot className={cn(styles.host, styles.center)}>{children}</SheetRoot>;
 }
 
-export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: DraftDeckPool }) {
+export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; pool?: DraftDeckPool; roomSlug?: string }) {
+  useDuelRoomActivity(!pool && roomSlug ? roomSlug : null);
   const router = useRouter();
   const pathname = usePathname();
   const routeId = parseRouteId(deckId ?? (/^\/decks\/(\d+)$/.exec(pathname)?.[1]));

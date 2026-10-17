@@ -1,5 +1,6 @@
 import { readStoredBoard, freezeStoredBoard, encodeStoredSnapshot, storedTurnCount, type StoredSnapshot } from "./stored-duel-snapshots.js";
 import type { DuelScriptErrorMode } from "../duels/index.js";
+import { DUEL_WAITING_IDLE_TIMEOUT_MS, type DuelWaitingActivity } from "../duels/index.js";
 import type Database from "better-sqlite3";
 import { generateWebSlug } from "../util/web-slug.js";
 import type {
@@ -176,8 +177,8 @@ export interface DuelService {
   replaceWaitingHostedTables(guildId: string, playerId: number): string[];
   /** A conditional cancel for departure/creator controls; never cancels a late human claim or start. */
   cancelWaiting(slug: string, guildId: string, playerId: number): DuelSession;
-  /** A host room poll renews a waiting table; writes are limited to once per minute. */
-  touchWaiting(slug: string, guildId: string, playerId: number): void;
+  /** Player input in a waiting room or its deck editor renews the idle deadline. Passive reads do not. */
+  touchWaiting(slug: string, guildId: string, playerId: number): DuelWaitingActivity;
   expireWaitingTables(nowMs: number, limit: number): DuelSession[];
   create(input: {
     guildId: string;
@@ -679,7 +680,8 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
   const selectGrant = db.prepare<[number, number], { ok: number }>(
     "select 1 as ok from duel_invite_grants where duel_id = ? and player_id = ?",
   );
-  const touchActivity = db.prepare<[number]>("update duels set last_activity_at = datetime('now') where id = ?");
+  const updateActivity = db.prepare<[string, number]>("update duels set last_activity_at = ? where id = ?");
+  const touchActivity = (duelId: number) => updateActivity.run(new Date().toISOString(), duelId);
   const updateSetup = db.prepare<[string | null, number]>("update duels set setup_json = ? where id = ?");
   const updateClock = db.prepare<[string | null, number]>("update duels set clock_json = ? where id = ?");
   const listLive = db.prepare<Record<string, string | number>, DuelListItemRow>(
@@ -1050,7 +1052,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       if (isConstraintError(error)) throw new DuelServiceError("That seat is already taken. You are still watching; choose another open seat.", 409);
       throw error;
     }
-    touchActivity.run(row.id);
+    touchActivity(row.id);
     return mapSession(row);
   });
 
@@ -1094,6 +1096,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       if (isConstraintError(error)) throw new DuelServiceError("Duel needs an empty opponent seat", 409);
       throw error;
     }
+    touchActivity(row.id);
     return mapSession(row);
   });
 
@@ -1114,6 +1117,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         ? db.prepare<[number]>("delete from duel_seats where duel_id = ? and is_bot = 1").run(row.id)
         : db.prepare<[number, number]>("delete from duel_seats where duel_id = ? and is_bot = 1 and seat = ?").run(row.id, seat);
     if (removed.changes === 0) throw new DuelServiceError("This table has no practice bot", 409);
+    touchActivity(row.id);
     return mapSession(row);
   });
 
@@ -1130,6 +1134,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
 
     const normalized = validateDeckShape(deck, rowSettings(row).validateDeck, row.sandbox === 1 ? SANDBOX_LIMITS.extra : MAX_EXTRA);
     updateDeck.run(JSON.stringify(normalized), row.id, playerId);
+    touchActivity(row.id);
     return mapSession(row);
   });
 
@@ -1148,7 +1153,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       throw new DuelServiceError("The organizer cannot leave. Cancel the table instead.", 409);
     }
     db.prepare<[number, number]>("delete from duel_seats where duel_id = ? and player_id = ?").run(row.id, playerId);
-    touchActivity.run(row.id);
+    touchActivity(row.id);
     const updated = selectDuelById.get(row.id);
     if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
     return mapSession(updated);
@@ -1165,6 +1170,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     if (!seat) throw new DuelServiceError("You are not seated in this duel", 403);
     if (!seat.deck_json) throw new DuelServiceError("Choose a deck before you ready up", 400);
     updateReady.run(row.id, playerId);
+    touchActivity(row.id);
     return mapSession(row);
   });
 
@@ -1178,6 +1184,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     const seat = seatRows(row.id).find((entry) => entry.player_id === playerId);
     if (!seat) throw new DuelServiceError("You are not seated in this duel", 403);
     updateUnready.run(row.id, playerId);
+    touchActivity(row.id);
     return mapSession(row);
   });
 
@@ -1253,7 +1260,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       if (!next) throw new DuelServiceError("Duel record is invalid", 500);
       insertCommand.run(row.id, next.next_seq, seat, JSON.stringify(command));
       updateClock.run(serializeClock(storedClock), row.id);
-      if (touch) touchActivity.run(row.id);
+      if (touch) touchActivity(row.id);
     },
   );
 
@@ -1466,14 +1473,36 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     const rows = db.prepare<[string, number], DuelRow>(`
       select * from duels where kind = 'play' and sandbox = 0 and status = 'lobby' and started_at is null and opening_json is null
         and coalesce(json_extract(setup_json, '$.presetId'), '') = ''
-        and datetime(coalesce(last_activity_at, created_at)) <= datetime(?)
-        and not exists (select 1 from duel_seats s where s.duel_id = duels.id
-          and s.is_bot = 0 and s.player_id != duels.organizer_player_id)
+        and julianday(coalesce(last_activity_at, created_at)) <= julianday(?)
         and (series_id is null or (game_number = 1 and exists
           (select 1 from duel_series s where s.id = duels.series_id and s.tournament_match_id is null)))
       order by id limit ?
-    `).all(new Date(nowMs - DUEL_LIVE_IDLE_AFTER_MS).toISOString(), Math.min(ARCHIVE_DUE_CAP, Math.max(1, Math.floor(limit))));
-    return rows.filter(isEmptyWaiting).map(row => cancelTx(row.web_slug, row.guild_id, row.organizer_player_id));
+    `).all(new Date(nowMs - DUEL_WAITING_IDLE_TIMEOUT_MS).toISOString(), Math.min(ARCHIVE_DUE_CAP, Math.max(1, Math.floor(limit))));
+    return rows.map(row => cancelTx(row.web_slug, row.guild_id, row.organizer_player_id));
+  });
+
+  const touchWaitingTx = db.transaction((slug: string, guildId: string, playerId: number): DuelWaitingActivity => {
+    const row = loadDuelRow(slug, guildId);
+    assertPlay(row);
+    assertPlayerGuild(playerId, guildId);
+    assertRoomAccess(row, playerId);
+    if (!seatRows(row.id).some(seat => !seat.is_bot && seat.player_id === playerId)) {
+      throw new DuelServiceError("You are not seated in this duel", 403);
+    }
+    const linked = row.series_id === null ? null : series.byId(row.series_id);
+    if (row.status !== "lobby" || row.started_at !== null || row.opening_json !== null || row.sandbox === 1
+      || parseSetup(row.setup_json, row.kind, rowFormat(row))?.presetId
+      || (row.series_id !== null && (!linked || linked.tournament_match_id !== null || (row.game_number ?? 1) > 1))) {
+      throw new DuelServiceError("This room has no waiting deadline", 409);
+    }
+    const nowMs = Date.now();
+    const lastActivity = historyTimestamp(row.last_activity_at ?? row.created_at);
+    if (!lastActivity || Date.parse(lastActivity) + DUEL_WAITING_IDLE_TIMEOUT_MS <= nowMs) {
+      throw new DuelServiceError("This room has reached its idle deadline", 409);
+    }
+    db.prepare("update duels set last_activity_at = ? where id = ?").run(new Date(nowMs).toISOString(), row.id);
+    return { slug, idleTimeoutMs: DUEL_WAITING_IDLE_TIMEOUT_MS,
+      idleDeadlineAt: new Date(nowMs + DUEL_WAITING_IDLE_TIMEOUT_MS).toISOString() };
   });
 
   const createRequestTx = db.transaction((input: Parameters<DuelService["createRequest"]>[0], create: Parameters<DuelService["createRequest"]>[1]) => {
@@ -1606,18 +1635,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     },
     cancelWaiting(slug, guildId, playerId) { return cancelWaitingTx.immediate(slug, guildId, playerId); },
     touchWaiting(slug, guildId, playerId) {
-      // Read before UPDATE: even a no-op UPDATE acquires SQLite's writer lock.
-      const row = selectDuelBySlug.get(slug, guildId);
-      const nowMs = Date.now();
-      if (!row || row.organizer_player_id !== playerId || row.kind !== "play" || row.sandbox === 1 || parseSetup(row.setup_json, row.kind, rowFormat(row))?.presetId != null || row.status !== "lobby"
-        || row.started_at !== null || row.opening_json !== null
-        || Date.parse(historyTimestamp(row.last_activity_at ?? row.created_at)!) > nowMs - 60_000) return;
-      db.prepare(`update duels set last_activity_at = datetime(?)
-        where id = ? and organizer_player_id = ? and kind = 'play' and sandbox = 0
-          and coalesce(json_extract(setup_json, '$.presetId'), '') = ''
-          and status = 'lobby' and started_at is null and opening_json is null
-          and datetime(coalesce(last_activity_at, created_at)) <= datetime(?)`
-      ).run(new Date(nowMs).toISOString(), row.id, playerId, new Date(nowMs - 60_000).toISOString());
+      return touchWaitingTx.immediate(slug, guildId, playerId);
     },
     expireWaitingTables(nowMs, limit) { return expireWaitingTx.immediate(nowMs, limit); },
     listHistory,

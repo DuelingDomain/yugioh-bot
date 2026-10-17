@@ -22,6 +22,15 @@ export type DuelMasterRule = 1 | 2 | 3 | 4 | 5;
 export const DUEL_SEAT_LEFT_ERROR_CODE = "seat_left" as const;
 export type DuelErrorCode = typeof DUEL_SEAT_LEFT_ERROR_CODE | "INVALID_EXTRA_DECK_CARD";
 
+/** A waiting room closes after ten minutes without player input. */
+export const DUEL_WAITING_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+
+export interface DuelWaitingActivity {
+  slug: string;
+  idleTimeoutMs: number;
+  idleDeadlineAt: string;
+}
+
 export type {
   DuelCardPool,
   DuelClock,
