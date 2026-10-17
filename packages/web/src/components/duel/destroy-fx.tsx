@@ -8,7 +8,7 @@ import { collectFreshEvents, emitDuelFxCue, maxEventId } from "./event-queue";
 import { PIECE_TINTS, groupScenes, isWipePiece, planScene, tintForCode, type SceneCue, type SceneGroup } from "./fx3d/scene-plan";
 import { pickBattleRoute } from "./fx3d/routing";
 import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
-import type { FxPiles, FxRect, FxRows, FxScene, FxWorld } from "./fx3d/types";
+import type { FxField, FxPiles, FxRect, FxRows, FxScene, FxWorld } from "./fx3d/types";
 import { safeFxAnimate as safeAnimate } from "./safe-animate";
 import { artUpsideDown } from "./attack-fx";
 import { duelFxClock } from "./fx-clock";
@@ -91,10 +91,10 @@ function union(boxes: readonly Box[]): Box | null {
   return { left, top, width: right - left, height: bottom - top };
 }
 
-/** The bounds of the monster zones of one seat. */
-function monsterRow(seat: number): Box | null {
+/** The bounds of the monster zones of one seat (`count` 5 leaves out the two Extra Monster Zones). */
+function monsterRow(seat: number, count = 7): Box | null {
   const boxes: Box[] = [];
-  for (let sequence = 0; sequence < 7; sequence += 1) {
+  for (let sequence = 0; sequence < count; sequence += 1) {
     const found = artBox(zoneKey(seat, LOCATION_MZONE, sequence));
     if (found) boxes.push(found.box);
   }
@@ -102,9 +102,9 @@ function monsterRow(seat: number): Box | null {
 }
 
 /** The bounds of the spell/trap zones of one seat (zones 0..4 and the field zone are skipped when empty). */
-function stRow(seat: number): Box | null {
+function stRow(seat: number, count = 8): Box | null {
   const boxes: Box[] = [];
-  for (let sequence = 0; sequence < 8; sequence += 1) {
+  for (let sequence = 0; sequence < count; sequence += 1) {
     const found = artBox(zoneKey(seat, LOCATION_SZONE, sequence));
     if (found) boxes.push(found.box);
   }
@@ -117,6 +117,99 @@ function pileBox(seat: number, location: number): Box | null {
   if (!node) return null;
   const box = boxOf(node);
   return box.width > 0 && box.height > 0 ? box : null;
+}
+
+/** The seats that have a monster row on the board now (two in a duel, three or four at a multi-seat table). */
+function boardSeats(): number[] {
+  const seats = new Set<number>();
+  for (const node of Array.from(document.querySelectorAll<HTMLElement>("[data-zones]"))) {
+    for (const key of (node.getAttribute("data-zones") ?? "").split(" ")) {
+      const match = /^(\d+):(\d+):/.exec(key);
+      if (match && Number(match[2]) === LOCATION_MZONE) seats.add(Number(match[1]));
+    }
+  }
+  return Array.from(seats).sort((a, b) => a - b);
+}
+
+/**
+ * One seat's field at a multi-seat table, on screen. `slot` is how the field faces: "you" when its Spell/Trap row is
+ * below its monster row (an upright field, like the viewer's in a duel), "opp" when it is above (a turned-around field).
+ */
+type SeatField = { seat: number; m: Box; st: Box | null; gy: Box | null; banish: Box | null; box: Box; slot: "you" | "opp" };
+
+function seatField(seat: number): SeatField | null {
+  // Only the five main zones: the Extra Monster Zones belong to the shared band, not to one field.
+  const m = monsterRow(seat, 5);
+  if (!m) return null;
+  const st = stRow(seat, 5);
+  const gy = pileBox(seat, LOCATION_GRAVE);
+  const banish = pileBox(seat, LOCATION_REMOVED);
+  const box = union([m, st, gy, banish].filter((b): b is Box => b != null)) ?? m;
+  const mid = m.top + m.height / 2;
+  const slot = st ? (st.top + st.height / 2 < mid ? "opp" : "you") : mid < window.innerHeight / 2 ? "opp" : "you";
+  return { seat, m, st, gy, banish, box, slot };
+}
+
+/**
+ * The frame a wipe is drawn in at a multi-seat table. The scenes know two sides ("you" and "opp") and a world with the
+ * origin in the middle. A "single" frame is centred on the one field that is hit (Raigeki, Harpie's Feather Duster).
+ * A "pair" frame sits between the caster's field and the hit field (Mirror Force). A "table" frame sits on the middle of
+ * all fields and is scaled to the whole table (Dark Hole, Torrential Tribute, Heavy Storm: every field is hit).
+ */
+type MultiFrame = {
+  kind: "single" | "pair" | "table";
+  /** The middle of the world (canvas px, y down). */
+  centre: { x: number; y: number };
+  /** Canvas px per world unit. */
+  u: number;
+  fields: SeatField[];
+  /** The field of each slot, and the slot of each seat. */
+  rows: { you: SeatField | null; opp: SeatField | null };
+  slots: Map<number, "you" | "opp">;
+  ownerSide: "you" | "opp";
+  /** Single frame: the hit field with room above it for the sky and the head of the beam. */
+  focus: Box | null;
+};
+
+function multiFrame(piece: string, victimSeats: readonly number[], owner: number, seats: readonly number[], cardW: number): MultiFrame | null {
+  const all = seats.map((seat) => seatField(seat)).filter((f): f is SeatField => f != null);
+  if (all.length < 3) return null;
+  const hit = Array.from(new Set(victimSeats));
+  const bySeat = new Map(all.map((f) => [f.seat, f]));
+  const slots = new Map<number, "you" | "opp">(all.map((f) => [f.seat, f.slot]));
+  const mid = (b: Box) => ({ x: b.left + b.width / 2, y: b.top + b.height / 2 });
+  const uCard = Math.max(0.1, cardW / 96);
+  const caster = bySeat.get(owner) ?? null;
+  const target = hit.length === 1 ? bySeat.get(hit[0]) ?? null : null;
+
+  if (target && (piece === "raigeki" || piece === "feather-duster" || piece === "banish-all")) {
+    const rows = { you: target.slot === "you" ? target : null, opp: target.slot === "opp" ? target : null };
+    // Room above the field for the sky and the head of the beam, kept on the screen.
+    const room = Math.min(target.box.top, cardW * 1.3);
+    const focus = { left: target.box.left, top: target.box.top - room, width: target.box.width, height: target.box.height + room };
+    return { kind: "single", centre: mid(target.box), u: uCard, fields: [target], rows, slots, ownerSide: caster?.slot ?? "you", focus };
+  }
+  if (piece === "mirror-force" && caster && target && caster.seat !== target.seat) {
+    const a = mid(caster.m);
+    const b = mid(target.m);
+    if (Math.abs(a.y - b.y) > caster.m.height * 0.6) {
+      // Fields in different rows: the wall stands between them, the lower field is "you".
+      const lower = a.y >= b.y ? caster : target;
+      const upper = lower === caster ? target : caster;
+      slots.set(lower.seat, "you");
+      slots.set(upper.seat, "opp");
+      return { kind: "pair", centre: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, u: uCard, fields: [caster, target], rows: { you: lower, opp: upper }, slots, ownerSide: slots.get(caster.seat) ?? "you", focus: null };
+    }
+    // Two fields in one row: the wall stands in front of the caster's row.
+    slots.set(caster.seat, "you");
+    slots.set(target.seat, "opp");
+    return { kind: "pair", centre: a, u: uCard, fields: [caster, target], rows: { you: caster, opp: null }, slots, ownerSide: "you", focus: null };
+  }
+  // Every field: the middle of all rows, scaled so the whole table is as wide as the board of a duel.
+  const zones = union(all.flatMap((f) => (f.st ? [f.m, f.st] : [f.m]))) ?? all[0].m;
+  const u = Math.max(uCard, zones.width / 1000, zones.height / 760);
+  const firstOf = (slot: "you" | "opp") => all.find((f) => f.slot === slot) ?? null;
+  return { kind: "table", centre: mid(zones), u, fields: all, rows: { you: firstOf("you"), opp: firstOf("opp") }, slots, ownerSide: slots.get(owner) ?? "you", focus: null };
 }
 
 /** The board zone that holds the card with this passcode in a spell/trap zone or the monster row. */
@@ -162,8 +255,11 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   }
   if (victims.length === 0) return null;
   const firstZone = victims[0].zone;
-  const owner = group.sourceSeat >= 0 ? group.sourceSeat : 1 - firstZone.controller;
-  const ownerSide = owner === mySeat ? "you" : "opp";
+  // Three or four seats: the two-seat rule (the other seat is the caster) and the two-slot world do not hold.
+  const seats = wipe ? boardSeats() : [];
+  const multi = seats.length > 2;
+  const owner = group.sourceSeat >= 0 ? group.sourceSeat : multi ? seats.find((seat) => seat !== firstZone.controller) ?? 0 : 1 - firstZone.controller;
+  let ownerSide: "you" | "opp" = owner === mySeat ? "you" : "opp";
   const source = sourceBox(group.sourceCode, owner);
   // Mirror Force is set off by an attack from an EARLIER snapshot, so it looks through the whole log.
   const attackEvent = [...(group.piece === "mirror-force" ? log : events)].reverse().find((event) => event.kind === "attack" && event.zone && event.id < group.events[0].id);
@@ -173,7 +269,7 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   const rows: Box[] = [];
   const rowSeats = group.piece === "mirror-force" ? [owner] : Array.from(new Set(victims.map((v) => v.zone.controller)));
   for (const seat of rowSeats) {
-    const row = monsterRow(seat);
+    const row = monsterRow(seat, multi ? 5 : 7);
     if (row) rows.push(row);
   }
   const field = union(rows) ?? union(victims.map((v) => v.box)) ?? victims[0].box;
@@ -185,40 +281,68 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   let world: FxWorld | undefined;
   let rowRects: FxRows | undefined;
   let pileRects: FxPiles | undefined;
+  let fieldRects: FxField[] | undefined;
+  let focusRect: FxRect | undefined;
+  let frame: MultiFrame | null = null;
   const seatOf = (seat: number): "you" | "opp" => (seat === mySeat ? "you" : "opp");
   if (wipe) {
-    const mine = [mySeat, 1 - mySeat];
-    const all: Box[] = [];
-    rowRects = { you: { m: null, st: null }, opp: { m: null, st: null } };
-    pileRects = { you: { gy: null, banish: null }, opp: { gy: null, banish: null } };
-    for (const seat of mine) {
-      const side = seatOf(seat);
-      const m = monsterRow(seat);
-      const st = stRow(seat);
-      if (m) all.push(m);
-      if (st) all.push(st);
-      rowRects[side] = { m: m ? toRect(m) : null, st: st ? toRect(st) : null };
-      const gy = pileBox(seat, LOCATION_GRAVE);
-      const banish = pileBox(seat, LOCATION_REMOVED);
-      pileRects[side] = { gy: gy ? toRect(gy) : null, banish: banish ? toRect(banish) : null };
-    }
-    const zones = union(all) ?? field;
     const sample = artBox(zoneKey(firstZone.controller, LOCATION_MZONE, 0)) ?? artBox(zoneKey(1 - firstZone.controller, LOCATION_MZONE, 0));
     const cardW = sample ? Math.min(sample.box.width, sample.box.height) : Math.min(victims[0].box.width, victims[0].box.height);
-    const zr = toRect(zones);
-    world = { cx: zr.x + zr.w / 2, cy: zr.y + zr.h / 2, u: Math.max(0.1, cardW / 96), vw: host?.width ?? zr.w, vh: host?.height ?? zr.h };
+    frame = multi ? multiFrame(group.piece, victims.map((v) => v.zone.controller), owner, seats, cardW) : null;
+    if (frame) {
+      // A multi-seat table: the frame picks the middle of the world and which field is "you" and which "opp".
+      const rectsOf = (f: SeatField | null) => ({ m: f ? toRect(f.m) : null, st: f?.st ? toRect(f.st) : null });
+      const pilesOf = (f: SeatField | null) => ({ gy: f?.gy ? toRect(f.gy) : null, banish: f?.banish ? toRect(f.banish) : null });
+      rowRects = { you: rectsOf(frame.rows.you), opp: rectsOf(frame.rows.opp) };
+      pileRects = { you: pilesOf(frame.rows.you), opp: pilesOf(frame.rows.opp) };
+      fieldRects = frame.fields.map(rectsOf);
+      if (frame.focus) {
+        // The room above the field stops at the top of the canvas.
+        const f = toRect(frame.focus);
+        const cut = Math.max(0, -f.y);
+        focusRect = { x: f.x, y: f.y + cut, w: f.w, h: f.h - cut };
+      }
+      ownerSide = frame.ownerSide;
+      const origin = toRect({ left: frame.centre.x, top: frame.centre.y, width: 0, height: 0 });
+      world = { cx: origin.x, cy: origin.y, u: frame.u, vw: host?.width ?? 1, vh: host?.height ?? 1 };
+    } else {
+      const mine = [mySeat, 1 - mySeat];
+      const all: Box[] = [];
+      rowRects = { you: { m: null, st: null }, opp: { m: null, st: null } };
+      pileRects = { you: { gy: null, banish: null }, opp: { gy: null, banish: null } };
+      for (const seat of mine) {
+        const side = seatOf(seat);
+        const m = monsterRow(seat);
+        const st = stRow(seat);
+        if (m) all.push(m);
+        if (st) all.push(st);
+        rowRects[side] = { m: m ? toRect(m) : null, st: st ? toRect(st) : null };
+        const gy = pileBox(seat, LOCATION_GRAVE);
+        const banish = pileBox(seat, LOCATION_REMOVED);
+        pileRects[side] = { gy: gy ? toRect(gy) : null, banish: banish ? toRect(banish) : null };
+      }
+      const zones = union(all) ?? field;
+      const zr = toRect(zones);
+      world = { cx: zr.x + zr.w / 2, cy: zr.y + zr.h / 2, u: Math.max(0.1, cardW / 96), vw: host?.width ?? zr.w, vh: host?.height ?? zr.h };
+    }
   }
   const pileOf = (victim: (typeof victims)[number]): FxRect | null => {
     if (!pileRects) return null;
-    const side = seatOf(victim.zone.controller);
     const to = victim.event.kind === "move" ? victim.event.zone : null;
     const banish = to != null ? to.location === LOCATION_REMOVED : group.piece === "banish-all";
+    if (frame) {
+      // Each card goes to the pile of its own seat, whichever slot that seat has.
+      const f = frame.fields.find((x) => x.seat === victim.zone.controller) ?? seatField(victim.zone.controller);
+      const box = f ? (banish ? f.banish : f.gy) : null;
+      return box ? toRect(box) : null;
+    }
+    const side = seatOf(victim.zone.controller);
     return banish ? pileRects[side].banish : pileRects[side].gy;
   };
 
   const { scene, cues } = planScene({
     piece: group.piece,
-    victims: victims.map((v) => ({ rect: v.rect, code: v.code, defense: v.defense, turned: v.turned, st: v.st, pile: pileOf(v) })),
+    victims: victims.map((v) => ({ rect: v.rect, code: v.code, defense: v.defense, turned: v.turned, st: v.st, pile: pileOf(v), side: frame?.slots.get(v.zone.controller) })),
     source: source ? toRect(source) : null,
     attacker: attackerFound ? toRect(attackerFound.box) : null,
     field: toRect(field),
@@ -228,6 +352,8 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
     world,
     rows: rowRects,
     piles: pileRects,
+    fields: fieldRects,
+    focus: focusRect,
     sequential: group.events.some((event) => event.sourceKind === "spell" || event.sourceKind === "trap"),
   });
   const ghosts: WipeGhost[] = [];

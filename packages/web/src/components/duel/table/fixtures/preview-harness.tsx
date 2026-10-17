@@ -123,7 +123,8 @@ const SCENE_START_MS = 1500;
 function useSceneOverride(state: TableFixtureState, query: URLSearchParams): TableFixtureState {
   const scene = query.get("scene");
   const id = isSceneId(scene) ? scene : null;
-  const steps = useMemo(() => (id ? sceneSteps(id) : []), [id]);
+  const seatCount = state.room.engine?.seats.length ?? 4;
+  const steps = useMemo(() => (id ? sceneSteps(id, seatCount) : []), [id, seatCount]);
   const [count, setCount] = useState(0);
   useEffect(() => {
     setCount(0);
