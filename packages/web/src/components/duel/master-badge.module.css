@@ -91,6 +91,109 @@
 .art[data-in-use="true"] { background: radial-gradient(circle at 50% 40%, rgb(30 38 72) 0%, rgb(12 18 36) 75%); }
 .well { color: rgb(170 179 207 / 0.7); }
 
+/* The Deck Master Zone of a multi-seat field (concept F): the slot fills its cell, which is a zone card (cw x z), so it is never
+   smaller than the cards beside it. Everything it says stays inside that box: the label sits in the free cell under it, the "Ready"
+   tag and the cost over the art. The seat field gives --z, --r and the text floors (--fs-small, --fl). */
+.zone {
+  --ring: rgb(214 178 94 / 0.6);
+  --d: var(--z, 112px);
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+}
+.zone[data-local="false"] { --ring: rgb(214 178 94 / 0.5); }
+.zone .badge {
+  border-width: 1px;
+  border-radius: var(--r, 4px);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35), 0 4px 10px rgb(0 0 0 / 0.45);
+}
+.zone .badge:hover { transform: none; filter: brightness(1.12); }
+.zone[data-local="false"] .badge { cursor: help; }
+.zone .art { border-radius: max(calc(var(--r, 4px) - 1px), 2px); }
+.zone .art[data-in-use="true"] { background: radial-gradient(circle at 50% 38%, rgb(34 42 78) 0%, rgb(12 18 36) 78%); }
+.zone .well { width: 38%; height: auto; margin-top: -22%; color: rgb(214 178 94 / 0.8); }
+.zone[data-ready="true"] .badge { border-width: 2px; }
+/* The tag straddles the top edge of the slot: it never covers the name line of the card. */
+.zone .ready {
+  top: calc(var(--z, 112px) * -0.075);
+  padding: 1px 5px;
+  font-size: min(var(--fs-small, 10px), calc(var(--z, 112px) * 0.13));
+  letter-spacing: 0.06em;
+}
+.zone .ready i { width: 5px; height: 5px; }
+
+/* The place of an out-of-zone master, in the middle under the empty crest. */
+.zoneWhere {
+  position: absolute;
+  top: 56%;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  text-align: center;
+  color: #f0cd78;
+  font-family: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  font-size: min(var(--fs-small, 10px), calc(var(--z, 112px) * 0.13));
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* The next summon, at the foot of the art: "Summon" over the cost ("Free" or "500 LP"). */
+.zoneCost {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3px 1px 2px;
+  background: linear-gradient(180deg, rgb(6 9 20 / 0), rgb(6 9 20 / 0.88) 38%);
+  color: #f6dc92;
+  font-family: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  line-height: 1.05;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.zoneCost small {
+  color: #c3bba8;
+  font-size: min(calc(var(--fs-small, 10px) * 0.82), calc(var(--z, 112px) * 0.1));
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.zoneCost b {
+  font-size: min(var(--fs-small, 10px), calc(var(--z, 112px) * 0.15));
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.zoneCost[data-free="true"] b { color: #b8efc6; }
+
+/* "DECK MASTER", in the free cell under the slot (two short lines at the width of a card). */
+.zoneLabel {
+  position: absolute;
+  top: calc(100% + var(--z, 112px) * 0.04);
+  /* The Extra Deck fan beside it leans out over the gap: the text stays clear of it. */
+  right: calc(var(--z, 112px) * 0.12);
+  left: 0;
+  max-height: 2.3em;
+  overflow: hidden;
+  color: #d6b25e;
+  font-family: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  font-size: min(var(--fs-small, 10px), calc(var(--z, 112px) * 0.12));
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
 .crown {
   position: absolute;
   top: -3px;

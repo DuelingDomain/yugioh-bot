@@ -12,9 +12,10 @@ import {
 } from "./constants";
 import { duelFontClasses } from "./fonts";
 import { masterCard, masterDetailLines, withExact } from "./field";
+import { MasterZoneContext, type MasterZoneProps } from "./master-zone-context";
 import { anyLegal, anySelected } from "./field-keys";
 import type { InspectTarget } from "./inspector";
-import { findMasterCard, masterActionParts, masterActionText, masterPlace, masterSummonLine, moveKind, useMasterSeats, type MasterPlace } from "./master-place";
+import { findMasterCard, masterActionParts, masterActionText, masterNextCost, masterPlace, masterSummonLine, moveKind, surchargeText, useMasterSeats, type MasterPlace } from "./master-place";
 import type { HudMasterProps } from "./table/hud-layer";
 import styles from "./master-badge.module.css";
 
@@ -28,6 +29,11 @@ import styles from "./master-badge.module.css";
  *
  * The badge is also the Deck Master Zone of its seat for the flights: a summon leaves from the art (`data-master-source`)
  * and a return lands on it (`data-master-dock`). It is always visible, so both flights start and end on it.
+ *
+ * On the multi-seat tables (3-way, 4-way, Tag) the badge is a zone instead (`zone`, concept F): a slot as big as a zone card in a
+ * column of its own left of the seat's Field Spell Zone, the same on your field and on every rival's (it turns with the field). It
+ * says "Deck Master", shows the whole card in its zone or "On field" with an empty crest when it is out, the "Ready" glow only when
+ * you can act, and the next summon cost, all without a click. A click opens the same pop-over; a rival's has no actions.
  *
  * Your own badge is a larger emblem with the whole card art. It stands in the free space left of your hand row (a fixed
  * layer measured against the hand, see `measureEmblem`), never over the field at rest; a rival's badge stays in its plate as a
@@ -187,9 +193,26 @@ export function SeatMasterBadge({ seat, side, shortcut }: { seat: number | undef
   return <DeckMasterBadge {...props} onInspect={source.onInspect} side={side} shortcut={shortcut ?? props.local} />;
 }
 
+/** The Deck Master Zone of one seat field (see `MasterZoneContext`): the same badge, drawn as a zone. */
+export function SeatMasterZone({ seat, side }: MasterZoneProps) {
+  const source = useContext(MasterBadgeContext);
+  const props = source ? source.forSeat(seat) : null;
+  if (!source || !props?.view?.deckMaster) return null;
+  return <DeckMasterBadge {...props} onInspect={source.onInspect} side={side} shortcut={props.local} zone />;
+}
+
+/** A table that shows its Deck Masters: the badge source for the plates and the 1v1 room, and the zone for the seat fields. */
+export function MasterBadgeScope({ value, children }: { value: MasterBadgeSource | null; children: ReactNode }) {
+  return (
+    <MasterBadgeContext.Provider value={value}>
+      <MasterZoneContext.Provider value={value ? SeatMasterZone : null}>{children}</MasterZoneContext.Provider>
+    </MasterBadgeContext.Provider>
+  );
+}
+
 export function DeckMasterBadge({
-  view, local, legalKeys, selectedKeys, canAct, legalActionsFor, title, onChooseAction, onActivate, onInspect, side, shortcut = false,
-}: Omit<HudMasterProps, "wide" | "showInUse" | "onHoverCard"> & { onInspect: (target: InspectTarget) => void; side: BadgeSide; shortcut?: boolean }) {
+  view, local, legalKeys, selectedKeys, canAct, legalActionsFor, title, onChooseAction, onActivate, onInspect, side, shortcut = false, zone = false,
+}: Omit<HudMasterProps, "wide" | "showInUse" | "onHoverCard"> & { onInspect: (target: InspectTarget) => void; side: BadgeSide; shortcut?: boolean; zone?: boolean }) {
   const seats = useMasterSeats();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -199,8 +222,8 @@ export function DeckMasterBadge({
   const viaKey = useRef(false);
   const popId = useId();
   const master = view?.deckMaster;
-  // Your own badge is the large emblem in a fixed layer; a rival's stays in its plate.
-  const emblem = side === "you" && local;
+  // Your own badge is the large emblem in a fixed layer; a rival's stays in its plate. A zone (multi-seat tables) is neither: it fills its slot.
+  const emblem = !zone && side === "you" && local;
   const [host, setHost] = useState<HTMLElement | null>(null);
   useEffect(() => setHost(document.body), []);
   const box = useEmblemBox(slotRef, view?.seat, emblem);
@@ -271,11 +294,12 @@ export function DeckMasterBadge({
     close(false);
     onInspect(card ? { type: "card", card } : { type: "info", card: master.card });
   };
-  const art = cardArtUrl(master.card.code, emblem ? "full" : "small");
+  const art = cardArtUrl(master.card.code, emblem || zone ? "full" : "small");
+  const cost = surchargeText(masterNextCost(master));
   const label = `${title}: ${name}, ${words.long.toLowerCase()}${ready ? ", ready" : ""}${summonLine ? `, ${summonLine}` : ""}`;
 
   const wrapProps = {
-    className: emblem ? `${styles.wrap} ${styles.emblem}` : styles.wrap,
+    className: emblem ? `${styles.wrap} ${styles.emblem}` : zone ? `${styles.wrap} ${styles.zone}` : styles.wrap,
     "data-side": side,
     "data-local": local ? "true" : "false",
     "data-ready": ready ? "true" : undefined,
@@ -283,6 +307,8 @@ export function DeckMasterBadge({
     "data-open": open ? "true" : undefined,
     "data-in-use": inUse ? "true" : undefined,
     "data-emblem": emblem ? (box?.docked ? "docked" : "plate") : undefined,
+    "data-dm-zone": zone ? view.seat : undefined,
+    "data-place": zone ? place : undefined,
     "data-testid": "dm-badge-wrap",
     "data-badge-seat": view.seat,
   };
@@ -326,11 +352,20 @@ export function DeckMasterBadge({
         {/* The Deck Master Zone of this seat: a summon flies out of the art and a return flies back into it. */}
         <span className={styles.art} data-master-dock={view.seat} data-master-source={view.seat} data-in-use={inUse ? "true" : undefined}>
           {inUse ? <Crown className={styles.well} size={emblem ? 28 : 18} strokeWidth={1.6} aria-hidden /> : <img src={art} alt="" draggable={false} />}
+          {zone ? (
+            <>
+              {inUse ? <span className={styles.zoneWhere} data-testid="dm-zone-where" data-place={place}>{words.short}</span> : null}
+              <span className={styles.zoneCost} data-testid="dm-zone-cost" data-free={cost === "Free" ? "true" : undefined}>
+                <small>Summon</small>
+                <b>{cost}</b>
+              </span>
+            </>
+          ) : null}
         </span>
       </button>
-      <span className={styles.crown} aria-hidden="true"><Crown size={11} strokeWidth={2} /></span>
+      {zone ? <span className={styles.zoneLabel} data-testid="dm-zone-label" aria-hidden="true">Deck Master</span> : <span className={styles.crown} aria-hidden="true"><Crown size={11} strokeWidth={2} /></span>}
       {ready ? <span className={styles.ready} data-testid="dm-badge-ready" aria-hidden="true"><i aria-hidden="true" />Ready</span> : null}
-      <span className={styles.state} data-testid="dm-badge-state" data-place={place} aria-hidden="true">{words.short}</span>
+      {zone ? null : <span className={styles.state} data-testid="dm-badge-state" data-place={place} aria-hidden="true">{words.short}</span>}
       {open ? (
         <MasterPop
           popRef={popRef}
