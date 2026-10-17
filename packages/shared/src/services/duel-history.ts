@@ -72,6 +72,7 @@ export const DUEL_LIST_COLUMNS = `duels.id, duels.kind, duels.guild_id, duels.we
   duels.settings_json, duels.created_at, duels.started_at, duels.ended_at, duels.archived_at,
   duels.last_activity_at, duels.winner_player_id, duels.winner_seat, duels.result_reason,
   duels.series_id, duels.game_number, duels.best_of, duels.ranked, duels.sandbox,
+  (duels.opening_json is not null) as has_opening,
   (seed_json is not null and seed_json != '' and bundle_version is not null and bundle_version != '') as has_started,
   coalesce(duels.turn_count,
     duel_history_turn(substr(clock_json,1,256)),

@@ -19,7 +19,10 @@ export async function GET(request: NextRequest) {
     }
     const archived = request.nextUrl.searchParams.get("archived") === "1";
     if (!archived) {
-      return NextResponse.json({ duels: actor.duels.list(actor.guildId, actor.playerId) });
+      return NextResponse.json({ duels: actor.duels.list(actor.guildId, actor.playerId).map(duel => ({
+        ...duel, joinable: duel.joinable && !multiplayerTablesBlockReason(duel.tableType, multiplayerTablesEnabled()),
+      })) },
+        { headers: { "cache-control": "private, no-store" } });
     }
     const param = (key: string) => {
       const values = request.nextUrl.searchParams.getAll(key);

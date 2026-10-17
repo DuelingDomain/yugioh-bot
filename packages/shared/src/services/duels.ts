@@ -330,7 +330,7 @@ type DuelRow = {
 
 type DuelSessionRow = Omit<DuelRow, "seed_json" | "bundle_version" | "snapshot_public_json" | "snapshot_seat0_json"
   | "snapshot_seat1_json" | "snapshot_seats_json" | "clock_json" | "invite_code" | "opening_json">;
-type DuelListItemRow = DuelSessionRow & { my_seat: number | null; turn_count: number | null; has_started: number };
+type DuelListItemRow = DuelSessionRow & { my_seat: number | null; turn_count: number | null; has_started: number; has_opening: number };
 
 type SeatRow = {
   seat: number;
@@ -1576,6 +1576,9 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     const engine = setup?.engineIdentity?.coreFamily ?? (session.format !== "1v1"
       ? (row.has_started ? "multi" : null)
       : setup?.engine ?? (row.has_started ? (setup?.startupScripts?.length ? "pinned" : "legacy") : null));
+    const occupied = new Set(session.seats.map(seat => seat.seat));
+    const openSeats = Array.from({ length: seatCountFor(session.format) }, (_, seat) => seat)
+      .filter(seat => !occupied.has(seat));
     return {
       ...session, createdAt: historyTimestamp(row.created_at), startedAt, endedAt,
       durationMs: duration !== null && duration >= 0 ? duration : null, turnCount, engine,
@@ -1584,6 +1587,14 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
           ? (session.resultReason === null ? null : "draw")
           : teamOfSeat(session.format, seat.seat) === teamOfSeat(session.format, session.winnerSeat) ? "win" : "loss" })),
       private: session.settings.visibility === "private",
+      matchFormat: session.settings.genesys ? (session.mode === "domain" ? "genesys-domain" : "genesys")
+        : session.mode === "domain" ? "domain" : "standard",
+      tableType: session.format,
+      visibility: session.settings.visibility,
+      openSeats,
+      // List access already checks the viewer's guild and private-room grant.
+      joinable: session.status === "lobby" && row.my_seat === null && openSeats.length > 0
+        && row.series_id === null && row.has_opening === 0,
       mySeat: row.my_seat,
       lastActivityAt: row.last_activity_at ?? row.created_at,
       series: row.series_id === null ? null : series.summaryById(row.series_id),
