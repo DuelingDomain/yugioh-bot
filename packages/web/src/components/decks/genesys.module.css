@@ -7,13 +7,16 @@
 .badge {
   position: absolute; left: 3px; bottom: 3px; z-index: 1;
   display: inline-flex; align-items: baseline; justify-content: center; gap: 2px;
-  max-width: calc(100% - 6px); height: 22px; padding: 0 6px; box-sizing: border-box;
+  /* --bw is the tile width in the fitted deck grid (--fit-tw). Small tiles get a smaller chip, and under 54px no "pts", so a 3 digit total still fits.
+     Everywhere else (search results, an unfitted grid) it is 999px and the chip is full size. */
+  --bw: var(--fit-tw, 999px); --bh: clamp(16px, calc(var(--bw) * 0.4), 22px);
+  max-width: calc(100% - 6px); height: var(--bh); padding: 0 clamp(3px, calc(var(--bw) * 0.08), 6px); box-sizing: border-box;
   border-radius: 6px; background: rgb(10 7 24 / 0.94); color: var(--chain-ink, var(--duel-chain-ink, #f4d690));
   box-shadow: 0 0 0 1px rgb(155 126 255 / 0.75), 0 2px 6px rgb(0 0 0 / 0.55);
-  font: 700 15px/22px var(--f-num, var(--duel-f-num));
+  font: 700 clamp(11px, calc(var(--bw) * 0.3), 15px)/var(--bh) var(--f-num, var(--duel-f-num));
   white-space: nowrap; pointer-events: none;
 }
-.badge small { color: var(--pen-ink, var(--duel-pen-ink, #c6b6ff)); font: 600 9px/22px var(--f-num, var(--duel-f-num)); letter-spacing: 0.05em; text-transform: uppercase; }
+.badge small { color: var(--pen-ink, var(--duel-pen-ink, #c6b6ff)); font-weight: 600; font-size: clamp(0px, calc((var(--bw) - 54px) * 0.5), 9px); line-height: var(--bh); letter-spacing: 0.05em; text-transform: uppercase; }
 .badge[data-k="forbidden"] { align-items: center; padding: 0 5px; color: var(--loss-ink, var(--duel-loss-ink)); box-shadow: 0 0 0 1px rgb(228 90 77 / 0.8), 0 2px 6px rgb(0 0 0 / 0.55); }
 .badge[data-k="unknown"] { color: var(--warn-ink, #ffc079); box-shadow: 0 0 0 1px rgb(255 192 121 / 0.6), 0 2px 6px rgb(0 0 0 / 0.55); }
 .badge[data-k="unknown"] small { color: var(--warn-ink, #ffc079); }
@@ -21,11 +24,11 @@
 /* A card with a strip across its foot (the invalid mark of the duel deck editor): the chip sits above the strip. */
 .badge[data-lift] { bottom: 24px; }
 /* A list row thumbnail is only 42px wide, so the chip is a strip over its foot. */
-.badge[data-v="row"] { left: 0; right: 0; bottom: 0; max-width: none; height: 17px; padding: 0; border-radius: 0; box-shadow: none; font: 700 12.5px/17px var(--f-num, var(--duel-f-num)); }
+.badge[data-v="row"] { --bh: 17px; left: 0; right: 0; bottom: 0; max-width: none; height: 17px; padding: 0; border-radius: 0; box-shadow: none; font: 700 12.5px/17px var(--f-num, var(--duel-f-num)); }
 .badge[data-v="row"] small { font-size: 8px; line-height: 17px; }
 .badge[data-v="row"] svg { width: 12px; height: 12px; }
 /* In a search result the chip is part of the row, not laid over the picture. */
-.badge[data-v="inline"] { position: static; flex: none; align-self: center; margin-left: auto; }
+.badge[data-v="inline"] { --bw: 999px; position: static; flex: none; align-self: center; margin-left: auto; }
 
 /* The card panel line. */
 .cardLine { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 2px 8px; border: 1px solid var(--rule-lo, var(--duel-rule-lo)); border-radius: 999px; color: var(--ink-2, var(--duel-ink-2)); font-size: 12.5px; line-height: 1.4; }
