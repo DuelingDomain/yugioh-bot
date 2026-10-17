@@ -359,12 +359,13 @@ describe("engine data update", () => {
   });
 
   it("reports changed listed cards without overlays and all format gaps", () => {
-    const scripts = new Map([["official/c94145021.lua", "Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)"]]);
-    expect(findListedChanges(scripts, ["official/c94145021.lua"], new Set())).toEqual([
-      expect.objectContaining({ code: 94145021, changed: true, formatGap: true }),
+    // Skull Invitation remains FFA-only; Droll & Lock Bird now has real-core multiplayer proof.
+    const scripts = new Map([["official/c98139712.lua", "Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)"]]);
+    expect(findListedChanges(scripts, ["official/c98139712.lua"], new Set())).toEqual([
+      expect.objectContaining({ code: 98139712, changed: true, formatGap: true }),
     ]);
-    expect(findListedChanges(scripts, [], new Set([94145021]))).toEqual([
-      expect.objectContaining({ code: 94145021, changed: false, formatGap: true }),
+    expect(findListedChanges(scripts, [], new Set([98139712]))).toEqual([
+      expect.objectContaining({ code: 98139712, changed: false, formatGap: true }),
     ]);
   });
 
