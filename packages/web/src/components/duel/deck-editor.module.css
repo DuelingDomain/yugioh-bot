@@ -133,12 +133,3 @@
 .editName strong { color: var(--duel-ink); font-size: 14px; font-weight: 450; overflow-wrap: anywhere; }
 .editName span { color: var(--duel-ink-3); font-size: 12px; overflow-wrap: anywhere; }
 
-/* Suggestions: a collapsed section under the deck lists. */
-.suggest { display: grid; gap: 12px; min-width: 0; }
-.suggestToggle { display: inline-flex; align-items: center; gap: 8px; justify-self: start; padding: 7px 12px; border: 1px solid var(--duel-rule); border-radius: 8px; background: rgb(239 231 213 / 0.02); color: var(--duel-ink); font: inherit; font-size: 14px; cursor: pointer; }
-.suggestToggle:hover { border-color: rgb(155 126 255 / 0.5); background: var(--duel-pen-soft); }
-.suggestToggle:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
-.suggestToggle svg:first-child { color: var(--duel-pen-ink); }
-.suggestChevron { transition: transform 160ms; }
-.suggestToggle[aria-expanded="true"] .suggestChevron { transform: rotate(180deg); }
-@media (prefers-reduced-motion: reduce) { .suggestChevron { transition: none; } }

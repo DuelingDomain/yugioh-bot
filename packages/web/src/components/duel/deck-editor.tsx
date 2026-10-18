@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { canonicalCardCode, cardLimit, type DeckCardInfo, type DuelDeck, type DuelDeckValidation, type DuelMode, type DuelSettings, type GenesysCard } from "@yugidraft/shared/duels";
-import { AlertTriangle, CheckCircle2, ChevronDown, FileUp, Info, Loader2, Sparkles, X } from "lucide-react";
+import { canonicalCardCode, type DeckCardInfo, type DuelDeck, type DuelDeckValidation, type DuelMode, type DuelSettings, type GenesysCard } from "@yugidraft/shared/duels";
+import { AlertTriangle, CheckCircle2, FileUp, Info, Loader2, X } from "lucide-react";
 import { cardArtUrl } from "./constants";
 import { cx, SheetButton } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
@@ -19,11 +19,6 @@ import { GenesysBadge, GenesysCheck, GenesysMeter } from "../decks/genesys-ui";
 import { useGenesysDeckSummary } from "../decks/use-genesys-deck";
 import { findSavedDuplicate, pastedDeckName, prepareImportSave, uniqueDeckName } from "./import-save";
 import { CardAddField } from "./card-add-field";
-import { cardAddBlock, useBanlistLimits } from "./card-add-search";
-import { defaultAddSection } from "../decks/model";
-import { probeInsights } from "../decks/insights-api";
-import { SuggestionsPanel } from "../decks/suggestions-panel";
-import { useDeckSuggestions } from "../decks/use-deck-suggestions";
 
 /** A hung request must not block the saves after it. */
 const SAVE_TIMEOUT_MS = 15_000;
@@ -174,27 +169,6 @@ export function DeckEditor({
         return { type: own.type, genesysPoints: main?.genesysPoints };
       }
     : undefined;
-
-  // Suggestions: a collapsed section. It asks the server only once it is open, so the editor never waits for it.
-  const [insightsOn, setInsightsOn] = useState(false);
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const [suggestRetry, setSuggestRetry] = useState(0);
-  useEffect(() => {
-    let live = true;
-    void probeInsights().then((on) => { if (live) setInsightsOn(on); });
-    return () => { live = false; };
-  }, []);
-  const banlistLimits = useBanlistLimits(settings.banlist, settings.validateDeck && !settings.genesys, insightsOn && suggestOpen);
-  const genesysRemaining = genesysDeck.summary ? Math.max(0, genesysDeck.summary.cap - genesysDeck.summary.known) : null;
-  const suggestions = useDeckSuggestions({
-    enabled: insightsOn && suggestOpen && !locked,
-    deck,
-    mode,
-    genesys: settings.genesys != null,
-    remaining: genesysRemaining,
-    slug,
-    retry: suggestRetry,
-  });
 
   const currentValidation = validation?.slug === slug && validation.deck === deck ? validation : null;
   const report = currentValidation?.report;
@@ -354,18 +328,6 @@ export function DeckEditor({
   function addCard(code: number, addSection: "main" | "extra" | "side") {
     const section = addSection === "side" && !sideAllowed ? "main" : addSection;
     commitSelection({ ...selection, deck: { ...deck, [section]: [...deck[section], code] } });
-  }
-
-  /** Why a suggested card cannot be added now, or null. The room's deck check still runs on the whole deck. */
-  function suggestionBlock(card: DeckCardInfo): string | null {
-    const block = cardAddBlock(card, settings, banlistLimits);
-    if (block) return block;
-    const copies = [...main, ...extra, ...side].filter((code) => code === card.code).length;
-    if (mode === "domain" && settings.validateDeck && copies >= 1) return "Domain decks hold one copy of each card.";
-    // The room's banlist sets the limit; without one, or while it loads, three copies.
-    const max = settings.validateDeck && !settings.genesys && banlistLimits ? cardLimit(banlistLimits, card) : 3;
-    if (settings.validateDeck && copies >= max) return "No copy left to add.";
-    return null;
   }
 
   function submit() {
@@ -536,31 +498,6 @@ export function DeckEditor({
       {sideAllowed || side.length > 0 ? (
         <Section title="Side" section="side" codes={side} problems={problems} target={sideTarget}
           onRemove={(index) => removeCard("side", index)} onPreview={onPreviewCard} onChooseMaster={mode === "domain" ? chooseMaster : undefined} cardMeta={cardMeta} genesysCard={genesysCard} />
-      ) : null}
-
-      {insightsOn && !locked && suggestions.status !== "off" ? (
-        <section className={styles.suggest} aria-label="Suggestions">
-          <button type="button" className={styles.suggestToggle} aria-expanded={suggestOpen} aria-controls="duel-deck-suggestions" onClick={() => setSuggestOpen((open) => !open)}>
-            <Sparkles size={15} strokeWidth={1.6} aria-hidden />
-            <span>Suggestions</span>
-            <ChevronDown size={15} strokeWidth={1.6} aria-hidden className={styles.suggestChevron} />
-          </button>
-          <div id="duel-deck-suggestions" hidden={!suggestOpen}>
-            {suggestOpen ? (
-              <SuggestionsPanel
-                state={suggestions}
-                genesys={settings.genesys && genesysRemaining != null ? { remaining: genesysRemaining, cap: settings.genesys.pointCap } : null}
-                domain={mode === "domain"}
-                hasMaster={masterCode != null}
-                inDeck={(card) => [...main, ...extra, ...side].filter((code) => code === card.code).length}
-                addBlock={suggestionBlock}
-                onAdd={(card) => addCard(card.code, defaultAddSection(card))}
-                onInspect={onPreviewCard ? (card) => onPreviewCard(card.code) : undefined}
-                onRetry={() => setSuggestRetry((n) => n + 1)}
-              />
-            ) : null}
-          </div>
-        </section>
       ) : null}
     </div>
   );
