@@ -7,6 +7,7 @@
 import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
 import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
+import type { CardEra } from "@yugidraft/shared/cards/effects";
 
 export { EFFECT_SEARCH_ATTRIBUTION };
 
@@ -122,6 +123,7 @@ export interface SeedPreview {
   phrase: string;
   targetCount: number;
   maxCopies: number;
+  era?: CardEra;
   chips: string[] | null;
   rows: SeedRow[];
   cards: CardSummary[];
@@ -129,7 +131,7 @@ export interface SeedPreview {
   warnings: string[];
 }
 
-type SeedPreviewOptions = { targetCount?: number; maxCopies?: number; signal?: AbortSignal };
+type SeedPreviewOptions = { targetCount?: number; maxCopies?: number; era?: CardEra; signal?: AbortSignal };
 
 /** Preview against a cube, so the cards it already holds are left out. */
 export function previewSeed(cubeId: number, phrase: string, options: SeedPreviewOptions = {}): Promise<SeedPreview> {
@@ -145,6 +147,7 @@ async function requestSeedPreview(url: string, phrase: string, options: SeedPrev
   const body: Record<string, unknown> = { phrase };
   if (options.targetCount !== undefined) body.targetCount = options.targetCount;
   if (options.maxCopies !== undefined) body.maxCopies = options.maxCopies;
+  if (options.era !== undefined) body.era = options.era;
   const data = await post<Omit<SeedPreview, "chips"> & { reading: { chips: string[] } | null }>(
     url,
     body,

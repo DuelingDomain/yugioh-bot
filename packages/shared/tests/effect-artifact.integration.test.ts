@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,9 @@ import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/connection.js";
 import { applyEngineCardRemaps } from "../src/db/card-passcode-remaps.js";
+import { streamArtifactLines } from "../src/cards/effects/artifact-stream.js";
+import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
+import { ArchetypeProfile, readProfile } from "../src/cards/effects/synergy.js";
 
 const artifactDirectory = fileURLToPath(new URL("../data/effects/", import.meta.url));
 const roots: string[] = [];
@@ -41,6 +45,29 @@ async function importer() {
 }
 
 describe("the pinned searchygo artifact and SQLite import", () => {
+  it("imports and reopens the real file-backed pin within a bounded JavaScript heap", () => {
+    const directory = mkdtempSync(join(tmpdir(), "effect-artifact-heap-"));
+    roots.push(directory);
+    const artifactModule = new URL("../src/cards/effects/artifact.ts", import.meta.url).href;
+    const connectionModule = new URL("../src/db/connection.ts", import.meta.url).href;
+    const script = `
+      import { importCardEffectArtifact } from ${JSON.stringify(artifactModule)};
+      import { openDatabase } from ${JSON.stringify(connectionModule)};
+      import { readdirSync } from 'node:fs';
+      const path = ${JSON.stringify(join(directory, "cards.sqlite"))};
+      let db = openDatabase(path);
+      const first = importCardEffectArtifact(db);
+      db.close();
+      db = openDatabase(path);
+      const reused = importCardEffectArtifact(db);
+      const stored = db.prepare('SELECT COUNT(*) AS count FROM card_tags').get().count;
+      db.close();
+      const leftovers = readdirSync(${JSON.stringify(directory)}).filter(name => name.startsWith('effect-artifact-stream-'));
+      console.log(JSON.stringify({ first: first.skipped, reused: reused.skipped, stored, tags: first.tags, leftovers }));
+    `;
+    const output = execFileSync("prlimit", ["--core=0", process.execPath, "--max-old-space-size=48", "--import", "tsx", "--input-type=module", "-e", script], { encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, TMPDIR: directory } });
+    expect(JSON.parse(output)).toMatchObject({ first: false, reused: true, stored: pinnedManifest().files.tags.records, tags: pinnedManifest().files.tags.records, leftovers: [] });
+  }, 35_000);
   it("verifies the shipped pin independently of SQLite and refuses corrupted source hashes", async () => {
     const { verifyCardEffectArtifact } = await import("../src/cards/effects/artifact.js");
     const manifest = pinnedManifest();
@@ -56,6 +83,27 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     expect(db.pragma("foreign_key_list(card_tags)")).toEqual([]);
     const manifest = JSON.parse(readFileSync(join(artifactDirectory, "manifest.json"), "utf8"));
     expect(gunzipSync(readFileSync(join(artifactDirectory, "tags.jsonl.gz"))).toString("utf8").trim().split("\n")).toHaveLength(manifest.files.tags.records);
+  });
+
+  it("stores every pinned tag and profile with exactly the verified schema fields and normalized defaults", async () => {
+    const db = database(), importArtifact = await importer();
+    importArtifact(db);
+    const stored = db.prepare("SELECT tags_json FROM card_tags WHERE passcode=?");
+    const file = pinnedManifest().files.tags;
+    streamArtifactLines(join(artifactDirectory, file.path), file, line => {
+      const raw = JSON.parse(line), normalized = CardTags.parse(fillDefaults(raw.tags));
+      expect(raw.tags).toEqual(normalized);
+      const row = stored.get(raw.id) as { tags_json: string };
+      expect(JSON.parse(row.tags_json)).toEqual(normalized);
+    });
+    const profiles = pinnedManifest().files.profiles;
+    const storedProfile = db.prepare("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=?");
+    streamArtifactLines(join(artifactDirectory, profiles.path), profiles, line => {
+      const raw = JSON.parse(line), normalized = ArchetypeProfile.parse(readProfile(ArchetypeProfile.parse(raw.profile), raw.archetype)!.profile);
+      expect(raw.profile).toEqual(normalized);
+      const row = storedProfile.get(raw.archetype) as { plan: string; hooks_json: string };
+      expect({ plan: row.plan, hooks: JSON.parse(row.hooks_json) }).toEqual(normalized);
+    });
   });
 
   it("imports real summaries/profiles, hashes actual text and reports canonical catalog coverage", async () => {
@@ -115,6 +163,40 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     expect(next).toMatchObject({ skipped: false, preservedTags: 1, preservedProfiles: 1 });
     expect(db.prepare("SELECT summary,source,text_hash FROM card_tags WHERE passcode=14558127").get()).toEqual({ summary: "New printed text", source: "haiku-batch", text_hash: sha("New printed text") });
     expect(db.prepare("SELECT plan,source FROM card_tag_profiles WHERE archetype='Dark World'").get()).toEqual({ plan: "Updated profile", source: "manual" });
+  });
+
+  it("backfills legacy import memberships without rewriting rows and excludes unrelated manual records", async () => {
+    const db = database(), importArtifact = await importer();
+    const first = importArtifact(db);
+    db.exec(`UPDATE card_tag_artifact_imports SET passcodes_json=NULL,archetypes_json=NULL;
+      UPDATE card_tags SET source='manual' WHERE passcode=14558127;
+      UPDATE card_tag_profiles SET source='manual' WHERE archetype='Dark World';
+      INSERT INTO card_tags(passcode,summary,roles_json,tags_json,popularity,source,schema_version)
+        SELECT 42,summary,roles_json,tags_json,0,'manual',schema_version FROM card_tags WHERE passcode=14558127;
+      INSERT INTO card_tag_profiles(archetype,plan,hooks_json,source,schema_version,cards)
+        SELECT 'Unrelated manual archetype',plan,hooks_json,'manual',schema_version,cards FROM card_tag_profiles WHERE archetype='Dark World';
+      CREATE TRIGGER no_repeat_tag_update BEFORE UPDATE ON card_tags BEGIN SELECT RAISE(ABORT,'Repeated tag write'); END;
+      CREATE TRIGGER no_repeat_profile_update BEFORE UPDATE ON card_tag_profiles BEGIN SELECT RAISE(ABORT,'Repeated profile write'); END;`);
+    for (let i = 0; i < 2; i++) {
+      expect(importArtifact(db)).toMatchObject({ skipped: true, tags: first.tags, profiles: first.profiles, preservedTags: 1, preservedProfiles: 1 });
+    }
+    const row = db.prepare("SELECT passcodes_json,archetypes_json FROM card_tag_artifact_imports").get() as { passcodes_json: string; archetypes_json: string };
+    expect(JSON.parse(row.passcodes_json)).toHaveLength(first.tags);
+    expect(JSON.parse(row.archetypes_json)).toHaveLength(first.profiles);
+  });
+
+  it("recomputes cached membership from original passcodes and names when identity resolution changes", async () => {
+    const db = database(), importArtifact = await importer();
+    const first = importArtifact(db, { canonicalize: (code, name) => code === 14558127 && name === "Ash Blossom & Joyous Spring" ? 4000000001 : code });
+    db.exec(`INSERT INTO card_tags(passcode,summary,roles_json,tags_json,popularity,source,schema_version)
+      SELECT 4000000002,summary,roles_json,tags_json,0,'manual',schema_version FROM card_tags WHERE passcode=4000000001`);
+    const options = { canonicalize: (code: number, name?: string) => code === 14558127 && name === "Ash Blossom & Joyous Spring" ? 4000000002 : code };
+    const cached = importArtifact(db, options);
+    expect(cached).toMatchObject({ skipped: true, tags: first.tags, preservedTags: 1 });
+    expect(cached.coverage.artifactOnlyPasscodes).toContain(4000000002);
+    expect(cached.coverage.artifactOnlyPasscodes).not.toContain(4000000001);
+    db.exec("UPDATE card_tag_artifact_imports SET passcodes_json=NULL,archetypes_json=NULL");
+    expect(importArtifact(db, options)).toEqual(cached);
   });
 
   it("folds artworks and chained remaps, chooses direct official tags and hashes callback text", async () => {
@@ -188,6 +270,25 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     db.prepare("DELETE FROM card_tag_artifact_imports").run();
     expect(importArtifact(db).preservedProfiles).toBe(1);
     expect(db.prepare("SELECT plan,source FROM card_tag_profiles WHERE archetype='Dark World'").get()).toEqual({ plan: "Reviewed manual plan", source: "Searchygo-artifact:manual" });
+  });
+
+  it("preserves tags owned by a differently cased nonartifact source", async () => {
+    const db = database(), importArtifact = await importer();
+    importArtifact(db);
+    db.prepare("UPDATE card_tags SET source='Searchygo-artifact:manual',summary='Reviewed manual summary' WHERE passcode=14558127").run();
+    db.prepare("DELETE FROM card_tag_artifact_imports").run();
+    expect(importArtifact(db).preservedTags).toBe(1);
+    expect(db.prepare("SELECT summary,source FROM card_tags WHERE passcode=14558127").get()).toEqual({ summary: "Reviewed manual summary", source: "Searchygo-artifact:manual" });
+  });
+
+  it("rolls back streamed tags when a later artifact file is corrupt", async () => {
+    const db = database(), importArtifact = await importer(), directory = copyArtifact();
+    writeFileSync(join(directory, "profiles.jsonl.gz"), "corrupt");
+    expect(() => importArtifact(db, { directory })).toThrow(/hash|integrity/i);
+    for (const table of ["card_tags", "card_tag_profiles", "card_release", "card_tag_artifact_imports"]) {
+      expect(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+    }
+    expect(importArtifact(db).skipped).toBe(false);
   });
 
   it("passes the source name to explicit missing-ID bridges without rewriting source metadata", async () => {

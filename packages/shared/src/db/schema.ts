@@ -682,6 +682,8 @@ export function migrate(db: Database.Database) {
     `);
   }).immediate();
   addColumnIfMissing(db, "card_tags", "popularity", "integer not null default 0 check (popularity >= 0)");
+  addColumnIfMissing(db, "card_tag_artifact_imports", "passcodes_json", "text");
+  addColumnIfMissing(db, "card_tag_artifact_imports", "archetypes_json", "text");
   addColumnIfMissing(db, "card_catalog", "effect_text", "text");
   addColumnIfMissing(db, "card_catalog", "atk", "integer");
   addColumnIfMissing(db, "card_catalog", "def", "integer");
@@ -717,7 +719,7 @@ export function migrate(db: Database.Database) {
   db.exec(`create table if not exists card_catalog_revision (
     id integer primary key check (id = 1), revision integer not null default 0
   ); insert or ignore into card_catalog_revision (id) values (1);`);
-  for (const table of ["card_catalog", "card_artworks", "card_sets"]) {
+  for (const table of ["card_catalog", "card_artworks", "card_sets", "card_tags", "card_tag_profiles", "card_release", "archetypes"]) {
     for (const event of ["insert", "update", "delete"]) {
       db.exec(`create trigger if not exists ${table}_status_${event}
         after ${event} on ${table} begin

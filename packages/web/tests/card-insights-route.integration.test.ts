@@ -71,6 +71,21 @@ describe("authenticated public-catalog insight operations", () => {
     }
   });
 
+  it("passes the browser works-with era through to real ranking", async () => {
+    const { POST } = await import("../app/api/cards/insights/route");
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) =>
+      POST(new Request("http://local/api/cards/insights", init)));
+    try {
+      const { fetchWorksWith } = await import("../src/components/decks/insights-api");
+      const era = { medianYear: 2016, spread: 1 };
+      const options = { mode: "normal" as const, genesys: false, pool: [7084129], era };
+      const expected = await request({ op: "worksWith", passcode: 46986414, pool: [7084129], format: "normal", era });
+      const result = await fetchWorksWith(46986414, options);
+      expect(result).toEqual((await expected.json()).cards);
+      expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toMatchObject({ era });
+    } finally { fetch.mockRestore(); }
+  });
+
   it("authenticates before processing and handles session outages", async () => {
     state.auth.mockResolvedValue(null);
     expect((await request({ op: "summary", passcode: 7084129 })).status).toBe(401);

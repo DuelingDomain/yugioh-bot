@@ -11,7 +11,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const lock = acquireCubeSeedPreview(ctx.userId);
   if (!lock.ok) return lock.response;
   try {
-    const body = await readCubeEffectBody(request, ["phrase", "targetCount", "maxCopies"]);
+    const body = await readCubeEffectBody(request, ["phrase", "targetCount", "maxCopies", "era"]);
     if (!body.ok) return body.response;
     const preview = ctx.cubes.previewSeed(ctx.cubeId, body.value as unknown as CubeSeedOptions);
     return cubeEffectResponse({ ...preview, cards: cubeCardsByIds(preview.rows.map(row => row.id), ctx.catalog) });

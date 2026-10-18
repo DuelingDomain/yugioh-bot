@@ -1,5 +1,9 @@
 # Effect search foundation verification
 
+See [the integrated performance report](effect-search-performance-verification.md)
+for the later date merge and speed/memory fixes. The measurements below record
+the earlier foundation state.
+
 Validated with Node 22.23.3 on this worktree. Engine and existing catalog inputs
 were opened read-only; no engine preparation or writes were performed locally.
 The stable API and TypeScript shapes are in [the contract](effect-search-contract.md).

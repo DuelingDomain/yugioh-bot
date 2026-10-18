@@ -1,5 +1,9 @@
 # Cube effect backend verification
 
+See [the integrated performance report](effect-search-performance-verification.md)
+for the later seed cache and preparation changes. The measurements below record
+the earlier backend state.
+
 Validated on `feat/effect-search-cube-backend` with Node 22.23.3 in the assigned
 `es-cube-backend` worktree. This report covers the review fixes after
 `1e912bf82`; the [cube UI contract](effect-search-cube-contract.md) records the

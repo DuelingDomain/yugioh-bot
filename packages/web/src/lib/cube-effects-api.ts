@@ -8,7 +8,9 @@ import { cubeOwnerAccess } from "./cube-access";
 import { effectSearchEnabled } from "./effect-search";
 import { readJsonBody } from "./bug-reports/read-body";
 
-const previewsInFlight = new Set<number>();
+const previewKey = Symbol.for("yugidraft.cube-seed.in-flight");
+const runtime = globalThis as typeof globalThis & { [previewKey]?: Set<number> };
+const previewsInFlight = runtime[previewKey] ??= new Set();
 
 /** Reserve before reading the body so overlapping requests cannot queue scans. */
 export function acquireCubeSeedPreview(userId: number) {

@@ -1,5 +1,5 @@
 import type { DeckCardInfo, DuelDeck, DuelMode } from "@yugidraft/shared/duels";
-import type { RankedInsightCard } from "@yugidraft/shared/cards/effects";
+import type { CardEra, RankedInsightCard } from "@yugidraft/shared/cards/effects";
 import type { CardInsightFormat } from "@yugidraft/shared/services";
 import type { CardAdmissionContext } from "@/lib/card-admission-context";
 import { getDeckCards } from "./api";
@@ -42,6 +42,7 @@ export interface InsightScope {
   deckMaster?: number | null;
   genesysRemaining?: number;
   limit?: number;
+  era?: CardEra;
 }
 
 function scopeBody(scope: InsightScope): Record<string, unknown> {
@@ -51,6 +52,7 @@ function scopeBody(scope: InsightScope): Record<string, unknown> {
     ...(scope.deckMaster != null && scope.mode === "domain" ? { deckMaster: scope.deckMaster } : {}),
     ...(scope.genesys && scope.genesysRemaining != null ? { genesysRemaining: Math.max(0, Math.min(1000, Math.floor(scope.genesysRemaining))) } : {}),
     ...(scope.limit ? { limit: scope.limit } : {}),
+    ...(scope.era !== undefined ? { era: scope.era } : {}),
   };
 }
 

@@ -31,7 +31,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   const lock = acquireCubeSeedPreview(actor.userId);
   if (!lock.ok) return lock.response;
   try {
-    const body = await readCubeEffectBody(request, ["phrase", "targetCount", "maxCopies"]);
+    const body = await readCubeEffectBody(request, ["phrase", "targetCount", "maxCopies", "era"]);
     if (!body.ok) return body.response;
     const preview = previewCubeSeed(db, body.value as unknown as CubeSeedOptions, []);
     const catalog = createCardCatalogService(db, { memberId: actor.userId });

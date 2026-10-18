@@ -57,6 +57,10 @@ type Move = { code: number; name: string; from: "main" | "extra";
 - `targetCount`: optional integer 1–500; default 180. This is the number of
   **new distinct rows**, not copies or the cube's final size.
 - `maxCopies`: optional integer 1–99; default 3. Applied to each preview row.
+- `era`: optional `{medianYear, spread}`, with the same bounds as insight
+  requests. If absent, derive it from distinct existing cube cards with known
+  release dates. Nearby years get a soft score bonus. Date chips remain hard
+  filters for members, partners and staples.
 - The body has a 64 KiB limit. Unknown top-level fields are rejected.
 - One unfinished preview per user is allowed across cubes and draft lobbies in each web process.
   Overlapping requests receive 429 `{ error: "cube_seed_preview_in_flight" }`
@@ -64,6 +68,12 @@ type Move = { code: number; name: string; from: "main" | "extra";
   is released on success, validation failure or an unexpected error.
 - Preview reads the cached public catalog and pinned tags/profiles. It neither
   writes cube data nor fetches cards. A cold cache can produce a short preview.
+- Web startup prepares archetype members, hook candidates, role sets and
+  mechanical link data. A metadata revision refreshes that snapshot after
+  catalog, artwork, tag, profile or release changes. Unrelated cube and duel
+  writes keep the snapshot. Preview results have a five-minute bounded cache.
+  Its key includes phrase, size, era, copies, current cube identities and UTC
+  month. A caller receives its own result copy. The request guard still applies.
 - Selection reserves initial space for phrase/archetype members and mechanical
   partners while reserving room for unmet role quotas. It then fills those
   quotas from remaining relevant members/partners and generic staples. Unused
@@ -83,6 +93,7 @@ Response:
   attribution: "Effect search powered by searchygo";
   phrase: string; targetCount: number; maxCopies: number;
   reading: Interpretation | null; // foundation query/chips shape
+  era?: { medianYear: number; spread: number };
   rows: Array<{ id: number; name: string; copies: number; pool: "main" | "extra";
     category: "archetype" | "phrase" | "partner" | "staple";
     reason: string; roles: string[] }>;
@@ -182,7 +193,8 @@ Health is computed only on explicit preflight requests through
 Ordinary `analyzeCubePools` calls run supply checks alone; an explicit
 `includeHealth: true` remains available to shared callers and returns
 `poolHealth?: CardPoolHealth | null` through the same cached health method.
-The cache uses cube id, `updated_at`, and the Extra setting, with a five-minute TTL.
+The cache uses cube id, `updated_at`, the Extra setting, explicit era and public
+metadata revision, with a five-minute TTL.
 
 Health never changes `ok` or adds errors. If health data is unreadable, `health`
 is null and the failure is reported on the server. Supply checks still run.

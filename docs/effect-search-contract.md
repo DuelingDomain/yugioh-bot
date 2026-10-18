@@ -70,7 +70,14 @@ missingCards, percent, missing: {passcode, name}[], artifactOnlyPasscodes}`.
 | --- | --- |
 | `card_tags` | `passcode` integer PK, `summary`, `roles_json`, `tags_json`, `popularity`, nullable `text_hash`, `source`, `tagged_at`, `schema_version` |
 | `card_tag_profiles` | `archetype` text PK, `plan`, `hooks_json`, `source`, `profiled_at`, `schema_version`, `cards` |
-| `card_tag_artifact_imports` | `artifact_version` text PK, `manifest_hash`, `schema_version`, `source_commit`, `tags`, `profiles`, `imported_at` |
+| `card_tag_artifact_imports` | `artifact_version` text PK, `manifest_hash`, `schema_version`, `source_commit`, `tags`, `profiles`, `imported_at`, nullable `passcodes_json`, nullable `archetypes_json` |
+
+Import writes each artifact version once to the shared disk database. It streams
+the pinned files through bounded temporary storage. Publication verification
+checks the full normalized schemas. Startup checks the exact pinned hashes and
+counts, and stores original passcodes and names in `passcodes_json`. This lets
+later reads apply current identity rules without parsing tag bodies again.
+Older import receipts acquire these memberships on their first read.
 
 `applyEngineCardRemaps` carries every tag field, retaining an existing official
 row on collision. Profiles have no passcode key to remap. Startup folds known
@@ -86,7 +93,7 @@ service.readQuery(text: string): Interpretation | null;
 service.effectSearch(text: string, pool?: readonly number[], options?: CardInsightOptions): CardEffectSearchResult;
 service.worksWith(passcode: number, pool?: readonly number[], options?: CardInsightOptions): RankedInsightCard[];
 service.suggestForDeck(deck: DuelDeck | readonly number[], options: CardInsightOptions & { pool?: readonly number[]; format: CardInsightFormat }): RankedInsightCard[];
-service.poolHealth(cards: readonly number[]): CardPoolHealth;
+service.poolHealth(cards: readonly number[], options?: { era?: CardEra }): CardPoolHealth;
 service.pickScore(candidate: number, pickedPool: readonly number[]): number;
 service.pickScores(passcodes: readonly number[], pickedPool: readonly number[]): CardPickInsight[];
 service.packFits(passcodes: readonly number[], pickedPool: readonly number[]): Map<number, string>;
@@ -101,7 +108,9 @@ no displayed reason. See [smart draft picks](effect-search-draft-picks.md).
 `CardInsightFormat = "normal" | "domain" | "genesys" | "genesys-domain"`.
 `CardInsightOptions = {limit?: number; format?: CardInsightFormat;
 genesysRemaining?: number; exact?: boolean; omittedChips?: readonly string[];
-deckMaster?: number}`. Default limit is 30; maximum is 120. `[]` means an empty
+deckMaster?: number; released?: ReleasedRange; sort?: "match" | "newest";
+era?: CardEra}`. Release range and era types are in
+[the date contract](effect-search-dates.md). Default limit is 30; maximum is 120. `[]` means an empty
 pool; an absent pool means the cached public catalog. Candidates stream from
 SQLite, with only anchors, relevant profiles and the retained page in memory.
 The optional engine handle is read-only and queried by passcode. Explicit pools
@@ -113,7 +122,7 @@ Summary fields are `{passcode, summary, roles, source, textHash, taggedAt}`.
 Effect results are `{reading, cards, total}`. Pool health fields are `{cards,
 roles: {searchers, extenders, removal, handTraps}, extraDeck: {synchro, tuners,
 nonTuners, fusion, xyz, link, fusionEnablers, linkMaterialMonsters, xyzLevels},
-unlinkedPasscodes, untaggedPasscodes, warnings}`. Counts describe distinct cards,
+unlinkedPasscodes, untaggedPasscodes, era?, warnings}`. Counts describe distinct cards,
 not copies. Supply warnings are observations and do not replace deck legality.
 Genesys uses current-revision points, excludes Link/Pendulum and unknown points,
 and respects the remaining budget. Domain fit records a positive mechanical
@@ -125,16 +134,19 @@ recommendations.
 ```ts
 createCanonicalEffectResolver(cards: CardDatabase): (passcode: number, name?: string) => number;
 createCardEffectIndex(db: Database.Database, cards: CardDatabase): CardEffectIndex;
+initializeCardEffectIndex(db: Database.Database, cards: CardDatabase): Promise<CardEffectIndex>;
 cardEffectIndex(cards: CardDatabase): CardEffectIndex | undefined;
 queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[],
   genesysPoints?: ReadonlyMap<number, number | null>,
   options?: { effects?: CardEffectIndex; effectSearchEnabled?: boolean }): CardQueryResult;
 ```
 
-`CardEffectIndex` has `size`, `readQuery(text, omitted?)`, `match(code, reading)`
-and `popularity(code)`. It keeps summary-free facets, interned arrays/filters and
-small card metadata. Startup imports once per artifact version and installs the
-index only when enabled. The signed host `card-query` operation remains on
+`CardEffectIndex` has `size`, `release(code)`, `readQuery(text, omitted?)`,
+`match(code, reading)` and `popularity(code)`. It keeps summary-free facets,
+interned arrays/filters and shared printed-type fragments. Startup imports once
+per artifact version. It awaits the asynchronous initializer before it accepts
+requests when enabled. The synchronous API remains for in-memory callers.
+The signed host `card-query` operation remains on
 `POST /internal/duel`, with trusted `guildId`, `playerId`, `cardQuery` and the
 existing admission context.
 
@@ -167,10 +179,10 @@ cube/draft references and unknown fields, and never reads a private saved pool.
 | --- | --- | --- | --- |
 | `summary` | `passcode` | none | `summary` or `null` |
 | `read` | `text` | none | `reading` or `null` |
-| `effectSearch` | `text` | `pool`, `limit`, `format`, `genesysRemaining`, `deckMaster`, `exact`, `omittedChips` | `reading`, `cards`, `total` |
-| `worksWith` | `passcode` | `pool`, `limit`, `format`, `genesysRemaining`, `deckMaster` | `cards` |
-| `suggest` | `deck` | `pool`, `limit`, `format`, `genesysRemaining`, `deckMaster` | `cards` |
-| `poolHealth` | `cards` | none | `health` |
+| `effectSearch` | `text` | `pool`, `limit`, `format`, `genesysRemaining`, `deckMaster`, `exact`, `omittedChips`, `released`, `sort`, `era` | `reading`, `cards`, `total` |
+| `worksWith` | `passcode` | `pool`, `limit`, `format`, `genesysRemaining`, `deckMaster`, `released`, `sort`, `era` | `cards` |
+| `suggest` | `deck` | `pool`, `limit`, `format`, `genesysRemaining`, `deckMaster`, `released`, `sort`, `era` | `cards` |
+| `poolHealth` | `cards` | `era` | `health` |
 | `pickScore` | `candidate`, `pickedPool` | none | `score` |
 
 Enabled responses include `{effectSearchEnabled: true, attribution}` and use

@@ -127,6 +127,11 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
   };
   return {
     canonical,
+    /** Startup readers can fold uncached engine artworks and legacy remaps too. */
+    *identityPasscodes(): Generator<number> {
+      yield* remaps.keys();
+      if (engineFind) for (const row of engine!.prepare<[], { id: number }>("SELECT id FROM datas").iterate()) yield row.id;
+    },
     candidate(code: number): Candidate | undefined {
       const canonicalCode = canonical(code);
       const row = metadata.get(canonicalCode) ?? metadata.get(code);

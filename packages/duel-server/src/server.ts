@@ -9,7 +9,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDatabase, applyEngineCardRemaps, loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { importCardEffectArtifact, effectSearchEnabled } from "@yugidraft/shared/cards/effects";
-import { createCardEffectIndex, createCanonicalEffectResolver } from "./card-effects.js";
+import { initializeCardEffectIndex, createCanonicalEffectResolver } from "./card-effects.js";
 import { createBroadcaster } from "@yugidraft/shared/notify";
 import { DUEL_1V1_ENGINE_ENV, DUEL_STANDARD_1V1_ENGINE_ENV, duel1v1EngineForMode, isDuelEngineChoice } from "@yugidraft/shared/duels";
 import { loadCardDatabase } from "./cards.js";
@@ -38,7 +38,7 @@ const effectImport = importCardEffectArtifact(db, {
   canonicalize: createCanonicalEffectResolver(cards),
 });
 if (!effectImport.skipped) console.log(`[duel] Effect tags imported: ${effectImport.tags} cards, ${effectImport.profiles} profiles (${effectImport.version})`);
-if (effectSearchEnabled()) createCardEffectIndex(db, cards);
+if (effectSearchEnabled()) await initializeCardEffectIndex(db, cards);
 const wsTransport = signedTransport({ purpose: "ws-broadcast",
   url: process.env.WS_INTERNAL_URL ?? "",
   secret: process.env.WS_INTERNAL_SECRET ?? "",

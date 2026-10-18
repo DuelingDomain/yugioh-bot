@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -7,7 +8,7 @@ import { importCardEffectArtifact } from "@yugidraft/shared/cards/effects";
 import { createCardInsightService } from "@yugidraft/shared/services";
 import { emptyCardQuery, type CardQuery } from "@yugidraft/shared/duels";
 import { loadCardDatabase } from "../src/cards.js";
-import { createCardEffectIndex, createCanonicalEffectResolver } from "../src/card-effects.js";
+import { cardEffectIndex, createCardEffectIndex, createCanonicalEffectResolver, initializeCardEffectIndex } from "../src/card-effects.js";
 import { queryCards } from "../src/card-search.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { signedHeaders } from "./helpers/signed-request.js";
@@ -494,6 +495,27 @@ afterAll(async()=>{
 });
 
 describe('64-query real-artifact effect/name/synergy/format evaluation',()=>{
+  it('installs a file-backed startup index with identical readings, dates and all-card effect scores', async () => {
+    const directory = mkdtempSync(resolve(tmpdir(), 'effect-facet-process-'));
+    const path = resolve(directory, 'shared.sqlite');
+    let disk: Database.Database | undefined;
+    try {
+      await db.backup(path);
+      disk = new Database(path);
+      const sync = createCardEffectIndex(disk, cards);
+      const prepared = await initializeCardEffectIndex(disk, cards);
+      expect(prepared.size).toBe(sync.size);
+      expect(cardEffectIndex(cards)).toBe(prepared);
+      const all = [...cards.all()];
+      expect(all.map(card => prepared.release(card.code))).toEqual(all.map(card => sync.release(card.code)));
+      expect(all.map(card => prepared.popularity(card.code))).toEqual(all.map(card => sync.popularity(card.code)));
+      for (const text of [...effectCases.map(row => row[0]), 'newest spells', 'before 2010', 'Dark Magician']) {
+        const reading = sync.readQuery(text);
+        expect(prepared.readQuery(text), text).toEqual(reading);
+        if (reading) expect(all.map(card => prepared.match(card.code, reading)), text).toEqual(all.map(card => sync.match(card.code, reading)));
+      }
+    } finally { disk?.close(); rmSync(directory, { recursive: true, force: true }); }
+  }, 30_000);
   it.each(effectCases)('effect: %s',(text,include,exclude)=>{
     evaluatedQueries++;
     const result=present(search(text,[...include,...exclude].map(code)));

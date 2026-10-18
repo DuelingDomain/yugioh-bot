@@ -73,6 +73,43 @@ describe("cube batch HTTP and SQLite boundary", () => {
 });
 
 describe("phrase preview, confirmation and description routes", () => {
+  it("accepts the era option at cube and lobby preview boundaries and rejects invalid eras", async () => {
+    importCardEffectArtifact(db());
+    const { POST } = await import("../app/api/cubes/[id]/seed/preview/route");
+    const era = { medianYear: 2005, spread: 2 };
+    const response = await POST(request({ phrase: "dark magician", targetCount: 2, era }), context());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ era, rows: expect.any(Array) });
+    expect((await POST(request({ phrase: "dark magician", era: { ...era, spread: -1 } }), context())).status).toBe(400);
+    vi.stubEnv("THEME_DRAFTS", "1");
+    db().prepare("INSERT INTO drafts(id,guild_id,name,created_by_user_id,status,web_slug,config_json) VALUES(7,'g','Era lobby',?,'pending','era-lobby',?)")
+      .run(owner, JSON.stringify({ mode: "theme", themeSelection: "player_pick", allowedCubeIds: [] }));
+    const lobby = await import("../app/api/drafts/[slug]/seed/preview/route");
+    const result = await lobby.POST(request({ phrase: "dark magician", targetCount: 2, era }), { params: Promise.resolve({ slug: "era-lobby" }) });
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ era });
+  });
+
+  it("passes an explicit era from the browser helpers through cube and lobby previews", async () => {
+    const cube = await import("../app/api/cubes/[id]/seed/preview/route");
+    const lobby = await import("../app/api/drafts/[slug]/seed/preview/route");
+    vi.stubEnv("THEME_DRAFTS", "1");
+    db().prepare("INSERT INTO drafts(id,guild_id,name,created_by_user_id,status,web_slug,config_json) VALUES(7,'g','Era lobby',?,'pending','era-lobby',?)")
+      .run(owner, JSON.stringify({ mode: "theme", themeSelection: "player_pick", allowedCubeIds: [] }));
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      const req = new Request(`http://test${url}`, init);
+      return String(url).includes("/drafts/")
+        ? lobby.POST(req, { params: Promise.resolve({ slug: "era-lobby" }) })
+        : cube.POST(req, context());
+    });
+    try {
+      const { previewSeed, previewDraftSeed } = await import("../src/components/effect-search/effect-api");
+      const era = { medianYear: 2005, spread: 2 };
+      expect(await previewSeed(1, "dark magician", { targetCount: 2, era })).toMatchObject({ era });
+      expect(await previewDraftSeed("era-lobby", "dark magician", { targetCount: 2, era })).toMatchObject({ era });
+    } finally { fetch.mockRestore(); }
+  });
+
   it("previews without writes and confirms only chosen rows through the duplicate-safe batch", async () => {
     importCardEffectArtifact(db());
     const preview = await import("../app/api/cubes/[id]/seed/preview/route");

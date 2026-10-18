@@ -4,14 +4,13 @@ import type { CubePool } from "../types/index.js";
 import { isExtraDeckCard } from "../cards/effects/card.js";
 import { matchCard } from "../cards/effects/effect-match.js";
 import { compactEffectName } from "../cards/effects/name-match.js";
-import { scoreForDeck, type Candidate } from "../cards/effects/synergy.js";
+import type { Candidate } from "../cards/effects/synergy.js";
+import { cardEraBoost, compareNewest, deriveCardEra, isCardEra, matchesReleased, type CardEra } from "../cards/effects/releases.js";
 import type { Interpretation } from "../cards/effects/query.js";
-import { createInsightCatalog } from "./card-insight-catalog.js";
-import { readInsightProfiles } from "./card-insight-profiles.js";
-import { createCardInsightService } from "./card-insights.js";
+import { getCubeSeedIndex } from "./cube-seed-index.js";
 import { DEFAULT_CUBE_COPIES, MAX_CUBE_COPIES } from "./constants.js";
 
-export interface CubeSeedOptions { phrase: string; targetCount?: number; maxCopies?: number }
+export interface CubeSeedOptions { phrase: string; targetCount?: number; maxCopies?: number; era?: CardEra }
 export interface CubeSeedRow {
   id: number;
   name: string;
@@ -28,35 +27,59 @@ export interface CubeSeedPreview {
   targetCount: number;
   maxCopies: number;
   reading: Interpretation | null;
+  era?: CardEra;
   rows: CubeSeedRow[];
   roleQuotas: Record<SeedRole, { target: number; selected: number }>;
   warnings: string[];
 }
 type Choice = { candidate: Candidate; category: CubeSeedRow["category"]; reason: string; score: number; linked: number };
-const compare = (a: Choice, b: Choice) => b.linked - a.linked || b.score - a.score || b.candidate.card.views - a.candidate.card.views || a.candidate.card.id - b.candidate.card.id;
-function retain(choices: Choice[], choice: Choice, limit: number) {
+const compareDefault = (a: Choice, b: Choice) => b.linked - a.linked || b.score - a.score || b.candidate.card.views - a.candidate.card.views || a.candidate.card.id - b.candidate.card.id;
+function retain(choices: Choice[], choice: Choice, limit: number, compare: (a: Choice, b: Choice) => number) {
   if (choices.length === limit && compare(choice, choices[choices.length - 1]!) >= 0) return;
   choices.push(choice);
   choices.sort(compare);
   if (choices.length > limit) choices.pop();
 }
 
-/** Read-only, bounded selection from the cached catalog. No cube or catalog writes. */
+const PREVIEW_TTL_MS = 5 * 60_000, PREVIEW_CACHE_MAX = 64;
+const previewCaches = new WeakMap<object, Map<string, { at: number; preview: CubeSeedPreview }>>();
+
+/** Read-only selection from prepared public metadata. Current cube identities remain excluded. */
 export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, existingIds: readonly number[]): CubeSeedPreview {
   const { phrase, targetCount = 180, maxCopies = DEFAULT_CUBE_COPIES } = input;
   if (typeof phrase !== "string" || !phrase.trim() || phrase.length > 512) throw new ExpectedError("phrase must contain 1 to 512 characters", 400);
   if (!Number.isInteger(targetCount) || targetCount < 1 || targetCount > 500) throw new ExpectedError("targetCount must be a whole number from 1 to 500", 400);
   if (!Number.isInteger(maxCopies) || maxCopies < 1 || maxCopies > MAX_CUBE_COPIES) throw new ExpectedError(`maxCopies must be a whole number from 1 to ${MAX_CUBE_COPIES}`, 400);
+  if (input.era !== undefined && !isCardEra(input.era)) throw new ExpectedError("era must contain a valid medianYear and spread", 400);
+  const index = getCubeSeedIndex(db);
+  const existing = new Set(existingIds.map(index.canonical));
+  const dates = db.prepare<[number], { tcg_date: string | null; ocg_date: string | null }>("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=?");
+  const era = input.era ?? deriveCardEra([...existing].map(code => {
+    const row = dates.get(code);
+    return { tcgDate: row?.tcg_date ?? undefined, ocgDate: row?.ocg_date ?? undefined };
+  }));
+  const key = JSON.stringify([phrase.trim(), targetCount, maxCopies, era, [...existing].sort((a, b) => a - b), new Date().toISOString().slice(0, 7)]);
+  let cache = previewCaches.get(index);
+  if (!cache) previewCaches.set(index, cache = new Map());
+  const now = Date.now(), hit = cache.get(key);
+  if (hit && now - hit.at < PREVIEW_TTL_MS) return structuredClone(hit.preview);
+  const finish = (preview: CubeSeedPreview) => {
+    for (const [oldKey, value] of cache) if (now - value.at >= PREVIEW_TTL_MS) cache.delete(oldKey);
+    if (cache.size >= PREVIEW_CACHE_MAX) cache.delete(cache.keys().next().value!);
+    cache.set(key, { at: now, preview: structuredClone(preview) });
+    return preview;
+  };
   const fractions = { searcher: 0.12, extender: 0.18, removal: 0.12, hand_trap: 0.08 };
   const roleQuotas = Object.fromEntries(roles.map(role => [role, { target: Math.max(targetCount >= 4 ? 1 : 0, Math.floor(targetCount * fractions[role])), selected: 0 }])) as CubeSeedPreview["roleQuotas"];
-  const reading = createCardInsightService(db).readQuery(phrase);
-  const preview: CubeSeedPreview = { phrase: phrase.trim(), targetCount, maxCopies, reading, rows: [], roleQuotas, warnings: [] };
-  if (!reading) { preview.warnings.push("No cards matched this phrase. Try an archetype or an effect description."); return preview; }
+  const reading = index.readQuery(phrase);
+  const preview: CubeSeedPreview = { phrase: phrase.trim(), targetCount, maxCopies, reading, ...(era ? { era } : {}), rows: [], roleQuotas, warnings: [] };
+  if (!reading) { preview.warnings.push("No cards matched this phrase. Try an archetype or an effect description."); return finish(preview); }
 
-  const catalog = createInsightCatalog(db);
-  try {
-    const existing = new Set(existingIds.map(catalog.canonical));
+  const compare = (a: Choice, b: Choice) => (reading.query.sort === "newest"
+    ? compareNewest(a.candidate.card, b.candidate.card, reading.query.released?.region) : 0) || compareDefault(a, b);
+  {
     const names = new Set([...reading.query.card.archetypes, ...reading.query.supports?.archetypes ?? []].map(compactEffectName));
+    const memberIds = new Set([...names].flatMap(name => (index.members.get(name) ?? []).map(candidate => candidate.card.id)));
     const words = reading.query.text.toLowerCase().split(/\s+/).filter(Boolean);
     const core: Choice[] = [];
     const coreMatched = new Set<number>();
@@ -67,46 +90,53 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
       for (const role of roles) if (choice.candidate.tags?.roles.includes(role)) {
         const choices = quotaChoices.get(role)!;
         // Core, partner and staple passes can reach the same public identity.
-        if (!choices.some(entry => entry.candidate.card.id === choice.candidate.card.id)) retain(choices, choice, targetCount);
+        if (!choices.some(entry => entry.candidate.card.id === choice.candidate.card.id)) retain(choices, choice, targetCount, compare);
       }
     };
     const coreChoice = (candidate: Candidate): Choice | undefined => {
       const { card, tags } = candidate;
-      const member = names.has(compactEffectName(card.archetype ?? "")) || names.has(compactEffectName(card.name));
-      const score = matchCard(card, tags, reading.query);
-      const printed = `${card.text} ${card.pendulumText ?? ""}`.toLowerCase();
-      if (!member && (score === null || !words.every(word => printed.includes(word)))) return undefined;
-      return { candidate, category: member ? "archetype" : "phrase", reason: member ? `Archetype: ${card.archetype ?? card.name}` : `Matches: ${reading.chips.join("; ")}`, score: member ? 100 : score ?? 0, linked: 0 };
+      if (!matchesReleased(card, reading.query.released)) return undefined;
+      const member = memberIds.has(card.id);
+      const score = member ? 100 : matchCard(card, tags, reading.query);
+      if (!member) {
+        if (score === null) return undefined;
+        if (words.length) {
+          const printed = `${card.text} ${card.pendulumText ?? ""}`.toLowerCase();
+          if (!words.every(word => printed.includes(word))) return undefined;
+        }
+      }
+      return { candidate, category: member ? "archetype" : "phrase", reason: member ? `Archetype: ${card.archetype ?? card.name}` : `Matches: ${reading.chips.join("; ")}`, score: (member ? 100 : score ?? 0) + cardEraBoost(card, era), linked: 0 };
     };
     // Retain enough anchors even for a very small requested preview.
-    // Stream both passes; only selected choices and matched identities stay in memory.
-    for (const candidate of catalog.candidates()) {
+    // The catalog and hook matches are prepared before request selection.
+    for (const candidate of index.candidates) {
       const choice = coreChoice(candidate);
       if (!choice) continue;
       coreMatched.add(candidate.card.id);
-      retain(anchorChoices, choice, 32);
-      if (!existing.has(candidate.card.id)) retain(core, choice, targetCount);
+      retain(anchorChoices, choice, 32, compare);
+      if (!existing.has(candidate.card.id)) retain(core, choice, targetCount, compare);
       considerRoles(choice);
     }
-    if (!anchorChoices.length) { preview.warnings.push("No cards matched this phrase in the cached catalog."); return preview; }
+    if (!anchorChoices.length) { preview.warnings.push("No cards matched this phrase in the cached catalog."); return finish(preview); }
 
     const anchors = anchorChoices.map(choice => choice.candidate);
-    const profiles = readInsightProfiles(db, anchors, warning => preview.warnings.push(warning));
+    preview.warnings.push(...index.warningsFor(anchors));
+    const rankedPartners = index.rankPartners(anchors);
     const partners: Choice[] = [];
     const staples = new Map<SeedRole, Choice[]>(roles.map(role => [role, []]));
-    for (const candidate of catalog.candidates()) {
-      if (existing.has(candidate.card.id) || coreMatched.has(candidate.card.id)) continue;
-      const result = scoreForDeck(candidate, anchors, profiles);
-      if (result.score > 0) {
-        const choice: Choice = { candidate, category: "partner", reason: result.reason, score: result.score, linked: result.linkedCards };
-        retain(partners, choice, targetCount);
+    for (const candidate of index.candidates) {
+      if (existing.has(candidate.card.id) || coreMatched.has(candidate.card.id) || !matchesReleased(candidate.card, reading.query.released)) continue;
+      const result = rankedPartners.get(candidate.card.id);
+      if (result && result.score > 0) {
+        const choice: Choice = { candidate, category: "partner", reason: result.reason, score: result.score + cardEraBoost(candidate.card, era), linked: result.linkedCards };
+        retain(partners, choice, targetCount, compare);
         considerRoles(choice);
       }
       // Broad staples must not depend on an unrelated archetype.
       if (candidate.card.archetype) continue;
       for (const role of roles) if (candidate.tags?.roles.includes(role)) {
-        const choice: Choice = { candidate, category: "staple", reason: `Role quota: ${role.replaceAll("_", " ")}`, score: 0, linked: 0 };
-        retain(staples.get(role)!, choice, targetCount);
+        const choice: Choice = { candidate, category: "staple", reason: `Role quota: ${role.replaceAll("_", " ")}`, score: cardEraBoost(candidate.card, era), linked: 0 };
+        retain(staples.get(role)!, choice, targetCount, compare);
         considerRoles(choice);
       }
     }
@@ -116,7 +146,7 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
       const { card, tags } = choice.candidate;
       if (selected.has(card.id) || preview.rows.length >= targetCount) return false;
       selected.add(card.id);
-      preview.rows.push({ id: card.id, name: card.name, copies: maxCopies, pool: isExtraDeckCard(card) ? "extra" : "main", category: choice.category, reason: choice.reason, roles: tags?.roles ?? [] });
+      preview.rows.push({ id: card.id, name: card.name, copies: maxCopies, pool: isExtraDeckCard(card) ? "extra" : "main", category: choice.category, reason: choice.reason, roles: [...tags?.roles ?? []] });
       for (const role of roles) if (tags?.roles.includes(role)) roleQuotas[role].selected++;
       return true;
     };
@@ -144,6 +174,6 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     for (const choice of remainingStaples) add(choice);
     if (preview.rows.length < targetCount) preview.warnings.push(`Only ${preview.rows.length} of ${targetCount} new cards are available in the cached catalog.`);
     for (const role of roles) if (roleQuotas[role].selected < roleQuotas[role].target) preview.warnings.push(`Role quota for ${role.replaceAll("_", " ")}: ${roleQuotas[role].selected} of ${roleQuotas[role].target}.`);
-    return preview;
-  } finally { catalog.close(); }
+    return finish(preview);
+  }
 }

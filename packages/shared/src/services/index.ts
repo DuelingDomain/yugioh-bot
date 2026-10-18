@@ -10,6 +10,7 @@ export * from "./card-artworks.js";
 export * from "./card-fetch.js";
 export * from "./cubes.js";
 export * from "./cube-seed.js";
+export * from "./cube-seed-index.js";
 export * from "./deal.js";
 export * from "./card-images.js";
 export * from "./drafts.js";

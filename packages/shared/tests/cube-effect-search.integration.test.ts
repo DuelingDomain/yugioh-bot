@@ -2,16 +2,20 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../src/db/schema.js";
 import { createCardCatalogService } from "../src/services/card-catalog.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { performance } from "node:perf_hooks";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createCardInsightService } from "../src/services/card-insights.js";
 import { previewCubeSeed } from "../src/services/cube-seed.js";
+import { getCubeSeedIndex, prepareCubeSeedIndex } from "../src/services/cube-seed-index.js";
 import { createCubeService } from "../src/services/cubes.js";
 import * as insightCatalog from "../src/services/card-insight-catalog.js";
 import { seedUser } from "./helpers/identity.js";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
+import { readInsightProfiles } from "../src/services/card-insight-profiles.js";
+import { scoreForDeck } from "../src/cards/effects/synergy.js";
 
 let db: Database.Database;
 let cubes: ReturnType<typeof createCubeService>;
@@ -68,6 +72,29 @@ describe("phrase cube previews over the pinned artifact", () => {
     expect(createCardInsightService(db).worksWith(46986414, [7084129]).map(card => card.passcode)).toContain(7084129);
   });
 
+  it("matches unprepared Synchron scoring when real Roid/roid profiles share a NOCASE lookup", () => {
+    seedCatalog();
+    const insert = db.prepare(`INSERT INTO card_catalog
+      (ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,?,?,?,?,?,?,?,'image','small','[]',CURRENT_TIMESTAMP)`);
+    insert.run(2254222, "Speedroid Wing Synchron", "Machine / Pendulum / Tuner / Effect Monster", "effect", 'Send 1 "Speedroid" Spell/Trap from your Deck to the GY.', "WIND", 5, "roid");
+    insert.run(9742784, "Jet Synchron", "Machine / Tuner / Effect Monster", "effect", 'If this card is sent to the GY as Synchro Material: You can add 1 "Junk" monster from your Deck to your hand.', "FIRE", 1, "Synchro");
+    insert.run(572850, "Tearlaments Scheiren", "Aqua / Effect Monster", "effect", "Send the top 3 cards of your Deck to the GY.", "DARK", 4, "Tearlaments");
+    insert.run(7236721, "Scareclaw Defanging", "Continuous Spell Card", "spell", 'Banish any monster destroyed by battle with a "Scareclaw" Link Monster.', null, null, "Scareclaw");
+    expect(db.prepare("SELECT archetype FROM card_tag_profiles WHERE archetype='roid' COLLATE NOCASE").all()).toHaveLength(2);
+    const index = prepareCubeSeedIndex(db);
+    const unprepared = structuredClone(index.candidates);
+    const anchors = unprepared.filter(({ card }) => card.name.includes("Synchron"));
+    const profiles = readInsightProfiles(db, anchors);
+    const ranked = index.rankPartners(anchors);
+    for (const candidate of unprepared) {
+      const expected = scoreForDeck(candidate, anchors, profiles);
+      if (expected.score > 0) expect(ranked.get(candidate.card.id)).toEqual(expected);
+      else expect(ranked.has(candidate.card.id)).toBe(false);
+    }
+    expect(ranked.has(7236721)).toBe(false);
+  });
+
   it.skipIf(!process.env.CUBE_SEED_BENCHMARK_DB)("times a preview over the real full-size catalog without modifying source data", async () => {
     const sourcePath = process.env.CUBE_SEED_BENCHMARK_DB!;
     const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
@@ -98,13 +125,35 @@ describe("phrase cube previews over the pinned artifact", () => {
       const { cards } = benchmark.prepare<[], { cards: number }>("SELECT count(*) AS cards FROM card_catalog").get()!;
       expect(cards).toBeGreaterThanOrEqual(13_000);
       console.info(`Seed preview catalog: ${cards} real cards`);
+      const index = prepareCubeSeedIndex(benchmark);
+      console.info(`Seed preparation: ${index.preparationMs.toFixed(1)} ms`);
       console.time("previewCubeSeed real catalog");
       let preview;
       try { preview = previewCubeSeed(benchmark, { phrase: "dark magician", targetCount: 180 }, []); }
       finally { console.timeEnd("previewCubeSeed real catalog"); }
       expect(preview.rows).toHaveLength(180);
+      const samples: number[] = [], cached: number[] = [];
+      const phrases = ["dark magician", "blue eyes", "red eyes", "hand traps", "searchers", "draw cards", "spells that destroy", "revive monsters"];
+      for (let n = 0; n < 40; n++) {
+        const input = { phrase: phrases[n % phrases.length]!, targetCount: 180, era: { medianYear: 2000 + n / 2, spread: n % 4 } };
+        const start = performance.now();
+        previewCubeSeed(benchmark, input, []);
+        samples.push(performance.now() - start);
+        const repeated = performance.now();
+        previewCubeSeed(benchmark, input, []);
+        cached.push(performance.now() - repeated);
+      }
+      const stats = (values: number[]) => {
+        values.sort((a, b) => a - b);
+        return { samples: values.length, medianMs: values[Math.floor(values.length / 2)]!, p95Ms: values[Math.ceil(values.length * 0.95) - 1]! };
+      };
+      const report = { cards, preparationMs: index.preparationMs, uncached: stats(samples), cached: stats(cached) };
+      console.info(`SEED_BENCHMARK ${JSON.stringify(report)}`);
+      const output = process.env.CUBE_SEED_BENCHMARK_OUTPUT;
+      if (output) { mkdirSync(dirname(output), { recursive: true }); writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`); }
+      expect(report.uncached.p95Ms).toBeLessThanOrEqual(300);
     } finally { benchmark.close(); rmSync(directory, { recursive: true, force: true }); }
-  }, 30_000);
+  }, 120_000);
 
   it("excludes existing identities, reports shortages and does not fill an unknown phrase with staples", () => {
     seedCatalog();
@@ -114,6 +163,82 @@ describe("phrase cube previews over the pinned artifact", () => {
     expect(preview.rows.length).toBeLessThan(20);
     expect(preview.warnings).toContainEqual(expect.stringMatching(/Only .*20/));
     expect(cubes.previewSeed(cubeId, { phrase: "bananas", targetCount: 10 })).toMatchObject({ rows: [], warnings: expect.any(Array) });
+  });
+
+  it("reuses a bounded preview cache, isolates returned rows and excludes current cube identities", () => {
+    seedCatalog();
+    const index = prepareCubeSeedIndex(db);
+    const rank = vi.spyOn(index, "rankPartners");
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    try {
+      const input = { phrase: "dark magician", targetCount: 6, era: { medianYear: 2005, spread: 1 } };
+      const first = cubes.previewSeed(cubeId, input);
+      const original = structuredClone(first);
+      first.rows[0]!.roles.push("mutated");
+      first.warnings.push("mutated");
+      expect(cubes.previewSeed(cubeId, input)).toEqual(original);
+      expect(rank).toHaveBeenCalledTimes(1);
+      const selected = original.rows[0]!.id;
+      cubes.addBatch(cubeId, [{ id: selected, copies: 1 }]);
+      expect(getCubeSeedIndex(db)).toBe(index);
+      expect(cubes.previewSeed(cubeId, input).rows.every(row => row.id !== selected)).toBe(true);
+      expect(rank).toHaveBeenCalledTimes(2);
+      clock.mockReturnValue(1_300_001);
+      cubes.previewSeed(cubeId, input);
+      expect(rank).toHaveBeenCalledTimes(3);
+    } finally { clock.mockRestore(); rank.mockRestore(); }
+  });
+
+  it("uses era as a soft preference, derives cube era and keeps date chips as hard filters", () => {
+    seedCatalog();
+    const insert = db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,archetype,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,?,'Normal Monster','normal','Era Family','i','s','[]',CURRENT_TIMESTAMP)`);
+    insert.run(901, "Early member"); insert.run(902, "Late member");
+    const release = db.prepare("INSERT INTO card_release(passcode,tcg_date,quality,source_version) VALUES(?,?,'ok','fixture') ON CONFLICT(passcode) DO UPDATE SET tcg_date=excluded.tcg_date");
+    release.run(901, "2005-01"); release.run(902, "2020-01");
+    const input = { phrase: "Era Family", targetCount: 1 };
+    expect(cubes.previewSeed(cubeId, { ...input, era: { medianYear: 2005, spread: 0 } }).rows[0]!.id).toBe(901);
+    expect(cubes.previewSeed(cubeId, { ...input, era: { medianYear: 2020, spread: 0 } }).rows[0]!.id).toBe(902);
+    const bounded = cubes.previewSeed(cubeId, { ...input, phrase: "Era Family before 2010", era: { medianYear: 2020, spread: 0 } });
+    expect(bounded.rows.map(row => row.id)).toEqual([901]);
+    cubes.addBatch(cubeId, [{ id: 901, copies: 1 }]);
+    expect(cubes.previewSeed(cubeId, input)).toMatchObject({ era: { medianYear: 2005, spread: 0 }, rows: [{ id: 902 }] });
+    expect(() => cubes.previewSeed(cubeId, { ...input, era: { medianYear: 1900, spread: 0 } })).toThrow(/era/);
+    const before = getCubeSeedIndex(db);
+    release.run(902, "2008-01");
+    expect(getCubeSeedIndex(db)).not.toBe(before);
+    expect(cubes.previewSeed(cubeId, { ...input, phrase: "Era Family before 2010" }).rows.map(row => row.id)).toEqual([902]);
+  });
+
+  it("refreshes public metadata across connections while retaining preparation through unrelated writes", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "seed-revision-")), path = join(directory, "cards.sqlite");
+    await db.backup(path);
+    const reader = new Database(path), writer = new Database(path);
+    try {
+      const first = prepareCubeSeedIndex(reader);
+      writer.prepare("UPDATE cubes SET name='Changed title' WHERE id=?").run(cubeId);
+      expect(getCubeSeedIndex(reader)).toBe(first);
+      writer.prepare("UPDATE card_catalog SET effect_text='Changed printed text' WHERE ygoprodeck_id=1").run();
+      expect(getCubeSeedIndex(reader)).not.toBe(first);
+    } finally { reader.close(); writer.close(); rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it("excludes legacy config identities stored only as uncached engine artworks", () => {
+    const directory = mkdtempSync(join(tmpdir(), "seed-engine-artwork-"));
+    const engine = new Database(join(directory, "cards.cdb"));
+    engine.exec(`CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER,type INTEGER);
+      CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT);
+      INSERT INTO datas VALUES(1,0,33),(100001,1,33);
+      INSERT INTO texts VALUES(1,'Card 1'),(100001,'Card 1');`);
+    engine.close();
+    vi.stubEnv("DUEL_DATA_DIR", directory);
+    try {
+      const index = prepareCubeSeedIndex(db);
+      expect(index.canonical(100001)).toBe(1);
+      const preview = previewCubeSeed(db, { phrase: "monsters", targetCount: 10 }, [100001]);
+      expect(preview.rows.length).toBeGreaterThan(0);
+      expect(preview.rows.every(row => row.id !== 1 && row.id !== 100001)).toBe(true);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
   it("validates phrases, copy bounds and target bounds", () => {
@@ -225,6 +350,23 @@ describe("warning-only cube pool health", () => {
     expect(cubes.poolHealth(cubeId, { extraDeckEnabled: false })).toBe(first);
     db.prepare("UPDATE cubes SET updated_at='2099-01-01T00:00:00.000Z' WHERE id=?").run(cubeId);
     expect(cubes.poolHealth(cubeId, { extraDeckEnabled: false })).not.toBe(first);
+  });
+
+  it("keys pool health by the explicit era and refreshes when release facts change", () => {
+    vi.stubEnv("EFFECT_SEARCH", "1");
+    cubes.addBatch(cubeId, [{ id: 1, copies: 3 }]);
+    const input = { extraDeckEnabled: false, era: { medianYear: 2005, spread: 1 } };
+    db.prepare("INSERT INTO card_release(passcode,tcg_date,quality,source_version) VALUES(1,'2020-01','ok','fixture')").run();
+    const first = cubes.poolHealth(cubeId, input);
+    expect(first?.health?.era).toEqual(input.era);
+    expect(first?.health?.warnings).toContain("1 card is much newer than the rest of this cube.");
+    expect(cubes.poolHealth(cubeId, input)).toBe(first);
+    const modern = cubes.poolHealth(cubeId, { ...input, era: { medianYear: 2020, spread: 1 } });
+    expect(modern?.health?.warnings.join(" ")).not.toContain("much newer");
+    db.prepare("UPDATE card_release SET tcg_date='2006-01' WHERE passcode=1").run();
+    const refreshed = cubes.poolHealth(cubeId, input);
+    expect(refreshed).not.toBe(first);
+    expect(refreshed?.health?.warnings.join(" ")).not.toContain("much newer");
   });
 
   it("reports null health when data cannot be read", () => {

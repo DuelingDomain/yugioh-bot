@@ -11,6 +11,7 @@ import { createCardLookupBudget } from "./card-lookup-budget.js";
 import { previewCubeSeed, type CubeSeedOptions } from "./cube-seed.js";
 import { createCardInsightService, type CardPoolHealth } from "./card-insights.js";
 import { effectSearchEnabled } from "../cards/effects/capability.js";
+import { isCardEra, type CardEra } from "../cards/effects/releases.js";
 import type { CubeAnalysis } from "./deal.js";
 import { DEFAULT_CUBE_COPIES, MAX_COPIES_PER_PLAYER, MAX_CUBE_COPIES, MIN_CUBE_COPIES } from "./constants.js";
 
@@ -580,13 +581,15 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     /**
      * Effect-tag pool health for explicit preflight reads. Ordinary lobby analysis skips it. Health never changes readiness; unreadable data gives null health.
      */
-    poolHealth(cubeId: number, options: { extraDeckEnabled: boolean }): CubePoolHealthReport | undefined {
+    poolHealth(cubeId: number, options: { extraDeckEnabled: boolean; era?: CardEra }): CubePoolHealthReport | undefined {
       if (!effectSearchEnabled()) return undefined;
+      if (options.era !== undefined && !isCardEra(options.era)) throw new ExpectedError("Invalid cube era", 400);
       const row = db.prepare("select updated_at from cubes where id = ?").get(cubeId) as { updated_at: string } | undefined;
       if (!row) return undefined;
       let cache = healthCaches.get(db);
       if (!cache) healthCaches.set(db, cache = new Map());
-      const key = `${cubeId}:${row.updated_at}:${options.extraDeckEnabled ? 1 : 0}`, now = Date.now();
+      const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
+      const key = JSON.stringify([cubeId, row.updated_at, options.extraDeckEnabled, options.era, revision]), now = Date.now();
       const hit = cache.get(key);
       if (hit && now - hit.at < HEALTH_TTL_MS) return hit.report;
       let result: CubePoolHealthReport;
@@ -594,7 +597,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         const codes = inspectPools(cubeId, deckTypes.snapshot())
           .filter(({ actual }) => actual === "main" || options.extraDeckEnabled)
           .map(({ card }) => card.catalogCardId);
-        const health = createCardInsightService(db).poolHealth(codes);
+        const health = createCardInsightService(db).poolHealth(codes, options);
         result = { health, warnings: health.warnings };
       } catch (error) {
         report(error, { tags: { operation: "cube-pool-health" } });

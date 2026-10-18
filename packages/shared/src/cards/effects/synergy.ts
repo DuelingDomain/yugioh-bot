@@ -296,20 +296,77 @@ export interface CardLink {
   reasons: string[];
 }
 
+/** Snapshot-only acceleration. Ordinary callers keep their mutable-record semantics. */
+interface PreparedCard {
+  name: string;
+  lowerName: string;
+  archetype: string;
+  lowerArchetype: string;
+}
+interface PreparedFilter {
+  names: ReadonlySet<string>;
+  archetypes: readonly string[];
+  subtypeGroups: readonly (readonly string[])[];
+  subtypeAll: readonly string[];
+  nonTuner: boolean;
+  attackMax?: number;
+}
+interface PreparedCandidate {
+  names: ReadonlySet<string>;
+  events: CardTags["effects"][number]["actions"];
+  actions: CardTags["effects"][number]["actions"];
+  triggers: CardTags["effects"][number]["triggers"];
+}
+const preparedCards = new WeakMap<Card, PreparedCard>();
+const preparedFilters = new WeakMap<CardFilter, PreparedFilter>();
+const preparedCandidates = new WeakMap<Candidate, PreparedCandidate>();
+
+/** Call only for a caller-owned immutable catalog snapshot, never for live mutable records. */
+export function prepareSynergyCandidates(candidates: readonly Candidate[]): void {
+  const alternatives = [["normal", "effect"], ["ritual", "fusion", "synchro", "xyz", "link"], ["field", "equip", "continuous", "quick_play", "counter"]];
+  const prepareFilter = (filter: CardFilter) => {
+    if (preparedFilters.has(filter)) return;
+    const subtypeGroups = alternatives.map(group => filter.subtypes.filter(type => group.includes(type))).filter(group => group.length);
+    const classified = new Set(subtypeGroups.flat());
+    const attack = filter.other.match(/(\d+)\s*(?:or less|or lower)\s*atk/i);
+    preparedFilters.set(filter, {
+      names: new Set(filter.names.map(compactEffectName)), archetypes: filter.archetypes.map(value => value.toLowerCase()),
+      subtypeGroups, subtypeAll: filter.subtypes.filter(type => !classified.has(type)),
+      nonTuner: /non[- ]tuner/i.test(filter.other), ...(attack ? { attackMax: Number(attack[1]) } : {}),
+    });
+  };
+  for (const candidate of candidates) {
+    const { card, tags } = candidate;
+    preparedCards.set(card, { name: compactEffectName(card.name), lowerName: card.name.toLowerCase(), archetype: compactEffectName(card.archetype ?? ""), lowerArchetype: card.archetype?.toLowerCase() ?? "" });
+    if (!tags) continue;
+    const events = tags.effects.flatMap(effect => [...effect.actions, ...effect.costs]);
+    const actions = tags.effects.flatMap(effect => effect.actions);
+    const triggers = tags.effects.flatMap(effect => effect.triggers);
+    const names = [...tags.supports.names, ...[...events, ...triggers].flatMap(event => event.what.names), ...tags.materials.flatMap(filter => filter.names),
+      ...[...`${card.pendulumText ?? ""}\n${card.text}`.matchAll(/["“]([^"”]+)["”]/g)].map(match => match[1]!)];
+    for (const filter of [...tags.materials, ...[...events, ...triggers].map(event => event.what)]) prepareFilter(filter);
+    preparedCandidates.set(candidate, { names: new Set(names.map(compactEffectName)), events, actions, triggers });
+  }
+}
+
 /** Does a material/effect requirement reach this particular card? All stated restrictions apply. */
 export function filterReachesCard(filter: CardFilter, card: Card): boolean {
   if (filter.this_card) return false;
   if (filter.kinds.length && !filter.kinds.includes(card.kind)) return false;
   if (filter.types.length && !filter.types.includes(card.monsterType as typeof filter.types[number])) return false;
   if (filter.attributes.length && !filter.attributes.includes(card.attribute!)) return false;
-  if (!matchesSubtypes(card, filter.subtypes)) return false;
-  const name = compactEffectName(card.name);
-  if (filter.names.length && !filter.names.some(value => compactEffectName(value) === name)) return false;
-  if (filter.archetypes.length && !filter.archetypes.some(value => belongsTo(card, value))) return false;
+  const prepared = preparedFilters.get(filter), target = preparedCards.get(card);
+  if (prepared ? prepared.subtypeGroups.some(group => !group.some(type => (card.subtypes as string[]).includes(type)))
+    || !prepared.subtypeAll.every(type => (card.subtypes as string[]).includes(type)) : !matchesSubtypes(card, filter.subtypes)) return false;
+  const name = target?.name ?? compactEffectName(card.name);
+  if (filter.names.length && !(prepared ? prepared.names.has(name) : filter.names.some(value => compactEffectName(value) === name))) return false;
+  if (filter.archetypes.length && !(prepared && target
+    ? prepared.archetypes.some(value => target.lowerArchetype === value || target.lowerName.includes(value))
+    : filter.archetypes.some(value => belongsTo(card, value)))) return false;
   // Generic links with unstructured ATK/non-Tuner/Rank requirements need evidence in the card metadata.
-  if (/non[- ]tuner/i.test(filter.other) && card.subtypes.includes("tuner")) return false;
-  const attack = filter.other.match(/(\d+)\s*(?:or less|or lower)\s*atk/i);
-  if (attack && (card.atk == null || card.atk > Number(attack[1]))) return false;
+  if ((prepared?.nonTuner ?? /non[- ]tuner/i.test(filter.other)) && card.subtypes.includes("tuner")) return false;
+  const attackMax = prepared ? prepared.attackMax : Number(filter.other.match(/(\d+)\s*(?:or less|or lower)\s*atk/i)?.[1]);
+  if (attackMax !== undefined && Number.isFinite(attackMax) && (card.atk == null || card.atk > attackMax)) return false;
   // A Rank or Link Rating cannot satisfy a printed Level restriction.
   const level = card.level;
   if (filter.level_min && (level == null || level < filter.level_min)) return false;
@@ -345,19 +402,22 @@ export function cardSynergy(anchor: Candidate, candidate: Candidate): CardLink {
   const directs = (source: Candidate, target: Candidate) => {
     const { card, tags } = source;
     if (!tags) return;
-    const key = compactEffectName(target.card.name);
-    const names = [...tags.supports.names, ...tags.effects.flatMap(effect => [...effect.actions, ...effect.costs, ...effect.triggers].flatMap(event => event.what.names)), ...tags.materials.flatMap(filter => filter.names)];
-    const printedNames = [...`${card.pendulumText ?? ""}\n${card.text}`.matchAll(/["“]([^"”]+)["”]/g)].map(match => match[1]);
-    if ([...names, ...printedNames].some(name => compactEffectName(name) === key)) add(`${card.name} names ${target.card.name}`, 12);
+    const prepared = preparedCandidates.get(source);
+    const key = preparedCards.get(target.card)?.name ?? compactEffectName(target.card.name);
+    const namesTarget = prepared ? prepared.names.has(key) : [
+      ...tags.supports.names,
+      ...tags.effects.flatMap(effect => [...effect.actions, ...effect.costs, ...effect.triggers].flatMap(event => event.what.names)),
+      ...tags.materials.flatMap(filter => filter.names),
+      ...[...`${card.pendulumText ?? ""}\n${card.text}`.matchAll(/["“]([^"”]+)["”]/g)].map(match => match[1]!),
+    ].some(name => compactEffectName(name) === key);
+    if (namesTarget) add(`${card.name} names ${target.card.name}`, 12);
     for (const filter of tags.materials) {
       if (particularFilter(filter) && feasibleMaterial(source, target, filter)) add(`${target.card.name} supplies material for ${card.name}`, 4);
     }
-    for (const effect of tags.effects) {
-      for (const event of [...effect.actions, ...effect.costs]) {
+    for (const event of prepared?.events ?? tags.effects.flatMap(effect => [...effect.actions, ...effect.costs])) {
         if (event.player === "opponent" || !particularFilter(event.what) || !reachableFrom(event, target.card) || !filterReachesCard(event.what, target.card)) continue;
         const detail = event.what.names.length || event.what.archetypes.length ? 6 : 2;
         add(`${card.name}: ${event.verb.replaceAll("_", " ")} for ${target.card.name}`, detail);
-      }
     }
     if (tags.supports.archetypes.some(name => belongsTo(target.card, name))) add(`${card.name} supports ${target.card.archetype ?? target.card.name}`, 5);
     // A stated Type or Attribute is useful only when combined restrictions can all be met.
@@ -369,17 +429,18 @@ export function cardSynergy(anchor: Candidate, candidate: Candidate): CardLink {
       add(`${card.name} supports ${[...supports.types, ...supports.attributes, ...supports.subtypes].join("/")}`, 2);
     }
     // Event producer/consumer: milling a card whose own trigger benefits from being sent to the GY.
-    for (const event of tags.effects.flatMap(effect => effect.actions)) {
+    for (const event of prepared?.actions ?? tags.effects.flatMap(effect => effect.actions)) {
       if (event.player === "opponent" || !reachableFrom(event, target.card) || !filterReachesCard(event.what, target.card)) continue;
-      if (target.tags?.effects.some(effect => effect.triggers.some(trigger => trigger.what.this_card
-        && trigger.verb === event.verb && (!trigger.from.length || trigger.from.some(zone => event.from.includes(zone)))))) {
+      const triggers = preparedCandidates.get(target)?.triggers ?? target.tags?.effects.flatMap(effect => effect.triggers);
+      if (triggers?.some(trigger => trigger.what.this_card
+        && trigger.verb === event.verb && (!trigger.from.length || trigger.from.some(zone => event.from.includes(zone))))) {
         add(`${card.name} enables ${target.card.name}'s ${event.verb.replaceAll("_", " ")} trigger`, 4);
       }
     }
   };
   directs(candidate, anchor);
   directs(anchor, candidate);
-  if (anchor.card.archetype && candidate.card.archetype && compactEffectName(anchor.card.archetype) === compactEffectName(candidate.card.archetype)) {
+  if (anchor.card.archetype && candidate.card.archetype && (preparedCards.get(anchor.card)?.archetype ?? compactEffectName(anchor.card.archetype)) === (preparedCards.get(candidate.card)?.archetype ?? compactEffectName(candidate.card.archetype))) {
     add(`Shares ${anchor.card.archetype}`, 5);
   }
   const sorted = [...reasons].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
