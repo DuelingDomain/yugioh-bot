@@ -1,0 +1,196 @@
+import { createHash } from "node:crypto";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
+import Database from "better-sqlite3";
+import { afterEach, describe, expect, it } from "vitest";
+import { openDatabase } from "../src/db/connection.js";
+import { applyEngineCardRemaps } from "../src/db/card-passcode-remaps.js";
+
+const artifactDirectory = fileURLToPath(new URL("../data/effects/", import.meta.url));
+const roots: string[] = [];
+const databases: Database.Database[] = [];
+const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
+const sourceHashes = () => JSON.parse(gunzipSync(readFileSync(join(artifactDirectory, "source-hashes.json.gz"))).toString("utf8")).hashes;
+afterEach(() => {
+  databases.splice(0).forEach(db => db.close());
+  roots.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true }));
+});
+function database() {
+  const db = openDatabase(":memory:");
+  databases.push(db);
+  return db;
+}
+function copyArtifact() {
+  const directory = mkdtempSync(join(tmpdir(), "effect-artifact-"));
+  roots.push(directory);
+  cpSync(artifactDirectory, directory, { recursive: true });
+  return directory;
+}
+function catalog(db: Database.Database, passcode: number, name: string, text: string | null = null) {
+  db.prepare(`INSERT INTO card_catalog
+    (ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
+    VALUES(?,?,'Effect Monster','effect',?,'image','small','[]','now')`).run(passcode, name, text);
+}
+async function importer() {
+  return (await import("../src/cards/effects/artifact.js")).importCardEffectArtifact;
+}
+
+describe("the pinned searchygo artifact and SQLite import", () => {
+  it("verifies the shipped pin independently of SQLite and refuses corrupted source hashes", async () => {
+    const { verifyCardEffectArtifact } = await import("../src/cards/effects/artifact.js");
+    expect(verifyCardEffectArtifact()).toMatchObject({ tags: 13694, profiles: 530 });
+    const directory = copyArtifact();
+    writeFileSync(join(directory, "source-hashes.json.gz"), "corrupt");
+    expect(() => verifyCardEffectArtifact(directory)).toThrow(/hash|integrity/i);
+  });
+  it("migrates independent tag/profile state without a catalog foreign key", () => {
+    const db = database();
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'card_tag%' ORDER BY name").all();
+    expect(tables).toEqual([{ name: "card_tag_artifact_imports" }, { name: "card_tag_profiles" }, { name: "card_tags" }]);
+    expect(db.pragma("foreign_key_list(card_tags)")).toEqual([]);
+    const manifest = JSON.parse(readFileSync(join(artifactDirectory, "manifest.json"), "utf8"));
+    expect(gunzipSync(readFileSync(join(artifactDirectory, "tags.jsonl.gz"))).toString("utf8").trim().split("\n")).toHaveLength(manifest.files.tags.records);
+  });
+
+  it("imports real summaries/profiles, hashes actual text and reports canonical catalog coverage", async () => {
+    const db = database(), importArtifact = await importer();
+    catalog(db, 14558127, "Ash Blossom & Joyous Spring", "Actual printed card text");
+    catalog(db, 99999999, "Uncovered card");
+    const report = importArtifact(db);
+    expect(report.skipped).toBe(false);
+    expect(report.tags).toBeGreaterThan(13_000);
+    expect(report.profiles).toBeGreaterThan(400);
+    expect(report.coverage).toMatchObject({ catalogCards: 2, taggedCards: 1, missingCards: 1, percent: 50, missing: [{ passcode: 99999999, name: "Uncovered card" }] });
+    expect(report.coverage.artifactOnlyPasscodes.length).toBeGreaterThan(13_000);
+    const row = db.prepare("SELECT summary,roles_json,tags_json,text_hash,source,schema_version FROM card_tags WHERE passcode=14558127").get() as Record<string, string | number>;
+    expect(row.summary).toContain("Hand trap");
+    expect(JSON.parse(String(row.roles_json))).toContain("hand_trap");
+    expect(JSON.parse(String(row.tags_json)).summary).toBe(row.summary);
+    expect(row.text_hash).toBe(sourceHashes()[14558127]);
+    expect(row.text_hash).not.toBe(sha("Actual printed card text"));
+    expect(row.source).toBe(`searchygo-artifact:${report.version}`);
+    expect(row.schema_version).toBe(1);
+    const popularity = JSON.parse(gunzipSync(readFileSync(join(artifactDirectory, "popularity.json.gz"))).toString("utf8"));
+    expect(popularity[14558127]).toBeGreaterThan(0);
+    expect(db.prepare("SELECT popularity FROM card_tags WHERE passcode=14558127").get()).toEqual({ popularity: popularity[14558127] });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM card_tags WHERE text_hash IS NULL").get()).toEqual({ count: 1 });
+    expect(db.prepare("SELECT text_hash FROM card_tags WHERE passcode=101402101").get()).toEqual({ text_hash: null });
+    const profile = db.prepare("SELECT plan,hooks_json,cards FROM card_tag_profiles WHERE archetype='Dark World'").get() as { plan: string; hooks_json: string; cards: number };
+    expect(profile.plan).toContain("Fiends");
+    expect(JSON.parse(profile.hooks_json)).not.toHaveLength(0);
+    expect(profile.cards).toBe(37);
+    expect(db.prepare("SELECT artifact_version FROM card_tag_artifact_imports").get()).toEqual({ artifact_version: report.version });
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+  });
+
+  it("is idempotent and preserves later Batch tags, including when replacing an older pin", async () => {
+    const db = database(), importArtifact = await importer();
+    const first = importArtifact(db);
+    db.prepare("UPDATE card_tags SET summary='New printed text',source='haiku-batch',text_hash=? WHERE passcode=14558127").run(sha("New printed text"));
+    db.prepare("UPDATE card_tag_profiles SET plan='Updated profile',source='manual' WHERE archetype='Dark World'").run();
+    expect(importArtifact(db)).toMatchObject({ version: first.version, skipped: true });
+    db.prepare("UPDATE card_tag_artifact_imports SET artifact_version='older-pinned-version'").run();
+    const next = importArtifact(db);
+    expect(next).toMatchObject({ skipped: false, preservedTags: 1, preservedProfiles: 1 });
+    expect(db.prepare("SELECT summary,source,text_hash FROM card_tags WHERE passcode=14558127").get()).toEqual({ summary: "New printed text", source: "haiku-batch", text_hash: sha("New printed text") });
+    expect(db.prepare("SELECT plan,source FROM card_tag_profiles WHERE archetype='Dark World'").get()).toEqual({ plan: "Updated profile", source: "manual" });
+  });
+
+  it("folds artworks and chained remaps, chooses direct official tags and hashes callback text", async () => {
+    const db = database(), importArtifact = await importer();
+    catalog(db, 14558127, "Ash Blossom & Joyous Spring");
+    catalog(db, 14558128, "Ash alternate art");
+    catalog(db, 55144522, "Pot of Greed");
+    db.prepare("INSERT INTO card_artworks(card_id,artwork_id,image_url,image_url_small,is_main,source) VALUES(14558127,14558128,'art','small',0,'api')").run();
+    const report = importArtifact(db, {
+      remaps: new Map([[14558127, 100000001], [100000001, 55144522]]),
+      canonicalize: code => code === 23434538 ? 14558128 : code,
+      textFor: code => code === 55144522 ? "Engine official text" : undefined,
+    });
+    expect(report.coverage).toMatchObject({ catalogCards: 1, taggedCards: 1, missingCards: 0, percent: 100 });
+    expect(db.prepare("SELECT passcode FROM card_tags WHERE passcode IN (14558127,14558128,100000001,23434538)").all()).toEqual([]);
+    const winner = db.prepare("SELECT summary,text_hash FROM card_tags WHERE passcode=55144522").get() as { summary: string; text_hash: string };
+    expect(winner.summary).not.toContain("Hand trap");
+    expect(winner.text_hash).toBe(sourceHashes()[55144522]);
+    expect(winner.text_hash).not.toBe(sha("Engine official text"));
+  });
+
+  it.each(["tags.jsonl.gz", "profiles.jsonl.gz", "popularity.json.gz", "source-hashes.json.gz", "manifest.json"])("rejects corrupt %s before writes, including an already imported pin", async file => {
+    const db = database(), importArtifact = await importer();
+    const first = importArtifact(db), directory = copyArtifact();
+    writeFileSync(join(directory, file), "corrupt");
+    expect(() => importArtifact(db, { directory })).toThrow(/integrity|hash|manifest/i);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM card_tags").get()).toEqual({ count: first.tags });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM card_tag_artifact_imports").get()).toEqual({ count: 1 });
+  });
+
+  it("rolls back every row when canonicalization fails after import starts", async () => {
+    const db = database(), importArtifact = await importer();
+    expect(() => importArtifact(db, { canonicalize: () => { throw new Error("Identity unavailable"); } })).toThrow("Identity unavailable");
+    for (const table of ["card_tags", "card_tag_profiles", "card_tag_artifact_imports"]) {
+      expect(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+    }
+  });
+
+  it("rejects cyclic identity callbacks and passcode remaps atomically", async () => {
+    const db = database(), importArtifact = await importer();
+    expect(() => importArtifact(db, { remaps: new Map([[14558127, 55144522], [55144522, 14558127]]) })).toThrow(/cyclic/i);
+    expect(() => importArtifact(db, { canonicalize: code => code === 14558127 ? 55144522 : code === 55144522 ? 14558127 : code })).toThrow(/cyclic/i);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM card_tags").get()).toEqual({ count: 0 });
+  });
+
+  it("rolls back tags, profiles and import state together on a SQLite write failure", async () => {
+    const db = database(), importArtifact = await importer();
+    db.exec(`CREATE TRIGGER fail_profile_import BEFORE INSERT ON card_tag_profiles
+      BEGIN SELECT RAISE(ABORT,'Profile storage unavailable'); END`);
+    expect(() => importArtifact(db)).toThrow("Profile storage unavailable");
+    for (const table of ["card_tags", "card_tag_profiles", "card_tag_artifact_imports"]) {
+      expect(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+    }
+  });
+
+  it("rejects a forged self-consistent manifest instead of trusting directory input", async () => {
+    const db = database(), importArtifact = await importer(), directory = copyArtifact();
+    const manifest = JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8"));
+    manifest.source.commit = "0".repeat(40);
+    const { artifactVersion: _version, ...identity } = manifest;
+    manifest.artifactVersion = sha(JSON.stringify(identity));
+    writeFileSync(join(directory, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+    expect(() => importArtifact(db, { directory })).toThrow(/manifest.*hash|integrity/i);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM card_tags").get()).toEqual({ count: 0 });
+  });
+
+  it("preserves profiles owned by a differently cased nonartifact source", async () => {
+    const db = database(), importArtifact = await importer();
+    importArtifact(db);
+    db.prepare("UPDATE card_tag_profiles SET source='Searchygo-artifact:manual',plan='Reviewed manual plan' WHERE archetype='Dark World'").run();
+    db.prepare("DELETE FROM card_tag_artifact_imports").run();
+    expect(importArtifact(db).preservedProfiles).toBe(1);
+    expect(db.prepare("SELECT plan,source FROM card_tag_profiles WHERE archetype='Dark World'").get()).toEqual({ plan: "Reviewed manual plan", source: "Searchygo-artifact:manual" });
+  });
+
+  it("carries real imported tags in engine migrations and retains an existing official target", async () => {
+    const db = database(), importArtifact = await importer();
+    importArtifact(db);
+    const directory = mkdtempSync(join(tmpdir(), "effect-remap-"));
+    roots.push(directory);
+    const bytes = JSON.stringify({ version: 1, remaps: { 14558127: 55144522, 23434538: 99999998 } });
+    writeFileSync(join(directory, "card-remaps.json"), bytes);
+    writeFileSync(join(directory, "manifest.json"), JSON.stringify({ bundleVersion: "independent-engine-version", integrity: { cardRemaps: sha(bytes) } }));
+    const engine = new Database(join(directory, "cards.cdb"));
+    engine.exec("CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER DEFAULT 0,type INTEGER DEFAULT 0); INSERT INTO datas(id) VALUES(55144522),(99999998)");
+    engine.close();
+    const official = db.prepare("SELECT * FROM card_tags WHERE passcode=55144522").get();
+    const moved = db.prepare("SELECT summary FROM card_tags WHERE passcode=23434538").get();
+    expect(moved).toBeDefined();
+    applyEngineCardRemaps(db, directory);
+    expect(db.prepare("SELECT * FROM card_tags WHERE passcode=55144522").get()).toEqual(official);
+    expect(db.prepare("SELECT summary FROM card_tags WHERE passcode=99999998").get()).toEqual(moved);
+    expect(db.prepare("SELECT passcode FROM card_tags WHERE passcode IN (14558127,23434538)").all()).toEqual([]);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM card_tag_artifact_imports").get()).toEqual({ count: 1 });
+    expect(applyEngineCardRemaps(db, directory).skipped).toBe(true);
+  });
+});

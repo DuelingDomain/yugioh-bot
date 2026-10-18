@@ -1,4 +1,5 @@
 import type { DuelCardInfo } from "./index.js";
+import type { Interpretation } from "../cards/effects/query.js";
 
 /**
  * Structured card search for the deck editor. The duel host runs it over the engine catalog
@@ -178,6 +179,14 @@ export interface CardQuery {
   /** Words must all match; "quoted phrases" stay together; -word excludes. Digits also match passcodes. */
   text: string;
   scope: CardSearchScope;
+  /** Disable interpretation; use the existing literal name/text search. */
+  exact?: boolean;
+  /** Reading chips removed by the player, identified by their displayed label. */
+  effectOmit?: string[];
+  /** Independently page the additional effect group (default: offset). */
+  effectOffset?: number;
+  /** Canonical card IDs in a cube/draft/deck pool; empty means no candidates. */
+  passcodes?: number[];
   kind: CardKindFilter;
   monsterTypes: MonsterTypeKey[];
   monsterTypeMatch: CardMatch;
@@ -229,6 +238,11 @@ export interface CardQueryResult {
   cards: Array<DeckCardInfo & { altArtCount: number }>;
   total: number;
   offset: number;
+  effectSearchEnabled?: boolean;
+  reading?: Interpretation | null;
+  effectHits?: Array<DeckCardInfo & { altArtCount: number; score: number; reason: string }>;
+  effectTotal?: number;
+  effectOffset?: number;
 }
 
 export interface CardArchetype {
@@ -344,7 +358,14 @@ export function parseCardQuery(raw: unknown): CardQuery {
     throw new CardQueryError("Invalid banlist");
   }
   if (raw.excludeGenesysForbidden !== undefined && typeof raw.excludeGenesysForbidden !== "boolean") throw new CardQueryError("Invalid Genesys type filter");
+  if (raw.exact !== undefined && typeof raw.exact !== "boolean") throw new CardQueryError("Invalid exact search flag");
+  if (raw.effectOmit !== undefined && (!Array.isArray(raw.effectOmit) || raw.effectOmit.length > 24 || raw.effectOmit.some(value => typeof value !== "string" || value.length > 200))) throw new CardQueryError("Invalid omitted reading chips");
+  if (raw.passcodes !== undefined && (!Array.isArray(raw.passcodes) || raw.passcodes.length > 5000 || raw.passcodes.some(value => typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0 || value > 0xffffffff))) throw new CardQueryError("Invalid card passcodes");
   return {
+    ...(raw.exact !== undefined ? { exact: raw.exact } : {}),
+    ...(raw.effectOmit !== undefined ? { effectOmit: [...new Set(raw.effectOmit as string[])] } : {}),
+    ...(raw.effectOffset !== undefined ? { effectOffset: pickInt(raw.effectOffset, 0, 100000, 0, "effect offset") } : {}),
+    ...(raw.passcodes !== undefined ? { passcodes: [...new Set(raw.passcodes as number[])] } : {}),
     ...(raw.genesysPoints !== undefined ? { genesysPoints: pickRange(raw.genesysPoints, 1000, "Genesys points") } : {}),
     ...(raw.excludeGenesysForbidden !== undefined ? { excludeGenesysForbidden: raw.excludeGenesysForbidden } : {}),
     text,

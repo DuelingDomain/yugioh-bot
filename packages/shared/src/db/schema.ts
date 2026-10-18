@@ -339,6 +339,38 @@ export function migrate(db: Database.Database) {
       applied_at text not null default current_timestamp
     );
 
+    -- Effect artifacts have their own version and may include cards absent from
+    -- the catalog/engine. Keep this cache independent of both identities.
+    create table if not exists card_tags (
+      passcode integer primary key check (passcode > 0 and passcode <= 4294967295),
+      summary text not null,
+      roles_json text not null,
+      tags_json text not null,
+      popularity integer not null default 0 check (popularity >= 0),
+      text_hash text,
+      source text not null,
+      tagged_at text not null default current_timestamp,
+      schema_version integer not null
+    );
+    create table if not exists card_tag_profiles (
+      archetype text primary key,
+      plan text not null,
+      hooks_json text not null,
+      source text not null,
+      profiled_at text not null default current_timestamp,
+      schema_version integer not null,
+      cards integer not null check (cards >= 0)
+    );
+    create table if not exists card_tag_artifact_imports (
+      artifact_version text primary key,
+      manifest_hash text not null,
+      schema_version integer not null,
+      source_commit text not null,
+      tags integer not null,
+      profiles integer not null,
+      imported_at text not null default current_timestamp
+    );
+
     create table if not exists players (
       id integer primary key autoincrement,
       guild_id text not null,
@@ -642,6 +674,7 @@ export function migrate(db: Database.Database) {
       where id in (select id from ordered_picks where copy_number > 3)
     `);
   }).immediate();
+  addColumnIfMissing(db, "card_tags", "popularity", "integer not null default 0 check (popularity >= 0)");
   addColumnIfMissing(db, "card_catalog", "effect_text", "text");
   addColumnIfMissing(db, "card_catalog", "atk", "integer");
   addColumnIfMissing(db, "card_catalog", "def", "integer");

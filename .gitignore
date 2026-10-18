@@ -12,6 +12,10 @@ coverage/
 .worktrees/
 .claude/
 packages/*/data/
+!packages/shared/data/
+packages/shared/data/*
+!packages/shared/data/effects/
+!packages/shared/data/effects/**
 packages/*/dist/
 packages/*/.next/
 packages/*/.next-*/
