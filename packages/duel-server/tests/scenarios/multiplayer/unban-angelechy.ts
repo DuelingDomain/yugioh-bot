@@ -12,55 +12,61 @@ const DESTRIER = "Angelechy Destrier";
 const ELF = "Mystical Elf";
 const FULL = Array<string>(5).fill(ELF);
 const SOURCE = "Owner decision 2026-10-18; docs/adr/0002-multiplayer-duel-rules.md: summon to the field of one eligible opponent";
-const RIVALRY = "Rivalry of Warlords";
+const RESTRICTIONS = {
+  rivalry: { card: "Rivalry of Warlords", code: 90846359, property: "Type" },
+  gozen: { card: "Gozen Match", code: 53334471, property: "Attribute" },
+} as const;
+type Restriction = keyof typeof RESTRICTIONS;
 const OX = "Battle Ox";
 const KAIJU = "Gameciel, the Sea Turtle Kaiju";
 
-function rivalryReceiver(format: "ffa3" | "ffa4", kaiju: boolean, thirdOwner = false): Scenario {
+function restrictedReceiver(format: "ffa3" | "ffa4", kaiju: boolean, thirdOwner: boolean, restriction: Restriction): Scenario {
+  const { card: trap, code, property } = RESTRICTIONS[restriction];
   const seats = SEATS[format];
   const trapOwner = thirdOwner ? "p1" : "p0";
-  // Bastion is Fairy; Gameciel is Aqua. The unrelated Battle Ox is Beast-Warrior.
+  // Bastion is LIGHT/Fairy; Gameciel is WATER/Aqua. The unrelated Battle Ox is EARTH/Beast-Warrior.
   // A Kaiju needs a tribute on its receiving field, so p2 starts with an Aqua monster.
   const water = "Amphibious Bugroth";
   return defineScenario({
-    id: `unban-angelechy-${format}-rivalry-${kaiju ? "kaiju-receiver" : "empty-receiver-offered"}${thirdOwner ? "-third-owner" : ""}`,
-    title: `${format}: ${trapOwner}'s Rivalry reads the receiving field for ${kaiju ? "a Kaiju summon" : "Angelechy Opposition"}`,
-    source: `${SOURCE}; Rivalry limits the receiving field's monster Type`,
+    id: `unban-angelechy-${format}-${restriction}-${kaiju ? "kaiju-receiver" : "empty-receiver-offered"}${thirdOwner ? "-third-owner" : ""}`,
+    title: `${format}: ${trapOwner}'s ${trap} reads the receiving field for ${kaiju ? "a Kaiju summon" : "Angelechy Opposition"}`,
+    source: `${SOURCE}; ${trap} limits the receiving field's monster ${property}`,
     rules: ["R-COMMON-OPP-PICK", "R-FFA-OPP-ONE"],
-    tags: ["multiplayer", "unban", "value-limits", "opponent-field", format, "card:90846359", kaiju ? "card:55063751" : "card:101402094"],
-    setup: { ...baseSetup(format, { p1: { monsters: [OX], spells: thirdOwner ? [RIVALRY] : [] }, p2: { monsters: kaiju ? [water] : [] } }),
+    tags: ["multiplayer", "unban", "value-limits", "opponent-field", format, `card:${code}`, kaiju ? "card:55063751" : "card:101402094"],
+    setup: { ...baseSetup(format, { p1: { monsters: [OX], spells: thirdOwner ? [trap] : [] }, p2: { monsters: kaiju ? [water] : [] } }),
       skipOpeningDraw: true,
       p0: { hand: kaiju ? [KAIJU] : [], monsters: thirdOwner ? [OX] : [], extra: kaiju ? [] : [BASTION, DESTRIER],
-        spells: [...(!thirdOwner ? [RIVALRY] : []), ...(!kaiju ? [{ card: OPPOSITION, pos: "set" as const }] : [])] } },
+        spells: [...(!thirdOwner ? [trap] : []), ...(!kaiju ? [{ card: OPPOSITION, pos: "set" as const }] : [])] } },
     steps: kaiju ? [
       expectOffered("specialSummon", KAIJU, "p0"), specialSummon(KAIJU, "p0"),
       select({ card: water, owner: "p2" }),
       expectBoard(Object.fromEntries(seats.map(seat => [seat, { monsters: seat === "p1" || (thirdOwner && seat === "p0") ? [OX] : seat === "p2" ? [KAIJU] : [],
-        spells: seat === trapOwner ? [RIVALRY] : [], grave: seat === "p2" ? [water] : [], hand: [], extra: [], banished: [] }]))),
+        spells: seat === trapOwner ? [trap] : [], grave: seat === "p2" ? [water] : [], hand: [], extra: [], banished: [] }]))),
     ] : [
       expectOffered("activate", OPPOSITION, "p0"), activate(OPPOSITION, "p0"),
       ...(format === "ffa4" ? [expectPickSeats(["p2", "p3"], "p0"), pickOpponent("p2", "p0")] : []),
       select(BASTION, DESTRIER), select(BASTION),
       expectBoard(Object.fromEntries(seats.map(seat => [seat, { monsters: seat === "p1" || (thirdOwner && seat === "p0") ? [OX] : seat === "p2" ? [BASTION] : [],
-        spells: [...(seat === trapOwner ? [RIVALRY] : []), ...(seat === "p0" ? [DESTRIER] : [])], grave: seat === "p0" ? [OPPOSITION] : [], hand: [], extra: [], banished: [] }]))),
+        spells: [...(seat === trapOwner ? [trap] : []), ...(seat === "p0" ? [DESTRIER] : [])], grave: seat === "p0" ? [OPPOSITION] : [], hand: [], extra: [], banished: [] }]))),
     ],
   });
 }
 
-function rivalryTagReceiver(kaiju: boolean, thirdOwner: boolean): Scenario {
+function restrictedTagReceiver(kaiju: boolean, thirdOwner: boolean, restriction: Restriction): Scenario {
+  const { card: trap, code, property } = RESTRICTIONS[restriction];
   const water = "Amphibious Bugroth";
   const fairy = "Dunames Dark Witch";
   const trapOwner = thirdOwner ? "p1" : "p0";
   return defineScenario({
-    id: `unban-angelechy-tag-rivalry-${kaiju ? "kaiju-receiver" : "empty-receiver-offered"}${thirdOwner ? "-third-owner" : ""}`,
-    title: `Tag: ${trapOwner}'s Rivalry reads the receiving team for ${kaiju ? "a Kaiju summon" : "Angelechy Opposition"}`,
-    source: `${SOURCE}; Rivalry checks the receiving team's monster Type`,
+    id: `unban-angelechy-tag-${restriction}-${kaiju ? "kaiju-receiver" : "empty-receiver-offered"}${thirdOwner ? "-third-owner" : ""}`,
+    title: `Tag: ${trapOwner}'s ${trap} reads the receiving team for ${kaiju ? "a Kaiju summon" : "Angelechy Opposition"}`,
+    source: `${SOURCE}; ${trap} checks the receiving team's monster ${property}`,
     rules: ["R-COMMON-OPP-PICK", "R-TAG-SHARED-CARDS"],
-    tags: ["multiplayer", "unban", "value-limits", "opponent-field", "tag", "card:90846359", kaiju ? "card:55063751" : "card:101402094"],
+    tags: ["multiplayer", "unban", "value-limits", "opponent-field", "tag", `card:${code}`, kaiju ? "card:55063751" : "card:101402094"],
     setup: { ...baseSetup("tag", {}), skipOpeningDraw: true,
       p0: { hand: kaiju ? [KAIJU] : [], monsters: [OX], extra: kaiju ? [] : [BASTION, DESTRIER],
-        spells: [...(!thirdOwner ? [RIVALRY] : []), ...(!kaiju ? [{ card: OPPOSITION, pos: "set" as const }] : [])] },
-      p1: { monsters: [kaiju ? water : fairy], spells: thirdOwner ? [RIVALRY] : [] },
+        spells: [...(!thirdOwner ? [trap] : []), ...(!kaiju ? [{ card: OPPOSITION, pos: "set" as const }] : [])] },
+      p1: { monsters: [kaiju ? water : fairy], spells: thirdOwner ? [trap] : [] },
       p2: { monsters: [OX] }, p3: { monsters: kaiju ? [water] : [] } },
     steps: [
       ...(kaiju ? [expectOffered("specialSummon", KAIJU, "p0"), specialSummon(KAIJU, "p0")]
@@ -69,8 +75,41 @@ function rivalryTagReceiver(kaiju: boolean, thirdOwner: boolean): Scenario {
       ...(kaiju ? [select({ card: water, owner: "p3" })] : [select(BASTION, DESTRIER), select(BASTION)]),
       expectBoard(Object.fromEntries(SEATS.tag.map(seat => [seat, {
         monsters: seat === "p0" || seat === "p2" ? [OX] : seat === "p1" ? [kaiju ? water : fairy] : [kaiju ? KAIJU : BASTION],
-        spells: [...(seat === trapOwner ? [RIVALRY] : []), ...(seat === "p0" && !kaiju ? [DESTRIER] : [])],
+        spells: [...(seat === trapOwner ? [trap] : []), ...(seat === "p0" && !kaiju ? [DESTRIER] : [])],
         grave: seat === "p3" && kaiju ? [water] : seat === "p0" && !kaiju ? [OPPOSITION] : [], hand: [], extra: [], banished: [],
+      }]))),
+    ],
+  });
+}
+
+function blockedKaijuReceiver(format: Format, thirdOwner: boolean, restriction: Restriction): Scenario {
+  const { card: trap, code, property } = RESTRICTIONS[restriction];
+  const trapOwner = thirdOwner ? "p1" : "p0";
+  const water = "Amphibious Bugroth";
+  const knight = "Mermaid Knight";
+  // Either Ox can be Tributed, but the other still conflicts with Gameciel.
+  // The summoner is compatible, so a third player's Trap must read the receiver.
+  const monsters = Object.fromEntries(SEATS[format].map(seat => [seat,
+    seat === "p0" || (format === "tag" && seat === "p2") ? [water]
+      : seat === "p2" || (format === "tag" && seat === "p3") ? [OX, OX]
+      : format === "tag" && seat === "p1" ? [OX] : [],
+  ]));
+  return defineScenario({
+    id: `unban-angelechy-${format}-${restriction}-kaiju-receiver-blocked${thirdOwner ? "-third-owner" : ""}`,
+    title: `${format}: ${trapOwner}'s ${trap} refuses a Kaiju while the receiver keeps a different ${property}`,
+    source: `${SOURCE}; ${trap} checks the receiving field's monster ${property} before the Tribute`,
+    rules: ["R-COMMON-OPP-PICK", format === "tag" ? "R-TAG-SHARED-CARDS" : "R-FFA-OPP-ONE"],
+    tags: ["multiplayer", "unban", "value-limits", "opponent-field", format, `card:${code}`, "card:55063751"],
+    setup: { ...baseSetup(format, Object.fromEntries(SEATS[format].map(seat => [seat, {
+      monsters: monsters[seat], spells: seat === trapOwner ? [trap] : [],
+      hand: seat === "p0" ? [KAIJU, knight] : [],
+    }]))), skipOpeningDraw: true },
+    steps: [
+      expectNotOffered("specialSummon", KAIJU, "p0"), normalSummon(knight, "p0"),
+      expectBoard(Object.fromEntries(SEATS[format].map(seat => [seat, {
+        monsters: [...monsters[seat], ...(seat === "p0" ? [knight] : [])],
+        spells: seat === trapOwner ? [trap] : [], hand: seat === "p0" ? [KAIJU] : [],
+        grave: [], extra: [], banished: [],
       }]))),
     ],
   });
@@ -137,8 +176,14 @@ function noRecipient(format: Format): Scenario {
 const standard = (["ffa3", "ffa4", "tag"] as const).flatMap(format => [
   summon(format, "p0"), summon(format, "p1"), summon(format, "p0", true), noRecipient(format),
 ]);
-standard.push(...(["ffa3", "ffa4"] as const).flatMap(format => [false, true].flatMap(thirdOwner =>
-  [rivalryReceiver(format, false, thirdOwner), rivalryReceiver(format, true, thirdOwner)])));
-standard.push(...[false, true].flatMap(thirdOwner => [rivalryTagReceiver(false, thirdOwner), rivalryTagReceiver(true, thirdOwner)]));
+for (const restriction of ["rivalry", "gozen"] as const) {
+  for (const thirdOwner of [false, true]) {
+    standard.push(...(["ffa3", "ffa4"] as const).flatMap(format => [
+      restrictedReceiver(format, false, thirdOwner, restriction), restrictedReceiver(format, true, thirdOwner, restriction),
+    ]));
+    standard.push(restrictedTagReceiver(false, thirdOwner, restriction), restrictedTagReceiver(true, thirdOwner, restriction));
+    standard.push(...(["ffa3", "ffa4", "tag"] as const).map(format => blockedKaijuReceiver(format, thirdOwner, restriction)));
+  }
+}
 export const UNBAN_ANGELECHY_SCENARIOS: Scenario[] = standard.flatMap(scenario => [scenario,
-  scenario.id.includes("-rivalry-") ? domainVariant(scenario) : domainProof(scenario)]);
+  scenario.tags.includes("value-limits") ? domainVariant(scenario) : domainProof(scenario)]);

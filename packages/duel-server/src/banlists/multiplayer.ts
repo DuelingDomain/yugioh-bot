@@ -236,6 +236,7 @@ const CARD_RULE_DRAFTS: readonly MultiplayerCardRuleDraft[] = [
   { code: 6357341, name: "The Six Shinobi", rule: "Choose one opponent in FFA or one opposing member in Tag. Skip only that duelist's next turn. Other duelists keep their turns, and the chosen duelist returns on the next cycle. (owner 2026-10-18)" },
   { code: 22888900, name: "Grisaille Prison", rule: "The restriction applies to every field. In FFA, choose one opponent whose next turn sets the end of the restriction. Keep that duration through other seats' turns. Tag keeps its current turn-count rule. (owner 2026-10-18)" },
   { code: 92182447, name: "Mischief of the Time Goddess", rule: "Activate only at the end of your own Battle Phase, not your Tag partner's Battle Phase. Skip every intervening duelist turn, including your Tag partner, and reach your next Battle Phase. No intervening duelist draws. Your monsters can attack again in that Battle Phase. After that turn, normal turn order returns. (owner 2026-10-18)" },
+  { code: 53334471, name: "Gozen Match", rule: "Check the actual receiving field for a Special Summon. In FFA, other opponents' monsters do not restrict an empty receiving field, including Angelechy Opposition and Kaiju summons. A receiving field with another Attribute still refuses the summon. Tag keeps joined team fields." },
   { code: 90846359, name: "Rivalry of Warlords", rule: "Check the actual receiving field for a Special Summon. In FFA, other opponents' monsters do not restrict an empty receiving field, including Angelechy Opposition and Kaiju summons. Tag keeps joined team fields." },
   // Owner 2026-10-18: one opponent, or the card-specific rule below.
   { code: 101402094, name: "Angelechy Opposition", rule: "You choose one eligible opponent. Check the zones on that player's field and summon to that field. In Tag, choose one opposing member. (owner 2026-10-18)" },
@@ -289,6 +290,7 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   74519184: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   33396948: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   92182447: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
+  53334471: ["ffa3", "ffa4", "tag"], // receiving-field restrictions
   90846359: ["ffa3", "ffa4", "tag"], // receiving-field restrictions
   6357341: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   13532663: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
