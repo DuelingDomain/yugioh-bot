@@ -15,6 +15,9 @@ import { ensureCatalogCards } from "@/lib/cube-pool";
 
 export const runtime = "nodejs";
 
+/** Remote card lookups one description search may start for hits missing from the display cache. */
+const EFFECT_SEARCH_LOOKUP_LIMIT = 8;
+
 function toCardSummary(c: {
   ygoprodeckId: number;
   name: string;
@@ -71,9 +74,11 @@ async function handlePOST(request: Request) {
     const db = getDb();
     const result = createCardInsightService(db).effectSearch(input.text, input.pool, input);
     const catalog = createCardCatalogService(db, { memberId: actor.userId });
-    // Explicit public pools may contain engine cards not yet in the lazy display cache.
+    // Only explicit pools may need remote display metadata; cap lookups on this debounced path.
+    const lookupBudget = createCardLookupBudget();
+    lookupBudget.remaining = EFFECT_SEARCH_LOOKUP_LIMIT;
     const unknownIds = input.pool !== undefined
-      ? await ensureCatalogCards(catalog, result.cards.map(card => card.passcode), createCardLookupBudget())
+      ? await ensureCatalogCards(catalog, result.cards.map(card => card.passcode), lookupBudget)
       : [];
     const details = new Map(catalog.findByIds(result.cards.map(card => card.passcode)).map(card => [card.ygoprodeckId, card]));
     const cards = result.cards.flatMap(hit => {

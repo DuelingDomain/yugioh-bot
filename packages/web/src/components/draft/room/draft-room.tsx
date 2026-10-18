@@ -960,6 +960,7 @@ export function DraftRoom({ slug, name, config, isParticipant, onCancel }: Draft
               waitingOn={waitingOn}
               showWaiting={!reading && !peeking && showLast}
               phone={phone}
+              fitsShown={rs.cards.some((c) => !!c.fitsYourPool)}
               onPick={() => chosen && doPick(chosen.id)}
               onClose={() => {
                 closeSheets();

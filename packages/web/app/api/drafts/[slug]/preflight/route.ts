@@ -52,7 +52,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     burnUnpicked: draft.config.burnUnpicked ?? false,
     extraDeckEnabled: draft.config.extraDeckEnabled ?? true,
     copyLimit: draft.config.copyLimit ?? true,
-    includeHealth: true,
   };
 
   const playerIds = drafts.players(draft.id).map((p) => p.playerId);
@@ -81,7 +80,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     const name = cube.name;
     for (const e of analysis.errors) errors.push(`${name}: ${e}`);
     for (const w of analysis.warnings) warnings.push(`${name}: ${w}`);
-    if (analysis.poolHealth !== undefined) poolHealth.push({ cubeId, cubeName: name, health: analysis.poolHealth });
+    const health = cubes.poolHealth(cubeId, { extraDeckEnabled: cfg.extraDeckEnabled });
+    if (health) {
+      poolHealth.push({ cubeId, cubeName: name, health: health.health });
+    }
   }
 
   if (effectSearchEnabled()) return NextResponse.json({ errors, warnings, poolHealth, effectSearchEnabled: true, attribution: EFFECT_SEARCH_ATTRIBUTION }, { headers: { "Cache-Control": "private, no-store" } });

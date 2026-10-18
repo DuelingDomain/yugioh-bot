@@ -204,8 +204,7 @@ describe("warning-only cube pool health", () => {
     expect(analysis).toMatchObject({ ok: true, errors: [], poolHealth: { cards: 1, roles: { removal: 0 }, warnings: expect.arrayContaining([expect.stringMatching(/removal/)]) } });
     expect(analysis.warnings).toEqual([]);
     vi.stubEnv("EFFECT_SEARCH", "0");
-    const disabled = cubes.analyzeCubePools(cubeId, config);
-    expect(disabled).toEqual({ ok: true, errors: [], warnings: [] });
+    expect(cubes.poolHealth(cubeId, { extraDeckEnabled: false })).toBeUndefined();
   });
 
   it("includes enabled Extra cards, deduplicates identities, and does not mutate stale pool labels", () => {
@@ -214,15 +213,26 @@ describe("warning-only cube pool health", () => {
     db.prepare("INSERT INTO cube_cards(cube_id,catalog_card_id,pool,max_copies) VALUES(?,2,'main',2),(?,4,'extra',1)").run(cubeId, cubeId);
     const before = db.prepare("SELECT * FROM cube_cards").all();
     const analysis = cubes.analyzeCubePools(cubeId, { themePackSize: 1, cardsPerPlayer: 1, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: true, includeHealth: true });
+    expect(cubes.poolHealth(cubeId, { extraDeckEnabled: true })?.health?.cards).toBe(2);
     expect(analysis.poolHealth?.cards).toBe(2);
     expect(db.prepare("SELECT * FROM cube_cards").all()).toEqual(before);
   });
 
-  it("keeps the draft ready when health data cannot be read", () => {
+  it("reuses one result until the cube changes", () => {
+    vi.stubEnv("EFFECT_SEARCH", "1");
+    cubes.addBatch(cubeId, [{ id: 1, copies: 3 }]);
+    const first = cubes.poolHealth(cubeId, { extraDeckEnabled: false });
+    expect(cubes.poolHealth(cubeId, { extraDeckEnabled: false })).toBe(first);
+    db.prepare("UPDATE cubes SET updated_at='2099-01-01T00:00:00.000Z' WHERE id=?").run(cubeId);
+    expect(cubes.poolHealth(cubeId, { extraDeckEnabled: false })).not.toBe(first);
+  });
+
+  it("reports null health when data cannot be read", () => {
     vi.stubEnv("EFFECT_SEARCH", "1");
     cubes.addBatch(cubeId, [{ id: 1, copies: 3 }]);
     db.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,source,schema_version) VALUES(1,'','[]','broken','fixture',1)").run();
     const analysis = cubes.analyzeCubePools(cubeId, { themePackSize: 1, cardsPerPlayer: 1, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: false, includeHealth: true });
     expect(analysis).toMatchObject({ ok: true, errors: [], poolHealth: null, warnings: [] });
+    expect(cubes.poolHealth(cubeId, { extraDeckEnabled: false })).toMatchObject({ health: null, warnings: [expect.stringMatching(/health is unavailable/i)] });
   });
 });

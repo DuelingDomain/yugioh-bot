@@ -212,3 +212,37 @@ describe("draft preflight pool health", () => {
     expect(await result.json()).toEqual({ errors: [], warnings: [] });
   });
 });
+
+describe("theme lobby seed preview", () => {
+  const ctx = { params: Promise.resolve({ slug: "lobby-draft" }) };
+  const setupLobby = () => {
+    vi.stubEnv("THEME_DRAFTS", "1");
+    const cfg = { mode: "theme", themeSelection: "player_pick", themePackSize: 3, cardsPerPlayer: 40, extraDeckEnabled: false, allowedCubeIds: [] };
+    db().prepare("INSERT INTO drafts(id,guild_id,name,created_by_user_id,status,web_slug,config_json) VALUES(1,'g','Lobby draft',?,'pending','lobby-draft',?)").run(owner, JSON.stringify(cfg));
+  };
+
+  it("previews for the host without creating a cube", async () => {
+    importCardEffectArtifact(db());
+    setupLobby();
+    const { POST } = await import("../app/api/drafts/[slug]/seed/preview/route");
+    const cubes = db().prepare("SELECT count(*) AS n FROM cubes").get();
+    const response = await POST(request({ phrase: "dark magician", targetCount: 3, maxCopies: 1 }), ctx);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ effectSearchEnabled: true, rows: expect.any(Array), cards: expect.any(Array) });
+    expect(db().prepare("SELECT count(*) AS n FROM cubes").get()).toEqual(cubes);
+    expect(db().prepare("SELECT count(*) AS n FROM cube_cards").get()).toEqual({ n: 0 });
+  });
+
+  it("is host-only, pending-only and flag-gated", async () => {
+    setupLobby();
+    const { POST } = await import("../app/api/drafts/[slug]/seed/preview/route");
+    const body = request({ phrase: "dark magician", targetCount: 3, maxCopies: 1 });
+    state.auth.mockResolvedValue({ user: { id: String(fixtureUserId("other")) } });
+    expect((await POST(body, ctx)).status).toBeGreaterThanOrEqual(403);
+    state.auth.mockResolvedValue({ user: { id: String(owner) } });
+    vi.stubEnv("EFFECT_SEARCH", "0");
+    expect((await POST(request({ phrase: "dark magician" }), ctx)).status).toBe(404);
+    state.auth.mockResolvedValue(null);
+    expect((await POST(request({ phrase: "dark magician" }), ctx)).status).toBe(401);
+  });
+});

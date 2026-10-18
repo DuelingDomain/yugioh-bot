@@ -118,6 +118,7 @@
 }
 :global(.ms) .cfmWrap { margin-bottom: 18px; }
 :global(.ms) .sugWrap { position: relative; }
+:global(.ms) .railRule { border: 0; border-top: 1px solid var(--rule); margin: 14px 0 12px; }
 :global(.ms) .fileInput { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 :global(.ms) .err { margin-bottom: 16px; }
 

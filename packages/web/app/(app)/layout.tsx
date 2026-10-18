@@ -2,6 +2,8 @@ import { AppShell } from "@/components/layout/app-shell";
 import { AppRetryPanel } from "@/components/layout/app-retry-panel";
 import { ActiveGameGuard } from "@/components/duel/active-game-guard";
 import { SignOutProvider } from "@/components/account/sign-out";
+import { EffectSearchProvider } from "@/components/effect-search/capability-context";
+import { effectSearchEnabled } from "@yugidraft/shared/cards/effects/capability";
 import { isE2EAuthEnabled } from "@/lib/e2e-auth";
 import { resolveSessionIdentity } from "@/lib/session-identity";
 import { redirect } from "next/navigation";
@@ -12,7 +14,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   return (
     <SignOutProvider e2e={isE2EAuthEnabled()}>
       <ActiveGameGuard />
-      <AppShell>{!result.ok ? <AppRetryPanel /> : children}</AppShell>
+      <EffectSearchProvider enabled={effectSearchEnabled()}>
+        <AppShell>{!result.ok ? <AppRetryPanel /> : children}</AppShell>
+      </EffectSearchProvider>
     </SignOutProvider>
   );
 }

@@ -79,6 +79,7 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
       return { candidate, category: member ? "archetype" : "phrase", reason: member ? `Archetype: ${card.archetype ?? card.name}` : `Matches: ${reading.chips.join("; ")}`, score: member ? 100 : score ?? 0, linked: 0 };
     };
     // Retain enough anchors even for a very small requested preview.
+    // Stream both passes; only selected choices and matched identities stay in memory.
     for (const candidate of catalog.candidates()) {
       const choice = coreChoice(candidate);
       if (!choice) continue;

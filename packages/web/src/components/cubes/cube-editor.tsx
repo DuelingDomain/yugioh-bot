@@ -11,7 +11,8 @@ import { isExtraDeckCardClient, poolToGridCards, type CubeCardDto, type CubePool
 import { ListImportError, listImportErrorFrom } from "@/lib/card-list-import";
 import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import { importLine, pasteLabel } from "@/components/draft/pool/pool-model";
-import { AddCardsBody, type CubeImportEntry, type ImportKind, type ImportOutcome } from "./cube-add-rail";
+import { AddCardsBody, type CubeImportEntry, type EffectRailTools, type ImportKind, type ImportOutcome } from "./cube-add-rail";
+import { previewSeed, type BatchEntry } from "@/components/effect-search/effect-api";
 import { EMPTY_LEDGER, record as recordInLedger, remaining, settle, withoutEntry, type Ledger } from "@/components/card-list-import/import-ledger";
 import { gainKeys, gainMap, gainsBetween, poolCounts, subtractEntries, type CubeGain } from "./cube-import-model";
 import { CubeCardGrid } from "./cube-card-grid";
@@ -62,12 +63,21 @@ interface ImportRecord extends CubeImportEntry {
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
+/** "Search batch", then "Search batch 2" ... so stacked entries stay apart. */
+function pasteLabelFor(base: string, existing: readonly string[]): string {
+  const names = new Set(existing);
+  if (!names.has(base)) return base;
+  let n = 2;
+  while (names.has(`${base} ${n}`)) n += 1;
+  return `${base} ${n}`;
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
-export function CubeEditor({ cubeId, themeDraftsEnabled = false }: { cubeId: number; themeDraftsEnabled?: boolean }) {
+export function CubeEditor({ cubeId, themeDraftsEnabled = false, effectSearchEnabled = false }: { cubeId: number; themeDraftsEnabled?: boolean; effectSearchEnabled?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // When opened from a draft's cube builder, return there instead of the library.
@@ -181,10 +191,10 @@ export function CubeEditor({ cubeId, themeDraftsEnabled = false }: { cubeId: num
   };
 
   /** One write to the cube's cards. Throws an Error (a `ListImportError` for a refusal with Retry-After) fit to show. */
-  const writeCards = async (op: Record<string, unknown>, fallback: string) => {
+  const writeCards = async (op: Record<string, unknown>, fallback: string, path = "cards") => {
     let res: Response;
     try {
-      res = await fetch(`/api/cubes/${cubeId}/cards`, {
+      res = await fetch(`/api/cubes/${cubeId}/${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(op),
@@ -260,6 +270,49 @@ export function CubeEditor({ cubeId, themeDraftsEnabled = false }: { cubeId: num
       setBusy(false);
     }
   };
+
+  /**
+   * Adds cards the player picked in search (`addBatch`) or kept from a phrase preview (`seed/confirm`). Both keep an entry
+   * in the ledger, so Remove takes out exactly the copies this add brought and nothing the owner changed since.
+   */
+  const addSearched = async (kind: "batch" | "phrase", entries: BatchEntry[], phrase?: string) => {
+    const before = poolsRef.current;
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await writeCards(
+        kind === "batch" ? { op: "addBatch", entries } : { entries },
+        "Couldn't add those cards. Try again.",
+        kind === "batch" ? "cards" : "seed/confirm",
+      );
+      const gains = gainsBetween(before, data.pools);
+      const added = data.added ?? gains.length;
+      const copies = data.copies ?? gains.reduce((n, g) => n + g.copies, 0);
+      const duplicates = data.duplicates?.length ?? 0;
+      if (gains.length > 0) {
+        const base = kind === "batch" ? "Search batch" : `Seed: ${phrase ?? "phrase"}`;
+        const label = pasteLabelFor(base, importsRef.current.map((entry) => entry.label));
+        const line = importLine({ label, main: gainMap(gains, "main"), extra: gainMap(gains, "extra"), corrected: [], unknown: [] });
+        const key = ++importSequence.current;
+        ledgerRef.current = recordInLedger(ledgerRef.current, key, gainKeys(gains), poolCounts(data.pools));
+        setImports((prev) => [...prev, { key, kind, label, line, report: {}, gains }]);
+      }
+      return { added, copies, duplicates };
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const effects: EffectRailTools | undefined = effectSearchEnabled
+    ? {
+        onAddBatch: (entries) => addSearched("batch", entries),
+        previewSeed: (phrase, options) => previewSeed(cubeId, phrase, options),
+        confirmSeed: async (entries, phrase) => {
+          const { added, copies } = await addSearched("phrase", entries, phrase);
+          return { added, copies };
+        },
+      }
+    : undefined;
 
   const addCard = (card: CardSummary) => {
     putCards([card]);
@@ -446,6 +499,7 @@ export function CubeEditor({ cubeId, themeDraftsEnabled = false }: { cubeId: num
 
   const railProps = {
     initialTab,
+    effects,
     busy,
     copiesInCube,
     onAddCard: addCard,

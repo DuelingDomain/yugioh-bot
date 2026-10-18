@@ -30,6 +30,16 @@ export interface CubePoolAnalysis extends CubeAnalysis {
   poolHealth?: CardPoolHealth | null;
 }
 
+/** Effect-tag health for one cube. Null health means the data could not be read. */
+export interface CubePoolHealthReport {
+  health: CardPoolHealth | null;
+  warnings: string[];
+}
+
+// Health reads the whole catalog, so repeat reads of an unchanged cube reuse one result for a short time.
+const HEALTH_TTL_MS = 5 * 60_000, HEALTH_CACHE_MAX = 64;
+const healthCaches = new WeakMap<object, Map<string, { at: number; report: CubePoolHealthReport }>>();
+
 /** Fully resolved catalog entries; network resolution happens before the cube transaction. */
 export interface CubeImportEntry {
   id: number;
@@ -567,6 +577,35 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       return { added };
     },
 
+    /**
+     * Effect-tag pool health for explicit preflight reads. Ordinary lobby analysis skips it. Health never changes readiness; unreadable data gives null health.
+     */
+    poolHealth(cubeId: number, options: { extraDeckEnabled: boolean }): CubePoolHealthReport | undefined {
+      if (!effectSearchEnabled()) return undefined;
+      const row = db.prepare("select updated_at from cubes where id = ?").get(cubeId) as { updated_at: string } | undefined;
+      if (!row) return undefined;
+      let cache = healthCaches.get(db);
+      if (!cache) healthCaches.set(db, cache = new Map());
+      const key = `${cubeId}:${row.updated_at}:${options.extraDeckEnabled ? 1 : 0}`, now = Date.now();
+      const hit = cache.get(key);
+      if (hit && now - hit.at < HEALTH_TTL_MS) return hit.report;
+      let result: CubePoolHealthReport;
+      try {
+        const codes = inspectPools(cubeId, deckTypes.snapshot())
+          .filter(({ actual }) => actual === "main" || options.extraDeckEnabled)
+          .map(({ card }) => card.catalogCardId);
+        const health = createCardInsightService(db).poolHealth(codes);
+        result = { health, warnings: health.warnings };
+      } catch (error) {
+        report(error, { tags: { operation: "cube-pool-health" } });
+        // Not cached: a transient failure should be retried on the next preflight.
+        return { health: null, warnings: ["Pool health is unavailable; card supply checks still apply."] };
+      }
+      if (cache.size >= HEALTH_CACHE_MAX) cache.delete(cache.keys().next().value!);
+      cache.set(key, { at: now, report: result });
+      return result;
+    },
+
     analyzeCubePools(cubeId: number, config: AnalyzeCubePoolsConfig): CubePoolAnalysis {
       const errors: string[] = [];
       const warnings: string[] = [];
@@ -599,17 +638,9 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         }
       }
 
-      if (config.includeHealth === true && effectSearchEnabled()) {
-        let poolHealth: CardPoolHealth | null = null;
-        try {
-          const codes = inspectPools(cubeId, deckTypes.snapshot())
-            .filter(({ actual }) => actual === "main" || config.extraDeckEnabled)
-            .map(({ card }) => card.catalogCardId);
-          poolHealth = createCardInsightService(db).poolHealth(codes);
-        } catch (error) {
-          report(error, { tags: { operation: "cube-pool-health" } });
-        }
-        return { ok: errors.length === 0, errors, warnings, poolHealth };
+      if (config.includeHealth === true) {
+        const health = this.poolHealth(cubeId, { extraDeckEnabled: config.extraDeckEnabled });
+        if (health) return { ok: errors.length === 0, errors, warnings, poolHealth: health.health };
       }
       return { ok: errors.length === 0, errors, warnings };
     },
