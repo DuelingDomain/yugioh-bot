@@ -449,9 +449,21 @@ const code = (name: string): number => { const card=byName.get(name); if (!card)
 const db = new Database(":memory:");
 let host: DuelHost;
 let playerId: number;
-let labeledTP=0, labeledFP=0, labeledFN=0;
+let evaluatedQueries=0, labeledTP=0, labeledFP=0, labeledFN=0, labeledTN=0;
 const search = (text: string, pool?: number[], over: Partial<CardQuery> = {}) => queryCards(cards,{...emptyCardQuery(),text,limit:120,...(pool ? {passcodes:pool}:{}),...over});
 const present = (result: ReturnType<typeof search>) => [...result.cards,...(result.effectHits??[])].map(card=>card.canonicalPasscode ?? card.code);
+const checkLabels = (result: readonly number[], include: readonly string[], exclude: readonly string[], text: string) => {
+  for (const name of include) {
+    const found = result.includes(code(name));
+    if (found) labeledTP++; else labeledFN++;
+    expect(found, `${text}: missing ${name}`).toBe(true);
+  }
+  for (const name of exclude) {
+    const found = result.includes(code(name));
+    if (found) labeledFP++; else labeledTN++;
+    expect(found, `${text}: unexpected ${name}`).toBe(false);
+  }
+};
 
 beforeAll(() => {
   vi.stubEnv("EFFECT_SEARCH","1");
@@ -469,7 +481,9 @@ beforeAll(() => {
 },20_000);
 
 afterAll(async()=>{
-  const report={queries:60,labeledTP,labeledFP,labeledFN,labeledPrecision:labeledTP/(labeledTP+labeledFP),labeledRecall:labeledTP/(labeledTP+labeledFN)};
+  const report={queries:evaluatedQueries,expectedQueries:60,complete:evaluatedQueries===60,labeledTP,labeledFP,labeledFN,labeledTN,
+    labeledPrecision:labeledTP+labeledFP ? labeledTP/(labeledTP+labeledFP) : null,
+    labeledRecall:labeledTP+labeledFN ? labeledTP/(labeledTP+labeledFN) : null};
   const output=resolve(import.meta.dirname,'../../../.status/effect-search');mkdirSync(output,{recursive:true});
   writeFileSync(resolve(output,'eval.json'),JSON.stringify(report,null,2)+'\n');
   console.info('EFFECT_EVAL',JSON.stringify(report));
@@ -478,33 +492,34 @@ afterAll(async()=>{
 
 describe('60-query real-artifact effect/name/synergy/format evaluation',()=>{
   it.each(effectCases)('effect: %s',(text,include,exclude)=>{
+    evaluatedQueries++;
     const result=present(search(text,[...include,...exclude].map(code)));
-    for(const name of include){const found=result.includes(code(name));if(found)labeledTP++;else labeledFN++;expect(found,`${text}: missing ${name}`).toBe(true);}
-    for(const name of exclude){const found=result.includes(code(name));if(found)labeledFP++;expect(found,`${text}: unexpected ${name}`).toBe(false);}
+    checkLabels(result,include,exclude,text);
   });
   it.each(nameCases)('name/alias/typo: %s',(text,name)=>{
-    for (const scope of ['name', 'all'] as const) expect(present(search(text,undefined,{scope})), `${scope}: ${text}`).toContain(code(name));
-    labeledTP++;
+    evaluatedQueries++;
+    const names=present(search(text,undefined,{scope:'name'})), all=present(search(text,undefined,{scope:'all'}));
+    checkLabels(names.filter(passcode=>all.includes(passcode)),[name],[],`${text} in both scopes`);
   });
   it.each([0,20,29,30,40])('Genesys budget %s excludes unknown/Link/Pendulum',(budget)=>{
-    const pool=['Effect Veiler','Ash Blossom & Joyous Spring','Linkuriboh','Luster Pendulum, the Dracoslayer'].map(code);
+    evaluatedQueries++;
+    const pool=['Effect Veiler','Ash Blossom & Joyous Spring','Linkuriboh','Luster Pendulum, the Dracoslayer','PSY-Framegear Gamma'].map(code);
     const points=new Map([[code('Effect Veiler'),0],[code('Ash Blossom & Joyous Spring'),30],[code('Linkuriboh'),0],[code('Luster Pendulum, the Dracoslayer'),0]]);
     const result=queryCards(cards,{...emptyCardQuery(),text:'hand traps that negate',passcodes:pool,excludeGenesysForbidden:true,genesysPoints:{min:null,max:budget}},undefined,points);
-    expect(present(result)).toContain(code('Effect Veiler'));expect(present(result)).not.toContain(code('Linkuriboh'));
-    expect(present(result)).not.toContain(code('Luster Pendulum, the Dracoslayer'));
-    expect(present(result).includes(code('Ash Blossom & Joyous Spring'))).toBe(budget>=30);labeledTP++;
+    checkLabels(present(result),['Effect Veiler',...(budget>=30?['Ash Blossom & Joyous Spring']:[])],
+      ['Linkuriboh','Luster Pendulum, the Dracoslayer','PSY-Framegear Gamma',...(budget<30?['Ash Blossom & Joyous Spring']:[])],`Genesys budget ${budget}`);
   });
   it.each(['normal','domain','genesys','genesys-domain'] as const)('single-card synergy %s',(format)=>{
+    evaluatedQueries++;
     const insights=createCardInsightService(db,{dataDirectory:engineDataDirectory});
     const found=insights.suggestForDeck([code('Blue-Eyes White Dragon')],{format,pool:['Sage with Eyes of Blue','Dark Magician'].map(code),deckMaster:code('Blue-Eyes White Dragon'),genesysRemaining:0});
-    expect(found.map(card=>card.passcode)).toContain(code('Sage with Eyes of Blue'));
-    expect(found.map(card=>card.passcode)).not.toContain(code('Dark Magician'));labeledTP++;
+    checkLabels(found.map(card=>card.passcode),['Sage with Eyes of Blue'],['Dark Magician'],`${format} single-card synergy`);
   });
   it('deck synergy ranks by distinct linked deck cards',()=>{
+    evaluatedQueries++;
     const insights=createCardInsightService(db,{dataDirectory:engineDataDirectory});
     const found=insights.suggestForDeck([code('Blue-Eyes White Dragon'),code('Dark Magician')],{format:'normal',pool:['Sage with Eyes of Blue','Eternal Soul','Raigeki'].map(code)});
-    expect(found.map(card=>card.passcode)).toEqual(expect.arrayContaining(['Sage with Eyes of Blue','Eternal Soul'].map(code)));
-    expect(found.map(card=>card.passcode)).not.toContain(code('Raigeki'));labeledTP++;
+    checkLabels(found.map(card=>card.passcode),['Sage with Eyes of Blue','Eternal Soul'],['Raigeki'],'deck synergy');
   });
 });
 
