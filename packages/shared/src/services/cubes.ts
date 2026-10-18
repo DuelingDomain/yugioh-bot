@@ -1,5 +1,5 @@
 import { recordProductEvent } from "../analytics/index.js";
-import { ExpectedError } from "../observability/index.js";
+import { ExpectedError, report } from "../observability/index.js";
 import type { CardIdentityCatalog } from "../duels/pool.js";
 import { routeDeckSections, type DeckSectionMove, type DeckCardType } from "../duels/extra-deck.js";
 import { createDeckTypeLookup, hasKnownDeckCardType } from "./deck-sections.js";
@@ -8,6 +8,9 @@ import type { Card, Cube, CubeCard, CubePool, CubePools, DraftConfig } from "../
 import { isExtraDeckFrame, type CardCatalogService } from "./card-catalog.js";
 import { CardFetchLimitError } from "./card-fetch.js";
 import { createCardLookupBudget } from "./card-lookup-budget.js";
+import { previewCubeSeed, type CubeSeedOptions } from "./cube-seed.js";
+import { createCardInsightService, type CardPoolHealth } from "./card-insights.js";
+import { effectSearchEnabled } from "../cards/effects/capability.js";
 import type { CubeAnalysis } from "./deal.js";
 import { DEFAULT_CUBE_COPIES, MAX_COPIES_PER_PLAYER, MAX_CUBE_COPIES, MIN_CUBE_COPIES } from "./constants.js";
 
@@ -18,6 +21,13 @@ export interface AnalyzeCubePoolsConfig {
   burnUnpicked: boolean;
   extraDeckEnabled: boolean;
   copyLimit?: boolean;
+  /** Preflight-only insights; ordinary lobby reads run supply checks alone. */
+  includeHealth?: boolean;
+}
+
+export interface CubePoolAnalysis extends CubeAnalysis {
+  /** Absent unless requested and enabled; null when unavailable. Health never changes readiness. */
+  poolHealth?: CardPoolHealth | null;
 }
 
 /** Fully resolved catalog entries; network resolution happens before the cube transaction. */
@@ -25,6 +35,19 @@ export interface CubeImportEntry {
   id: number;
   copies: number;
   pool?: CubePool;
+}
+
+/** Validate without merging: batch addition reports repeated identities instead. */
+export function parseCubeBatchEntries(value: unknown): CubeImportEntry[] {
+  if (!Array.isArray(value) || value.length > 1000) throw new ExpectedError("entries must be a list of at most 1000 cards", 400);
+  return value.map(entry => {
+    if (!entry || typeof entry !== "object" || !Number.isSafeInteger(entry.id) || entry.id <= 0 || entry.id > 0xffffffff) {
+      throw new ExpectedError("Each entry needs a valid id", 400);
+    }
+    assertCubeCopies(entry.copies);
+    if (entry.pool !== undefined && entry.pool !== "main" && entry.pool !== "extra") throw new ExpectedError("pool must be main or extra", 400);
+    return { id: entry.id, copies: entry.copies, ...(entry.pool ? { pool: entry.pool as CubePool } : {}) };
+  });
 }
 
 interface CubeRoutingReport { moves?: DeckSectionMove[]; messages?: string[] }
@@ -231,6 +254,41 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
   };
 
   return {
+    previewSeed(cubeId: number, options: CubeSeedOptions) {
+      const cube = findCube(cubeId);
+      return previewCubeSeed(db, options, [...existingCardIds(cubeId), ...cube.config.customCardIds ?? [], ...cube.config.customExtraCardIds ?? []]);
+    },
+
+    /** Add new identities once. Existing rows and legacy config copies are preserved. */
+    addBatch(cubeId: number, input: readonly CubeImportEntry[]): { added: number; copies: number; duplicates: number[] } & CubeRoutingReport {
+      const entries = parseCubeBatchEntries(input);
+      return db.transaction(() => {
+        const cube = findCube(cubeId);
+        const cards = new Map(catalog.findByIds(entries.map(entry => entry.id)).map(card => [card.ygoprodeckId, card]));
+        for (const { id } of entries) {
+          if (!cards.has(id) || !catalog.hasCatalogRow(id)) throw new ExpectedError(`Card ${id} is missing from the catalog`, 400);
+        }
+        const present = new Set([
+          ...existingCardIds(cubeId), ...cube.config.customCardIds ?? [], ...cube.config.customExtraCardIds ?? [],
+        ].map(catalog.canonicalId));
+        const duplicates = new Set<number>();
+        const addedEntries: CubeImportEntry[] = [];
+        const findType = deckTypes.snapshot();
+        let copies = 0;
+        for (const entry of entries) {
+          const canonical = catalog.canonicalId(entry.id);
+          if (present.has(canonical)) { duplicates.add(entry.id); continue; }
+          present.add(canonical);
+          upsertCard.run(cubeId, entry.id, isCubeExtra(cards.get(entry.id), findType) ? "extra" : "main", entry.copies, null);
+          addedEntries.push(entry);
+          copies += entry.copies;
+        }
+        if (addedEntries.length) bump(cubeId);
+        return { added: addedEntries.length, copies, duplicates: [...duplicates],
+          ...cubeRoutingReport(addedEntries.map(entry => ({ codes: [entry.id], pool: entry.pool })), cards, findType) };
+      }).immediate();
+    },
+
     /** Add copies atomically, reading existing totals inside the write transaction. */
     importResolvedCards(cubeId: number, entries: readonly CubeImportEntry[]): { added: number; copies: number; movedToMain?: number } & CubeRoutingReport {
       return db.transaction(() => {
@@ -509,7 +567,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       return { added };
     },
 
-    analyzeCubePools(cubeId: number, config: AnalyzeCubePoolsConfig): CubeAnalysis {
+    analyzeCubePools(cubeId: number, config: AnalyzeCubePoolsConfig): CubePoolAnalysis {
       const errors: string[] = [];
       const warnings: string[] = [];
 
@@ -541,6 +599,18 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         }
       }
 
+      if (config.includeHealth === true && effectSearchEnabled()) {
+        let poolHealth: CardPoolHealth | null = null;
+        try {
+          const codes = inspectPools(cubeId, deckTypes.snapshot())
+            .filter(({ actual }) => actual === "main" || config.extraDeckEnabled)
+            .map(({ card }) => card.catalogCardId);
+          poolHealth = createCardInsightService(db).poolHealth(codes);
+        } catch (error) {
+          report(error, { tags: { operation: "cube-pool-health" } });
+        }
+        return { ok: errors.length === 0, errors, warnings, poolHealth };
+      }
       return { ok: errors.length === 0, errors, warnings };
     },
 

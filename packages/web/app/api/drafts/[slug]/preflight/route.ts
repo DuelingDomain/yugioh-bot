@@ -5,7 +5,9 @@ import { env } from "@/lib/env";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
 import { draftReadAccess } from "@/lib/draft-access";
 import { themeDraftSetupError } from "@/lib/theme-drafts";
-import { createCardCatalogService, createDraftService, createCubeService, findDraftReadAccess, mainDraftPicksPerPlayer, themeDraftNumberError } from "@yugidraft/shared/services";
+import { createCardCatalogService, createDraftService, createCubeService, findDraftReadAccess, mainDraftPicksPerPlayer, themeDraftNumberError, type CardPoolHealth } from "@yugidraft/shared/services";
+import { effectSearchEnabled } from "@/lib/effect-search";
+import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
 
 export const runtime = "nodejs";
 
@@ -50,6 +52,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     burnUnpicked: draft.config.burnUnpicked ?? false,
     extraDeckEnabled: draft.config.extraDeckEnabled ?? true,
     copyLimit: draft.config.copyLimit ?? true,
+    includeHealth: true,
   };
 
   const playerIds = drafts.players(draft.id).map((p) => p.playerId);
@@ -62,7 +65,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     : draft.config.allowedCubeIds ?? [];
   const errors: string[] = [];
   const warnings: string[] = [];
-  for (const cubeId of draft.config.allowedCubeIds ?? []) {
+  const poolHealth: Array<{ cubeId: number; cubeName: string; health: CardPoolHealth | null }> = [];
+  for (const cubeId of new Set(draft.config.allowedCubeIds ?? [])) {
     const cube = db.prepare("select name, guild_id from cubes where id = ?")
       .get(cubeId) as { name: string; guild_id: string } | undefined;
     // Match assignThemes: deleted library cubes are dropped at start.
@@ -77,7 +81,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     const name = cube.name;
     for (const e of analysis.errors) errors.push(`${name}: ${e}`);
     for (const w of analysis.warnings) warnings.push(`${name}: ${w}`);
+    if (analysis.poolHealth !== undefined) poolHealth.push({ cubeId, cubeName: name, health: analysis.poolHealth });
   }
 
+  if (effectSearchEnabled()) return NextResponse.json({ errors, warnings, poolHealth, effectSearchEnabled: true, attribution: EFFECT_SEARCH_ATTRIBUTION }, { headers: { "Cache-Control": "private, no-store" } });
   return NextResponse.json({ errors, warnings });
 }

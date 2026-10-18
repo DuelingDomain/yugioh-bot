@@ -211,7 +211,7 @@ describe("theme lobby routes", () => {
         const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
         const response = await GET(new Request("http://localhost"), params);
         expect(response.status).toBe(200);
-        expect(await response.json()).toEqual({ errors: [], warnings: [] });
+        expect(await response.json()).toMatchObject({ errors: [], warnings: [] });
       } else {
         const { PUT, POST } = await import("../app/api/drafts/[slug]/route");
         const response = entryPoint === "edit"
@@ -246,7 +246,7 @@ describe("theme lobby routes", () => {
         const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
         const response = await GET(new Request("http://localhost"), params);
         expect(response.status).toBe(200);
-        expect(await response.json()).toEqual({ errors: [`Cube ${cubeIds[2]}: Cube not found`], warnings: [] });
+        expect(await response.json()).toMatchObject({ errors: [`Cube ${cubeIds[2]}: Cube not found`], warnings: [] });
       } else {
         const { PUT, POST } = await import("../app/api/drafts/[slug]/route");
         const response = entryPoint === "edit"
@@ -391,7 +391,7 @@ describe("theme lobby routes", () => {
     const response = await GET(new Request("http://localhost"), params);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ errors: [], warnings: [] });
+    expect(await response.json()).toMatchObject({ errors: [], warnings: [] });
     const { POST } = await import("../app/api/drafts/[slug]/route");
     const started = await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), params);
     expect(started.status).toBe(202);
@@ -520,7 +520,7 @@ describe("theme lobby routes", () => {
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1") } });
     const response = await GET(new Request("http://localhost"), params);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    expect(await response.json()).toMatchObject({
       errors: [], warnings: [expect.stringMatching(/^Theme1: Extra pool/i)],
     });
   }, 30000);
@@ -540,7 +540,7 @@ describe("theme lobby routes", () => {
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
     const response = await GET(new Request("http://localhost"), { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    expect(await response.json()).toMatchObject({
       errors: [expect.stringMatching(/^Theme0: Main pool/i)],
       warnings: [expect.stringMatching(/^Theme1: Extra pool/i)],
     });
@@ -619,7 +619,7 @@ describe("theme lobby routes", () => {
       const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
       const response = await GET(new Request("http://x"), { params: Promise.resolve({ slug: "theme-slug" }) });
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ errors: [], warnings: [] });
+      expect(await response.json()).toMatchObject({ errors: [], warnings: [] });
     }, 30000);
 
     it("starts using surviving cubes after an attachment is deleted", async () => {
