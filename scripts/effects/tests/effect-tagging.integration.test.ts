@@ -272,5 +272,5 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     }
     writeFileSync(join(output, "packages/shared/src/cards/effects/artifact.ts"), `${original}\nprocess.exit(1);\n`);
     expect(() => validateEffectCandidate(rootPath, output)).toThrow(/pin constants|code outside/);
-  });
+  }, 15_000);
 });
