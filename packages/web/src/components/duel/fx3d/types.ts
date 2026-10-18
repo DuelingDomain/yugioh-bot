@@ -107,6 +107,8 @@ export type FxWorld = {
   cy: number;
   /** Canvas px per world unit (card art width / 96). */
   u: number;
+  /** Turn of the whole world on screen, rad, counter-clockwise. A field of a plaza table is tilted; 0 (the default) is upright. */
+  rot?: number;
   /** Canvas size in CSS px. */
   vw: number;
   vh: number;

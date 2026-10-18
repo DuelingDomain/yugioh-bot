@@ -70,8 +70,9 @@ float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*vnoise(p);p*=2.03;a*
  * Put WORLD_GLSL at the top of the vertex shader.
  */
 export const WORLD_GLSL = `
-uniform vec3 uWorld;
-vec2 toWorld(vec2 px){return (px-uWorld.xy)/uWorld.z;}
+uniform vec4 uWorld;
+vec2 toWorld(vec2 px){vec2 d=(px-uWorld.xy)/uWorld.z; float c=cos(uWorld.w), s=sin(uWorld.w); return vec2(c*d.x+s*d.y, -s*d.x+c*d.y);}
+vec2 fromWorld(vec2 w){float c=cos(uWorld.w), s=sin(uWorld.w); return uWorld.xy + vec2(c*w.x-s*w.y, s*w.x+c*w.y)*uWorld.z;}
 `;
 
 const CARD_VS = GLSL_COMMON + WORLD_GLSL + `
@@ -124,7 +125,7 @@ void main(){
     vHeat = max(vHeat, fe);
   }
   vA = a;
-  gl_Position = projectionMatrix*viewMatrix*vec4(uWorld.xy + w*uWorld.z,0.,1.);
+  gl_Position = projectionMatrix*viewMatrix*vec4(fromWorld(w),0.,1.);
 }`;
 
 const CARD_FS = GLSL_COMMON + `
@@ -199,7 +200,7 @@ void main(){
   float size = aB.z*mix(1.,.45,u*u);
   vec2 q = position.xy; q.x *= size*(1.+aC.y*sp*.012); q.y *= size;
   q = rot2(rot)*q;
-  gl_Position = projectionMatrix*viewMatrix*vec4(uWorld.xy + (p+q)*uWorld.z,0.,1.);
+  gl_Position = projectionMatrix*viewMatrix*vec4(fromWorld(p+q),0.,1.);
   vUv = position.xy+.5; vCol = vec4(aCol.rgb, aCol.a*env); vShape = aC.w; vU = u; vSeed = aC.z;
 }`;
 
@@ -313,7 +314,7 @@ export class WipeCard {
   readonly w: number;
   readonly h: number;
 
-  constructor(world: THREE.IUniform<THREE.Vector3>, tex: THREE.Texture, o: WipeCardOpts) {
+  constructor(world: THREE.IUniform<THREE.Vector4>, tex: THREE.Texture, o: WipeCardOpts) {
     cardGeom = cardGeom ?? makeCardGeom();
     this.w = o.w ?? DEMO_CW;
     this.h = o.h ?? DEMO_CH;
@@ -436,7 +437,7 @@ export type ParticleOpts = {
 
 export type WipeParticles = { mesh: THREE.Mesh; setT(t: number): void; dispose(): void };
 
-function makeParticles(world: THREE.IUniform<THREE.Vector3>, n: number, gen: (i: number) => ParticleSpec, o: ParticleOpts = {}): WipeParticles {
+function makeParticles(world: THREE.IUniform<THREE.Vector4>, n: number, gen: (i: number) => ParticleSpec, o: ParticleOpts = {}): WipeParticles {
   const base = new THREE.PlaneGeometry(1, 1);
   const g = new THREE.InstancedBufferGeometry();
   g.index = base.index;
@@ -811,7 +812,7 @@ export type WipeCtx = {
   /** The post pass uniforms, like `c.post` in the demo: `P.uDarken.value = 0.3`. Reset before every frame. */
   post: PostUniforms;
   /** Shared uniform of every shader that reads `modelMatrix` (see WORLD_GLSL). */
-  world: THREE.IUniform<THREE.Vector3>;
+  world: THREE.IUniform<THREE.Vector4>;
   /** Canvas px per world unit. */
   u: number;
   /** The part of the world the canvas shows. Fill the whole screen with it: the demo used x +-560, y +-400. */
@@ -874,6 +875,21 @@ export type WipeBuild = (ctx: WipeCtx) => WipeScene;
 
 const rectCentre = (r: { x: number; y: number; w: number; h: number }): Pt => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
 
+/** The canvas as the box (in world units) that holds it when the world is turned by `rot`. */
+function turnedBounds(view: { w: number; h: number }, ox: number, oy: number, u: number, rot: number): WorldRectU {
+  const c = Math.cos(rot);
+  const s = Math.sin(rot);
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const [px, py] of [[0, 0], [view.w, 0], [0, view.h], [view.w, view.h]]) {
+    const dx = (px - ox) / u;
+    const dy = (view.h - py - oy) / u;
+    xs.push(c * dx + s * dy);
+    ys.push(-s * dx + c * dy);
+  }
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+
 /** What the engine runs. `built` is what `build` returned. */
 type Made = { ctx: WipeCtx; frame(t: number, wipe: WipeScene): void; dispose(): void; root: THREE.Group };
 
@@ -887,8 +903,11 @@ export function createWipeCtx(env: FxEnv, request: { seed?: number }, scene: FxS
   const root = new THREE.Group();
   root.position.set(ox, oy, 0);
   root.scale.set(u, u, 1);
+  // A field turned on screen (a plaza field of a 3-way table): the whole world turns with it.
+  const rot = wd.rot ?? 0;
+  root.rotation.z = rot;
   env.group.add(root);
-  const world: THREE.IUniform<THREE.Vector3> = { value: new THREE.Vector3(ox, oy, u) };
+  const world: THREE.IUniform<THREE.Vector4> = { value: new THREE.Vector4(ox, oy, u, rot) };
   env.post.uK.value = view.h / (DEMO_H * u);
 
   const disposers: Array<() => void> = [];
@@ -906,7 +925,7 @@ export function createWipeCtx(env: FxEnv, request: { seed?: number }, scene: FxS
   };
   const sideRows = (s: "you" | "opp") => ({ m: rectU(scene.rows?.[s].m), st: rectU(scene.rows?.[s].st) });
   const rows = { you: sideRows("you"), opp: sideRows("opp") };
-  const bounds: WorldRectU = { minX: (0 - wd.cx) / u, maxX: (view.w - wd.cx) / u, minY: (wd.cy - view.h) / u, maxY: wd.cy / u };
+  const bounds: WorldRectU = rot === 0 ? { minX: (0 - wd.cx) / u, maxX: (view.w - wd.cx) / u, minY: (wd.cy - view.h) / u, maxY: wd.cy / u } : turnedBounds(view, ox, oy, u, rot);
   const fields = scene.fields ? scene.fields.map((f) => ({ m: rectU(f.m), st: rectU(f.st) })) : [rows.opp, rows.you];
   const focus: WorldRectU = scene.focus ? (rectU(scene.focus) as WorldRectU) : bounds;
   const zones: Pt[] = [];
@@ -1012,7 +1031,7 @@ export function createWipeCtx(env: FxEnv, request: { seed?: number }, scene: FxS
     focus,
     focused: scene.focus != null,
     zones,
-    uv: (x, y) => [(ox + x * u) / view.w, (oy + y * u) / view.h],
+    uv: (x, y) => [(ox + (Math.cos(rot) * x - Math.sin(rot) * y) * u) / view.w, (oy + (Math.sin(rot) * x + Math.cos(rot) * y) * u) / view.h],
     count: (n) => Math.max(6, Math.round(n * env.quality)),
     addMesh,
     add,
