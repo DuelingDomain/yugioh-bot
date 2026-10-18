@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Plus } from "lucide-react";
+import { BugFabLift } from "@/components/bug-report/fab-lift";
 import type { Batch } from "./selection";
 import { EFFECT_SEARCH_ATTRIBUTION } from "./effect-api";
 import styles from "./effect-search.module.css";
@@ -43,7 +44,7 @@ export function BatchBar({
   const n = batch.cards.size;
   if (n === 0 && !note) return null;
   return (
-    <div className={styles.bar} role="region" aria-label="Batch" data-testid="batch-bar">
+    <BugFabLift className={styles.bar} role="region" aria-label="Batch" data-testid="batch-bar">
       {n > 0 && (
         <>
           <span className={styles.barCount} role="status">
@@ -75,6 +76,6 @@ export function BatchBar({
           {note}
         </p>
       ) : null}
-    </div>
+    </BugFabLift>
   );
 }

@@ -117,6 +117,14 @@ for (const viewport of VIEWPORTS) {
     await expect(tid(page, "batch-bar")).toContainText(`${picked} selected`);
     await expect(tid(page, "batch-add")).toHaveText(new RegExp(`Add ${picked} to cube`));
     expect(await noOverflow(page)).toBe(true);
+    // The floating report button must leave the batch's primary action clear at every width.
+    await expect.poll(() => tid(page, "batch-add").evaluate(add => {
+      const fab = document.querySelector<HTMLElement>("[data-bug-fab]");
+      if (!fab || !fab.getClientRects().length) return false;
+      const a = add.getBoundingClientRect(), b = fab.getBoundingClientRect();
+      return Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1
+        && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+    })).toBe(false);
     await page.screenshot({ path: join(SHOTS, `describe-batch-${viewport.width}x${viewport.height}.png`) });
 
     // One request adds the batch, and the entry can be taken out again.
