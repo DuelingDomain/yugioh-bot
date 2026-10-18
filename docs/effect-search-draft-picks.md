@@ -1,19 +1,5 @@
 # Smart draft picks
 
-Implement the approved phase 3 plan on the effect-search foundation.
-
-1. Add SQLite integration coverage for a fixed-seed eight-seat draft and a
-   random-policy draft with the same deal. Compare every seat's mechanical links.
-2. Add one shared scorer for popularity, `pickScore`, Main/Extra balance and
-   material supply. Keep seeded variation small and stable across service restarts.
-   Use only legal options, retaining copy caps, forced picks and theme phases.
-3. Use that scorer in the web bot loop and timeout expiry. Add private,
-   flag-controlled fit reasons to the current human pack in draft responses.
-4. Run targeted integration/regression checks, consumer type checks and the four
-   required browser viewports. Keep all work and commits in this worktree.
-
-This task supplies the draft UI contract; it does not change draft-room presentation.
-
 ## Contract
 
 Both `GET /api/drafts/[slug]` and `POST /api/drafts/[slug]/pick` return the same
@@ -33,8 +19,8 @@ with the same logic as `pickScore`. They are absent for zero scores, blocked
 choices, empty pools and disabled capability. A viewer without a seat receives
 no pack or pool. No numeric bot score, other seat's pool or private cube is added
 to this response. Render reasons outside existing corner badges and keep card
-geometry fixed on hover. This branch adds the optional card type field for the
-UI; it does not render a new draft-room badge or reason line.
+geometry fixed on hover. The optional card type field is available to the UI;
+the draft room currently leaves fit reasons unrendered.
 
 ## Shared policy
 
@@ -59,7 +45,7 @@ to the same operation. One pack shares a pool/profile snapshot instead of openin
 the read-only engine for each choice. Name search does not use this path.
 
 Smart automatic choices apply regardless of `EFFECT_SEARCH`. The flag controls
-human-facing reasons and attribution, consistent with the requested API gate.
+human-facing reasons and attribution.
 No paid model call, tag-generation change or schema migration is added.
 
 ## Material limits
@@ -79,45 +65,17 @@ uses controlled linked families, not a measured win rate over arbitrary cubes.
 
 ## Verification
 
-Node 22.23.3; heavy commands used `prlimit --core=0`. Targeted Vitest runs used
-one worker. All new tests are integration or browser e2e tests.
+Integration coverage includes fixed-seed eight-seat drafts, supported Extra Deck
+picks in mixed booster cubes, theme material requirements, copy limits, timeout
+fallbacks and database-busy propagation. A performance fixture expires eight
+seats with fifteen Synchros in each pool and requires the step to finish in less
+than 1.5 seconds, for both matching and unusable pack options. Ranking opens one
+catalog; draft response coverage checks that reasons do not invoke ranking.
 
-| Check | Result |
-| --- | --- |
-| Shared scoring, pinned artifact, draft phases/caps, concurrency, bot/worker timers | 203 tests passed, 10 files |
-| Web bot picks, fit reasons, flags/privacy, terminal races, caps and resilience | 70 tests passed, 8 files |
-| Shared and web TypeScript checks | Passed |
-| Shared, WS, duel-server, worker and production standalone web builds | Passed |
-| Playwright draft + effect-search viewport flows | 8 cases + 5 auth setup cases passed |
-
-The complete eight-seat draft uses a fixed shuffle seed and pick seed. Every
-40-card smart pool has a higher total mechanical link score than the same
-seat's pool under seeded random picks. Timeout-only play produces exactly the
-same eight pools as the smart bot policy. Repeating the draft reproduces all
-pools. The scalar/batch `pickScore` parity check uses the real pinned artifact.
-
-Browser checks ran at 1920×1080, 2560×1440, 1366×768 and 390×844. They cover the
-live pick response and draft layout, and the foundation's brand, credit,
-summary, stationary-hover and nonoverlapping-badge checks. Draft screenshots
-at all four sizes were visually inspected. Evidence remains in
-`packages/e2e/test-results/` and `.status/e2e-results.json`.
-
-Only isolated ports 3387/3388/4388/4389 were used. The prepared engine snapshot
-was read-only. Its wrapper pin differs from this branch's installed checked-in
-patch, so the existing `prepareManualData` helper verified the installed patch
-and created an isolated manifest in `.status/draft-picks-engine-runtime` with
-symlinks to the unchanged engine resources. No engine preparation ran.
-
-The E2E worker's unrelated startup Genesys sync logged a SQLite lock while the
-duel host imported tags; all requested flows passed. This startup contention
-remains outside the draft change. The web build also retains its existing
-dynamic-path tracing warning. Root Vitest commands exclude `**/.next/**` so
-standalone source copies are not counted as additional tests.
-
-Reproduce the main integration slice after building shared:
+Run the targeted integration slice on Node 22 after building shared:
 
 ```bash
-export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
+npm run build --workspace=packages/shared
 prlimit --core=0 -- npx vitest run \
   packages/shared/tests/draft-smart-picks.integration.test.ts \
   packages/shared/tests/card-insights.integration.test.ts \
@@ -128,7 +86,7 @@ prlimit --core=0 -- npx vitest run \
   -c packages/web/vitest.config.ts --maxWorkers=1
 ```
 
-The reviewer reproduced and verified the material edge cases; no findings
-remain from that review. Build outputs are removed after validation;
-`node_modules`, browser evidence and this local branch are retained. Nothing is
-pushed.
+The isolated browser stack runs `draft-smart-picks.spec.ts` at 1920×1080,
+2560×1440, 1366×768 and 390×844. It checks the live pick response, stationary
+hover geometry and horizontal overflow, then deletes its draft, bot identity
+and fixture catalog rows. See `packages/e2e/README.md` for stack setup.
