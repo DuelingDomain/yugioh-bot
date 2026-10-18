@@ -95,3 +95,13 @@ export async function resolveInsightCards(ranked: readonly RankedInsightCard[], 
   }
   return out;
 }
+
+/** True when the server has effect search on. A failed probe counts as off, so nothing shows that could not work. */
+export async function probeInsights(signal?: AbortSignal): Promise<boolean> {
+  try {
+    await postInsights({ op: "read", text: "search" }, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
