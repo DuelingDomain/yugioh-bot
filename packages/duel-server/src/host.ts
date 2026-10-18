@@ -3093,8 +3093,9 @@ export function createDuelHost(options: {
       try {
         const catalog = loadCardDatabase(options.dataDirectory);
         const enabled = effectSearchEnabled();
-        const effects = enabled ? cardEffectIndex(catalog) ?? createCardEffectIndex(options.db, catalog) : undefined;
-        return queryCards(catalog, parseCardQuery(body.cardQuery), cardRequestEntries(body, guildId, actor), await genesysAdmissionPoints(), { effects, effectSearchEnabled: enabled });
+        const query = parseCardQuery(body.cardQuery);
+        const effects = enabled || query.released || query.sort === "newest" ? cardEffectIndex(catalog) ?? createCardEffectIndex(options.db, catalog) : undefined;
+        return queryCards(catalog, query, cardRequestEntries(body, guildId, actor), await genesysAdmissionPoints(), { effects, effectSearchEnabled: enabled });
       } catch (error) {
         if (error instanceof CardQueryError) throw new RequestError(error.message, 400);
         throw error;

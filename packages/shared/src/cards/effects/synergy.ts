@@ -387,6 +387,7 @@ export function cardSynergy(anchor: Candidate, candidate: Candidate): CardLink {
 }
 
 export interface RankedInsightCard {
+  release?: import("./releases.js").CardReleaseInfo;
   passcode: number;
   name: string;
   score: number;

@@ -1,3 +1,4 @@
+import { isReleasedRange, type ReleasedRange, type CardReleaseInfo } from "../cards/effects/releases.js";
 import type { DuelCardInfo } from "./index.js";
 import type { Interpretation } from "../cards/effects/query.js";
 
@@ -11,7 +12,7 @@ export type CardSearchScope = "all" | "name";
 export type CardMatch = "any" | "all";
 export type CardPoolFilter = "any" | "tcg" | "ocg";
 export type CardLimitStatus = "forbidden" | "limited" | "semi-limited" | "unlimited";
-export type CardSort = "match" | "type" | "name" | "level" | "atk" | "def";
+export type CardSort = "match" | "type" | "name" | "level" | "atk" | "def" | "newest";
 export type SortOrder = "asc" | "desc";
 
 export const MONSTER_TYPE_KEYS = [
@@ -176,6 +177,7 @@ export interface CardRange {
 }
 
 export interface CardQuery {
+  released?: ReleasedRange;
   /** Words must all match; "quoted phrases" stay together; -word excludes. Digits also match passcodes. */
   text: string;
   scope: CardSearchScope;
@@ -221,6 +223,7 @@ export interface CardQuery {
 
 /** Engine catalog card with the fields the deck editor filters and badges on. */
 export interface DeckCardInfo extends DuelCardInfo {
+  release?: CardReleaseInfo;
   /** Server admission block, independent of format, card pool, competitive checks and banlist. */
   unavailableReason?: string;
   /** Selectable engine artwork family size minus one, when supplied by the host. */
@@ -361,7 +364,9 @@ export function parseCardQuery(raw: unknown): CardQuery {
   if (raw.exact !== undefined && typeof raw.exact !== "boolean") throw new CardQueryError("Invalid exact search flag");
   if (raw.effectOmit !== undefined && (!Array.isArray(raw.effectOmit) || raw.effectOmit.length > 24 || raw.effectOmit.some(value => typeof value !== "string" || value.length > 200))) throw new CardQueryError("Invalid omitted reading chips");
   if (raw.passcodes !== undefined && (!Array.isArray(raw.passcodes) || raw.passcodes.length > 5000 || raw.passcodes.some(value => typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0 || value > 0xffffffff))) throw new CardQueryError("Invalid card passcodes");
+  if (raw.released !== undefined && !isReleasedRange(raw.released)) throw new CardQueryError("Invalid release range");
   return {
+    ...(raw.released !== undefined ? { released: { ...raw.released as ReleasedRange } } : {}),
     ...(raw.exact !== undefined ? { exact: raw.exact } : {}),
     ...(raw.effectOmit !== undefined ? { effectOmit: [...new Set(raw.effectOmit as string[])] } : {}),
     ...(raw.effectOffset !== undefined ? { effectOffset: pickInt(raw.effectOffset, 0, 100000, 0, "effect offset") } : {}),
@@ -389,7 +394,7 @@ export function parseCardQuery(raw: unknown): CardQuery {
     banlist,
     limits: pickList(raw.limits, CARD_LIMIT_KEYS, "limit status"),
     pool: pick(raw.pool, ["any", "tcg", "ocg"] as const, base.pool, "card pool"),
-    sort: pick(raw.sort, ["match", "type", "name", "level", "atk", "def"] as const, base.sort, "sort"),
+    sort: pick(raw.sort, ["match", "type", "name", "level", "atk", "def", "newest"] as const, base.sort, "sort"),
     order: pick(raw.order, ["asc", "desc"] as const, base.order, "sort order"),
     offset: pickInt(raw.offset, 0, 100000, 0, "offset"),
     limit: pickInt(raw.limit, 1, CARD_QUERY_PAGE_MAX, base.limit, "page size"),

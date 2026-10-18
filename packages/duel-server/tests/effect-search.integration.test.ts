@@ -15,6 +15,9 @@ import { seedIdentity } from "./helpers/identity.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
 
 const effectCases: [string,string[],string[]][] = [
+  ["hand traps before 2015", ["Effect Veiler", "D.D. Crow"], ["Ash Blossom & Joyous Spring", "Infinite Impermanence"]],
+  ["GX era warriors", ["Elemental HERO Stratos"], ["Effect Veiler", "Blue-Eyes White Dragon", "Junk Synchron"]],
+  ["2000 atk", ["Gene-Warped Warwolf"], ["Effect Veiler", "Blue-Eyes White Dragon"]],
   [
     "hand traps that negate",
     [
@@ -481,7 +484,7 @@ beforeAll(() => {
 },20_000);
 
 afterAll(async()=>{
-  const report={queries:evaluatedQueries,expectedQueries:60,complete:evaluatedQueries===60,labeledTP,labeledFP,labeledFN,labeledTN,
+  const report={queries:evaluatedQueries,expectedQueries:64,complete:evaluatedQueries===64,labeledTP,labeledFP,labeledFN,labeledTN,
     labeledPrecision:labeledTP+labeledFP ? labeledTP/(labeledTP+labeledFP) : null,
     labeledRecall:labeledTP+labeledFN ? labeledTP/(labeledTP+labeledFN) : null};
   const output=resolve(import.meta.dirname,'../../../.status/effect-search');mkdirSync(output,{recursive:true});
@@ -490,11 +493,26 @@ afterAll(async()=>{
   if(host)await host.close();db.close();cards.close();vi.unstubAllEnvs();
 });
 
-describe('60-query real-artifact effect/name/synergy/format evaluation',()=>{
+describe('64-query real-artifact effect/name/synergy/format evaluation',()=>{
   it.each(effectCases)('effect: %s',(text,include,exclude)=>{
     evaluatedQueries++;
     const result=present(search(text,[...include,...exclude].map(code)));
     checkLabels(result,include,exclude,text);
+  });
+  it('newest spells orders the retained page by release date', () => {
+    evaluatedQueries++;
+    const pool = ['Monster Reborn', 'Twin Twisters', 'Raigeki'].map(code);
+    const result = search('newest spells', pool);
+    expect(result.reading?.chips).toContain('Sort: newest first');
+    expect(result.effectHits?.[0]?.name).toBe('Twin Twisters');
+    expect(result.effectHits?.every(card => card.release?.date)).toBe(true);
+    const names = search('', pool, { sort: 'newest', released: { to: '2005-12' } });
+    expect(names.cards.map(card => card.name)).not.toContain('Twin Twisters');
+    expect(names.cards.length).toBe(2);
+    expect(search('between 2008 and 2010', ['Effect Veiler', 'Ash Blossom & Joyous Spring'].map(code)).effectHits?.map(card => card.name)).toEqual(['Effect Veiler']);
+    const sql = createCardInsightService(db, { dataDirectory: engineDataDirectory });
+    expect(sql.effectSearch('newest spells', pool).cards[0]?.passcode).toBe(code('Twin Twisters'));
+    expect(present(search('hand traps before 2015', ['Effect Veiler', 'Ash Blossom & Joyous Spring'].map(code), { effectOmit: ['Released: before 2015'] }))).toContain(code('Ash Blossom & Joyous Spring'));
   });
   it.each(nameCases)('name/alias/typo: %s',(text,name)=>{
     evaluatedQueries++;
@@ -537,6 +555,9 @@ it('signed host card-query keeps name hits separate, supports pool/chip/exact/fl
   const typo=await (await post('eval',{text:'dark magicain'})).json();expect(typo.cards.map((card:any)=>card.name)).toContain('Dark Magician');expect(typo.reading).toBeNull();
   const exact=await (await post('eval',{text:'hand traps that negate',passcodes:pool,exact:true})).json();expect(exact.reading).toBeNull();expect(exact.effectHits).toEqual([]);
   const omitted=await (await post('eval',{text:'hand traps that negate',passcodes:pool,effectOmit:['Role: hand trap']})).json();expect(omitted.reading.chips).not.toContain('Role: hand trap');
+  const dated=await (await post('eval',{text:'hand traps before 2015',passcodes:pool})).json();
+  expect(dated.effectHits.map((card:any)=>card.code)).toEqual([code('Effect Veiler')]);
+  expect((await post('eval',{released:{from:'2015-13'}})).status).toBe(400);
   expect((await post('',{text:'Ash Blossom'})).status).toBe(400);
   vi.stubEnv('EFFECT_SEARCH','0');const off=await (await post('eval',{text:'hand traps that negate'})).json();expect(off.effectSearchEnabled).toBe(false);expect(off.effectHits).toBeUndefined();
 });

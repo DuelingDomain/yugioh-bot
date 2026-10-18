@@ -1,3 +1,4 @@
+import { cardEraBoost, deriveCardEra, matchesReleased, compareNewest, cardReleaseInfo, selectedReleaseDate, type ReleasedRange, type CardEra, type ReleaseDates } from "../cards/effects/releases.js";
 import type Database from "better-sqlite3";
 import type { DuelDeck } from "../duels/index.js";
 import { isBarredFromGenesys, isExtraDeckCard } from "../cards/effects/card.js";
@@ -10,6 +11,9 @@ import { createInsightCatalog, type InsightCatalog } from "./card-insight-catalo
 
 export type CardInsightFormat = "normal" | "domain" | "genesys" | "genesys-domain";
 export interface CardInsightOptions {
+  released?: ReleasedRange;
+  sort?: "match" | "newest";
+  era?: CardEra;
   limit?: number;
   format?: CardInsightFormat;
   genesysRemaining?: number;
@@ -37,24 +41,27 @@ export interface CardPoolHealth {
   extraDeck: { synchro: number; tuners: number; nonTuners: number; fusion: number; xyz: number; link: number; fusionEnablers: number; linkMaterialMonsters: number; xyzLevels: Record<string, number> };
   unlinkedPasscodes: number[];
   untaggedPasscodes: number[];
+  era?: CardEra;
   warnings: string[];
 }
 
-type Retained = RankedInsightCard & { popularity: number };
+type Retained = RankedInsightCard & { popularity: number; releaseDates: ReleaseDates };
 const compare = (a: Retained, b: Retained) => b.linkedCards - a.linkedCards || b.score - a.score || b.popularity - a.popularity || a.passcode - b.passcode;
 const limitOf = (value?: number) => Math.max(1, Math.min(120, Number.isFinite(value) ? Math.floor(value!) : 30));
 const domain = (format?: CardInsightFormat) => format === "domain" || format === "genesys-domain";
 const allowed = ({ card }: Candidate, options: CardInsightOptions) => {
+  if (!matchesReleased(card, options.released)) return false;
   if (options.format !== "genesys" && options.format !== "genesys-domain") return true;
   return !isBarredFromGenesys(card) && card.genesysPoints !== undefined && card.genesysPoints <= (options.genesysRemaining ?? Infinity);
 };
-const retain = (ranked: Retained[], result: RankedInsightCard, candidate: Candidate, limit: number) => {
-  const entry = { ...result, popularity: candidate.card.views };
-  if (ranked.length === limit && compare(entry, ranked[ranked.length - 1]!) >= 0) return;
-  ranked.push(entry); ranked.sort(compare);
+const retain = (ranked: Retained[], result: RankedInsightCard, candidate: Candidate, limit: number, opts: CardInsightOptions = {}) => {
+  const comparePage = (a: Retained, b: Retained) => (opts.sort === "newest" ? compareNewest(a.releaseDates, b.releaseDates, opts.released?.region) : 0) || compare(a, b);
+  const entry = { ...result, release: cardReleaseInfo(candidate.card, opts.released?.region), popularity: candidate.card.views, releaseDates: candidate.card };
+  if (ranked.length === limit && comparePage(entry, ranked[ranked.length - 1]!) >= 0) return;
+  ranked.push(entry); ranked.sort(comparePage);
   if (ranked.length > limit) ranked.pop();
 };
-const withoutPopularity = (ranked: Retained[]) => ranked.map(({ popularity: _popularity, ...card }) => card);
+const withoutPopularity = (ranked: Retained[]) => ranked.map(({ popularity: _popularity, releaseDates: _releaseDates, ...card }) => card);
 const codesOf = (deck: DuelDeck | readonly number[]): readonly number[] => Array.isArray(deck) ? deck : [...(deck as DuelDeck).main, ...(deck as DuelDeck).extra, ...(deck as DuelDeck).side];
 const synergyTarget = (text: string) => text.trim().match(/^(?:cards?\s+that\s+)?(?:works?\s+(?:well\s+)?with|synerg(?:y|ies|izes?)\s+(?:with|for)|partners?\s+for)\s+(.+?)\s*[?.!]?$/i)?.[1];
 
@@ -108,9 +115,10 @@ export function createCardInsightService(db: Database.Database, options: { dataD
       if (owned.has(candidate.card.id) || !allowed(candidate, opts)) continue;
       const result = scoreForDeck(candidate, deck, profiles);
       if (result.score <= 0) continue;
+      result.score += cardEraBoost(candidate.card, opts.era);
       total++;
       if (master) result.deckMasterFit = cardSynergy(master, candidate).score > 0;
-      retain(ranked, result, candidate, limitOf(opts.limit));
+      retain(ranked, result, candidate, limitOf(opts.limit), opts);
     }
     return { cards: withoutPopularity(ranked), total };
   };
@@ -133,7 +141,7 @@ export function createCardInsightService(db: Database.Database, options: { dataD
           if (!allowed(candidate, opts) || !`${candidate.card.pendulumText ?? ""}\n${candidate.card.text}`.toLowerCase().includes(literal)) continue;
           total++;
           retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: 0, linkedCards: 0, reason: `Text: ${text.trim()}`,
-            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit));
+            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), opts);
         }
         return { reading: null, cards: withoutPopularity(ranked), total };
       });
@@ -141,10 +149,12 @@ export function createCardInsightService(db: Database.Database, options: { dataD
       const reading = initial ? omitReadingChips(initial, opts.omittedChips) : null;
       if (!reading || pool?.length === 0) return { reading, cards: [], total: 0 };
       const target = synergyTarget(text), anchor = target && !opts.omittedChips?.includes(initial!.chips[0]!) ? resolveTarget(target) : undefined;
+      const effective = { ...opts, sort: opts.sort ?? reading.query.sort,
+        released: { ...opts.released, region: opts.released?.region ?? reading.query.released?.region } };
       return withCatalog(catalog => {
         if (anchor !== undefined) {
           const candidate = catalog.candidate(anchor);
-          return { reading, ...rank(catalog, candidate ? [candidate] : [], pool, opts) };
+          return { reading, ...rank(catalog, candidate ? [candidate] : [], pool, effective) };
         }
         const ranked: Retained[] = [], words = normalizeImportedCardName(reading.query.text).split(" ").filter(Boolean);
         const master = domain(opts.format) && opts.deckMaster !== undefined ? catalog.candidate(opts.deckMaster) : undefined;
@@ -156,8 +166,8 @@ export function createCardInsightService(db: Database.Database, options: { dataD
           const score = matchCard(candidate.card, candidate.tags, reading.query);
           if (score === null) continue;
           total++;
-          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score, linkedCards: 0, reason: reading.chips.join("; "),
-            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit));
+          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + cardEraBoost(candidate.card, opts.era), linkedCards: 0, reason: reading.chips.join("; "),
+            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), effective);
         }
         return { reading, cards: withoutPopularity(ranked), total };
       });
@@ -174,11 +184,17 @@ export function createCardInsightService(db: Database.Database, options: { dataD
         return rank(catalog, anchors, opts.pool, { ...opts, deckMaster: master }).cards;
       });
     },
-    poolHealth(codes: readonly number[]): CardPoolHealth {
+    poolHealth(codes: readonly number[], opts: { era?: CardEra } = {}): CardPoolHealth {
       return withCatalog(catalog => {
         const canonical = [...new Set(codes.map(catalog.canonical))].sort((a, b) => a - b);
         const candidates = [...catalog.candidates(canonical)], known = new Map(candidates.map(candidate => [candidate.card.id, candidate]));
         const health: CardPoolHealth = { cards: canonical.length, roles: { searchers: 0, extenders: 0, removal: 0, handTraps: 0 }, extraDeck: { synchro: 0, tuners: 0, nonTuners: 0, fusion: 0, xyz: 0, link: 0, fusionEnablers: 0, linkMaterialMonsters: 0, xyzLevels: {} }, unlinkedPasscodes: [], untaggedPasscodes: [], warnings: [] };
+        health.era = opts.era ?? deriveCardEra(candidates.map(candidate => candidate.card));
+        if (health.era) {
+          const threshold = health.era.medianYear + Math.max(5, health.era.spread * 2);
+          const newer = candidates.filter(({ card }) => { const date = selectedReleaseDate(card); return date && Number(date.slice(0, 4)) > threshold; }).length;
+          if (newer) health.warnings.push(`${newer} ${newer === 1 ? "card is" : "cards are"} much newer than the rest of this cube.`);
+        }
         const main = candidates.filter(({ card }) => card.kind === "monster" && !isExtraDeckCard(card));
         for (const code of canonical) {
           const candidate = known.get(code);
