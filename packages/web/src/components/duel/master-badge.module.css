@@ -251,6 +251,9 @@
   rotate: 180deg;
 }
 
+/* The 3-way corner has no hand beside it: the line and the label stand on the left of the card instead. */
+.wrap[data-corner="true"] .divider { left: auto; right: calc(100% + 8px); }
+
 /* A small slot (a Tag chip) leaves the state pill out; the pop-over still says where the card is. */
 :global([data-dm-compact]) .state { display: none; }
 
@@ -340,10 +343,11 @@
 .popActs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .act {
   display: inline-flex;
-  flex: 1 1 0;
+  flex: 1 1 auto;
   align-items: center;
   justify-content: center;
   gap: 5px;
+  white-space: nowrap;
   min-width: 78px;
   min-height: 34px;
   padding: 0 10px;

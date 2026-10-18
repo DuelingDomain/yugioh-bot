@@ -1,21 +1,22 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Link2, ScrollText, Search, SlidersHorizontal } from "lucide-react";
+import { Link2, ScrollText, SlidersHorizontal } from "lucide-react";
 import type { DuelChainLink } from "@yugidraft/shared/duels";
 import { EdgeDrawer } from "@/components/duel/edge-drawer";
-import { cardScrollerProps, type InspectTarget } from "../inspector";
 import { ChainTower, type HudPane } from "./grid-hud";
 import type { HudPaneState } from "./hud-layer";
 import styles from "./grid-hud.module.css";
 
 /**
- * The side content of the 4-way grid as left-edge drawers (bigger-field contract). The log, the settings, the Deck Master, the live
- * chain and the card panel are closed by default: only a small glowing tab shows at the left edge, so the board runs the whole width.
- * One drawer is open at most; the open one is the shell's `hud.pane`, so every opener of the flyout (a dock icon of the old HUD, Inspect
- * on a plate, a log row) works unchanged. A drawer opens from its tab (click, Enter, Space or a resting mouse), from its key, or from the
- * shell; Escape and a press outside close it. The tab glows when something needs a look: new log rows, a Deck Master action you can
- * take, a live chain.
+ * The side content of the 4-way grid as left-edge drawers (bigger-field contract). The log, the settings and the live chain are closed
+ * by default: only a small glowing tab shows at the left edge, so the board runs the whole width.
+ * One drawer is open at most; the open one is the shell's `hud.pane`. A drawer opens from its tab (click, Enter or Space), from its key, or from the
+ * shell, never from a resting mouse; Escape and a press outside close it. The tabs of the closed drawers stand on the outer face of the open
+ * one (edge-drawer.tsx), so each stays in view and the user can switch at any time. The tab glows when something needs a look: new log rows,
+ * a live chain.
+ *
+ * There is no Inspect drawer: a click on a card, and Inspect on a Deck Master or a log row, open the pinned card pop-out (grid-preview.tsx).
  */
 
 /** The tab: 26px wide, a label rotated on its side. Used to stack the tabs without overlap (they are placed by their centre). */
@@ -46,17 +47,16 @@ interface Entry {
 
 export interface EdgeHudProps {
   hud: HudPaneState;
-  panels: { card: ReactNode; settings: ReactNode; log?: ReactNode };
+  panels: { settings: ReactNode; log?: ReactNode };
   chain: readonly DuelChainLink[];
   /** A chain is live: the Chain tab shows. */
   chainOpen: boolean;
   nameOf: (seat: number) => string;
   seatTones: ReadonlyMap<number, { main: string; ink: string }>;
   logUnread: number;
-  onInspect: (target: InspectTarget) => void;
 }
 
-export function EdgeHud({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, onInspect }: EdgeHudProps) {
+export function EdgeHud({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread }: EdgeHudProps) {
   const { pane, setPane } = hud;
   const entries: Entry[] = [];
   entries.push({
@@ -70,7 +70,6 @@ export function EdgeHud({ hud, panels, chain, chainOpen, nameOf, seatTones, logU
       node: <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} />,
     });
   }
-  entries.push({ id: "card", label: "Inspect", icon: <Search />, shortcut: "i", size: "min(400px, 92vw)", node: panels.card });
 
   // The chain drawer goes with the chain: a pane that has no tab any more must not hold the shell's Esc and hide the peek.
   useEffect(() => { if (pane === "chain" && !(chainOpen && chain.length > 0)) setPane(null); }, [pane, chainOpen, chain.length, setPane]);
@@ -103,7 +102,7 @@ export function EdgeHud({ hud, panels, chain, chainOpen, nameOf, seatTones, logU
             className={styles.edgeDrawer}
             panelClassName={styles.edgePanel}
           >
-            <div className={styles.edgeBody} data-pane={entry.id} data-hud-keep="" {...(entry.id === "card" ? cardScrollerProps(open) : {})}>
+            <div className={styles.edgeBody} data-pane={entry.id} data-hud-keep="">
               {entry.node}
             </div>
           </EdgeDrawer>

@@ -2,7 +2,7 @@
 .de-card { display: grid; align-content: start; gap: 10px; }
 .art {
   position: relative;
-  width: min(100%, 200px);
+  width: min(100%, var(--card-art-w, 200px));
   margin: 0 auto;
   aspect-ratio: 421 / 614;
   border-radius: 3px;
@@ -20,9 +20,9 @@
 .de-art { justify-self: center; }
 .full { opacity: 0; transition: opacity 120ms ease-out; }
 .full[data-loaded="true"] { opacity: 1; }
-.de-cn { font: 400 20px/1.15 var(--f-disp); letter-spacing: -0.005em; overflow-wrap: anywhere; }
+.de-cn { margin: 0; font: 400 20px/1.15 var(--f-disp); letter-spacing: -0.005em; overflow-wrap: anywhere; }
 .de-facts { display: flex; flex-wrap: wrap; gap: 3px 10px; color: var(--ink-3); font-size: 12.5px; }
-.de-text { color: var(--ink-2); font-size: 13.5px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
+.de-text { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
 .de-pc { color: var(--ink-4); font-size: 12px; }
 .de-card[data-compact] { grid-template-columns: 72px minmax(0, 1fr); gap: 5px 12px; padding-right: 36px; }
 .de-card[data-compact] .de-art { grid-column: 1; grid-row: 1 / 4; width: 72px; margin: 0; }

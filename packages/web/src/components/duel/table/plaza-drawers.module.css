@@ -4,6 +4,12 @@
  */
 .keep { display: contents; }
 
+/* Every drawer is on the left edge. The drawer area starts under the header pills, which float over the top band of the stage,
+   so an open panel never covers them and the tab column starts at the top left, away from the bottom-left corner. */
+.drawer.drawer[data-side="left"] {
+  top: var(--plaza-drawer-top, 76px);
+}
+
 .panel {
   font-family: var(--duel-f-ui);
   color: var(--duel-ink);

@@ -251,8 +251,8 @@ function TableShellBody({
   const plazaHud = !narrow && !grid && trackedFormat === "ffa3";
   // The 4-way grid on a wide screen swaps the bars and side columns for the floating HUD (grid-hud.tsx).
   const hud = !narrow && (grid || plazaHud);
-  // The Card pane is a flyout in the HUD: a hover must not fill it, only a click or Inspect does.
-  const hudState = useHudPane({ camera: plazaHud, initialPane: replayCarry?.current.hudPane });
+  // No Card drawer in the 3-way plaza or the 4-way grid: a click on a card (and Inspect) opens the pinned card pop-out.
+  const hudState = useHudPane({ camera: plazaHud, cardPane: false, initialPane: replayCarry?.current.hudPane });
   const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (grid && hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   useHudEscape(hudState, hud, ui.suspended);
   usePinSync(hudState, tracked.engine.seats);
@@ -618,7 +618,7 @@ function TableShellBody({
 
   // The Deck Master badges (the corner of each LP plate) read their seat's master from here, with this table's keys and prompt.
   const showMasterCard = (target: InspectTarget) => {
-    if (hud) { ui.setInspect(target); hudState.setPane("card"); }
+    if (hud) { ui.setInspect(target); hudState.openCard(target); }
     else inspectCard(target);
   };
   const masterBadges: MasterBadgeSource | null = domain ? {
@@ -630,7 +630,8 @@ function TableShellBody({
       true,
     ),
     onInspect: showMasterCard,
-    apart: true,
+    // The 3-way plaza has free table at the bottom left: the emblem stands there instead of in the hand row.
+    apart: plazaHud ? "corner" : true,
   } : null;
 
   // The 3-way plaza keeps its side content in edge drawers (plaza-drawers.tsx); the grid and the other tables keep the floating HUD.
@@ -951,7 +952,6 @@ function TableShellBody({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          onInspect={showMasterCard}
           preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={ui.pile?.open === true}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { ChevronDown, CircleAlert, TriangleAlert } from "lucide-react";
+import { ChevronDown, CircleAlert, Info, TriangleAlert } from "lucide-react";
 import { SvButton } from "@/components/sheet";
 import { MAX_NAME_LENGTH } from "./model";
 import { duplicateLabel, hasErrors, importModeLabel, isLookupLimited, omittedCount, realIssues, selectedItems, type PreviewItem } from "./bulk-import";
@@ -12,12 +12,21 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-type Detail = { key: string; tone: "error" | "warn"; code: string; text: string; line?: number };
+type Detail = { key: string; tone: "error" | "warn" | "info"; text: string; line?: number; passcodes?: string };
+
+/** The passcodes stay as small detail next to the plain text: "from → to" for a remap, else the one passcode. */
+function passcodesOf(issue: { passcode?: number; from?: number; to?: number }): string | undefined {
+  if (issue.from != null && issue.to != null) return `${issue.from} → ${issue.to}`;
+  return issue.passcode != null ? String(issue.passcode) : undefined;
+}
 
 function detailsOf(item: PreviewItem): Detail[] {
+  const detail = (key: string, tone: Detail["tone"]) => (issue: { message: string; line?: number; passcode?: number; from?: number; to?: number }, i: number): Detail =>
+    ({ key: `${key}${i}`, tone, text: issue.message, line: issue.line, passcodes: passcodesOf(issue) });
   return [
-    ...realIssues(item.row.errors).map((issue, i): Detail => ({ key: `e${i}`, tone: "error", code: issue.code, text: issue.message, line: issue.line })),
-    ...realIssues(item.row.warnings).map((issue, i): Detail => ({ key: `w${i}`, tone: "warn", code: issue.code, text: issue.message, line: issue.line })),
+    ...realIssues(item.row.errors).map(detail("e", "error")),
+    ...realIssues(item.row.warnings).map(detail("w", "warn")),
+    ...realIssues(item.row.notes ?? []).map(detail("n", "info")),
   ];
 }
 
@@ -40,8 +49,9 @@ function PreviewRow({ item, items, cards, bind, disabled, onRename, onToggle, on
   const label = item.name.trim() || row.name;
   const errorCount = realIssues(row.errors).length;
   const warningCount = realIssues(row.warnings).length;
+  const noteCount = realIssues(row.notes ?? []).length;
   const omitted = omittedCount(row);
-  // The first problem reads inline while the list is closed: an error first, else the first warning.
+  // The first problem reads inline while the list is closed: an error first, else a warning, else a note.
   const lead = details.find((detail) => detail.tone === "error") ?? details[0];
   return (
     <li className={styles.pvRow} data-blocked={blocked ? "" : undefined} data-selected={item.selected ? "" : undefined}>
@@ -100,6 +110,13 @@ function PreviewRow({ item, items, cards, bind, disabled, onRename, onToggle, on
                 <ChevronDown size={14} aria-hidden="true" className={styles.pvCaret} />
               </button>
             ) : null}
+            {noteCount > 0 ? (
+              <button type="button" className={styles.pvChip} data-tone="info" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen((o) => !o)}>
+                <Info size={14} aria-hidden="true" />
+                {plural(noteCount, "note")}
+                <ChevronDown size={14} aria-hidden="true" className={styles.pvCaret} />
+              </button>
+            ) : null}
             {lead && !open ? <span className={styles.pvLead} data-tone={lead.tone}>{lead.text}</span> : null}
           </p>
         ) : null}
@@ -107,9 +124,9 @@ function PreviewRow({ item, items, cards, bind, disabled, onRename, onToggle, on
           <ul id={detailsId} className={styles.pvDetails}>
             {details.map((detail) => (
               <li key={detail.key} data-tone={detail.tone}>
-                <span className={styles.pvCode}>{detail.code}</span>
                 {detail.line != null ? <span className={styles.pvLine}>Line {detail.line}</span> : null}
-                {detail.text}
+                <span className={styles.pvText}>{detail.text}</span>
+                {detail.passcodes ? <span className={styles.pvCode}>{detail.passcodes}</span> : null}
               </li>
             ))}
             {omitted > 0 ? <li data-tone="more">and {omitted} more</li> : null}
