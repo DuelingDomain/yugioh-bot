@@ -103,6 +103,11 @@
       "types": "./dist/cards/effects/capability.d.ts",
       "source": "./src/cards/effects/capability.ts",
       "default": "./dist/cards/effects/capability.js"
+    },
+    "./cards/effects/name-match": {
+      "types": "./dist/cards/effects/name-match.d.ts",
+      "source": "./src/cards/effects/name-match.ts",
+      "default": "./dist/cards/effects/name-match.js"
     }
   },
   "scripts": {

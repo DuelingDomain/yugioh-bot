@@ -14,6 +14,8 @@ const roots: string[] = [];
 const databases: Database.Database[] = [];
 const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 const sourceHashes = () => JSON.parse(gunzipSync(readFileSync(join(artifactDirectory, "source-hashes.json.gz"))).toString("utf8")).hashes;
+const pinnedManifest = () => JSON.parse(readFileSync(join(artifactDirectory, "manifest.json"), "utf8"));
+const pinnedTag = (id: number) => gunzipSync(readFileSync(join(artifactDirectory, "tags.jsonl.gz"))).toString("utf8").trim().split("\n").map(line => JSON.parse(line)).find(row => row.id === id).tags;
 afterEach(() => {
   databases.splice(0).forEach(db => db.close());
   roots.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true }));
@@ -41,7 +43,8 @@ async function importer() {
 describe("the pinned searchygo artifact and SQLite import", () => {
   it("verifies the shipped pin independently of SQLite and refuses corrupted source hashes", async () => {
     const { verifyCardEffectArtifact } = await import("../src/cards/effects/artifact.js");
-    expect(verifyCardEffectArtifact()).toMatchObject({ tags: 13694, profiles: 530 });
+    const manifest = pinnedManifest();
+    expect(verifyCardEffectArtifact()).toMatchObject({ tags: manifest.files.tags.records, profiles: manifest.files.profiles.records });
     const directory = copyArtifact();
     writeFileSync(join(directory, "source-hashes.json.gz"), "corrupt");
     expect(() => verifyCardEffectArtifact(directory)).toThrow(/hash|integrity/i);
@@ -66,7 +69,7 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     expect(report.coverage).toMatchObject({ catalogCards: 2, taggedCards: 1, missingCards: 1, percent: 50, missing: [{ passcode: 99999999, name: "Uncovered card" }] });
     expect(report.coverage.artifactOnlyPasscodes.length).toBeGreaterThan(13_000);
     const row = db.prepare("SELECT summary,roles_json,tags_json,text_hash,source,schema_version FROM card_tags WHERE passcode=14558127").get() as Record<string, string | number>;
-    expect(row.summary).toContain("Hand trap");
+    expect(row.summary).toBe(pinnedTag(14558127).summary);
     expect(JSON.parse(String(row.roles_json))).toContain("hand_trap");
     expect(JSON.parse(String(row.tags_json)).summary).toBe(row.summary);
     expect(row.text_hash).toBe(sourceHashes()[14558127]);
@@ -76,8 +79,8 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     const popularity = JSON.parse(gunzipSync(readFileSync(join(artifactDirectory, "popularity.json.gz"))).toString("utf8"));
     expect(popularity[14558127]).toBeGreaterThan(0);
     expect(db.prepare("SELECT popularity FROM card_tags WHERE passcode=14558127").get()).toEqual({ popularity: popularity[14558127] });
-    expect(db.prepare("SELECT COUNT(*) AS count FROM card_tags WHERE text_hash IS NULL").get()).toEqual({ count: 1 });
-    expect(db.prepare("SELECT text_hash FROM card_tags WHERE passcode=101402101").get()).toEqual({ text_hash: null });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM card_tags WHERE text_hash IS NULL").get()).toEqual({ count: Object.values(sourceHashes()).filter(hash => hash === null).length });
+    expect(db.prepare("SELECT text_hash FROM card_tags WHERE passcode=101402101").get()).toEqual({ text_hash: sourceHashes()[101402101] });
     const profile = db.prepare("SELECT plan,hooks_json,cards FROM card_tag_profiles WHERE archetype='Dark World'").get() as { plan: string; hooks_json: string; cards: number };
     expect(profile.plan).toContain("Fiends");
     expect(JSON.parse(profile.hooks_json)).not.toHaveLength(0);
@@ -170,6 +173,17 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     db.prepare("DELETE FROM card_tag_artifact_imports").run();
     expect(importArtifact(db).preservedProfiles).toBe(1);
     expect(db.prepare("SELECT plan,source FROM card_tag_profiles WHERE archetype='Dark World'").get()).toEqual({ plan: "Reviewed manual plan", source: "Searchygo-artifact:manual" });
+  });
+
+  it("passes the source name to explicit missing-ID bridges without rewriting source metadata", async () => {
+    const db = database(), importArtifact = await importer();
+    catalog(db, 83764718, "Monster Reborn");
+    importArtifact(db, { canonicalize: (code, name) => name === "Monster Reborn" ? 83764718 : code });
+    const row = db.prepare("SELECT summary,text_hash FROM card_tags WHERE passcode=83764718").get() as { summary: string; text_hash: string };
+    expect(row.summary).toMatch(/Special Summon|revive/i);
+    expect(row.text_hash).toBe(sourceHashes()[83764719]);
+    expect(db.prepare("SELECT passcode FROM card_tags WHERE passcode=83764719").all()).toEqual([]);
+    expect(db.prepare("SELECT ygoprodeck_id,name FROM card_catalog").all()).toEqual([{ ygoprodeck_id: 83764718, name: "Monster Reborn" }]);
   });
 
   it("carries real imported tags in engine migrations and retains an existing official target", async () => {

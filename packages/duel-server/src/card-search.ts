@@ -24,6 +24,8 @@ import { BANLIST_NONE_ID, BANLIST_OCG_2026_07_ID, BANLIST_TCG_2026_09_ID, banlis
 import { cardArtworkFamily } from "./card-artworks.js";
 import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
 import type { CardDatabase } from "./cards.js";
+import { effectSearchEnabled, resolveEffectName } from "@yugidraft/shared/cards/effects";
+import { cardEffectIndex, type CardEffectIndex } from "./card-effects.js";
 
 type Kind = "monster" | "spell" | "trap" | "other";
 
@@ -156,6 +158,10 @@ type Matcher = (entry: Entry) => boolean;
 
 function compile(query: CardQuery, index: Index, genesysPoints?: ReadonlyMap<number, number | null>): Matcher[] {
   const checks: Matcher[] = [];
+  if (query.passcodes !== undefined) {
+    const pool = new Set(query.passcodes.map(code => index.byCode.get(code)?.card.canonicalPasscode ?? code));
+    checks.push(entry => pool.has(entry.card.canonicalPasscode ?? entry.card.code));
+  }
   if (query.excludeGenesysForbidden) checks.push(entry => !isGenesysForbiddenType(entry.card));
   const range = query.genesysPoints;
   if (range && (range.min != null || range.max != null)) checks.push(entry => {
@@ -296,11 +302,17 @@ function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null): 
 }
 
 /** Runs a validated deck-editor query over the engine catalog. */
-export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>): CardQueryResult {
+export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; effectSearchEnabled?: boolean } = {}): CardQueryResult {
   const index = indexFor(cards);
   const blocked = blocksFor(cards, entries);
-  const checks = compile(query, index, genesysPoints);
+  const enabled = options.effectSearchEnabled ?? effectSearchEnabled();
+  const effects = enabled ? options.effects ?? cardEffectIndex(cards) : undefined;
+  let reading = effects && !query.exact && query.scope !== "name" ? effects.readQuery(query.text, query.effectOmit) : null;
+  const checks = compile(reading ? { ...query, scope: "name" } : query, index, genesysPoints);
   const passes = (entry: Entry) => checks.every((check) => check(entry));
+  const effectChecks = reading ? compile({ ...query, text: "" }, index, genesysPoints) : [];
+  const effectTerms = reading ? parseCardSearchTerms(reading.query.text) : [];
+  const effectFound: Array<{ entry: Entry; score: number }> = [];
 
   const trimmed = query.text.trim();
   const exact = /^\d+$/.test(trimmed) ? index.byCode.get(Number(trimmed)) : undefined;
@@ -311,6 +323,10 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   for (const entry of index.entries) {
     if (entry.hidden || entry === exact || (exactFamily !== undefined && cardArtworkFamily(cards, entry.card.code)?.passcode === exactFamily)) continue;
     if (passes(entry)) found.push(entry);
+    else if (reading && effectChecks.every(check => check(entry))) {
+      const score = effects!.match(entry.card.code, reading);
+      if (score !== null && effectTerms.every(term => entry.text.includes(term.text) !== term.negate)) effectFound.push({ entry, score });
+    }
   }
   const member: Matcher | null = query.archetypeMode === "related" && query.archetypes.length > 0
     ? (entry) => query.archetypes.some((code) => inArchetype(entry.card.setcodes, code))
@@ -318,13 +334,33 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const sorted = sortEntries(found, query, member);
   // An exact passcode leads, even for an alternate artwork that the list otherwise hides.
   if (exact && exactPasses) sorted.unshift(exact);
+  // Alias/typo correction is an empty-result fallback, so successful name queries keep the same scan.
+  if (!sorted.length && !query.exact && trimmed && !/^\d+$/.test(trimmed) && !/"/.test(trimmed) && !parseCardSearchTerms(trimmed).some(term => term.negate)) {
+    const filters = compile({ ...query, text: "" }, index, genesysPoints);
+    const eligible = index.entries.filter(entry => !entry.hidden && filters.every(check => check(entry)));
+    const compact = foldCardText(trimmed).replaceAll(" ", "");
+    const aliases = eligible.filter(entry => entry.name.replaceAll(" ", "").includes(compact));
+    if (aliases.length) sorted.push(...sortEntries(aliases, query, member));
+    else {
+      const nearby = resolveEffectName(eligible.map(entry => ({ name: entry.card.name, entry })), trimmed);
+      if (nearby) sorted.push(nearby.entry);
+    }
+    // A full-query name correction wins over vocabulary accidentally read
+    // from that name (e.g. "bule eyes white dragon" or "dark magicain").
+    if (sorted.length) { reading = null; effectFound.length = 0; }
+  }
+  const decorate = (entry: Entry) => ({ ...entry.card,
+    genesysPoints: genesysPoints?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? null,
+    ...(blocked.has(entry.card.code) ? { unavailableReason: blocked.get(entry.card.code)!.reason } : {}),
+    altArtCount: cardArtworkFamily(cards, entry.card.code)!.artworks.length - 1 });
+  effectFound.sort((a, b) => b.score - a.score || effects!.popularity(b.entry.card.code) - effects!.popularity(a.entry.card.code) || a.entry.card.code - b.entry.card.code);
+  const effectOffset = query.effectOffset ?? query.offset;
   return {
-    cards: sorted.slice(query.offset, query.offset + query.limit).map((entry) => ({ ...entry.card,
-      genesysPoints: genesysPoints?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? null,
-      ...(blocked.has(entry.card.code) ? { unavailableReason: blocked.get(entry.card.code)!.reason } : {}),
-      altArtCount: cardArtworkFamily(cards, entry.card.code)!.artworks.length - 1 })),
+    cards: sorted.slice(query.offset, query.offset + query.limit).map(decorate),
     total: sorted.length,
     offset: query.offset,
+    effectSearchEnabled: enabled,
+    ...(enabled ? { reading, effectHits: effectFound.slice(effectOffset, effectOffset + Math.min(query.limit, 30)).map(({ entry, score }) => ({ ...decorate(entry), score, reason: reading!.chips.join(" · ").slice(0, 200) })), effectTotal: effectFound.length, effectOffset } : {}),
   };
 }
 

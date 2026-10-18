@@ -46,7 +46,7 @@ importCardEffectArtifact(
   options?: {
     directory?: string;
     remaps?: ReadonlyMap<number, number>;
-    canonicalize?: (passcode: number) => number;
+    canonicalize?: (passcode: number, name?: string) => number;
     textFor?: (passcode: number) => string | undefined;
   },
 ): CardEffectArtifactImportReport
@@ -76,6 +76,10 @@ direct popularity entry, the largest folded view count is used.
 
 Unknown catalog/engine IDs are retained, because the artifact and engine have
 different coverage. Tag rows intentionally have no catalog foreign key.
+The optional identity callback receives a tag's original printed name. A caller
+can explicitly bridge an absent source ID through an exact, unique engine name;
+the importer performs no name matching by default. The resulting identity is
+memoized for popularity and coverage without altering source text hashes.
 
 `text_hash` comes from the verified tagged-source sidecar. It is SHA-256 of actual
 printed input text, with CRLF/CR converted to LF and each text field trimmed;

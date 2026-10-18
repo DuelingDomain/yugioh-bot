@@ -37,6 +37,7 @@ const NEEDS_ENGINE = [
   // cards.cdb (card data, deck legality, scenario names)
   "tests/card-data-abi.test.ts",
   "tests/card-search.test.ts",
+  "tests/effect-search.integration.test.ts",
   "tests/deck-import.test.ts",
   "tests/deck-legality-multiplayer.test.ts",
   "tests/deck-legality-settings.test.ts",

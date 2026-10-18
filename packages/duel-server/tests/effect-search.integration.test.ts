@@ -1,0 +1,527 @@
+import Database from "better-sqlite3";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
+import { migrate } from "@yugidraft/shared/db";
+import { importCardEffectArtifact } from "@yugidraft/shared/cards/effects";
+import { createCardInsightService } from "@yugidraft/shared/services";
+import { emptyCardQuery, type CardQuery } from "@yugidraft/shared/duels";
+import { loadCardDatabase } from "../src/cards.js";
+import { createCardEffectIndex, createCanonicalEffectResolver } from "../src/card-effects.js";
+import { queryCards } from "../src/card-search.js";
+import { createDuelHost, type DuelHost } from "../src/host.js";
+import { signedHeaders } from "./helpers/signed-request.js";
+import { seedIdentity } from "./helpers/identity.js";
+import { engineDataDirectory } from "./engine-data-dir.js";
+
+const effectCases: [string,string[],string[]][] = [
+  [
+    "hand traps that negate",
+    [
+      "Ash Blossom & Joyous Spring",
+      "Effect Veiler",
+      "Infinite Impermanence"
+    ],
+    [
+      "Blue-Eyes White Dragon",
+      "Raigeki"
+    ]
+  ],
+  [
+    "handtrap that negates",
+    [
+      "Ash Blossom & Joyous Spring",
+      "Effect Veiler"
+    ],
+    [
+      "Dark Magician"
+    ]
+  ],
+  [
+    "banish from opponent's GY",
+    [
+      "Called by the Grave",
+      "D.D. Crow"
+    ],
+    [
+      "Effect Veiler",
+      "Raigeki"
+    ]
+  ],
+  [
+    "banish from enemy GY",
+    [
+      "Called by the Grave",
+      "D.D. Crow"
+    ],
+    [
+      "Monster Reborn"
+    ]
+  ],
+  [
+    "level 4 tuner that searches",
+    [
+      "Scrap Raptor"
+    ],
+    [
+      "Ash Blossom & Joyous Spring"
+    ]
+  ],
+  [
+    "lv 4 tuner that searches",
+    [
+      "Scrap Raptor"
+    ],
+    [
+      "Effect Veiler"
+    ]
+  ],
+  [
+    "Spellcaster that negates",
+    [
+      "Effect Veiler"
+    ],
+    [
+      "Ash Blossom & Joyous Spring"
+    ]
+  ],
+  [
+    "cards that negate quick effects and are spellcasters",
+    [
+      "Effect Veiler"
+    ],
+    [
+      "Ash Blossom & Joyous Spring"
+    ]
+  ],
+  [
+    "floodgate",
+    [
+      "Skill Drain"
+    ],
+    [
+      "Monster Reborn"
+    ]
+  ],
+  [
+    "draw cards",
+    [
+      "Pot of Greed",
+      "Upstart Goblin"
+    ],
+    [
+      "Raigeki",
+      "Blue-Eyes White Dragon"
+    ]
+  ],
+  [
+    "destroy spells and traps",
+    [
+      "Mystical Space Typhoon",
+      "Twin Twisters"
+    ],
+    [
+      "Blue-Eyes White Dragon",
+      "Effect Veiler"
+    ]
+  ],
+  [
+    "mill from deck",
+    [
+      "Foolish Burial"
+    ],
+    [
+      "Dark Hole",
+      "Effect Veiler"
+    ]
+  ],
+  [
+    "revive a monster",
+    [
+      "Monster Reborn",
+      "Call of the Haunted"
+    ],
+    [
+      "Raigeki"
+    ]
+  ],
+  [
+    "special summon a WATER monster from the GY",
+    [
+      "Monster Reborn",
+      "Double Fin Shark"
+    ],
+    [
+      "Raigeki"
+    ]
+  ],
+  [
+    "summon tokens",
+    [
+      "Scapegoat"
+    ],
+    [
+      "Monster Reborn"
+    ]
+  ],
+  [
+    "return to hand",
+    [
+      "Compulsory Evacuation Device"
+    ],
+    [
+      "Dark Hole"
+    ]
+  ],
+  [
+    "gain LP",
+    [
+      "Red Medicine"
+    ],
+    [
+      "Dark Hole"
+    ]
+  ],
+  [
+    "fusion summon",
+    [
+      "Polymerization",
+      "Super Polymerization"
+    ],
+    [
+      "Mystical Space Typhoon"
+    ]
+  ],
+  [
+    "search field spells",
+    [
+      "Terraforming",
+      "Planet Pathfinder"
+    ],
+    [
+      "Dark Hole"
+    ]
+  ],
+  [
+    "banish monsters",
+    [
+      "D.D. Crow",
+      "Called by the Grave"
+    ],
+    [
+      "Effect Veiler"
+    ]
+  ],
+  [
+    "Blue-Eyes support",
+    [
+      "Sage with Eyes of Blue",
+      "The White Stone of Legend"
+    ],
+    [
+      "Dark Magician"
+    ]
+  ],
+  [
+    "blueeyes support",
+    [
+      "Sage with Eyes of Blue"
+    ],
+    [
+      "Dark Magician"
+    ]
+  ],
+  [
+    "bule eyes support",
+    [
+      "Sage with Eyes of Blue"
+    ],
+    [
+      "Dark Magician"
+    ]
+  ],
+  [
+    "buleeyes support",
+    [
+      "Sage with Eyes of Blue"
+    ],
+    [
+      "Dark Magician"
+    ]
+  ],
+  [
+    "board breakers",
+    [
+      "Dark Ruler No More",
+      "Forbidden Droplet"
+    ],
+    [
+      "Blue-Eyes White Dragon"
+    ]
+  ],
+  [
+    "GY hate",
+    [
+      "D.D. Crow",
+      "Called by the Grave"
+    ],
+    [
+      "Blue-Eyes White Dragon"
+    ]
+  ],
+  [
+    "when this card is banished",
+    [
+      "Necroface"
+    ],
+    [
+      "Raigeki"
+    ]
+  ],
+  [
+    "when this card is destroyed",
+    [
+      "Yubel"
+    ],
+    [
+      "Raigeki"
+    ]
+  ],
+  [
+    "backrow removal",
+    [
+      "Mystical Space Typhoon",
+      "Twin Twisters"
+    ],
+    [
+      "Blue-Eyes White Dragon"
+    ]
+  ],
+  [
+    "tribute monsters",
+    [
+      "Lava Golem",
+      "Gameciel, the Sea Turtle Kaiju"
+    ],
+    [
+      "Raigeki"
+    ]
+  ],
+  [
+    "take control of opponent monsters",
+    [
+      "Mind Control",
+      "Change of Heart"
+    ],
+    [
+      "Dark Hole"
+    ]
+  ],
+  [
+    "normal summon again",
+    [
+      "Double Summon"
+    ],
+    [
+      "Raigeki"
+    ]
+  ],
+  [
+    "change ATK",
+    [
+      "Shrink"
+    ],
+    [
+      "Raigeki"
+    ]
+  ],
+  [
+    "piercing",
+    [
+      "Blue-Eyes Chaos MAX Dragon",
+      "Cyber End Dragon"
+    ],
+    [
+      "Blue-Eyes White Dragon"
+    ]
+  ],
+  [
+    "direct attack",
+    [
+      "Sky Striker Ace - Hayate"
+    ],
+    [
+      "Blue-Eyes White Dragon"
+    ]
+  ],
+  [
+    "prevent targeting",
+    [
+      "Forbidden Dress"
+    ],
+    [
+      "Blue-Eyes White Dragon"
+    ]
+  ],
+  [
+    "unaffected",
+    [
+      "Miscellaneousaurus"
+    ],
+    [
+      "Blue-Eyes White Dragon"
+    ]
+  ],
+  [
+    "extenders",
+    [
+      "Monster Reborn"
+    ],
+    [
+      "Blue-Eyes White Dragon"
+    ]
+  ],
+  [
+    "quick effect that negates",
+    [
+      "Effect Veiler",
+      "Ash Blossom & Joyous Spring"
+    ],
+    [
+      "Blue-Eyes White Dragon"
+    ]
+  ],
+  [
+    "add a Dragon to hand from deck",
+    [
+      "The Melody of Awakening Dragon"
+    ],
+    [
+      "Dark Hole"
+    ]
+  ]
+];
+const nameCases: [string,string][] = [
+  [
+    "Ash Blossom",
+    "Ash Blossom & Joyous Spring"
+  ],
+  [
+    "Ash Blosom",
+    "Ash Blossom & Joyous Spring"
+  ],
+  [
+    "blue eyes white dragon",
+    "Blue-Eyes White Dragon"
+  ],
+  [
+    "blueeyes white dragon",
+    "Blue-Eyes White Dragon"
+  ],
+  [
+    "bule eyes white dragon",
+    "Blue-Eyes White Dragon"
+  ],
+  [
+    "dark magician",
+    "Dark Magician"
+  ],
+  [
+    "darkmagicain",
+    "Dark Magician"
+  ],
+  [
+    "raigeki",
+    "Raigeki"
+  ],
+  [
+    "effect veiler",
+    "Effect Veiler"
+  ],
+  [
+    "drak hole",
+    "Dark Hole"
+  ]
+];
+const cards = loadCardDatabase(engineDataDirectory);
+const byName = new Map([...cards.all()].map(card => [card.name,card]));
+const code = (name: string): number => { const card=byName.get(name); if (!card) throw new Error(`Eval card missing: ${name}`); return card.canonicalPasscode ?? card.code; };
+const db = new Database(":memory:");
+let host: DuelHost;
+let playerId: number;
+let labeledTP=0, labeledFP=0, labeledFN=0;
+const search = (text: string, pool?: number[], over: Partial<CardQuery> = {}) => queryCards(cards,{...emptyCardQuery(),text,limit:120,...(pool ? {passcodes:pool}:{}),...over});
+const present = (result: ReturnType<typeof search>) => [...result.cards,...(result.effectHits??[])].map(card=>card.canonicalPasscode ?? card.code);
+
+beforeAll(() => {
+  vi.stubEnv("EFFECT_SEARCH","1");
+  migrate(db); importCardEffectArtifact(db,{canonicalize:createCanonicalEffectResolver(cards)}); createCardEffectIndex(db,cards);
+  // Actual engine metadata supplies the catalog used by SQL insights; no online API is involved.
+  const insert=db.prepare(`INSERT OR IGNORE INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,atk,def,image_url,image_url_small,card_sets_json,cached_at,archetype,genesys_points,genesys_revision)
+    VALUES(?,?,?,?,?,?,?,?,?,'','','[]',CURRENT_TIMESTAMP,?,0,'eval')`);
+  for (const card of cards.all()) {
+    if (card.canonicalPasscode && card.canonicalPasscode!==card.code) continue;
+    insert.run(card.code,card.name,card.type&2?'Spell Card':card.type&4?'Trap Card':'Effect Monster',card.type&0x2000?'synchro':card.type&0x800000?'xyz':card.type&0x4000000?'link':'effect',card.description,'',card.level,card.attack,card.defense,card.name.includes('Blue-Eyes')?'Blue-Eyes':card.name.includes('Dark Magician')?'Dark Magician':null);
+  }
+  db.exec("INSERT INTO genesys_points_meta VALUES(1,'eval','2026-10-05','eval',CURRENT_TIMESTAMP)");
+  playerId=seedIdentity(db,{guildId:'eval'}).playerId;
+  host=createDuelHost({db,dataDirectory:engineDataDirectory,secret:'eval-secret',searchCards:()=>[],pollIntervalMs:60_000});
+},20_000);
+
+afterAll(async()=>{
+  const report={queries:60,labeledTP,labeledFP,labeledFN,labeledPrecision:labeledTP/(labeledTP+labeledFP),labeledRecall:labeledTP/(labeledTP+labeledFN)};
+  const output=resolve(import.meta.dirname,'../../../.status/effect-search');mkdirSync(output,{recursive:true});
+  writeFileSync(resolve(output,'eval.json'),JSON.stringify(report,null,2)+'\n');
+  console.info('EFFECT_EVAL',JSON.stringify(report));
+  if(host)await host.close();db.close();cards.close();vi.unstubAllEnvs();
+});
+
+describe('60-query real-artifact effect/name/synergy/format evaluation',()=>{
+  it.each(effectCases)('effect: %s',(text,include,exclude)=>{
+    const result=present(search(text,[...include,...exclude].map(code)));
+    for(const name of include){const found=result.includes(code(name));if(found)labeledTP++;else labeledFN++;expect(found,`${text}: missing ${name}`).toBe(true);}
+    for(const name of exclude){const found=result.includes(code(name));if(found)labeledFP++;expect(found,`${text}: unexpected ${name}`).toBe(false);}
+  });
+  it.each(nameCases)('name/alias/typo: %s',(text,name)=>{
+    for (const scope of ['name', 'all'] as const) expect(present(search(text,undefined,{scope})), `${scope}: ${text}`).toContain(code(name));
+    labeledTP++;
+  });
+  it.each([0,20,29,30,40])('Genesys budget %s excludes unknown/Link/Pendulum',(budget)=>{
+    const pool=['Effect Veiler','Ash Blossom & Joyous Spring','Linkuriboh','Luster Pendulum, the Dracoslayer'].map(code);
+    const points=new Map([[code('Effect Veiler'),0],[code('Ash Blossom & Joyous Spring'),30],[code('Linkuriboh'),0],[code('Luster Pendulum, the Dracoslayer'),0]]);
+    const result=queryCards(cards,{...emptyCardQuery(),text:'hand traps that negate',passcodes:pool,excludeGenesysForbidden:true,genesysPoints:{min:null,max:budget}},undefined,points);
+    expect(present(result)).toContain(code('Effect Veiler'));expect(present(result)).not.toContain(code('Linkuriboh'));
+    expect(present(result)).not.toContain(code('Luster Pendulum, the Dracoslayer'));
+    expect(present(result).includes(code('Ash Blossom & Joyous Spring'))).toBe(budget>=30);labeledTP++;
+  });
+  it.each(['normal','domain','genesys','genesys-domain'] as const)('single-card synergy %s',(format)=>{
+    const insights=createCardInsightService(db,{dataDirectory:engineDataDirectory});
+    const found=insights.suggestForDeck([code('Blue-Eyes White Dragon')],{format,pool:['Sage with Eyes of Blue','Dark Magician'].map(code),deckMaster:code('Blue-Eyes White Dragon'),genesysRemaining:0});
+    expect(found.map(card=>card.passcode)).toContain(code('Sage with Eyes of Blue'));
+    expect(found.map(card=>card.passcode)).not.toContain(code('Dark Magician'));labeledTP++;
+  });
+  it('deck synergy ranks by distinct linked deck cards',()=>{
+    const insights=createCardInsightService(db,{dataDirectory:engineDataDirectory});
+    const found=insights.suggestForDeck([code('Blue-Eyes White Dragon'),code('Dark Magician')],{format:'normal',pool:['Sage with Eyes of Blue','Eternal Soul','Raigeki'].map(code)});
+    expect(found.map(card=>card.passcode)).toEqual(expect.arrayContaining(['Sage with Eyes of Blue','Eternal Soul'].map(code)));
+    expect(found.map(card=>card.passcode)).not.toContain(code('Raigeki'));labeledTP++;
+  });
+});
+
+it('signed host card-query keeps name hits separate, supports pool/chip/exact/flag controls and guild scope',async()=>{
+  const post=async(guildId:string,cardQuery:object)=>{
+    const body=JSON.stringify({op:'card-query',guildId,playerId,cardQuery});
+    return host.handle(new Request('http://local/internal/duel',{method:'POST',body,headers:await signedHeaders(body,'eval-secret','http://local/internal/duel','duel-host')}));
+  };
+  const pool=['Ash Blossom & Joyous Spring','Effect Veiler','Blue-Eyes White Dragon'].map(code);
+  const response=await post('eval',{text:'hand traps that negate',passcodes:pool});expect(response.status).toBe(200);
+  const result=await response.json();expect(result.cards).toEqual([]);expect(result.effectHits.map((card:any)=>card.code)).toEqual(expect.arrayContaining(['Ash Blossom & Joyous Spring','Effect Veiler'].map(code)));
+  expect(result.reading.chips).toContain('Role: hand trap');
+  const artwork=await (await post('eval',{text:'revive a monster',passcodes:[83764719]})).json();expect(artwork.effectHits.map((card:any)=>card.code)).toContain(code('Monster Reborn'));
+  const compact=search('blueeyes',undefined,{scope:'name'});expect(compact.total).toBeGreaterThan(1);expect(compact.cards.map(card=>card.name)).toContain('Blue-Eyes White Dragon');
+  const typo=await (await post('eval',{text:'dark magicain'})).json();expect(typo.cards.map((card:any)=>card.name)).toContain('Dark Magician');expect(typo.reading).toBeNull();
+  const exact=await (await post('eval',{text:'hand traps that negate',passcodes:pool,exact:true})).json();expect(exact.reading).toBeNull();expect(exact.effectHits).toEqual([]);
+  const omitted=await (await post('eval',{text:'hand traps that negate',passcodes:pool,effectOmit:['Role: hand trap']})).json();expect(omitted.reading.chips).not.toContain('Role: hand trap');
+  expect((await post('',{text:'Ash Blossom'})).status).toBe(400);
+  vi.stubEnv('EFFECT_SEARCH','0');const off=await (await post('eval',{text:'hand traps that negate'})).json();expect(off.effectSearchEnabled).toBe(false);expect(off.effectHits).toBeUndefined();
+});

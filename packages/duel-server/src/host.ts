@@ -55,6 +55,8 @@ import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards, deckCardUnavailableReason } from "./card-search.js";
+import { effectSearchEnabled } from "@yugidraft/shared/cards/effects";
+import { cardEffectIndex, createCardEffectIndex } from "./card-effects.js";
 import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from "./multi-scripts.js";
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { EngineResourceCache } from "./engine-resource-cache.js";
@@ -3089,7 +3091,10 @@ export function createDuelHost(options: {
     }
     if (op === "card-query") {
       try {
-        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery), cardRequestEntries(body, guildId, actor), await genesysAdmissionPoints());
+        const catalog = loadCardDatabase(options.dataDirectory);
+        const enabled = effectSearchEnabled();
+        const effects = enabled ? cardEffectIndex(catalog) ?? createCardEffectIndex(options.db, catalog) : undefined;
+        return queryCards(catalog, parseCardQuery(body.cardQuery), cardRequestEntries(body, guildId, actor), await genesysAdmissionPoints(), { effects, effectSearchEnabled: enabled });
       } catch (error) {
         if (error instanceof CardQueryError) throw new RequestError(error.message, 400);
         throw error;

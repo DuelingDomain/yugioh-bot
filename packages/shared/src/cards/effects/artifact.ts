@@ -33,7 +33,7 @@ export function hashCardEffectSourceText(card: Pick<Card, "text" | "pendulumText
 export interface CardEffectArtifactImportOptions {
   directory?: string;
   remaps?: ReadonlyMap<number, number>;
-  canonicalize?: (passcode: number) => number;
+  canonicalize?: (passcode: number, name?: string) => number;
   textFor?: (passcode: number) => string | undefined;
 }
 export interface CardEffectArtifactCoverage {
@@ -134,7 +134,7 @@ function canonicalizer(db: Database.Database, options: CardEffectArtifactImportO
     if (!validPasscode(old) || !validPasscode(target)) throw new Error("Invalid effect artifact passcode remap");
   }
   const cache = new Map<number, number>();
-  return (original: number) => {
+  return (original: number, name?: string) => {
     const cached = cache.get(original);
     if (cached !== undefined) return cached;
     const seen = new Set<number>();
@@ -145,7 +145,7 @@ function canonicalizer(db: Database.Database, options: CardEffectArtifactImportO
       seen.add(code);
       // A known artwork family is stronger evidence than a legacy engine remap.
       const mapped = artworks.get(code) ?? options.remaps?.get(code) ?? code;
-      const next = options.canonicalize?.(mapped) ?? mapped;
+      const next = options.canonicalize?.(mapped, name) ?? mapped;
       if (next === code) {
         cache.set(original, code);
         return code;
@@ -155,7 +155,7 @@ function canonicalizer(db: Database.Database, options: CardEffectArtifactImportO
   };
 }
 
-function parseTags(lines: string[], canonicalize: (passcode: number) => number) {
+function parseTags(lines: string[], canonicalize: (passcode: number, name?: string) => number) {
   const tags = new Map<number, TagRow>();
   const seen = new Set<number>();
   for (const [index, line] of lines.entries()) {
@@ -167,7 +167,7 @@ function parseTags(lines: string[], canonicalize: (passcode: number) => number) 
     seen.add(raw.id);
     const validated = CardTags.safeParse(fillDefaults(raw.tags));
     if (!validated.success) throw new Error(`Invalid effect artifact tags for ${raw.id}: ${validated.error.message}`);
-    const tag = validated.data, passcode = canonicalize(raw.id);
+    const tag = validated.data, passcode = canonicalize(raw.id, raw.name);
     const current = tags.get(passcode);
     // Direct official tags beat folded prerelease/artwork descriptions. Between
     // aliases, the lower source passcode makes the result independent of order.
