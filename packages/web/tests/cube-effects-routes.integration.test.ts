@@ -127,6 +127,18 @@ describe("draft preflight pool health", () => {
     for (let id = 1000; id < 1045; id++) { insert.run(id, `Card ${id}`); pool.run(id); }
   };
 
+  it("GETs a theme lobby without health warnings or insight catalog reads when effects are enabled", async () => {
+    setupDraft();
+    const read = vi.spyOn(db(), "prepare");
+    const { GET } = await import("../app/api/drafts/[slug]/route");
+    const response = await GET(new Request("http://test"), { params: Promise.resolve({ slug: "health-draft" }) });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.lobby.warnings).toEqual([]);
+    expect(read.mock.calls.some(([sql]) => sql.includes("card_tags"))).toBe(false);
+    read.mockRestore();
+  });
+
   it("returns structured health per allowed cube and only adds warnings", async () => {
     setupDraft();
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
@@ -135,7 +147,8 @@ describe("draft preflight pool health", () => {
     const body = await result.json();
     expect(body.errors).toEqual([]);
     expect(body.poolHealth).toMatchObject([{ cubeId: 1, cubeName: "Seed cube", health: { cards: 45, roles: { removal: 0 } } }]);
-    expect(body.warnings).toContainEqual(expect.stringMatching(/^Seed cube: .*removal/));
+    expect(body.warnings).toEqual([]);
+    expect(body.poolHealth[0].health.warnings).toContainEqual(expect.stringMatching(/removal/));
     vi.stubEnv("EFFECT_SEARCH", "0");
     const disabled = await GET(new Request("http://test"), { params: Promise.resolve({ slug: "health-draft" }) });
     expect(await disabled.json()).toEqual({ errors: [], warnings: [] });

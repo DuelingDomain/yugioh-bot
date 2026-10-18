@@ -21,10 +21,12 @@ export interface AnalyzeCubePoolsConfig {
   burnUnpicked: boolean;
   extraDeckEnabled: boolean;
   copyLimit?: boolean;
+  /** Preflight-only insights; ordinary lobby reads run supply checks alone. */
+  includeHealth?: boolean;
 }
 
 export interface CubePoolAnalysis extends CubeAnalysis {
-  /** Absent when disabled; null when unavailable. Health never changes readiness. */
+  /** Absent unless requested and enabled; null when unavailable. Health never changes readiness. */
   poolHealth?: CardPoolHealth | null;
 }
 
@@ -597,17 +599,15 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         }
       }
 
-      if (effectSearchEnabled()) {
+      if (config.includeHealth === true && effectSearchEnabled()) {
         let poolHealth: CardPoolHealth | null = null;
         try {
           const codes = inspectPools(cubeId, deckTypes.snapshot())
             .filter(({ actual }) => actual === "main" || config.extraDeckEnabled)
             .map(({ card }) => card.catalogCardId);
           poolHealth = createCardInsightService(db).poolHealth(codes);
-          warnings.push(...poolHealth.warnings);
         } catch (error) {
           report(error, { tags: { operation: "cube-pool-health" } });
-          warnings.push("Pool health is unavailable; card supply checks still apply.");
         }
         return { ok: errors.length === 0, errors, warnings, poolHealth };
       }

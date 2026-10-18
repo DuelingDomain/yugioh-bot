@@ -155,13 +155,15 @@ For theme drafts, after existing access and setup checks, the response adds:
 `unlinkedPasscodes`, `untaggedPasscodes`, `warnings`. It counts distinct
 canonical identities. Extra cards are included only when Extra drafting is
 enabled. The cube analysis classifies sections without repairing stored rows.
-The shared `analyzeCubePools` result adds `poolHealth?: CardPoolHealth | null`
-and appends health observations to its existing `warnings`.
+The shared `analyzeCubePools` accepts `includeHealth?: boolean` (default false).
+Only this preflight route opts in. Its result adds
+`poolHealth?: CardPoolHealth | null`; lobby reads perform supply checks alone.
 
 Health never changes `ok` or adds errors. If health data is unreadable, `health`
-is null and a warning explains that health is unavailable. Supply checks still
-run. Health warnings also appear in top-level preflight `warnings`, prefixed
-with the cube name. The UI should avoid presenting those same warnings twice.
+is null and the failure is reported on the server. Supply checks still run.
+Health warnings appear only in `poolHealth[].health.warnings`, alongside the
+attribution. Analysis and top-level preflight `warnings` contain supply warnings
+only, so the same observations do not also appear in the lobby or supply list.
 
 Only eligible, attached, same-community cubes are analyzed. Deleted cubes are
 skipped. Host-assigned health is returned only to the draft host, and only for

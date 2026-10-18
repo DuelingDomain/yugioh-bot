@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../src/db/schema.js";
 import { createCardCatalogService } from "../src/services/card-catalog.js";
 import { createCubeService } from "../src/services/cubes.js";
+import * as insightCatalog from "../src/services/card-insight-catalog.js";
 import { seedUser } from "./helpers/identity.js";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
@@ -131,13 +132,25 @@ describe("cube batch writes with real SQLite", () => {
 });
 
 describe("warning-only cube pool health", () => {
+  it("does not open the insight catalog unless health is explicitly requested", () => {
+    vi.stubEnv("EFFECT_SEARCH", "1");
+    cubes.addBatch(cubeId, [{ id: 1, copies: 3 }]);
+    const open = vi.spyOn(insightCatalog, "createInsightCatalog");
+    try {
+      const config = { themePackSize: 1, cardsPerPlayer: 2, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: false };
+      expect(cubes.analyzeCubePools(cubeId, config)).toEqual({ ok: true, errors: [], warnings: [] });
+      expect(cubes.analyzeCubePools(cubeId, { ...config, includeHealth: false })).toEqual({ ok: true, errors: [], warnings: [] });
+      expect(open).not.toHaveBeenCalled();
+    } finally { open.mockRestore(); }
+  });
+
   it("adds role warnings without changing supply errors or readiness", () => {
     vi.stubEnv("EFFECT_SEARCH", "1");
     cubes.addBatch(cubeId, [{ id: 1, copies: 3 }, { id: 2, copies: 3 }]);
-    const config = { themePackSize: 1, cardsPerPlayer: 2, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: false };
+    const config = { themePackSize: 1, cardsPerPlayer: 2, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: false, includeHealth: true };
     const analysis = cubes.analyzeCubePools(cubeId, config);
     expect(analysis).toMatchObject({ ok: true, errors: [], poolHealth: { cards: 1, roles: { removal: 0 }, warnings: expect.arrayContaining([expect.stringMatching(/removal/)]) } });
-    expect(analysis.warnings).toContainEqual(expect.stringMatching(/removal/));
+    expect(analysis.warnings).toEqual([]);
     vi.stubEnv("EFFECT_SEARCH", "0");
     const disabled = cubes.analyzeCubePools(cubeId, config);
     expect(disabled).toEqual({ ok: true, errors: [], warnings: [] });
@@ -148,7 +161,7 @@ describe("warning-only cube pool health", () => {
     cubes.addCard(cubeId, 1, "main", 3);
     db.prepare("INSERT INTO cube_cards(cube_id,catalog_card_id,pool,max_copies) VALUES(?,2,'main',2),(?,4,'extra',1)").run(cubeId, cubeId);
     const before = db.prepare("SELECT * FROM cube_cards").all();
-    const analysis = cubes.analyzeCubePools(cubeId, { themePackSize: 1, cardsPerPlayer: 1, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: true });
+    const analysis = cubes.analyzeCubePools(cubeId, { themePackSize: 1, cardsPerPlayer: 1, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: true, includeHealth: true });
     expect(analysis.poolHealth?.cards).toBe(2);
     expect(db.prepare("SELECT * FROM cube_cards").all()).toEqual(before);
   });
@@ -157,7 +170,7 @@ describe("warning-only cube pool health", () => {
     vi.stubEnv("EFFECT_SEARCH", "1");
     cubes.addBatch(cubeId, [{ id: 1, copies: 3 }]);
     db.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,source,schema_version) VALUES(1,'','[]','broken','fixture',1)").run();
-    const analysis = cubes.analyzeCubePools(cubeId, { themePackSize: 1, cardsPerPlayer: 1, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: false });
-    expect(analysis).toMatchObject({ ok: true, errors: [], poolHealth: null, warnings: [expect.stringMatching(/health is unavailable/i)] });
+    const analysis = cubes.analyzeCubePools(cubeId, { themePackSize: 1, cardsPerPlayer: 1, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: false, includeHealth: true });
+    expect(analysis).toMatchObject({ ok: true, errors: [], poolHealth: null, warnings: [] });
   });
 });
