@@ -395,7 +395,10 @@ export function planWipe(input: SceneInput): { scene: FxScene; cues: SceneCue[] 
     case "feather-duster":
     case "heavy-storm": {
       const p = WIPE.storm;
-      const hit = wx.map((x) => p.f0 + (p.f1 - p.f0) * clamp01(((x + W / 2) / W - DEMO_CW / 2 / W + 0.12) / 1.3));
+      // The scene sweeps its gust over DEMO_W world units. A multi-seat table has no duel board for the canvas width to
+      // stand for, so the hit times follow the same constant (1v1 keeps its own, as before).
+      const gw = input.fields || input.focus ? DEMO_W : W;
+      const hit = wx.map((x) => p.f0 + (p.f1 - p.f0) * clamp01(((x + gw / 2) / gw - DEMO_CW / 2 / gw + 0.12) / 1.3));
       takeSec = hit.map((h) => h - 0.3);
       goneSec = hit.map((h) => h + 1.05);
       landT0Ms = ms(p.t0);
