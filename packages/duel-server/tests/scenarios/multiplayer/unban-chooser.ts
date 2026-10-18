@@ -42,20 +42,23 @@ function chaos(format: Format, domain: boolean): Scenario {
 function ring(format: Format, domain: boolean): Scenario {
   const setup = fixture(format, domain);
   setup.p0!.spells = [{ card: RING, pos: "set" }];
-  setup.p1!.monsters = [ELF];
+  setup.p1!.monsters = [OX];
   const target: DuelistId = format === "tag" ? "p3" : "p2";
   setup[target]!.monsters = [BLUE];
+  if (format === "ffa4") setup.p3!.monsters = [ELF];
   // The turn player cannot pay the target's ATK with their LP. The chosen opponent can.
   if (format !== "tag") setup.p1!.lp = 1000;
   const result: BoardExpect = { p0: { lp: format === "tag" ? 13000 : 5000, hand: domain ? [ELF] : [], grave: [RING] },
-    p1: { lp: format === "tag" ? 13000 : 1000, monsters: [ELF], hand: [ELF] },
+    p1: { lp: format === "tag" ? 13000 : 1000, monsters: [OX], hand: [ELF] },
     [target]: { lp: format === "tag" ? 13000 : 5000, grave: [BLUE] } };
   if (format === "tag") result.p2 = { lp: 13000 };
+  if (format === "ffa4") result.p3 = { monsters: [ELF] };
   return defineScenario({ id: `unban-chooser-${format}-ring-target-controller${domain ? "-domain" : ""}`,
     title: `${format}: Ring checks and damages the target controller`, source,
     rules: ["R-FFA-OPP-ONE"], tags: ["multiplayer", "card:83555666", format], setup,
     steps: [expectNotOffered("activate", RING, "p0"), endTurn("p0"), activate(RING, "p0"),
-      ...(format === "tag" ? [select({ card: BLUE, owner: target })] : [pickOpponent(target, "p0")]), state(format, result)] });
+      ...(format === "tag" ? [select({ card: BLUE, owner: target })]
+        : format === "ffa4" ? [expectPickSeats(["p2", "p3"], "p0"), pickOpponent(target, "p0")] : []), state(format, result)] });
 }
 
 function virus(format: Format, domain: boolean): Scenario {

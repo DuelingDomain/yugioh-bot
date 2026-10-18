@@ -28,7 +28,7 @@ The owner rule chooses one eligible opponent when "your opponent" means exactly 
 | Crush Card Virus (57728570) | FFA3, FFA4, Tag | Check one hand and Deck. FFA uses only that opponent's field. Tag keeps joined opposing fields. Prevent damage through the next turn. No repeated draw destruction. | `unban-chooser.ts` |
 | Nibiru, the Primal Being (27204311) | FFA3, FFA4, Tag | Count the real turn player's summons. FFA Tributes only your field and that opponent's field. Tag Tributes both sides. Give the Token to the summoning player. | `unban-nibiru.ts` |
 
-All rows use **owner 2026-10-18**. The Chaos pair rule is an explicit FFA exception to the general "both players" rule. The current text counts damage only for cards sent to the opponent's GY. See ADR-0002 for the official card-text links and the rulebook difference. The Angelechy recipient tests do not prove the separate Rivalry of Warlords restriction gap described in that ADR.
+All rows use **owner 2026-10-18**. The owner decision 2026-10-18: CED uses you + one chosen opponent in FFA. This card-specific rule overrides the general "both players" rule for CED in FFA. The current text counts damage only for cards sent to the opponent's GY. See ADR-0002 for the official card-text links and the rulebook difference. The Angelechy recipient tests do not prove the separate Rivalry of Warlords restriction gap described in that ADR.
 
 The historical group tables below are superseded by these decisions where they still describe a pending ban. The current forbidden list and the audit table added below are authoritative.
 
