@@ -4,6 +4,7 @@
 .de-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 10px 16px 10px 10px; border-bottom: 1px solid var(--rule-lo); background: var(--panel); }
 .de-back { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 2px; height: 36px; padding: 0 10px 0 4px; border-radius: 8px; color: var(--ink-2); font: 500 14.5px/1 var(--f-ui); text-decoration: none; }
 .de-back:hover { color: var(--ink); }
+.brandName { display: block; padding-left: 10px; color: var(--ink-3); font-size: 10px; font-weight: 500; line-height: 1.2; letter-spacing: 0.02em; }
 .de-namef { display: block; min-width: 0; flex: 0 1 260px; }
 .de-name { width: 100%; height: 40px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--ink); font: 600 22px/1 var(--f-display); text-overflow: ellipsis; }
 .de-name:hover { border-color: var(--rule-lo); }
@@ -113,7 +114,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 @container de-deck (max-width: 379px) { .de-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
 .de-c { position: relative; display: block; width: 100%; aspect-ratio: 421 / 614; padding: 0; border: 0; border-radius: 4px; overflow: hidden; background: #0b1222; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.09); cursor: grab; transition: transform 140ms var(--ease); }
 .de-c img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
-.de-c:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.32), 0 12px 20px -14px #000; }
+.de-c:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.32), 0 12px 20px -14px #000; }
 .de-c[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--pen), 0 0 0 5px rgb(155 126 255 / 0.2); }
 .de-c[data-over] { box-shadow: 0 0 0 2px var(--loss); }
 .de-c[data-over] img { opacity: 0.5; }

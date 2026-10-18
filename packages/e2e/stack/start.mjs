@@ -122,6 +122,8 @@ const base = {
   PATH: process.env.PATH,
   HOME: process.env.HOME,
   NODE_ENV: "production",
+  // E2E uses production builds with explicitly enabled effect-search coverage.
+  EFFECT_SEARCH: process.env.E2E_EFFECT_SEARCH ?? "1",
   DATABASE_PATH: dbPath,
   DOTENV_CONFIG_PATH: resolve(stackDir, "none.env"),
   DOTENV_CONFIG_QUIET: "true",

@@ -14,6 +14,7 @@ import {
   type SpellTypeKey,
   type TrapTypeKey,
 } from "@yugidraft/shared/duels";
+import { compactEffectName, resolveEffectName } from "@yugidraft/shared/cards/effects/name-match";
 
 /**
  * Client-side version of the duel host's card search (packages/duel-server/src/card-search.ts),
@@ -214,6 +215,19 @@ export function queryPoolCards(
   archetypeNames: (code: number) => string | undefined = () => undefined,
 ): DeckCardInfo[] {
   const checks = compile(query, archetypeNames);
-  const found = cards.map(entryFor).filter((entry) => checks.every((check) => check(entry)));
+  const entries = cards.map(entryFor);
+  const found = entries.filter((entry) => checks.every((check) => check(entry)));
+  const text = query.text.trim();
+  if (!found.length && !query.exact && text && !/^\d+$/.test(text) && !/"/.test(text) && !parseCardSearchTerms(text).some(term => term.negate)) {
+    const filters = compile({ ...query, text: "" }, archetypeNames);
+    const eligible = entries.filter(entry => filters.every(check => check(entry)));
+    const key = compactEffectName(text);
+    const aliases = eligible.filter(entry => compactEffectName(entry.card.name).includes(key));
+    if (aliases.length) found.push(...aliases);
+    else {
+      const nearby = resolveEffectName(eligible.map(entry => ({ name: entry.card.name, entry })), text);
+      if (nearby) found.push(nearby.entry);
+    }
+  }
   return sortEntries(found, query).map((entry) => entry.card);
 }

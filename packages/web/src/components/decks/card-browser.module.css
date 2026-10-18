@@ -67,9 +67,9 @@
 .retry { margin-top: 10px; }
 .de-res, .rows { transition: opacity 160ms var(--ease); }
 .de-res[data-stale="true"], .rows[data-stale="true"] { opacity: 0.55; }
-.de-t { position: relative; display: block; width: 100%; aspect-ratio: 421 / 614; padding: 0; border: 0; overflow: hidden; background: #0b1222; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.09); cursor: grab; transition: transform 140ms var(--ease); }
+.de-t { position: relative; display: block; width: 100%; aspect-ratio: 421 / 614; padding: 0; border: 0; overflow: hidden; background: #0b1222; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.09); cursor: grab; transition: box-shadow 140ms var(--ease); }
 .de-t img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
-.de-t:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.32), 0 12px 20px -14px #000; }
+.de-t:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.32), 0 12px 20px -14px #000; }
 .de-t:active { cursor: grabbing; }
 .de-t[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--pen), 0 0 0 5px var(--pen-soft); }
 .de-t[data-gx="forbidden"] { box-shadow: 0 0 0 2px var(--loss); }
@@ -141,6 +141,12 @@
 .rowAdd:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 
 .more { display: flex; justify-content: center; padding-top: 16px; }
+.exactToggle { min-height: 30px; padding: 0 8px; border: 1px solid var(--rule-lo); border-radius: 4px; background: none; color: var(--ink-3); font: inherit; font-size: 12px; cursor: pointer; }
+.exactToggle[aria-pressed="true"] { color: var(--pen-ink); border-color: var(--pen); background: var(--pen-soft); }
+.attribution { font-size: 11px; color: var(--ink-4); }
+.effectHeading { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; padding-top: 12px; border-top: 1px solid var(--rule-lo); color: var(--ink-3); font-size: 11px; }
+.effectHeading h3 { color: var(--ink); font-size: 13px; font-weight: 500; }
+.effectReason { margin-top: 5px; color: var(--ink-3); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
 
 /* ---------- filter sheet (covers the results) ---------- */
 .filters {

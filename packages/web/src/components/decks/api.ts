@@ -179,7 +179,9 @@ export async function queryDeckCards(query: CardQuery, signal?: AbortSignal, con
   if (!Array.isArray(body.cards) || typeof body.total !== "number") {
     throw new DeckRequestError("The server returned an invalid card list.", 502);
   }
-  return { cards: body.cards, total: body.total, offset: body.offset ?? query.offset };
+  return { cards: body.cards, total: body.total, offset: body.offset ?? query.offset,
+    effectSearchEnabled: body.effectSearchEnabled, reading: body.reading, effectHits: body.effectHits,
+    effectTotal: body.effectTotal, effectOffset: body.effectOffset };
 }
 
 export async function getDeckCardFacets(): Promise<CardFacets> {

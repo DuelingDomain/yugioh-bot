@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
 import { AlertTriangle, ArrowDownWideNarrow, ArrowUpNarrowWide, LayoutGrid, List, Plus, RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
-import { cardLimit, type CardArchetype, type CardQuery, type DeckCardInfo, type DuelMode } from "@yugidraft/shared/duels";
+import { cardLimit, type CardArchetype, type CardQuery, type CardQueryResult, type DeckCardInfo, type DuelMode } from "@yugidraft/shared/duels";
+import { EFFECT_SEARCH_ATTRIBUTION, mayReadEffect } from "@yugidraft/shared/cards/effects/capability";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
 import { artCountLabel } from "@/components/artwork/artwork-picker";
@@ -29,9 +30,9 @@ const SCOPE_CHOICES = [
 ];
 
 /** A search result. Server searches say how many other arts the card has; the pool list does not. */
-export type BrowserCard = DeckCardInfo & { altArtCount?: number };
+export type BrowserCard = DeckCardInfo & { altArtCount?: number; reason?: string };
 
-type Results = {
+type Results = Pick<CardQueryResult, "effectSearchEnabled" | "reading" | "effectHits" | "effectTotal"> & {
   key: string;
   cards: BrowserCard[];
   total: number;
@@ -67,6 +68,7 @@ export function CardBrowser({
   onRemoveDrop,
   searchRef,
   genesys = false,
+  onEffectCapability,
 }: {
   id?: string;
   mode?: DuelMode;
@@ -89,6 +91,7 @@ export function CardBrowser({
   searchRef: RefObject<HTMLInputElement | null>;
   /** Genesys on: tiles show points instead of banlist marks, and Link and Pendulum tiles are marked. */
   genesys?: boolean;
+  onEffectCapability?: (enabled: boolean) => void;
 }) {
   const key = `${mode}:${queryKey(query)}`;
   const [results, setResults] = useState<Results | null>(null);
@@ -110,6 +113,8 @@ export function CardBrowser({
   const onHoverRef = useRef(onHover);
   onHoverRef.current = onHover;
   const listHover = useRef(false);
+  const capabilityRef = useRef(onEffectCapability);
+  capabilityRef.current = onEffectCapability;
 
   function pointAt(card: DeckCardInfo | null) {
     listHover.current = card != null;
@@ -131,18 +136,32 @@ export function CardBrowser({
         setLoading(false);
         dropHover();
         if (scrollRef.current) scrollRef.current.scrollTop = 0;
+        const timer = window.setTimeout(() => {
+          const current = latest.current;
+          // Immediate local name results keep drafting responsive. Only the additional effect group is remote.
+          const wantsEffects = !current.exact && current.scope !== "name" && mayReadEffect(current.text);
+          void queryDeckCards({ ...current, ...(wantsEffects ? {} : { exact: true }), passcodes: poolCards.map(card => card.canonicalPasscode ?? card.code), offset: 0, effectOffset: 0, limit: PAGE }, controller.signal, { mode }).then(result => {
+            if (controller.signal.aborted) return;
+            capabilityRef.current?.(result.effectSearchEnabled === true);
+            const names = result.reading ? queryPoolCards(poolCards, { ...current, scope: "name" }, (code) => archetypesRef.current.find((item) => item.codes.includes(code))?.name) : found;
+            setResults({ ...result, key, cards: names, total: names.length, error: null });
+            onCatalogRef.current(result.effectHits ?? []);
+          }).catch(() => { /* Pool names remain available during host outages. */ });
+        }, DEBOUNCE_MS);
+        return () => { window.clearTimeout(timer); controller.abort(); };
       }
       return;
     }
     setLoading(true);
     const timer = window.setTimeout(() => {
-      void queryDeckCards({ ...latest.current, offset: 0, limit: PAGE }, controller.signal, { mode }).then(
+      void queryDeckCards({ ...latest.current, offset: 0, effectOffset: 0, limit: PAGE }, controller.signal, { mode }).then(
         (result) => {
           if (controller.signal.aborted) return;
-          setResults({ key, cards: result.cards, total: result.total, error: null });
+          capabilityRef.current?.(result.effectSearchEnabled === true);
+          setResults({ ...result, key, cards: result.cards, total: result.total, error: null });
           setLoading(false);
           dropHover();
-          onCatalogRef.current(result.cards);
+          onCatalogRef.current([...result.cards, ...(result.effectHits ?? [])]);
           if (scrollRef.current) scrollRef.current.scrollTop = 0;
         },
         (reason: unknown) => {
@@ -161,7 +180,9 @@ export function CardBrowser({
 
   const cards = results?.key === key ? results.cards : [];
   const total = results?.key === key ? results.total : 0;
-  const hasMore = results != null && results.key === key && !results.error && cards.length < total;
+  const effectCards = results?.key === key ? results.effectHits ?? [] : [];
+  const effectTotal = results?.key === key ? results.effectTotal ?? 0 : 0;
+  const hasMore = results != null && results.key === key && !results.error && (cards.length < total || effectCards.length < effectTotal);
 
   function loadMore() {
     if (!results || loading || loadingMore || !hasMore) return;
@@ -169,14 +190,14 @@ export function CardBrowser({
     moreController.current = controller;
     setLoadingMore(true);
     const pageKey = results.key;
-    void queryDeckCards({ ...latest.current, offset: results.cards.length, limit: PAGE }, controller.signal, { mode }).then(
+    void queryDeckCards({ ...latest.current, ...(poolCards ? { passcodes: poolCards.map(card => card.canonicalPasscode ?? card.code) } : {}), offset: results.cards.length, effectOffset: results.effectHits?.length ?? 0, limit: PAGE }, controller.signal, { mode }).then(
       (result) => {
         if (controller.signal.aborted) return;
         setResults((prev) => (prev && prev.key === pageKey
-          ? { ...prev, cards: [...prev.cards, ...result.cards], total: result.total }
+          ? { ...prev, cards: poolCards ? prev.cards : [...prev.cards, ...result.cards], total: poolCards ? prev.total : result.total, effectHits: [...(prev.effectHits ?? []), ...(result.effectHits ?? [])], effectTotal: result.effectTotal }
           : prev));
         setLoadingMore(false);
-        onCatalogRef.current(result.cards);
+        onCatalogRef.current([...result.cards, ...(result.effectHits ?? [])]);
       },
       () => {
         if (!controller.signal.aborted) setLoadingMore(false);
@@ -256,10 +277,10 @@ export function CardBrowser({
               maxLength={200}
               spellCheck={false}
               autoComplete="off"
-              onChange={(event) => onQueryChange({ ...query, text: event.target.value })}
+              onChange={(event) => onQueryChange({ ...query, text: event.target.value, effectOmit: [] })}
             />
             {query.text ? (
-              <button type="button" className={styles.clearText} aria-label="Clear search" onClick={() => onQueryChange({ ...query, text: "" })}>
+              <button type="button" className={styles.clearText} aria-label="Clear search" onClick={() => onQueryChange({ ...query, text: "", effectOmit: [] })}>
                 <X size={14} aria-hidden />
               </button>
             ) : <kbd>/</kbd>}
@@ -294,6 +315,7 @@ export function CardBrowser({
             choices={SCOPE_CHOICES}
             onChange={(scope) => onQueryChange({ ...query, scope })}
           />
+          {results?.effectSearchEnabled ? <button type="button" className={styles.exactToggle} aria-pressed={query.exact === true} onClick={() => onQueryChange({ ...query, exact: !query.exact })}>Exact text</button> : null}
           <div className={styles["de-sort"]}>
             <DeckSelect
               label="Sort by"
@@ -319,6 +341,10 @@ export function CardBrowser({
           </div>
         </div>
 
+        {results?.key === key && results.reading ? <ul className={styles["de-chips"]} aria-label="Effect reading">
+          {results.reading.chips.map(label => <li key={label}><button type="button" className={cn("chip", styles.chipButton)} aria-label={`Remove reading ${label}`} onClick={() => onQueryChange({ ...query, effectOmit: [...(query.effectOmit ?? []), label] })}>{label}<X size={12} aria-hidden /></button></li>)}
+        </ul> : null}
+        {results?.effectSearchEnabled ? <p className={styles.attribution}>{EFFECT_SEARCH_ATTRIBUTION}</p> : null}
         {chips.length > 0 ? (
           <ul className={styles["de-chips"]} aria-label="Active filters">
             {chips.map((chip) => (
@@ -356,7 +382,7 @@ export function CardBrowser({
                 <DeckButton className={styles.retry} onClick={() => setRetry((value) => value + 1)}><RotateCw className="ic sm" aria-hidden />Try again</DeckButton>
               </div>
             </div>
-          ) : results != null && total === 0 && !stale ? (
+          ) : results != null && total === 0 && effectTotal === 0 && !stale ? (
             <div className={styles.none}>
               <p>No cards match.</p>
               {chips.length > 0 ? (
@@ -365,7 +391,7 @@ export function CardBrowser({
             </div>
           ) : (
             <ul className={view === "grid" ? styles["de-res"] : styles.rows} data-stale={stale ? "true" : undefined}>
-              {cards.map((card) => {
+              {([...cards, ...effectCards] as BrowserCard[]).map((card, position) => {
                 const count = deckCount(card);
                 const left = pool?.remaining(card) ?? 0;
                 // A pool card is full when no copy is left; a pool has no banlist marks.
@@ -394,7 +420,9 @@ export function CardBrowser({
                 };
                 if (view === "grid") {
                   return (
-                    <li key={card.code}>
+                    <Fragment key={card.code}>
+                    {position === cards.length && effectCards.length > 0 ? <li className={styles.effectHeading}><h3>Cards that do this</h3><span>{effectTotal.toLocaleString("en-US")} matches</span></li> : null}
+                    <li>
                       <button type="button" className={styles["de-t"]} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} data-un={card.unavailableReason ? "" : undefined} {...handlers}>
                         <CardArt code={card.code} name={card.name} />
                         {genesys && !pool ? <GenesysBadge card={card} variant="browse" lift={Boolean(card.unavailableReason)} /> : <LimitBadge limit={limit} />}
@@ -404,12 +432,16 @@ export function CardBrowser({
                           <span className={cn("num", styles["de-left"])} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left} left</span>
                         ) : count > 0 ? <span className={cn("num", styles["de-have"])} data-gx={genesys ? "" : undefined}>×{count}</span> : null}
                       </button>
+                      {card.reason ? <p className={styles.effectReason}>{card.reason}</p> : null}
                     </li>
+                    </Fragment>
                   );
                 }
                 const stats = cardStatsText(card);
                 return (
-                  <li key={card.code} className={styles.row}>
+                  <Fragment key={card.code}>
+                  {position === cards.length && effectCards.length > 0 ? <li className={styles.effectHeading}><h3>Cards that do this</h3><span>{effectTotal.toLocaleString("en-US")} matches</span></li> : null}
+                  <li className={styles.row}>
                     <button type="button" className={styles.rowMain} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} {...handlers}>
                       <span className={styles.rowArt}>
                         <CardArt code={card.code} name={card.name} />
@@ -418,7 +450,8 @@ export function CardBrowser({
                       <span className={styles.rowText}>
                         <strong>{card.name}</strong>{" "}
                         {card.unavailableReason ? <span>Unavailable: {card.unavailableReason}</span> : null}
-                        <span>{cardDetailsText(card)}</span>{" "}
+                        <span>{cardDetailsText(card)}</span>
+                        {card.reason ? <span className={styles.effectReason}>{card.reason}</span> : null}{" "}
                         <ArtChip otherArts={card.altArtCount ?? 0} />{" "}
                         {stats ? <span className={cn("num", styles.rowStats)}>{(card.type & TYPE_LINK) ? `ATK ${stats}` : stats}</span> : null}
                       </span>{" "}
@@ -430,6 +463,7 @@ export function CardBrowser({
                       <Plus size={16} strokeWidth={1.8} aria-hidden />
                     </button>
                   </li>
+                  </Fragment>
                 );
               })}
             </ul>
@@ -438,7 +472,7 @@ export function CardBrowser({
           {hasMore ? (
             <div ref={sentinelRef} className={styles.more}>
               <DeckButton size="sm" kind="quiet" loading={loadingMore} onClick={loadMore}>
-                Show more ({(total - cards.length).toLocaleString("en-US")} left)
+                Show more ({(total - cards.length + effectTotal - effectCards.length).toLocaleString("en-US")} left)
               </DeckButton>
             </div>
           ) : null}
