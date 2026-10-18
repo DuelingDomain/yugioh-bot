@@ -525,6 +525,11 @@ jobs:
       - name: Test shared
         run: npm test --workspace=packages/shared
 
+      - name: Validate effect tagging protocol without paid requests
+        run: |
+          prlimit --core=0 -- npx tsc -p scripts/effects/tsconfig.json --noEmit
+          prlimit --core=0 -- npx vitest run scripts/effects/tests/effect-tagging.integration.test.ts --maxWorkers=1
+
       - name: Test bot
         run: npm test --workspace=packages/bot
 

@@ -1,0 +1,74 @@
+{
+  "source": {
+    "repository": "LorenzoWhite/searchygo",
+    "commit": "9b2d952f8e7c389e13267d4bba6504cc8ea4cb5c",
+    "path": "data/cards.json"
+  },
+  "cards": [
+    {
+      "id": 76812113,
+      "name": "Harpie Lady",
+      "kind": "monster",
+      "typeLine": "Normal Monster",
+      "subtypes": [
+        "normal"
+      ],
+      "text": "This human-shaped animal with wings is beautiful to watch but deadly in battle.",
+      "formats": [
+        "GOAT",
+        "OCG GOAT",
+        "Duel Links",
+        "Common Charity",
+        "Edison",
+        "TCG",
+        "OCG",
+        "Master Duel"
+      ],
+      "views": 322371,
+      "url": "https://ygoprodeck.com/card/harpie-lady-6464",
+      "monsterType": "Winged Beast",
+      "attribute": "WIND",
+      "level": 4,
+      "atk": 1300,
+      "def": 1400,
+      "archetype": "Harpie",
+      "tcgDate": "2002-06-26",
+      "ocgDate": "1999-07-22",
+      "mdRarity": "N",
+      "genesysPoints": 0
+    },
+    {
+      "id": 91932350,
+      "name": "Harpie Lady 1",
+      "kind": "monster",
+      "typeLine": "Effect Monster",
+      "subtypes": [
+        "effect"
+      ],
+      "text": "(This card's name is always treated as \"Harpie Lady\".)\nAll WIND monsters gain 300 ATK.",
+      "formats": [
+        "GOAT",
+        "Speed Duel",
+        "OCG GOAT",
+        "Duel Links",
+        "Common Charity",
+        "Edison",
+        "TCG",
+        "OCG",
+        "Master Duel"
+      ],
+      "views": 252811,
+      "url": "https://ygoprodeck.com/card/harpie-lady-1-7665",
+      "monsterType": "Winged Beast",
+      "attribute": "WIND",
+      "level": 4,
+      "atk": 1300,
+      "def": 1400,
+      "archetype": "Harpie",
+      "tcgDate": "2004-11-20",
+      "ocgDate": "2004-08-05",
+      "mdRarity": "R",
+      "genesysPoints": 0
+    }
+  ]
+}

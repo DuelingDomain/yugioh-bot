@@ -1,0 +1,194 @@
+{
+  "source": {
+    "repository": "LorenzoWhite/searchygo",
+    "commit": "9b2d952f8e7c389e13267d4bba6504cc8ea4cb5c",
+    "path": "data/cards.json"
+  },
+  "cards": [
+    {
+      "id": 14558127,
+      "name": "Ash Blossom & Joyous Spring",
+      "kind": "monster",
+      "typeLine": "Tuner Effect Monster",
+      "subtypes": [
+        "tuner",
+        "effect"
+      ],
+      "text": "When a card or effect is activated that includes any of these effects (Quick Effect): You can discard this card; negate that effect.\n● Add a card from the Deck to the hand.\n● Special Summon from the Deck.\n● Send a card from the Deck to the GY.\nYou can only use this effect of \"Ash Blossom & Joyous Spring\" once per turn.",
+      "formats": [
+        "Common Charity",
+        "TCG",
+        "OCG",
+        "Master Duel"
+      ],
+      "views": 25808311,
+      "url": "https://ygoprodeck.com/card/ash-blossom-joyous-spring-8554",
+      "monsterType": "Zombie",
+      "attribute": "FIRE",
+      "level": 3,
+      "atk": 0,
+      "def": 1800,
+      "aliases": [
+        14558128
+      ],
+      "banOcg": "Semi-Limited",
+      "tcgDate": "2017-05-04",
+      "ocgDate": "2017-01-14",
+      "mdRarity": "UR",
+      "genesysPoints": 18
+    },
+    {
+      "id": 32807846,
+      "name": "Reinforcement of the Army",
+      "kind": "spell",
+      "typeLine": "Normal Spell",
+      "subtypes": [
+        "normal"
+      ],
+      "text": "Add 1 Level 4 or lower Warrior monster from your Deck to your hand.",
+      "formats": [
+        "GOAT",
+        "OCG GOAT",
+        "Speed Duel",
+        "Duel Links",
+        "Common Charity",
+        "Edison",
+        "TCG",
+        "OCG",
+        "Master Duel"
+      ],
+      "views": 3778458,
+      "url": "https://ygoprodeck.com/card/reinforcement-of-the-army-2794",
+      "banTcg": "Limited",
+      "banOcg": "Limited",
+      "tcgDate": "2003-06-06",
+      "ocgDate": "2001-09-20",
+      "mdRarity": "UR",
+      "genesysPoints": 18
+    },
+    {
+      "id": 40044918,
+      "name": "Elemental HERO Stratos",
+      "kind": "monster",
+      "typeLine": "Effect Monster",
+      "subtypes": [
+        "effect"
+      ],
+      "text": "When this card is Normal or Special Summoned: You can activate 1 of these effects.\n● Destroy Spells/Traps on the field, up to the number of \"HERO\" monsters you control, except this card.\n● Add 1 \"HERO\" monster from your Deck to your hand.",
+      "formats": [
+        "Duel Links",
+        "Common Charity",
+        "Edison",
+        "TCG",
+        "OCG",
+        "Master Duel"
+      ],
+      "views": 1165137,
+      "url": "https://ygoprodeck.com/card/elemental-hero-stratos-3400",
+      "monsterType": "Warrior",
+      "attribute": "WIND",
+      "level": 4,
+      "atk": 1800,
+      "def": 300,
+      "aliases": [
+        40044919
+      ],
+      "archetype": "Elemental HERO",
+      "tcgDate": "2007-04-21",
+      "ocgDate": "2006-08-19",
+      "mdRarity": "UR",
+      "genesysPoints": 0
+    },
+    {
+      "id": 82732705,
+      "name": "Skill Drain",
+      "kind": "trap",
+      "typeLine": "Continuous Trap",
+      "subtypes": [
+        "continuous"
+      ],
+      "text": "Activate by paying 1000 LP. Negate the effects of all face-up monsters while they are face-up on the field (but their effects can still be activated).",
+      "formats": [
+        "GOAT",
+        "OCG GOAT",
+        "Common Charity",
+        "Edison",
+        "TCG",
+        "OCG",
+        "Master Duel"
+      ],
+      "views": 2121469,
+      "url": "https://ygoprodeck.com/card/skill-drain-6952",
+      "banTcg": "Limited",
+      "banOcg": "Limited",
+      "tcgDate": "2003-12-01",
+      "ocgDate": "2002-11-21",
+      "mdRarity": "SR",
+      "genesysPoints": 100
+    },
+    {
+      "id": 70095154,
+      "name": "Cyber Dragon",
+      "kind": "monster",
+      "typeLine": "Effect Monster",
+      "subtypes": [
+        "effect"
+      ],
+      "text": "If only your opponent controls a monster, you can Special Summon this card (from your hand).",
+      "formats": [
+        "Duel Links",
+        "Speed Duel",
+        "Common Charity",
+        "Edison",
+        "TCG",
+        "OCG",
+        "Master Duel"
+      ],
+      "views": 1695825,
+      "url": "https://ygoprodeck.com/card/cyber-dragon-5898",
+      "monsterType": "Machine",
+      "attribute": "LIGHT",
+      "level": 5,
+      "atk": 2100,
+      "def": 1600,
+      "aliases": [
+        70095155
+      ],
+      "archetype": "Cyber Dragon",
+      "tcgDate": "2005-08-06",
+      "ocgDate": "2005-05-26",
+      "mdRarity": "R",
+      "genesysPoints": 0
+    },
+    {
+      "id": 92731385,
+      "name": "Tearlaments Kitkallos",
+      "kind": "monster",
+      "typeLine": "Fusion Effect Monster",
+      "subtypes": [
+        "fusion",
+        "effect"
+      ],
+      "text": "1 \"Tearlaments\" monster + 1 Aqua monster\nIf this card is Special Summoned: You can take 1 \"Tearlaments\" card from your Deck, and either add it to your hand or send it to the GY. You can target 1 monster you control; Special Summon 1 \"Tearlaments\" monster from your hand or GY, and if you do, send the targeted monster to the GY. If this card is sent to the GY by card effect: You can send the top 5 cards of your Deck to the GY. You can only use each effect of \"Tearlaments Kitkallos\" once per turn.",
+      "formats": [
+        "TCG",
+        "OCG",
+        "Master Duel"
+      ],
+      "views": 396230,
+      "url": "https://ygoprodeck.com/card/tearlaments-kitkallos-13201",
+      "monsterType": "Aqua",
+      "attribute": "DARK",
+      "level": 5,
+      "atk": 2300,
+      "def": 1200,
+      "archetype": "Tearlaments",
+      "banTcg": "Forbidden",
+      "banOcg": "Forbidden",
+      "tcgDate": "2022-08-04",
+      "ocgDate": "2022-04-23",
+      "mdRarity": "SR",
+      "genesysPoints": 50
+    }
+  ]
+}
