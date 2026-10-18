@@ -86,8 +86,8 @@ describe("multiplayer card catalog", () => {
   it("keeps 21 all-seat or ongoing cards and 45 one-opponent cards after the FFA rule change", () => {
     expect(GROUP_ALL).toHaveLength(21);
     expect(GROUP_ONE).toHaveLength(45);
-    expect(MULTIPLAYER_FORBIDDEN).toHaveLength(44);
-    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.formats.includes("tag"))).toHaveLength(25);
+    expect(MULTIPLAYER_FORBIDDEN).toHaveLength(19);
+    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.formats.includes("tag"))).toHaveLength(19);
   });
 
   it("puts opponent-field cards in the one-opponent group with the declaration or response rule", () => {
@@ -174,9 +174,11 @@ describe("multiplayer card catalog", () => {
     expect(dup(SCENARIOS.map((s) => s.code))).toEqual([]);
   });
 
-  it("puts every card in at most one of the forbidden list and the rule list", () => {
-    const forbidden = new Set(MULTIPLAYER_FORBIDDEN.map((entry) => entry.code));
-    expect(MULTIPLAYER_CARD_RULES.filter((entry) => forbidden.has(entry.code)).map((entry) => entry.name)).toEqual([]);
+  it("does not claim live rule proof in a forbidden format", () => {
+    const forbidden = new Map(MULTIPLAYER_FORBIDDEN.map((entry) => [entry.code, entry.formats]));
+    expect(MULTIPLAYER_CARD_RULES.flatMap((entry) => entry.proven
+      .filter(format => forbidden.get(entry.code)?.includes(format))
+      .map(format => `${entry.name}: ${format}`))).toEqual([]);
   });
 
   it("forbids the 17 'you win' cards in every format (owner decision 2026-10-01)", () => {
@@ -197,12 +199,12 @@ describe("multiplayer card catalog", () => {
     expect(withWin.filter((code) => !forbidden.has(code))).toEqual([33396948]);
   });
 
-  it("forbids Convulsion of Nature in every multiplayer format with Deck reverse evidence", () => {
-    const entry = MULTIPLAYER_FORBIDDEN.find((item) => item.code === 62966332);
+  it("allows proved Convulsion of Nature in every multiplayer format with Deck reverse evidence", () => {
+    const entry = MULTIPLAYER_CARD_RULES.find((item) => item.code === 62966332);
     expect(entry?.name).toBe("Convulsion of Nature");
-    expect(entry?.category).toBe("symmetry");
-    expect(entry?.formats).toEqual(["ffa3", "ffa4", "tag"]);
-    expect(FORBIDDEN_EVIDENCE[62966332]).toEqual([
+    expect(entry?.proven).toEqual(["ffa3", "ffa4", "tag"]);
+    expect(FORBIDDEN_EVIDENCE[62966332]).toBeUndefined();
+    expect(CARD_RULE_EVIDENCE[62966332]).toEqual([
       { file: "official/c62966332.lua", line: 5, token: "GLOBALFLAG_DECK_REVERSE_CHECK" },
       { file: "official/c62966332.lua", line: 14, token: "EFFECT_REVERSE_DECK" },
       { file: "official/c62966332.lua", line: 17, token: "SetTargetRange(1,1)" },

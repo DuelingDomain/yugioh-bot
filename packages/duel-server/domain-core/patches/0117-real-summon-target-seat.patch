@@ -1,0 +1,81 @@
+From ad4e5ce7ff21379eca0b3b00fdd0b2c888417801 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 18 Oct 2026 12:35:31 -0400
+Subject: [PATCH] Expose the real receiving seat in summon restriction
+ callbacks
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GLTNwBcU5bVhsdGwaZoeik
+---
+ interpreter.cpp | 15 +++++++++++++++
+ interpreter.h   |  2 ++
+ libduel.cpp     |  7 +++++++
+ 3 files changed, 24 insertions(+)
+
+diff --git a/interpreter.cpp b/interpreter.cpp
+index 186ee88..1254b68 100644
+--- a/interpreter.cpp
++++ b/interpreter.cpp
+@@ -674,6 +674,20 @@ bool interpreter::call_function(int param_count, int ret_count) {
+ }
+ bool interpreter::call_function_scoped(int param_count, int ret_count, effect* scope_eff, uint8_t scope_P) {
+ 	scope_guard sg(this);
++	const auto saved_summon_target = summon_target_seat;
++	summon_target_seat = DUELIST_NONE;
++	// These callbacks share (e,c,sump,sumtype,sumpos,targetp,...). Preserve the
++	// original PLAYER parameter; several real opponents fold to the same value.
++	if(params.size() >= 6 && params.front().second == LuaParam::EFFECT) {
++		const auto* eff = static_cast<effect*>(params.front().first.ptr);
++		if(eff && (eff->code == EFFECT_CANNOT_SUMMON || eff->code == EFFECT_CANNOT_SPECIAL_SUMMON
++			|| eff->code == EFFECT_FORCE_NORMAL_SUMMON_POSITION || eff->code == EFFECT_FORCE_SPSUMMON_POSITION)) {
++			auto receiver = params.begin();
++			std::advance(receiver, 5);
++			if(receiver->second == LuaParam::PLAYER && pduel->game_field->is_duelist(receiver->first.integer))
++				summon_target_seat = static_cast<uint8_t>(receiver->first.integer);
++		}
++	}
+ 	if(const auto* gf = pduel->game_field; gf && gf->n_duelists > 2) {
+ 		effect* eff = scope_eff;
+ 		if(!eff) {
+@@ -728,6 +742,7 @@ bool interpreter::call_function_scoped(int param_count, int ret_count, effect* s
+ 		ret = false;
+ 	}
+ 	sg.check_rebind_closed(ret);
++	summon_target_seat = saved_summon_target;
+ 	return ret;
+ }
+ bool interpreter::call_function(int32_t function, uint32_t param_count, int32_t ret_count, effect* scope_eff, uint8_t scope_P) {
+diff --git a/interpreter.h b/interpreter.h
+index df3b514..5f53cde 100644
+--- a/interpreter.h
++++ b/interpreter.h
+@@ -55,6 +55,8 @@ public:
+ 	int32_t call_depth;
+ 	// F7 P2: > 0 while initial_effect of a card runs (n > 2). Duel.RegisterEffect then makes a global effect.
+ 	int32_t init_depth{ 0 };
++	// Exact receiver of the current summon restriction callback, before Lua player folding.
++	uint8_t summon_target_seat{ DUELIST_NONE };
+ 	lua_invalid deleted;
+ 	int weak_lua_references;
+ 	int loaded_scripts_table;
+diff --git a/libduel.cpp b/libduel.cpp
+index 6b979e0..544dedd 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -4926,6 +4926,13 @@ LUA_STATIC_FUNCTION(MPMode) {
+ 	lua_pushinteger(L, f.n_duelists <= 2 ? 0 : (f.n_teams == f.n_duelists ? 1 : 2));
+ 	return 1;
+ }
++// Exact receiving seat during a summon restriction/position callback, or -1.
++// This is a read only value: it never binds an opponent or changes Lua perspective.
++LUA_STATIC_FUNCTION(MPSummonTargetSeat) {
++	const auto seat = pduel->lua->summon_target_seat;
++	lua_pushinteger(L, pduel->game_field->is_duelist(seat) ? seat : -1);
++	return 1;
++}
+ // The absolute seat at activation remains valid after control changes. No fold or bind.
+ LUA_STATIC_FUNCTION(MPChainSeat) {
+ 	check_param_count(L, 1);
+-- 
+2.43.0
+
