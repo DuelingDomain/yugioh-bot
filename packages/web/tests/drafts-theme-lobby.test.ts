@@ -28,6 +28,14 @@ vi.mock("@yugidraft/shared/services", async (importOriginal) => {
 
 type SeedCube = { main: number; extra: number };
 
+/** Keep supply/assignment assertions separate from additive effect-tag observations. */
+async function supplyPreflight(response: Response) {
+  const body = await response.json();
+  const healthWarnings = new Set((body.poolHealth ?? []).flatMap((entry: { cubeName: string; health: { warnings: string[] } | null }) =>
+    (entry.health?.warnings ?? []).map(warning => `${entry.cubeName}: ${warning}`)));
+  return { errors: body.errors, warnings: body.warnings.filter((warning: string) => !healthWarnings.has(warning)) };
+}
+
 async function seedDraft(cubes: SeedCube[], configOverrides: Record<string, unknown> = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), "yugioh-theme-lobby-"));
   const dbPath = join(tempDir, "lobby.sqlite");
@@ -211,7 +219,7 @@ describe("theme lobby routes", () => {
         const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
         const response = await GET(new Request("http://localhost"), params);
         expect(response.status).toBe(200);
-        expect(await response.json()).toEqual({ errors: [], warnings: [] });
+        expect(await supplyPreflight(response)).toEqual({ errors: [], warnings: [] });
       } else {
         const { PUT, POST } = await import("../app/api/drafts/[slug]/route");
         const response = entryPoint === "edit"
@@ -246,7 +254,7 @@ describe("theme lobby routes", () => {
         const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
         const response = await GET(new Request("http://localhost"), params);
         expect(response.status).toBe(200);
-        expect(await response.json()).toEqual({ errors: [`Cube ${cubeIds[2]}: Cube not found`], warnings: [] });
+        expect(await supplyPreflight(response)).toEqual({ errors: [`Cube ${cubeIds[2]}: Cube not found`], warnings: [] });
       } else {
         const { PUT, POST } = await import("../app/api/drafts/[slug]/route");
         const response = entryPoint === "edit"
@@ -391,7 +399,7 @@ describe("theme lobby routes", () => {
     const response = await GET(new Request("http://localhost"), params);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ errors: [], warnings: [] });
+    expect(await supplyPreflight(response)).toEqual({ errors: [], warnings: [] });
     const { POST } = await import("../app/api/drafts/[slug]/route");
     const started = await POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ force: true }) }), params);
     expect(started.status).toBe(202);
@@ -520,7 +528,7 @@ describe("theme lobby routes", () => {
     auth.mockResolvedValue({ user: { id: String(fixtureUserId("u1")), discordUserId: fixtureDiscordId("u1") } });
     const response = await GET(new Request("http://localhost"), params);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    expect(await supplyPreflight(response)).toEqual({
       errors: [], warnings: [expect.stringMatching(/^Theme1: Extra pool/i)],
     });
   }, 30000);
@@ -540,7 +548,7 @@ describe("theme lobby routes", () => {
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
     const response = await GET(new Request("http://localhost"), { params: Promise.resolve({ slug: "theme-slug" }) });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    expect(await supplyPreflight(response)).toEqual({
       errors: [expect.stringMatching(/^Theme0: Main pool/i)],
       warnings: [expect.stringMatching(/^Theme1: Extra pool/i)],
     });
@@ -619,7 +627,7 @@ describe("theme lobby routes", () => {
       const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
       const response = await GET(new Request("http://x"), { params: Promise.resolve({ slug: "theme-slug" }) });
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ errors: [], warnings: [] });
+      expect(await supplyPreflight(response)).toEqual({ errors: [], warnings: [] });
     }, 30000);
 
     it("starts using surviving cubes after an attachment is deleted", async () => {

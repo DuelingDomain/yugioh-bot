@@ -366,7 +366,7 @@ describe("cube service core", () => {
     cubes.addCard(cube.id, 1, "main", 20);
     const analysis = cubes.analyzeCubePools(cube.id, { themePackSize: 2, cardsPerPlayer: 10, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: false, copyLimit: false });
     expect(analysis.ok).toBe(true);
-    expect(analysis.warnings).toHaveLength(1);
+    expect(analysis.warnings.filter(warning => !analysis.poolHealth?.warnings.includes(warning))).toHaveLength(1);
     db.close();
   });
 
@@ -385,7 +385,7 @@ describe("cube service core", () => {
       extraDeckEnabled: false,
     });
     expect(a.ok).toBe(true);
-    expect(a.warnings).toEqual([]);
+    expect(a.warnings.filter(warning => !a.poolHealth?.warnings.includes(warning))).toEqual([]);
   });
 
   it("warns (not errors) on a thin extra pool when extra enabled", () => {
@@ -416,7 +416,7 @@ describe("cube service core", () => {
     }
     const analysis = cubes.analyzeCubePools(cube.id, { themePackSize: 3, cardsPerPlayer: 1, extraDeckSize: 15, burnUnpicked: false, extraDeckEnabled: true });
     expect(analysis.ok).toBe(true);
-    expect(analysis.warnings).toEqual([expect.stringMatching(/15.*17/)]);
+    expect(analysis.warnings.filter(warning => !analysis.poolHealth?.warnings.includes(warning))).toEqual([expect.stringMatching(/15.*17/)]);
     db.close();
   });
 

@@ -5,6 +5,7 @@ import { createCardCatalogService } from "../src/services/card-catalog.js";
 import { createCubeService } from "../src/services/cubes.js";
 import { seedUser } from "./helpers/identity.js";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
+import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 
 let db: Database.Database;
 let cubes: ReturnType<typeof createCubeService>;
@@ -67,6 +68,28 @@ describe("phrase cube previews over the pinned artifact", () => {
       expect(() => cubes.previewSeed(cubeId, input)).toThrow();
     }
   });
+
+  it.each([false, true])("reserves all available role quotas before filling a large core (member roles=%s)", memberRoles => {
+    const card = db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,archetype,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,?,'Normal Monster','normal',?,'i','s','[]',CURRENT_TIMESTAMP)`);
+    for (let id = 2000; id < (memberRoles ? 2160 : 2060); id++) card.run(id, `Roleless member ${id}`, "Roleless");
+    const tag = db.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,source,schema_version) VALUES(?,'Fixture',?,?,'fixture',1)");
+    let nextId = 3000;
+    for (const [role, count] of [["searcher", 12], ["extender", 18], ["removal", 12], ["hand_trap", 8]] as const) {
+      for (let n = 0; n < count; n++) {
+        card.run(nextId, `${role} staple ${n}`, memberRoles && (role === "searcher" || role === "hand_trap") ? "Roleless" : null);
+        tag.run(nextId++, JSON.stringify([role]), JSON.stringify(CardTags.parse(fillDefaults({ summary: "Fixture", roles: [role] }))));
+      }
+    }
+    const preview = cubes.previewSeed(cubeId, { phrase: "Roleless", targetCount: 100 });
+    expect(preview.rows).toHaveLength(100);
+    for (const quota of Object.values(preview.roleQuotas)) expect(quota.selected).toBeGreaterThanOrEqual(quota.target);
+    if (memberRoles) {
+      const members = preview.rows.filter(row => row.roles.includes("searcher") || row.roles.includes("hand_trap"));
+      expect(members.every(row => row.category === "archetype" && row.reason === "Archetype: Roleless")).toBe(true);
+    }
+    expect(preview.warnings).toEqual([]);
+  });
 });
 afterEach(() => { db.close(); vi.unstubAllEnvs(); });
 
@@ -104,5 +127,37 @@ describe("cube batch writes with real SQLite", () => {
     expect(() => cubes.addBatch(cubeId, [{ id: 1, copies: 1 }, { id: 2, copies: 2 }])).toThrow("batch failed");
     expect(cubes.getCubePools(cubeId)).toEqual({ main: [], extra: [] });
     expect(db.prepare("SELECT updated_at FROM cubes WHERE id=?").get(cubeId)).toEqual(before);
+  });
+});
+
+describe("warning-only cube pool health", () => {
+  it("adds role warnings without changing supply errors or readiness", () => {
+    vi.stubEnv("EFFECT_SEARCH", "1");
+    cubes.addBatch(cubeId, [{ id: 1, copies: 3 }, { id: 2, copies: 3 }]);
+    const config = { themePackSize: 1, cardsPerPlayer: 2, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: false };
+    const analysis = cubes.analyzeCubePools(cubeId, config);
+    expect(analysis).toMatchObject({ ok: true, errors: [], poolHealth: { cards: 1, roles: { removal: 0 }, warnings: expect.arrayContaining([expect.stringMatching(/removal/)]) } });
+    expect(analysis.warnings).toContainEqual(expect.stringMatching(/removal/));
+    vi.stubEnv("EFFECT_SEARCH", "0");
+    const disabled = cubes.analyzeCubePools(cubeId, config);
+    expect(disabled).toEqual({ ok: true, errors: [], warnings: [] });
+  });
+
+  it("includes enabled Extra cards, deduplicates identities, and does not mutate stale pool labels", () => {
+    vi.stubEnv("EFFECT_SEARCH", "1");
+    cubes.addCard(cubeId, 1, "main", 3);
+    db.prepare("INSERT INTO cube_cards(cube_id,catalog_card_id,pool,max_copies) VALUES(?,2,'main',2),(?,4,'extra',1)").run(cubeId, cubeId);
+    const before = db.prepare("SELECT * FROM cube_cards").all();
+    const analysis = cubes.analyzeCubePools(cubeId, { themePackSize: 1, cardsPerPlayer: 1, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: true });
+    expect(analysis.poolHealth?.cards).toBe(2);
+    expect(db.prepare("SELECT * FROM cube_cards").all()).toEqual(before);
+  });
+
+  it("keeps the draft ready when health data cannot be read", () => {
+    vi.stubEnv("EFFECT_SEARCH", "1");
+    cubes.addBatch(cubeId, [{ id: 1, copies: 3 }]);
+    db.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,source,schema_version) VALUES(1,'','[]','broken','fixture',1)").run();
+    const analysis = cubes.analyzeCubePools(cubeId, { themePackSize: 1, cardsPerPlayer: 1, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: false });
+    expect(analysis).toMatchObject({ ok: true, errors: [], poolHealth: null, warnings: [expect.stringMatching(/health is unavailable/i)] });
   });
 });

@@ -58,18 +58,35 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     const names = new Set([...reading.query.card.archetypes, ...reading.query.supports?.archetypes ?? []].map(compactEffectName));
     const words = reading.query.text.toLowerCase().split(/\s+/).filter(Boolean);
     const core: Choice[] = [];
-    // Retain enough anchors even for a very small requested preview.
-    for (const candidate of catalog.candidates()) {
+    const anchorChoices: Choice[] = [];
+    const quotaChoices = new Map<SeedRole, Choice[]>(roles.map(role => [role, []]));
+    const considerRoles = (choice: Choice) => {
+      if (existing.has(choice.candidate.card.id)) return;
+      for (const role of roles) if (choice.candidate.tags?.roles.includes(role)) {
+        const choices = quotaChoices.get(role)!;
+        // Core, partner and staple passes can reach the same public identity.
+        if (!choices.some(entry => entry.candidate.card.id === choice.candidate.card.id)) retain(choices, choice, targetCount);
+      }
+    };
+    const coreChoice = (candidate: Candidate): Choice | undefined => {
       const { card, tags } = candidate;
       const member = names.has(compactEffectName(card.archetype ?? "")) || names.has(compactEffectName(card.name));
       const score = matchCard(card, tags, reading.query);
       const printed = `${card.text} ${card.pendulumText ?? ""}`.toLowerCase();
-      if (!member && (score === null || !words.every(word => printed.includes(word)))) continue;
-      retain(core, { candidate, category: member ? "archetype" : "phrase", reason: member ? `Archetype: ${card.archetype ?? card.name}` : `Matches: ${reading.chips.join("; ")}`, score: member ? 100 : score ?? 0, linked: 0 }, Math.max(targetCount + existing.size, 32));
+      if (!member && (score === null || !words.every(word => printed.includes(word)))) return undefined;
+      return { candidate, category: member ? "archetype" : "phrase", reason: member ? `Archetype: ${card.archetype ?? card.name}` : `Matches: ${reading.chips.join("; ")}`, score: member ? 100 : score ?? 0, linked: 0 };
+    };
+    // Retain enough anchors even for a very small requested preview.
+    for (const candidate of catalog.candidates()) {
+      const choice = coreChoice(candidate);
+      if (!choice) continue;
+      retain(anchorChoices, choice, 32);
+      if (!existing.has(candidate.card.id)) retain(core, choice, targetCount);
+      considerRoles(choice);
     }
-    if (!core.length) { preview.warnings.push("No cards matched this phrase in the cached catalog."); return preview; }
+    if (!anchorChoices.length) { preview.warnings.push("No cards matched this phrase in the cached catalog."); return preview; }
 
-    const anchors = core.slice(0, 32).map(choice => choice.candidate);
+    const anchors = anchorChoices.map(choice => choice.candidate);
     const profiles = new Map<string, ArchetypeProfile>();
     const findProfile = db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE");
     for (const { card } of anchors) {
@@ -81,13 +98,19 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     const partners: Choice[] = [];
     const staples = new Map<SeedRole, Choice[]>(roles.map(role => [role, []]));
     for (const candidate of catalog.candidates()) {
-      if (existing.has(candidate.card.id) || coreIds.has(candidate.card.id)) continue;
+      if (existing.has(candidate.card.id) || coreIds.has(candidate.card.id) || coreChoice(candidate)) continue;
       const result = scoreForDeck(candidate, anchors, profiles);
-      if (result.score > 0) retain(partners, { candidate, category: "partner", reason: result.reason, score: result.score, linked: result.linkedCards }, targetCount);
+      if (result.score > 0) {
+        const choice: Choice = { candidate, category: "partner", reason: result.reason, score: result.score, linked: result.linkedCards };
+        retain(partners, choice, targetCount);
+        considerRoles(choice);
+      }
       // Broad staples must not depend on an unrelated archetype.
       if (candidate.card.archetype) continue;
       for (const role of roles) if (candidate.tags?.roles.includes(role)) {
-        retain(staples.get(role)!, { candidate, category: "staple", reason: `Role quota: ${role.replaceAll("_", " ")}`, score: 0, linked: 0 }, targetCount);
+        const choice: Choice = { candidate, category: "staple", reason: `Role quota: ${role.replaceAll("_", " ")}`, score: 0, linked: 0 };
+        retain(staples.get(role)!, choice, targetCount);
+        considerRoles(choice);
       }
     }
 
@@ -100,9 +123,21 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
       for (const role of roles) if (tags?.roles.includes(role)) roleQuotas[role].selected++;
       return true;
     };
-    for (const choice of core) { if (preview.rows.length >= Math.ceil(targetCount * 0.6)) break; add(choice); }
-    for (const choice of partners) { if (preview.rows.length >= Math.ceil(targetCount * 0.8)) break; add(choice); }
-    for (const role of roles) for (const choice of staples.get(role)!) {
+    // Keep room for unmet roles before spending the remaining category slots.
+    // A first core card always anchors the seed, even if a tiny target cannot fit every role.
+    const leavesQuotaSpace = (choice: Choice) => {
+      const needed = roles.reduce((sum, role) => sum + Math.max(0, roleQuotas[role].target - roleQuotas[role].selected - (choice.candidate.tags?.roles.includes(role) ? 1 : 0)), 0);
+      return preview.rows.length + 1 + needed <= targetCount;
+    };
+    for (const choice of core) {
+      if (preview.rows.length >= Math.ceil(targetCount * 0.6)) break;
+      if (!preview.rows.length || leavesQuotaSpace(choice)) add(choice);
+    }
+    for (const choice of partners) {
+      if (preview.rows.length >= Math.ceil(targetCount * 0.8)) break;
+      if (leavesQuotaSpace(choice)) add(choice);
+    }
+    for (const role of roles) for (const choice of quotaChoices.get(role)!) {
       if (roleQuotas[role].selected >= roleQuotas[role].target) break;
       add(choice);
     }

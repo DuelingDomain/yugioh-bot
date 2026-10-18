@@ -1,5 +1,5 @@
 import { recordProductEvent } from "../analytics/index.js";
-import { ExpectedError } from "../observability/index.js";
+import { ExpectedError, report } from "../observability/index.js";
 import type { CardIdentityCatalog } from "../duels/pool.js";
 import { routeDeckSections, type DeckSectionMove, type DeckCardType } from "../duels/extra-deck.js";
 import { createDeckTypeLookup, hasKnownDeckCardType } from "./deck-sections.js";
@@ -9,6 +9,8 @@ import { isExtraDeckFrame, type CardCatalogService } from "./card-catalog.js";
 import { CardFetchLimitError } from "./card-fetch.js";
 import { createCardLookupBudget } from "./card-lookup-budget.js";
 import { previewCubeSeed, type CubeSeedOptions } from "./cube-seed.js";
+import { createCardInsightService, type CardPoolHealth } from "./card-insights.js";
+import { effectSearchEnabled } from "../cards/effects/capability.js";
 import type { CubeAnalysis } from "./deal.js";
 import { DEFAULT_CUBE_COPIES, MAX_COPIES_PER_PLAYER, MAX_CUBE_COPIES, MIN_CUBE_COPIES } from "./constants.js";
 
@@ -19,6 +21,11 @@ export interface AnalyzeCubePoolsConfig {
   burnUnpicked: boolean;
   extraDeckEnabled: boolean;
   copyLimit?: boolean;
+}
+
+export interface CubePoolAnalysis extends CubeAnalysis {
+  /** Absent when disabled; null when unavailable. Health never changes readiness. */
+  poolHealth?: CardPoolHealth | null;
 }
 
 /** Fully resolved catalog entries; network resolution happens before the cube transaction. */
@@ -558,7 +565,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       return { added };
     },
 
-    analyzeCubePools(cubeId: number, config: AnalyzeCubePoolsConfig): CubeAnalysis {
+    analyzeCubePools(cubeId: number, config: AnalyzeCubePoolsConfig): CubePoolAnalysis {
       const errors: string[] = [];
       const warnings: string[] = [];
 
@@ -590,6 +597,20 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         }
       }
 
+      if (effectSearchEnabled()) {
+        let poolHealth: CardPoolHealth | null = null;
+        try {
+          const codes = inspectPools(cubeId, deckTypes.snapshot())
+            .filter(({ actual }) => actual === "main" || config.extraDeckEnabled)
+            .map(({ card }) => card.catalogCardId);
+          poolHealth = createCardInsightService(db).poolHealth(codes);
+          warnings.push(...poolHealth.warnings);
+        } catch (error) {
+          report(error, { tags: { operation: "cube-pool-health" } });
+          warnings.push("Pool health is unavailable; card supply checks still apply.");
+        }
+        return { ok: errors.length === 0, errors, warnings, poolHealth };
+      }
       return { ok: errors.length === 0, errors, warnings };
     },
 
