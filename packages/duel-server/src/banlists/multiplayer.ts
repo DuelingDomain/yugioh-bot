@@ -244,9 +244,9 @@ const OPPONENT_FIELD_EFFECT_SUMMON: readonly (readonly [number, string])[] = [
 
 const CARD_RULE_DRAFTS: readonly MultiplayerCardRuleDraft[] = [
   // --- whole-table hand and Exodia rules (owner 2026-10-18)
-  { code: 72892473, name: "Card Destruction", rule: "In FFA3, FFA4 and Tag, every living player discards their whole hand, then draws the same number of cards. Draw in turn order from the activator. Owner 2026-10-18." },
-  { code: 74519184, name: "Hand Destruction", rule: "In FFA3, FFA4 and Tag, every living player chooses 2 cards from their own hand in turn order from the activator. Send those cards to the GY, then each player draws 2. Owner 2026-10-18." },
-  { code: 33396948, name: "Exodia the Forbidden One", rule: "Five pieces in one player's hand win the whole duel. All other players lose at the same time, with no places. In Tag, that player's team wins and the other team loses. Other 'you win' cards stay forbidden. Owner 2026-10-18." },
+  { code: 72892473, name: "Card Destruction", rule: "In FFA3, FFA4 and Tag, every living player discards their whole hand, then draws the same number of cards. Draw in turn order from the turn player. Owner 2026-10-18." },
+  { code: 74519184, name: "Hand Destruction", rule: "In FFA3, FFA4 and Tag, every living player chooses 2 cards from their own hand in turn order from the turn player. Send those cards to the GY, then each player draws 2. Owner 2026-10-18." },
+  { code: 33396948, name: "Exodia the Forbidden One", rule: "Five pieces in one player's hand win the whole duel. All other players lose at the same time, with no places. In Tag, that player's team wins and the other team loses. If two or more hands complete Exodia at the same time, everyone draws, including when those hands belong to one Tag team. Reveal complete hands to every living player. Other 'you win' cards stay forbidden. Owner 2026-10-18." },
   // --- Kaiju and Lava summon: Tribute a monster of an opponent, the card goes to that opponent's field
   { code: 55063751, name: "Gameciel, the Sea Turtle Kaiju", rule: KAIJU_RULE },
   { code: 28674152, name: "Radian, the Multidimensional Kaiju", rule: KAIJU_RULE },
