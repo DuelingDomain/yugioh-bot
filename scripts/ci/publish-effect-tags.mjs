@@ -7,8 +7,8 @@ import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 
 const DATA = "packages/shared/data/effects", SOURCE = "packages/shared/src/cards/effects/artifact.ts";
-export const EFFECT_FILES = [`${DATA}/manifest.json`, `${DATA}/tags.jsonl.gz`, `${DATA}/source-hashes.json.gz`, SOURCE];
-const MODEL = "claude-haiku-4-5-20251001", BOT = { name: "github-actions[bot]", email: "41898282+github-actions[bot]@users.noreply.github.com" };
+export const EFFECT_FILES = [`${DATA}/manifest.json`, `${DATA}/profiles.jsonl.gz`, `${DATA}/tags.jsonl.gz`, `${DATA}/source-hashes.json.gz`, SOURCE];
+const MODEL = "claude-haiku-5-5", BOT = { name: "github-actions[bot]", email: "41898282+github-actions[bot]@users.noreply.github.com" };
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 const pattern = name => new RegExp(`(export const ${name} = ")[a-f0-9]{64}(";)`, "g");
 const json = path => JSON.parse(readFileSync(path, "utf8"));
@@ -38,7 +38,7 @@ export function validateEffectCandidate(root, outputDirectory) {
   if (before.artifactVersion !== pinned("CARD_EFFECT_ARTIFACT_VERSION") || sha(readFileSync(join(root, DATA, "manifest.json"))) !== pinned("CARD_EFFECT_ARTIFACT_MANIFEST_SHA256")) throw new Error("Original effect artifact differs from trusted source pins");
   const { artifactVersion, ...identity } = after;
   if (candidate.baseVersion !== before.artifactVersion || candidate.manifestSha256 !== sha(manifestBytes) || candidate.artifactVersion !== artifactVersion || sha(JSON.stringify(identity)) !== artifactVersion || after.formatVersion !== before.formatVersion || after.schemaVersion !== before.schemaVersion || !identical(after.source, before.source)) throw new Error("Effect manifest provenance or integrity is invalid");
-  if (after.generation?.kind !== "anthropic-message-batches" || after.generation.model !== MODEL || after.generation.baseArtifactVersion !== before.artifactVersion || after.generation.normalization !== "newline-trim-pendulum-first-v1" || !Number.isInteger(after.generation.acceptedCards) || after.generation.acceptedCards < 1) throw new Error("Effect generation provenance is invalid");
+  if (after.generation?.kind !== "anthropic-message-batches" || after.generation.model !== MODEL || after.generation.baseArtifactVersion !== before.artifactVersion || after.generation.normalization !== "newline-trim-pendulum-first-v1" || !Number.isInteger(after.generation.acceptedCards) || after.generation.acceptedCards < 0 || !Number.isInteger(after.generation.acceptedProfiles) || after.generation.acceptedProfiles < 0 || after.generation.acceptedCards + after.generation.acceptedProfiles < 1) throw new Error("Effect generation provenance is invalid");
   const decode = (directory, manifest, key) => {
     const names = { tags: "tags.jsonl.gz", profiles: "profiles.jsonl.gz", popularity: "popularity.json.gz", sourceHashes: "source-hashes.json.gz" };
     const file = manifest.files[key];
@@ -49,8 +49,8 @@ export function validateEffectCandidate(root, outputDirectory) {
     if (bytes.length !== file.bytes || sha(bytes) !== file.sha256) throw new Error("Effect artifact content integrity failed");
     return bytes.toString("utf8");
   };
-  for (const key of ["profiles", "popularity"]) {
-    if (!identical(after.files[key], before.files[key]) || !readFileSync(join(outputDirectory, DATA, after.files[key].path)).equals(readFileSync(join(root, DATA, before.files[key].path)))) throw new Error("Effect publication changed unrelated profile/popularity data");
+  for (const key of ["popularity"]) {
+    if (!identical(after.files[key], before.files[key]) || !readFileSync(join(outputDirectory, DATA, after.files[key].path)).equals(readFileSync(join(root, DATA, before.files[key].path)))) throw new Error("Effect publication changed unrelated popularity data");
     decode(outputDirectory, after, key);
   }
   const tagsBefore = new Map(decode(root, before, "tags").trim().split("\n").map(line => { const row = JSON.parse(line); return [row.id, row]; }));
@@ -63,13 +63,27 @@ export function validateEffectCandidate(root, outputDirectory) {
   const accepted = new Map(report.accepted.filter(tag => sourceBefore.hashes[tag.id] !== tag.inputHash).map(tag => [tag.id, tag]));
   if (accepted.size !== after.generation.acceptedCards || after.generation.acceptedResultsSha256 !== sha(JSON.stringify([...accepted.values()].sort((a, b) => a.id - b.id)))) throw new Error("Validated result provenance is invalid");
   for (const [id, old] of tagsBefore) if (!tagsAfter.has(id) || (!accepted.has(id) && !identical(tagsAfter.get(id), old))) throw new Error("Effect publication discarded or altered unrelated tags");
+  for (const id of accepted.keys()) if (!tagsAfter.has(id)) throw new Error("Missing accepted published tag");
   for (const [id, row] of tagsAfter) {
     const hash = sourceAfter.hashes[id];
     if (!Number.isSafeInteger(id) || id <= 0 || id > 0xffffffff || (hash !== null && !/^[a-f0-9]{64}$/.test(hash))) throw new Error("Invalid published tagged-input identity");
     if (accepted.has(id)) {
       const tag = accepted.get(id);
-      if (tag.model !== MODEL || hash !== tag.inputHash || !identical(row, { id, name: tag.name, model: MODEL, tags: tag.tags })) throw new Error("Effect publication does not match validated results");
+      if (![MODEL, "claude-haiku-4-5-20251001"].includes(tag.model) || hash !== tag.inputHash || !identical(row, { id, name: tag.name, model: tag.model, tags: tag.tags })) throw new Error("Effect publication does not match validated results");
     } else if (!tagsBefore.has(id) || sourceBefore.hashes[id] !== hash) throw new Error("Unexpected published card or source hash");
+  }
+  const profilesBefore = new Map(decode(root, before, "profiles").trim().split("\n").map(line => { const row = JSON.parse(line); return [row.archetype, row]; }));
+  const profileRows = decode(outputDirectory, after, "profiles").trim().split("\n").map(JSON.parse), profilesAfter = new Map(profileRows.map(row => [row.archetype, row]));
+  if (profilesAfter.size !== profileRows.length || profileRows.length !== after.files.profiles.records || !Array.isArray(report.acceptedProfiles)) throw new Error("Effect profile count/report is invalid");
+  const acceptedProfiles = new Map(report.acceptedProfiles.filter(row => profilesBefore.get(row.archetype)?.inputHash !== row.inputHash).map(row => [row.archetype, row]));
+  if (acceptedProfiles.size !== after.generation.acceptedProfiles || after.generation.acceptedProfilesSha256 !== sha(JSON.stringify([...acceptedProfiles.values()].sort((a,b) => a.archetype.localeCompare(b.archetype))))) throw new Error("Validated profile provenance is invalid");
+  for (const [name, old] of profilesBefore) if (!profilesAfter.has(name) || (!acceptedProfiles.has(name) && !identical(profilesAfter.get(name), old))) throw new Error("Effect publication altered unrelated profiles");
+  for (const archetype of acceptedProfiles.keys()) if (!profilesAfter.has(archetype)) throw new Error("Missing accepted published profile");
+  for (const [archetype, row] of profilesAfter) {
+    if (acceptedProfiles.has(archetype)) {
+      const accepted = acceptedProfiles.get(archetype);
+      if (accepted.model !== MODEL || !/^[a-f0-9]{64}$/.test(accepted.inputHash) || !Number.isInteger(accepted.cards) || accepted.cards < 3 || !identical(row, { archetype, cards: accepted.cards, model: MODEL, inputHash: accepted.inputHash, profile: accepted.profile })) throw new Error("Profile publication does not match validated results");
+    } else if (!profilesBefore.has(archetype)) throw new Error("Unexpected published archetype");
   }
   let expectedSource = originalSource;
   for (const [name, value] of [["CARD_EFFECT_ARTIFACT_VERSION", artifactVersion], ["CARD_EFFECT_ARTIFACT_MANIFEST_SHA256", candidate.manifestSha256]]) {

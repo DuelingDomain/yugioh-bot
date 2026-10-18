@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, symlinkSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { gunzipSync } from "node:zlib";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import type { Card } from "@yugidraft/shared/cards/effects";
@@ -19,6 +20,27 @@ const rootPath = fileURLToPath(new URL("../../../", import.meta.url));
 const fixtureCards = () => JSON.parse(readFileSync(join(rootPath, "scripts/effects/tagging-example-cards.json"), "utf8")).cards as Card[];
 const changedCards = () => fixtureCards().map(card => ({ ...card, text: `${card.text}\nUpdated printed effect.` }));
 const rawTags = new Map(gunzipSync(readFileSync(new URL("../../../packages/shared/data/effects/tags.jsonl.gz", import.meta.url))).toString("utf8").trim().split("\n").map(line => { const row = JSON.parse(line); return [row.id, row.tags] as const; }));
+
+const profileFixture = { plan: "Uses Fiends to build a field.", hooks: [{ label: "Fiend support", why: "Fiends share support.", does: null, reacts_to: null, card: null, supports: { types: ["Fiend"], attributes: [] }, phrases: [] }] };
+const rowsInPinnedProfiles = () => gunzipSync(readFileSync(join(rootPath, "packages/shared/data/effects/profiles.jsonl.gz"))).toString().trim().split("\n").length;
+const profileCards = () => changedCards().map(card => ({ ...card, archetype: "CI Fiends" }));
+
+function resignCandidate(output: string) {
+  const data = join(output, "packages/shared/data/effects"), sha = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
+  const manifest = JSON.parse(readFileSync(join(data, "manifest.json"), "utf8"));
+  const compressed = readFileSync(join(data, "profiles.jsonl.gz")), raw = gunzipSync(compressed);
+  Object.assign(manifest.files.profiles, { bytes: raw.length, sha256: sha(raw), gzipBytes: compressed.length, gzipSha256: sha(compressed), records: raw.toString().trim().split("\n").length });
+  const { artifactVersion: _old, ...identity } = manifest;
+  manifest.artifactVersion = sha(JSON.stringify(identity));
+  const bytes = JSON.stringify(manifest, null, 2) + "\n";
+  writeFileSync(join(data, "manifest.json"), bytes);
+  const metadata = JSON.parse(readFileSync(join(output, "update.json"), "utf8"));
+  Object.assign(metadata, { artifactVersion: manifest.artifactVersion, manifestSha256: sha(bytes) });
+  writeFileSync(join(output, "update.json"), JSON.stringify(metadata));
+  const source = join(output, "packages/shared/src/cards/effects/artifact.ts");
+  writeFileSync(source, readFileSync(source, "utf8").replace(/(export const CARD_EFFECT_ARTIFACT_VERSION = ")[a-f0-9]{64}/, `$1${manifest.artifactVersion}`).replace(/(export const CARD_EFFECT_ARTIFACT_MANIFEST_SHA256 = ")[a-f0-9]{64}/, `$1${sha(bytes)}`));
+}
+
 async function setup(now = "2026-10-10T12:00:00Z") {
   const ledger = await import("../budget-ledger.js");
   const { runTagging } = await import("../tag-cards.js");
@@ -28,7 +50,7 @@ async function setup(now = "2026-10-10T12:00:00Z") {
   await store.compareAndSwap(undefined, ledger.createEmptyLedger());
   return { ...ledger, directory, store, runTagging, AnthropicBatchClient, now: () => new Date(now) };
 }
-async function endpoint(options: { uncertain?: boolean; badTags?: boolean; partial?: boolean; duplicate?: boolean; processing?: boolean; onSubmit?: () => Promise<void> } = {}) {
+async function endpoint(options: { uncertain?: boolean; badTags?: boolean; partial?: boolean; duplicate?: boolean; processing?: boolean; badProfile?: boolean; onSubmit?: () => Promise<void> } = {}) {
   const events: string[] = [], batches: Array<{ id: string; requests: Array<{ custom_id: string; params: Record<string, any> }> }> = [];
   const server = createServer(async (request, response) => {
     events.push(`${request.method} ${request.url}`);
@@ -46,7 +68,7 @@ async function endpoint(options: { uncertain?: boolean; badTags?: boolean; parti
       let result = batch.requests.map(req => {
         const ids = [...String(req.params.messages[0].content).matchAll(/<card id="(\d+)">/g)].map(match => Number(match[1]));
         const cards = ids.map(id => ({ id: String(id), ...rawTags.get(id), supports: { ...rawTags.get(id)?.supports, names: ["Made-Up Card"] } }));
-        return { custom_id: req.custom_id, result: { type: "succeeded", message: { model: "claude-haiku-4-5-20251001", stop_reason: "end_turn", usage: { input_tokens: 100, output_tokens: 50 }, content: [{ type: "text", text: options.badTags ? "not JSON" : JSON.stringify({ cards }) }] } } };
+        return { custom_id: req.custom_id, result: { type: "succeeded", message: { model: req.params.model, stop_reason: "end_turn", usage: { input_tokens: 100, output_tokens: 50 }, content: [{ type: "text", text: options.badTags ? "not JSON" : JSON.stringify(req.params.output_config.format.schema.properties.plan ? (options.badProfile ? { ...profileFixture, hooks: [{ ...profileFixture.hooks[0], phrases: ["CI Fiends"] }] } : profileFixture) : { cards }) }] } } };
       }).reverse();
       if (options.partial) result = result.slice(0, -1);
       if (options.duplicate && result.length) result.push(result[0]);
@@ -104,27 +126,27 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     const { recoverTaggingSubmission } = await import("../tag-cards.js");
     expect(await recoverTaggingSubmission(context.store, client, reservationId, "msgbatch_fixture_1")).toBe(true);
     const recovered = (await context.store.read())!.ledger;
-    expect(recovered.months["2026-10"]).toBe(175);
-    expect(recovered.reservations[0]).toMatchObject({ state: "settled", batchId: "msgbatch_fixture_1", actualMicros: 175 });
+    expect(recovered.months["2026-10"]).toBe(18);
+    expect(recovered.reservations[0]).toMatchObject({ state: "settled", batchId: "msgbatch_fixture_1", actualMicros: 18 });
     expect(recovered.reservations[0].accepted).toHaveLength(6);
     expect(api.events.filter(event => event.startsWith("POST"))).toHaveLength(1);
   });
 
   it("durably reserves before HTTP, collects validated tags, and reuses results before PR merge", async () => {
     const context = await setup(), api = await endpoint({ onSubmit: async () => {
-      expect((await context.store.read())!.ledger.reservations[0]).toMatchObject({ state: "submission_started", reservedMicros: 150_000 });
+      expect((await context.store.read())!.ledger.reservations[0]).toMatchObject({ state: "submission_started", reservedMicros: 275_000 });
     } });
     const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
     const first = await context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now });
     expect(first.submitted).toBe(1);
     const durable = (await context.store.read())!.ledger;
-    expect(durable.reservations[0]).toMatchObject({ state: "submitted", reservedMicros: 150_000, batchId: "msgbatch_fixture_1" });
+    expect(durable.reservations[0]).toMatchObject({ state: "submitted", reservedMicros: 275_000, batchId: "msgbatch_fixture_1" });
     const params = api.batches[0].requests[0].params;
-    expect(params.model).toBe("claude-haiku-4-5-20251001"); expect(params.max_tokens).toBe(20_000);
+    expect(params.model).toBe("claude-haiku-5-5"); expect(params.max_tokens).toBe(20_000);
     for (const key of ["thinking", "tools", "cache_control"]) expect(params).not.toHaveProperty(key);
     expect(params.output_config).not.toHaveProperty("effort");
     const second = await context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now });
-    expect(second.accepted).toHaveLength(6); expect(second.submitted).toBe(0); expect(second.usedMicros).toBe(175);
+    expect(second.accepted).toHaveLength(6); expect(second.submitted).toBe(0); expect(second.usedMicros).toBe(18);
     for (const tag of second.accepted) { expect(tag.tags.supports.names).toEqual([]); expect(tag.inputHash).toBe(hashCardEffectSourceText(changedCards().find(card => card.id === tag.id)!)); }
     const third = await context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now });
     expect(third.reused).toBe(6); expect(api.events.filter(event => event.startsWith("POST"))).toHaveLength(1);
@@ -137,7 +159,7 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     expect((await context.store.read())!.ledger.reservations[0].state).toBe("submission_started");
     const reopened = new context.FileLedgerStore(join(context.directory, "ledger.json"));
     const report = await context.runTagging({ cards: changedCards(), store: reopened, client, dryRun: false, now: () => new Date("2026-11-10T12:00:00Z") });
-    expect(report.usedMicros).toBe(150_000); expect(report.submitted).toBe(0);
+    expect(report.usedMicros).toBe(275_000); expect(report.submitted).toBe(0);
     expect(api.events.filter(event => event.startsWith("POST"))).toHaveLength(1);
   });
 
@@ -146,7 +168,7 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
     await context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now });
     await expect(context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now })).rejects.toThrow(/results|duplicate|incomplete/i);
-    expect((await context.store.read())!.ledger.reservations[0]).toMatchObject({ state: "submitted", reservedMicros: 150_000 });
+    expect((await context.store.read())!.ledger.reservations[0]).toMatchObject({ state: "submitted", reservedMicros: 275_000 });
   });
 
   it("settles billed usage even when every returned tag fails validation", async () => {
@@ -154,8 +176,8 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
     await context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now });
     const report = await context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now, maxRequests: 0 });
-    expect(report.accepted).toEqual([]); expect(report.usedMicros).toBe(175);
-    expect((await context.store.read())!.ledger.reservations[0]).toMatchObject({ state: "settled", actualMicros: 175 });
+    expect(report.accepted).toEqual([]); expect(report.usedMicros).toBe(18);
+    expect((await context.store.read())!.ledger.reservations[0]).toMatchObject({ state: "settled", actualMicros: 18 });
   });
 
   it("refuses budget exhaustion, end-of-month submission, missing ledgers and lost CAS races before HTTP", async () => {
@@ -190,7 +212,7 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     const valid = (await history.store.read())!.ledger;
     const api = await endpoint(); let writes = 0;
     const client = new history.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
-    for (const months of [{}, { "2026-10": 0 }, { "2026-10": 176 }, { "2026-10": 175, "2026-11": 0 }]) {
+    for (const months of [{}, { "2026-10": 0 }, { "2026-10": 19 }, { "2026-10": 18, "2026-11": 0 }]) {
       writeFileSync(join(history.directory, "ledger.json"), JSON.stringify({ ...valid, months }));
       const store = { read: () => history.store.read(), compareAndSwap: async () => { writes++; throw new Error("Unexpected write"); } };
       await expect(history.runTagging({ cards: changedCards(), store, client, dryRun: false, now: history.now })).rejects.toThrow(/monthly|totals|ledger/i);
@@ -210,7 +232,7 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     expect(candidate.changed).toBe(true);
     const manifest = JSON.parse(readFileSync(join(output, "packages/shared/data/effects/manifest.json"), "utf8"));
     expect(manifest.source.commit).toBe("9b2d952f8e7c389e13267d4bba6504cc8ea4cb5c");
-    expect(manifest.generation).toMatchObject({ model: "claude-haiku-4-5-20251001", acceptedCards: 6 });
+    expect(manifest.generation).toMatchObject({ model: "claude-haiku-5-5", acceptedCards: 6 });
     const sidecar = JSON.parse(gunzipSync(readFileSync(join(output, "packages/shared/data/effects/source-hashes.json.gz"))).toString("utf8"));
     expect(sidecar.hashes[14558127]).toBe(hashCardEffectSourceText(changedCards()[0]));
     for (const file of ["profiles.jsonl.gz", "popularity.json.gz"]) {
@@ -268,4 +290,107 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     writeFileSync(join(output, "packages/shared/src/cards/effects/artifact.ts"), `${original}\nprocess.exit(1);\n`);
     expect(() => validateEffectCandidate(rootPath, output)).toThrow(/pin constants|code outside/);
   });
+  it("profiles grown archetypes in the same durable batch, reuses inputs, and publishes only accepted profiles", async () => {
+    const context = await setup(), api = await endpoint();
+    const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
+    const before = await context.runTagging({ cards: profileCards(), store: context.store, now: context.now });
+    expect(before.profileCandidates).toBe(1); expect(api.events).toEqual([]);
+    await context.runTagging({ cards: profileCards(), store: context.store, client, dryRun: false, now: context.now });
+    expect(api.batches[0].requests).toHaveLength(2);
+    const report = await context.runTagging({ cards: profileCards(), store: context.store, client, dryRun: false, now: context.now });
+    expect(report.acceptedProfiles).toHaveLength(1);
+    expect(report.acceptedProfiles[0]).toMatchObject({ archetype: "CI Fiends", cards: 6, profile: profileFixture });
+    expect(report.usedMicros).toBe(36);
+    const output = join(context.directory, "profiles-candidate");
+    const { writeEffectArtifactCandidate } = await import("../artifact-output.js");
+    const candidate = writeEffectArtifactCandidate({ root: rootPath, outputDirectory: output, baseSha: "a".repeat(40), accepted: report.accepted, acceptedProfiles: report.acceptedProfiles });
+    expect(candidate.files).toContain("packages/shared/data/effects/profiles.jsonl.gz");
+    writeFileSync(join(output, "report.json"), JSON.stringify(report));
+    const publisherPath = "../../ci/publish-effect-tags.mjs";
+    const { validateEffectCandidate } = await import(publisherPath);
+    expect(validateEffectCandidate(rootPath, output).changed).toBe(true);
+    // Load the newly pinned source in a disposable package, then import into real SQLite.
+    const generatedPin = readFileSync(join(output, "packages/shared/src/cards/effects/artifact.ts"));
+    cpSync(join(rootPath, "packages/shared/src"), join(output, "packages/shared/src"), { recursive: true });
+    writeFileSync(join(output, "packages/shared/src/cards/effects/artifact.ts"), generatedPin);
+    writeFileSync(join(output, "package.json"), '{"type":"module"}');
+    symlinkSync(join(rootPath, "node_modules"), join(output, "node_modules"), "dir");
+    const moduleUrl = pathToFileURL(join(output, "packages/shared/src/cards/effects/artifact.ts")).href;
+    const dbUrl = pathToFileURL(join(output, "packages/shared/src/db/connection.ts")).href;
+    const imported = JSON.parse(execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e",
+      `import { importCardEffectArtifact } from ${JSON.stringify(moduleUrl)}; import { openDatabase } from ${JSON.stringify(dbUrl)}; const db = openDatabase(":memory:"); const report = importCardEffectArtifact(db); console.log(JSON.stringify({profiles: report.profiles, profile: db.prepare("SELECT cards FROM card_tag_profiles WHERE archetype='CI Fiends'").get()})); db.close();`], { cwd: rootPath, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+    expect(imported.profile).toEqual({ cards: 6 });
+    expect(imported.profiles).toBe(rowsInPinnedProfiles() + 1);
+    const { profileCandidates } = await import("../profile-archetypes.js");
+    const rows = gunzipSync(readFileSync(join(output, "packages/shared/data/effects/profiles.jsonl.gz"))).toString("utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(profileCandidates(profileCards(), rows)).toEqual([]);
+    expect(profileCandidates(profileCards().map((card, index) => index === 0 ? { ...card, atk: (card.atk ?? 0) + 100 } : card), rows)).toHaveLength(1);
+    expect(profileCandidates([...profileCards(), { ...profileCards()[0], id: 123456789 }], rows)).toHaveLength(1);
+    // Even recomputed SHA pins must not hide an accepted new profile's missing row.
+    writeFileSync(join(output, "packages/shared/data/effects/profiles.jsonl.gz"), gzipSync(Buffer.from(rows.filter(row => row.archetype !== "CI Fiends").map(row => JSON.stringify(row)).join("\n") + "\n")));
+    resignCandidate(output);
+    expect(() => validateEffectCandidate(rootPath, output)).toThrow(/profile/i);
+    const again = await context.runTagging({ cards: profileCards(), store: context.store, client, dryRun: false, now: context.now });
+    expect(again.acceptedProfiles).toHaveLength(1); expect(again.submitted).toBe(0);
+    expect(api.events.filter(event => event.startsWith("POST"))).toHaveLength(1);
+  });
+
+  it("limits combined tag/profile liability to $2 per run even when more work is requested", async () => {
+    const context = await setup(), api = await endpoint();
+    const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
+    const cards = Array.from({ length: 100 }, (_, index) => ({ ...profileCards()[0], id: 10000000 + index, name: `Fixture ${index}`, archetype: `Group ${Math.floor(index / 4)}` }));
+    await context.runTagging({ cards, store: context.store, client, dryRun: false, now: context.now, maxRequests: 66 });
+    const entries = (await context.store.read())!.ledger.reservations;
+    expect(entries.reduce((sum, entry) => sum + entry.reservedMicros, 0)).toBeLessThanOrEqual(2_000_000);
+    expect(api.batches[0].requests.length).toBeLessThanOrEqual(7);
+  });
+
+  it("settles old Haiku 4.5 reservations without changing their held amount or billing rate", async () => {
+    const context = await setup(), api = await endpoint();
+    const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
+    await context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now });
+    const snapshot = (await context.store.read())!, reservation = snapshot.ledger.reservations[0];
+    delete reservation.model; reservation.reservedMicros = 150_000;
+    for (const request of api.batches[0].requests) request.params.model = context.LEGACY_MODEL;
+    await context.store.compareAndSwap(snapshot.revision, snapshot.ledger);
+    const report = await context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now, maxRequests: 0 });
+    expect(report.usedMicros).toBe(175); expect(report.accepted[0].model).toBe(context.LEGACY_MODEL);
+    expect(api.events.filter(event => event.startsWith("POST"))).toHaveLength(1);
+  });
+
+  it("bills invalid profiles, defers retries, and reserves enough for the highest price tier", async () => {
+    const context = await setup(), api = await endpoint({ badProfile: true });
+    const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
+    await context.runTagging({ cards: profileCards(), store: context.store, client, dryRun: false, now: context.now });
+    const report = await context.runTagging({ cards: profileCards(), store: context.store, client, dryRun: false, now: context.now });
+    expect(report.acceptedProfiles).toEqual([]); expect(report.usedMicros).toBe(36);
+    expect(report.submitted).toBe(0);
+    expect((await context.store.read())!.ledger.reservations[0].profileFailures).toEqual(["CI Fiends"]);
+    expect(context.billedMicros(context.MODEL, 100_000, 20_000)).toBe(10_000);
+    expect(context.billedMicros(context.MODEL, 100_001, 20_000)).toBe(50_001);
+    expect(context.billedMicros(context.MODEL, context.MAX_INPUT_TOKENS, context.MAX_OUTPUT_TOKENS)).toBe(context.REQUEST_RESERVATION_MICROS);
+  });
+
+  it("resizes never-submitted legacy reservations before intent without blocking future months", async () => {
+    const context = await setup(), api = await endpoint();
+    const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
+    let writes = 0;
+    const crashingStore = { read: () => context.store.read(), compareAndSwap: async (revision: string | undefined, ledger: import("../budget-ledger.js").Ledger) => {
+      if (++writes === 2) throw new Error("Crash before submission intent");
+      return context.store.compareAndSwap(revision, ledger);
+    } };
+    await expect(context.runTagging({ cards: changedCards(), store: crashingStore, client, dryRun: false, now: context.now })).rejects.toThrow(/before submission/);
+    expect(api.events).toEqual([]);
+    const snapshot = (await context.store.read())!, reservation = snapshot.ledger.reservations[0];
+    delete reservation.model; reservation.state = "reserved";
+    reservation.requests = Array.from({ length: 66 }, (_, index) => ({ ...reservation.requests[0], customId: `legacy_${index}` }));
+    reservation.reservedMicros = 9_900_000;
+    await context.store.compareAndSwap(snapshot.revision, snapshot.ledger);
+    const resumedApi = await endpoint(), resumedClient = new context.AnthropicBatchClient({ baseUrl: resumedApi.baseUrl, apiKey: "fake", allowLoopback: true });
+    const report = await context.runTagging({ cards: changedCards(), store: context.store, client: resumedClient, dryRun: false, now: context.now });
+    expect(report.submitted).toBe(1);
+    expect(report.usedMicros).toBeLessThanOrEqual(2_000_000);
+    expect(resumedApi.batches[0].requests).toHaveLength(7);
+  });
+
 });
