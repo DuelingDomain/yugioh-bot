@@ -77,9 +77,14 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
       return { candidate, category: member ? "archetype" : "phrase", reason: member ? `Archetype: ${card.archetype ?? card.name}` : `Matches: ${reading.chips.join("; ")}`, score: member ? 100 : score ?? 0, linked: 0 };
     };
     // Retain enough anchors even for a very small requested preview.
+    // The catalog is read once: the partner pass below reuses these candidates and the core matches.
+    const scanned: Candidate[] = [];
+    const coreMatches = new Set<number>();
     for (const candidate of catalog.candidates()) {
+      scanned.push(candidate);
       const choice = coreChoice(candidate);
       if (!choice) continue;
+      coreMatches.add(candidate.card.id);
       retain(anchorChoices, choice, 32);
       if (!existing.has(candidate.card.id)) retain(core, choice, targetCount);
       considerRoles(choice);
@@ -97,8 +102,8 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     const coreIds = new Set(core.map(choice => choice.candidate.card.id));
     const partners: Choice[] = [];
     const staples = new Map<SeedRole, Choice[]>(roles.map(role => [role, []]));
-    for (const candidate of catalog.candidates()) {
-      if (existing.has(candidate.card.id) || coreIds.has(candidate.card.id) || coreChoice(candidate)) continue;
+    for (const candidate of scanned) {
+      if (existing.has(candidate.card.id) || coreIds.has(candidate.card.id) || coreMatches.has(candidate.card.id)) continue;
       const result = scoreForDeck(candidate, anchors, profiles);
       if (result.score > 0) {
         const choice: Choice = { candidate, category: "partner", reason: result.reason, score: result.score, linked: result.linkedCards };
