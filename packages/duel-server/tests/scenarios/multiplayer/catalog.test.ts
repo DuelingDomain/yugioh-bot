@@ -86,8 +86,8 @@ describe("multiplayer card catalog", () => {
   it("keeps 21 all-seat or ongoing cards and 45 one-opponent cards after the FFA rule change", () => {
     expect(GROUP_ALL).toHaveLength(21);
     expect(GROUP_ONE).toHaveLength(45);
-    expect(MULTIPLAYER_FORBIDDEN).toHaveLength(28);
-    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.formats.includes("tag"))).toHaveLength(26);
+    expect(MULTIPLAYER_FORBIDDEN).toHaveLength(22);
+    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.formats.includes("tag"))).toHaveLength(20);
   });
 
   it("puts opponent-field cards in the one-opponent group with the declaration or response rule", () => {

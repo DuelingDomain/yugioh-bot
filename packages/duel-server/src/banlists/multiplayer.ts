@@ -37,16 +37,9 @@ const ALL: MultiplayerFormat[] = ["ffa3", "ffa4", "tag"];
 const NO_RESULT = " A 'you win' effect has no defined result for the other players.";
 
 export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
-  { code: 18326736, name: "Tellarknight Ptolemaeus", category: "turn-order", reason: "Choosing Tag member p3 still skips p1. The native effect does not follow the chosen member. FFA is proved (owner 2026-10-18).", formats: ["tag"] },
-  { code: 6357341, name: "The Six Shinobi", category: "turn-order", reason: "Choosing Tag member p3 still skips p1. The native effect does not follow the chosen member. FFA is proved (owner 2026-10-18).", formats: ["tag"] },
   // --- hand-swap: both hands, one chooser per side
   { code: 74519184, name: "Hand Destruction", category: "hand-swap", reason: "Turn player and one other player draw and discard. The other players do nothing.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
   { code: 72892473, name: "Card Destruction", category: "hand-swap", reason: "Both hands go to the GY, but only two players draw.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
-  // --- turn-count
-  { code: 23746827, name: "Million-Century Ice Prison", category: "turn-count", reason: "The Tag next-Main-Phase-1 effect skips the next team member instead of the responsible opponent. FFA is proved (owner 2026-10-18).", formats: ["tag"] },
-  // --- turn-order
-  { code: 23846921, name: "Arcana Force XXI - The World", category: "turn-order", reason: "The Tag turn skip and top-GY card query do not follow the chosen opposing member. FFA is proved (owner 2026-10-18).", formats: ["tag"] },
-  { code: 92182447, name: "Mischief of the Time Goddess", category: "turn-order", reason: "The native effect skips one opposing turn but leaves another FFA opponent or the Tag partner's normal turn open. It does not reach the next own Battle Phase. Live gaps are proved in every multiplayer format (owner 2026-10-18).", formats: ALL },
   // --- alt-win
   { code: 33396948, name: "Exodia the Forbidden One", category: "alt-win", reason: "It reads both hands and ends the duel with win, loss or draw for two sides.", formats: ALL },
   { code: 95308449, name: "Final Countdown", category: "alt-win", reason: "It keeps one counter for each of two players and then ends the duel.", formats: ALL },
@@ -68,8 +61,6 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   { code: 96637156, name: "Musical Sumo Dice Games", category: "alt-win", reason: `It ends the duel with a win for its controller when it gets its 7th Xyz Material.${NO_RESULT}`, formats: ALL },
   { code: 97795930, name: "Phantasm Spiral Assault", category: "alt-win", reason: `It ends the duel with a win for its controller when its counter reaches 3.${NO_RESULT}`, formats: ALL },
   { code: 48995978, name: "Number 88: Gimmick Puppet of Leo", category: "alt-win", reason: `It ends the duel with a win for its controller when it has 3 counters.${NO_RESULT}`, formats: ALL },
-  // --- control-swap
-  { code: 30426226, name: "Switcheroroo", category: "control-swap", reason: "The Tag swap groups contain several real controllers. SwapControl rejects those groups, and receiving seats have no defined rule. FFA pair swaps are proved (owner 2026-10-18).", formats: ["tag"] },
 ];
 
 /**
@@ -226,13 +217,13 @@ const OPPONENT_FIELD_EFFECT_SUMMON: readonly (readonly [number, string])[] = [
 const CARD_RULE_DRAFTS: readonly MultiplayerCardRuleDraft[] = [
   { code: 35059553, name: "Kaiser Colosseum", rule: "In FFA, compare the monster count of the actual summoning opponent with your field. Other opponents' monsters do not count. Tag keeps the joined team fields, including partner monsters used for a Tribute Summon. (owner 2026-10-18)" },
   { code: 21208154, name: "The Wicked Avatar", rule: "In FFA, choose one opponent. Only that opponent cannot activate Spells and Traps for two of their turns. In Tag, lock the opposing team for two opposing turns. The source must be Normal Summoned as its card text requires. (owner 2026-10-18)" },
-  { code: 23846921, name: "Arcana Force XXI - The World", rule: "In FFA, Heads skips only the chosen opponent's next turn. Tails chooses one opponent's top GY card during an opponent Draw Phase, including a different opponent from the turn player. Tag is forbidden: the native skip and GY index do not follow the chosen member. (owner 2026-10-18)" },
-  { code: 23746827, name: "Million-Century Ice Prison", rule: "In FFA, bind the opponent whose monster effect met the condition. End that player's current phase or skip their next Main Phase 1, as chosen. Other turns proceed. Tag is forbidden: the next Main Phase 1 skips a different opposing member. (owner 2026-10-18)" },
+  { code: 23846921, name: "Arcana Force XXI - The World", rule: "Heads skips only the chosen opponent's next turn in FFA and Tag. Other duelists keep their turns. Tails chooses one opponent's top GY card during an opposing Draw Phase, including a non-turn opponent. Count and index the same chosen GY. (owner 2026-10-18)" },
+  { code: 23746827, name: "Million-Century Ice Prison", rule: "Bind the real opponent whose monster effect met the condition. End that player's current phase or skip their next Main Phase 1, as chosen. In Tag, the other opposing member keeps Main Phase 1. (owner 2026-10-18)" },
   { code: 100200298, name: 'Counter Spell "Negate Attack"', rule: "When responding to an attack, compare only the attacking opponent's monsters in FFA, negate that attack, and end that player's Battle Phase. Tag compares the joined opposing field. The monster-effect branch negates and destroys the opponent's actual effect source. Its GY summon follows only your own normal draw, including in Tag. Do not choose an unrelated opponent. (owner 2026-10-18)" },
   { code: 17178486, name: "Life Equalizer", rule: "Compare you with one chosen opponent in FFA. If the LP difference is at least 8000, set both LP to 3000. Tag compares and changes the two team LP totals. (owner 2026-10-18)" },
   { code: 15305240, name: "Creature Seizure", rule: "Choose one opponent in FFA. You choose your Normal Monster and that opponent chooses their monster, then swap those two monsters. Tag keeps joined fields and one opposing chooser; the real controller seats swap the chosen cards. (owner 2026-10-18)" },
   { code: 13532663, name: "Dummy Golem", rule: "Choose one opponent in FFA. That opponent chooses their monster to swap with Dummy Golem. Tag uses one opposing chooser and the joined opposing field; the real controller seats swap the chosen cards. (owner 2026-10-18)" },
-  { code: 30426226, name: "Switcheroroo", rule: "In FFA, compare your monster count with one chosen opponent and swap those two fields only. Tag is forbidden: the stock swap cannot handle several controllers in each group, and the receiving seats need a defined rule. (owner 2026-10-18)" },
+  { code: 30426226, name: "Switcheroroo", rule: "In FFA, compare your monster count with one chosen opponent and swap those two fields only. In Tag, compare the two joined fields and swap all monsters at once. Each monster moves to its facing opposing seat: p0/p1 or p2/p3. Check every receiving field before any move. (owner 2026-10-18)" },
   { code: 33508719, name: "Morphing Jar", rule: "Every living duelist discards their hand, then draws 5 cards in turn order from the turn player. Include each Tag member. (owner 2026-10-18)" },
   { code: 14057297, name: "Multiple Destruction", rule: "Each living duelist must have at least 3 cards in hand. Return all hands to the bottom of their owners' Decks and sort those cards in turn order. You lose 300 LP per returned card. If you still have LP, every living duelist draws 5 in turn order. Include each Tag member. (owner 2026-10-18)" },
   { code: 17484499, name: "Exchange of the Spirit", rule: "In FFA, every living duelist must have at least 15 cards in their GY. Tag checks each joined team GY. After you pay 1000 LP, each real duelist swaps their own Deck and GY, in turn order from the turn player. (owner 2026-10-18)" },
@@ -240,15 +231,17 @@ const CARD_RULE_DRAFTS: readonly MultiplayerCardRuleDraft[] = [
   { code: 62966332, name: "Convulsion of Nature", rule: "Reverse every living duelist's Deck while this card applies. Restore all those Decks when the effect ends. Include each Tag member. (owner 2026-10-18)" },
   { code: 37313786, name: "Gamble", rule: "One opponent must have at least 6 cards in hand; do not add FFA hands together. You must have at most 2 cards in hand. The coin result affects only you: draw until you have 5 cards, or skip your own next turn. Tag keeps its joined-count condition. (owner 2026-10-18)" },
   { code: 22804644, name: "Doom Virus Dragon", rule: "In FFA, choose one opponent. Check and destroy only that opponent's eligible hand and field monsters, then their eligible draws for 3 of their turns. Other opponents keep their cards. Tag keeps its opposing-side fields and current turn-count rule. (owner 2026-10-18)" },
-  { code: 18326736, name: "Tellarknight Ptolemaeus", rule: "In FFA, choose one opponent and skip only that opponent's next turn. Other seats keep their turns and the chosen opponent returns on the next cycle. Tag is forbidden: choosing p3 still skips p1. (owner 2026-10-18)" },
-  { code: 6357341, name: "The Six Shinobi", rule: "In FFA, choose one opponent and skip only that opponent's next turn. Other seats keep their turns and the chosen opponent returns on the next cycle. Tag is forbidden: choosing p3 still skips p1. (owner 2026-10-18)" },
+  { code: 18326736, name: "Tellarknight Ptolemaeus", rule: "Choose one opponent in FFA or one opposing member in Tag. Skip only that duelist's next turn. Other duelists keep their turns, and the chosen duelist returns on the next cycle. (owner 2026-10-18)" },
+  { code: 6357341, name: "The Six Shinobi", rule: "Choose one opponent in FFA or one opposing member in Tag. Skip only that duelist's next turn. Other duelists keep their turns, and the chosen duelist returns on the next cycle. (owner 2026-10-18)" },
   { code: 22888900, name: "Grisaille Prison", rule: "The restriction applies to every field. In FFA, choose one opponent whose next turn sets the end of the restriction. Keep that duration through other seats' turns. Tag keeps its current turn-count rule. (owner 2026-10-18)" },
+  { code: 92182447, name: "Mischief of the Time Goddess", rule: "Activate only at the end of your own Battle Phase, not your Tag partner's Battle Phase. Skip every intervening duelist turn, including your Tag partner, and reach your next Battle Phase. No intervening duelist draws. Your monsters can attack again in that Battle Phase. After that turn, normal turn order returns. (owner 2026-10-18)" },
+  { code: 90846359, name: "Rivalry of Warlords", rule: "Check the actual receiving field for a Special Summon. In FFA, other opponents' monsters do not restrict an empty receiving field, including Angelechy Opposition and Kaiju summons. Tag keeps joined team fields." },
   // Owner 2026-10-18: one opponent, or the card-specific rule below.
   { code: 101402094, name: "Angelechy Opposition", rule: "You choose one eligible opponent. Check the zones on that player's field and summon to that field. In Tag, choose one opposing member. (owner 2026-10-18)" },
   { code: 82301904, name: "Chaos Emperor Dragon - Envoy of the End", rule: "Owner decision 2026-10-18: CED uses you + one chosen opponent in FFA. Send cards from your hand and field and the chosen opponent's hand and field only. Inflict 300 damage to that opponent for each card sent to their GY. Tag keeps its all-duelist send and opposing-team damage. (owner 2026-10-18)" },
   { code: 83555666, name: "Ring of Destruction", rule: "Choose one opponent and target a face-up monster they control. Check that opponent's LP. You take damage first; that opponent then takes the damage you took. Tag uses team LP. (owner 2026-10-18)" },
   { code: 57728570, name: "Crush Card Virus", rule: "Choose one opponent. In FFA, check only their hand, monsters and Deck; that opponent makes the optional Deck choice. They take no damage until the end of the next turn. Tag keeps joined opposing fields and team LP, with one member's hand and Deck. Use the current card text, with no repeated draw checks. (owner 2026-10-18)" },
-  { code: 27204311, name: "Nibiru, the Primal Being", rule: "Count summons by the real turn player only. In FFA, Tribute face-up monsters on your field and that opponent's field only. Summon Nibiru to you and the Token to that opponent. In Tag, Tribute both full sides and give the Token to the summoning duelist. (owner 2026-10-18)" },
+  { code: 27204311, name: "Nibiru, the Primal Being", rule: "Count each real opponent's summons in this turn, including off-turn summons. Activate when any single opponent reached 5; do not add opponents' counts. Choose a qualifying opponent. In FFA, Tribute face-up monsters from your field and that opponent's field only. In Tag, Tribute both full sides. Summon Nibiru to you and the Token to that chosen duelist. (owner 2026-10-18)" },
   // --- Kaiju and Lava summon: Tribute a monster of an opponent, the card goes to that opponent's field
   { code: 55063751, name: "Gameciel, the Sea Turtle Kaiju", rule: KAIJU_RULE },
   { code: 28674152, name: "Radian, the Multidimensional Kaiju", rule: KAIJU_RULE },
@@ -291,20 +284,22 @@ const CARD_RULE_DRAFTS: readonly MultiplayerCardRuleDraft[] = [
  * proven card stays "pending" until it has a scenario of its own. catalog.test.ts compares this with LIVE_PROOF in catalog.ts.
  */
 export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat[]>> = {
-  6357341: ["ffa3", "ffa4"], // owner 2026-10-18
+  92182447: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
+  90846359: ["ffa3", "ffa4", "tag"], // receiving-field restrictions
+  6357341: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   13532663: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   14057297: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   15305240: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   17178486: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   17484499: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
-  18326736: ["ffa3", "ffa4"], // owner 2026-10-18
+  18326736: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   21208154: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   22804644: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   22888900: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
-  23746827: ["ffa3", "ffa4"], // owner 2026-10-18
-  23846921: ["ffa3", "ffa4"], // owner 2026-10-18
+  23746827: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
+  23846921: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   27204311: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
-  30426226: ["ffa3", "ffa4"], // owner 2026-10-18
+  30426226: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   33508719: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   35059553: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   37313786: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
