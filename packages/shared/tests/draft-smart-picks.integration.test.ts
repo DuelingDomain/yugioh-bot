@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { migrate } from "../src/db/schema.js";
 import { createDraftService } from "../src/services/drafts.js";
@@ -9,9 +9,10 @@ import { createCardCatalogService } from "../src/services/card-catalog.js";
 import { mulberry32 } from "../src/services/deal.js";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 import { seedIdentity } from "./helpers/identity.js";
+import * as pickScorer from "../src/services/draft-pick-scorer.js";
 
 const databases: Database.Database[] = [];
-afterEach(() => { for (const db of databases.splice(0)) db.close(); });
+afterEach(() => { for (const db of databases.splice(0)) db.close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 const now = new Date("2030-01-01T00:00:00Z");
 
 function setup(count = 320) {
@@ -83,6 +84,54 @@ it("keeps rankings stable after restart, reports actual pool links, and prefers 
     expect(card.pickScore).toBe(insights.pickScore(card.catalogCardId, pool));
     if (card.fitsYourPool) expect(card.pickScore).toBeGreaterThan(0);
   }
+});
+
+it.each(["0", "1"])("bots and timeouts take supported Extra monsters from mixed booster cubes (EFFECT_SEARCH=%s)", flag => {
+  vi.stubEnv("EFFECT_SEARCH", flag);
+  const { db, seats, drafts } = setup(4);
+  db.prepare("DELETE FROM card_tags").run();
+  db.prepare("UPDATE card_catalog SET archetype=NULL").run();
+  db.prepare("UPDATE card_catalog SET type='Tuner Effect Monster',level=3 WHERE ygoprodeck_id=1").run();
+  db.prepare("UPDATE card_catalog SET level=5 WHERE ygoprodeck_id=2").run();
+  db.prepare("UPDATE card_catalog SET type='Synchro Effect Monster',frame_type='synchro',level=8,effect_text='1 Tuner + 1+ non-Tuner monsters' WHERE ygoprodeck_id=3").run();
+  db.prepare("UPDATE card_catalog SET type='Spell Card',frame_type='spell' WHERE ygoprodeck_id=4").run();
+  const draft = drafts.create("g", null, "Mixed booster", {
+    cubeCardIds: [1, 2, 3, 4].flatMap(id => Array<number>(6).fill(id)),
+    packSize: 12, packsPerPlayer: 1, cardsPerPlayer: 12,
+  }, seats[0].userId, seats[0].playerId);
+  drafts.join(draft.id, seats[1].playerId); drafts.start(draft.id, now);
+  for (const target of [1, 2]) for (const seat of seats.slice(0, 2)) {
+    const card = drafts.pickOptions(draft.id, seat.playerId).find(card => card.catalogCardId === target)!;
+    drafts.pickCard(draft.id, seat.playerId, card.id, "manual", now);
+  }
+  const bot = seats[0].playerId, human = seats[1].playerId;
+  const choice = drafts.rankPickOptions(draft.id, bot)[0];
+  expect(choice.catalogCardId).toBe(3);
+  drafts.pickCard(draft.id, bot, choice.id, "auto", now);
+  const expiry = new Date(drafts.findById(draft.id).pickDeadlineAt!);
+  expect(drafts.expireCurrentPickStep(draft.id, expiry).autoPickedPlayerIds).toEqual([human]);
+  for (const seat of [bot, human]) expect(drafts.pool(draft.id, seat).at(-1)?.catalogCardId).toBe(3);
+});
+
+it("reports scorer errors and still expires every seat with the first legal choice", () => {
+  const { db, seats, drafts, draft } = setup();
+  drafts.start(draft.id, now);
+  const expected = seats.map(seat => drafts.pickOptions(draft.id, seat.playerId)[0].id);
+  db.prepare("UPDATE card_tags SET tags_json='invalid JSON'").run();
+  expect(() => drafts.rankPickOptions(draft.id, seats[0].playerId)).toThrow(SyntaxError);
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  expect(drafts.expireCurrentPickStep(draft.id, new Date(drafts.findById(draft.id).pickDeadlineAt!)).autoPickedPlayerIds).toHaveLength(8);
+  expect(seats.map(seat => drafts.pool(draft.id, seat.playerId)[0].draftCardId)).toEqual(expected);
+  expect(errors).toHaveBeenCalled();
+});
+
+it.each(["SQLITE_BUSY", "SQLITE_BUSY_SNAPSHOT"])("propagates %s from scoring without auto-picking", code => {
+  const { seats, drafts, draft } = setup();
+  drafts.start(draft.id, now);
+  const error = Object.assign(new Error("database is busy"), { code });
+  vi.spyOn(pickScorer, "rankDraftPicks").mockImplementationOnce(() => { throw error; });
+  expect(() => drafts.expireCurrentPickStep(draft.id, new Date(drafts.findById(draft.id).pickDeadlineAt!))).toThrow(error);
+  expect(seats.every(seat => drafts.pool(draft.id, seat.playerId).length === 0)).toBe(true);
 });
 
 it.each(["synchro", "xyz", "link", "fusion", "trishula", "trishula_ready", "link_names", "contact_fusion", "two_tuners", "two_tuners_ready", "synchro_or_more"])("uses the same scorer for theme timeouts and %s material supply", subtype => {

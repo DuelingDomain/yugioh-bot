@@ -1433,7 +1433,15 @@ export function createDraftService(
       const current = findById(draftId);
       if (current.status !== "active" || current.currentPackRound !== draft.currentPackRound || current.currentPickStep !== draft.currentPickStep) break;
       // Only cards the player may take: a card they hold the maximum copies of is never auto-picked.
-      const options = rankPickOptions(draftId, playerId);
+      let options: DraftCard[];
+      try {
+        options = rankPickOptions(draftId, playerId);
+      } catch (error) {
+        const code = (error as { code?: unknown } | null)?.code;
+        if (typeof code === "string" && code.startsWith("SQLITE_BUSY")) throw error;
+        report(error, { tags: { operation: "[drafts] timeout pick scoring failed" } });
+        options = currentPackOptionsInternal(draftId, playerId, true);
+      }
 
       if (options.length === 0) {
         continue;
@@ -1524,9 +1532,10 @@ export function createDraftService(
     const choices = currentPackOptionsInternal(draftId, playerId, true);
     if (!choices.length) return [];
     const draft = findById(draftId);
+    const mainTarget = mainDraftPicksPerPlayer(draft.config);
     return rankDraftPicks(db, choices, pool(draftId, playerId).map(card => card.catalogCardId), {
-      mainTarget: mainDraftPicksPerPlayer(draft.config),
-      extraTarget: (draft.config.extraDeckEnabled ?? draft.config.mode === "theme") ? draft.config.extraDeckSize ?? 15 : 0,
+      mainTarget,
+      extraTarget: draft.config.mode === "theme" ? totalThemeRounds(draft.config) - mainTarget : boosterExtraSize(draft.config) || null,
       seed: `${options.pickSeed ?? "draft-picks-v1"}:${draftId}:${playerId}:${draft.currentPackRound}:${draft.currentPickStep}`,
     });
   };

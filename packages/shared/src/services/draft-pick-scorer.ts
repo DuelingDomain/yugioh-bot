@@ -87,7 +87,7 @@ function materialSupply(extra: Candidate, pool: readonly Candidate[]): number {
 
 /** One policy for bots and expired human picks. Callers supply legal current-pack options only. */
 export function rankDraftPicks(db: Database.Database, options: readonly DraftCard[], pickedPool: readonly number[], context: {
-  mainTarget: number; extraTarget: number; seed: ShuffleSeed;
+  mainTarget: number; extraTarget: number | null; seed: ShuffleSeed;
 }): RankedDraftPick[] {
   if (!options.length) return [];
   const catalog = createInsightCatalog(db);
@@ -95,7 +95,7 @@ export function rankDraftPicks(db: Database.Database, options: readonly DraftCar
     const pool = pickedPool.map(code => catalog.candidate(code)).filter((card): card is Candidate => card !== undefined);
     const insights = new Map(createCardInsightService(db).pickScores([...new Set(options.map(card => card.catalogCardId))], pickedPool).map(insight => [insight.passcode, insight]));
     const extraCount = pool.filter(({ card }) => isExtraDeckCard(card)).length;
-    const desiredExtraShare = context.extraTarget / Math.max(1, context.mainTarget + context.extraTarget);
+    const desiredExtraShare = (context.extraTarget ?? 0) / Math.max(1, context.mainTarget + (context.extraTarget ?? 0));
     const poolExtras = [...new Map(pool.filter(({ card }) => isExtraDeckCard(card)).map(card => [card.card.id, card])).values()];
     const supplyBefore = poolExtras.map(extra => materialSupply(extra, pool));
     return options.map(option => {
@@ -105,12 +105,16 @@ export function rankDraftPicks(db: Database.Database, options: readonly DraftCar
       if (candidate) {
         power = Math.min(2, Math.log10(1 + Math.max(0, candidate.card.views)) / 3);
         if (isExtraDeckCard(candidate.card)) {
-          balance = context.extraTarget === 0 || extraCount >= context.extraTarget ? -6
-            : 2 * (desiredExtraShare - (extraCount + 1) / (pool.length + 1));
+          if (context.extraTarget !== null) {
+            balance = context.extraTarget === 0 || extraCount >= context.extraTarget ? -6
+              : 2 * (desiredExtraShare - (extraCount + 1) / (pool.length + 1));
+          }
           materials = materialSupply(candidate, pool) * 4;
         } else {
-          balance = 2 * ((extraCount / (pool.length + 1)) - desiredExtraShare);
-          if (pool.length - extraCount >= context.mainTarget) balance -= 6;
+          if (context.extraTarget !== null) {
+            balance = 2 * ((extraCount / (pool.length + 1)) - desiredExtraShare);
+            if (pool.length - extraCount >= context.mainTarget) balance -= 6;
+          }
           materials = Math.min(3, poolExtras.reduce((sum, extra, index) => sum + Math.max(0, materialSupply(extra, [...pool, candidate]) - supplyBefore[index]!), 0));
         }
       }
