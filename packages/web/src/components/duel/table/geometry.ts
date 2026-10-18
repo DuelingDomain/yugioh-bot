@@ -362,7 +362,7 @@ export function duoFinaleSlots(spread: number): Partial<Record<PoseSlot, HomeSlo
   if (!(spread >= FULL_DEF_SPREAD)) return null;
   return {
     home: { ...FFA3_HOME[0], width: SEAT_BOX_FULL_DEF },
-    focus: { x: 550, y: 218, rotateDeg: 180, scale: 0.76, tiltDeg: 9, width: SEAT_BOX_FULL_DEF },
+    focus: { x: 550, y: 247, rotateDeg: 180, scale: 0.76, tiltDeg: 9, width: SEAT_BOX_FULL_DEF },
   };
 }
 

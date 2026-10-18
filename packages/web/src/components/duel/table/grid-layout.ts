@@ -208,11 +208,20 @@ export const SMALL_FIELD_WIDTH = 520;
 /** The face-off: the plates sit left of the board (shares of the card height); the same room is kept on its right. */
 export const FINALE_SIDE = 2;
 export const FINALE_GAP = 0.22;
+/** The least a face-off plate gets on a phone (px): a plate narrower than this cannot hold its name and life points. */
+const FINALE_PLATE_MIN = { width: 112, height: 52 } as const;
+const FINALE_PLATE_GAP = 6;
 /**
- * How far the two fields of the face-off overlap: only their pads. Each keeps its own Extra Monster row (nothing is shared in
- * the face-off, also for a facing pair), so the two rows lie face to face in a double band.
+ * How far the two fields of the face-off overlap: not at all, their boxes (and so their frames) meet edge to edge. Each keeps
+ * its own Extra Monster row (nothing is shared in the face-off, also for a facing pair), so the two rows lie face to face in
+ * a double band.
  */
-export const FINALE_OVERLAP = PAD;
+export const FINALE_OVERLAP = 0;
+/**
+ * The room of the face-off is fitted as if the boxes overlapped by their pads (the old layout), so the cards keep their size.
+ * The pads that no longer overlap move the bottom field down into the free edge below the board.
+ */
+const FINALE_FIT_OVERLAP = PAD;
 
 export interface GridWorld {
   masterRule: DuelMasterRule;
@@ -336,7 +345,7 @@ function union(a: GridRect, b: GridRect): GridRect {
 
 /** Height of the face-off from the top of its top lane to the bottom of its bottom lane (px; `lane` in card heights). */
 function finaleHeight(z: number, lane: number): number {
-  return (TOP_LANE + 2 * FIELD_ZONES_HIGH - FINALE_OVERLAP + lane) * z;
+  return (TOP_LANE + 2 * FIELD_ZONES_HIGH - FINALE_FIT_OVERLAP + lane) * z;
 }
 
 /**
@@ -345,14 +354,21 @@ function finaleHeight(z: number, lane: number): number {
  */
 function placeFinale(finale: GridFinaleCells, zones: number, edge: number, width: number, height: number): { top: GridCellRect; bottom: GridCellRect; rect: GridFinaleRect } {
   const lane = finale.homeHand ? HOME_LANE : RIVAL_BOTTOM_LANE;
-  const z = Math.max(0, Math.min(height / finaleHeight(1, lane), width / (zones + 2 * (FINALE_SIDE + FINALE_GAP))));
+  const byHeight = height / finaleHeight(1, lane);
+  const zSide = Math.max(0, Math.min(byHeight, width / (zones + 2 * (FINALE_SIDE + FINALE_GAP))));
+  // A phone: the side room of two plate widths is too narrow for a readable plate (its text keeps a floor size and runs
+  // off the box). Then only the left side keeps room, of a readable plate, and the board takes the rest of the width.
+  const narrow = FINALE_SIDE * zSide < FINALE_PLATE_MIN.width;
+  const z = narrow ? Math.max(0, Math.min(byHeight, (width - FINALE_PLATE_MIN.width - FINALE_PLATE_GAP) / zones)) : zSide;
   const top0 = edge + (height - finaleHeight(z, lane)) / 2;
-  const x = edge + width / 2 - (zones * z) / 2;
+  const x = narrow ? edge + width - zones * z : edge + width / 2 - (zones * z) / 2;
   const topBox = rect(x, top0 + TOP_LANE * z, zones * z, FIELD_ZONES_HIGH * z);
   const bottomBox = rect(x, topBox.y + topBox.height - FINALE_OVERLAP * z, zones * z, FIELD_ZONES_HIGH * z);
-  const plateX = x - (FINALE_GAP + FINALE_SIDE) * z;
-  const bottomPlate = rect(plateX, bottomBox.y + bottomBox.height - PLATE_H * z, FINALE_SIDE * z, PLATE_H * z);
-  const topPlate = rect(plateX, topBox.y, FINALE_SIDE * z, PLATE_H * z);
+  const plateW = narrow ? FINALE_PLATE_MIN.width : FINALE_SIDE * z;
+  const plateH = narrow ? FINALE_PLATE_MIN.height : PLATE_H * z;
+  const plateX = narrow ? edge : x - (FINALE_GAP + FINALE_SIDE) * z;
+  const bottomPlate = rect(plateX, bottomBox.y + bottomBox.height - plateH, plateW, plateH);
+  const topPlate = rect(plateX, topBox.y, plateW, plateH);
   const at = (target: GridFocusTarget, turn: 0 | 180, box: GridRect, plate: GridRect, drawer: boolean): GridCellRect => ({
     column: target.column,
     row: target.row,
