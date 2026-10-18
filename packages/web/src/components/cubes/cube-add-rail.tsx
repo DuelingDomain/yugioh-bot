@@ -3,7 +3,12 @@
 import { cardImageUrl } from "@/lib/card-image-url";
 import * as React from "react";
 import { Check, Plus, TriangleAlert } from "lucide-react";
-import { AutoImportBox, type ImportEntryView, type NothingFound } from "@/components/card-list-import/auto-import-box";
+import { AutoImportBox, ImportEntries, type ImportEntryView, type NothingFound } from "@/components/card-list-import/auto-import-box";
+import { BatchBar, DEFAULT_BATCH_COPIES } from "@/components/effect-search/batch-bar";
+import { DescribePane } from "@/components/effect-search/describe-pane";
+import type { BatchEntry, SeedPreview } from "@/components/effect-search/effect-api";
+import { PhraseSeed, type SeedOutcome } from "@/components/effect-search/phrase-seed";
+import { EMPTY_BATCH, type Batch } from "@/components/effect-search/selection";
 import type { ListCorrection } from "@/lib/card-list-import";
 import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
@@ -28,6 +33,8 @@ export interface ImportOutcome {
   copies?: number;
   /** List import: names matched to the closest card. */
   corrected?: ListCorrection[];
+  /** Batch add: passcodes the cube already held. They were skipped. */
+  duplicates?: number[];
   /** The server ran out of lookups before the end of the list. */
   lookupLimited?: true;
   /** Saved-cube list import: main cards listed under Extra that went to Main. */
@@ -35,8 +42,17 @@ export interface ImportOutcome {
   messages?: string[];
 }
 
+/** What the rail needs for effect search. Absent when the feature is off: the rail then looks and works as it did. */
+export interface EffectRailTools {
+  /** Adds the picked cards in one request. Throws an Error with a message fit to show. */
+  onAddBatch: (entries: BatchEntry[]) => Promise<SeedOutcome & { duplicates: number }>;
+  previewSeed: (phrase: string, options: { targetCount: number; signal: AbortSignal }) => Promise<SeedPreview>;
+  confirmSeed: (entries: BatchEntry[], phrase: string) => Promise<SeedOutcome>;
+}
+
 export interface AddRailProps {
   initialTab?: AddTab;
+  effects?: EffectRailTools;
   busy: boolean;
   /** Copies of this card already in the cube, 0 when it is not in it. */
   copiesInCube: (id: number) => number;
@@ -53,8 +69,9 @@ export interface AddRailProps {
 
 export type ImportKind = "list" | "passcodes" | "ydk";
 
+/** Each entry the editor can take out again: a text import, a batch from the search, or a seeded phrase. */
 export interface CubeImportEntry extends ImportEntryView {
-  kind: ImportKind;
+  kind: ImportKind | "batch" | "phrase";
 }
 
 const TABS: Array<{ value: AddTab; label: string }> = [
@@ -80,8 +97,35 @@ function Note({ note }: { note: AddNote | null }) {
   );
 }
 
-function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesInCube" | "onAddCard" | "busy">) {
+type CardMode = "name" | "describe";
+
+function CardTab({ copiesInCube, onAddCard, busy, effects }: Pick<AddRailProps, "copiesInCube" | "onAddCard" | "busy" | "effects">) {
   const inputId = React.useId();
+  const [mode, setMode] = React.useState<CardMode>("name");
+  // The batch lives here, so it stays while the player switches between the two ways to search.
+  const [batch, setBatch] = React.useState<Batch>(EMPTY_BATCH);
+  const [copies, setCopies] = React.useState<number>(DEFAULT_BATCH_COPIES);
+  const [adding, setAdding] = React.useState(false);
+  const [batchNote, setBatchNote] = React.useState<string | null>(null);
+  const heldOf = React.useCallback((card: CardSummary) => copiesInCube(card.id), [copiesInCube]);
+  const kindLine = React.useCallback((card: CardSummary) => `${card.type}, ${isExtraDeckCardClient(card) ? "Extra" : "Main"}`, []);
+
+  const addBatch = async () => {
+    if (!effects || batch.cards.size === 0 || adding) return;
+    setAdding(true);
+    setBatchNote(null);
+    try {
+      const outcome = await effects.onAddBatch([...batch.cards.values()].map((card) => ({ id: card.id, copies })));
+      setBatch(EMPTY_BATCH);
+      const skipped = outcome.duplicates > 0 ? ` ${outcome.duplicates} already in the cube.` : "";
+      setBatchNote(`Added ${outcome.added} card${outcome.added === 1 ? "" : "s"} (${outcome.copies} cop${outcome.copies === 1 ? "y" : "ies"}).${skipped}`);
+    } catch (error) {
+      setBatchNote(error instanceof Error && error.message ? error.message : "Could not add the cards. Try again.");
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<CardSummary[]>([]);
   const [resultsFor, setResultsFor] = React.useState("");
@@ -139,7 +183,7 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
     onPick: onAddCard,
     canPick: (card) => !busy && copiesInCube(card.id) === 0,
   });
-  return (
+  const nameBody = (
     <>
       <div>
         <label className="label" htmlFor={inputId}>
@@ -208,12 +252,44 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
       )}
     </>
   );
+  // Without effect search the tab is the name search alone, as it always was.
+  if (!effects) return nameBody;
+  return (
+    <>
+      <div className="seg" role="group" aria-label="Find cards by" data-testid="card-mode">
+        <button type="button" aria-pressed={mode === "name"} onClick={() => setMode("name")}>
+          Name
+        </button>
+        <button type="button" aria-pressed={mode === "describe"} onClick={() => setMode("describe")} data-testid="mode-describe">
+          Describe
+        </button>
+      </div>
+      <div hidden={mode !== "name"}>{nameBody}</div>
+      <div hidden={mode !== "describe"}>
+        <DescribePane batch={batch} onBatch={(update) => setBatch(update)} held={heldOf} kindLine={kindLine} busy={busy || adding} />
+      </div>
+      <BatchBar
+        batch={batch}
+        target="cube"
+        copies={copies}
+        onCopies={setCopies}
+        busy={busy || adding}
+        note={batchNote}
+        onClear={() => {
+          setBatch(EMPTY_BATCH);
+          setBatchNote(null);
+        }}
+        onAdd={() => void addBatch()}
+      />
+    </>
+  );
 }
 
 function ArchetypeTab({
   busy,
   onSeedArchetype,
-}: Pick<AddRailProps, "busy" | "onSeedArchetype">) {
+  effects,
+}: Pick<AddRailProps, "busy" | "onSeedArchetype" | "effects">) {
   const inputId = React.useId();
   const listId = React.useId();
   const [query, setQuery] = React.useState("");
@@ -335,6 +411,12 @@ function ArchetypeTab({
         {trimmed ? `Add all ${trimmed} cards` : "Add all cards"}
       </button>
       <Note note={note} />
+      {effects && (
+        <>
+          <hr className={styles.railRule} />
+          <PhraseSeed preview={effects.previewSeed} confirm={effects.confirmSeed} busy={busy} />
+        </>
+      )}
     </>
   );
 }
@@ -389,6 +471,8 @@ export function AddCardsBody(props: AddRailProps) {
   // The buttons keep their own widths in this rail, so the fill that slides between them is measured.
   const rowRef = React.useRef<HTMLDivElement>(null);
   useTabMarker(rowRef, tab);
+  // What the search and the phrase seed added. Each can be taken out again, like a text import.
+  const searchEntries = React.useMemo(() => props.imports.filter((entry) => entry.kind === "batch" || entry.kind === "phrase"), [props.imports]);
   return (
     <>
       <div ref={rowRef} className="seg" data-seg-measured="" role="group" aria-label="Add by" style={{ width: "100%" }}>
@@ -399,8 +483,8 @@ export function AddCardsBody(props: AddRailProps) {
         ))}
       </div>
       <div data-pane="kids" data-pane-dir={dir}>
-        {tab === "card" && <CardTab busy={props.busy} copiesInCube={props.copiesInCube} onAddCard={props.onAddCard} />}
-        {tab === "archetype" && <ArchetypeTab busy={props.busy} onSeedArchetype={props.onSeedArchetype} />}
+        {tab === "card" && <CardTab busy={props.busy} copiesInCube={props.copiesInCube} onAddCard={props.onAddCard} effects={props.effects} />}
+        {tab === "archetype" && <ArchetypeTab busy={props.busy} onSeedArchetype={props.onSeedArchetype} effects={props.effects} />}
         {tab === "list" && (
           <ImportTab
             {...props}
@@ -445,6 +529,9 @@ export function AddCardsBody(props: AddRailProps) {
               </>
             }
           />
+        )}
+        {props.effects && (tab === "card" || tab === "archetype") && searchEntries.length > 0 && (
+          <ImportEntries entries={searchEntries} onRemove={props.onRemoveImport} />
         )}
       </div>
     </>
