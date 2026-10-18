@@ -9,6 +9,10 @@ import { AutoImportBox, type ImportEntryView, type ImportRun } from "@/component
 import { ListImportReport } from "@/components/card-list-import/list-import-report";
 import { type ListDiagnostics } from "@/lib/card-list-import";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
+import { useEffectSearchEnabled } from "@/components/effect-search/capability-context";
+import { BatchBar, DEFAULT_BATCH_COPIES } from "@/components/effect-search/batch-bar";
+import { DescribePane } from "@/components/effect-search/describe-pane";
+import { EMPTY_BATCH, type Batch } from "@/components/effect-search/selection";
 import { fetchArchetypes, fetchSets, resolveCardList, resolveCards, type SetInfo } from "./pool-api";
 import { CardThumb } from "./pool-bits";
 import {
@@ -123,7 +127,58 @@ export function AddCards({ ctl, initialTab }: { ctl: PoolEditor; initialTab: Add
 
 export type TabProps = { ctl: PoolEditor; setNote: (note: Note | null) => void };
 
+/** Card tab: name search, plus a Describe mode with a batch when effect search is on. */
 export function CardTab({ ctl, setNote }: TabProps) {
+  const enabled = useEffectSearchEnabled();
+  const [mode, setMode] = React.useState<"name" | "describe">("name");
+  // The batch is kept here, so it stays when the player goes back to name search.
+  const [batch, setBatch] = React.useState<Batch>(EMPTY_BATCH);
+  const [copies, setCopies] = React.useState<number>(DEFAULT_BATCH_COPIES);
+  const [barNote, setBarNote] = React.useState<string | null>(null);
+  const copiesOf = React.useCallback((card: CardSummary) => (isExtraDeckMonster(card) ? ctl.extra : ctl.pool).get(card.id) ?? 0, [ctl.extra, ctl.pool]);
+  const kindLine = React.useCallback((card: CardSummary) => `${kindText(card)}, ${isExtraDeckMonster(card) ? "Extra" : "Main"}`, []);
+  if (!enabled) return <NameCardTab ctl={ctl} setNote={setNote} />;
+
+  const addBatch = () => {
+    if (batch.cards.size === 0) return;
+    const outcome = ctl.add([...batch.cards.values()].map((card) => ({ card, copies })));
+    setBatch(EMPTY_BATCH);
+    setBarNote(addedLine("search", outcome));
+    setNote(null);
+  };
+  return (
+    <>
+      <div className="seg" role="group" aria-label="Find cards by" data-testid="card-mode">
+        <button type="button" aria-pressed={mode === "name"} onClick={() => setMode("name")}>
+          Name
+        </button>
+        <button type="button" aria-pressed={mode === "describe"} onClick={() => setMode("describe")} data-testid="mode-describe">
+          Describe
+        </button>
+      </div>
+      <div hidden={mode !== "name"}>
+        <NameCardTab ctl={ctl} setNote={setNote} />
+      </div>
+      <div hidden={mode !== "describe"}>
+        <DescribePane batch={batch} onBatch={(update) => setBatch(update)} held={(card) => (copiesOf(card) >= MAX_COPIES ? copiesOf(card) : 0)} kindLine={kindLine} />
+      </div>
+      <BatchBar
+        batch={batch}
+        target="pool"
+        copies={copies}
+        onCopies={setCopies}
+        note={barNote}
+        onClear={() => {
+          setBatch(EMPTY_BATCH);
+          setBarNote(null);
+        }}
+        onAdd={addBatch}
+      />
+    </>
+  );
+}
+
+function NameCardTab({ ctl, setNote }: TabProps) {
   const inputId = React.useId();
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<CardSummary[]>([]);
