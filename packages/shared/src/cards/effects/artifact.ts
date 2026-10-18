@@ -8,10 +8,11 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { CardTags, fillDefaults } from "./tags.js";
 import { ArchetypeProfile, readProfile } from "./synergy.js";
+import { cleanReleaseMonth } from "./releases.js";
 import type { Card } from "./card.js";
 
-export const CARD_EFFECT_ARTIFACT_VERSION = "e0fa78ea97c2d1f2842022952e14d12a7cfa38e901bd4ad5d10eb29c57406480";
-export const CARD_EFFECT_ARTIFACT_MANIFEST_SHA256 = "aeff6bfe90149feedbbb06c7e48a2848214dc52e34562963e548ac0ec313a6ac";
+export const CARD_EFFECT_ARTIFACT_VERSION = "7ce6daa3e4f6251f353b6e41de3bd9ccbf842aa214740dba5d75e21c3a2b828f";
+export const CARD_EFFECT_ARTIFACT_MANIFEST_SHA256 = "bf4a51bd586de889d842c2d3e4cf68529ac9e97aff297c87e5ba85279b8e5a75";
 export const CARD_EFFECT_ARTIFACT_SCHEMA_VERSION = 1;
 export const CARD_EFFECT_ARTIFACT_SOURCE_COMMIT = "9b2d952f8e7c389e13267d4bba6504cc8ea4cb5c";
 export const DEFAULT_CARD_EFFECT_ARTIFACT_DIRECTORY = fileURLToPath(new URL("../../../data/effects/", import.meta.url));
@@ -67,7 +68,7 @@ interface ArtifactManifest {
   formatVersion: number;
   schemaVersion: number;
   source: { repository: string; author: string; commit: string };
-  files: { tags: ArtifactFile; profiles: ArtifactFile; popularity: ArtifactFile; sourceHashes: ArtifactFile };
+  files: { tags: ArtifactFile; profiles: ArtifactFile; popularity: ArtifactFile; sourceHashes: ArtifactFile; releases: ArtifactFile };
   artifactVersion: string;
 }
 interface TagRow {
@@ -77,6 +78,7 @@ interface TagRow {
   rolesJson: string;
   tagsJson: string;
 }
+interface ReleaseRow { id: number; name: string; aliases: number[]; tcgDate: string | null; ocgDate: string | null; quality: "ok" | "placeholder" | "unknown" }
 interface ProfileRow { archetype: string; plan: string; hooksJson: string; cards: number }
 
 function readArtifact(directory: string) {
@@ -89,9 +91,9 @@ function readArtifact(directory: string) {
       artifactVersion !== CARD_EFFECT_ARTIFACT_VERSION || artifactVersion !== sha(JSON.stringify(identity))) {
     throw new Error("Effect artifact manifest identity is invalid");
   }
-  const content = (kind: "tags" | "profiles" | "popularity" | "sourceHashes") => {
+  const content = (kind: "tags" | "profiles" | "popularity" | "sourceHashes" | "releases") => {
     const file = manifest.files[kind];
-    const expectedPath = kind === "sourceHashes" ? "source-hashes.json.gz" : kind === "popularity" ? "popularity.json.gz" : `${kind}.jsonl.gz`;
+    const expectedPath = kind === "releases" ? "releases.json.gz" : kind === "sourceHashes" ? "source-hashes.json.gz" : kind === "popularity" ? "popularity.json.gz" : `${kind}.jsonl.gz`;
     if (file.path !== expectedPath) throw new Error(`Invalid effect artifact ${kind} path`);
     const compressed = readFileSync(join(directory, file.path));
     if (compressed.length !== file.gzipBytes || sha(compressed) !== file.gzipSha256) throw new Error(`Effect artifact ${file.path} compressed hash does not match integrity`);
@@ -120,7 +122,18 @@ function readArtifact(directory: string) {
   if (tagIds.size !== Object.keys(sourceHashes).length || Object.keys(sourceHashes).some(code => !tagIds.has(Number(code)))) {
     throw new Error("Effect artifact source hashes must match the tagged passcodes exactly");
   }
-  return { manifest, tags, profiles: lines("profiles"), popularity, sourceHashes: sourceHashes as Record<string, string | null> };
+  const releases = JSON.parse(content("releases")) as ReleaseRow[];
+  if (!Array.isArray(releases) || releases.length !== manifest.files.releases.records) throw new Error("Invalid release artifact count");
+  const releaseIds = new Set<number>();
+  for (const row of releases) {
+    if (!row || !validPasscode(row.id) || releaseIds.has(row.id) || typeof row.name !== "string" || !row.name ||
+        !Array.isArray(row.aliases) || !row.aliases.every(validPasscode) ||
+        !["ok", "placeholder", "unknown"].includes(row.quality) ||
+        (row.tcgDate !== null && cleanReleaseMonth(row.tcgDate, "tcg") !== row.tcgDate) ||
+        (row.ocgDate !== null && cleanReleaseMonth(row.ocgDate, "ocg") !== row.ocgDate)) throw new Error("Invalid release artifact record");
+    releaseIds.add(row.id);
+  }
+  return { manifest, tags, releases, profiles: lines("profiles"), popularity, sourceHashes: sourceHashes as Record<string, string | null> };
 }
 
 function object(value: unknown, context: string): Record<string, unknown> {
@@ -128,8 +141,9 @@ function object(value: unknown, context: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function canonicalizer(db: Database.Database, options: CardEffectArtifactImportOptions) {
+function canonicalizer(db: Database.Database, options: CardEffectArtifactImportOptions, releases: ReleaseRow[]) {
   const artworks = new Map((db.prepare("SELECT artwork_id,card_id FROM card_artworks WHERE artwork_id<>card_id").all() as { artwork_id: number; card_id: number }[]).map(row => [row.artwork_id, row.card_id]));
+  for (const row of releases) for (const alias of row.aliases) if (!artworks.has(alias)) artworks.set(alias, row.id);
   for (const [old, target] of options.remaps ?? []) {
     if (!validPasscode(old) || !validPasscode(target)) throw new Error("Invalid effect artifact passcode remap");
   }
@@ -252,7 +266,7 @@ function coverage(db: Database.Database, canonicalize: (passcode: number) => num
 export function importCardEffectArtifact(db: Database.Database, options: CardEffectArtifactImportOptions = {}): CardEffectArtifactImportReport {
   const artifact = readArtifact(options.directory ?? DEFAULT_CARD_EFFECT_ARTIFACT_DIRECTORY);
   return db.transaction(() => {
-    const canonicalize = canonicalizer(db, options);
+    const canonicalize = canonicalizer(db, options, artifact.releases);
     const tags = parseTags(artifact.tags, canonicalize), profiles = parseProfiles(artifact.profiles);
     const popularity = parsePopularity(artifact.popularity, canonicalize);
     const existingTags = new Map((db.prepare("SELECT passcode,source FROM card_tags").all() as { passcode: number; source: string }[]).map(row => [row.passcode, row.source]));
@@ -278,6 +292,14 @@ export function importCardEffectArtifact(db: Database.Database, options: CardEff
         const textHash = artifact.sourceHashes[tag.originalPasscode] ?? null;
         insertTag.run(tag.passcode, tag.summary, tag.rolesJson, tag.tagsJson, popularity.get(tag.passcode) ?? 0, textHash, source, artifact.manifest.schemaVersion);
       }
+      const releases = new Map<number, ReleaseRow>();
+      for (const row of artifact.releases) {
+        const passcode = canonicalize(row.id, row.name), prior = releases.get(passcode);
+        if (!prior || row.id === passcode || (prior.id !== passcode && row.id < prior.id)) releases.set(passcode, row);
+      }
+      const insertRelease = db.prepare(`INSERT INTO card_release(passcode,tcg_date,ocg_date,quality,source_version) VALUES(?,?,?,?,?)
+        ON CONFLICT(passcode) DO UPDATE SET tcg_date=excluded.tcg_date,ocg_date=excluded.ocg_date,quality=excluded.quality,source_version=excluded.source_version`);
+      for (const [passcode, row] of releases) insertRelease.run(passcode, row.tcgDate, row.ocgDate, row.quality, artifact.manifest.artifactVersion);
       const insertProfile = db.prepare(`INSERT INTO card_tag_profiles
         (archetype,plan,hooks_json,source,profiled_at,schema_version,cards)
         VALUES(?,?,?,?,CURRENT_TIMESTAMP,?,?)

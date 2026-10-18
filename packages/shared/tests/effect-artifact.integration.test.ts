@@ -89,6 +89,15 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
 
+  it("imports month precision release dates, removes placeholders and follows canonical identity", async () => {
+    const db = database(), importArtifact = await importer();
+    importArtifact(db, { canonicalize: (code, name) => name === "Monster Reborn" ? 83764718 : code });
+    expect(db.prepare("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=97268402").get()).toEqual({ tcg_date: "2010-08", ocg_date: "2010-04" });
+    expect(db.prepare("SELECT tcg_date,quality FROM card_release WHERE passcode=70781052").get()).toEqual({ tcg_date: null, quality: "placeholder" });
+    expect(db.prepare("SELECT passcode FROM card_release WHERE passcode=83764718").get()).toEqual({ passcode: 83764718 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM card_release").get()).toEqual({ count: 14383 });
+  });
+
   it("is idempotent and preserves later Batch tags, including when replacing an older pin", async () => {
     const db = database(), importArtifact = await importer();
     const first = importArtifact(db);
@@ -121,7 +130,7 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     expect(winner.text_hash).not.toBe(sha("Engine official text"));
   });
 
-  it.each(["tags.jsonl.gz", "profiles.jsonl.gz", "popularity.json.gz", "source-hashes.json.gz", "manifest.json"])("rejects corrupt %s before writes, including an already imported pin", async file => {
+  it.each(["tags.jsonl.gz", "profiles.jsonl.gz", "popularity.json.gz", "source-hashes.json.gz", "releases.json.gz", "manifest.json"])("rejects corrupt %s before writes, including an already imported pin", async file => {
     const db = database(), importArtifact = await importer();
     const first = importArtifact(db), directory = copyArtifact();
     writeFileSync(join(directory, file), "corrupt");
@@ -198,6 +207,7 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     engine.exec("CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER DEFAULT 0,type INTEGER DEFAULT 0); INSERT INTO datas(id) VALUES(55144522),(99999998)");
     engine.close();
     const official = db.prepare("SELECT * FROM card_tags WHERE passcode=55144522").get();
+    const movedRelease = db.prepare("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=23434538").get();
     const moved = db.prepare("SELECT summary FROM card_tags WHERE passcode=23434538").get();
     expect(moved).toBeDefined();
     applyEngineCardRemaps(db, directory);
@@ -205,6 +215,8 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     expect(db.prepare("SELECT summary FROM card_tags WHERE passcode=99999998").get()).toEqual(moved);
     expect(db.prepare("SELECT passcode FROM card_tags WHERE passcode IN (14558127,23434538)").all()).toEqual([]);
     expect(db.prepare("SELECT COUNT(*) AS count FROM card_tag_artifact_imports").get()).toEqual({ count: 1 });
+    expect(db.prepare("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=99999998").get()).toEqual(movedRelease);
+    expect(db.prepare("SELECT passcode FROM card_release WHERE passcode IN (14558127,23434538)").all()).toEqual([]);
     expect(applyEngineCardRemaps(db, directory).skipped).toBe(true);
   });
 });

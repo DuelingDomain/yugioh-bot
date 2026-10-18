@@ -45,7 +45,17 @@
       "sha256": "0d46ea4cc2936d2c5846b23bb4bb3cf58f054147b7b1b53c3da4b5e448ec796e",
       "gzipBytes": 561896,
       "gzipSha256": "2915ca905ac043b1822ac51a7b05074473f1a40a2c9869bb366faa33617f34fa"
+    },
+    "releases": {
+      "path": "releases.json.gz",
+      "sourcePath": "data/cards.json",
+      "sourceSha256": "6ea3b8b1fa9897fa9e6a1f7c3b7b9d9db06a8b55dd1274521d1f5f42fb15b7ae",
+      "records": 14383,
+      "bytes": 1624271,
+      "sha256": "17abbe696a3c3f7faad3f32ab00a1654db0ed9160833dde940453e4623c5d5c5",
+      "gzipBytes": 296116,
+      "gzipSha256": "49eecced3ea04f4a1281c4e27f27a91559d2988c047b15d0a874a97923aa271f"
     }
   },
-  "artifactVersion": "e0fa78ea97c2d1f2842022952e14d12a7cfa38e901bd4ad5d10eb29c57406480"
+  "artifactVersion": "7ce6daa3e4f6251f353b6e41de3bd9ccbf842aa214740dba5d75e21c3a2b828f"
 }

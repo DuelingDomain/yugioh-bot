@@ -143,6 +143,9 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
         SELECT ?,summary,roles_json,tags_json,popularity,text_hash,source,tagged_at,schema_version
         FROM card_tags WHERE passcode=?`).run(target,old);
       db.prepare("DELETE FROM card_tags WHERE passcode=?").run(old);
+      db.prepare(`INSERT OR IGNORE INTO card_release(passcode,tcg_date,ocg_date,quality,source_version)
+        SELECT ?,tcg_date,ocg_date,quality,source_version FROM card_release WHERE passcode=?`).run(target,old);
+      db.prepare("DELETE FROM card_release WHERE passcode=?").run(old);
       db.prepare("DELETE FROM card_artworks WHERE artwork_id=?").run(old);
       db.prepare("UPDATE card_artworks SET card_id=?,is_main=0 WHERE card_id=?").run(target,old);
       db.prepare(`INSERT OR IGNORE INTO card_artworks (card_id,artwork_id,image_url,image_url_small,is_main,source)

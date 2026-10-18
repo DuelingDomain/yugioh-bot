@@ -52,7 +52,7 @@ export function writeEffectArtifactCandidate(options: { root: string; outputDire
   const orderedHashes = Object.fromEntries(Object.entries(hashes).sort(([a], [b]) => Number(a) - Number(b)));
   emit("sourceHashes", "source-hashes.json.gz", Buffer.from(JSON.stringify({ version: 1, normalization: CARD_EFFECT_TEXT_NORMALIZATION, hashes: orderedHashes }) + "\n"), rows.size);
   manifest.files.sourceHashes.knownRecords = Object.values(hashes).filter(value => value !== null).length;
-  for (const file of ["profiles.jsonl.gz", "popularity.json.gz"]) copyFileSync(join(baseDirectory, file), join(output, file));
+  for (const file of ["profiles.jsonl.gz", "popularity.json.gz", "releases.json.gz"]) copyFileSync(join(baseDirectory, file), join(output, file));
   const { artifactVersion: _old, ...identity } = manifest;
   manifest.artifactVersion = sha(JSON.stringify(identity));
   const manifestBytes = JSON.stringify(manifest, null, 2) + "\n"; writeFileSync(join(output, "manifest.json"), manifestBytes);
