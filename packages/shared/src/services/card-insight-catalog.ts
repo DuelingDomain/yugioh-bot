@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deckEngineDataDirectory } from "./card-artworks.js";
 import { loadCardPasscodeRemaps } from "../db/card-passcode-remaps.js";
@@ -19,6 +19,8 @@ interface CatalogRow {
 interface EngineRow {
   id: number; alias: number; type: number; name: string; desc?: string;
   atk?: number; def?: number; level?: number; race?: number; attribute?: number;
+  /** Cast to TEXT by SQLite so packed 64-bit setcodes are never rounded through a JS number. */
+  setcode?: string;
 }
 
 const codeValid = (value: number) => Number.isInteger(value) && value > 0 && value <= 0xffffffff;
@@ -33,11 +35,33 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
   const enginePath = join(dataDirectory, "cards.cdb");
   const engine = existsSync(enginePath) ? new Database(enginePath, { readonly: true, fileMustExist: true }) : undefined;
   let engineFind: Database.Statement<[number], EngineRow> | undefined;
+  let setnames: ReadonlyMap<number, string> | undefined;
+  const archetypes = () => {
+    if (setnames) return setnames;
+    const names = new Map<number, string>(), path = join(dataDirectory, "strings.conf");
+    if (existsSync(path)) for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
+      const match = /^!setname\s+(0x[0-9a-fA-F]+)\s+(.+)$/.exec(line);
+      if (!match) continue;
+      const code = Number.parseInt(match[1]!, 16), name = match[2]!.split("|")[0]!.trim();
+      if (code > 0 && code <= 0xffff && name) names.set(code, name);
+    }
+    setnames = names;
+    return names;
+  };
+  const setcodes = (row: EngineRow): number[] => {
+    if (!row.setcode) return [];
+    const packed = BigInt(row.setcode), codes: number[] = [];
+    for (let shift = 0n; shift < 64n; shift += 16n) {
+      const code = Number((packed >> shift) & 0xffffn);
+      if (code) codes.push(code);
+    }
+    return codes;
+  };
   if (engine) {
     try {
       const columns = new Set((engine.prepare("PRAGMA table_info(datas)").all() as { name: string }[]).map(row => row.name));
       const texts = new Set((engine.prepare("PRAGMA table_info(texts)").all() as { name: string }[]).map(row => row.name));
-      if (columns.has("type") && texts.has("name")) engineFind = engine.prepare(`SELECT d.id,${columns.has("alias") ? "d.alias" : "0 AS alias"},d.type,t.name${texts.has("desc") ? ",t.desc" : ""}${["atk", "def", "level", "race", "attribute"].filter(field => columns.has(field)).map(field => `,d.${field}`).join("")} FROM datas d JOIN texts t USING(id) WHERE d.id=?`);
+      if (columns.has("type") && texts.has("name")) engineFind = engine.prepare(`SELECT d.id,${columns.has("alias") ? "d.alias" : "0 AS alias"},d.type,t.name${texts.has("desc") ? ",t.desc" : ""}${columns.has("setcode") ? ",CAST(d.setcode AS TEXT) AS setcode" : ""}${["atk", "def", "level", "race", "attribute"].filter(field => columns.has(field)).map(field => `,d.${field}`).join("")} FROM datas d JOIN texts t USING(id) WHERE d.id=?`);
     } catch (error) { engine.close(); throw error; }
   }
   const canonical = (raw: number): number => {
@@ -78,6 +102,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       views, url: "",
     };
     if (engineCard) {
+      const membership = setcodes(engineCard);
       const adapted = engineInsightCard({
         code: canonicalCode, canonicalPasscode: canonicalCode, name: source.name,
         type: engineCard.type,
@@ -85,11 +110,14 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
         attribute: engineCard.attribute === undefined ? CARD_ATTRIBUTES.find(attribute => attribute.label === card.attribute)?.bit ?? 0 : engineCard.attribute,
         level: (engineCard.level ?? source.level ?? 0) & 0xff,
         attack: engineCard.atk ?? source.atk ?? -1, defense: engineCard.def ?? source.def ?? -1,
-        description: source.effect_text || engineCard.desc || "", setcodes: [], alias: engineCard.alias,
+        description: source.effect_text || engineCard.desc || "", setcodes: membership, alias: engineCard.alias,
         lscale: ((engineCard.level ?? 0) >>> 24) & 0xff, rscale: ((engineCard.level ?? 0) >>> 16) & 0xff,
         arrows: 0, ot: 0,
-      }, new Map(), views);
-      card = { ...card, ...adapted, typeLine: source.type, archetype: card.archetype, genesysPoints: card.genesysPoints };
+      }, membership.length && !card.archetype ? archetypes() : new Map(), views);
+      card = { ...card, ...adapted, typeLine: source.type, archetype: card.archetype ?? adapted.archetype, genesysPoints: card.genesysPoints };
+      if (engineCard.level === undefined && source.level == null) {
+        card.level = undefined; card.rank = undefined; card.linkRating = undefined;
+      }
     }
     return { card, ...(tagged?.tags_json ? { tags: JSON.parse(tagged.tags_json) as CardTags } : {}) };
   };
@@ -98,7 +126,15 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     candidate(code: number): Candidate | undefined {
       const canonicalCode = canonical(code);
       const row = metadata.get(canonicalCode) ?? metadata.get(code);
-      return row ? normalize(row, canonicalCode) : undefined;
+      if (row) return normalize(row, canonicalCode);
+      // An explicit public engine passcode is usable before the lazy image/API
+      // cache has seen it. This fallback never inserts a cache row or guesses cost.
+      const engineCard = engineFind?.get(canonicalCode);
+      return engineCard ? normalize({
+        ygoprodeck_id: canonicalCode, name: engineCard.name, type: "", frame_type: "",
+        effect_text: engineCard.desc ?? "", attribute: null, level: null, atk: null, def: null,
+        archetype: null, genesys_points: null, genesys_revision: null,
+      }, canonicalCode) : undefined;
     },
     *candidates(pool?: readonly number[]): Generator<Candidate> {
       if (pool !== undefined) {

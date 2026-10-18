@@ -36,7 +36,8 @@ service.pickScore(candidate: number, pickedPool: readonly number[]): number;
 `summary` returns `{passcode, summary, roles, source, textHash, taggedAt}`.
 Summary text is displayed directly, without an AI label. An absent tag returns
 `null`; it does not trigger tagging or an external API call. `textHash` is the
-stored nullable printed-text hash, and `source` retains importer/Batch/manual
+stored nullable hash of the normalized source text that was tagged; catalog
+and engine reads do not refresh it. `source` retains importer/Batch/manual
 provenance.
 
 `effectSearch` returns `{reading, cards, total}`. `reading` is the shared
@@ -55,18 +56,25 @@ printed text. `omittedChips` removes entire display facets by their stable chip
 labels; raw effect query objects are never accepted by the API.
 
 An omitted pool searches the locally cached public catalog. An explicit `[]`
-always returns no candidates. Artwork families, verified engine aliases and
+always returns no candidates. Explicit passcode pools and anchors also resolve
+cards directly from the read-only engine database when the lazy public catalog
+has no row yet. Their metadata and canonical tags are read by passcode; no
+catalog rows are inserted and no full engine catalog is loaded. Artwork families, verified engine aliases and
 engine passcode remaps resolve to canonical IDs; duplicates produce one result.
 The optional engine database is opened read-only for one operation and queried
 by individual passcode to supplement metadata such as monster Type. Optional
-engine columns that are absent retain their existing catalog metadata. Its default
+engine columns that are absent retain their existing catalog metadata. Optional
+packed engine setcodes and `strings.conf` labels provide archetype membership
+when the cached card has none. Its default
 directory follows `DUEL_DATA_DIR` and the existing shared engine-directory
 resolver. No engine resources are downloaded or modified.
 
 Genesys and Genesys Domain exclude Link/Pendulum cards and cards without a
 point value in the current `genesys_points_meta` revision. An optional remaining
 budget further limits candidate cost; without it, no remaining-budget cutoff is
-applied. Domain results annotate `deckMasterFit` when a Deck Master is known;
+applied. Engine-only cards with no current catalog point value remain unknown
+and are excluded from Genesys; engine metadata and effect tags never imply a
+zero-point cost. Domain results annotate `deckMasterFit` when a Deck Master is known;
 this means a positive mechanical link and is not a new legality rule.
 
 `poolHealth` counts distinct canonical cards, not copies. Its shape is:

@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -42,11 +42,23 @@ beforeAll(() => {
   db.prepare("UPDATE card_catalog SET genesys_revision='stale' WHERE ygoprodeck_id=990001").run();
   importCardEffectArtifact(db);
   const engine = new Database(join(directory, "cards.cdb"));
-  engine.exec(`CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER,type INTEGER,atk INTEGER,def INTEGER,level INTEGER,race INTEGER,attribute INTEGER);
+  engine.exec(`CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER,type INTEGER,atk INTEGER,def INTEGER,level INTEGER,race INTEGER,attribute INTEGER,setcode INTEGER DEFAULT 0);
     CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT);`);
-  engine.prepare("INSERT INTO datas VALUES(97268402,0,4129,0,0,1,2,16)").run();
+  const engineData = engine.prepare("INSERT INTO datas(id,alias,type,atk,def,level,race,attribute,setcode) VALUES(?,?,?,?,?,?,?,?,?)");
+  engineData.run(97268402, 0, 4129, 0, 0, 1, 2, 16, 0);
   engine.prepare("INSERT INTO texts VALUES(97268402,'Effect Veiler','Printed effect')").run();
+  engineData.run(46986414, 0, 17, 2500, 2100, 7, 2, 32, 0x123);
+  engine.prepare("INSERT INTO texts VALUES(46986414,'Dark Magician','The ultimate wizard.')").run();
+  for (const id of [7084129, 7084131]) {
+    engineData.run(id, id === 7084131 ? 7084129 : 0, 33, 1600, 100, 3, 2, 32, 0x123);
+    engine.prepare("INSERT INTO texts VALUES(?,'Magician''s Rod','Add a card that mentions \"Dark Magician\".')").run(id);
+  }
+  for (const id of [990010, 990011]) {
+    engineData.run(id, 0, 17, 1000, 1000, 4, 2, 32, 0x123);
+    engine.prepare("INSERT INTO texts VALUES(?,?,'Normal Monster text')").run(id, `Engine-only archetype monster ${id}`);
+  }
   engine.close();
+  writeFileSync(join(directory, "strings.conf"), "!setname 0x123 Dark Magician\n");
   service = createCardInsightService(db, { dataDirectory: directory });
 });
 
@@ -84,6 +96,36 @@ describe("SQL insights over the real pinned artifact", () => {
     const result = fallback.effectSearch("level 7 DARK Spellcaster monsters", [46986414]);
     expect(result.cards.map(card => card.passcode)).toEqual([46986414]);
     expect(fallback.effectSearch("Printed text for Dark Magician", [46986414], { exact: true }).total).toBe(1);
+    const minimalCatalog = new Database(":memory:");
+    try {
+      migrate(minimalCatalog);
+      const uncached = createCardInsightService(minimalCatalog, { dataDirectory: minimalDirectory });
+      expect(uncached.effectSearch("normal monsters", [46986414]).cards.map(card => card.passcode)).toEqual([46986414]);
+      expect(uncached.effectSearch("level 4 or lower normal monsters", [46986414]).cards).toEqual([]);
+    } finally { minimalCatalog.close(); }
+  });
+
+  it("uses uncached engine cards in explicit pools and anchors without expanding the default cached universe", () => {
+    const emptyCatalog = new Database(":memory:");
+    try {
+      migrate(emptyCatalog);
+      importCardEffectArtifact(emptyCatalog);
+      const engineOnly = createCardInsightService(emptyCatalog, { dataDirectory: directory });
+      expect(engineOnly.worksWith(46986414, [7084129]).map(card => card.passcode)).toEqual([7084129]);
+      expect(engineOnly.worksWith(7084129, [46986414]).map(card => card.passcode)).toEqual([46986414]);
+      expect(engineOnly.suggestForDeck([46986414], { pool: [7084129, 7084131], format: "normal" }).map(card => card.passcode)).toEqual([7084129]);
+      expect(engineOnly.effectSearch("searchers", [7084129, 7084131])).toMatchObject({ total: 1, cards: [{ passcode: 7084129 }] });
+      expect(engineOnly.effectSearch('mentions "Dark Magician"', [7084129], { exact: true }).total).toBe(1);
+      expect(engineOnly.summary(7084131)).toMatchObject({ passcode: 7084129, roles: ["searcher", "recursion"], source: expect.stringContaining("searchygo-artifact:"), textHash: expect.stringMatching(/^[a-f0-9]{64}$/) });
+      expect(engineOnly.summary(7084131)?.textHash).toBe(engineOnly.summary(7084129)?.textHash);
+      expect(engineOnly.effectSearch("searchers").cards).toEqual([]);
+      expect(engineOnly.effectSearch("searchers", []).cards).toEqual([]);
+      expect(engineOnly.effectSearch("searchers", [7084129], { format: "genesys", genesysRemaining: 1000 }).cards).toEqual([]);
+      expect(engineOnly.suggestForDeck([46986414], { pool: [7084129], format: "genesys-domain" })).toEqual([]);
+      expect(engineOnly.worksWith(46986414, [7084129], { format: "genesys" })).toEqual([]);
+      expect(engineOnly.worksWith(990010, [990011])[0]?.reason).toBe("Shares Dark Magician");
+      expect(emptyCatalog.prepare("SELECT COUNT(*) AS count FROM card_catalog").get()).toEqual({ count: 0 });
+    } finally { emptyCatalog.close(); }
   });
 
   it("finds mechanical links, prioritizes linked deck cards and annotates Domain fit", () => {
