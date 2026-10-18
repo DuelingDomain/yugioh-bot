@@ -186,12 +186,15 @@ for (const format of FORMATS) {
         // A monster the open drawer does not cover (the drawer is on the left in Tag and the 4-way grid).
         const panel = await settledBox(panelOf(page, format.tabs[0]));
         const cards = page.locator('[data-kind="mz"]:has([data-card-art])');
-        let target = cards.first();
-        for (let index = 0; index < await cards.count(); index += 1) {
-          const box = await cards.nth(index).boundingBox();
-          if (box && !overlaps(box, panel)) { target = cards.nth(index); break; }
-        }
-        await target.click();
+        let target: Locator | null = null;
+        await expect(async () => {
+          for (let index = 0; index < await cards.count(); index += 1) {
+            const box = await cards.nth(index).boundingBox();
+            if (box && box.width > 20 && !overlaps(box, panel)) { target = cards.nth(index); break; }
+          }
+          expect(target).not.toBeNull();
+        }).toPass();
+        await target!.click({ force: true });
         await expect(pinned).toHaveCount(1);
         await expect(open(page)).toHaveCount(0);
         await expect(page.locator('[data-edge-drawer="Inspect"], [data-edge-drawer="Card"]')).toHaveCount(0);
@@ -216,6 +219,47 @@ for (const format of FORMATS) {
         await expectOnlyOpen(page, "Card", format.tabs);
       });
     }
+  }
+}
+
+// Tag, 3-way and 4-way keep every tab on the left edge, stacked close together from the top, clear of the fields, plates and the bottom-left corner.
+for (const format of FORMATS.filter((entry) => !entry.hasCardDrawer)) {
+  for (const viewport of VIEWPORTS) {
+    test(`${format.id} at ${viewport.width}x${viewport.height}: all tabs on the left edge, close together, top down`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.goto(`/dev/table-preview/${format.path}?fixture=review&state=main&reduced=1`);
+      await expect(tabOf(page, format.tabs[0])).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      await expect(async () => {
+        const rows = await page.$$eval("[data-edge-drawer]", (roots) => roots.map((root) => {
+          const box = root.querySelector("[data-edge-tab]")!.getBoundingClientRect();
+          return { side: root.getAttribute("data-side"), x: box.x, y: box.y, width: box.width, height: box.height };
+        }));
+        expect(rows.length).toBe(format.tabs.length);
+        expect(rows.every((row) => row.side === "left" && row.x >= -1 && row.x < 4)).toBe(true);
+        const sorted = [...rows].sort((a, b) => a.y - b.y);
+        for (let i = 1; i < sorted.length; i += 1) {
+          const gap = sorted[i].y - (sorted[i - 1].y + sorted[i - 1].height);
+          expect(gap, `gap before tab ${i}`).toBeGreaterThanOrEqual(2);
+          expect(gap, `gap before tab ${i}`).toBeLessThanOrEqual(12);
+        }
+        const last = sorted[sorted.length - 1];
+        expect(last.y + last.height).toBeLessThan(viewport.height * 0.55);
+      }).toPass();
+      // No tab covers a visible card zone or a header pill.
+      const covered = await page.evaluate(() => {
+        const tabs = [...document.querySelectorAll("[data-edge-tab]")].map((el) => el.getBoundingClientRect());
+        const others = [...document.querySelectorAll("[data-kind], [data-testid='hud-top'] > *")].filter((el) => {
+          const box = el.getBoundingClientRect();
+          return box.width > 0 && getComputedStyle(el).visibility !== "hidden";
+        });
+        return others.filter((el) => {
+          const o = el.getBoundingClientRect();
+          return tabs.some((t) => t.x + 1 < o.x + o.width && o.x + 1 < t.x + t.width && t.y + 1 < o.y + o.height && o.y + 1 < t.y + t.height);
+        }).length;
+      });
+      expect(covered).toBe(0);
+    });
   }
 }
 
