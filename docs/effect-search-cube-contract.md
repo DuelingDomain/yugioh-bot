@@ -58,7 +58,7 @@ type Move = { code: number; name: string; from: "main" | "extra";
   **new distinct rows**, not copies or the cube's final size.
 - `maxCopies`: optional integer 1–99; default 3. Applied to each preview row.
 - The body has a 64 KiB limit. Unknown top-level fields are rejected.
-- One unfinished preview per user is allowed across cubes in each web process.
+- One unfinished preview per user is allowed across cubes and draft lobbies in each web process.
   Overlapping requests receive 429 `{ error: "cube_seed_preview_in_flight" }`
   with `Retry-After: 1`. The reservation covers body reading and selection and
   is released on success, validation failure or an unexpected error.
@@ -153,8 +153,8 @@ requests retain their existing response shape and name path.
 ## Pick screen pool fit
 
 With `EFFECT_SEARCH=1`, each card in the viewer's own `currentPack` may carry
-`fitsYourPool?: string`, a one-line reason the card works with the cards the
-viewer has already picked. It is absent for other seats' packs, for an empty
+`fitsYourPool?: string`, a one-line mechanical-link or missing-role reason
+from the shared automatic-pick policy. It is absent for other seats' packs, for an empty
 pool, for cards with no link, and with the flag off. The room shows it as
 "Fits your pool".
 

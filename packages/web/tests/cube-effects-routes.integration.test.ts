@@ -94,9 +94,14 @@ describe("phrase preview, confirmation and description routes", () => {
     expect(db().prepare("SELECT count(*) AS n FROM cube_cards").get()).toEqual({ n: 1 });
   });
 
-  it("allows only one unfinished preview per user across cubes and releases after failures", async () => {
+  it("allows only one unfinished preview per user across cubes and draft lobbies and releases after failures", async () => {
     const { POST } = await import("../app/api/cubes/[id]/seed/preview/route");
     db().prepare("INSERT INTO cubes(id,guild_id,name,created_by_user_id) VALUES(3,'g','Second',?),(4,'g','Guest',?)").run(owner, fixtureUserId("other"));
+    vi.stubEnv("THEME_DRAFTS", "1");
+    db().prepare("INSERT INTO drafts(id,guild_id,name,created_by_user_id,status,web_slug,config_json) VALUES(7,'g','Preview lobby',?,'pending','preview-lobby',?)")
+      .run(owner, JSON.stringify({ mode: "theme", themeSelection: "player_pick", allowedCubeIds: [] }));
+    const lobbyPreview = await import("../app/api/drafts/[slug]/seed/preview/route");
+    const lobbyContext = { params: Promise.resolve({ slug: "preview-lobby" }) };
     let stream!: ReadableStreamDefaultController<Uint8Array>;
     const pending = new Request("http://test/api", { method: "POST", duplex: "half", body: new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }) } as RequestInit);
     let entered!: () => void;
@@ -109,6 +114,7 @@ describe("phrase preview, confirmation and description routes", () => {
       const duplicate = await POST(request({ phrase: "dark magician" }), context("3"));
       expect(duplicate.status).toBe(429);
       expect(await duplicate.json()).toMatchObject({ error: "cube_seed_preview_in_flight" });
+      expect((await lobbyPreview.POST(request({ phrase: "dark magician" }), lobbyContext)).status).toBe(429);
       state.auth.mockResolvedValue({ user: { id: String(fixtureUserId("other")) } });
       expect((await POST(request({ phrase: "dark magician", targetCount: 1 }), context("4"))).status).toBe(200);
     } finally {
@@ -119,6 +125,8 @@ describe("phrase preview, confirmation and description routes", () => {
     state.auth.mockResolvedValue({ user: { id: String(owner) } });
     expect((await POST(request({ phrase: "dark magician", targetCount: 0 }), context())).status).toBe(400);
     expect((await POST(request({ phrase: "dark magician", targetCount: 1 }), context())).status).toBe(200);
+    expect((await lobbyPreview.POST(request({ phrase: "dark magician", targetCount: 0 }), lobbyContext)).status).toBe(400);
+    expect((await lobbyPreview.POST(request({ phrase: "dark magician", targetCount: 1 }), lobbyContext)).status).toBe(200);
     expect((await POST(request({ phrase: "dark magician", unexpected: true }), context())).status).toBe(400);
     expect((await POST(request({ phrase: "dark magician", targetCount: 1 }), context())).status).toBe(200);
   });
