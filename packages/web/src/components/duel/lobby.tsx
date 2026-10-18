@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { focusDuelWindowOnClick } from "./duel-window";
 import { formatLabel, formatSeatCount, tagSeatCode } from "./table-format";
+import { genesysLabel, genesysOf } from "./genesys";
 import {
   DUEL_LIST_KEY, cancelDuel, duelHistoryKey, leaveDuel, listDuels, surrenderDuel, takeDuelSeat,
   type DuelListPage,
@@ -18,6 +19,7 @@ import {
   EMPTY_HISTORY_FILTERS, hasHistoryFilters, mergeLobbySearch, parseHistoryParams, presetRange, rememberHistorySearch,
   type HistoryFilters, type HistoryPreset, type HistoryStatus,
 } from "./history-filters";
+import { MatchChips } from "./match-chips";
 import { isNotableSeries, SeriesBadges } from "./series-banner";
 import { cx, SheetButton, sheetButtonClass, SheetSegmented, SheetSelect, sheetRoot } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
@@ -34,6 +36,9 @@ function statusLabel(status: DuelListItem["status"]): string {
 }
 
 function modeLabel(duel: DuelListItem): string {
+  const custom = duel.mode === "domain" && isCustomDomain(duel.masterRule, duel.settings);
+  const genesys = genesysLabel(duel.mode, genesysOf(duel), custom);
+  if (genesys) return genesys;
   if (duel.mode === "domain") return isCustomDomain(duel.masterRule, duel.settings) ? "Custom Domain" : duel.format && duel.format !== "1v1" ? "Domain" : "Domain 1v1";
   return `Master Rule ${duel.masterRule}`;
 }
@@ -209,9 +214,9 @@ function LiveRow({ duel, onClose }: { duel: DuelListItem; onClose: (duel: DuelLi
   const [joining, setJoining] = useState(false);
   const own = duel.mySeat != null;
   const seatCount = formatSeatCount(duel.format);
-  const openSeat = Array.from({ length: seatCount }, (_, seat) => seat)
-    .find((index) => !duel.seats.some((seat) => seat.seat === index));
-  const open = duel.status === "lobby" && openSeat != null && duel.seriesId == null && duel.series == null;
+  // The server says which seats are empty and whether this viewer may take one under the room rules.
+  const openSeat = duel.openSeats[0];
+  const open = duel.status === "lobby" && duel.joinable && openSeat != null && duel.seriesId == null && duel.series == null;
   const full = duel.status === "lobby" && duel.seats.length >= seatCount;
   const activity = relativeActivity(duel.lastActivityAt);
   const roomPath = `/duels/${duel.slug}`;
@@ -238,18 +243,16 @@ function LiveRow({ duel, onClose }: { duel: DuelListItem; onClose: (duel: DuelLi
           {own ? <span className={cx(ui.chip, ui.chipAccent)}>Your table</span> : null}
         </span>
         <span className={styles.chips}>
-          <span className={ui.chip}>{modeLabel(duel)}</span>
+          <MatchChips duel={duel} />
           <span className={cx(ui.chip, duel.status === "active" && ui.chipGold)}>{statusLabel(duel.status)}</span>
           {isNotableSeries(duel.series) ? <SeriesBadges series={duel.series} showGame plain /> : null}
           <span className={ui.chip}><Users size={13} strokeWidth={1.6} aria-hidden />{duel.seats.length}/{seatCount}</span>
-          {duel.format && duel.format !== "1v1" ? <span className={ui.chip}>{formatLabel(duel.format)}</span> : null}
-          {duel.settings.visibility === "private" ? <span className={ui.chip}><Lock size={13} strokeWidth={1.6} aria-hidden />Private</span> : null}
           {activity ? <span className={styles.activity}>{activity}</span> : null}
         </span>
       </span>
       <span className={styles.go}>
         {own || open ? null : <Eye size={15} strokeWidth={1.6} aria-hidden />}
-        {own ? "Return" : open ? "Join" : full ? "Full — watch" : "Watch"}
+        {own ? "Return" : open ? `Join · ${duel.openSeats.length} open` : full ? "Full — watch" : "Watch"}
         <ArrowRight size={15} strokeWidth={1.6} aria-hidden />
       </span>
     </>

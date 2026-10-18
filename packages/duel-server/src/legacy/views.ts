@@ -1520,6 +1520,8 @@ export function projectView(args: {
   result: DuelEngineView["result"];
   reveals: RevealMap;
   mode: DuelMode;
+  /** Original field: no Extra Monster or Pendulum Zones. Absent means off. */
+  genesys?: boolean;
   domainState?: DomainSeatState[];
   handIdentities?: HandIdentities;
 }): DuelEngineView {
@@ -1604,6 +1606,7 @@ export function projectView(args: {
   });
 
   return {
+    ...(args.genesys ? { field: { genesys: true } } : {}),
     revision: args.revision,
     turn: args.turn,
     turnSeat: args.turnSeat,

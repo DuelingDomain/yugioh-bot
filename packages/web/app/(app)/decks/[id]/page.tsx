@@ -1,6 +1,11 @@
 import { SavedDeckEditor } from "@/components/decks/editor";
 
-export default async function SavedDeckPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function SavedDeckPage({ params, searchParams }: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ room?: string | string[] }>;
+}) {
   const { id } = await params;
-  return <SavedDeckEditor key={id} deckId={id} />;
+  const query = await searchParams;
+  const roomSlug = typeof query?.room === "string" && /^[a-z0-9]{8}$/.test(query.room) ? query.room : undefined;
+  return <SavedDeckEditor key={id} deckId={id} roomSlug={roomSlug} />;
 }

@@ -1,5 +1,6 @@
 import { report } from "@yugidraft/shared/observability";
 import { awaitObservabilityShutdown } from "@yugidraft/shared/observability/node-bootstrap";
+import cron from "node-cron";
 import { config } from "dotenv";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,7 @@ import {
   createMatchService,
   createTournamentService,
   createCardCatalogService,
+  createGenesysPointsSync,
   createImageCacheCleanup,
 } from "@yugidraft/shared/services";
 import { effectsFromEnv } from "./effects.js";
@@ -49,6 +51,14 @@ const jobs = [
     cards: createCardCatalogService(db),
     expression: process.env.SETS_SYNC_CRON ?? "0 6 * * *",
     timezone: process.env.SETS_SYNC_TIMEZONE ?? "UTC",
+  }),
+  createGenesysPointsSync({
+    cards: createCardCatalogService(db),
+    schedule: cron.schedule,
+    expression: process.env.GENESYS_SYNC_CRON,
+    timezone: process.env.GENESYS_SYNC_TIMEZONE,
+    effectiveDate: process.env.GENESYS_LIST_EFFECTIVE_DATE,
+    expectedRevision: process.env.GENESYS_LIST_REVISION,
   }),
   createImageCleanup({
     cache: createImageCacheCleanup({ imageCacheDir }),

@@ -191,6 +191,9 @@ export interface CardQuery {
   scale: CardRange;
   atk: CardRange;
   def: CardRange;
+  /** Synced Genesys points; unknown cards do not match a bounded range. */
+  genesysPoints?: CardRange;
+  excludeGenesysForbidden?: boolean;
   /** Link Arrow bits. */
   arrows: number;
   arrowMatch: CardMatch;
@@ -340,7 +343,10 @@ export function parseCardQuery(raw: unknown): CardQuery {
   if (typeof banlist !== "string" || banlist.length > 40 || !/^[a-z0-9-]+$/.test(banlist)) {
     throw new CardQueryError("Invalid banlist");
   }
+  if (raw.excludeGenesysForbidden !== undefined && typeof raw.excludeGenesysForbidden !== "boolean") throw new CardQueryError("Invalid Genesys type filter");
   return {
+    ...(raw.genesysPoints !== undefined ? { genesysPoints: pickRange(raw.genesysPoints, 1000, "Genesys points") } : {}),
+    ...(raw.excludeGenesysForbidden !== undefined ? { excludeGenesysForbidden: raw.excludeGenesysForbidden } : {}),
     text,
     scope: pick(raw.scope, ["all", "name"] as const, base.scope, "scope"),
     kind: pick(raw.kind, ["any", "monster", "spell", "trap"] as const, base.kind, "card kind"),

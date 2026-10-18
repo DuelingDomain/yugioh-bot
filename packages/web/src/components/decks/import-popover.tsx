@@ -104,7 +104,7 @@ export function Popover({ label, icon, open, onOpenChange, kind = "secondary", d
   );
 }
 
-export function DeckImportPopover({ open, onOpenChange, disabled, mode, fileName, error, onFile, onPaste, className }: {
+export function DeckImportPopover({ open, onOpenChange, disabled, mode, fileName, error, onFile, onPaste, className, iconOnly }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   disabled?: boolean;
@@ -114,6 +114,7 @@ export function DeckImportPopover({ open, onOpenChange, disabled, mode, fileName
   onFile: (file: File) => void | Promise<void>;
   onPaste: (text: string) => void | Promise<void>;
   className?: string;
+  iconOnly?: boolean;
 }) {
   const [paste, setPaste] = useState("");
   const [dragging, setDragging] = useState(false);
@@ -126,7 +127,7 @@ export function DeckImportPopover({ open, onOpenChange, disabled, mode, fileName
   const loadPaste = () => run(() => onPaste(paste));
   const loadFile = (file: File) => run(() => onFile(file));
   return (
-    <Popover label="Import" dialogLabel="Import a deck" icon={<FileUp className="ic sm" aria-hidden />} open={open} onOpenChange={onOpenChange} disabled={disabled} className={className}>
+    <Popover label="Import" dialogLabel="Import a deck" icon={<FileUp className="ic sm" aria-hidden />} iconOnly={iconOnly} open={open} onOpenChange={onOpenChange} disabled={disabled} className={className}>
       <p className={styles["de-pop-h"]}>Import a deck</p>
       <p className="small">This replaces the cards in the editor. Press Ctrl+Z to undo it.</p>
       <label className={styles.drop} data-dragging={dragging || undefined} aria-busy={importing || undefined}

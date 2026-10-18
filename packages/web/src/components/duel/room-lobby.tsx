@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLobbyLeaveGuard } from "./lobby-leave-guard";
 import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, X, type LucideIcon } from "lucide-react";
@@ -8,6 +8,7 @@ import { isCustomDomain, type DuelDeck, type DuelRoom, type DuelSeat } from "@yu
 import type { DuelPresencePayload } from "@yugidraft/shared/ws";
 import { DeckCardPreview } from "./deck-card-preview";
 import { DeckEditor } from "./deck-editor";
+import { genesysLabel, genesysOf } from "./genesys";
 import { formatLabel as tableFormatLabel, formatSeatCount, seatGroups, tagSeatCode } from "./table-format";
 import { shouldCheckDeck, startButtonLabel } from "./start-flow";
 import { SeriesBadges } from "./series-banner";
@@ -94,10 +95,33 @@ function SeatCard({
   );
 }
 
+/** The room closes after this many idle minutes at most; the note shows only for the last two. */
+const IDLE_NOTE_WINDOW_MS = 2 * 60_000;
+
+/** A quiet line for the last two minutes before an idle waiting room closes. Nothing shows before that. */
+export function IdleNote({ deadline }: { deadline: number | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (deadline == null) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, [deadline]);
+  const left = deadline == null ? 0 : deadline - now;
+  if (deadline == null || left <= 0 || left > IDLE_NOTE_WINDOW_MS) return null;
+  const minutes = Math.ceil(left / 60_000);
+  return (
+    <p className={styles.idleNote} role="status">
+      {left < 60_000 ? "Room closes in under 1 min if nobody acts." : `Room closes in ${minutes} min if nobody acts.`}
+    </p>
+  );
+}
+
 /** The table before the duel starts: seats, settings, practice bot, deck import and start. */
 export function RoomLobby({
   room,
   presence = null,
+  idleDeadline = null,
   slug,
   busy,
   starting = false,
@@ -115,6 +139,8 @@ export function RoomLobby({
 }: {
   room: DuelRoom;
   presence?: Omit<DuelPresencePayload, "slug"> | null;
+  /** When the room closes if nobody acts (ms since 1970), or null when unknown. */
+  idleDeadline?: number | null;
   slug: string;
   busy: boolean;
   /** Start duel was clicked and the server has not answered yet. */
@@ -148,9 +174,10 @@ export function RoomLobby({
   const groups = seatGroups(session.format);
   const everyoneWord = seatCount === 2 ? "Both seats" : `All ${seatCount} seats`;
 
-  const formatLabel = session.mode === "domain"
+  const genesys = genesysOf(session);
+  const formatLabel = genesysLabel(session.mode, genesys, session.mode === "domain" && isCustomDomain(session.masterRule, session.settings)) ?? (session.mode === "domain"
     ? isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : (session.format && session.format !== "1v1" ? "Domain · singleton" : "Domain 1v1 · singleton")
-    : `Master Rule ${session.masterRule}`;
+    : `Master Rule ${session.masterRule}`);
   const isPrivate = session.settings.visibility === "private";
   const series = room.series;
   const seatsLocked = session.status !== "lobby" || starting || room.opening != null || session.seriesId != null || series != null;
@@ -247,6 +274,7 @@ export function RoomLobby({
                     : "You are watching. Take an open seat to play, then choose your deck."}
                 </p>
               )}
+              {mySeat != null ? <IdleNote deadline={idleDeadline} /> : null}
               {actionError ? <p role="alert" className={ui.alert}>{actionError}</p> : null}
               <StartBlockedNotice own={ownBlocked} neutral={ownBlocked || !room.startBlockedByOther ? null : NEUTRAL_START_BLOCKED_TEXT}
                 reasonShown={ownBlocked != null && actionError != null && actionError.includes(ownBlocked.reason)}
@@ -321,7 +349,7 @@ export function RoomLobby({
               <section className={cx(styles.panel, styles.bot)} aria-label="Practice bot">
                 <h2 className={ui.sectionTitle}>Practice bot</h2>
                 <p className={ui.hint}>
-                  Fill an empty seat with a basic bot and a supplied {session.mode === "domain" ? "Domain" : "40-card"} deck.
+                  Fill an empty seat with a basic bot and a supplied {genesys ? (session.mode === "domain" ? "Genesys Domain" : "Genesys") : session.mode === "domain" ? "Domain" : "40-card"} deck.
                   It makes legal moves automatically; it is not a competitive AI.
                 </p>
                 <SheetButton loading={busy} disabled={busy} onClick={() => onAddBot()}>

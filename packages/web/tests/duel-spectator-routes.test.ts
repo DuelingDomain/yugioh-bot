@@ -146,27 +146,9 @@ it("issues a fresh token from the moved FFA seat rows", async () => {
 });
 
 
-it.each(["room", "connection"])("renews an organizer's waiting lobby through %s", async route => {
+it.each(["room", "connection"])("does not renew a waiting lobby through a passive %s read", async route => {
   mocks.room.mockReturnValue({ session: { slug: "abc", status: "lobby", organizerPlayerId: 7 }, mySeat: 0, opening: null });
   const get = route === "room" ? roomGet : connectionGet;
-  expect((await get(request(false), context)).status).toBe(200);
-  expect(mocks.touchWaiting).toHaveBeenCalledExactlyOnceWith("abc", "guild", 7);
-});
-
-it.each(["room", "connection"])("ignores heartbeat errors through %s", async route => {
-  mocks.room.mockReturnValue({ session: { slug: "abc", status: "lobby", organizerPlayerId: 7 }, mySeat: 0, opening: null });
-  mocks.touchWaiting.mockImplementationOnce(() => { throw new Error("SQLITE_BUSY"); });
-  const get = route === "room" ? roomGet : connectionGet;
-  expect((await get(request(false), context)).status).toBe(200);
-});
-
-it.each(["room", "connection"])("does not renew an active game, guest, spectator, or opening through %s", async route => {
-  const get = route === "room" ? roomGet : connectionGet;
-  for (const session of [{ status: "active", organizerPlayerId: 7 }, { status: "lobby", organizerPlayerId: 8 }]) {
-    mocks.room.mockReturnValue({ session, mySeat: 0 });
-    expect((await get(request(false), context)).status).toBe(200);
-  }
-  mocks.room.mockReturnValue({ session: { slug: "abc", status: "lobby", organizerPlayerId: 7 }, mySeat: 0, opening: { deadlineAt: new Date(Date.now() + 10000).toISOString() } });
   expect((await get(request(false), context)).status).toBe(200);
   expect(mocks.touchWaiting).not.toHaveBeenCalled();
 });

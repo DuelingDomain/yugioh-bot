@@ -72,7 +72,7 @@ it.each([true, false])("serializes two real processes on a held SQLite write loc
   }
 }, 15_000);
 
-it("reads a fresh heartbeat without seeking the SQLite writer lock", () => {
+it("reads a waiting room without seeking the SQLite writer lock or renewing activity", () => {
   const directory = mkdtempSync(join(tmpdir(), "duel-heartbeat-lock-"));
   const filename = join(directory, "heartbeat.sqlite");
   const db = new Database(filename, { timeout: 0 }); migrate(db);
@@ -80,9 +80,11 @@ it("reads a fresh heartbeat without seeking the SQLite writer lock", () => {
   const duels = createDuelService(db);
   const table = duels.create({ guildId: "g", organizerPlayerId: host, name: "Waiting", mode: "normal" });
   const writer = new Database(filename);
+  const before = db.prepare("select last_activity_at from duels where id = ?").get(table.id);
   try {
     writer.exec("begin immediate");
-    expect(() => duels.touchWaiting(table.slug, "g", host)).not.toThrow();
+    expect(duels.room(table.slug, "g", host, { includeStoredBoard: false }).session.slug).toBe(table.slug);
+    expect(db.prepare("select last_activity_at from duels where id = ?").get(table.id)).toEqual(before);
   } finally {
     writer.exec("rollback"); writer.close(); db.close(); rmSync(directory, { recursive: true, force: true });
   }

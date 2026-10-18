@@ -1,4 +1,5 @@
 import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
+import { genesysCapShort, genesysModeName } from "../duel/genesys";
 import { isDraftTournament, rulesValueFromTournament } from "./duel-rules";
 import type { TournamentDetail } from "./types";
 
@@ -41,17 +42,18 @@ export function rulesSummary(tournament: RulesSource): RulesSummary | null {
   if (isDraftTournament(tournament)) {
     return { bestOf: rules.bestOf, rows: [{ label: "Rules", value: "Draft pool, no banlist" }], line: `${bestOf}, Draft pool, no banlist` };
   }
-  const mode = rules.mode === "domain" ? "Domain" : "Normal";
-  const banlist = DUEL_BANLIST_OPTIONS.find((option) => option.id === rules.banlist)?.label ?? rules.banlist;
+  const mode = genesysModeName(rules.mode, rules.genesys) ?? (rules.mode === "domain" ? "Domain" : "Normal");
+  const banlist = rules.genesys ? "No banlist" : DUEL_BANLIST_OPTIONS.find((option) => option.id === rules.banlist)?.label ?? rules.banlist;
   const turn = turnLabel(rules.turnSeconds);
   const turnLine = rules.turnSeconds === 0 ? "untimed turns" : `${turn} turns`;
   return {
     bestOf: rules.bestOf,
     rows: [
       { label: "Duel mode", value: mode },
+      ...(rules.genesys ? [{ label: "Point cap", value: genesysCapShort(rules.genesys) }] : []),
       { label: "Banlist", value: banlist },
       { label: "Turn time", value: turn },
     ],
-    line: [bestOf, mode, banlist, turnLine].join(", "),
+    line: [bestOf, rules.genesys ? `${mode} ${genesysCapShort(rules.genesys)}` : mode, banlist, turnLine].join(", "),
   };
 }

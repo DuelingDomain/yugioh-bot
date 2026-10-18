@@ -129,6 +129,11 @@ export function resolveTournamentDuelRules(row: TournamentRulesRow): TournamentD
   try {
     settings = normalizeDuelSettings(mode, stored.settings);
   } catch {
+    // Corrupt Genesys settings must not turn a Genesys tournament into an ordinary one.
+    if (stored.settings && typeof stored.settings === "object" && "genesys" in stored.settings
+      && stored.settings.genesys != null) {
+      throw new TournamentDuelError("Stored tournament duel rules are corrupt", 500);
+    }
     settings = normalizeDuelSettings(mode, undefined);
   }
   return { bestOf, mode, masterRule, settings: { ...settings, visibility: "public" }, draftId };
@@ -153,10 +158,10 @@ export function serializeTournamentDuelRules(input: {
   const masterRule: DuelMasterRule = (input.masterRule as DuelMasterRule | undefined) ?? current?.masterRule ?? 5;
   let settings: DuelSettings;
   try {
-    settings =
+    settings = normalizeDuelSettings(mode,
       input.settings === undefined && current && current.mode === mode
         ? current.settings
-        : normalizeDuelSettings(mode, input.settings);
+        : input.settings);
   } catch (error) {
     if (error instanceof DuelSettingsError) throw new TournamentDuelError(error.message, 400);
     throw error;

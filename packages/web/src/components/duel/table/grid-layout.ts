@@ -58,13 +58,19 @@ const QUADRANTS: Record<GridQuadrant, { column: 0 | 1; row: 0 | 1 }> = {
 /** The seat fields that `usesGridLayout` reads. */
 export type GridSeatLike = Pick<DuelEngineView["seats"][number], "seat" | "eliminated" | "sharedExtraWith">;
 
+/** The engine view `field` that `usesGridLayout` reads. */
+export type GridFieldLike = Pick<NonNullable<DuelEngineView["field"]>, "genesys">;
+
 /**
  * True when the engine shares the Extra Monster Zones as the grid draws them: every seat in the duel shares with its
  * facing seat (`gridPartnerOf`) while that seat is in the duel, and with no other seat. A seat view without
  * `sharedExtraWith` (a fixture, an older view) does not count against it. A core that shares across (0+2, 1+3) or not
- * at all fails, because the grid would draw two seats' cards in one shared cell.
+ * at all fails, because the grid would draw two seats' cards in one shared cell. A Genesys board (`field.genesys`) has no
+ * Extra Monster Zones at all (the engine reports `sharedExtraWith: null` for every seat), so nothing is shared in a wrong
+ * cell and the grid always fits.
  */
-export function gridExtraZonesFit(seats: readonly GridSeatLike[]): boolean {
+export function gridExtraZonesFit(seats: readonly GridSeatLike[], field?: GridFieldLike | null): boolean {
+  if (field?.genesys === true) return true;
   const out = new Set(seats.filter((view) => view.eliminated === true).map((view) => view.seat));
   return seats.every((view) => {
     if (view.eliminated === true) return true;
@@ -80,9 +86,9 @@ export function gridExtraZonesFit(seats: readonly GridSeatLike[]): boolean {
  * Monster Zones between facing seats (`gridExtraZonesFit`). An out seat keeps its cell (the field crumbles, then the
  * cell stays empty), so the seat count never changes it. The shell keeps a refusal for the rest of the duel.
  */
-export function usesGridLayout(format: TableFormat | "1v1", seats: readonly GridSeatLike[]): boolean {
+export function usesGridLayout(format: TableFormat | "1v1", seats: readonly GridSeatLike[], field?: GridFieldLike | null): boolean {
   // The 3-way table keeps the plaza stage (owner, 2026-10-11): its facing pair is drawn there as a link, not as a grid.
-  return format === "ffa4" && seats.length === 4 && gridExtraZonesFit(seats);
+  return format === "ffa4" && seats.length === 4 && gridExtraZonesFit(seats, field);
 }
 
 /** The cell of every seat of the layout. Spectators have seat 0 (the anchor) at bottom-left. */

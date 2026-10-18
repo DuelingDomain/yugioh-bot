@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Circle, Diamond, Eye, Film, Radio, Volume2, VolumeX } from "lucide-react";
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { isCustomDomain } from "@yugidraft/shared/duels";
+import { genesysLabel, genesysOf } from "../genesys";
 import { BattleFx } from "../battle-fx";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
@@ -244,7 +245,7 @@ function TableShellBody({
   // plaza stage. A core that shares the Extra Monster Zones another way than the grid draws them (the facing pairs are
   // fixed for the whole duel) keeps the plaza stage for the whole duel (see useLatch).
   const trackedFormat = engineFormat(tracked.engine) as TableFormat;
-  const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats);
+  const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats, tracked.engine.field);
   const gridRefused = useLatch(trackedFormat === "ffa4" && !gridFits);
   const grid = gridFits && !gridRefused;
   // The 3-way plaza on a wide screen keeps its stage and gets the same floating HUD (Log, Settings and Camera).
@@ -528,7 +529,7 @@ function TableShellBody({
         </strong>
       ) : null}
       <span className={roomStyles.format}>
-        {domain ? (isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain") : `MR${session.masterRule}`} · {formatLabel(format)}
+        {genesysLabel(session.mode, genesysOf(session), domain && isCustomDomain(session.masterRule, session.settings)) ?? (domain ? (isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain") : `MR${session.masterRule}`)} · {formatLabel(format)}
       </span>
     </div>
   );

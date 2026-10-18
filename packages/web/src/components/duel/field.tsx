@@ -1043,7 +1043,7 @@ export const SeatField = memo(function SeatField({
   tone,
   density,
   hand,
-  emz,
+  emz: requestedEmz,
   pair,
   emzLink,
   showTally,
@@ -1057,6 +1057,7 @@ export const SeatField = memo(function SeatField({
   name,
   scale,
 }: SeatFieldProps) {
+  const emz = masterRule < 4 ? "none" : requestedEmz;
   const view = engine.seats.find((entry) => entry.seat === seat);
   const callbacks: FieldCallbacks = { legalKeys, selectedKeys, onActivate, onInspect, onHoverCard };
   const angle = normalizeDeg(angleDeg);
@@ -1155,7 +1156,7 @@ export const SeatField = memo(function SeatField({
         style={vars}
       >
         <div className={styles.sfMat}>
-          <FieldCracks seat={seat} lp={view?.lp} chunks={pair?.framed !== true} avoidSelector="[data-crack-avoid]" layoutToken={emz} />
+          <FieldCracks seat={seat} lp={view?.lp} chunks={pair?.framed !== true} avoidSelector="[data-crack-avoid]" layoutToken={`${masterRule}:${emz}`} />
           {emz === "none" ? <span className={styles.sfCrackAvoid} data-crack-avoid="" aria-hidden="true" /> : null}
           <span className={styles.sfRule} aria-hidden="true" />
           <div className={styles.sfGrid}>

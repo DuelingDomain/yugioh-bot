@@ -1129,6 +1129,16 @@ describe("series advance", () => {
     try {
       const { workers } = openHost(app, { pollIntervalMs: 30_000, onChange: (changed) => void changes.push(changed) });
       const attempts = () => output.warnings.filter(({ message }) => message.includes("Series game start deferred")).length;
+      // Player input keeps the room open while the retry delay exceeds its idle timeout.
+      const advanceWithActivity = async (duration: number) => {
+        let remaining = duration;
+        while (remaining > 0) {
+          app.duels.touchWaiting(slug, GUILD, app.p1);
+          const step = Math.min(remaining, 9 * 60_000);
+          await vi.advanceTimersByTimeAsync(step);
+          remaining -= step;
+        }
+      };
       await settle();
       expect(attempts()).toBe(1);
       expect(JSON.stringify(output.warnings[0])).not.toContain(slug);
@@ -1146,18 +1156,18 @@ describe("series advance", () => {
       expect(attempts()).toBe(3);
       expect(changes.filter((changed) => changed === slug)).toHaveLength(3);
       // The 4th attempt waits the 15 minute cap.
-      await vi.advanceTimersByTimeAsync(14 * 60_000 + 30_000);
+      await advanceWithActivity(14 * 60_000 + 30_000);
       expect(attempts()).toBe(3);
       await vi.advanceTimersByTimeAsync(30_000);
       expect(attempts()).toBe(4);
-      await vi.advanceTimersByTimeAsync(14 * 60_000 + 30_000);
+      await advanceWithActivity(14 * 60_000 + 30_000);
       expect(attempts()).toBe(4);
       await vi.advanceTimersByTimeAsync(30_000);
       expect(attempts()).toBe(5);
 
       // A fixed deck starts at the next retry, and the entry is gone for good.
       app.duels.setDeck(slug, GUILD, app.p1, deckWithSide());
-      await vi.advanceTimersByTimeAsync(15 * 60_000);
+      await advanceWithActivity(15 * 60_000);
       await settle();
       await vi.waitFor(() => expect(app.duels.get(slug, GUILD).status).toBe("active"));
       expect(workers).toHaveLength(1);

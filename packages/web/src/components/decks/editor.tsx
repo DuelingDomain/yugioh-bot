@@ -14,7 +14,9 @@ import {
   type CardArtworksResponse,
   type DeckCardInfo,
   type DuelDeck,
+  type DuelDeckCardRef,
   type DuelMode,
+  type GenesysSettings,
   type SavedDeck,
   type SelectableCardArtwork,
 } from "@yugidraft/shared/duels";
@@ -39,6 +41,7 @@ import { selectDomainMaster, type DeckMasterSelection } from "@/components/duel/
 import { SheetRoot, StatusLine, SvButton, Zone, segmentSlide } from "@/components/sheet";
 import { useTabDirection } from "@/lib/tab-motion";
 import { cn } from "@/lib/utils";
+import { useDuelRoomActivity } from "@/lib/hooks/use-duel-room-activity";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { DeckRequestError, createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, swapDeckArtwork, prepareDeckTextImport, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
 import { ArtworkPicker, artCountLabel } from "@/components/artwork/artwork-picker";
@@ -54,6 +57,15 @@ import { CardPreview } from "./card-preview";
 import { DeckSegmented, DeckSelect } from "./controls";
 import { useCopyYdke } from "./copy-ydke";
 import { DeckSummary, type DeckCheckProps } from "./deck-check";
+import {
+  DEFAULT_GENESYS_POINT_CAP,
+  GENESYS_FORBIDDEN_MESSAGE,
+  genesysMark,
+  genesysVerdict,
+  summarizeGenesys,
+} from "./genesys";
+import { GenesysBadge, GenesysCardLine, GenesysMeter } from "./genesys-ui";
+import { FORMAT_CHOICES, GENESYS_NO_BANLIST_NOTE, defaultBanlist, formatOf, formatParts, type DeckFormat } from "./format-model";
 import { useDeckFit } from "./deck-fit";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { useEditorViewport } from "./editor-viewport";
@@ -120,11 +132,6 @@ import {
 } from "./pool-model";
 import { DeckSectionGrid, type HoveredCopy, type SectionWarning } from "./section-grid";
 import styles from "./editor.module.css";
-
-const MODE_CHOICES = [
-  { value: "normal" as const, label: "Standard" },
-  { value: "domain" as const, label: "Domain" },
-] as const;
 
 const HISTORY_LIMIT = 100;
 const PHONE_TAB_ORDER = ["deck", "cards"] as const;
@@ -196,7 +203,8 @@ function EditorState({ pool, backHref, children }: { pool: boolean; backHref: st
   return <SheetRoot className={cn(styles.host, styles.center)}>{children}</SheetRoot>;
 }
 
-export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: DraftDeckPool }) {
+export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; pool?: DraftDeckPool; roomSlug?: string }) {
+  useDuelRoomActivity(!pool && roomSlug ? roomSlug : null);
   const router = useRouter();
   const pathname = usePathname();
   const routeId = parseRouteId(deckId ?? (/^\/decks\/(\d+)$/.exec(pathname)?.[1]));
@@ -207,6 +215,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const startName = pool ? draftDeckName(pool.draftName) : DEFAULT_NAME;
   const [name, setName] = useState(startName);
   const [mode, setMode] = useState<DuelMode>("normal");
+  // The Genesys tag of the deck: null is off. It is not an undo step; it changes the rules the deck is checked by.
+  const [genesys, setGenesys] = useState<GenesysSettings | null>(null);
+  const lastCap = useRef(DEFAULT_GENESYS_POINT_CAP);
   const [selection, setSelection] = useState<DeckMasterSelection>({ deck: EMPTY_DECK, masterOrigin: null });
   const [history, setHistory] = useState<History>({ past: [], future: [] });
   const [baseline, setBaseline] = useState<string | null>(null);
@@ -231,7 +242,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [metaRetry, setMetaRetry] = useState(0);
   const [selected, setSelected] = useState<SelectedStack | null>(null);
   const [inspectCode, setInspectCode] = useState<number | null>(null);
-  const [query, setQuery] = useState<CardQuery>(() => emptyCardQuery());
+  // A new deck is Standard, which starts on the latest TCG banlist. The format sets the banlist again whenever it changes.
+  const [query, setQuery] = useState<CardQuery>(() => ({ ...emptyCardQuery(), banlist: defaultBanlist("normal") }));
   const [view, setView] = useState<BrowserView>("grid");
   const [prefsReady, setPrefsReady] = useState(false);
   const [facets, setFacets] = useState<CardFacets | null>(null);
@@ -248,7 +260,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [poolCards, setPoolCards] = useState<DeckCardInfo[] | null>(null);
   const [poolError, setPoolError] = useState<string | null>(null);
   const [poolRetry, setPoolRetry] = useState(0);
-  const { editorRef, isPhone } = useEditorViewport(!!pool);
+  const { editorRef, isPhone, isCompact } = useEditorViewport(!!pool);
   const [phoneTab, setPhoneTab] = useState<"deck" | "cards">("deck");
   const phoneDir = useTabDirection(phoneTab, PHONE_TAB_ORDER);
   const [cardSheetOpen, setCardSheetOpen] = useState(false);
@@ -277,7 +289,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   // On a desktop screen the tiles are sized so the whole deck shows at once; the phone layout scrolls.
   const deckFitRef = useDeckFit({ main: deck.main.length, extra: deck.extra.length, side: deck.side.length, master: mode === "domain", sideUsed: mode !== "domain" }, !isPhone);
   const busy = saveBusy || deleteBusy;
-  const dirty = baseline == null ? isNewDeckDirty(name.trim() === startName ? DEFAULT_NAME : name, mode, deck) : snapshotOf(name.trim(), mode, deck) !== baseline;
+  const genesysOn = pool == null && genesys != null;
+  const dirty = baseline == null ? isNewDeckDirty(name.trim() === startName ? DEFAULT_NAME : name, mode, deck, genesys) : snapshotOf(name.trim(), mode, deck, genesys) !== baseline;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   useNavigationLeaveGuard(dirty, "You have unsaved deck changes. Leave without saving?");
@@ -289,7 +302,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       ...current,
       sort: prefs.sort ?? current.sort,
       order: prefs.order ?? current.order,
-      banlist: pool ? "none" : prefs.banlist ?? current.banlist,
+      banlist: pool ? "none" : current.banlist,
       scope: prefs.scope ?? current.scope,
     }));
     if (prefs.view) setView(prefs.view);
@@ -299,8 +312,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   useEffect(() => {
     // A draft deck has no banlist; its choices must not replace the ones for normal decks.
     if (!prefsReady || pool) return;
-    saveEditorPrefs({ sort: query.sort, order: query.order, view, banlist: query.banlist, scope: query.scope });
-  }, [prefsReady, query.sort, query.order, query.banlist, query.scope, view]);
+    saveEditorPrefs({ sort: query.sort, order: query.order, view, scope: query.scope });
+  }, [prefsReady, query.sort, query.order, query.scope, view]);
 
   const catalogMode = useRef(mode);
   useEffect(() => {
@@ -439,11 +452,32 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     if (record.registration !== undefined) setRegistration(readRegistration(record.registration));
     setName(record.name);
     setMode(record.mode);
+    setGenesys(record.genesys ?? null);
+    if (record.genesys) lastCap.current = record.genesys.pointCap;
+    setFormatBanlist(formatOf(record.mode, record.genesys != null));
     setSelection({ deck: cloneDeck(record.deck), masterOrigin: null });
     setHistory({ past: [], future: [] });
     setParseError(null);
     setRepair(record.extraDeckRepair ?? null);
-    setBaseline(snapshotOf(record.name, record.mode, record.deck));
+    setBaseline(snapshotOf(record.name, record.mode, record.deck, record.genesys));
+  }
+
+  /** The banlist a format starts on. A format change, a loaded deck and an import that changes the format all use it; the select can still change it by hand. */
+  function setFormatBanlist(format: DeckFormat) {
+    const banlist = defaultBanlist(format);
+    setQuery((current) => ({ ...current, banlist, limits: banlist === "none" ? [] : current.limits }));
+  }
+
+  /** The Genesys tag is not an undo step; the mode is. The banlist goes to the default of the new format. */
+  function chooseFormat(next: DeckFormat) {
+    if (busy || next === formatOf(mode, genesys != null)) return;
+    const wanted = formatParts(next);
+    if (wanted.genesys !== (genesys != null)) {
+      setGenesys(wanted.genesys ? { pointCap: lastCap.current } : null);
+      setSavedFlash(false);
+    }
+    commit(selection, wanted.mode);
+    setFormatBanlist(next);
   }
 
   function commit(next: DeckMasterSelection, nextMode: DuelMode = mode) {
@@ -503,7 +537,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     restore(next);
   }
 
-  const banlistOff = pool != null || query.banlist === "none";
+  // Genesys points replace the banlist, so a Genesys deck is built with no banlist. Choosing a Genesys format already sets it to none; this keeps a loaded Genesys deck on none too.
+  const banlistOff = pool != null || genesysOn || query.banlist === "none";
+  const browserQuery = useMemo<CardQuery>(() => (genesysOn ? { ...query, banlist: "none", limits: [], excludeGenesysForbidden: true } : { ...query, genesysPoints: undefined, excludeGenesysForbidden: false }), [genesysOn, query]);
   const limits = banlistOff ? null : facets?.banlists[query.banlist] ?? null;
   const limitsPending = !banlistOff && facets == null && !facetsError;
   const banlistName = banlistOff ? null : banlistLabel(query.banlist);
@@ -515,6 +551,11 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const poolMap = useMemo(() => (pool ? poolCounts(pool.cards, catalog) : null), [pool, catalog]);
   const forcedMap = useMemo(() => forcedCounts(pool?.forcedCopies, catalog), [pool, catalog]);
   const usage = useMemo(() => deckUsage(deck, catalog), [deck, catalog]);
+  const settled = useMemo(() => new Set([...unknown, ...blocked]), [unknown, blocked]);
+  const genesysSummary = useMemo(
+    () => (genesysOn && genesys ? summarizeGenesys(deck, mode, catalog, genesys, settled) : null),
+    [genesysOn, genesys, deck, mode, catalog, settled],
+  );
   const misplaced = useMemo(() => misplacedCards(deck, catalog), [deck, catalog]);
   const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
   const archetypes = facets?.archetypes ?? [];
@@ -662,6 +703,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       setNotice(`${card.name} is unavailable: ${card.unavailableReason}`);
       return false;
     }
+    if (genesysOn && genesysMark(card)?.kind === "forbidden") {
+      setNotice(`${card.name}: ${GENESYS_FORBIDDEN_MESSAGE}`);
+      return false;
+    }
     // Domain is singleton in a draft deck too: the pool may hold more copies, the deck takes one.
     if (mode === "domain" && deckCount(card) >= 1) {
       setNotice(DOMAIN_ONE_COPY);
@@ -793,6 +838,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       setNotice(isSpellOrTrapType(card.type) ? SPELL_TRAP_MASTER_MESSAGE : "The Deck Master must be a monster.");
       return;
     }
+    if (card && genesysOn && genesysMark(card)?.kind === "forbidden") {
+      setNotice(`${card.name}: ${GENESYS_FORBIDDEN_MESSAGE}`);
+      return;
+    }
     // A Deck Master that is not in the deck yet is a new copy, so it must fit the copy limit.
     const inDeck = deck.main.includes(code) || deck.extra.includes(code) || deck.side.includes(code);
     // Another art of the current Master (no copy of it waits in a section) replaces it and adds no copy.
@@ -825,6 +874,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       throw new Error("No cards found. Import a YDK deck or a ydke:// link.");
     }
     const nextMode = raw.deckMaster != null ? "domain" : mode;
+    if (nextMode !== mode) setFormatBanlist(formatOf(nextMode, genesys != null));
     importBase.current = selection;
     commit(importForLibrary(raw, nextMode), nextMode);
     setSelected(null);
@@ -918,15 +968,19 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
         record = saved.deck;
         if (saved.warning) setNotice(saved.warning);
       } else {
-        record = savedId == null ? await createSavedDeck(body) : await updateSavedDeck(savedId, body);
+        // The tag goes with every save: null on an update takes it off.
+        record = savedId == null
+          ? await createSavedDeck({ ...body, ...(genesys ? { genesys } : {}) })
+          : await updateSavedDeck(savedId, { ...body, genesys: genesys ?? null });
       }
       flushSync(() => {
         // A save that does not say keeps the mark it had.
         if (record.registration !== undefined) setRegistration(readRegistration(record.registration));
         setName(record.name);
         setMode(record.mode);
+        if (!pool) setGenesys(record.genesys ?? null);
         setSelection({ deck: cloneDeck(record.deck), masterOrigin });
-        setBaseline(snapshotOf(record.name, record.mode, record.deck));
+        setBaseline(snapshotOf(record.name, record.mode, record.deck, pool ? null : record.genesys));
         setSavedId(record.id);
         setRepair(null);
         setImportMessages([]);
@@ -953,7 +1007,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     setDeleteError(null);
     try {
       await deleteSavedDeck(savedId);
-      flushSync(() => setBaseline(snapshotOf(name.trim(), mode, deck)));
+      flushSync(() => setBaseline(snapshotOf(name.trim(), mode, deck, genesys)));
       router.push("/decks");
     } catch (reason: unknown) {
       setDeleteError(reason instanceof Error ? reason.message : "Could not delete this deck.");
@@ -1016,7 +1070,10 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     const now = artMenu.section === "deckMaster" ? (mode === "domain" ? deck.deckMaster : undefined) : deck[artMenu.section][artMenu.index];
     if (now !== artMenu.code) setArtMenu(null);
   }, [artMenu, deck, mode]);
-  const backHref = pool ? `/draft/${pool.slug}` : "/decks";
+  // Opened from a duel room: the way back leads to the room, not to the deck list.
+  const inRoom = !pool && !!roomSlug;
+  const backHref = pool ? `/draft/${pool.slug}` : inRoom ? `/duels/${roomSlug}` : "/decks";
+  const backLabel = pool ? "Back to the draft" : inRoom ? "Back to room" : "Back to decks";
   const statusTone = saveError ? "bad" : dirty ? "warn" : savedId != null ? "ok" : undefined;
   const statusText = saveBusy
     ? "Saving…"
@@ -1032,7 +1089,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     return (
       <EditorState pool={!!pool} backHref={backHref}>
         <div ref={pool ? undefined : editorRef} role="alert" className={styles["de-fail"]}><StatusLine tone="block">{loadError ?? "That deck id is not valid."}</StatusLine></div>
-        <div><SvButton as="a" href={backHref} variant="ghost">{pool ? "Back to the draft" : "Back to decks"}</SvButton></div>
+        <div><SvButton as="a" href={backHref} variant="ghost">{backLabel}</SvButton></div>
       </EditorState>
     );
   }
@@ -1045,11 +1102,20 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   }
 
   const mainLow = pool ? mainMinimum : mode === "domain" ? 60 : 40;
-  const tone = problems.length ? "bad" : notes.length ? "warn" : "ok";
-  const flag = problems.length
+  const sizeTone = problems.length ? "bad" : notes.length ? "warn" : "ok";
+  const sizeFlag = problems.length
     ? `${problems.length} ${problems.length === 1 ? "card has" : "cards have"} too many copies`
     : deck.main.length < mainLow ? `Main needs ${mainLow - deck.main.length} more ${mainLow - deck.main.length === 1 ? "card" : "cards"}`
       : notes[0] ?? `Deck size is correct for ${pool ? "a draft deck" : mode === "domain" ? "Domain" : "Standard"}.`;
+  // Too many copies come first, then what Genesys refuses, then size notes, then Genesys data that is not final.
+  const verdict = genesysSummary ? genesysVerdict(genesysSummary) : null;
+  const tone: "bad" | "warn" | "ok" = verdict && sizeTone !== "bad"
+    ? verdict.tone === "bad" ? "bad" : sizeTone === "ok" ? verdict.tone : sizeTone
+    : sizeTone;
+  const flag = verdict && sizeTone !== "bad"
+    ? verdict.tone === "bad" || (sizeTone === "ok" && verdict.tone === "warn") ? verdict.flag
+      : sizeFlag // the meter already shows the points, so a good Genesys total adds no words here
+    : sizeFlag;
 
   function showProblem(problem: CopyProblem) {
     const code = allCodes(deck).find((value) => copyKey(value, catalog) === problem.key);
@@ -1072,7 +1138,15 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     // The Master cannot also be in Main, Extra or Side, so Ctrl+right-click copies nothing (and opens no menu).
     copy: () => setNotice("The Deck Master cannot also be in the deck."),
   });
-  const checkProps: DeckCheckProps = { problems, notes, banlistName, flag, tone, pool: !!pool, onProblem: showProblem };
+  /** A card the Genesys check names: open it, in the place it sits. */
+  function showGenesysCard(ref: DuelDeckCardRef) {
+    if (ref.section === "deckMaster") inspect(ref.code, null, true, true);
+    else inspect(ref.code, { section: ref.section, code: ref.code, index: ref.index });
+  }
+  const checkProps: DeckCheckProps = {
+    problems, notes, banlistName, flag, tone, pool: !!pool, onProblem: showProblem,
+    genesys: genesysSummary ? { summary: genesysSummary, onCard: showGenesysCard } : undefined,
+  };
   const sectionProps = {
     catalog, unknown, limits, over, selected,
     onSelect: (stack: SelectedStack, openSheet?: boolean) => inspect(stack.code, stack, openSheet),
@@ -1084,6 +1158,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     onDrop: dropCard,
     onArtMenu: openArtMenu,
     artMenu,
+    genesys: genesysOn,
     // Domain only: the crown and the M key on a deck card. Whether a card can be the Master is decided by canBeDeckMaster.
     canMaster: mode === "domain" && !isPhone ? (code: number) => { const card = catalog.get(code); return !!card && !card.unavailableReason && canBeDeckMaster(card.type); } : undefined,
     onMaster: mode === "domain" && !isPhone ? (copy: { code: number; section: DeckSection }) => makeMaster(copy.code, copy.section) : undefined,
@@ -1151,6 +1226,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       banlistName={banlistName}
       archetypes={archetypes}
       hideSummary={isPhone && cardSheetOpen}
+      genesys={genesysOn}
       onAdd={(section) => addFromList(inspected, section)}
       onRemove={(section) => removeCopy({ code: inspected.code, from: section })}
       onMaster={() => makeMaster(inspected.code, selected?.code === inspected.code ? selected.section : undefined)}
@@ -1184,9 +1260,14 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       {copyToast}
       <div ref={editorRef} className={styles.de} data-tab={phoneTab} data-pane-dir={phoneDir}>
         <header className={styles["de-bar"]}>
-          <Link href={backHref} className={styles["de-back"]} aria-label={pool ? "Back to the draft" : "Back to decks"}>
+          <Link href={backHref} className={cn(styles["de-back"], inRoom && styles["de-back-room"])} aria-label={backLabel}>
             <ChevronLeft size={18} strokeWidth={2} aria-hidden />
-            <span>{pool ? "Draft" : "Decks"}</span>
+            {inRoom ? (
+              <>
+                <span className={styles["de-back-long"]}>Back to room</span>
+                <span className={styles["de-back-short"]}>Room</span>
+              </>
+            ) : <span>{pool ? "Draft" : "Decks"}</span>}
           </Link>
           <label className={styles["de-namef"]}>
             <span className="sr">Deck name</span>
@@ -1213,13 +1294,14 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
               </>
             ) : (
               <>
-                <DeckSegmented label="Format" value={mode} disabled={busy} choices={MODE_CHOICES} className={styles["de-fmt"]} onChange={(value) => commit(selection, value)} />
+                <DeckSegmented label="Format" value={formatOf(mode, genesys != null)} disabled={busy} choices={FORMAT_CHOICES} full={isPhone} className={styles["de-fmt"]} onChange={chooseFormat} />
                 <DeckSelect
                   label="Banlist"
-                  value={query.banlist}
-                  choices={BANLIST_CHOICES}
+                  value={genesysOn ? "none" : query.banlist}
+                  choices={genesysOn ? [{ value: "none", label: GENESYS_NO_BANLIST_NOTE }] : BANLIST_CHOICES}
+                  disabled={genesysOn}
                   className={styles["de-banf"]}
-                  onChange={(banlist) => setQuery((current) => ({ ...current, banlist, limits: banlist === "none" ? [] : current.limits }))}
+                  onChange={(value) => setQuery((current) => ({ ...current, banlist: value, limits: value === "none" ? [] : current.limits }))}
                 />
               </>
             )}
@@ -1230,6 +1312,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
             {!pool ? (
               <DeckImportPopover
                 className={styles["de-import"]}
+                iconOnly={isCompact}
                 open={importOpen}
                 onOpenChange={(open) => { setImportOpen(open); if (open) setParseError(null); }}
                 disabled={busy}
@@ -1241,7 +1324,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
               />
             ) : null}
             {!isPhone ? (
-              <Popover label="Export" dialogLabel="Export deck" icon={<Download className="ic sm" aria-hidden />} role="menu" open={exportOpen} onOpenChange={setExportOpen} className={styles["de-export"]}>
+              <Popover label="Export" dialogLabel="Export deck" icon={<Download className="ic sm" aria-hidden />} role="menu" iconOnly={isCompact} open={exportOpen} onOpenChange={setExportOpen} className={styles["de-export"]}>
                 <SvButton variant="quiet" role="menuitem" onClick={() => { setExportOpen(false); downloadYdkFile(name, deck); }}>Download YDK</SvButton>
                 <SvButton variant="quiet" role="menuitem" onClick={() => { setExportOpen(false); void copyYdke(deck); }}>Copy as YDKE</SvButton>
               </Popover>
@@ -1319,8 +1402,20 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
               </div>
             ) : null}
             {isPhone ? <details className={styles["de-pchk"]} data-s={tone}><summary>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span>{flag}</span><ChevronDown className="ic sm" aria-hidden /></summary><DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /></details> : null}
-            <div className={styles["de-dbar"]}>
-              {!isPhone && shownCode != null ? <button className={styles["de-flag"]} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}{flag}</button> : null}
+            <div className={styles["de-dbar"]} data-gx={genesysSummary ? "" : undefined}>
+              {!genesysSummary && !isPhone && shownCode != null ? <button className={styles["de-flag"]} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}{flag}</button> : null}
+              {genesysSummary ? (
+                <GenesysMeter
+                  summary={genesysSummary}
+                  disabled={busy}
+                  onCapChange={(cap) => {
+                    lastCap.current = cap;
+                    setGenesys({ pointCap: cap });
+                    setSavedFlash(false);
+                  }}
+                />
+              ) : null}
+              {genesysSummary && !isPhone && shownCode != null ? <button className={styles["de-flag"]} title={flag} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span className={styles["de-flagt"]}>{flag}</span></button> : genesysSummary && !isPhone ? <span className={styles["de-flag"]} aria-hidden="true" /> : null}
               <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton></span>
               {isPhone ? historyControls : null}
             </div>
@@ -1341,18 +1436,18 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onDragOver={(event) => { if (hasCardDrag(event)) { event.preventDefault(); setMasterDropping(true); } }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
                 onDrop={(event) => { setMasterDropping(false); const drag = readCardDrag(event); if (!drag || drag.from === "master") return; event.preventDefault(); makeMaster(drag.code, drag.from === "list" ? undefined : drag.from); }}>
-                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}${masterArts > 0 ? `, ${artCountLabel(masterArts)}` : ""}`} aria-keyshortcuts="ContextMenu Shift+F10" aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); const master = catalog.get(deck.deckMaster!); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }, master ? cardKind(master) : undefined); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /><ArtChip otherArts={masterArts} corner open={artMenu?.section === "deckMaster"} onOpen={(anchor) => openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor })} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "var(--fit-tw, 58px)" } as CSSProperties} />}</div>
-                <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, press M on a deck card, or select one and press Use as Deck Master.</p>{masterIsSpellTrap ? <p role="alert" className={styles.errorText}>{SPELL_TRAP_MASTER_MESSAGE}</p> : null}{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={removeDeckMaster}>Remove as Deck Master</SvButton> : null}</div>
+                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}${masterArts > 0 ? `, ${artCountLabel(masterArts)}` : ""}`} aria-keyshortcuts="ContextMenu Shift+F10" aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable {...masterGesture} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => { masterGesture.onDragStart(); const master = catalog.get(deck.deckMaster!); writeCardDrag(event, { code: deck.deckMaster!, from: "master" }, master ? cardKind(master) : undefined); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /><ArtChip otherArts={masterArts} corner open={artMenu?.section === "deckMaster"} onOpen={(anchor) => openArtMenu({ section: "deckMaster", index: 0, code: deck.deckMaster!, anchor })} />{genesysOn ? <GenesysBadge card={catalog.get(deck.deckMaster)} zero /> : null}</button> : <Zone state="dashed" size="md" style={{ "--zw": "var(--fit-tw, 58px)" } as CSSProperties} />}</div>
+                <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}{genesysOn && deck.deckMaster != null ? "Counts toward the points total. " : ""}Drag a monster here, press M on a deck card, or select one and press Use as Deck Master.</p>{masterIsSpellTrap ? <p role="alert" className={styles.errorText}>{SPELL_TRAP_MASTER_MESSAGE}</p> : null}{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={removeDeckMaster}>Remove as Deck Master</SvButton> : null}</div>
               </section>
             ) : null}
             <DeckSectionGrid {...sectionProps} title="Main" section="main" codes={deck.main} minimum={mainLow} maximum={DRAFT_MAIN_MAX} target={mode === "domain" ? "60" : `${mainLow}–${DRAFT_MAIN_MAX}`} emptyHint="Add cards from the list on the right." actions={clearButton("main", "Main")} warning={mainWarning} />
             <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} warning={extraWarning} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, Ctrl+click a deck card, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
-          <CardBrowser mode={mode} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
+          <CardBrowser mode={mode} genesys={genesysOn} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
         </div>
         {artMenu ? <DeckArtMenu key={`${artMenu.section}-${artMenu.index}`} target={artMenu} knownCount={altArtCount(artMenu.code, catalog) + 1} busy={artBusy} disabled={busy} onClose={() => setArtMenu(null)} onFamily={(family) => { void loadFamilyCards(family); }} onPick={(art, family) => { void pickMenuArtwork(art, family); }} /> : null}
-        {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview card={shown} compact copySummary={inspected && !previewing ? <CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} /> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
+        {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview card={shown} compact copySummary={inspected && !previewing ? <><CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} />{genesysOn ? <GenesysCardLine card={inspected} /> : null}</> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
       </div>
     </SheetRoot>
   );

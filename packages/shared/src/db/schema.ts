@@ -648,6 +648,17 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "card_catalog", "attribute", "text");
   addColumnIfMissing(db, "card_catalog", "level", "integer");
   addColumnIfMissing(db, "card_catalog", "archetype", "text");
+  // Unknown until a successful TCG Genesys snapshot. Zero is a real, known value.
+  addColumnIfMissing(db, "card_catalog", "genesys_points",
+    "integer check (genesys_points is null or (typeof(genesys_points) = 'integer' and genesys_points >= 0))");
+  addColumnIfMissing(db, "card_catalog", "genesys_revision", "text");
+  db.exec(`create table if not exists genesys_points_meta (
+    id integer primary key check (id = 1),
+    revision text not null,
+    effective_date text not null,
+    source_url text not null,
+    synced_at text not null
+  );`);
   backfillMainArtworkRows(db);
   addColumnIfMissing(db, "card_sets", "card_count", "integer");
   addColumnIfMissing(db, "card_sets", "set_code", "text");
@@ -1223,6 +1234,9 @@ export function migrate(db: Database.Database) {
   migrateIdentity(db);
   migrateCubeOwnerNames(db);
   migrateAccessIndexes(db);
+
+  // After identity migration, which rebuilds legacy saved_decks with its original columns.
+  addColumnIfMissing(db, "saved_decks", "genesys_json", "text");
 
   addColumnIfMissing(db, "users", "first_sign_in_at", "integer");
 

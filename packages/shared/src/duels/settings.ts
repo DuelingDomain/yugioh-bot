@@ -6,6 +6,13 @@ export type DuelTimeout = "loss" | "continue";
 export type DuelSettingsMode = "normal" | "domain";
 export type DuelSettingsMasterRule = 1 | 2 | 3 | 4 | 5;
 
+export interface GenesysSettings {
+  pointCap: number;
+}
+
+export const DEFAULT_GENESYS_POINT_CAP = 100;
+export const MAX_GENESYS_POINT_CAP = 1000;
+
 export { NO_BANLIST_ID, PINNED_TCG_BANLIST_ID };
 
 /** Table formats. Seats are in turn order; Tag turn order is 1A, 2A, 1B, 2B, so the team of a seat is seat % 2. */
@@ -85,6 +92,7 @@ export function startingLpFor(format: DuelFormat, settings: Pick<DuelSettings, "
 const SETTINGS_KEYS = [
   "visibility",
   "banlist",
+  "genesys",
   "cardPool",
   "turnSeconds",
   "startingLP",
@@ -142,6 +150,8 @@ const CLOCK_KEYS = ["turn", "remainingMs", "activeSeat", "startedAt"] as const;
 export interface DuelSettings {
   visibility: DuelVisibility;
   banlist: string;
+  /** Separate from engine mode. Missing on old rows means off; normalizers return null. */
+  genesys?: GenesysSettings | null;
   cardPool: DuelCardPool;
   turnSeconds: number;
   startingLP: number;
@@ -199,6 +209,16 @@ function asInteger(value: unknown, label: string, min: number, max: number): num
   return value;
 }
 
+/** null/undefined disables Genesys; an empty object enables the default cap. */
+export function normalizeGenesysSettings(input: unknown): GenesysSettings | null {
+  if (input === undefined || input === null) return null;
+  if (!isObject(input)) fail("genesys must be an object or null");
+  const extra = firstUnknownKey(input, ["pointCap"]);
+  if (extra) fail(`Unknown genesys setting: ${extra}`);
+  return { pointCap: input.pointCap === undefined ? DEFAULT_GENESYS_POINT_CAP
+    : asInteger(input.pointCap, "genesys.pointCap", 0, MAX_GENESYS_POINT_CAP) };
+}
+
 function asBoolean(value: unknown, label: string): boolean {
   if (typeof value !== "boolean") fail(`${label} must be a boolean`);
   return value;
@@ -232,6 +252,7 @@ function readSetting<K extends keyof DuelSettings>(
 }
 
 function parseSettingsObject(value: Record<string, unknown>, fallback: DuelSettings): DuelSettings {
+  const genesys = normalizeGenesysSettings(value.genesys === undefined ? fallback.genesys : value.genesys);
   const visibility = readSetting(value, "visibility", fallback.visibility, (field) => {
     if (field !== "public" && field !== "private") fail("visibility must be public or private");
     return field;
@@ -246,7 +267,8 @@ function parseSettingsObject(value: Record<string, unknown>, fallback: DuelSetti
   });
   return {
     visibility,
-    banlist: readSetting(value, "banlist", fallback.banlist, asBanlist),
+    banlist: genesys ? NO_BANLIST_ID : readSetting(value, "banlist", fallback.banlist, asBanlist),
+    genesys,
     cardPool,
     turnSeconds: readSetting(value, "turnSeconds", fallback.turnSeconds, asTurnSeconds),
     startingLP: readSetting(value, "startingLP", fallback.startingLP, (field) => asInteger(field, "startingLP", 1, 100000)),
@@ -266,6 +288,7 @@ export function defaultDuelSettings(mode: DuelSettingsMode, format: DuelFormat =
   return {
     visibility: "public",
     banlist: mode === "domain" ? NO_BANLIST_ID : PINNED_TCG_BANLIST_ID,
+    genesys: null,
     cardPool: "both",
     turnSeconds: 240,
     startingLP: 8000,
@@ -284,6 +307,7 @@ export function legacyDuelSettings(): DuelSettings {
   return {
     visibility: "public",
     banlist: NO_BANLIST_ID,
+    genesys: null,
     cardPool: "both",
     turnSeconds: 0,
     startingLP: 8000,

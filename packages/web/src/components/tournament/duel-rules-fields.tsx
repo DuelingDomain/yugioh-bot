@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { DUEL_BANLIST_OPTIONS, type DuelBestOf, type DuelMode } from "@yugidraft/shared/duels";
-import { turnSecondsChoices, withMode, type DuelRulesValue } from "./duel-rules";
+import { MAX_GENESYS_POINT_CAP } from "../duel/genesys";
+import { duelRulesProblem, turnSecondsChoices, withGenesys, withGenesysCapText, withMode, type DuelRulesValue } from "./duel-rules";
 import styles from "./duel-rules-fields.module.css";
 
 const BEST_OF_CHOICES: ReadonlyArray<{ value: DuelBestOf; label: string }> = [
@@ -29,6 +30,7 @@ export function DuelRulesFields({
   disabled?: boolean;
 }) {
   const lengthId = `${idPrefix}-length`;
+  const capProblem = duelRulesProblem(value);
   return (
     <div className={`fields ${styles.fields}`}>
       <div className="wide">
@@ -75,13 +77,52 @@ export function DuelRulesFields({
             </select>
           </div>
           <div>
+            <label htmlFor={`${idPrefix}-genesys`} className="label">
+              Genesys format
+            </label>
+            <select
+              id={`${idPrefix}-genesys`}
+              value={value.genesys ? "on" : "off"}
+              disabled={disabled}
+              onChange={(e) => onChange(withGenesys(value, e.target.value === "on"))}
+              className={`input select ${styles.select}`}
+            >
+              <option value="off">Off</option>
+              <option value="on">On, with a point cap</option>
+            </select>
+          </div>
+          {value.genesys ? (
+            <div>
+              <label htmlFor={`${idPrefix}-cap`} className="label">
+                Point cap per deck
+              </label>
+              <input
+                id={`${idPrefix}-cap`}
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={MAX_GENESYS_POINT_CAP}
+                step={1}
+                value={value.capText ?? String(value.genesys.pointCap)}
+                disabled={disabled}
+                aria-invalid={capProblem != null}
+                aria-describedby={`${idPrefix}-cap-hint`}
+                onChange={(e) => onChange(withGenesysCapText(value, e.target.value))}
+                className={`input ${styles.select}`}
+              />
+              <p id={`${idPrefix}-cap-hint`} className={styles.note} role={capProblem ? "alert" : undefined}>
+                {capProblem ?? "Main, Extra and Side count. Each duelist is checked alone."}
+              </p>
+            </div>
+          ) : null}
+          <div>
             <label htmlFor={`${idPrefix}-banlist`} className="label">
               Banlist
             </label>
             <select
               id={`${idPrefix}-banlist`}
               value={value.banlist}
-              disabled={disabled}
+              disabled={disabled || value.genesys != null}
               onChange={(e) => onChange({ ...value, banlist: e.target.value })}
               className={`input select ${styles.select}`}
             >

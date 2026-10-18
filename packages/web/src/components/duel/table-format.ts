@@ -24,6 +24,14 @@ export const FORMAT_RULES: Record<DuelFormat, string> = {
   ffa4: "Every duelist has their own Life Points. No attack until every duelist has had a turn.",
 };
 
+/** Short table-type chip text: "1v1", "Tag", "3-way" or "4-way". */
+export const TABLE_TYPE_LABELS: Record<DuelFormat, string> = {
+  "1v1": "1v1",
+  tag: "Tag",
+  ffa3: "3-way",
+  ffa4: "4-way",
+};
+
 export function formatLabel(format: DuelFormat | undefined): string {
   return FORMAT_LABELS[format ?? DEFAULT_DUEL_FORMAT];
 }

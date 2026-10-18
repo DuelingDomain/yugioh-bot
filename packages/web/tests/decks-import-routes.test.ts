@@ -533,23 +533,33 @@ describe("preview", () => {
     expect(mocks.callDuelHost).not.toHaveBeenCalled();
   });
 
-  it("echoes Standard and retains its lone Side card", async () => {
-    const [shown] = await previewRows([{ ...source("#main\n89631139\n!side\n46986414"), mode: "standard" }]);
-    expect(shown).toMatchObject({ mode: "standard", deck: { ...deck(), side: [46986414] }, counts: { main: 1, extra: 0, side: 1 } });
+  it.each(["standard", "genesys"] as const)("echoes %s and retains its lone Side card through saving", async mode => {
+    const [shown] = await previewRows([{ ...source("#main\n89631139\n!side\n46986414"), mode }]);
+    expect(shown).toMatchObject({ mode, deck: { ...deck(), side: [46986414] }, counts: { main: 1, extra: 0, side: 1 } });
     expect(mocks.callDuelHost).not.toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck-master" }));
+    const response = await bulk(request({ rows: [shown] }));
+    const { created, failed } = await response.json();
+    expect(failed).toEqual([]);
+    expect(decks.get(created[0].id, "g", 1)).toMatchObject({ mode: "normal", deck: { main: shown.deck.main, extra: [], side: [46986414] },
+      genesys: mode === "genesys" ? { pointCap: 100 } : null });
   });
 
-  it.each([
+  it.each((["domain", "genesys-domain"] as const).flatMap(mode => [
     "#main\n89631139\n!side\n101402052",
     encodeYdke({ ...deck(), side: [101402052] }),
-  ])("moves and resolves a lone Domain Side card into Deck Master for %s", async text => {
+  ].map(text => ({ mode, text }))))("moves and resolves a lone $mode Side card into Deck Master for $text", async ({ mode, text }) => {
     mocks.engine.set(40235813, { name: "Official Test Card", type: 0x21 });
-    const [shown] = await previewRows([{ ...source(text), mode: "domain" }]);
-    expect(shown).toMatchObject({ mode: "domain", deck: { ...deck(), deckMaster: 40235813 }, counts: { main: 1, extra: 0, side: 0 }, errors: [] });
+    const [shown] = await previewRows([{ ...source(text), mode }]);
+    expect(shown).toMatchObject({ mode, deck: { ...deck(), deckMaster: 40235813 }, counts: { main: 1, extra: 0, side: 0 }, errors: [] });
     expect(shown.notes).toContainEqual(expect.objectContaining({ code: "remapped", from: 101402052, to: 40235813 }));
     expect(shown.notes[0].message).toBe("Official Test Card: uses the game's own copy of this card. No action needed.");
     expect(shown.warnings.filter((issue: { code: string }) => issue.code === "remapped")).toEqual([]);
     expect(mocks.callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck-master", deck: { main: [], extra: [], side: [], deckMaster: 40235813 } }));
+    const response = await bulk(request({ rows: [shown] }));
+    const { created, failed } = await response.json();
+    expect(failed).toEqual([]);
+    expect(decks.get(created[0].id, "g", 1)).toMatchObject({ mode: "domain", deck: shown.deck,
+      genesys: mode === "genesys-domain" ? { pointCap: 100 } : null });
   });
 
   it("keeps Domain mode for each split line, including a malformed line", async () => {

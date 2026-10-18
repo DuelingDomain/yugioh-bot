@@ -10,8 +10,8 @@ export const IMPORT_MAX_DECKS = 50;
 export const IMPORT_MAX_SOURCE_BYTES = 64 * 1024;
 export const IMPORT_MAX_BODY_BYTES = 1024 * 1024;
 
-/** The deck format a row is saved as. The server names them "standard" and "domain". */
-export type ImportMode = "standard" | "domain";
+/** The deck format a row is saved as. The two Genesys formats save with the Genesys tag. The import never detects it from the text. */
+export type ImportMode = "standard" | "domain" | "genesys" | "genesys-domain";
 
 export type ImportSource = { id: string; name: string; text: string; mode?: ImportMode };
 

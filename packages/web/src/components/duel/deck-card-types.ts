@@ -21,7 +21,7 @@ export function isSpellOrTrapType(type: number | undefined): boolean {
   return type !== undefined && (type & (TYPE_SPELL | TYPE_TRAP)) !== 0;
 }
 
-export interface DeckCardMeta { name: string; type: number }
+export interface DeckCardMeta { name: string; type: number; genesysPoints?: number | null; canonicalPasscode?: number }
 
 /**
  * Name and type bitmask for every card in a deck. A card is missing from the map until its lookup ends.
@@ -45,7 +45,7 @@ export function useDeckCardMeta(
       void getDuelCards(missing).then(
         ({ cards }) => {
           if (cancelled) return;
-          known.current = new Map([...known.current, ...cards.map((card) => [card.code, { name: card.name, type: card.type }] as const)]);
+          known.current = new Map([...known.current, ...cards.map((card) => [card.code, { name: card.name, type: card.type, genesysPoints: card.genesysPoints, canonicalPasscode: card.canonicalPasscode }] as const)]);
           setMeta(known.current);
         },
         () => {
