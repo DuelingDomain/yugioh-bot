@@ -4,6 +4,7 @@ import * as React from "react";
 import { TriangleAlert } from "lucide-react";
 import type { CardPoolHealth } from "@yugidraft/shared/services";
 import { EffectCredit } from "./batch-bar";
+import { eraLabel } from "./effect-api";
 import styles from "./effect-search.module.css";
 
 export interface PoolHealthEntry {
@@ -81,6 +82,7 @@ export function PoolHealth({ entries }: { entries: readonly PoolHealthEntry[] })
                   </li>
                 ))}
               </ul>
+              {health.era ? <p className={styles.readNote} data-testid="pool-era">Cube era: {eraLabel(health.era)}</p> : null}
               {health.warnings.length > 0 ? (
                 <ul className={styles.healthWarn}>
                   {health.warnings.map((w) => (

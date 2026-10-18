@@ -64,12 +64,18 @@ export interface EffectSearchOptions {
   /** Match the written card text only, with no reading. */
   exact?: boolean;
   limit?: number;
+  /** "newest" lists the newest cards first; "match" (the default) ranks by how well the text fits. */
+  sort?: "match" | "newest";
+  /** Release years the results lean toward (a cube's era). It changes the rank only, never what matches. */
+  era?: CardEra;
   signal?: AbortSignal;
 }
 
 export async function effectSearch(text: string, options: EffectSearchOptions = {}): Promise<EffectSearchResult> {
   const body: Record<string, unknown> = { op: "effectSearch", text, limit: options.limit ?? 30 };
   if (options.exact) body.exact = true;
+  if (options.sort === "newest") body.sort = "newest";
+  if (options.era !== undefined) body.era = options.era;
   if (options.omittedChips?.length) body.omittedChips = options.omittedChips;
   const data = await post<{ cards: EffectCard[]; total: number; reading: { chips: string[] } | null }>(
     "/api/cards/resolve",
@@ -168,4 +174,43 @@ export interface BatchEntry {
 export async function confirmSeed(cubeId: number, entries: BatchEntry[]): Promise<{ added: number; copies: number }> {
   const data = await post<{ added?: number; copies?: number }>(`/api/cubes/${cubeId}/seed/confirm`, { entries }, "Could not add the cards. Try again.");
   return { added: data.added ?? entries.length, copies: data.copies ?? entries.reduce((n, e) => n + e.copies, 0) };
+}
+
+/* ---------- a cube's era ---------- */
+
+/** The years a cube's cards come from: the median year, give or take the spread. "2004–2008", or "2006" for one year. */
+export function eraLabel(era: CardEra): string {
+  const from = Math.round(era.medianYear - era.spread);
+  const to = Math.round(era.medianYear + era.spread);
+  return from === to ? String(from) : `${from}–${to}`;
+}
+
+/** "Matching this cube's era: 2004–2008". */
+export function eraNote(era: CardEra): string {
+  return `Matching this cube's era: ${eraLabel(era)}`;
+}
+
+export interface CubeEra {
+  era: CardEra | undefined;
+  /** The health note about cards much newer than the rest of the cube, when there is one. */
+  newerNote: string | undefined;
+}
+
+const POOL_HEALTH_MAX = 500;
+
+/** The era of a set of cards, read with the pool health call. Nothing is added to the cube by it. */
+export async function fetchCubeEra(cards: readonly number[], signal?: AbortSignal): Promise<CubeEra> {
+  if (cards.length === 0) return { era: undefined, newerNote: undefined };
+  // The call takes at most 500 cards. A bigger cube sends an even spread of its cards, which has the same median year.
+  const sorted = [...new Set(cards)].sort((a, b) => a - b);
+  const sample = sorted.length <= POOL_HEALTH_MAX ? sorted : Array.from({ length: POOL_HEALTH_MAX }, (_, i) => sorted[Math.floor((i * sorted.length) / POOL_HEALTH_MAX)]!);
+  const data = await post<{ health?: { era?: CardEra; warnings?: string[] } }>(
+    "/api/cards/insights",
+    { op: "poolHealth", cards: sample },
+    "The cube era is not available.",
+    signal,
+  );
+  const era = data.health?.era;
+  const valid = era && Number.isFinite(era.medianYear) && Number.isFinite(era.spread) ? era : undefined;
+  return { era: valid, newerNote: data.health?.warnings?.find((warning) => /much newer/.test(warning)) };
 }

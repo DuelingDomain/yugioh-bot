@@ -8,7 +8,7 @@ const shotDir = process.env.E2E_SHOT_DIR;
 if (shotDir) mkdirSync(shotDir, { recursive: true });
 
 for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 }, { width: 1366, height: 768 }, { width: 390, height: 844 }]) {
-  test(`works with chip and Suggestions at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
+  test(`works with chip, release dates and newest sort at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
     const shot = (name: string) => page.screenshot({ path: shotDir ? `${shotDir}/${name}-${viewport.width}.png` : testInfo.outputPath(`${name}-${viewport.width}.png`) });
     const phone = viewport.width < 768;
     await page.setViewportSize(viewport);
@@ -26,7 +26,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     expect(known.length).toBeGreaterThan(0);
     await page.route("**/api/cards/insights", async (route) => {
       const body = route.request().postDataJSON() as { op?: string };
-      if (body.op !== "suggest" && body.op !== "worksWith") return route.fallback();
+      if (body.op !== "worksWith") return route.fallback();
       await route.fulfill({ json: { effectSearchEnabled: true, attribution: "Effect search powered by searchygo", cards: known.map((card, index) => ({
         passcode: card.code, name: card.name, score: 10 - index, linkedCards: 2 - Math.min(index, 1), reason: `Negates monster effects, like ${index === 0 ? "Ash Blossom" : "Effect Veiler"}.`,
       })) } });
@@ -75,33 +75,37 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     await browser.getByRole("button", { name: "Remove Works with Ash Blossom & Joyous Spring" }).click();
     await search.fill("Ash Blossom");
 
-    // Suggestions: add two cards in the list view, then open the tab.
-    await browser.getByRole("button", { name: "Card list with details" }).click();
-    await browser.getByRole("button", { name: "Add Ash Blossom & Joyous Spring to the deck" }).first().click();
-    await search.fill("Effect Veiler");
-    await browser.getByRole("button", { name: "Add Effect Veiler to the deck" }).first().click();
-    const deckTab = page.getByRole("tab", { name: /^Deck/ }).first();
-    if (phone) await deckTab.click();
-    await page.getByRole("group", { name: "Deck pane" }).getByRole("button", { name: "Suggestions" }).click();
-    const panel = page.getByRole("region", { name: "Suggestions" });
-    await expect(panel).toBeVisible();
-    await expect(panel.getByText("Effect search powered by searchygo", { exact: true })).toBeVisible();
-    await expect(panel.locator("ol > li").first()).toBeVisible({ timeout: 30_000 });
-    const rows = await panel.locator("ol > li").count();
-    expect(rows).toBeLessThanOrEqual(20);
-    await expect(panel.getByText(/^Negates monster effects/).first()).toBeVisible();
-    {
-      await expect(panel.locator("ol > li").first().getByText(/^Links to/)).toBeVisible();
-      const first = panel.locator("ol > li").first();
-      const name = (await first.locator("strong").first().textContent()) ?? "";
-      await expect(panel).not.toContainText(/\bAI\b/);
-      await first.getByRole("button", { name: `Add ${name} to the deck` }).click();
-      await expect(panel.locator("ol > li").filter({ hasText: `×1 in deck` }).first()).toBeVisible({ timeout: 30_000 });
-    }
+    // The Suggestions tab is gone: the deck pane has no Deck | Suggestions switch and no Suggestions section.
+    await expect(page.getByRole("group", { name: "Deck pane" })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Suggestions" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Suggestions" })).toHaveCount(0);
+
+    // Release dates: the reading shows a removable date chip, like the other reading chips.
+    await search.fill("before 2010");
+    const reading = browser.getByRole("list", { name: "Effect reading" });
+    const dateChip = reading.getByRole("button", { name: "Remove reading Released: before 2010" });
+    await expect(dateChip).toBeVisible({ timeout: 30_000 });
+    await expect(browser.getByText("Effect search powered by searchygo", { exact: true })).toBeVisible();
+    await expect(browser).not.toContainText(/\bAI\b/);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
-    await expect(panel.getByText("Updating…")).toHaveCount(0);
-    await shot("suggestions");
-    await page.getByRole("group", { name: "Deck pane" }).getByRole("button", { name: "Deck", exact: true }).click();
-    await expect(panel).toHaveCount(0);
+    // The chip text does not run over its neighbours: no chip box crosses another.
+    const crossing = await reading.evaluate((list) => {
+      const boxes = [...list.querySelectorAll("button")].map((node) => node.getBoundingClientRect());
+      return boxes.filter((a, i) => boxes.some((b, j) => i < j && Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1)).length;
+    });
+    expect(crossing).toBe(0);
+    await shot("release-chip");
+    await dateChip.click();
+    await expect(reading.getByRole("button", { name: /Released: before 2010/ })).toHaveCount(0);
+
+    // "Newest first" is a sort choice. The order button does not reverse it, so it is off while this sort is on.
+    await search.fill("");
+    await browser.getByLabel("Sort by").selectOption({ label: "Newest first" });
+    const order = browser.getByRole("button", { name: /^Newest first\. The order does not change/ });
+    await expect(order).toBeDisabled();
+    await expect(browser.getByText("Updating…")).toHaveCount(0);
+    await expect(browser.getByRole("button").filter({ has: page.locator("img") }).first()).toBeVisible({ timeout: 30_000 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    await shot("newest-sort");
   });
 }

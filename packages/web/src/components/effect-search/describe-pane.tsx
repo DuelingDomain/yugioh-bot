@@ -5,6 +5,8 @@ import { X } from "lucide-react";
 import type { CardSummary } from "@/lib/card-types";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
 import { EffectCredit } from "./batch-bar";
+import { EraNote } from "./era-note";
+import type { CardEra } from "@yugidraft/shared/cards/effects";
 import { effectSearch, EffectApiError, type EffectSearchResult } from "./effect-api";
 import { EffectRows, SelectAllShown, type RowCard } from "./effect-rows";
 import { selectAllShown, selectRange, toggle, without, type Batch } from "./selection";
@@ -34,6 +36,8 @@ export function DescribePane({
   inputLabel = "Describe the cards",
   placeholder = "hand traps that negate, level 4 tuner that searches, ...",
   limit = 30,
+  era,
+  eraWarning,
 }: {
   batch: Batch;
   onBatch: (update: (batch: Batch) => Batch) => void;
@@ -43,8 +47,14 @@ export function DescribePane({
   inputLabel?: string;
   placeholder?: string;
   limit?: number;
+  /** The years the results lean toward (a cube's era). Shown as a note; it never removes a card. */
+  era?: CardEra;
+  /** A health note about cards much newer than the rest of the cube. */
+  eraWarning?: string;
 }) {
   const inputId = React.useId();
+  const sortId = React.useId();
+  const [sort, setSort] = React.useState<"match" | "newest">("match");
   const [text, setText] = React.useState("");
   const [exact, setExact] = React.useState(false);
   const [omitted, setOmitted] = React.useState<string[]>([]);
@@ -56,6 +66,7 @@ export function DescribePane({
   const seq = React.useRef(0);
 
   const trimmed = text.trim();
+  const eraKey = era ? `${era.medianYear}/${era.spread}` : "";
   const omittedKey = omitted.join("\u0001");
 
   React.useEffect(() => {
@@ -68,7 +79,7 @@ export function DescribePane({
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setSearching(true);
-      effectSearch(trimmed, { exact, omittedChips: omitted, limit, signal: controller.signal })
+      effectSearch(trimmed, { exact, omittedChips: omitted, limit, sort, era: sort === "newest" ? undefined : era, signal: controller.signal })
         .then((result) => {
           if (mine !== seq.current) return;
           setAnswer({ text: trimmed, result, error: null });
@@ -89,7 +100,7 @@ export function DescribePane({
     };
     // `omitted` is read through its key: the array is replaced on every change anyway.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trimmed, exact, omittedKey, limit, retry]);
+  }, [trimmed, exact, omittedKey, limit, retry, sort, eraKey]);
 
   const cards: readonly RowCard[] = answer?.result?.cards ?? NO_CARDS;
   const selectable = React.useCallback((card: CardSummary) => held(card) === 0, [held]);
@@ -150,17 +161,26 @@ export function DescribePane({
           }}
         />
       </div>
-      <label className={styles.exact}>
-        <input
-          type="checkbox"
-          checked={exact}
-          onChange={(event) => {
-            setExact(event.target.checked);
-            setOmitted([]);
-          }}
-        />
-        Exact text
-      </label>
+      <div className={styles.opts}>
+        <label className={styles.exact}>
+          <input
+            type="checkbox"
+            checked={exact}
+            onChange={(event) => {
+              setExact(event.target.checked);
+              setOmitted([]);
+            }}
+          />
+          Exact text
+        </label>
+        <label className={styles.sort} htmlFor={sortId}>
+          Sort by
+          <select id={sortId} value={sort} onChange={(event) => setSort(event.target.value === "newest" ? "newest" : "match")} data-testid="describe-sort">
+            <option value="match">Best match</option>
+            <option value="newest">Newest first</option>
+          </select>
+        </label>
+      </div>
       {!exact && ready && fullChips.length > 0 && (
         <ul className={styles.chips} aria-label="How the text was read" data-testid="reading-chips">
           {fullChips.map((chip) => {
@@ -181,6 +201,7 @@ export function DescribePane({
           })}
         </ul>
       )}
+      {ready && sort === "match" && era ? <EraNote era={era} warning={eraWarning} /> : null}
       {error ? (
         <div className={styles.err} role="alert">
           <p>{error.message}</p>

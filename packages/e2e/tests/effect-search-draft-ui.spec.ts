@@ -133,6 +133,8 @@ for (const viewport of VIEWPORTS) {
     // The lobby re-checks the themes it holds and shows one health block.
     await expect(page.getByTestId("pool-health").and(page.locator(":visible")).first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("heading", { name: "Pool health" }).and(page.locator(":visible")).first()).toBeVisible();
+    // The health block names the cube's release years.
+    await expect(page.getByTestId("pool-era").and(page.locator(":visible")).first()).toContainText(/^Cube era: \d{4}(–\d{4})?$/);
     expect(await noOverflow(page)).toBe(true);
     await page.screenshot({ path: join(SHOTS, `theme-health-${viewport.width}x${viewport.height}.png`) });
   });

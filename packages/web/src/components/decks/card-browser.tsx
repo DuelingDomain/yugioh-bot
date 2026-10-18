@@ -411,8 +411,9 @@ export function CardBrowser({
             <button
               type="button"
               className={styles.iconButton}
-              aria-label={query.order === "asc" ? "Ascending order. Change to descending" : "Descending order. Change to ascending"}
-              title={query.order === "asc" ? "Ascending" : "Descending"}
+              disabled={query.sort === "newest"}
+              aria-label={query.sort === "newest" ? "Newest first. The order does not change" : query.order === "asc" ? "Ascending order. Change to descending" : "Descending order. Change to ascending"}
+              title={query.sort === "newest" ? "Newest first" : query.order === "asc" ? "Ascending" : "Descending"}
               onClick={() => onQueryChange({ ...query, order: query.order === "asc" ? "desc" : "asc" })}
             >
               {query.order === "asc"

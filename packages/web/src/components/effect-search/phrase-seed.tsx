@@ -5,6 +5,7 @@ import { Check, RotateCcw, TriangleAlert, X } from "lucide-react";
 import { cardImageUrl } from "@/lib/card-image-url";
 import type { CardSummary } from "@/lib/card-types";
 import { EffectCredit } from "./batch-bar";
+import { EraNote } from "./era-note";
 import { EffectApiError, type BatchEntry, type SeedCategory, type SeedPreview, type SeedRole, type SeedRow } from "./effect-api";
 import styles from "./effect-search.module.css";
 
@@ -38,6 +39,7 @@ export function PhraseSeed({
   confirm,
   busy,
   label = "Seed from a phrase",
+  eraWarning,
 }: {
   preview: (phrase: string, options: { targetCount: number; signal: AbortSignal }) => Promise<SeedPreview>;
   /** Adds the kept rows. Throws an Error with a message fit to show when it is refused. */
@@ -45,6 +47,8 @@ export function PhraseSeed({
   busy?: boolean;
   /** The field label. */
   label?: string;
+  /** A health note about cards much newer than the rest of the cube, shown with the era note. */
+  eraWarning?: string;
 }) {
   const inputId = React.useId();
   const sizeId = React.useId();
@@ -201,6 +205,7 @@ export function PhraseSeed({
               ))}
             </ul>
           )}
+          {shown.era && <EraNote era={shown.era} warning={eraWarning} />}
           {shown.rows.length > 0 && (
             <ul className={styles.quotas} aria-label="Roles in the preview">
               {(Object.keys(ROLE_LABEL) as SeedRole[]).map((role) => (

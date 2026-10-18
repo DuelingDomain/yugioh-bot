@@ -12,7 +12,7 @@ import { ListImportError, listImportErrorFrom } from "@/lib/card-list-import";
 import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import { importLine, pasteLabel } from "@/components/draft/pool/pool-model";
 import { AddCardsBody, type CubeImportEntry, type EffectRailTools, type ImportKind, type ImportOutcome } from "./cube-add-rail";
-import { previewSeed, type BatchEntry } from "@/components/effect-search/effect-api";
+import { fetchCubeEra, previewSeed, type BatchEntry, type CubeEra } from "@/components/effect-search/effect-api";
 import { EMPTY_LEDGER, record as recordInLedger, remaining, settle, withoutEntry, type Ledger } from "@/components/card-list-import/import-ledger";
 import { gainKeys, gainMap, gainsBetween, poolCounts, subtractEntries, type CubeGain } from "./cube-import-model";
 import { CubeCardGrid } from "./cube-card-grid";
@@ -114,6 +114,24 @@ export function CubeEditor({ cubeId, themeDraftsEnabled = false, effectSearchEna
   poolsRef.current = pools;
   const importsRef = React.useRef(imports);
   importsRef.current = imports;
+  // The release years of the cube's cards. With effect search on, Describe leans toward them and the seed preview says so.
+  const [cubeEra, setCubeEra] = React.useState<CubeEra | null>(null);
+  const eraCards = React.useMemo(() => [...pools.main, ...pools.extra].map((entry) => entry.catalogCardId), [pools]);
+  const eraKey = eraCards.length === 0 ? "" : `${eraCards.length}:${[...eraCards].sort((a, b) => a - b).join(",")}`;
+  React.useEffect(() => {
+    if (!effectSearchEnabled || eraKey === "") {
+      setCubeEra(null);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      // The era is only a hint for the ranking: when the call fails, the cube has no era and nothing else changes.
+      fetchCubeEra(eraCards, controller.signal).then(setCubeEra, () => { if (!controller.signal.aborted) setCubeEra(null); });
+    }, 600);
+    return () => { clearTimeout(timer); controller.abort(); };
+    // eraCards is read through its key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectSearchEnabled, eraKey]);
   const [addSheetOpen, setAddSheetOpen] = React.useState(false);
   const [railHidden, setRailHidden] = React.useState(false);
   const layoutRef = React.useRef<HTMLDivElement>(null);
@@ -306,6 +324,8 @@ export function CubeEditor({ cubeId, themeDraftsEnabled = false, effectSearchEna
   const effects: EffectRailTools | undefined = effectSearchEnabled
     ? {
         onAddBatch: (entries) => addSearched("batch", entries),
+        era: cubeEra?.era,
+        eraWarning: cubeEra?.newerNote,
         previewSeed: (phrase, options) => previewSeed(cubeId, phrase, options),
         confirmSeed: async (entries, phrase) => {
           const { added, copies } = await addSearched("phrase", entries, phrase);

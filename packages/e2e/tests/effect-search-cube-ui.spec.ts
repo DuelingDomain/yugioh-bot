@@ -133,10 +133,36 @@ for (const viewport of VIEWPORTS) {
     const entry = page.getByRole("list", { name: "Added lists" }).and(page.locator(":visible")).getByRole("listitem").first();
     await expect(entry).toContainText("Search batch");
     await expect(rows.first()).toContainText(/in cube/);
+    // The cube now holds cards, so Describe leans toward their release years and says so, in muted text.
+    const era = tid(page, "era-note");
+    await expect(era).toContainText(/^Matching this cube's era: \d{4}(–\d{4})?/, { timeout: 30_000 });
+    await expect(era).not.toContainText(/\bAI\b/);
+    await tid(page, "describe-sort").selectOption("newest");
+    await expect(era).toHaveCount(0);
+    await tid(page, "describe-sort").selectOption("match");
+    await expect(era).toBeVisible();
+    expect(await noOverflow(page)).toBe(true);
     await page.screenshot({ path: join(SHOTS, `batch-added-${viewport.width}x${viewport.height}.png`) });
     await entry.getByRole("button", { name: /Remove Search batch/ }).click();
     await expect(page.getByRole("list", { name: "Added lists" }).and(page.locator(":visible"))).toHaveCount(0);
     await expect(rows.first()).not.toContainText(/in cube/);
+
+    // A date in the text reads as a removable chip, like the other chips.
+    await input.fill("hand traps before 2015");
+    const dateChip = tid(page, "reading-chips").getByRole("button", { name: /Switch off Released: before 2015/ });
+    await expect(dateChip).toBeVisible({ timeout: 30_000 });
+    await dateChip.click();
+    await expect(tid(page, "reading-chips").getByRole("button", { name: /Turn on Released: before 2015/ })).toBeVisible({ timeout: 30_000 });
+    // "Newest first" is a sort choice in Describe mode.
+    await input.fill("hand traps that negate");
+    await expect(rows.first()).toBeVisible();
+    await tid(page, "describe-sort").selectOption("newest");
+    await expect(rows.first()).toBeVisible();
+    await expect(tid(page, "reading-chips")).toContainText("hand trap", { ignoreCase: true });
+    expect(await noOverflow(page)).toBe(true);
+    await page.screenshot({ path: join(SHOTS, `describe-newest-${viewport.width}x${viewport.height}.png`) });
+    await tid(page, "describe-sort").selectOption("match");
+    await expect(rows.first()).toBeVisible();
 
     // Name search is still there and still adds one card at once.
     await page.getByRole("group", { name: "Find cards by" }).and(page.locator(":visible")).getByRole("button", { name: "Name", exact: true }).click();
@@ -173,5 +199,14 @@ for (const viewport of VIEWPORTS) {
     await expect(tid(page, "phrase-preview-panel")).toHaveCount(0);
     expect(await noOverflow(page)).toBe(true);
     await page.screenshot({ path: join(SHOTS, `phrase-added-${viewport.width}x${viewport.height}.png`) });
+
+    // A second preview reads the cube's cards: it says the results lean toward their years.
+    await tid(page, "phrase-input").fill("removal");
+    await tid(page, "phrase-preview").click();
+    const second = tid(page, "phrase-preview-panel");
+    await expect(second).toBeVisible();
+    await expect(tid(second, "era-note")).toContainText(/Matching this cube's era: \d{4}(–\d{4})?/);
+    expect(await noOverflow(page)).toBe(true);
+    await page.screenshot({ path: join(SHOTS, `phrase-era-${viewport.width}x${viewport.height}.png`) });
   });
 }

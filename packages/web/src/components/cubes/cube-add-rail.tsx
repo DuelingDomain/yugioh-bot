@@ -1,5 +1,6 @@
 "use client";
 
+import type { CardEra } from "@yugidraft/shared/cards/effects";
 import { cardImageUrl } from "@/lib/card-image-url";
 import * as React from "react";
 import { Check, Plus, TriangleAlert } from "lucide-react";
@@ -48,6 +49,10 @@ export interface EffectRailTools {
   onAddBatch: (entries: BatchEntry[]) => Promise<SeedOutcome & { duplicates: number }>;
   previewSeed: (phrase: string, options: { targetCount: number; signal: AbortSignal }) => Promise<SeedPreview>;
   confirmSeed: (entries: BatchEntry[], phrase: string) => Promise<SeedOutcome>;
+  /** The release years of the cube's cards. Describe leans toward them. Absent when the cube has none to read. */
+  era?: CardEra;
+  /** The health note about cards much newer than the rest of the cube, when there is one. */
+  eraWarning?: string;
 }
 
 export interface AddRailProps {
@@ -266,7 +271,7 @@ function CardTab({ copiesInCube, onAddCard, busy, effects }: Pick<AddRailProps, 
       </div>
       <div hidden={mode !== "name"}>{nameBody}</div>
       <div hidden={mode !== "describe"}>
-        <DescribePane batch={batch} onBatch={(update) => setBatch(update)} held={heldOf} kindLine={kindLine} busy={busy || adding} />
+        <DescribePane batch={batch} onBatch={(update) => setBatch(update)} held={heldOf} kindLine={kindLine} busy={busy || adding} era={effects.era} eraWarning={effects.eraWarning} />
       </div>
       <BatchBar
         batch={batch}
@@ -414,7 +419,7 @@ function ArchetypeTab({
       {effects && (
         <>
           <hr className={styles.railRule} />
-          <PhraseSeed preview={effects.previewSeed} confirm={effects.confirmSeed} busy={busy} />
+          <PhraseSeed preview={effects.previewSeed} confirm={effects.confirmSeed} busy={busy} eraWarning={effects.eraWarning} />
         </>
       )}
     </>
