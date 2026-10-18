@@ -98,8 +98,9 @@ month. Workspace spend limits alone may overshoot; batches may process for
 ## Recovery
 
 Known immutable Batch IDs in `submitted` entries are polled on subsequent live
-runs. Invalid tag content still settles billed token usage, and failed inputs
-are deferred for the rest of that month. Missing/duplicate result IDs or usage
+runs. Invalid tag content still settles billed token usage, and unchanged failed
+inputs are deferred for the rest of that month. A changed profile member-input
+hash permits a new attempt within the same month. Missing/duplicate result IDs or usage
 outside the reserved bounds leave the full liability held.
 
 For `submission_started`, inspect the Anthropic workspace and match the recorded
@@ -159,7 +160,8 @@ These checks need no API secret and issue no GitHub writes or paid requests.
   `readProfile` validation; `synergy-prompt.ts` ports the credited upstream prompt.
 - `budget-ledger.ts`, `batch-client.ts`: one ledger and one Batch transport for
   both kinds. Per-request prompts and input hashes survive restarts. Failed
-  profiles settle their billed usage and are deferred until the next UTC month.
+  profiles settle their billed usage; unchanged failed inputs are deferred until
+  the next UTC month.
 - `artifact-output.ts`, `scripts/ci/publish-effect-tags.mjs`: generate and validate
   the candidate in `.status/effect-tagging`; no checked-out pin changes locally.
   The PR may change `packages/shared/data/effects/{manifest.json,tags.jsonl.gz,

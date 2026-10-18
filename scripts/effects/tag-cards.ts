@@ -124,7 +124,8 @@ export async function runTagging(options: TaggingOptions): Promise<TaggingReport
   }
   report.acceptedProfiles = [...reusableProfiles.values()];
   const pendingProfiles = new Set(ledger.reservations.filter(entry => entry.state !== "settled").flatMap(entry => entry.requests.flatMap(req => req.archetype ? [req.archetype] : [])));
-  const failedProfiles = new Set(ledger.reservations.filter(entry => entry.state === "settled" && entry.month === month).flatMap(entry => entry.profileFailures ?? []));
+  const profileHashes = new Map(profiles.map(row => [row.archetype, row.inputHash]));
+  const failedProfiles = new Set(ledger.reservations.filter(entry => entry.state === "settled" && entry.month === month).flatMap(entry => entry.requests.flatMap(req => req.archetype && entry.profileFailures?.includes(req.archetype) && req.profileInputHash === profileHashes.get(req.archetype) ? [req.archetype] : [])));
   const eligibleProfiles = profiles.filter(row => !reusableProfiles.has(row.archetype) && !pendingProfiles.has(row.archetype) && !failedProfiles.has(row.archetype));
   const pending = new Set(ledger.reservations.filter(entry => entry.state !== "settled").flatMap(entry => entry.requests.flatMap(req => req.archetype ? [] : req.cards.map(card => card.id))));
   const recentFailures = new Set(ledger.reservations.filter(entry => entry.state === "settled" && entry.month === month).flatMap(entry => entry.requests.flatMap(req => req.cards.filter(card => entry.failures?.includes(card.id) && req.hashes[card.id] === hashCardEffectSourceText(byId.get(card.id) ?? card as Card)).map(card => card.id))));

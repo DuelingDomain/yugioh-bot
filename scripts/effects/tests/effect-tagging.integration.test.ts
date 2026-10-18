@@ -404,7 +404,7 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     expect(() => validateEffectCandidate(rootPath, output)).toThrow(/model/i);
   });
 
-  it("bills invalid profiles, defers retries, and reserves enough for the highest price tier", async () => {
+  it("bills invalid profiles, defers only unchanged inputs, and reserves enough for the highest price tier", async () => {
     const context = await setup(), api = await endpoint({ badProfile: true });
     const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
     await context.runTagging({ cards: profileCards(), store: context.store, client, dryRun: false, now: context.now });
@@ -412,6 +412,17 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     expect(report.acceptedProfiles).toEqual([]); expect(report.usedMicros).toBe(36);
     expect(report.submitted).toBe(0);
     expect((await context.store.read())!.ledger.reservations[0].profileFailures).toEqual(["CI Fiends"]);
+    const revised = profileCards().map((card, index) => index === 0 ? { ...card, atk: (card.atk ?? 0) + 100 } : card);
+    const retried = await context.runTagging({ cards: revised, store: context.store, client, dryRun: false, now: context.now, maxRequests: 1 });
+    expect(retried.submitted).toBe(1);
+    expect(retried.deferred).not.toContain("failed-output-this-month");
+    expect(api.batches[1].requests).toHaveLength(1);
+    expect(api.batches[1].requests[0].params.output_config.format.schema.properties).toHaveProperty("plan");
+    const failedAgain = await context.runTagging({ cards: revised, store: context.store, client, dryRun: false, now: context.now });
+    expect(failedAgain.submitted).toBe(0); expect(failedAgain.usedMicros).toBe(54);
+    const originalAgain = await context.runTagging({ cards: profileCards(), store: context.store, client, dryRun: false, now: context.now });
+    expect(originalAgain.submitted).toBe(0);
+    expect(api.events.filter(event => event.startsWith("POST"))).toHaveLength(2);
     expect(context.billedMicros(context.MODEL, 100_000, 20_000)).toBe(10_000);
     expect(context.billedMicros(context.MODEL, 100_001, 20_000)).toBe(50_001);
     expect(context.billedMicros(context.MODEL, context.MAX_INPUT_TOKENS, context.MAX_OUTPUT_TOKENS)).toBe(context.REQUEST_RESERVATION_MICROS);
