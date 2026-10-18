@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { afterEach, expect, it } from "vitest";
+import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { migrate } from "../src/db/schema.js";
 import { createDraftService } from "../src/services/drafts.js";
 import { createCardInsightService } from "../src/services/card-insights.js";
@@ -84,34 +85,91 @@ it("keeps rankings stable after restart, reports actual pool links, and prefers 
   }
 });
 
-it("uses the same scorer for theme draft timeouts, including Extra Deck material supply", () => {
+it.each(["synchro", "xyz", "link", "fusion", "trishula", "trishula_ready", "link_names", "contact_fusion", "two_tuners", "two_tuners_ready", "synchro_or_more"])("uses the same scorer for theme timeouts and %s material supply", subtype => {
   const { db, seats } = setup(16);
   db.prepare("UPDATE card_catalog SET archetype=NULL").run();
   db.prepare("DELETE FROM card_tags").run();
   db.prepare("UPDATE card_catalog SET type='Tuner Effect Monster',level=3 WHERE ygoprodeck_id=1").run();
   db.prepare("UPDATE card_catalog SET level=5 WHERE ygoprodeck_id=2").run();
-  for (const [id, level] of [[15, 8], [16, 12]]) {
-    db.prepare("UPDATE card_catalog SET type='Synchro Effect Monster',frame_type='synchro',level=? WHERE ygoprodeck_id=?").run(level, id);
+  if (subtype === "xyz") db.prepare("UPDATE card_catalog SET level=4 WHERE ygoprodeck_id IN (1,2)").run();
+  db.prepare("UPDATE card_catalog SET type='Spell Card',frame_type='spell' WHERE ygoprodeck_id=3").run();
+  const tags = (id: number, raw: unknown) => db.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,source,schema_version) VALUES(?,'Fixture','[]',?,'fixture',1)")
+    .run(id, JSON.stringify(CardTags.parse(fillDefaults(raw))));
+  tags(3, { summary: "Fusion enabler", effects: [{ timing: "ignition", actions: [{ verb: "fusion_summon", player: "you" }] }] });
+  for (const [id, level] of [[15, subtype === "link" ? 2 : subtype === "xyz" ? 4 : 8], [16, subtype === "link" ? 4 : 12]]) {
+    db.prepare("UPDATE card_catalog SET type=?,frame_type=?,level=? WHERE ygoprodeck_id=?").run(`${subtype} Effect Monster`, subtype, level, id);
+    if (subtype === "fusion") tags(id, { summary: "Fusion", materials: [{ names: ["Card 1"] }, { names: [id === 15 ? "Card 2" : "Card 9"] }] });
+  }
+  if (subtype.startsWith("trishula")) {
+    importCardEffectArtifact(db);
+    const realTags = db.prepare("SELECT tags_json FROM card_tags WHERE passcode=52687916").get() as { tags_json: string };
+    db.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,source,schema_version) VALUES(15,'Trishula','[]',?,'searchygo-fixture',1)").run(realTags.tags_json);
+    db.prepare("UPDATE card_catalog SET type='Synchro Effect Monster',frame_type='synchro',level=9,effect_text='1 Tuner + 2+ non-Tuner monsters' WHERE ygoprodeck_id=15").run();
+    db.prepare("UPDATE card_catalog SET type='Synchro Effect Monster',frame_type='synchro',level=?,effect_text='1 Tuner + 1+ non-Tuner monsters' WHERE ygoprodeck_id=16").run(subtype === "trishula_ready" ? 12 : 9);
+    db.prepare("UPDATE card_catalog SET level=? WHERE ygoprodeck_id=2").run(subtype === "trishula_ready" ? 2 : 6);
+    if (subtype === "trishula_ready") db.prepare("UPDATE card_catalog SET type='Effect Monster',frame_type='effect',level=4 WHERE ygoprodeck_id=3").run();
+  }
+  if (subtype === "link_names") {
+    importCardEffectArtifact(db);
+    const realTags = db.prepare("SELECT tags_json FROM card_tags WHERE passcode=2857636").get() as { tags_json: string };
+    db.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,source,schema_version) VALUES(15,'Knightmare Phoenix','[]',?,'searchygo-fixture',1)").run(realTags.tags_json);
+    db.prepare("UPDATE card_catalog SET type='Link Effect Monster',frame_type='link',level=2,effect_text='2 monsters with different names' WHERE ygoprodeck_id IN (15,16)").run();
+    db.prepare("UPDATE card_catalog SET effect_text='2 monsters' WHERE ygoprodeck_id=16").run();
+    db.prepare("UPDATE card_catalog SET name='Same monster' WHERE ygoprodeck_id IN (1,2)").run();
+  }
+  if (subtype === "contact_fusion") {
+    importCardEffectArtifact(db);
+    const realTags = db.prepare("SELECT tags_json FROM card_tags WHERE passcode=1561110").get() as { tags_json: string };
+    db.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,source,schema_version) VALUES(15,'ABC','[]',?,'searchygo-fixture',1)").run(realTags.tags_json);
+    db.prepare("UPDATE card_catalog SET type='Fusion Effect Monster',frame_type='fusion',level=8 WHERE ygoprodeck_id IN (15,16)").run();
+    for (const [id, name] of [[1, "A-Assault Core"], [2, "B-Buster Drake"], [3, "C-Crush Wyvern"]]) {
+      db.prepare("UPDATE card_catalog SET type='Effect Monster',frame_type='effect',name=? WHERE ygoprodeck_id=?").run(name, id);
+    }
+    db.prepare("DELETE FROM card_tags WHERE passcode=3").run();
+  }
+  if (subtype.startsWith("two_tuners") || subtype === "synchro_or_more") {
+    importCardEffectArtifact(db);
+    const realTags = db.prepare("SELECT tags_json FROM card_tags WHERE passcode=?").get(subtype === "synchro_or_more" ? 44508094 : 80666118) as { tags_json: string };
+    db.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,source,schema_version) VALUES(15,'Synchro','[]',?,'searchygo-fixture',1)").run(realTags.tags_json);
+    db.prepare("UPDATE card_catalog SET type='Synchro Effect Monster',frame_type='synchro',level=?,effect_text=? WHERE ygoprodeck_id=15").run(subtype === "synchro_or_more" ? 8 : 10, subtype === "synchro_or_more" ? "1 Tuner + 1 or more non-Tuner monsters" : "2 Tuners + 1+ non-Tuner monsters");
+    db.prepare("UPDATE card_catalog SET type='Synchro Effect Monster',frame_type='synchro',level=?,effect_text='1 Tuner + 1+ non-Tuner monsters' WHERE ygoprodeck_id=16").run(subtype === "two_tuners" ? 10 : 12);
+    db.prepare("UPDATE card_catalog SET level=? WHERE ygoprodeck_id=1").run(subtype === "synchro_or_more" ? 3 : 4);
+    db.prepare("UPDATE card_catalog SET level=? WHERE ygoprodeck_id=2").run(subtype === "two_tuners" ? 6 : 3);
+    if (subtype !== "two_tuners") {
+      db.prepare("UPDATE card_catalog SET type='Effect Monster',frame_type='effect',level=? WHERE ygoprodeck_id=3").run(subtype === "synchro_or_more" ? 2 : 3);
+      if (subtype === "two_tuners_ready") db.prepare("UPDATE card_catalog SET type='Tuner Effect Monster' WHERE ygoprodeck_id=2").run();
+    }
   }
   const catalog = createCardCatalogService(db);
   const cubes = createCubeService(db, catalog);
   const cube = cubes.createBlank("g", "Materials", seats[0].userId);
-  cubes.addCard(cube.id, 1, "main", 2); cubes.addCard(cube.id, 2, "main", 2);
+  cubes.addCard(cube.id, 1, "main", 2); cubes.addCard(cube.id, 2, "main", 2); cubes.addCard(cube.id, 3, "main", 2);
   cubes.addCard(cube.id, 15, "extra", 2); cubes.addCard(cube.id, 16, "extra", 2);
   const drafts = createDraftService(db, { seedSource: () => 183 });
   const draft = drafts.create("g", null, "Theme materials", {
     mode: "theme", allowedCubeIds: [cube.id], uniqueThemes: false, themeSelection: "random",
-    cardsPerPlayer: 2, themePackSize: 2, extraDeckEnabled: true, extraDeckSize: 1,
+    cardsPerPlayer: 3, themePackSize: 3, extraDeckEnabled: true, extraDeckSize: 1,
   }, seats[0].userId, seats[0].playerId);
   drafts.join(draft.id, seats[1].playerId); drafts.start(draft.id, now);
-  for (const target of [1, 2]) for (const seat of seats.slice(0, 2)) {
+  for (const target of [1, 2, 3]) for (const seat of seats.slice(0, 2)) {
     const card = drafts.pickOptions(draft.id, seat.playerId).find(card => card.catalogCardId === target)!;
     drafts.pickCard(draft.id, seat.playerId, card.id, "manual", now);
   }
-  expect(drafts.findById(draft.id).currentPackRound).toBe(3);
-  for (const seat of seats.slice(0, 2)) expect(drafts.rankPickOptions(draft.id, seat.playerId)[0].catalogCardId).toBe(15);
+  expect(drafts.findById(draft.id).currentPackRound).toBe(4);
+  if (subtype === "contact_fusion") {
+    const before = drafts.rankPickOptions(draft.id, seats[0].playerId).find(card => card.catalogCardId === 15)!.score;
+    tags(3, { summary: "Fusion enabler", effects: [{ timing: "ignition", actions: [{ verb: "fusion_summon", player: "you" }] }] });
+    expect(drafts.rankPickOptions(draft.id, seats[0].playerId).find(card => card.catalogCardId === 15)!.score).toBe(before);
+  }
+  if (subtype === "synchro_or_more") {
+    const before = drafts.rankPickOptions(draft.id, seats[0].playerId).find(card => card.catalogCardId === 15)!.score;
+    db.prepare("UPDATE card_catalog SET effect_text='1 Tuner + 1+ non-Tuner monsters' WHERE ygoprodeck_id=15").run();
+    expect(drafts.rankPickOptions(draft.id, seats[0].playerId).find(card => card.catalogCardId === 15)!.score).toBe(before);
+  }
+  const expected = ["trishula", "link_names", "two_tuners"].includes(subtype) ? 16 : 15;
+  for (const seat of seats.slice(0, 2)) expect(drafts.rankPickOptions(draft.id, seat.playerId)[0].catalogCardId).toBe(expected);
   const expiry = drafts.findById(draft.id).pickDeadlineAt!;
   expect(drafts.expireCurrentPickStep(draft.id, new Date(expiry)).autoPickedPlayerIds).toHaveLength(2);
   expect(drafts.findById(draft.id).status).toBe("completed");
-  for (const seat of seats.slice(0, 2)) expect(drafts.pool(draft.id, seat.playerId).at(-1)?.catalogCardId).toBe(15);
+  for (const seat of seats.slice(0, 2)) expect(drafts.pool(draft.id, seat.playerId).at(-1)?.catalogCardId).toBe(expected);
 });

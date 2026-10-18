@@ -34,24 +34,36 @@ function materialSupply(extra: Candidate, pool: readonly Candidate[]): number {
   const { card } = extra;
   if (card.subtypes.includes("synchro")) {
     if (!card.level || card.level > 20 || filters.length > 6) return 0;
-    // Each body is used once. Bits retain Tuner/non-Tuner presence and separate tag slots.
+    const printed = card.text.split(/\r?\n/)[0] ?? "";
+    const tuner = printed.match(/(\d+)(\+|\s+or\s+more)?\s+(?:(?!non[- ]tuner)[^+\n])*?\btuners?\b/i);
+    const nonTuner = printed.match(/(\d+)(\+|\s+or\s+more)?\s+[^+\n]*?\bnon[- ]tuners?\b/i);
+    const tunerMin = Number(tuner?.[1] ?? 1), nonTunerMin = Number(nonTuner?.[1] ?? 1);
+    if (tunerMin > 5 || nonTunerMin > 5) return 0;
+    // Each body is used once. Retain required body counts, exact Level, and separate tag slots.
     const states = new Set<number>([0]);
-    const width = 4 * (1 << filters.length), fullMask = (1 << filters.length) - 1;
+    const counts = (tunerMin + 1) * (nonTunerMin + 1);
+    const width = counts * (1 << filters.length), fullMask = (1 << filters.length) - 1;
     for (const body of main) {
       const level = body.card.level;
       if (!level || level > card.level) continue;
-      const tuner = body.card.subtypes.includes("tuner") ? 1 : 2;
+      const isTuner = body.card.subtypes.includes("tuner");
       for (const state of [...states]) {
         const total = Math.floor(state / width) + level;
         if (total > card.level) continue;
-        const flags = (state % 4) | tuner, mask = Math.floor((state % width) / 4);
-        states.add(total * width + mask * 4 + flags);
+        const previous = state % counts;
+        const tunerCount = previous % (tunerMin + 1), nonTunerCount = Math.floor(previous / (tunerMin + 1));
+        if (isTuner && tuner && !tuner[2] && tunerCount === tunerMin) continue;
+        if (!isTuner && nonTuner && !nonTuner[2] && nonTunerCount === nonTunerMin) continue;
+        const next = Math.min(tunerMin, tunerCount + (isTuner ? 1 : 0))
+          + (tunerMin + 1) * Math.min(nonTunerMin, nonTunerCount + (isTuner ? 0 : 1));
+        const mask = Math.floor((state % width) / counts);
+        states.add(total * width + mask * counts + next);
         filters.forEach((filter, index) => {
-          if (!(mask & (1 << index)) && filterReachesCard(filter, body.card)) states.add(total * width + (mask | (1 << index)) * 4 + flags);
+          if (!(mask & (1 << index)) && filterReachesCard(filter, body.card)) states.add(total * width + (mask | (1 << index)) * counts + next);
         });
       }
     }
-    return states.has(card.level * width + fullMask * 4 + 3) ? 1 : -1;
+    return states.has(card.level * width + fullMask * counts + counts - 1) ? 1 : -1;
   }
   if (card.subtypes.includes("xyz")) {
     const count = Number(card.text.split("\n")[0]?.match(/^(\d+)\+?\s+/)?.[1] ?? 2);
@@ -60,11 +72,15 @@ function materialSupply(extra: Candidate, pool: readonly Candidate[]): number {
   if (card.subtypes.includes("link")) {
     // Main Deck bodies each contribute one Link Rating. Do not assume an unmade Extra monster.
     const bodies = main.filter(body => !filters.length || filters.some(filter => filterReachesCard(filter, body.card)));
+    const requirements = `${card.text.split(/\r?\n/)[0]} ${filters.map(filter => filter.other).join(" ")}`;
+    if (/different names/i.test(requirements) && new Set(bodies.map(body => body.card.name.trim().toLowerCase())).size < (card.linkRating ?? 1)) return -1;
     return card.linkRating && bodies.length >= card.linkRating ? 1 : -1;
   }
   if (card.subtypes.includes("fusion")) {
-    const enabler = pool.some(candidate => candidate.tags?.effects.some(effect => effect.actions.some(event => event.verb === "fusion_summon")));
-    return enabler && main.length >= Math.max(2, filters.length) ? 1 : -1;
+    const enabler = pool.some(candidate => candidate.tags?.effects.some(effect => effect.actions.some(event => event.verb === "fusion_summon" && event.player !== "opponent")));
+    const contact = extra.tags?.effects.some(effect => effect.timing === "condition" && effect.location.includes("extra_deck")
+      && effect.actions.some(event => event.verb === "special_summon" && event.what.this_card && event.from.includes("extra_deck")));
+    return (enabler || contact) && main.length >= Math.max(2, filters.length) ? 1 : -1;
   }
   return 0;
 }
