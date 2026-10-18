@@ -47,15 +47,42 @@
   pointer-events: none;
 }
 
+/* The count of cards: a small round chip centred on the fan, in the middle of the part that shows outside the field. The owner asked for it
+   to read upright for the viewer, so it turns back by the seat's turn (`--seat-turn`, set by the seat field) and is the one label of a rival
+   that does not face its controller. It takes no room in the row (the fan stays centred on its own backs) and no pointer. */
 .count {
-  align-self: center;
-  margin-left: 8px;
-  padding: 3px 7px;
-  border: 1px solid rgb(var(--t, 155 126 255) / 0.5);
+  position: absolute;
+  top: 69%;
+  left: 50%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  min-width: 2em;
+  height: 2em;
+  padding: 0 0.45em;
+  border: 1px solid rgb(var(--t, 155 126 255) / 0.7);
   border-radius: 999px;
   background: #0a0f1c;
+  box-shadow: 0 0 0 2px rgb(10 15 28 / 0.65), 0 2px 8px rgb(0 0 0 / 0.55);
   color: var(--tink, #c6b6ff);
-  font: 600 max(calc(12px * var(--ts, 1)), var(--fl, 12.6px)) / 1 var(--f-num, "Arial Narrow");
+  font: 700 max(calc(13px * var(--ts, 1)), var(--fl, 13.6px)) / 1 var(--f-num, "Arial Narrow");
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  pointer-events: none;
+  translate: -50% -50%;
+  rotate: calc(var(--seat-turn, 0deg) * -1);
+  transition: rotate var(--glide, 0.76s) var(--glide-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
+}
+
+:global([data-glide="true"]) .count {
+  transition-duration: 1.4s;
+  transition-delay: 2.2s;
+  transition-timing-function: cubic-bezier(0.5, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .count {
+    transition: none;
+  }
 }
