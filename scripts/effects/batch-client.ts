@@ -39,6 +39,7 @@ export class AnthropicBatchClient implements BatchClient {
   async create(reservation: Reservation): Promise<{ id: string }> {
     const requests = reservation.requests.map(req => ({ custom_id: req.customId, params: {
       model: reservation.model ?? LEGACY_MODEL, max_tokens: MAX_OUTPUT_TOKENS, system: req.systemPrompt ?? reservation.systemPrompt,
+      thinking: { type: "disabled" },
       messages: [{ role: "user", content: req.archetype ? renderArchetype(req.archetype, req.cards as Card[]) : buildUserMessage(req.cards as Card[]) }],
       output_config: { format: req.archetype ? profileFormat() : tagBatchFormat() },
     } }));

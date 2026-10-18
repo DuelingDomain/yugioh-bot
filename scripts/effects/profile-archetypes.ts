@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { ArchetypeProfile, readProfile, type Card } from "@yugidraft/shared/cards/effects";
 import { renderCard } from "./tagging-prompt.js";
-import { MAX_CARDS_SHOWN } from "./synergy-prompt.js";
+import { MAX_CARDS_SHOWN, SYNERGY_EXAMPLES } from "./synergy-prompt.js";
 
 export interface StoredProfile { archetype: string; cards: number; model: string; profile: ArchetypeProfile; inputHash?: string }
 export function profileInputHash(archetype: string, cards: Card[]): string {
@@ -19,6 +19,7 @@ export function profileCandidates(cards: Card[], stored: StoredProfile[], tagged
     return { archetype, members, cards: ordered.slice(0, MAX_CARDS_SHOWN), inputHash: profileInputHash(archetype, members) };
   }).filter(row => {
     const old = prior.get(row.archetype);
+    if (old?.model === "hand-written" || SYNERGY_EXAMPLES.some(example => example.archetype === row.archetype)) return false;
     return !old || (old.inputHash ? old.inputHash !== row.inputHash : row.members.length > old.cards);
   }).sort((a,b) => b.members.reduce((sum,c) => sum+c.views,0)-a.members.reduce((sum,c) => sum+c.views,0) || a.archetype.localeCompare(b.archetype));
 }

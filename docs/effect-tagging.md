@@ -24,7 +24,9 @@ excluded. Normal Pendulum Monsters with effects remain eligible.
    of initializing an empty one.
 3. For an inspection, dispatch with the default `dry_run=true`. It reads the
    catalog/artifact and ledger, writes a report artifact, and performs no paid
-   requests, ledger mutations or publication.
+   requests, ledger mutations or publication. Before the first paid run, inspect
+   `report.profileCandidates`; hand-written profiles and the pinned synergy
+   examples (Dark World and Tearlaments) must never be refresh candidates.
 4. To submit/collect, dispatch with `dry_run=false`. Approved `main` changes to
    the engine preparation pin also trigger a run; a daily 07:30 UTC run collects
    completed work. Without the API secret paid runs skip cleanly and emit an Actions notice. Explicit dry runs remain available. All runs share
@@ -51,11 +53,14 @@ tagging of the same inputs.
 The code pins `claude-haiku-5-5`. It sends at most eight cards per tag
 request or forty representative members per profile request, with a 20,000
 output-token limit. New members take priority over popular members. Archetypes
-need at least three members. An upstream profile refreshes when its member count
+need at least three members. Hand-written profiles and synergy examples are
+preserved. Other upstream profiles refresh when their member count
 grows; generated profiles also refresh when their member-input hash changes.
 The upstream artifact has counts but no member IDs, so equal-count membership
 replacement in an original profile cannot be detected until its first refresh.
 [Anthropic model specifications](https://platform.claude.com/docs/en/models/haiku-5-5/overview).
+Both request kinds explicitly disable thinking so the output-token allowance is
+available for structured replies.
 
 Verified on 2026-10-17, Haiku 5.5 Batch pricing is $0.05/M input and $0.25/M
 output up to 100,000 input tokens, and $0.25/M input and $1.25/M output above

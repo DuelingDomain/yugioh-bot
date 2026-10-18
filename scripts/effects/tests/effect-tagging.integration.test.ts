@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
-import type { Card } from "@yugidraft/shared/cards/effects";
+import type { ArchetypeProfile, Card } from "@yugidraft/shared/cards/effects";
 import { hashCardEffectSourceText } from "@yugidraft/shared/cards/effects";
 
 const roots: string[] = [], servers: Server[] = [];
@@ -21,7 +21,7 @@ const fixtureCards = () => JSON.parse(readFileSync(join(rootPath, "scripts/effec
 const changedCards = () => fixtureCards().map(card => ({ ...card, text: `${card.text}\nUpdated printed effect.` }));
 const rawTags = new Map(gunzipSync(readFileSync(new URL("../../../packages/shared/data/effects/tags.jsonl.gz", import.meta.url))).toString("utf8").trim().split("\n").map(line => { const row = JSON.parse(line); return [row.id, row.tags] as const; }));
 
-const profileFixture = { plan: "Uses Fiends to build a field.", hooks: [{ label: "Fiend support", why: "Fiends share support.", does: null, reacts_to: null, card: null, supports: { types: ["Fiend"], attributes: [] }, phrases: [] }] };
+const profileFixture: ArchetypeProfile = { plan: "Uses Fiends to build a field.", hooks: [{ label: "Fiend support", why: "Fiends share support.", does: null, reacts_to: null, card: null, supports: { types: ["Fiend"], attributes: [] }, phrases: [] }] };
 const rowsInPinnedProfiles = () => gunzipSync(readFileSync(join(rootPath, "packages/shared/data/effects/profiles.jsonl.gz"))).toString().trim().split("\n").length;
 const profileCards = () => changedCards().map(card => ({ ...card, archetype: "CI Fiends" }));
 
@@ -82,7 +82,7 @@ async function endpoint(options: { uncertain?: boolean; badTags?: boolean; parti
   return { baseUrl: `http://127.0.0.1:${address.port}`, events, batches };
 }
 
-describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", () => {
+describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", { timeout: 30_000 }, () => {
   it("defaults to a keyless dry run with no API or durable-state mutation", async () => {
     const context = await setup(), api = await endpoint();
     const before = await context.store.read();
@@ -98,6 +98,21 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     const cards = fixtureCards().map(card => card.id === 14558127 ? { ...card, id: 14558128 } : card);
     const report = await context.runTagging({ cards, store: context.store, now: context.now });
     expect(report.candidates).toBe(original.candidates);
+  });
+
+  it.each(["Dark World", "Tearlaments"])("preserves the curated %s profile when the engine catalog has 40 members", async archetype => {
+    const context = await setup();
+    const cards = Array.from({ length: 40 }, (_, index) => ({ ...changedCards()[0], id: 10000000 + index, archetype }));
+    const before = await context.store.read();
+    const report = await context.runTagging({ cards, store: context.store, now: context.now });
+    expect(report.profileCandidates).toBe(0);
+    expect(await context.store.read()).toEqual(before);
+    const { profileCandidates } = await import("../profile-archetypes.js");
+    // Examples remain protected if absent from an artifact, as do other curated rows.
+    expect(profileCandidates(cards, [])).toEqual([]);
+    expect(profileCandidates(cards.map(card => ({ ...card, archetype: "Curated Fiends" })), [
+      { archetype: "Curated Fiends", cards: 3, model: "hand-written", profile: profileFixture },
+    ])).toEqual([]);
   });
 
   it("keeps named functional aliases from a real SQLite engine-shaped catalog", async () => {
@@ -143,7 +158,8 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     expect(durable.reservations[0]).toMatchObject({ state: "submitted", reservedMicros: 275_000, batchId: "msgbatch_fixture_1" });
     const params = api.batches[0].requests[0].params;
     expect(params.model).toBe("claude-haiku-5-5"); expect(params.max_tokens).toBe(20_000);
-    for (const key of ["thinking", "tools", "cache_control"]) expect(params).not.toHaveProperty(key);
+    expect(params.thinking).toEqual({ type: "disabled" });
+    for (const key of ["tools", "cache_control"]) expect(params).not.toHaveProperty(key);
     expect(params.output_config).not.toHaveProperty("effort");
     const second = await context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now });
     expect(second.accepted).toHaveLength(6); expect(second.submitted).toBe(0); expect(second.usedMicros).toBe(18);
@@ -297,6 +313,7 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     expect(before.profileCandidates).toBe(1); expect(api.events).toEqual([]);
     await context.runTagging({ cards: profileCards(), store: context.store, client, dryRun: false, now: context.now });
     expect(api.batches[0].requests).toHaveLength(2);
+    for (const request of api.batches[0].requests) expect(request.params.thinking).toEqual({ type: "disabled" });
     const report = await context.runTagging({ cards: profileCards(), store: context.store, client, dryRun: false, now: context.now });
     expect(report.acceptedProfiles).toHaveLength(1);
     expect(report.acceptedProfiles[0]).toMatchObject({ archetype: "CI Fiends", cards: 6, profile: profileFixture });
