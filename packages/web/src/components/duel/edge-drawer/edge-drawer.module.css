@@ -3,7 +3,7 @@
    is `position: absolute` inside the nearest positioned ancestor (the duel stage), or `fixed` with the
    `fixed` data flag. The root lets clicks through, so a closed drawer never blocks the field.
 
-   Tuning (set on the drawer's `style`, or on an ancestor):
+   A drawer opens only from a click or key on its tab, never from hover. Tuning (set on the drawer's `style`, or on an ancestor):
      --bf-drawer-size    panel width (left/right) or height (bottom). Default min(360px, 88vw) / min(320px, 58dvh).
      --bf-tab-offset     where the tab sits along the edge: a length or percent. Default 50%.
      --bf-drawer-z       stacking. Default 40.
@@ -46,7 +46,8 @@
   box-shadow: 0 0 28px rgb(0 0 0 / 0.55);
   outline: none;
   visibility: visible;
-  transition: visibility 0s linear 0s;
+  /* No visibility transition on open: the panel must be focusable in the same frame the drawer opens (the open effect moves focus in). */
+  transition: none;
 }
 .root[data-state="closed"] .panel {
   visibility: hidden;
@@ -56,26 +57,28 @@
 
 /* ---- left ---- */
 .root[data-side="left"] { top: 0; bottom: 0; left: 0; width: 0; }
-.root[data-side="left"] .slide { top: 0; bottom: 0; left: 0; width: var(--bf-drawer-size, min(360px, 88vw)); }
+.root[data-side="left"] .slide { top: 0; bottom: 0; left: 0; width: min(var(--bf-drawer-size, min(360px, 88vw)), calc(100vw - 48px)); }
 .root[data-side="left"][data-state="closed"] .slide { transform: translateX(-100%); }
 .root[data-side="left"] .panel { border-right: 1px solid var(--bf-line); }
-.root[data-side="left"] .tabSlot { left: 100%; top: var(--bf-tab-offset, 50%); transform: translateY(-50%); }
+.root[data-side="left"] .tabSlot { left: 100%; top: var(--bf-tab-offset, 50%); transform: translate(var(--bf-shift, 0px), -50%); }
 
 /* ---- right ---- */
 .root[data-side="right"] { top: 0; bottom: 0; right: 0; width: 0; }
-.root[data-side="right"] .slide { top: 0; bottom: 0; right: 0; width: var(--bf-drawer-size, min(360px, 88vw)); }
+.root[data-side="right"] .slide { top: 0; bottom: 0; right: 0; width: min(var(--bf-drawer-size, min(360px, 88vw)), calc(100vw - 48px)); }
 .root[data-side="right"][data-state="closed"] .slide { transform: translateX(100%); }
 .root[data-side="right"] .panel { border-left: 1px solid var(--bf-line); }
-.root[data-side="right"] .tabSlot { right: 100%; top: var(--bf-tab-offset, 50%); transform: translateY(-50%); }
+.root[data-side="right"] .tabSlot { right: 100%; top: var(--bf-tab-offset, 50%); transform: translate(calc(-1 * var(--bf-shift, 0px)), -50%); }
 
 /* ---- bottom ---- */
 .root[data-side="bottom"] { left: 0; right: 0; bottom: 0; height: 0; }
 .root[data-side="bottom"] .slide { left: 0; right: 0; bottom: 0; height: var(--bf-drawer-size, min(320px, 58dvh)); }
 .root[data-side="bottom"][data-state="closed"] .slide { transform: translateY(100%); }
 .root[data-side="bottom"] .panel { border-top: 1px solid var(--bf-line); }
-.root[data-side="bottom"] .tabSlot { bottom: 100%; left: var(--bf-tab-offset, 50%); transform: translateX(-50%); }
+.root[data-side="bottom"] .tabSlot { bottom: 100%; left: var(--bf-tab-offset, 50%); transform: translate(-50%, calc(-1 * var(--bf-shift, 0px))); }
 
-.tabSlot { position: absolute; pointer-events: auto; }
+/* While another drawer of the same edge is open, this closed drawer's tab stands on that panel's outer face (--bf-shift,
+   set by edge-drawer.tsx), so it stays in view, stays clickable and never lies over the open panel's content. */
+.tabSlot { position: absolute; pointer-events: auto; transition: transform var(--bf-slide) var(--bf-ease); }
 
 /* ---- the tab ---- */
 .tab {
@@ -147,9 +150,9 @@
 /* Reduced motion: the drawer does not travel across the screen. The box still jumps to its place (at once
    when opening, after the fade when closing) and the panel fades. The tab glow stays, without the beat. */
 @media (prefers-reduced-motion: reduce) {
-  .slide { transition: none; }
+  .slide, .tabSlot { transition: none; }
   .root[data-state="closed"] .slide { transition: transform 0s linear 140ms; }
-  .panel { opacity: 1; transition: opacity 140ms linear, visibility 0s linear 0s; }
+  .panel { opacity: 1; transition: opacity 140ms linear; }
   .root[data-state="closed"] .panel { opacity: 0; transition: opacity 140ms linear, visibility 0s linear 140ms; }
   .tab { transition: none; }
   .tab[data-attention="true"] { animation: none; }
