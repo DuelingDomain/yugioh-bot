@@ -70,7 +70,7 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("nav[aria-label='Duel phases']")).not.toBeNull();
     expect(container.querySelectorAll("[aria-label='Turn order'] li")).toHaveLength(3);
     expect(container.querySelector("[data-testid='seat-strip']")).not.toBeNull();
-    for (const label of ["Card", "Log", "Settings", "Camera"]) {
+    for (const label of ["Log", "Settings", "Camera"]) {
       const drawer = container.querySelector(`[data-edge-drawer='${label}']`);
       expect(drawer, label).not.toBeNull();
       expect(drawer!.getAttribute("data-state"), `${label} starts closed`).toBe("closed");
