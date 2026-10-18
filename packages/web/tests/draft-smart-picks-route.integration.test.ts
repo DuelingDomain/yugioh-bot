@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { afterEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createCardCatalogService, createCardInsightService, createCubeService, createDraftService } from "@yugidraft/shared/services";
+import * as services from "@yugidraft/shared/services";
 import { seedIdentity } from "../../shared/tests/helpers/identity";
 
 const fixture = vi.hoisted(() => ({ db: undefined as unknown as Database.Database, userId: 0 }));
@@ -13,7 +14,7 @@ vi.mock("@/lib/owner-access", () => ({ isOwnerUser: () => false }));
 vi.mock("@/lib/notify", () => ({ broadcaster: { draft: vi.fn() }, announcer: {} }));
 vi.mock("@/lib/draft-engine-types", () => ({ lookupDraftCardTypes: async () => new Map() }));
 
-afterEach(() => { fixture.db?.close(); vi.unstubAllEnvs(); });
+afterEach(() => { fixture.db?.close(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 it.each(["booster", "theme"] as const)("returns private flag-controlled pool reasons and ranked bot picks in a %s draft", async mode => {
   fixture.db = new Database(":memory:"); const db = fixture.db; migrate(db);
@@ -52,6 +53,12 @@ it.each(["booster", "theme"] as const)("returns private flag-controlled pool rea
     expect(insights.pickScore(card.passcode, pool)).toBeGreaterThan(0);
     expect(card).not.toHaveProperty("score");
   }
+  const original = services.createDraftService;
+  const rank = vi.fn(() => { throw new Error("GET must not rank picks"); });
+  vi.spyOn(services, "createDraftService").mockImplementationOnce((...args) => ({ ...original(...args), rankPickOptions: rank }));
+  const read = await buildDraftResponse(draft.webSlug!, human);
+  expect(read?.currentPack.map(card => card.fitsYourPool)).toEqual(body.currentPack.map((card: { fitsYourPool?: string }) => card.fitsYourPool));
+  expect(rank).not.toHaveBeenCalled();
   const watcher = seedIdentity(db, { guildId: "g", name: "Watcher" });
   const watched = await buildDraftResponse(draft.webSlug!, watcher);
   expect(watched?.currentPack).toEqual([]); expect(watched?.myPool).toEqual([]);

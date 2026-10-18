@@ -65,8 +65,13 @@ const codesOf = (deck: DuelDeck | readonly number[]): readonly number[] => Array
 const synergyTarget = (text: string) => text.trim().match(/^(?:cards?\s+that\s+)?(?:works?\s+(?:well\s+)?with|synerg(?:y|ies|izes?)\s+(?:with|for)|partners?\s+for)\s+(.+?)\s*[?.!]?$/i)?.[1];
 
 /** SQL-backed, read-only insights. Only anchors, their profiles and the retained page live in memory. */
-export function createCardInsightService(db: Database.Database, options: { dataDirectory?: string } = {}) {
+export function createCardInsightService(db: Database.Database, options: {
+  dataDirectory?: string;
+  /** Borrowed for this operation; its caller owns closing it. */
+  catalog?: InsightCatalog;
+} = {}) {
   const withCatalog = <T>(read: (catalog: InsightCatalog) => T): T => {
+    if (options.catalog) return read(options.catalog);
     const catalog = createInsightCatalog(db, options.dataDirectory);
     try { return read(catalog); } finally { catalog.close(); }
   };

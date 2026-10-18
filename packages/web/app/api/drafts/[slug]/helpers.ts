@@ -11,6 +11,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import {
   createCardCatalogService,
+  createCardInsightService,
   createCardLookupBudget,
   createDraftService,
   findDraftReadAccess,
@@ -287,17 +288,20 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
   const hasLegalCard = currentPackCards.some((card) => (held[card.catalogCardId] ?? 0) < MAX_COPIES_PER_PLAYER);
   const forced = draftModel.config.copyLimit !== false && draftModel.config.mode !== "theme" && currentPackCards.length > 0 && !hasLegalCard;
   const effectsEnabled = effectSearchEnabled();
-  const fitsById = effectsEnabled && currentPlayer && isParticipant && currentPackCards.length > 0
+  const fitsByPasscode = effectsEnabled && currentPlayer && isParticipant && currentPackCards.length > 0
     ? degrade(slug, "pick insights", new Map<number, string>(), () => new Map(
-        drafts.rankPickOptions(draft.id, currentPlayer.id)
-          .filter(card => card.fitsYourPool)
-          .map(card => [card.id, card.fitsYourPool!]),
+        createCardInsightService(db).pickScores(
+          [...new Set(currentPackCards.map(card => card.catalogCardId))],
+          myPoolCards.map(card => card.catalogCardId),
+        ).filter(insight => insight.score > 0 && insight.reason)
+          .map(insight => [insight.passcode, insight.reason!]),
       ))
     : new Map<number, string>();
   const currentPack = mapDraftCardDetails(slug, db, currentPackCards, engineTypes).map((card) => {
     const copies = held[card.passcode] ?? 0;
-    const fitsYourPool = fitsById.get(card.id);
-    return { ...card, held: copies, forced, blocked: draftModel.config.copyLimit !== false && copies >= MAX_COPIES_PER_PLAYER && (draftModel.config.mode === "theme" || hasLegalCard),
+    const blocked = draftModel.config.copyLimit !== false && copies >= MAX_COPIES_PER_PLAYER && (draftModel.config.mode === "theme" || hasLegalCard);
+    const fitsYourPool = blocked ? undefined : fitsByPasscode.get(card.passcode);
+    return { ...card, held: copies, forced, blocked,
       ...(fitsYourPool ? { fitsYourPool } : {}) };
   });
   const passed =

@@ -43,10 +43,13 @@ function materialSupply(extra: Candidate, pool: readonly Candidate[]): number {
     const states = new Set<number>([0]);
     const counts = (tunerMin + 1) * (nonTunerMin + 1);
     const width = counts * (1 << filters.length), fullMask = (1 << filters.length) - 1;
+    const complete = card.level * width + fullMask * counts + counts - 1;
     for (const body of main) {
       const level = body.card.level;
       if (!level || level > card.level) continue;
       const isTuner = body.card.subtypes.includes("tuner");
+      // Match metadata once per body, rather than once for every DP state.
+      const slots = filters.map((filter, index) => filterReachesCard(filter, body.card) ? 1 << index : 0).filter(Boolean);
       for (const state of [...states]) {
         const total = Math.floor(state / width) + level;
         if (total > card.level) continue;
@@ -58,12 +61,11 @@ function materialSupply(extra: Candidate, pool: readonly Candidate[]): number {
           + (tunerMin + 1) * Math.min(nonTunerMin, nonTunerCount + (isTuner ? 0 : 1));
         const mask = Math.floor((state % width) / counts);
         states.add(total * width + mask * counts + next);
-        filters.forEach((filter, index) => {
-          if (!(mask & (1 << index)) && filterReachesCard(filter, body.card)) states.add(total * width + (mask | (1 << index)) * counts + next);
-        });
+        for (const slot of slots) if (!(mask & slot)) states.add(total * width + (mask | slot) * counts + next);
       }
+      if (states.has(complete)) return 1;
     }
-    return states.has(card.level * width + fullMask * counts + counts - 1) ? 1 : -1;
+    return -1;
   }
   if (card.subtypes.includes("xyz")) {
     const count = Number(card.text.split("\n")[0]?.match(/^(\d+)\+?\s+/)?.[1] ?? 2);
@@ -93,11 +95,11 @@ export function rankDraftPicks(db: Database.Database, options: readonly DraftCar
   const catalog = createInsightCatalog(db);
   try {
     const pool = pickedPool.map(code => catalog.candidate(code)).filter((card): card is Candidate => card !== undefined);
-    const insights = new Map(createCardInsightService(db).pickScores([...new Set(options.map(card => card.catalogCardId))], pickedPool).map(insight => [insight.passcode, insight]));
+    const insights = new Map(createCardInsightService(db, { catalog }).pickScores([...new Set(options.map(card => card.catalogCardId))], pickedPool).map(insight => [insight.passcode, insight]));
     const extraCount = pool.filter(({ card }) => isExtraDeckCard(card)).length;
     const desiredExtraShare = (context.extraTarget ?? 0) / Math.max(1, context.mainTarget + (context.extraTarget ?? 0));
     const poolExtras = [...new Map(pool.filter(({ card }) => isExtraDeckCard(card)).map(card => [card.card.id, card])).values()];
-    const supplyBefore = poolExtras.map(extra => materialSupply(extra, pool));
+    const supplyBefore = new Map<number, number>();
     return options.map(option => {
       const candidate = catalog.candidate(option.catalogCardId), insight = insights.get(option.catalogCardId);
       const pickScore = insight?.score ?? 0;
@@ -115,7 +117,17 @@ export function rankDraftPicks(db: Database.Database, options: readonly DraftCar
             balance = 2 * ((extraCount / (pool.length + 1)) - desiredExtraShare);
             if (pool.length - extraCount >= context.mainTarget) balance -= 6;
           }
-          materials = Math.min(3, poolExtras.reduce((sum, extra, index) => sum + Math.max(0, materialSupply(extra, [...pool, candidate]) - supplyBefore[index]!), 0));
+          materials = Math.min(3, poolExtras.reduce((sum, extra) => {
+            const filters = extra.tags?.materials ?? [];
+            if (filters.length && !filters.some(filter => filterReachesCard(filter, candidate.card))) return sum;
+            const level = extra.card.level ?? extra.card.rank;
+            if (level && candidate.card.level && candidate.card.level > level) return sum;
+            // Resolve the baseline only if an option could help; share it across the pack.
+            let before = supplyBefore.get(extra.card.id);
+            if (before === undefined) { before = materialSupply(extra, pool); supplyBefore.set(extra.card.id, before); }
+            if (before === 1) return sum;
+            return sum + Math.max(0, materialSupply(extra, [...pool, candidate]) - before);
+          }, 0));
         }
       }
       // Stateless per-seat/per-step noise survives worker/request restarts; it never consumes deal RNG.

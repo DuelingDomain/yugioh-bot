@@ -10,6 +10,7 @@ import { mulberry32 } from "../src/services/deal.js";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 import { seedIdentity } from "./helpers/identity.js";
 import * as pickScorer from "../src/services/draft-pick-scorer.js";
+import * as insightCatalog from "../src/services/card-insight-catalog.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
@@ -73,7 +74,10 @@ it("keeps rankings stable after restart, reports actual pool links, and prefers 
   const player = seats[0].playerId;
   const options = drafts.pickOptions(draft.id, player);
   db.prepare("UPDATE card_tags SET popularity=1000000 WHERE passcode=?").run(options[0].catalogCardId);
+  const catalogs = vi.spyOn(insightCatalog, "createInsightCatalog");
   const ranked = drafts.rankPickOptions(draft.id, player);
+  expect(catalogs).toHaveBeenCalledTimes(1);
+  catalogs.mockRestore();
   expect(ranked[0].id).toBe(options[0].id);
   expect(ranked.every(card => card.fitsYourPool === undefined)).toBe(true);
   expect(createDraftService(db, { pickSeed: "integration" }).rankPickOptions(draft.id, player)).toEqual(ranked);
@@ -133,6 +137,43 @@ it.each(["SQLITE_BUSY", "SQLITE_BUSY_SNAPSHOT"])("propagates %s from scoring wit
   expect(() => drafts.expireCurrentPickStep(draft.id, new Date(drafts.findById(draft.id).pickDeadlineAt!))).toThrow(error);
   expect(seats.every(seat => drafts.pool(draft.id, seat.playerId).length === 0)).toBe(true);
 });
+
+it.each(["unusable", "matching"])("expires eight seats with fifteen Synchros per pool and %s options well below the write-lock timeout", mode => {
+  const { db, seats, drafts } = setup(512);
+  db.prepare("DELETE FROM card_tags").run();
+  db.prepare("UPDATE card_catalog SET archetype=NULL").run();
+  const draft = drafts.create("g", null, "Synchro load", {
+    cubeCardIds: Array.from({ length: 512 }, (_, i) => i + 1),
+    packSize: 16, packsPerPlayer: 4, cardsPerPlayer: 64,
+  }, seats[0].userId, seats[0].playerId);
+  for (const seat of seats.slice(1)) drafts.join(draft.id, seat.playerId);
+  drafts.start(draft.id, now);
+  for (let step = 0; step < 48; step++) for (const seat of seats) {
+    drafts.pickCard(draft.id, seat.playerId, drafts.pickOptions(draft.id, seat.playerId)[0].id, "manual", now);
+  }
+  const metadata = db.prepare("UPDATE card_catalog SET type=?,frame_type=?,level=?,effect_text=? WHERE ygoprodeck_id=?");
+  const tags = db.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,source,schema_version) VALUES(?,'Fixture','[]',?,'fixture',1)");
+  const materials = JSON.stringify(CardTags.parse(fillDefaults({
+    summary: "Six material slots", materials: Array.from({ length: 6 }, () => ({ kinds: ["monster"] })),
+  })));
+  for (const seat of seats) {
+    for (const [index, card] of drafts.pool(draft.id, seat.playerId).entries()) {
+      if (index < 15) {
+        metadata.run("Synchro Effect Monster", "synchro", 12, "3+ Tuners + 3+ non-Tuner monsters", card.catalogCardId);
+        tags.run(card.catalogCardId, materials);
+      } else metadata.run(index % 2 ? "Tuner Effect Monster" : "Effect Monster", "effect", 1 + index % 5, "", card.catalogCardId);
+    }
+    for (const [index, card] of drafts.pickOptions(draft.id, seat.playerId).entries()) {
+      metadata.run(index % 2 ? "Effect Monster" : "Spell Card", index % 2 ? "effect" : "spell", mode === "matching" ? 3 : 13, "", card.catalogCardId);
+    }
+  }
+  const expiry = new Date(drafts.findById(draft.id).pickDeadlineAt!);
+  const started = performance.now();
+  expect(drafts.expireCurrentPickStep(draft.id, expiry).autoPickedPlayerIds).toHaveLength(8);
+  const elapsedMs = performance.now() - started;
+  console.info("DRAFT_EXPIRE_8_SEATS_15_SYNCHROS_MS", mode, elapsedMs.toFixed(1));
+  expect(elapsedMs).toBeLessThan(1500);
+}, 60000);
 
 it.each(["synchro", "xyz", "link", "fusion", "trishula", "trishula_ready", "link_names", "contact_fusion", "two_tuners", "two_tuners_ready", "synchro_or_more"])("uses the same scorer for theme timeouts and %s material supply", subtype => {
   const { db, seats } = setup(16);
