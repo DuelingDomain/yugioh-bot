@@ -43,7 +43,7 @@ import styles from "./master-badge.module.css";
 export interface MasterBadgeSource {
   forSeat: (seat: number) => HudMasterProps | null;
   onInspect: (target: InspectTarget) => void;
-  /** Your emblem is set apart from the hand row (a gap, a divider and a label). The multi-seat tables set it; 1v1 does not. "lift" (Tag) stands the emblem on the name plate when the plate is in the way. "corner" (3-way) stands it on the free table left of your field, larger than a hand card. */
+  /** Your emblem is set apart from the hand row (a gap, a divider and a label). The multi-seat tables set it; 1v1 does not. "lift" (Tag) stands the emblem on the name plate when the plate is in the way. "corner" (3-way) stands it at the very bottom left of the screen, larger than a hand card. */
   apart?: boolean | "lift" | "corner";
 }
 
@@ -100,7 +100,7 @@ const EMBLEM_FALLBACK_MIN_W = 28;
 const CORNER_MAX_SCALE = 1.4;
 /** The corner emblem keeps the label rail (line and vertical text) on its left clear, and the drawer tabs beyond that. */
 const CORNER_RAIL = 26;
-const CORNER_EDGE = 30;
+const CORNER_EDGE = 14;
 /** Room kept between the corner emblem and the field, and around the things it must clear. */
 const CORNER_FIELD_GAP = 10;
 const CORNER_CLEAR = 4;
@@ -180,22 +180,22 @@ function smallHandSpot(hand: DOMRect, slot: HTMLElement | null, vh: number, card
 }
 
 /**
- * 3-way plaza: the free table at the bottom left, left of your field, holds the emblem (the hand row stays plain cards).
- * It is as big as the room allows between one and CORNER_MAX_SCALE hand cards, as low as it can stand clear of your name tag,
- * the camera chip, the rival plates and the table controls. Null: nothing fits, the emblem then stands by the hand.
+ * 3-way plaza: the very bottom left of the screen, under the rival plate and clear of your field, holds the emblem (the hand row stays
+ * plain cards). It stands as low as it can above the camera chip and keeps clear of your name tag, the Extra pile and the table controls.
+ * Its size is as big as the room allows between one and CORNER_MAX_SCALE hand cards. Null: nothing fits, the emblem then stands by the hand.
  */
 function cornerSpot(seat: number, handCard: DOMRect, vh: number, controls: DOMRect[]): EmblemBox | null {
   const field = document.querySelector<HTMLElement>(`[data-seat-field="${seat}"]`)?.getBoundingClientRect();
   if (!field) return null;
   const clear = Array.from(document.querySelectorAll<HTMLElement>("[data-seat-name], [data-camera-chip], [data-holo]"), (el) => el.getBoundingClientRect())
     .filter((r) => r.width > 0 && r.height > 0)
-    .concat(controls);
-  const right = Math.floor(field.left - CORNER_FIELD_GAP);
+    .concat(controls, [handCard]);
+  const left = CORNER_EDGE + CORNER_RAIL;
   for (let scale = CORNER_MAX_SCALE; scale >= 0.995; scale -= 0.1) {
     const width = Math.round(handCard.width * Math.max(1, scale));
     const height = Math.round(handCard.height * Math.max(1, scale));
-    const left = right - width;
-    if (left - CORNER_RAIL < CORNER_EDGE) continue;
+    const right = left + width;
+    if (right + CORNER_FIELD_GAP > field.left) continue;
     for (let bottom = vh - 8; bottom - height >= 8; bottom -= 4) {
       const top = bottom - height;
       const hit = clear.some((r) => left - CORNER_RAIL < r.right + CORNER_CLEAR && right > r.left - CORNER_CLEAR && top < r.bottom + CORNER_CLEAR && bottom > r.top - CORNER_CLEAR);
