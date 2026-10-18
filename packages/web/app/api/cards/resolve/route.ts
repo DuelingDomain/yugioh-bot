@@ -2,11 +2,16 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
-import { CardFetchLimitError, createDraftService, createDeckTypeLookup, createCardCatalogService, loadArtworkIdentityCatalog, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
+import { CardFetchLimitError, createDraftService, createDeckTypeLookup, createCardCatalogService, createCardInsightService, loadArtworkIdentityCatalog, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { CardListError } from "@/lib/card-list-parser";
 import { prepareCubeListImport } from "@/lib/cube-list-import";
+import { parseCardInsightRequest } from "@/lib/card-insights-api";
+import { effectSearchEnabled } from "@/lib/effect-search";
+import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
+import { env } from "@/lib/env";
+import { ensureCatalogCards } from "@/lib/cube-pool";
 
 export const runtime = "nodejs";
 
@@ -47,6 +52,7 @@ async function handlePOST(request: Request) {
   if (!actor.ok) return actor.response;
 
   const body = (await request.json().catch(() => ({}))) as {
+    op?: unknown;
     setNames?: string[];
     customCardIds?: number[];
     cardName?: string;
@@ -55,6 +61,25 @@ async function handlePOST(request: Request) {
     archetype?: string;
     listText?: unknown;
   };
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Invalid resolve request" }, { status: 400 });
+  // Description is opt-in. Existing name resolution never creates or queries an insight service.
+  if (body.op !== undefined) {
+    if (!env.discordGuildId) return NextResponse.json({ error: "community_not_configured" }, { status: 503 });
+    if (!effectSearchEnabled()) return NextResponse.json({ effectSearchEnabled: false, error: "effect_search_disabled" }, { status: 404 });
+    const input = parseCardInsightRequest(body);
+    if (input?.op !== "effectSearch") return NextResponse.json({ error: "Invalid effect search request" }, { status: 400 });
+    const db = getDb();
+    const result = createCardInsightService(db).effectSearch(input.text, input.pool, input);
+    const catalog = createCardCatalogService(db, { memberId: actor.userId });
+    // Explicit public pools may contain engine cards not yet in the lazy display cache.
+    const unknownIds = await ensureCatalogCards(catalog, result.cards.map(card => card.passcode));
+    const details = new Map(catalog.findByIds(result.cards.map(card => card.passcode)).map(card => [card.ygoprodeckId, card]));
+    const cards = result.cards.flatMap(hit => {
+      const card = details.get(hit.passcode);
+      return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason }] : [];
+    });
+    return NextResponse.json({ ...result, cards, unknownIds, effectSearchEnabled: true, attribution: EFFECT_SEARCH_ATTRIBUTION }, { headers: { "Cache-Control": "private, no-store" } });
+  }
   const setNames = Array.isArray(body.setNames) ? body.setNames.filter((s): s is string => typeof s === "string") : [];
   const customCardIds = Array.isArray(body.customCardIds)
     ? body.customCardIds.filter((n): n is number => typeof n === "number" && Number.isInteger(n))
