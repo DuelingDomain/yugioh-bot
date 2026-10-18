@@ -15,7 +15,7 @@ import { alignArtifactToCatalog, isTaggable, loadTaggingCatalog, readPinnedArtif
 import { AnthropicBatchClient, type BatchClient } from "./batch-client.js";
 import { billedMicros, reservationCost, LEGACY_MODEL, RUN_CAP_MICROS, budgetUsed, createEmptyLedger, GithubLedgerStore, MAX_CARDS_PER_REQUEST, MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS, MODEL, MONTHLY_CAP_MICROS, REQUEST_RESERVATION_MICROS, type AcceptedProfile, type AcceptedTag, type LedgerStore, type Reservation } from "./budget-ledger.js";
 import { profileCandidates, validateProfileReply } from "./profile-archetypes.js";
-import { buildSynergyPrompt } from "./synergy-prompt.js";
+import { buildSynergyPrompt, resolveSynergyPrompt } from "./synergy-prompt.js";
 import { writeEffectArtifactCandidate } from "./artifact-output.js";
 
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -47,7 +47,7 @@ function parseResults(reservation: Reservation, results: unknown[]): { actualMic
       if (req.archetype) {
         acceptedProfiles.push({ archetype: req.archetype, cards: req.memberCount!, model: MODEL,
           profile: validateProfileReply(parsed, req.archetype), inputHash: req.profileInputHash!,
-          promptHash: sha(req.systemPrompt!), reservationId: reservation.id, batchId: reservation.batchId!, customId: req.customId, taggedAt: reservation.createdAt });
+          promptHash: req.promptHash ?? sha(req.systemPrompt!), reservationId: reservation.id, batchId: reservation.batchId!, customId: req.customId, taggedAt: reservation.createdAt });
         continue;
       }
       if (!isObject(parsed) || !Array.isArray(parsed.cards) || parsed.cards.length !== req.cards.length) throw new Error("Tag card count mismatch");
@@ -148,7 +148,7 @@ export async function runTagging(options: TaggingOptions): Promise<TaggingReport
       // One profile first prevents a large tag backlog from starving synergy updates.
       for (const profile of eligibleProfiles.slice(0, eligible.length ? 1 : availableRequests)) {
         requests.push({ customId: `et_${id}_${requests.length}`, archetype: profile.archetype, memberCount: profile.members.length,
-          profileInputHash: profile.inputHash, systemPrompt: buildSynergyPrompt(), cards: profile.cards.map(card => ({ ...card })),
+          profileInputHash: profile.inputHash, promptHash: sha(buildSynergyPrompt()), cards: profile.cards.map(card => ({ ...card })),
           hashes: Object.fromEntries(profile.cards.map(card => [card.id, hashCardEffectSourceText(card)])) });
       }
       for (let start = 0; start < cards.length && requests.length < availableRequests; start += MAX_CARDS_PER_REQUEST) {
@@ -172,6 +172,8 @@ export async function runTagging(options: TaggingOptions): Promise<TaggingReport
       const submittingMonth = submittingAt.toISOString().slice(0, 7);
       if (boundary - submittingAt.getTime() <= 25 * 60 * 60 * 1000 || budgetUsed(ledger, submittingMonth) > MONTHLY_CAP_MICROS) report.deferred.push("submission-window");
       else {
+        // A code update must not silently change the prompt of reserved work.
+        for (const req of entry.requests) if (req.archetype) resolveSynergyPrompt(req);
         entry.month = submittingMonth; entry.createdAt = submittingAt.toISOString(); entry.state = "submission_started"; await persist();
         try {
           const batch = await options.client!.create(entry);

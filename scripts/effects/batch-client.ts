@@ -1,7 +1,7 @@
 import type { Reservation } from "./budget-ledger.js";
 import { MAX_OUTPUT_TOKENS, LEGACY_MODEL } from "./budget-ledger.js";
 import { buildUserMessage, tagBatchFormat } from "./tagging-prompt.js";
-import { profileFormat, renderArchetype } from "./synergy-prompt.js";
+import { profileFormat, renderArchetype, resolveSynergyPrompt } from "./synergy-prompt.js";
 import type { Card } from "@yugidraft/shared/cards/effects";
 
 export interface BatchClient {
@@ -38,7 +38,7 @@ export class AnthropicBatchClient implements BatchClient {
   }
   async create(reservation: Reservation): Promise<{ id: string }> {
     const requests = reservation.requests.map(req => ({ custom_id: req.customId, params: {
-      model: reservation.model ?? LEGACY_MODEL, max_tokens: MAX_OUTPUT_TOKENS, system: req.systemPrompt ?? reservation.systemPrompt,
+      model: reservation.model ?? LEGACY_MODEL, max_tokens: MAX_OUTPUT_TOKENS, system: req.archetype ? resolveSynergyPrompt(req) : reservation.systemPrompt,
       thinking: { type: "disabled" },
       messages: [{ role: "user", content: req.archetype ? renderArchetype(req.archetype, req.cards as Card[]) : buildUserMessage(req.cards as Card[]) }],
       output_config: { format: req.archetype ? profileFormat() : tagBatchFormat() },

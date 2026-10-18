@@ -1,6 +1,7 @@
 /** Adapted from LorenzoWhite/searchygo, commit 9b2d952f8e7c389e13267d4bba6504cc8ea4cb5c.
  * https://github.com/LorenzoWhite/searchygo — see NOTICE for attribution. */
 /** Builds the instructions and per-archetype message for the synergy job. */
+import { createHash } from "node:crypto";
 import * as z from "zod";
 import { ATTRIBUTES, CARD_KINDS, MONSTER_TYPES, SUBTYPES, type Card } from "@yugidraft/shared/cards/effects";
 import { ArchetypeProfile, MAX_HOOKS } from "@yugidraft/shared/cards/effects";
@@ -169,6 +170,13 @@ ${ATTRIBUTES.join(", ")}
 # Examples
 
 ${SYNERGY_EXAMPLES.map(({ archetype, profile }) => `Archetype: ${archetype}\n${JSON.stringify(profile)}`).join("\n\n")}`;
+}
+
+/** New reservations keep only a hash; historical requests retain their exact prompt. */
+export function resolveSynergyPrompt(request: { systemPrompt?: string; promptHash?: string }): string {
+  const prompt = request.systemPrompt ?? buildSynergyPrompt();
+  if (request.promptHash && createHash("sha256").update(prompt).digest("hex") !== request.promptHash) throw new Error("Profile prompt hash differs from pinned code; reserved request was not submitted");
+  return prompt;
 }
 
 /** The message for one archetype: its name and its cards, best-known first. */

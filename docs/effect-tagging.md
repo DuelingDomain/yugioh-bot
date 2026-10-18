@@ -111,7 +111,11 @@ after every expected custom ID has a complete matching terminal result. A
 processing or mismatching batch releases nothing. When an ID or results cannot
 be recovered, the reservation stays held across month changes; do not delete
 it or retry its POST. The durable ledger records card inputs and prompt hashes
-for inspection and contains no API key.
+for inspection and contains no API key. New profile requests store only their
+prompt hash; submission rebuilds the prompt from pinned code and checks the hash
+before recording intent. A mismatch leaves the reservation unsubmitted and held.
+Historical requests with full saved profile prompts remain resumable. Collection
+uses the saved hash, even if the prompt code has changed since submission.
 
 ## Artifact publication and provenance
 
@@ -159,7 +163,7 @@ These checks need no API secret and issue no GitHub writes or paid requests.
 - `scripts/effects/profile-archetypes.ts`: count/hash selection and Zod plus
   `readProfile` validation; `synergy-prompt.ts` ports the credited upstream prompt.
 - `budget-ledger.ts`, `batch-client.ts`: one ledger and one Batch transport for
-  both kinds. Per-request prompts and input hashes survive restarts. Failed
+  both kinds. Profile prompt hashes and card input snapshots survive restarts. Failed
   profiles settle their billed usage; unchanged failed inputs are deferred until
   the next UTC month.
 - `artifact-output.ts`, `scripts/ci/publish-effect-tags.mjs`: generate and validate

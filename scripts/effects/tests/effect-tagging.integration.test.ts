@@ -314,9 +314,14 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     await context.runTagging({ cards: profileCards(), store: context.store, client, dryRun: false, now: context.now });
     expect(api.batches[0].requests).toHaveLength(2);
     for (const request of api.batches[0].requests) expect(request.params.thinking).toEqual({ type: "disabled" });
+    const profileRequest = (await context.store.read())!.ledger.reservations[0].requests.find(request => request.archetype)!;
+    const profileParams = api.batches[0].requests.find(request => request.params.output_config.format.schema.properties.plan)!.params;
+    expect(profileRequest).not.toHaveProperty("systemPrompt");
+    expect(profileRequest.promptHash).toBe(createHash("sha256").update(profileParams.system).digest("hex"));
     const report = await context.runTagging({ cards: profileCards(), store: context.store, client, dryRun: false, now: context.now });
     expect(report.acceptedProfiles).toHaveLength(1);
     expect(report.acceptedProfiles[0]).toMatchObject({ archetype: "CI Fiends", cards: 6, profile: profileFixture });
+    expect(report.acceptedProfiles[0].promptHash).toBe(profileRequest.promptHash);
     expect(report.usedMicros).toBe(36);
     const output = join(context.directory, "profiles-candidate");
     const { writeEffectArtifactCandidate } = await import("../artifact-output.js");
@@ -448,6 +453,40 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     expect(report.submitted).toBe(1);
     expect(report.usedMicros).toBeLessThanOrEqual(2_000_000);
     expect(resumedApi.batches[0].requests).toHaveLength(7);
+  });
+
+  it.each(["hash", "legacy", "mismatch"] as const)("resumes durable profile prompts safely after restart (%s)", async kind => {
+    const context = await setup(), api = await endpoint();
+    const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
+    let writes = 0;
+    const crashingStore = { read: () => context.store.read(), compareAndSwap: async (revision: string | undefined, ledger: import("../budget-ledger.js").Ledger) => {
+      if (++writes === 2) throw new Error("Crash before submission intent");
+      return context.store.compareAndSwap(revision, ledger);
+    } };
+    await expect(context.runTagging({ cards: profileCards(), store: crashingStore, client, dryRun: false, now: context.now })).rejects.toThrow(/before submission/);
+    const snapshot = (await context.store.read())!, request = snapshot.ledger.reservations[0].requests.find(request => request.archetype)!;
+    const { buildSynergyPrompt } = await import("../synergy-prompt.js");
+    let expectedPrompt = buildSynergyPrompt();
+    expect(request).not.toHaveProperty("systemPrompt");
+    expect(request.promptHash).toBe(createHash("sha256").update(expectedPrompt).digest("hex"));
+    if (kind === "legacy") {
+      request.systemPrompt = expectedPrompt = `Historical profile instructions.\n${expectedPrompt}`;
+      delete request.promptHash;
+    } else if (kind === "mismatch") request.promptHash = "0".repeat(64);
+    await context.store.compareAndSwap(snapshot.revision, snapshot.ledger);
+    const reopened = new context.FileLedgerStore(join(context.directory, "ledger.json"));
+    if (kind === "mismatch") {
+      const before = await reopened.read();
+      await expect(context.runTagging({ cards: profileCards(), store: reopened, client, dryRun: false, now: context.now })).rejects.toThrow(/profile prompt hash/i);
+      expect(await reopened.read()).toEqual(before);
+      expect(api.events).toEqual([]);
+      return;
+    }
+    await context.runTagging({ cards: profileCards(), store: reopened, client, dryRun: false, now: context.now });
+    expect(api.batches[0].requests.find(request => request.params.output_config.format.schema.properties.plan)!.params.system).toBe(expectedPrompt);
+    const report = await context.runTagging({ cards: profileCards(), store: reopened, client, dryRun: false, now: context.now, maxRequests: 0 });
+    expect(report.acceptedProfiles[0].promptHash).toBe(createHash("sha256").update(expectedPrompt).digest("hex"));
+    expect(api.events.filter(event => event.startsWith("POST"))).toHaveLength(1);
   });
 
 });
