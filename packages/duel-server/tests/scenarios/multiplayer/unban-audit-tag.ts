@@ -1,6 +1,6 @@
 import {
   activate, defineScenario, endTurn, expectBoard, expectPickSeats, expectPrompt, expectTurn, faceDown,
-  normalSummon, pickOpponent, select, xyz, type Scenario, type Step,
+  expectOffered, normalSummon, pickOpponent, select, xyz, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { COMPARE_GAP_SCENARIOS } from "./compare-gaps.js";
 import { domainVariant } from "./domain-variants.js";
@@ -17,23 +17,56 @@ function tagScenario(id: string, card: number, title: string, setup: Scenario["s
     setup: { format: "tag", skipOpeningDraw: true, deckSize: 20, ...setup }, steps });
 }
 
-function skipTurn(card: "Tellarknight Ptolemaeus" | "The Six Shinobi"): Scenario {
+function skipTurn(card: "Tellarknight Ptolemaeus" | "The Six Shinobi", picked: "p1" | "p3"): Scenario {
   const pto = card === "Tellarknight Ptolemaeus";
   const samurai = ["The Six Samurai - Zanji", "The Six Samurai - Yaichi", "The Six Samurai - Yariza",
     "The Six Samurai - Nisashi", "The Six Samurai - Kamon", "Legendary Six Samurai - Shi En"];
-  const scenario = tagScenario(`${pto ? "ptolemaeus" : "six-shinobi"}-far-member-unsupported`, pto ? 18326736 : 6357341,
-    `${card}: selecting p3 incorrectly skips p1; Tag member binding is unsupported`,
+  const scenario = tagScenario(`${pto ? "ptolemaeus" : "six-shinobi"}-${picked}-one-member`, pto ? 18326736 : 6357341,
+    `${card} skips only chosen ${picked}, then that member returns`,
     pto ? { p0: { monsters: [xyz(card, Array(7).fill(ELF))] } }
       : { p0: { spells: [faceDown(card)], monsters: samurai.slice(0, 3) }, p2: { monsters: samurai.slice(3) } },
-    [activate(card, "p0"), expectPickSeats(["p1", "p3"], "p0"), pickOpponent("p3", "p0"),
+    [activate(card, "p0"), expectPickSeats(["p1", "p3"], "p0"), pickOpponent(picked, "p0"),
       expectBoard(pto ? { p0: { grave: Array(7).fill(ELF), zones: { m0: { card, materials: 0 } } } }
         : { p0: { grave: [card], spells: [], monsters: samurai.slice(0, 3) }, p2: { monsters: samurai.slice(3) } }),
-      endTurn("p0"), expectTurn("p2"), endTurn("p2"), expectTurn("p3"), endTurn("p3"),
-      expectTurn("p0"), endTurn("p0"), expectTurn("p1"),
-      expectBoard({ p1: { hand: [ELF], deckCount: 19 }, p2: { hand: [ELF], deckCount: 19 }, p3: { hand: [ELF], deckCount: 19 } })]);
-  // This records the engine gap. It is not evidence for allowing the card in Tag.
-  return defineScenario({ ...scenario, rules: [], tags: [...scenario.tags, "unsupported"] });
+      endTurn("p0"),
+      ...(picked === "p3" ? [expectTurn("p1"), endTurn("p1")] : []),
+      expectTurn("p2"), endTurn("p2"),
+      ...(picked === "p1" ? [expectTurn("p3"), endTurn("p3")] : []),
+      expectTurn("p0"), endTurn("p0"), expectTurn("p1"), endTurn("p1"),
+      expectTurn("p2"), endTurn("p2"), expectTurn("p3"),
+      expectBoard({ p1: { hand: Array(picked === "p1" ? 1 : 2).fill(ELF), deckCount: picked === "p1" ? 19 : 18 },
+        p2: { hand: [ELF, ELF], deckCount: 18 },
+        p3: { hand: Array(picked === "p3" ? 1 : 2).fill(ELF), deckCount: picked === "p3" ? 19 : 18 } })]);
+  return scenario;
 }
+
+function skipFromPartner(card: "Tellarknight Ptolemaeus" | "The Six Shinobi"): Scenario {
+  const pto = card === "Tellarknight Ptolemaeus";
+  const samurai = ["The Six Samurai - Zanji", "The Six Samurai - Yaichi", "The Six Samurai - Yariza",
+    "The Six Samurai - Nisashi", "The Six Samurai - Kamon", "Legendary Six Samurai - Shi En"];
+  return tagScenario(`${pto ? "ptolemaeus" : "six-shinobi"}-p2-skips-p1`, pto ? 18326736 : 6357341,
+    `${card}: p2 skips p1 while p3 and its partner keep their turns`,
+    pto ? { p2: { monsters: [xyz(card, Array(7).fill(ELF))] } }
+      : { p2: { hand: ["Secret Six Samurai - Doji"], spells: [faceDown(card)], monsters: samurai.slice(0, 2) }, p0: { monsters: samurai.slice(2, 5) } },
+    [endTurn("p0"), endTurn("p1"), expectTurn("p2"), ...(pto ? [] : [normalSummon("Secret Six Samurai - Doji", "p2")]), activate(card, "p2"),
+      expectPickSeats(["p1", "p3"], "p2"), pickOpponent("p1", "p2"), endTurn("p2"),
+      expectTurn("p3"), endTurn("p3"), expectTurn("p0"), endTurn("p0"),
+      expectTurn("p2"), endTurn("p2"), expectTurn("p3"), endTurn("p3"),
+      expectTurn("p0"), endTurn("p0"), expectTurn("p1"),
+      expectBoard({ p0: { hand: [ELF, ELF], deckCount: 18 }, p1: { hand: [ELF, ELF], deckCount: 18 },
+        p2: { hand: [ELF, ELF], deckCount: 18, grave: pto ? Array(7).fill(ELF) : [card] },
+        p3: { hand: [ELF, ELF], deckCount: 18 } })]);
+}
+
+const stackSkips = tagScenario("ptolemaeus-one-skip-does-not-block-partner-pick", 18326736,
+  "A skip on p1 leaves p3 eligible for another Ptolemaeus",
+  { p0: { monsters: [xyz("Tellarknight Ptolemaeus", Array(7).fill(ELF)), xyz("Tellarknight Ptolemaeus", Array(7).fill(ELF))] } },
+  [activate({ card: "Tellarknight Ptolemaeus", seq: 0 }, "p0"), pickOpponent("p1", "p0"),
+    expectOffered("activate", { card: "Tellarknight Ptolemaeus", seq: 1 }, "p0"),
+    activate({ card: "Tellarknight Ptolemaeus", seq: 1 }, "p0"),
+    endTurn("p0"), expectTurn("p2"), endTurn("p2"), expectTurn("p0"),
+    endTurn("p0"), expectTurn("p1"), endTurn("p1"), expectTurn("p2"), endTurn("p2"), expectTurn("p3"),
+    expectBoard({ p0: { grave: Array(14).fill(ELF) }, p1: { hand: [ELF], deckCount: 19 }, p3: { hand: [ELF], deckCount: 19 } })]);
 
 const doom = tagScenario("doom-virus-opposing-field", 22804644,
   "Doom Virus Dragon destroys the opposing field and keeps its partner's cards",
@@ -76,5 +109,5 @@ const kaiser = [
     id: scenario.id.includes("partner-monster") ? "unban-audit-kaiser-tag-partner-limit" : "unban-audit-kaiser-tag-within-limit" })),
 ].map(scenario => defineScenario({ ...scenario, setup: { ...scenario.setup, skipOpeningDraw: true } }));
 
-const standard = [doom, skipTurn("Tellarknight Ptolemaeus"), skipTurn("The Six Shinobi"), grisaille(), ...kaiser];
+const standard = [doom, stackSkips, skipFromPartner("Tellarknight Ptolemaeus"), skipFromPartner("The Six Shinobi"), ...(["p1", "p3"] as const).flatMap(picked => [skipTurn("Tellarknight Ptolemaeus", picked), skipTurn("The Six Shinobi", picked)]), grisaille(), ...kaiser];
 export const UNBAN_AUDIT_TAG_SCENARIOS: Scenario[] = [...standard, ...standard.map(domainVariant)];

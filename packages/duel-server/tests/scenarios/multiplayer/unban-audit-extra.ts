@@ -1,7 +1,7 @@
 import {
-  activate, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard,
-  expectNotOffered, expectOffered, expectPickSeats, expectPrompt, expectTurn, faceDown,
-  normalSummon, pickOpponent, select, yes, type BoardExpect, type DuelistId, type Scenario, type Step,
+  activate, attack, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard,
+  expectNotOffered, expectOffered, expectPickSeats, expectPrompt, expectSeatNotOffered, expectTurn, faceDown,
+  no, normalSummon, pickOpponent, select, yes, type BoardExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
 
 type Format = "ffa3" | "ffa4" | "tag";
@@ -41,8 +41,8 @@ function world(format: Format, domain: boolean, heads: boolean): Scenario {
   } else {
     setup.p0!.monsters = HAND.slice(0, 2);
     for (const [index, seat] of seats.slice(1).entries()) {
-      setup[seat]!.grave = [HAND[index + 1]];
-      board[seat] = { monsters: [], grave: [], hand: [ELF, HAND[index + 1]], deckCount: 19 };
+      setup[seat]!.grave = ["Beaver Warrior", HAND[index + 1]];
+      board[seat] = { monsters: [], grave: ["Beaver Warrior"], hand: [ELF, HAND[index + 1]], deckCount: 19 };
     }
     steps.push(endTurn("p0"));
     const recipients: DuelistId[] = format === "tag" ? ["p1", "p3"] : seats.slice(1);
@@ -53,13 +53,13 @@ function world(format: Format, domain: boolean, heads: boolean): Scenario {
         const chosen = recipients[(index + recipients.length - 1) % recipients.length];
         steps.push(expectPickSeats(recipients, "p0"), pickOpponent(chosen, "p0"));
         if (index === 0) steps.push(expectBoard({
-          [seat]: { grave: [HAND[Number(seat[1])]], hand: [ELF] },
-          [chosen]: { grave: [], hand: [HAND[Number(chosen[1])]] },
+          [seat]: { grave: ["Beaver Warrior", HAND[Number(seat[1])]], hand: [ELF] },
+          [chosen]: { grave: ["Beaver Warrior"], hand: [HAND[Number(chosen[1])]] },
         }));
       }
       steps.push(endTurn(seat));
     }
-    if (format === "tag") board.p2 = { monsters: [], grave: [HAND[2]], hand: [ELF], deckCount: 19 };
+    if (format === "tag") board.p2 = { monsters: [], grave: ["Beaver Warrior", HAND[2]], hand: [ELF], deckCount: 19 };
     steps.push(expectTurn("p0"));
   }
   steps.push(expectBoard(board));
@@ -67,6 +67,38 @@ function world(format: Format, domain: boolean, heads: boolean): Scenario {
     title: heads ? "The World skips one opposing turn, then that opponent returns" : "The World chooses a GY during each opposing Draw Phase, including a non-turn opponent",
     source: SOURCE, rules: ["R-FFA-OPP-ONE"],
     tags: ["multiplayer", "unban-audit", format, "card:23846921"], setup, steps, seed: heads ? HEADS : TAILS });
+}
+
+function worldHeadsFromPartner(domain: boolean): Scenario {
+  const { setup } = fixture("tag", domain);
+  const card = "Arcana Force XXI - The World";
+  setup.p2!.hand = [card]; setup.p2!.monsters = HAND;
+  return defineScenario({ id: `unban-audit-extra-world-tag-heads-p2-skips-p1${domain ? "-domain" : ""}`,
+    title: "The World controlled by p2 skips p1 once while p3 and p0 take their turns",
+    source: SOURCE, rules: ["R-FFA-OPP-ONE"], tags: ["multiplayer", "unban-audit", "tag", "card:23846921"], setup, seed: HEADS,
+    steps: [endTurn("p0"), endTurn("p1"), normalSummon(card, "p2"),
+      select({ card: HAND[0], owner: "p2" }, { card: HAND[1], owner: "p2" }), endTurn("p2"), yes("p2"),
+      expectPickSeats(["p1", "p3"], "p2"), pickOpponent("p1", "p2"),
+      select({ card: HAND[2], owner: "p2" }, { card: HAND[3], owner: "p2" }),
+      expectTurn("p3"), endTurn("p3"), expectTurn("p0"), endTurn("p0"), expectTurn("p2"), endTurn("p2"),
+      expectTurn("p3"), endTurn("p3"), expectTurn("p0"), endTurn("p0"), expectTurn("p1"),
+      expectBoard({ p0: { hand: [ELF, ELF], deckCount: 18 }, p1: { hand: [ELF, ELF], deckCount: 18 },
+        p2: { monsters: [card], grave: HAND, hand: [ELF, ELF], deckCount: 18 }, p3: { hand: [ELF, ELF], deckCount: 18 } })] });
+}
+
+function worldPartnerEnd(domain: boolean): Scenario {
+  const { setup } = fixture("tag", domain);
+  const card = "Arcana Force XXI - The World";
+  setup.p0!.hand = [card]; setup.p0!.monsters = HAND;
+  return defineScenario({ id: `unban-audit-extra-world-tag-partner-end-not-offered${domain ? "-domain" : ""}`,
+    title: "Heads World remains payable but cannot activate during its Tag partner's End Phase",
+    source: SOURCE, rules: ["R-COMMON-CONTROLLER-TURN"], tags: ["multiplayer", "unban-audit", "tag", "card:23846921"], setup, seed: HEADS,
+    steps: [normalSummon(card, "p0"), select({ card: HAND[0], owner: "p0" }, { card: HAND[1], owner: "p0" }),
+      endTurn("p0"), expectPrompt({ by: "p0", kind: "choice", title: card }), no("p0"), endTurn("p1"), expectTurn("p2"),
+      endTurn("p2"), expectSeatNotOffered("activate", card, "p0"), expectTurn("p3"),
+      expectPrompt({ by: "p3", context: "action", offers: ["to_bp"] }),
+      expectBoard({ p0: { monsters: [card, HAND[2], HAND[3]], grave: HAND.slice(0, 2) },
+        p1: { hand: [ELF], deckCount: 19 }, p2: { hand: [ELF], deckCount: 19 }, p3: { hand: [ELF], deckCount: 19 } })] });
 }
 
 function avatar(format: Format, domain: boolean): Scenario {
@@ -102,12 +134,14 @@ function ice(format: Format, domain: boolean, current: boolean): Scenario {
   if (current) steps.push(expectPrompt({ by: actor, kind: "choice", title: "Select an option" }), choose("Entering the Battle Phase", actor),
     expectPrompt({ by: actor, context: "action", offers: ["to_m2"], notOffers: ["to_bp"] }), changePhase("main2", actor));
   steps.push(endTurn(actor));
-  for (const seat of seats.slice(0, -1)) steps.push(expectTurn(seat), endTurn(seat));
+  for (const seat of seats.slice(0, -1)) steps.push(expectTurn(seat),
+    expectPrompt({ by: seat, context: "action", offers: ["to_bp"] }), endTurn(seat));
   steps.push(expectTurn(actor));
   if (!current) {
     steps.push(expectPrompt({ by: actor, kind: "choice", title: "Select an option" }), choose("Entering the Battle Phase", actor),
       expectPrompt({ by: actor, context: "action", offers: ["to_m2"], notOffers: ["to_bp"] }), changePhase("main2", actor), endTurn(actor));
-    for (const seat of seats.slice(0, -1)) steps.push(expectTurn(seat), endTurn(seat));
+    for (const seat of seats.slice(0, -1)) steps.push(expectTurn(seat),
+      expectPrompt({ by: seat, context: "action", offers: ["to_bp"] }), endTurn(seat));
     steps.push(expectTurn(actor));
   }
   steps.push(expectPrompt({ by: actor, context: "action", offers: ["to_bp"] }),
@@ -117,63 +151,56 @@ function ice(format: Format, domain: boolean, current: boolean): Scenario {
     source: SOURCE, rules: ["R-FFA-OPP-RESPONSE"], tags: ["multiplayer", "unban-audit", format, "card:23746827"], setup, steps });
 }
 
-function mischiefGap(format: Format, domain: boolean): Scenario {
+function mischief(format: Format, domain: boolean, actor: DuelistId = "p0"): Scenario {
   const { seats, setup } = fixture(format, domain);
+  const card = "Mischief of the Time Goddess", target = actor === "p0" ? "p1" : "p3";
+  const actorIndex = seats.indexOf(actor);
+  const initialDraw = (seat: DuelistId) => seats.indexOf(seat) > 0 && seats.indexOf(seat) <= actorIndex ? 1 : 0;
+  setup[actor]!.hand = [card, card]; setup[actor]!.monsters = ["Valkyrie Dritte"];
+  for (const seat of seats.filter(seat => seat !== actor)) setup[seat]!.hand = [HAND[Number(seat[1])]];
+  const attackSteps: Step[] = [attack("Valkyrie Dritte", "direct", actor), pickOpponent(target, actor)];
+  const board: BoardExpect = { [actor]: { hand: [card, ...Array(initialDraw(actor)).fill(ELF)],
+    grave: [card], monsters: ["Valkyrie Dritte"], deckCount: 20 - initialDraw(actor) },
+    ...Object.fromEntries(seats.filter(seat => seat !== actor).map(seat => [seat, {
+      hand: [HAND[Number(seat[1])], ...Array(initialDraw(seat)).fill(ELF)],
+      deckCount: 20 - initialDraw(seat), grave: [], monsters: [] }])) };
+  const nextSeats = [...seats.slice(actorIndex + 1), ...seats.slice(0, actorIndex)];
+  return defineScenario({ id: `unban-audit-extra-mischief-${format}-next-own-battle${actor === "p0" ? "" : `-${actor}`}${domain ? "-domain" : ""}`,
+    title: "Mischief skips every intervening duelist, repeats the own Battle Phase and expires after that own turn",
+    source: SOURCE, rules: ["R-TAG-ORDER"], tags: ["multiplayer", "unban-audit", format, "card:92182447"], setup,
+    steps: [...seats.slice(0, actorIndex).map(seat => endTurn(seat)), ...attackSteps,
+      changePhase("main2", actor), activate({ card, nth: 0 }, actor),
+      expectTurn(actor), expectPrompt({ by: actor, context: "action", offers: ["to_m2"], notOffers: ["to_bp"] }),
+      expectBoard(board), ...attackSteps, expectBoard({ [target]: { lp: format === "tag" ? 14000 : 6000 } }),
+      changePhase("main2", actor), expectPrompt({ by: actor, context: "action", offers: ["to_ep"] }),
+      expectBoard({ [actor]: { hand: [card, ...Array(initialDraw(actor)).fill(ELF)], grave: [card] } }),
+      endTurn(actor), ...nextSeats.flatMap(seat => [expectTurn(seat),
+        expectPrompt({ by: seat, context: "action", offers: ["to_bp"] }), endTurn(seat)]),
+      expectTurn(actor), expectPrompt({ by: actor, context: "action", offers: ["to_bp"] }),
+      expectBoard(Object.fromEntries(seats.map(seat => [seat, {
+        hand: [...Array(initialDraw(seat) + 1).fill(ELF), ...(seat === actor ? [card] : [HAND[Number(seat[1])]])],
+        deckCount: 19 - initialDraw(seat) }]))),
+      changePhase("battle", actor), changePhase("main2", actor), expectOffered("activate", card, actor) ] });
+}
+
+function mischiefPartnerTurn(domain: boolean): Scenario {
+  const { setup } = fixture("tag", domain);
   const card = "Mischief of the Time Goddess";
-  setup.p0!.hand = [card]; setup.p0!.monsters = ["Valkyrie Dritte"];
-  for (const seat of seats.slice(1)) setup[seat]!.hand = [HAND[Number(seat[1])]];
-  const next: DuelistId = format === "tag" ? "p2" : "p1";
-  return defineScenario({ id: `unban-audit-extra-mischief-${format}-unsupported-intervening-turn${domain ? "-domain" : ""}`,
-    title: "Native Mischief leaves an intervening duelist's normal turn open",
-    source: `${SOURCE}; native gap: the card must skip to the next own Battle Phase`, rules: [],
-    tags: ["multiplayer", "unban-audit", "unsupported-turn-jump", format, "card:92182447"], setup,
-    steps: [changePhase("battle", "p0"), changePhase("main2", "p0"), activate(card, "p0"),
-      ...(format !== "tag" ? [expectPickSeats(seats.slice(1), "p0"), pickOpponent(seats.at(-1)!, "p0")] : []),
-      expectTurn(next), expectPrompt({ by: next, context: "action", offers: ["to_bp"] }),
-      expectBoard({ p0: { hand: [], grave: [card], monsters: ["Valkyrie Dritte"], deckCount: 20 },
-        ...Object.fromEntries(seats.slice(1).map(seat => [seat, { hand: [HAND[Number(seat[1])], ...(seat === next ? [ELF] : [])],
-          deckCount: seat === next ? 19 : 20, grave: [], monsters: [] }])) })] });
+  setup.p0!.monsters = ["Valkyrie Dritte"];
+  setup.p2!.spells = [faceDown(card)];
+  return defineScenario({ id: `unban-audit-extra-mischief-tag-partner-battle-not-offered${domain ? "-domain" : ""}`,
+    title: "The Tag partner cannot activate its Set Mischief during another member's Battle Phase",
+    source: SOURCE, rules: ["R-TAG-ORDER"], tags: ["multiplayer", "unban-audit", "tag", "card:92182447"], setup,
+    steps: [changePhase("battle", "p0"), changePhase("main2", "p0"), expectSeatNotOffered("activate", card, "p2"),
+      expectTurn("p0"), expectPrompt({ by: "p0", context: "action", offers: ["to_ep"] }),
+      expectBoard({ p0: { monsters: ["Valkyrie Dritte"], hand: [], deckCount: 20 },
+        p2: { spells: [card], grave: [], hand: [], deckCount: 20 } }), endTurn("p0"), expectTurn("p1"),
+      expectPrompt({ by: "p1", context: "action", offers: ["to_bp"] }),
+      expectBoard({ p1: { hand: [ELF], deckCount: 19 }, p2: { spells: [card], grave: [] } })] });
 }
 
-function worldTagGap(domain: boolean, heads: boolean): Scenario {
-  const base = world("tag", domain, heads);
-  const last = heads ? base.steps.findIndex((step, index) => index > 1 && step.op === "select") + 1
-    : base.steps.findIndex(step => step.op === "expectBoard");
-  const steps = base.steps.slice(0, last);
-  if (heads) steps.push(expectTurn("p2"), expectPrompt({ by: "p2", context: "action" }),
-    expectBoard({ p1: { hand: [], deckCount: 20 }, p3: { hand: [], deckCount: 20 } }),
-    endTurn("p2"), expectTurn("p3"), expectPrompt({ by: "p3", context: "action" }),
-    expectBoard({ p3: { hand: [ELF], deckCount: 19 } }), endTurn("p3"), expectTurn("p0"), endTurn("p0"),
-    expectTurn("p1"), expectBoard({ p0: { monsters: ["Arcana Force XXI - The World"], grave: HAND }, p1: { hand: [ELF], deckCount: 19 } }));
-  else steps.push(expectPrompt({ by: "p1", context: "action" }),
-    expectBoard({ p1: { grave: [HAND[1]], hand: [ELF] }, p2: { grave: [HAND[2]] }, p3: { grave: [HAND[3]], hand: [] } }));
-  return defineScenario({ ...base,
-    id: `unban-audit-extra-world-tag-unsupported-${heads ? "heads-member" : "tails-gy-index"}${domain ? "-domain" : ""}`,
-    title: heads ? "Native World skips p1 after p3 was chosen" : "Native World returns no card from the chosen p3 GY",
-    source: `${SOURCE}; native Tag gap`, rules: [], tags: [...base.tags, "unsupported-tag-member"], steps });
-}
-
-function iceTagGap(domain: boolean): Scenario {
-  const base = ice("tag", domain, false);
-  const last = base.steps.findIndex(step => step.op === "phase" && step.by === "p3") + 1;
-  return defineScenario({ ...base, id: `unban-audit-extra-ice-tag-unsupported-other-member${domain ? "-domain" : ""}`,
-    title: "Native Ice Prison skips p1 Main Phase 1 after responsible p3 was bound",
-    source: `${SOURCE}; native Tag gap`, rules: [], tags: [...base.tags, "unsupported-tag-member"],
-    steps: [...base.steps.slice(0, last), endTurn("p0"), expectTurn("p1"),
-      expectPrompt({ by: "p1", kind: "choice", title: "Select an option" }), choose("Entering the Battle Phase", "p1"),
-      expectPrompt({ by: "p1", context: "action", offers: ["to_m2"], notOffers: ["to_bp"] }), changePhase("main2", "p1"),
-      endTurn("p1"), expectTurn("p2"), endTurn("p2"), expectTurn("p3"), expectPrompt({ by: "p3", context: "action", offers: ["to_bp"] }),
-      expectBoard({ p0: { grave: ["Million-Century Ice Prison"], monsters: [], hand: { include: [ELF] } },
-        p1: { hand: [ELF, ELF], deckCount: 18 }, p3: { monsters: ["Penguin Soldier"], hand: [ELF, ELF], deckCount: 18 } })] });
-}
-
-export const UNBAN_AUDIT_EXTRA_SCENARIOS = (["ffa3", "ffa4"] as const).flatMap(format => [false, true].flatMap(domain => [
+export const UNBAN_AUDIT_EXTRA_SCENARIOS = (["ffa3", "ffa4", "tag"] as const).flatMap(format => [false, true].flatMap(domain => [
   world(format, domain, true), world(format, domain, false), avatar(format, domain),
-  ice(format, domain, false), ice(format, domain, true),
+  ice(format, domain, false), ice(format, domain, true), mischief(format, domain),
 ]));
-UNBAN_AUDIT_EXTRA_SCENARIOS.push(...[false, true].map(domain => avatar("tag", domain)));
-
-export const UNBAN_AUDIT_EXTRA_GAP_SCENARIOS = [
-  ...(["ffa3", "ffa4", "tag"] as const).flatMap(format => [false, true].map(domain => mischiefGap(format, domain))),
-  ...[false, true].flatMap(domain => [worldTagGap(domain, true), worldTagGap(domain, false), iceTagGap(domain)]),
-];
+UNBAN_AUDIT_EXTRA_SCENARIOS.push(...[false, true].flatMap(domain => [mischief("tag", domain, "p2"), worldHeadsFromPartner(domain), mischiefPartnerTurn(domain), worldPartnerEnd(domain)]));

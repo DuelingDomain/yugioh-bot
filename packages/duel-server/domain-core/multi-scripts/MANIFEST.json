@@ -447,6 +447,19 @@
       "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
     },
     {
+      "code": 6357341,
+      "file": "c6357341.lua",
+      "name": "The Six Shinobi",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "7a1b898ec22666d9b682afd2276b27b57eba821fd64c0fa5b64f86a07e6b6af6",
+      "note": "Owner 2026-10-18: The Six Shinobi uses one exact Tag or FFA opponent; the skip expires on that duelist's skipped turn.",
+      "redefined": [
+        "target",
+        "activate"
+      ]
+    },
+    {
       "code": 6783559,
       "file": "c6783559.lua",
       "name": "Self-Destruct Ant",
@@ -1435,6 +1448,19 @@
       "stockSha256": "6e20aaf7974d192bd80b7bbc450b7cbb54295dfcfad8ab880a222e74cc47885f"
     },
     {
+      "code": 18326736,
+      "file": "c18326736.lua",
+      "name": "Tellarknight Ptolemaeus",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "67352f23177d6733f5b80f2f6e5970436db7d9f3a8bd5db852ab95a05a427922",
+      "note": "Owner 2026-10-18: Ptolemaeus skips the selected real duelist, including the far Tag member; skip eligibility is checked per opponent.",
+      "redefined": [
+        "initial_effect",
+        "skipop"
+      ]
+    },
+    {
       "code": 18517177,
       "file": "c18517177.lua",
       "name": "Core Blast",
@@ -2079,6 +2105,34 @@
       ],
       "stockSha256": "028abe29f70e9be32459c9d902ae1ea0b55576bdea24f69dac7a2d6aefd66ed1",
       "note": "Script fix (r2-checks, R-COMMON-EACH-PLAYER): the watcher is a global effect (Duel.RegisterEffect(e2,0)) that runs with no scope, so its player values are real seats. The stock regop read tp as the literal seat 0: only a Cloudian of seat 0 was kept and the event was raised for seat 0, so the holder of any other seat never got the Trap. The regop does the stock steps for every seat 0..3 (the card of a seat, the flag of that seat, the event for that seat). Not part of R1 or R2."
+    },
+    {
+      "code": 23746827,
+      "file": "c23746827.lua",
+      "name": "Million-Century Ice Prison",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "9befba7bdcb9c59703354100dee24ad27c99f306f66e60341d93c4c9a1d739c8",
+      "note": "Owner 2026-10-18: Ice Prison skips the current phase or the next Main Phase 1 of the real causal opponent, including Tag.",
+      "redefined": [
+        "skop"
+      ]
+    },
+    {
+      "code": 23846921,
+      "file": "c23846921.lua",
+      "name": "Arcana Force XXI - The World",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "b9cbc5a96e90d8b7848ae52c9bcd5ab6a98487d56b76175596ac3b5d8ab7dc0e",
+      "note": "Owner 2026-10-18: World Heads skips one selected real duelist. Tails reads the top card from that same selected member's GY.",
+      "redefined": [
+        "skipcon",
+        "skiptg",
+        "skipop",
+        "thtg",
+        "thop"
+      ]
     },
     {
       "code": 23898021,
@@ -7818,6 +7872,19 @@
         ]
       },
       "stockSha256": "26a66dc18367bcfa8156b470d21ba9dfa2d0a7d488473254343335b0f0a5a9f5"
+    },
+    {
+      "code": 92182447,
+      "file": "c92182447.lua",
+      "name": "Mischief of the Time Goddess",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "5dedcc251db2f145dd02ab92287d5f4ecbda08d418ded6a21ada6070c2a4cbaf",
+      "note": "Owner 2026-10-18: Activate only in the real controller's Battle Phase. Skip every intervening duelist and reach the activator's next Battle Phase in FFA and Tag.",
+      "redefined": [
+        "condition",
+        "operation"
+      ]
     },
     {
       "code": 92219931,
