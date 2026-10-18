@@ -1,5 +1,8 @@
 import Database from "better-sqlite3";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { appendFileSync, cpSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { migrate } from "@yugidraft/shared/db";
 import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { createDuelService } from "@yugidraft/shared/services";
@@ -19,9 +22,9 @@ const { placings } = await import(fileURLToPath(new URL("../../../../web/src/com
 const SECRET = "owner-hands-exodia-integration";
 for (const mode of ["normal", "domain"] as const) {
   describeWithCores(`${mode}: Exodia host, saved result and replay`, [needs.cards(DATA), needs.installedMulti(DATA), ...needs.domainMulti()], () => {
-    const cases = ["ffa3", "ffa4", "tag"].map(format => ({ format: format as "ffa3" | "ffa4" | "tag", priorLoss: false }));
-    cases.push({ format: "ffa3", priorLoss: true }, { format: "ffa4", priorLoss: true });
-    it.each(cases)("$format (prior loss: $priorLoss) records one whole-duel result for every seat", async ({ format, priorLoss }) => {
+    const cases = (["ffa3", "ffa4", "tag"] as const).flatMap(format => [false, true].map(crossVersion => ({ format, priorLoss: false, crossVersion })));
+    cases.push({ format: "ffa3", priorLoss: true, crossVersion: false }, { format: "ffa4", priorLoss: true, crossVersion: false });
+    it.each(cases)("$format (prior loss: $priorLoss, changed engine: $crossVersion) records one whole-duel result for every seat", async ({ format, priorLoss, crossVersion }) => {
       const db = new Database(":memory:"); migrate(db);
       const count = seatCountFor(format), actor = count - 1;
       const players = Array.from({ length: count }, (_, i) => seedIdentity(db, { guildId: "g", userId: 100 + i }).playerId);
@@ -35,7 +38,9 @@ for (const mode of ["normal", "domain"] as const) {
       for (let i = 0; i < count; i++) service.setDeck(created.slug, "g", players[i], compiled.decks[i]);
       service.activateRecorded(created.slug, "g", players[0], ["1", "2", "3", "4"], resources.bundleVersion, null,
         { engine: "pinned", firstTurnDraw: false, scriptErrorMode: "strict", startupScripts: compiled.startupScripts!.map(s => s.content) }, resources.identity);
-      const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000 });
+      const hostOptions = { db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000 };
+      let host = createDuelHost(hostOptions);
+      let overlay: string | undefined;
       async function post<T>(op: string, seat = 0, extra: Record<string, unknown> = {}): Promise<T> {
         const raw = JSON.stringify({ op, guildId: "g", slug: created.slug, playerId: players[seat], ...extra });
         const url = "http://localhost/internal/duel";
@@ -66,6 +71,19 @@ for (const mode of ["normal", "domain"] as const) {
         expect(session).toMatchObject({ status: "completed", winnerSeat, winnerPlayerId: players[winnerSeat], ranked: false });
         expect(session.resultReason).toContain("Exodia the Forbidden One");
         const expected = { winnerSeat, reason: session.resultReason, victory: "exodia", ...(format === "tag" ? { winnerTeam: actor % 2 } : {}) };
+        if (crossVersion) {
+          const exact = await post<DuelReplayV2>("replay", 0, { version: 2 });
+          expect(exact.verification).toBe("exact");
+          await host.close();
+          overlay = mkdtempSync(join(tmpdir(), "exodia-overlay-"));
+          cpSync(resources.multiScriptsDirectory!, overlay, { recursive: true });
+          appendFileSync(join(overlay, "c33396948.lua"), "\n-- Replay identity change.\n");
+          vi.stubEnv("DUEL_MULTI_SCRIPTS_DIR", overlay);
+          const changed = getCurrentEngineResources(DATA, { mode, format });
+          expect(changed.identity.multiOverlayHash).not.toBe(resources.identity.multiOverlayHash);
+          expect(changed.identity.hostRuleVersion).toBe(resources.identity.hostRuleVersion);
+          host = createDuelHost(hostOptions);
+        }
         for (let viewer = 0; viewer < count; viewer++) {
           const saved = service.room(created.slug, "g", players[viewer], { includeStoredBoard: true });
           const live = await post<DuelRoom>("view", viewer);
@@ -78,6 +96,7 @@ for (const mode of ["normal", "domain"] as const) {
           const history = service.listHistory("g", players[viewer]).duels.find(item => item.slug === created.slug)!;
           expect(history.seats.map(seat => seat.result)).toEqual(players.map((_, i) => teamOfSeat(format, i) === teamOfSeat(format, actor) ? "win" : "loss"));
           const replay = await post<DuelReplayV2>("replay", viewer, { version: 2 });
+          expect(replay.verification).toBe(crossVersion ? "verified" : "exact");
           expect(replay.frames.length).toBeGreaterThan(2);
           const final = replay.frames.at(-1)!;
           expect(final.kind).toBe("result");
@@ -86,7 +105,11 @@ for (const mode of ["normal", "domain"] as const) {
           expect(placings(final.view)).toEqual([]);
         }
         expect(db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
-      } finally { await host.close(); db.close(); }
+      } finally {
+        await host.close(); db.close();
+        vi.unstubAllEnvs();
+        if (overlay) rmSync(overlay, { recursive: true, force: true });
+      }
     }, 60_000);
   });
 }

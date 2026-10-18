@@ -1885,12 +1885,14 @@ export function createDuelHost(options: {
           // A concurrent worker may have failed since this build started. This worker must
           // still compare its boards so a valid pass can replace that failure.
           // Reproduce host finalization from the session after checking the engine winner.
-          const expected: NonNullable<DuelEngineView["result"]> = {
-            winnerSeat: source.session.winnerSeat, reason: source.session.resultReason ?? "Duel ended",
-            ...(source.session.format === "tag" ? { winnerTeam: source.session.winnerSeat === null ? null
-              : teamOfSeat("tag", source.session.winnerSeat) } : {}),
-          };
           const matchesView = (savedView: DuelEngineView, rebuilt: DuelEngineView): boolean => {
+            if (rebuilt.result?.victory !== savedView.result?.victory) return false;
+            const expected: NonNullable<DuelEngineView["result"]> = {
+              winnerSeat: source.session.winnerSeat, reason: source.session.resultReason ?? "Duel ended",
+              ...(source.session.format === "tag" ? { winnerTeam: source.session.winnerSeat === null ? null
+                : teamOfSeat("tag", source.session.winnerSeat) } : {}),
+              ...(rebuilt.result?.victory === "exodia" ? { victory: "exodia" } : {}),
+            };
             if (rebuilt.result && (rebuilt.result.winnerSeat !== expected.winnerSeat
               || (source.session.format === "tag" && rebuilt.result.winnerTeam !== expected.winnerTeam))) return false;
             return sameReplayBoard(savedView, freezeView(rebuilt, expected));
