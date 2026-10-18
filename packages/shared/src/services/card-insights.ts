@@ -41,6 +41,12 @@ export interface CardPoolHealth {
   warnings: string[];
 }
 
+export interface CardPickInsight {
+  passcode: number;
+  score: number;
+  reason?: string;
+}
+
 type Retained = RankedInsightCard & { popularity: number };
 const compare = (a: Retained, b: Retained) => b.linkedCards - a.linkedCards || b.score - a.score || b.popularity - a.popularity || a.passcode - b.passcode;
 const limitOf = (value?: number) => Math.max(1, Math.min(120, Number.isFinite(value) ? Math.floor(value!) : 30));
@@ -60,8 +66,13 @@ const codesOf = (deck: DuelDeck | readonly number[]): readonly number[] => Array
 const synergyTarget = (text: string) => text.trim().match(/^(?:cards?\s+that\s+)?(?:works?\s+(?:well\s+)?with|synerg(?:y|ies|izes?)\s+(?:with|for)|partners?\s+for)\s+(.+?)\s*[?.!]?$/i)?.[1];
 
 /** SQL-backed, read-only insights. Only anchors, their profiles and the retained page live in memory. */
-export function createCardInsightService(db: Database.Database, options: { dataDirectory?: string } = {}) {
+export function createCardInsightService(db: Database.Database, options: {
+  dataDirectory?: string;
+  /** Borrowed for this operation; its caller owns closing it. */
+  catalog?: InsightCatalog;
+} = {}) {
   const withCatalog = <T>(read: (catalog: InsightCatalog) => T): T => {
+    if (options.catalog) return read(options.catalog);
     const catalog = createInsightCatalog(db, options.dataDirectory);
     try { return read(catalog); } finally { catalog.close(); }
   };
@@ -105,6 +116,21 @@ export function createCardInsightService(db: Database.Database, options: { dataD
     }
     return { cards: withoutPopularity(ranked), total };
   };
+
+  // Batch a pack against one pool/profile snapshot; do not reopen the engine per choice.
+  const pickScores = (passcodes: readonly number[], pickedPool: readonly number[]): CardPickInsight[] => withCatalog(catalog => {
+    const deck = [...catalog.candidates(pickedPool)], profiles = readInsightProfiles(db, deck);
+    const owned = new Set(deck.map(anchor => anchor.card.id));
+    const present = new Set<string>(deck.flatMap(anchor => anchor.tags?.roles ?? []));
+    return passcodes.map(passcode => {
+      const candidate = catalog.candidate(passcode);
+      if (!candidate || owned.has(candidate.card.id)) return { passcode, score: 0 };
+      const ranked = scoreForDeck(candidate, deck, profiles);
+      const missing = deck.length ? ["searcher", "extender", "removal", "hand_trap"].filter(role => candidate.tags?.roles.some(value => value === role) && !present.has(role)) : [];
+      const reason = ranked.reason || (missing.length ? `Adds ${missing.map(role => role.replaceAll("_", " ")).join(" and ")} to your pool` : "");
+      return { passcode, score: ranked.score + missing.length, ...(reason ? { reason } : {}) };
+    });
+  });
 
   return {
     summary(passcode: number): CardInsightSummary | null {
@@ -204,33 +230,17 @@ export function createCardInsightService(db: Database.Database, options: { dataD
         return health;
       });
     },
-    /** One catalog read for a whole pack: the reason each card works with the picked pool. Cards with no link are left out. */
+    /** Public reason adapter; shares the bot policy and one catalog read per pack. */
     packFits(passcodes: readonly number[], pickedPool: readonly number[]): Map<number, string> {
-      const fits = new Map<number, string>();
-      if (!passcodes.length || !pickedPool.length) return fits;
-      return withCatalog(catalog => {
-        const deck = [...catalog.candidates(pickedPool)];
-        if (!deck.length) return fits;
-        const profiles = readInsightProfiles(db, deck), owned = new Set(deck.map(anchor => anchor.card.id));
-        for (const passcode of passcodes) {
-          const candidate = catalog.candidate(passcode);
-          if (!candidate || owned.has(candidate.card.id)) continue;
-          const result = scoreForDeck(candidate, deck, profiles);
-          if (result.score > 0 && result.reason) fits.set(passcode, result.reason);
-        }
-        return fits;
-      });
+      if (!passcodes.length || !pickedPool.length) return new Map();
+      return new Map(pickScores(passcodes, pickedPool)
+        .filter(insight => insight.score > 0 && insight.reason)
+        .map(insight => [insight.passcode, insight.reason!]));
     },
     pickScore(passcode: number, pickedPool: readonly number[]): number {
-      return withCatalog(catalog => {
-        const candidate = catalog.candidate(passcode), deck = [...catalog.candidates(pickedPool)];
-        if (!candidate || deck.some(anchor => anchor.card.id === candidate.card.id)) return 0;
-        const score = scoreForDeck(candidate, deck, readInsightProfiles(db, deck)).score;
-        const present = new Set<string>(deck.flatMap(anchor => anchor.tags?.roles ?? []));
-        const balance = deck.length ? ["searcher", "extender", "removal", "hand_trap"].filter(role => candidate.tags?.roles.some(value => value === role) && !present.has(role)).length : 0;
-        return score + balance;
-      });
+      return pickScores([passcode], pickedPool)[0]!.score;
     },
+    pickScores,
   };
 }
 

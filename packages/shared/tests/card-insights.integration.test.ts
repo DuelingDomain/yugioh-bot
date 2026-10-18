@@ -65,6 +65,17 @@ beforeAll(() => {
 afterAll(() => { db.close(); rmSync(directory, { recursive: true, force: true }); });
 
 describe("SQL insights over the real pinned artifact", () => {
+  it("batches pack fit scores and reasons without changing the pickScore contract", () => {
+    const codes = [7084129, 7084130, 46986414, 990001];
+    const pool = [46986414];
+    const batch = service.pickScores(codes, pool);
+    expect(batch.map(card => card.score)).toEqual(codes.map(code => service.pickScore(code, pool)));
+    expect(batch[0]?.reason).toMatch(/Dark Magician/);
+    expect(batch[1]?.score).toBe(batch[0]?.score);
+    expect(batch[2]).toEqual({ passcode: 46986414, score: 0 });
+    expect(batch[3]).toEqual({ passcode: 990001, score: 0 });
+  });
+
   it("returns a canonical summary with attribution provenance and unknown absence", () => {
     expect(service.summary(7084130)).toMatchObject({ passcode: 7084129, roles: ["searcher", "recursion"], source: expect.stringContaining("searchygo-artifact:"), textHash: expect.any(String), taggedAt: expect.any(String) });
     expect(service.summary(990001)).toBeNull();
