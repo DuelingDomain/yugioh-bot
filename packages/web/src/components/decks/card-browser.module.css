@@ -60,7 +60,7 @@
 .chipButton { cursor: pointer; font-size: 12.5px; }
 :global(.ms) .clearAll { min-height: 26px; padding: 0 8px; font-size: 12.5px; }
 .body { position: relative; min-height: 0; }
-.results { height: 100%; overflow: auto; overscroll-behavior: contain; padding: 0 18px 28px; scrollbar-width: thin; }
+.results { height: 100%; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; padding: 0 18px 28px; scrollbar-width: thin; }
 .de-count { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; margin-bottom: 12px; }
 .working { color: var(--ink-4); font-size: 12px; }
 .none { display: grid; gap: 10px; justify-items: start; padding-block: 20px; color: var(--ink-3); }

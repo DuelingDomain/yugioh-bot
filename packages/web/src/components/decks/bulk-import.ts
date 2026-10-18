@@ -199,7 +199,7 @@ export function realIssues<T extends { code: string }>(issues: T[]): T[] {
 
 /** How many issues the server left out of a row, for the "and N more" line. */
 export function omittedCount(row: ImportPreviewRow): number {
-  return [...row.errors, ...row.warnings]
+  return [...row.errors, ...row.warnings, ...(row.notes ?? [])]
     .filter((issue) => issue.code === MORE_ISSUES)
     .reduce((total, issue) => total + (issue.count ?? Number(/\d+/.exec(issue.message)?.[0] ?? 0)), 0);
 }
