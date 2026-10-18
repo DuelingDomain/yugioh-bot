@@ -70,6 +70,9 @@ is reserved before submission, including structured-schema and thinking tokens;
 local token estimates never authorize spend. Actual usage rounds upward to an
 integer microdollar. Both request kinds share the $2 per-run cap: at most seven
 requests ($1.925 held). `--max-requests` can reduce this, never raise the cap.
+The 500 KB request-size safety limit is a transport bound, not a proven bound on
+billed tokens including server-added schema overhead, so it does not lower the
+reservation. This limits a tag-only run to 56 cards (48 with a profile request).
 Historical Haiku 4.5 ledger entries remain readable, retain their $0.15 holds,
 and settle using their original rate; their POST is never repeated after intent.
 A legacy batch still in `reserved` state can be trimmed to the run cap before
