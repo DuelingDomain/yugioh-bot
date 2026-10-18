@@ -49,7 +49,7 @@ export function leftTabOffset(index: number, heights: readonly number[] = TAB_GU
 }
 
 /** Reads the real height of every left tab under `root` (they grow with the text size), so the tabs never overlap. */
-function useLeftTabHeights(root: RefObject<HTMLElement | null>, deps: readonly unknown[]): number[] {
+export function useLeftTabHeights(root: RefObject<HTMLElement | null>, deps: readonly unknown[]): number[] {
   const [heights, setHeights] = useState<number[]>([]);
   const measure = useCallback(() => {
     const tabs = root.current?.querySelectorAll<HTMLElement>('[data-edge-drawer][data-side="left"] button[aria-controls]');
