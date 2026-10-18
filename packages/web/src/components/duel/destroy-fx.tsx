@@ -258,8 +258,18 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   // Three or four seats: the two-seat rule (the other seat is the caster) and the two-slot world do not hold.
   const seats = wipe ? boardSeats() : [];
   const multi = seats.length > 2;
-  const owner = group.sourceSeat >= 0 ? group.sourceSeat : multi ? seats.find((seat) => seat !== firstZone.controller) ?? 0 : 1 - firstZone.controller;
-  let ownerSide: "you" | "opp" = owner === mySeat ? "you" : "opp";
+  // Two fields on the board: a duel, or the face-off of a 3-way or 4-way table (the seats that left have no field). The
+  // two are the seats on the board, which are not always seats 0 and 1. "you" is the viewer's field, else the lower one.
+  const pairSeats = seats.length === 2 ? seats : [mySeat, 1 - mySeat];
+  const lowerSeat = () => {
+    const [a, b] = pairSeats;
+    const rowA = monsterRow(a, 5);
+    const rowB = monsterRow(b, 5);
+    return rowA && rowB && rowA.top < rowB.top ? b : a;
+  };
+  const youSeat = pairSeats.includes(mySeat) ? mySeat : lowerSeat();
+  const owner = group.sourceSeat >= 0 ? group.sourceSeat : multi || seats.length === 2 ? seats.find((seat) => seat !== firstZone.controller) ?? 0 : 1 - firstZone.controller;
+  let ownerSide: "you" | "opp" = owner === youSeat ? "you" : "opp";
   const source = sourceBox(group.sourceCode, owner);
   // Mirror Force is set off by an attack from an EARLIER snapshot, so it looks through the whole log.
   const attackEvent = [...(group.piece === "mirror-force" ? log : events)].reverse().find((event) => event.kind === "attack" && event.zone && event.id < group.events[0].id);
@@ -284,7 +294,7 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   let fieldRects: FxField[] | undefined;
   let focusRect: FxRect | undefined;
   let frame: MultiFrame | null = null;
-  const seatOf = (seat: number): "you" | "opp" => (seat === mySeat ? "you" : "opp");
+  const seatOf = (seat: number): "you" | "opp" => (seat === youSeat ? "you" : "opp");
   if (wipe) {
     const sample = artBox(zoneKey(firstZone.controller, LOCATION_MZONE, 0)) ?? artBox(zoneKey(1 - firstZone.controller, LOCATION_MZONE, 0));
     const cardW = sample ? Math.min(sample.box.width, sample.box.height) : Math.min(victims[0].box.width, victims[0].box.height);
@@ -306,7 +316,7 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
       const origin = toRect({ left: frame.centre.x, top: frame.centre.y, width: 0, height: 0 });
       world = { cx: origin.x, cy: origin.y, u: frame.u, vw: host?.width ?? 1, vh: host?.height ?? 1 };
     } else {
-      const mine = [mySeat, 1 - mySeat];
+      const mine = pairSeats;
       const all: Box[] = [];
       rowRects = { you: { m: null, st: null }, opp: { m: null, st: null } };
       pileRects = { you: { gy: null, banish: null }, opp: { gy: null, banish: null } };
