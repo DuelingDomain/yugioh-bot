@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       case "effectSearch": data = service.effectSearch(input.text, input.pool, input); break;
       case "worksWith": data = { cards: service.worksWith(input.passcode, input.pool, input) }; break;
       case "suggest": data = { cards: service.suggestForDeck(input.deck, { ...input, format: input.format ?? "normal" }) }; break;
-      case "poolHealth": data = { health: service.poolHealth(input.cards) }; break;
+      case "poolHealth": data = { health: service.poolHealth(input.cards, input) }; break;
       case "pickScore": data = { score: service.pickScore(input.candidate, input.pickedPool) }; break;
     }
     return NextResponse.json({ effectSearchEnabled: true, attribution: EFFECT_SEARCH_ATTRIBUTION, ...data }, { headers: { "Cache-Control": "private, no-store" } });

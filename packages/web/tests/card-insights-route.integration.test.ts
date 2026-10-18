@@ -59,6 +59,18 @@ describe("authenticated public-catalog insight operations", () => {
     expect((await score.json()).score).toBeGreaterThan(0);
   });
 
+  it("accepts date and cube era controls and rejects malformed controls", async () => {
+    const found = await request({ op: "effectSearch", text: "hand traps before 2015", pool: [97268402], released: { from: "2010-01", to: "2014-12" }, sort: "newest", era: { medianYear: 2010, spread: 2 } });
+    expect(found.status).toBe(200);
+    expect(await found.json()).toMatchObject({ total: 1, cards: [{ passcode: 97268402, release: { date: "2010-08", upcoming: false } }] });
+    const health = await request({ op: "poolHealth", cards: [46986414, 7084129], era: { medianYear: 2002, spread: 1 } });
+    expect(health.status).toBe(200);
+    expect(await health.json()).toMatchObject({ health: { era: { medianYear: 2002, spread: 1 }, warnings: expect.arrayContaining(["1 card is much newer than the rest of this cube."]) } });
+    for (const control of [{ released: { from: "2010-13" } }, { released: { from: "2015-01", to: "2002-01" } }, { released: { region: "any" } }, { released: { day: "2010-01-01" } }, { sort: "random" }, { era: { medianYear: "2002", spread: 1 } }, { era: { medianYear: 2002, spread: -1 } }]) {
+      expect((await request({ op: "effectSearch", text: "hand traps", ...control })).status).toBe(400);
+    }
+  });
+
   it("authenticates before processing and handles session outages", async () => {
     state.auth.mockResolvedValue(null);
     expect((await request({ op: "summary", passcode: 7084129 })).status).toBe(401);
