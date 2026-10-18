@@ -14,7 +14,10 @@ export function cleanReleaseMonth(value: unknown, region: "tcg" | "ocg"): string
   if (typeof value !== "string" || !/^\d{4}-\d{2}(?:-\d{2})?$/.test(value)) return undefined;
   const month = value.slice(0, 7);
   if (!validReleaseMonth(month) || Number(value.slice(0, 4)) < (region === "tcg" ? 2002 : 1999)) return undefined;
-  if (value.length === 10 && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) return undefined;
+  if (value.length === 10) {
+    const day = new Date(`${value}T00:00:00Z`);
+    if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== value) return undefined;
+  }
   return month;
 }
 export function isReleasedRange(value: unknown): value is ReleasedRange {
@@ -36,7 +39,7 @@ export function selectedReleaseDate(card: ReleaseDates, region?: ReleasedRange["
 }
 export function cardReleaseInfo(card: ReleaseDates, region?: ReleasedRange["region"], now = new Date()): CardReleaseInfo {
   const date = selectedReleaseDate(card, region);
-  return { ...card, ...(date ? { date, region: region ?? (card.tcgDate ? "tcg" : "ocg") } : {}), upcoming: !!date && date > now.toISOString().slice(0, 7) };
+  return { ...(card.tcgDate ? { tcgDate: card.tcgDate } : {}), ...(card.ocgDate ? { ocgDate: card.ocgDate } : {}), ...(date ? { date, region: region ?? (card.tcgDate ? "tcg" : "ocg") } : {}), upcoming: !!date && date > now.toISOString().slice(0, 7) };
 }
 export function matchesReleased(card: ReleaseDates, range?: ReleasedRange): boolean {
   if (!range || (!range.from && !range.to)) return true;
@@ -51,9 +54,13 @@ export function compareNewest(left: ReleaseDates, right: ReleaseDates, region?: 
 export function deriveCardEra(cards: readonly ReleaseDates[]): CardEra | undefined {
   const years = cards.map(card => selectedReleaseDate(card)).filter((date): date is string => !!date).map(date => Number(date.slice(0, 4))).sort((a, b) => a - b);
   if (!years.length) return undefined;
-  const quantile = (p: number) => years[Math.floor((years.length - 1) * p)]!;
-  const middle = Math.floor(years.length / 2);
-  return { medianYear: years.length % 2 ? years[middle]! : (years[middle - 1]! + years[middle]!) / 2, spread: quantile(0.75) - quantile(0.25) };
+  const median = (values: readonly number[]) => {
+    const middle = Math.floor(values.length / 2);
+    return values.length % 2 ? values[middle]! : (values[middle - 1]! + values[middle]!) / 2;
+  };
+  const medianYear = median(years);
+  // Median absolute deviation keeps a few modern additions from widening an old cube's era.
+  return { medianYear, spread: median(years.map(year => Math.abs(year - medianYear)).sort((a, b) => a - b)) };
 }
 /** A soft score bonus. Unknown dates receive no bonus. */
 export function cardEraBoost(card: ReleaseDates, era?: CardEra): number {

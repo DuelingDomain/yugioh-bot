@@ -7,3 +7,5 @@ export * from "./name-match.js";
 export * from "./capability.js";
 export * from "./engine-card.js";
 export * from "./artifact.js";
+export * from "./releases.js";
+export * from "./release-query.js";

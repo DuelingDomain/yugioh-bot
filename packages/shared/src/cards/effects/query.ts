@@ -6,6 +6,8 @@
  * of phrase rules rather than a model call, so it costs nothing per search and always gives the
  * same reading, which the site shows back to the user.
  */
+import { readReleaseQuery, describeReleased } from "./release-query.js";
+import type { ReleasedRange } from "./releases.js";
 import { resolveEffectName, compactEffectName } from "./name-match.js";
 import { ATTRIBUTES, MONSTER_TYPES, type Attribute, type CardKind, type Subtype } from "./card.js";
 import type { CardTags, GameEvent } from "./tags.js";
@@ -21,6 +23,8 @@ export interface ObjectQuery {
   types: string[];
   attributes: Attribute[];
   archetypes: string[];
+  atkMin?: number;
+  atkMax?: number;
   levelMin?: number;
   levelMax?: number;
 }
@@ -38,6 +42,9 @@ export interface EventQuery {
 export interface EffectQuery {
   /** What the card itself must be. */
   card: ObjectQuery;
+  released?: ReleasedRange;
+  releaseLabel?: string;
+  sort?: "newest";
   roles: Role[];
   does?: EventQuery;
   reactsTo?: EventQuery;
@@ -65,6 +72,8 @@ export const isEmptyObject = (object: ObjectQuery) =>
   !object.types.length &&
   !object.attributes.length &&
   !object.archetypes.length &&
+  object.atkMin === undefined &&
+  object.atkMax === undefined &&
   object.levelMin === undefined &&
   object.levelMax === undefined;
 
@@ -340,15 +349,21 @@ export function interpret(
   input: string,
   findArchetypes: ReturnType<typeof buildArchetypeMatcher> = () => [],
 ): Interpretation | null {
-  let text = input
+  const release = readReleaseQuery(input);
+  let text = release.text
     .toLowerCase()
     .replace(/[“”"]/g, " ")
     .replace(/\bgrave ?yards?\b|\bgraves?\b/g, "gy")
     .replace(/\s+/g, " ")
     .trim();
-  if (!text) return null;
+  if (!text && !release.released && !release.sort) return null;
   for (const [term, meaning] of PLAYER_TERMS) text = text.replace(term, meaning);
 
+  let atk: number | undefined;
+  text = text.replace(/\b(?:(\d{1,5})\s+(?:atk|attack)|(?:atk|attack)\s+(\d{1,5}))\b/g, (match, before, after, offset: number) => {
+    if (/\b(?:gain\w*|boost\w*|increas\w*|rais\w*|doubl\w*|los\w+|reduc\w*|lower\w*|halv\w*|chang\w*)\s+(?:\w+\s+){0,2}$/.test(text.slice(0, offset))) return match;
+    atk = Number(before ?? after); return " ";
+  });
   const marks: Mark[] = [];
   const free = (start: number, end: number) => marks.every((mark) => end <= mark.start || start >= mark.end);
   /** Marks every non-overlapping match of a pattern. Earlier rules win, so order encodes priority. */
@@ -392,7 +407,9 @@ export function interpret(
   // "is banished", "gets destroyed": a verb right after an auxiliary is something that happens to a card.
   const passive = (mark: Mark) => AUXILIARY.test(text.slice(Math.max(0, mark.start - 7), mark.start));
 
-  const query: EffectQuery = { card: emptyObject(), roles: [], quick: false, text: "" };
+  const query: EffectQuery = { card: emptyObject(), roles: [], quick: false, text: "",
+    ...(release.released ? { released: release.released, releaseLabel: release.releaseLabel } : {}), ...(release.sort ? { sort: release.sort } : {}) };
+  if (atk !== undefined) Object.assign(query.card, { atkMin: atk, atkMax: atk });
   const newEvent = (): EventQuery & { to?: Zone; rule?: VerbRule } => ({ verbs: [], from: [], self: false, object: emptyObject() });
   let does: ReturnType<typeof newEvent> | undefined;
   let reactsTo: ReturnType<typeof newEvent> | undefined;
@@ -536,7 +553,7 @@ export function interpret(
   if (does) query.does = strip(does);
   if (reactsTo) query.reactsTo = strip(reactsTo);
 
-  const understood = query.does || query.reactsTo || query.supports || query.roles.length || query.quick || query.worksFrom || !isEmptyObject(query.card);
+  const understood = query.released || query.sort || query.does || query.reactsTo || query.supports || query.roles.length || query.quick || query.worksFrom || !isEmptyObject(query.card);
   if (!understood) return null;
 
   // Whatever no rule claimed still narrows the search, as ordinary text.
@@ -598,6 +615,7 @@ const ZONE_LABELS: Record<Zone, string> = {
 const verbLabel = (verb: Verb) => VERB_LABELS[verb] ?? verb.replaceAll("_", " ").replace(/\b(summon|special|normal|fusion|ritual|synchro|xyz|link|pendulum)\b/g, (word) => word[0]!.toUpperCase() + word.slice(1));
 
 function describeObject(object: ObjectQuery): string {
+  const attack = object.atkMin !== undefined ? `${object.atkMin} ATK` : "";
   const level =
     object.levelMin !== undefined && object.levelMin === object.levelMax
       ? `Level ${object.levelMin}`
@@ -607,7 +625,7 @@ function describeObject(object: ObjectQuery): string {
           ? `Level ${object.levelMin} or higher`
           : "";
   const kinds = [...new Set(object.kinds)].map((kind) => kind[0]!.toUpperCase() + kind.slice(1)).join("/");
-  return [level, ...object.attributes, ...object.types, ...object.archetypes.map((name) => `"${name}"`), ...object.subtypes.map((subtype) => subtype.replace("_", "-")), kinds]
+  return [attack, level, ...object.attributes, ...object.types, ...object.archetypes.map((name) => `"${name}"`), ...object.subtypes.map((subtype) => subtype.replace("_", "-")), kinds]
     .filter(Boolean)
     .join(" ");
 }
@@ -622,6 +640,8 @@ function describeEvent(event: EventQuery): string {
 
 export function describe(query: EffectQuery): string[] {
   const chips: string[] = [];
+  if (query.released) chips.push(query.releaseLabel ?? describeReleased(query.released));
+  if (query.sort) chips.push("Sort: newest first");
   if (!isEmptyObject(query.card)) chips.push(`Card is: ${describeObject(query.card)}`);
   for (const role of query.roles) chips.push(`Role: ${role.replaceAll("_", " ")}`);
   if (query.quick) chips.push("Usable on the opponent's turn");
@@ -639,6 +659,8 @@ export function omitReadingChips(reading: Interpretation, omitted: readonly stri
   const query = structuredClone(reading.query);
   const base = (): EffectQuery => ({ card: emptyObject(), roles: [], quick: false, text: "" });
   const removed = (partial: Partial<EffectQuery>) => describe({ ...base(), ...partial }).some(label => omitted.includes(label));
+  if (removed({ released: query.released, releaseLabel: query.releaseLabel })) { delete query.released; delete query.releaseLabel; }
+  if (removed({ sort: query.sort })) delete query.sort;
   if (removed({ card: query.card })) query.card = emptyObject();
   query.roles = query.roles.filter(role => !removed({ roles: [role] }));
   if (removed({ quick: query.quick })) query.quick = false;
