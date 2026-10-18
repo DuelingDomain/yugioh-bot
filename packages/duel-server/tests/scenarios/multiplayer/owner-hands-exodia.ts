@@ -1,6 +1,6 @@
 import {
   activate, defineScenario, endTurn, expectBoard, expectEliminated, expectNotOffered,
-  expectPrompt, expectResult, surrender, type BoardExpect, type DuelistId, type Scenario, type Step,
+  expectEvents, expectPrompt, expectResult, normalSummon, surrender, type BoardExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
 
 const SEATS: DuelistId[] = ["p0", "p1", "p2", "p3"];
@@ -107,13 +107,12 @@ function offTurnHandScenario(format: typeof FORMATS[number], domain: boolean): S
   }
   setup.p1!.spells = [{ card: "Hand Destruction", pos: "set" }];
   const steps: Step[] = [activate("Pot of Greed", "p0"), activate("Hand Destruction", "p1")];
-  for (let offset = 0; offset < count; offset++) {
-    const i = (1 + offset) % count;
+  for (let i = 0; i < count; i++) {
     steps.push(expectPrompt({ by: SEATS[i], kind: "cards" }), { op: "select", sels: [HAND[i], HAND[i]], by: SEATS[i] });
   }
   steps.push(expectBoard(board));
   return defineScenario({ id: `owner-hands-off-turn-${format}${domain ? "-domain" : ""}`,
-    title: "Hand Destruction: p1 starts the choice order during p0's turn", source: SOURCE,
+    title: "Hand Destruction: p0 starts the choice order during p0's turn", source: SOURCE,
     rules: ["R-COMMON-HAND-DESTRUCTION"], tags: ["multiplayer", format, "card:74519184"], setup, steps });
 }
 
@@ -129,6 +128,35 @@ function emptyHandScenario(format: typeof FORMATS[number], domain: boolean): Sce
     title: "Card Destruction: an empty hand draws no cards", source: SOURCE,
     rules: ["R-COMMON-HAND-DESTRUCTION"], tags: ["multiplayer", format, "card:72892473"], setup,
     steps: [activate("Card Destruction", "p0"), expectBoard(board)] });
+}
+
+function deckOutScenario(domain: boolean, losses: number): Scenario {
+  const setup = setupFor("ffa4", domain);
+  setup.deckSize = 1;
+  const board: BoardExpect = {};
+  const losers = SEATS.slice(1, losses + 1);
+  for (const [i, seat] of SEATS.entries()) {
+    const lost = losers.includes(seat);
+    setup[seat]!.hand = [...Array(lost ? 3 : 1).fill(HAND[i]), ...(i === 0 ? ["Card Destruction"] : [])];
+    board[seat] = { hand: lost ? [] : [FILLER], grave: lost ? [] : [HAND[i], ...(i === 0 ? ["Card Destruction"] : [])], deckCount: 0 };
+  }
+  return defineScenario({ id: `owner-hands-deck-out-${losses}-ffa4${domain ? "-domain" : ""}`,
+    title: `Card Destruction: ${losses} opponent(s) lose by deck-out and the other players continue`, source: SOURCE,
+    rules: ["R-COMMON-HAND-DESTRUCTION"], tags: ["multiplayer", "ffa4", "card:72892473", "deck-out"], setup,
+    steps: [expectBoard(Object.fromEntries(losers.map(seat => [seat, { hand: setup[seat]!.hand, deckCount: 1 }]))),
+      activate("Card Destruction", "p0"), expectEvents(...losers.map(by => ({ kind: "move" as const, by, card: FILLER }))),
+      expectEliminated(...losers), expectBoard(board), expectPrompt({ by: "p0", context: "action" }),
+      normalSummon(FILLER, "p0"), expectBoard({ p0: { hand: [], monsters: [FILLER] } })] });
+}
+
+function shortDeckScenario(domain: boolean): Scenario {
+  const setup = setupFor("ffa4", domain);
+  setup.deckSize = 1;
+  setup.p0!.hand = ["Card Destruction", "Battle Ox", "Silver Fang"];
+  return defineScenario({ id: `owner-hands-short-deck-ffa4${domain ? "-domain" : ""}`,
+    title: "Card Destruction: the activator must have enough cards in the Deck", source: SOURCE,
+    rules: ["R-COMMON-HAND-DESTRUCTION"], tags: ["multiplayer", "ffa4", "card:72892473"], setup,
+    steps: [expectNotOffered("activate", "Card Destruction", "p0")] });
 }
 
 function afterLossScenario(format: "ffa3" | "ffa4", domain: boolean, code: 72892473 | 74519184 | 33396948): Scenario {
@@ -150,4 +178,5 @@ export const OWNER_HANDS_EXODIA_SCENARIOS: Scenario[] = FORMATS.flatMap(format =
   ...SEATS.slice(0, format === "ffa3" ? 3 : 4).map((_, actor) => exodiaScenario(format, domain, actor)),
   splitExodiaScenario(format, domain), shortHandScenario(format, domain), offTurnHandScenario(format, domain), emptyHandScenario(format, domain),
   ...(format === "tag" ? [] : ([72892473, 74519184, 33396948] as const).map(code => afterLossScenario(format, domain, code))),
+  ...(format === "ffa4" ? [deckOutScenario(domain, 1), deckOutScenario(domain, 2), shortDeckScenario(domain)] : []),
 ]));

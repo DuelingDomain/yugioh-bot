@@ -35,6 +35,16 @@ async function run(scenario: Scenario): Promise<void> {
         expect(game.view(seat.seat).prompt).toBeNull();
       }
     } else expect(view.result).toBeNull();
+    if (scenario.tags.includes("deck-out")) {
+      const lost = scenario.id.includes("deck-out-2") ? [1, 2] : [1];
+      expect(view.eliminationOrder).toEqual([lost]);
+      expect(placings(view, view.eliminationOrder).filter(row => lost.includes(row.seat)).map(row => row.place)).toEqual(lost.map(() => 5 - lost.length));
+      for (const seat of lost) {
+        const draws = game.view(seat).events.filter(event => event.kind === "move" && event.seat === seat
+          && event.from?.location === 1 && event.zone?.location === 2);
+        expect(draws).toHaveLength(1);
+      }
+    }
   } finally { game.close(); }
 }
 
