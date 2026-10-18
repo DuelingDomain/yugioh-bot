@@ -7698,7 +7698,7 @@
       ],
       "r2Class": "TABLE",
       "stockSha256": "f0e3d2f61aef544c27bec8f332ccedefae4ad333df9687fd1661360076edce8b",
-      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The adjust handler loops over every living duelist (stock: the two sides of the owner). The cannot-activate value function still gets a folded player.",
+      "note": "Use the exact Special Summon receiving seat before folded Lua player values; keep Tag joined fields and per-seat race state in FFA.",
       "seatTables": [
         "s"
       ],

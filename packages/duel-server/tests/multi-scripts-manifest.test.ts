@@ -371,6 +371,9 @@ describe("the overlay files", () => {
     coreApi.add("MPBeginControlRotation");
     coreApi.add("MPChainCount");
     coreApi.add("MPPreviousChain");
+    coreApi.add("MPGeometrySeat");
+    coreApi.add("MPSummonTargetSeat");
+    coreApi.add("MPTagSwapControl");
     for (const card of cards) {
       for (const [, helper] of text(card).matchAll(/\baux\.(MP\w+)/g)) {
         expect(helperText, `${card.file}: aux.${helper}`).toContain(`function aux.${helper}(`);
