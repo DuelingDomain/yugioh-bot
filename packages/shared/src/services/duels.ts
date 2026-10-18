@@ -120,6 +120,8 @@ export interface DuelSetup {
   scenarioId?: string;
   /** Seats that gave up (or ran out of time) in a table with more than two seats; the host plays them on autopilot. */
   surrenderedSeats?: number[];
+  /** Seats whose elimination the engine confirmed, including LP and deck-out losses and Tag teammates. */
+  eliminatedSeats?: number[];
   /** Dev scenario presets (DUEL_SCENARIOS=1): the preset the table was made from. The host rebuilds the bot rules from it. */
   presetId?: string;
   /** Seat number (as text) to bot policy name, for example `{ "1": "scripted" }`. */
@@ -188,6 +190,8 @@ export interface DuelService {
   /** Claims an open human seat before any opening or series has started. Defaults to the first open seat. */
   takeSeat(slug: string, guildId: string, playerId: number, seat?: number): DuelSession;
   leave(slug: string, guildId: string, playerId: number): DuelSession;
+  /** Navigation departure before start: the host closes the lobby; a guest releases their seat. */
+  leaveLobby(slug: string, guildId: string, playerId: number): DuelSession;
   /** `seat` picks the empty seat (for example a Tag partner). Without it the lowest empty seat is used. */
   addPracticeBot(slug: string, guildId: string, organizerPlayerId: number, deck: DuelDeck, seat?: number): DuelSession;
   /**
@@ -432,6 +436,9 @@ function parseSetup(raw: string | null | undefined, kind: DuelKind, format: Duel
     if (Array.isArray(input.surrenderedSeats) && input.surrenderedSeats.every((entry) => Number.isInteger(entry) && entry >= 0)) {
       setup.surrenderedSeats = input.surrenderedSeats as number[];
     }
+    if (Array.isArray(input.eliminatedSeats) && input.eliminatedSeats.every((entry) => Number.isInteger(entry) && entry >= 0)) {
+      setup.eliminatedSeats = input.eliminatedSeats as number[];
+    }
     if (typeof input.presetId === "string" && input.presetId) setup.presetId = input.presetId;
     if (isPolicyMap(input.botPolicies)) setup.botPolicies = input.botPolicies;
     if (isDuelEngineChoice(input.engine)) setup.engine = input.engine;
@@ -447,7 +454,7 @@ export function validateSetup(setup: unknown, recorded?: DuelSetup): DuelSetup {
     throw new DuelServiceError("Duel setup must be an object", 400);
   }
   const input = setup as Record<string, unknown>;
-  const extra = Object.keys(input).find((key) => key !== "scriptErrorMode" && key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "presetId" && key !== "botPolicies" && key !== "engine"
+  const extra = Object.keys(input).find((key) => key !== "scriptErrorMode" && key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "eliminatedSeats" && key !== "presetId" && key !== "botPolicies" && key !== "engine"
     && !(key === "replayFork" && recorded?.replayFork) && !(key === "engineIdentity" && recorded?.engineIdentity));
   if (extra) throw new DuelServiceError(`Unknown duel setup field: ${extra}`, 400);
   const out: DuelSetup = {};
@@ -491,6 +498,12 @@ export function validateSetup(setup: unknown, recorded?: DuelSetup): DuelSetup {
       throw new DuelServiceError("surrenderedSeats must be a list of seat numbers", 400);
     }
     out.surrenderedSeats = input.surrenderedSeats as number[];
+  }
+  if (input.eliminatedSeats !== undefined) {
+    if (!Array.isArray(input.eliminatedSeats) || input.eliminatedSeats.some((entry) => !Number.isInteger(entry) || entry < 0)) {
+      throw new DuelServiceError("eliminatedSeats must be a list of seat numbers", 400);
+    }
+    out.eliminatedSeats = input.eliminatedSeats as number[];
   }
   if (input.presetId !== undefined) {
     if (typeof input.presetId !== "string" || !input.presetId || input.presetId.length > 100) {
@@ -808,6 +821,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         ...(setup.botPolicies ? { botPolicies: Object.fromEntries(Object.entries(setup.botPolicies)
           .map(([seat, policy]) => [String(newSeat(Number(seat))), policy])) } : {}),
         ...(setup.surrenderedSeats ? { surrenderedSeats: setup.surrenderedSeats.map(newSeat) } : {}),
+        ...(setup.eliminatedSeats ? { eliminatedSeats: setup.eliminatedSeats.map(newSeat) } : {}),
       }), duelId);
       // Dice history deliberately retains the original lobby indices for every round.
       return after;
@@ -1308,6 +1322,28 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     return mapSession(updated);
   });
 
+  const leaveLobbyTx = db.transaction((slug: string, guildId: string, playerId: number) => {
+    const row = loadDuelRow(slug, guildId);
+    assertPlay(row);
+    assertPlayerGuild(playerId, guildId);
+    assertRoomAccess(row, playerId);
+    if (row.status !== "lobby" || row.started_at !== null || (row.game_number ?? 1) > 1) {
+      throw new DuelServiceError("You can only leave a lobby before the game or match starts", 409);
+    }
+    assertNoOpening(row);
+    if (!seatRows(row.id).some(seat => seat.player_id === playerId)) {
+      throw new DuelServiceError("You are not seated in this duel", 403);
+    }
+    if (row.organizer_player_id === playerId) return cancelTx(slug, guildId, playerId);
+    if (isPendingChallenge(row) && series.byId(row.series_id!)?.status === "active") {
+      // No game or win exists yet. Keep the host's lobby/options, and let a future start
+      // create a fresh series for whichever guest takes the now-open seat.
+      db.prepare("update duels set series_id = null, game_number = null where id = ?").run(row.id);
+      series.cancel(row.series_id!, guildId);
+    }
+    return leaveTx(slug, guildId, playerId);
+  });
+
   const hostedLiveRows = (guildId: string, playerId: number) => db.prepare<[string, number], DuelRow>(`
     select * from duels where guild_id = ? and organizer_player_id = ?
       and kind = 'play' and status in ('lobby', 'active')
@@ -1538,6 +1574,11 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
 
     leave(slug, guildId, playerId) {
       return leaveTx(slug, guildId, playerId);
+    },
+
+    leaveLobby(slug, guildId, playerId) {
+      // Acquire the writer lock before checking state: a concurrent start/claim must serialize here.
+      return leaveLobbyTx.immediate(slug, guildId, playerId);
     },
 
     addPracticeBot(slug, guildId, organizerPlayerId, deck, seat) {
