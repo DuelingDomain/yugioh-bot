@@ -141,7 +141,7 @@ function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, o
 }
 
 /** The host's tools: find an archetype, use a saved cube, start a blank one, import a list. Only the host sees them. */
-function BoxTools({ cubes, table, controller, library, loadLibrary, onChanged }: Pick<ThemeBoxProps, "cubes" | "table" | "controller" | "onChanged"> & { library: LibraryCube[]; loadLibrary: () => void }) {
+function BoxTools({ slug, cubes, table, controller, library, loadLibrary, onChanged }: Pick<ThemeBoxProps, "slug" | "cubes" | "table" | "controller" | "onChanged"> & { library: LibraryCube[]; loadLibrary: () => void }) {
   const ids = React.useId();
   const effectSearch = useEffectSearchEnabled();
   const [query, setQuery] = React.useState("");
@@ -245,6 +245,7 @@ function BoxTools({ cubes, table, controller, library, loadLibrary, onChanged }:
       {effectSearch && (
         <div className={styles.toolRow}>
           <DescribeTheme
+            slug={slug}
             busy={busy}
             create={async (name) => (await table.attach({ kind: "blank", name }))?.id ?? null}
             discard={async (cubeId) => {
@@ -356,7 +357,7 @@ export function ThemeBox(props: ThemeBoxProps) {
             {cubes.map((cube) => <BoxCube key={cube.id} cube={cube} library={library} {...props} />)}
           </ul>
         )}
-        {isHost && <BoxTools cubes={cubes} table={props.table} controller={props.controller} library={library} loadLibrary={loadLibrary} onChanged={props.onChanged} />}
+        {isHost && <BoxTools slug={props.slug} cubes={cubes} table={props.table} controller={props.controller} library={library} loadLibrary={loadLibrary} onChanged={props.onChanged} />}
       </div>
     </section>
   );

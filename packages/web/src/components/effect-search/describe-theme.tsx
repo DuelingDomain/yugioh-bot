@@ -1,7 +1,6 @@
 "use client";
 
-import * as React from "react";
-import { confirmSeed, previewSeed, type BatchEntry, type SeedPreview } from "./effect-api";
+import { confirmSeed, previewDraftSeed, type BatchEntry, type SeedPreview } from "./effect-api";
 import { PhraseSeed, type SeedOutcome } from "./phrase-seed";
 
 /** A cube name from the phrase: the first words, not past 60 letters. */
@@ -14,61 +13,44 @@ export function themeNameFrom(phrase: string): string {
 }
 
 /**
- * "Describe a theme" for the theme lobby: the preview needs a cube to read against, so the first preview makes a
- * blank theme cube for the draft. Cancel takes it out again. Confirm keeps it with the cards the player kept.
+ * "Describe a theme" for the theme lobby. The preview reads the catalog only, so nothing exists in the lobby
+ * or the library until the host confirms. Confirm then makes the theme cube, fills it and keeps it.
  */
 export function DescribeTheme({
+  slug,
   create,
   discard,
   onAdded,
   busy,
 }: {
+  /** The draft the theme is for. */
+  slug: string;
   /** Makes a blank theme cube named for the phrase and puts it in the draft. Resolves its id, or null when it failed. */
   create: (name: string) => Promise<number | null>;
-  /** Takes the unused cube out of the draft and the library. */
+  /** Takes a cube that could not be filled out of the draft and the library. */
   discard: (cubeId: number) => Promise<void>;
   /** The cube now holds the kept cards. */
   onAdded: (name: string, outcome: SeedOutcome) => void;
   busy?: boolean;
 }) {
-  const made = React.useRef<{ id: number; name: string } | null>(null);
-  const latest = React.useRef(discard);
-  latest.current = discard;
+  const preview = (phrase: string, options: { targetCount: number; signal: AbortSignal }): Promise<SeedPreview> =>
+    previewDraftSeed(slug, phrase, options);
 
-  // Leaving the page with a preview open drops the empty cube as well.
-  React.useEffect(
-    () => () => {
-      const open = made.current;
-      made.current = null;
-      if (open) void latest.current(open.id).catch(() => {});
-    },
-    [],
-  );
-
-  const preview = async (phrase: string, options: { targetCount: number; signal: AbortSignal }): Promise<SeedPreview> => {
-    if (!made.current) {
-      const name = themeNameFrom(phrase);
-      const id = await create(name);
-      if (id === null) throw new Error("Could not start a theme for that phrase.");
-      made.current = { id, name };
+  const confirm = async (entries: BatchEntry[], phrase: string): Promise<SeedOutcome> => {
+    const name = themeNameFrom(phrase);
+    const id = await create(name);
+    if (id === null) throw new Error("Could not make a theme for that phrase. A cube with that name may already exist.");
+    let outcome: SeedOutcome;
+    try {
+      outcome = await confirmSeed(id, entries);
+    } catch (error) {
+      // Do not leave an empty theme in the lobby when the cards were refused.
+      await discard(id).catch(() => {});
+      throw error;
     }
-    return previewSeed(made.current.id, phrase, options);
-  };
-
-  const confirm = async (entries: BatchEntry[]): Promise<SeedOutcome> => {
-    const open = made.current;
-    if (!open) throw new Error("Preview the cards first.");
-    const outcome = await confirmSeed(open.id, entries);
-    made.current = null;
-    onAdded(open.name, outcome);
+    onAdded(name, outcome);
     return outcome;
   };
 
-  const cancel = () => {
-    const open = made.current;
-    made.current = null;
-    if (open) void discard(open.id).catch(() => {});
-  };
-
-  return <PhraseSeed label="Describe a theme" preview={preview} confirm={confirm} busy={busy} onCancel={cancel} />;
+  return <PhraseSeed label="Describe a theme" preview={preview} confirm={confirm} busy={busy} />;
 }

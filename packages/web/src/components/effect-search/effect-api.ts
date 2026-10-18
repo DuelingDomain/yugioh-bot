@@ -129,12 +129,24 @@ export interface SeedPreview {
   warnings: string[];
 }
 
-export async function previewSeed(cubeId: number, phrase: string, options: { targetCount?: number; maxCopies?: number; signal?: AbortSignal } = {}): Promise<SeedPreview> {
+type SeedPreviewOptions = { targetCount?: number; maxCopies?: number; signal?: AbortSignal };
+
+/** Preview against a cube, so the cards it already holds are left out. */
+export function previewSeed(cubeId: number, phrase: string, options: SeedPreviewOptions = {}): Promise<SeedPreview> {
+  return requestSeedPreview(`/api/cubes/${cubeId}/seed/preview`, phrase, options);
+}
+
+/** Preview a theme for a lobby. No cube exists yet; nothing is created until the host confirms. */
+export function previewDraftSeed(slug: string, phrase: string, options: SeedPreviewOptions = {}): Promise<SeedPreview> {
+  return requestSeedPreview(`/api/drafts/${encodeURIComponent(slug)}/seed/preview`, phrase, options);
+}
+
+async function requestSeedPreview(url: string, phrase: string, options: SeedPreviewOptions): Promise<SeedPreview> {
   const body: Record<string, unknown> = { phrase };
   if (options.targetCount !== undefined) body.targetCount = options.targetCount;
   if (options.maxCopies !== undefined) body.maxCopies = options.maxCopies;
   const data = await post<Omit<SeedPreview, "chips"> & { reading: { chips: string[] } | null }>(
-    `/api/cubes/${cubeId}/seed/preview`,
+    url,
     body,
     "The preview did not work.",
     options.signal,
