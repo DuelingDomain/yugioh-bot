@@ -33,10 +33,14 @@ updating the exported constants and rerunning the integration suite. The
 artifact version is the SHA-256 of the manifest identity serialized as compact
 JSON without the `artifactVersion` field.
 
-Current artifact version:
+Initial foundation artifact version:
 `e0fa78ea97c2d1f2842022952e14d12a7cfa38e901bd4ad5d10eb29c57406480`.
-Current manifest SHA-256:
+Initial foundation manifest SHA-256:
 `aeff6bfe90149feedbbb06c7e48a2848214dc52e34562963e548ac0ec313a6ac`.
+
+Future validated Batch PRs update the manifest and source pin constants. Those
+files are authoritative for the installed version; the sizes/counts above
+describe this original foundation snapshot.
 
 ## Import contract
 

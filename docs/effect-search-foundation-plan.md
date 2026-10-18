@@ -13,15 +13,15 @@ The owner-approved build and integration briefs in `data/briefs` are the source 
 
 ## Implementation sequence
 
-- [ ] Install dependencies with Node 22 and record the baseline card-query latency/memory.
-- [ ] Copy/adapt schema, vocabulary, reader and matcher; integration-test the real tags including Spellcaster slot assignment and aliases.
-- [ ] Pin/import tags and profiles, migrate tables and verify canonicalization, re-import idempotence, remaps and corruption failure.
-- [ ] Add explainable card/deck synergy, SQL insight service and scoped insight routes.
-- [ ] Add compact duel index and effect group to host/card-query without changing existing admission and format filters.
-- [ ] Add deck-browser interpretation, exact control and attribution; check the requested desktop/mobile viewports.
-- [ ] Implement Haiku Batch tagging of only new/changed text, with a persisted monthly $10 reservation cap and CI validation.
-- [ ] Run roughly 60 real-artifact query cases in CI, report labeled precision, catalog coverage, name latency and index memory.
-- [ ] Run targeted integration/regression tests and shared/web/duel-server tsc, review contracts, commit in small slices, remove generated build caches.
+- [x] Install dependencies with Node 22 and record the baseline card-query latency/memory.
+- [x] Copy/adapt schema, vocabulary, reader and matcher; integration-test the real tags including Spellcaster slot assignment and aliases.
+- [x] Pin/import tags and profiles, migrate tables and verify canonicalization, re-import idempotence, remaps and corruption failure.
+- [x] Add explainable card/deck synergy, SQL insight service and scoped insight routes.
+- [x] Add compact duel index and effect group to host/card-query without changing existing admission and format filters.
+- [x] Add deck-browser interpretation, exact control and attribution; check the requested desktop/mobile viewports.
+- [x] Implement Haiku Batch tagging of only new/changed text, with a persisted monthly $10 reservation cap and CI validation.
+- [x] Run roughly 60 real-artifact query cases in CI, report labeled precision, catalog coverage, name latency and index memory.
+- [x] Run targeted integration/regression tests and shared/web/duel-server tsc, review contracts, commit in small slices, remove generated build caches.
 
 ## Validation and delivery
 
