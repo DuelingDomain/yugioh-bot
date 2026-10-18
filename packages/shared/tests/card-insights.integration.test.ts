@@ -138,6 +138,11 @@ describe("SQL insights over the real pinned artifact", () => {
     expect(suggestions.every(card => card.deckMasterFit === true)).toBe(true);
     expect(service.suggestForDeck([46986414], { pool: [], format: "normal" })).toEqual([]);
     expect(service.pickScore(7084129, [46986414])).toBeGreaterThan(service.pickScore(71039903, [46986414]));
+    const fits = service.packFits([7084129, 71039903, 46986414], [46986414]);
+    expect(fits.get(7084129)).toContain("Dark Magician");
+    expect(fits.has(71039903)).toBe(false);
+    expect(fits.has(46986414)).toBe(false);
+    expect(service.packFits([7084129], []).size).toBe(0);
     expect(service.effectSearch("works with Dark Magician", [7084129, 71039903]).cards.map(card => card.passcode)).toEqual([7084129]);
     expect(service.effectSearch("searchers", [7084129], { format: "domain", deckMaster: 46986414 }).cards[0]?.deckMasterFit).toBe(true);
     expect(service.suggestForDeck({ main: [7084129], extra: [], side: [], deckMaster: 46986414 }, { pool: [46986414], format: "domain" })).toEqual([]);

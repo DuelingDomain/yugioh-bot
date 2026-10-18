@@ -213,6 +213,23 @@ export function createCardInsightService(db: Database.Database, options: { dataD
         return health;
       });
     },
+    /** One catalog read for a whole pack: the reason each card works with the picked pool. Cards with no link are left out. */
+    packFits(passcodes: readonly number[], pickedPool: readonly number[]): Map<number, string> {
+      const fits = new Map<number, string>();
+      if (!passcodes.length || !pickedPool.length) return fits;
+      return withCatalog(catalog => {
+        const deck = [...catalog.candidates(pickedPool)];
+        if (!deck.length) return fits;
+        const profiles = profilesFor(deck), owned = new Set(deck.map(anchor => anchor.card.id));
+        for (const passcode of passcodes) {
+          const candidate = catalog.candidate(passcode);
+          if (!candidate || owned.has(candidate.card.id)) continue;
+          const result = scoreForDeck(candidate, deck, profiles);
+          if (result.score > 0 && result.reason) fits.set(passcode, result.reason);
+        }
+        return fits;
+      });
+    },
     pickScore(passcode: number, pickedPool: readonly number[]): number {
       return withCatalog(catalog => {
         const candidate = catalog.candidate(passcode), deck = [...catalog.candidates(pickedPool)];
