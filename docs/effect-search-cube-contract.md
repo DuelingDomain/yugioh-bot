@@ -108,6 +108,15 @@ sections and current duplicates, so a saved preview can safely be confirmed
 after another edit. It returns the batch result plus `effectSearchEnabled`
 and `attribution`, with private/no-store caching.
 
+### Theme lobby preview
+
+`POST /api/drafts/:slug/seed/preview` takes the same body and returns the same
+response as the cube preview, but needs no cube. It is host-only, scoped to the
+configured community and open only while the theme draft is pending. It calls
+`previewCubeSeed(db, options, [])`, so it writes nothing: the lobby creates and
+attaches the theme cube only when the host confirms, through the draft cube
+route and `seed/confirm` above. A closed tab leaves no cube behind.
+
 Preview and confirmation require `EFFECT_SEARCH=1` in production. A disabled
 feature returns HTTP 404 `{effectSearchEnabled:false,
 error:"effect_search_disabled"}`. Missing community returns 503; signed out
@@ -130,11 +139,19 @@ attribution apply only to this explicit description mode.
 
 Response: `{cards, total, reading, unknownIds, effectSearchEnabled:true,
 attribution}`. Each card is a `CardSummary` plus `score` and `reason`. Display
-metadata for an explicit engine pool is resolved through the existing catalog
-lookup budget. `unknownIds` lists matches whose display metadata could not be
+metadata for an explicit engine pool is resolved through a small per-request
+lookup budget (8 remote lookups). `unknownIds` lists matches whose display metadata could not be
 resolved; `total` still describes the matching pool. Responses are private and
 not cached. Existing `cardName`, `fuzzyName`, `archetype`, list and set/ID
 requests retain their existing response shape and name path.
+
+## Pick screen pool fit
+
+With `EFFECT_SEARCH=1`, each card in the viewer's own `currentPack` may carry
+`fitsYourPool?: string`, a one-line reason the card works with the cards the
+viewer has already picked. It is absent for other seats' packs, for an empty
+pool, for cards with no link, and with the flag off. The room shows it as
+"Fits your pool".
 
 ## Draft pool health
 
@@ -155,8 +172,11 @@ For theme drafts, after existing access and setup checks, the response adds:
 `unlinkedPasscodes`, `untaggedPasscodes`, `warnings`. It counts distinct
 canonical identities. Extra cards are included only when Extra drafting is
 enabled. The cube analysis classifies sections without repairing stored rows.
-The shared `analyzeCubePools` result adds `poolHealth?: CardPoolHealth | null`
-and appends health observations to its existing `warnings`.
+Health is computed only here, through `createCubeService(...).poolHealth(cubeId, { extraDeckEnabled })`.
+`analyzeCubePools` never computes health: the draft lobby calls it on every read
+for every viewer, and health scans the whole catalog. `poolHealth` returns
+`undefined` when the flag is off and keeps a short in-memory cache keyed by the
+cube id, its `updated_at` and the Extra setting.
 
 Health never changes `ok` or adds errors. If health data is unreadable, `health`
 is null and a warning explains that health is unavailable. Supply checks still
