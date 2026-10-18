@@ -14,7 +14,8 @@ changes are required for this backend slice.
 - [x] Extend `/api/cards/resolve` with an explicit effect description mode. Keep
   all name-resolution branches on their current path.
 - [x] Add optional `poolHealth` to cube analysis and per-cube draft preflight.
-  Health observations only add warnings; existing errors and access rules stay.
+  Health runs only when requested by preflight; observations stay in the health
+  field. Existing supply warnings, errors and access rules stay.
 - [x] Build shared before consumers. Run targeted integration and affected
   regression files with one worker, then shared/web TypeScript checks.
 - [x] Review the changes, publish the UI contract, make small local commits,
