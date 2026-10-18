@@ -2,7 +2,7 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
-import { CardFetchLimitError, createDraftService, createDeckTypeLookup, createCardCatalogService, createCardInsightService, loadArtworkIdentityCatalog, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
+import { CardFetchLimitError, createCardLookupBudget, createDraftService, createDeckTypeLookup, createCardCatalogService, createCardInsightService, loadArtworkIdentityCatalog, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { CardListError } from "@/lib/card-list-parser";
@@ -14,6 +14,9 @@ import { env } from "@/lib/env";
 import { ensureCatalogCards } from "@/lib/cube-pool";
 
 export const runtime = "nodejs";
+
+/** Remote card lookups one description search may start for hits missing from the display cache. */
+const EFFECT_SEARCH_LOOKUP_LIMIT = 8;
 
 function toCardSummary(c: {
   ygoprodeckId: number;
@@ -71,8 +74,11 @@ async function handlePOST(request: Request) {
     const db = getDb();
     const result = createCardInsightService(db).effectSearch(input.text, input.pool, input);
     const catalog = createCardCatalogService(db, { memberId: actor.userId });
-    // Explicit public pools may contain engine cards not yet in the lazy display cache.
-    const unknownIds = await ensureCatalogCards(catalog, result.cards.map(card => card.passcode));
+    // Explicit public pools may contain engine cards not yet in the lazy display cache. Searches are frequent
+    // (debounced typing), so a small budget caps the remote lookups; hits left unresolved come back as unknownIds.
+    const lookupBudget = createCardLookupBudget();
+    lookupBudget.remaining = EFFECT_SEARCH_LOOKUP_LIMIT;
+    const unknownIds = await ensureCatalogCards(catalog, result.cards.map(card => card.passcode), lookupBudget);
     const details = new Map(catalog.findByIds(result.cards.map(card => card.passcode)).map(card => [card.ygoprodeckId, card]));
     const cards = result.cards.flatMap(hit => {
       const card = details.get(hit.passcode);
