@@ -31,6 +31,7 @@ import { lookupDraftCardTypes, type EngineCardTypes } from "@/lib/draft-engine-t
 import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
 import { cardImageUrl } from "@/lib/card-image-url";
 import { isOwnerUser } from "@/lib/owner-access";
+import { effectSearchEnabled, EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
   if (!pickDeadlineAt) {
@@ -285,9 +286,19 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
       : {};
   const hasLegalCard = currentPackCards.some((card) => (held[card.catalogCardId] ?? 0) < MAX_COPIES_PER_PLAYER);
   const forced = draftModel.config.copyLimit !== false && draftModel.config.mode !== "theme" && currentPackCards.length > 0 && !hasLegalCard;
+  const effectsEnabled = effectSearchEnabled();
+  const fitsById = effectsEnabled && currentPlayer && isParticipant && currentPackCards.length > 0
+    ? degrade(slug, "pick insights", new Map<number, string>(), () => new Map(
+        drafts.rankPickOptions(draft.id, currentPlayer.id)
+          .filter(card => card.fitsYourPool)
+          .map(card => [card.id, card.fitsYourPool!]),
+      ))
+    : new Map<number, string>();
   const currentPack = mapDraftCardDetails(slug, db, currentPackCards, engineTypes).map((card) => {
     const copies = held[card.passcode] ?? 0;
-    return { ...card, held: copies, forced, blocked: draftModel.config.copyLimit !== false && copies >= MAX_COPIES_PER_PLAYER && (draftModel.config.mode === "theme" || hasLegalCard) };
+    const fitsYourPool = fitsById.get(card.id);
+    return { ...card, held: copies, forced, blocked: draftModel.config.copyLimit !== false && copies >= MAX_COPIES_PER_PLAYER && (draftModel.config.mode === "theme" || hasLegalCard),
+      ...(fitsYourPool ? { fitsYourPool } : {}) };
   });
   const passed =
     draft.status === "active" && currentPlayer && isParticipant
@@ -446,6 +457,8 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     participantPickCount,
     myDeckId,
     isParticipant,
+    effectSearchEnabled: effectsEnabled,
+    ...(effectsEnabled ? { attribution: EFFECT_SEARCH_ATTRIBUTION } : {}),
     currentPack,
     myPool,
     seats,
