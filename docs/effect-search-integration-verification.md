@@ -11,9 +11,9 @@ Each branch was merged with `git merge --no-ff`, in this order:
 | --- | --- | --- |
 | deck-ui | `c7e158486` | `22f5052e3` |
 | cube-backend | `fc07c1ce2` | `7b618dfbd` |
-| cube-ui | `12aff2be1` | `8625e72e4` |
-| draft-picks | `3175fcbcf` | `e2f570e79` |
-| ci-tagging | `99895673b` | `6b4b2b908` |
+| cube-ui | `12aff2be1` | `fa232646d` |
+| draft-picks | `3175fcbcf` | `de46b9540` |
+| ci-tagging | `99895673b` | `e6045c9d4` |
 
 The combined branch includes effect search, reading chips and exact text;
 card partners and deck suggestions; cube and pool description search and batch
