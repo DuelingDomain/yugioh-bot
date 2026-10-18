@@ -14,6 +14,9 @@ export type RankedDraftPick = DraftCard & {
   fitsYourPool?: string;
 };
 
+const enablesFusion = (candidate: Candidate) => candidate.tags?.effects.some(effect =>
+  effect.actions.some(event => event.verb === "fusion_summon" && event.player !== "opponent")) ?? false;
+
 /** Material supply is a draft heuristic, not a summon-legality check. Copies count as bodies. */
 function materialSupply(extra: Candidate, pool: readonly Candidate[]): number {
   const main = pool.filter(({ card }) => card.kind === "monster" && !isExtraDeckCard(card));
@@ -79,7 +82,7 @@ function materialSupply(extra: Candidate, pool: readonly Candidate[]): number {
     return card.linkRating && bodies.length >= card.linkRating ? 1 : -1;
   }
   if (card.subtypes.includes("fusion")) {
-    const enabler = pool.some(candidate => candidate.tags?.effects.some(effect => effect.actions.some(event => event.verb === "fusion_summon" && event.player !== "opponent")));
+    const enabler = pool.some(enablesFusion);
     const contact = extra.tags?.effects.some(effect => effect.timing === "condition" && effect.location.includes("extra_deck")
       && effect.actions.some(event => event.verb === "special_summon" && event.what.this_card && event.from.includes("extra_deck")));
     return (enabler || contact) && main.length >= Math.max(2, filters.length) ? 1 : -1;
@@ -119,9 +122,12 @@ export function rankDraftPicks(db: Database.Database, options: readonly DraftCar
           }
           materials = Math.min(3, poolExtras.reduce((sum, extra) => {
             const filters = extra.tags?.materials ?? [];
-            if (filters.length && !filters.some(filter => filterReachesCard(filter, candidate.card))) return sum;
+            const fusionEnabler = extra.card.subtypes.includes("fusion") && enablesFusion(candidate);
+            if (filters.length && !fusionEnabler && !filters.some(filter => filterReachesCard(filter, candidate.card))) return sum;
             const level = extra.card.level ?? extra.card.rank;
-            if (level && candidate.card.level && candidate.card.level > level) return sum;
+            // Fusion materials have no implicit Level cap, and Links have no Level/Rank.
+            if ((extra.card.subtypes.includes("synchro") || extra.card.subtypes.includes("xyz"))
+              && level && candidate.card.level && candidate.card.level > level) return sum;
             // Resolve the baseline only if an option could help; share it across the pack.
             let before = supplyBefore.get(extra.card.id);
             if (before === undefined) { before = materialSupply(extra, pool); supplyBefore.set(extra.card.id, before); }

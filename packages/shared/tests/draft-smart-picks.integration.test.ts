@@ -138,6 +138,40 @@ it.each(["SQLITE_BUSY", "SQLITE_BUSY_SNAPSHOT"])("propagates %s from scoring wit
   expect(seats.every(seat => drafts.pool(draft.id, seat.playerId).length === 0)).toBe(true);
 });
 
+it.each(["enabler", "high-Level material"])("credits a Fusion %s that completes an already picked Fusion", mode => {
+  const { db, seats, drafts } = setup(4);
+  db.prepare("DELETE FROM card_tags").run();
+  db.prepare("UPDATE card_catalog SET archetype=NULL").run();
+  db.prepare("UPDATE card_catalog SET level=10 WHERE ygoprodeck_id=1").run();
+  db.prepare("UPDATE card_catalog SET type='Fusion Effect Monster',frame_type='fusion',level=8 WHERE ygoprodeck_id=3").run();
+  db.prepare("UPDATE card_catalog SET type='Spell Card',frame_type='spell',level=NULL WHERE ygoprodeck_id=4").run();
+  const tags = (id: number, raw: unknown) => db.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,source,schema_version) VALUES(?,'Fixture','[]',?,'fixture',1)")
+    .run(id, JSON.stringify(CardTags.parse(fillDefaults(raw))));
+  tags(3, { summary: "Fusion", materials: [{ names: ["Card 1"] }, { names: ["Card 2"] }] });
+  const enabler = { summary: "Fusion enabler", effects: [{ timing: "ignition", actions: [{ verb: "fusion_summon", player: "you" }] }] };
+  if (mode !== "enabler") tags(4, enabler);
+  const draft = drafts.create("g", null, "Mixed Fusion", {
+    cubeCardIds: [1, 2, 3, 4].flatMap(id => Array<number>(6).fill(id)),
+    packSize: 12, packsPerPlayer: 1, cardsPerPlayer: 12,
+  }, seats[0].userId, seats[0].playerId);
+  drafts.join(draft.id, seats[1].playerId); drafts.start(draft.id, now);
+  for (const target of [3, mode === "enabler" ? 1 : 4, 2]) for (const seat of seats.slice(0, 2)) {
+    drafts.pickCard(draft.id, seat.playerId, drafts.pickOptions(draft.id, seat.playerId).find(card => card.catalogCardId === target)!.id, "manual", now);
+  }
+  const target = mode === "enabler" ? 4 : 1;
+  const ranked = () => drafts.rankPickOptions(draft.id, seats[0].playerId).find(card => card.catalogCardId === target)!;
+  const before = ranked();
+  if (mode === "enabler") {
+    tags(4, enabler);
+    const after = ranked();
+    const fitChange = Math.min(8, 2 * Math.log2(1 + after.pickScore)) - Math.min(8, 2 * Math.log2(1 + before.pickScore));
+    expect(after.score - before.score - fitChange).toBeCloseTo(2);
+  } else {
+    db.prepare("UPDATE card_catalog SET level=1 WHERE ygoprodeck_id=1").run();
+    expect(before.score).toBeCloseTo(ranked().score);
+  }
+});
+
 it.each(["unusable", "matching"])("expires eight seats with fifteen Synchros per pool and %s options well below the write-lock timeout", mode => {
   const { db, seats, drafts } = setup(512);
   db.prepare("DELETE FROM card_tags").run();
