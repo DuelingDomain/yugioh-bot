@@ -651,18 +651,15 @@ describe("engine data update", () => {
     expect(await readPins(root)).toEqual(oldPins);
   });
 
-  it("reports changed listed cards without overlays and all format gaps", () => {
-    // Skull Invitation remains FFA-only; Droll & Lock Bird now has real-core multiplayer proof.
-    const scripts = new Map([["official/c98139712.lua", "Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)"]]);
-    expect(findListedChanges(scripts, ["official/c98139712.lua"], new Set())).toEqual([
-      expect.objectContaining({ code: 98139712, changed: true, formatGap: true }),
+  it("reports changed listed cards without overlays and respects all-format bans", () => {
+    const scripts = new Map([["official/c95308449.lua", "Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)"]]);
+    expect(findListedChanges(scripts, ["official/c95308449.lua"], new Set())).toEqual([
+      expect.objectContaining({ code: 95308449, changed: true, formatGap: false }),
     ]);
-    expect(findListedChanges(scripts, [], new Set([98139712]))).toEqual([
-      expect.objectContaining({ code: 98139712, changed: false, formatGap: true }),
-    ]);
+    expect(findListedChanges(scripts, [], new Set([95308449]))).toEqual([]);
   });
 
-  it.each([74519184, 72892473, 82301904, 35059553, 37313786, 27204311, 57728570, 15305240, 13532663])(
+  it.each(MULTIPLAYER_FORBIDDEN.filter(card => card.tagDecision?.allowed).map(card => card.code))(
     "honors the owner Tag decision for %i but still reports script changes", (code) => {
       const entry = MULTIPLAYER_FORBIDDEN.find((card) => card.code === code)!;
       expect(entry.tagDecision).toEqual({ allowed: true, source: "owner 2026-10-06, option A" });

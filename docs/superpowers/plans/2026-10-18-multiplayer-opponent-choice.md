@@ -8,13 +8,13 @@
 
 - [x] Install dependencies and copy the patched engine wrapper.
 - [x] Read the current rule list, script helpers, and scenario tools.
-- [ ] Add live scenarios for Angelechy Opposition and Nibiru. Apply each rule in its own overlay.
-- [ ] Add live scenarios and overlays for Chaos Emperor Dragon, Ring of Destruction, and Crush Card Virus.
-- [ ] Audit the other forbidden entries. Keep alternate-win cards and the other worker's three entries unchanged.
-- [ ] Allow audited cards only after live proof. Record a specific reason for each card that stays forbidden.
-- [ ] Update the overlay manifest, rule list, proof catalog, ADR, and scenario document.
-- [ ] Run targeted scenario and integration checks. Run TypeScript checks for shared and duel-server.
-- [ ] Review the changes. Make small commits with the required trailers. Do not push.
-- [ ] Remove generated build folders. Write the report and record the final commit SHA.
+- [x] Add live scenarios for Angelechy Opposition and Nibiru. Apply each rule in its own overlay.
+- [x] Add live scenarios and overlays for Chaos Emperor Dragon, Ring of Destruction, and Crush Card Virus.
+- [x] Audit the other forbidden entries. Keep alternate-win cards and the other worker's three entries unchanged.
+- [x] Allow audited cards only after live proof. Record a specific reason for each card that stays forbidden.
+- [x] Update the overlay manifest, rule list, proof catalog, ADR, and scenario document.
+- [x] Run targeted scenario and integration checks. Run TypeScript checks for shared and duel-server.
+- [x] Review the changes. Make small commits with the required trailers. Do not push.
+- [x] Remove generated build folders. Write the report and record the final commit SHA.
 
 Card script work has separate file ownership. The main worker integrates the manifest, rules, catalog, and documents.

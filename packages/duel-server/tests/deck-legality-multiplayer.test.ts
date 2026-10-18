@@ -65,14 +65,14 @@ describe("multiplayer forbidden list in deck validation", () => {
   it.each([
     [100200298, 'Counter Spell "Negate Attack"'],
     [101402094, "Angelechy Opposition"],
-  ] as const)("blocks reviewed preview %s at every multiplayer table", (code, name) => {
+  ] as const)("allows proved preview %s at every multiplayer table", (code, name) => {
     for (const mode of ["normal", "domain"] as const) {
       const deck = mode === "normal" ? deckWith(code) : {
         main: [code, ...fillers(59)], extra: [], side: [], deckMaster: DARK_MAGICIAN,
       };
       for (const table of ["ffa3", "ffa4", "tag"] as const) {
         const issues = inspectDeck(mode, deck, DATA, settings, { table }).issues;
-        expect(issues.some(issue => issue.message.startsWith(`${name} is forbidden in `)), `${mode} ${table}`).toBe(true);
+        expect(issues.some(issue => issue.message.startsWith(`${name} is forbidden in `)), `${mode} ${table}`).toBe(false);
       }
       expect(inspectDeck(mode, deck, DATA, settings, { table: "1v1" }).issues, mode).toEqual([]);
     }
@@ -95,16 +95,12 @@ describe("multiplayer forbidden list in deck validation", () => {
     expect(inspectDeck("normal", deck, DATA, settings, { table: "tag" }).issues).toEqual([]);
   });
 
-  it("refuses Ring of Destruction at 3-FFA and 4-FFA, and allows it in Tag and 1v1", () => {
-    const deck = deckWith(RING_OF_DESTRUCTION);
-    for (const table of FFA_TABLES) {
-      const issues = inspectDeck("normal", deck, DATA, settings, { table }).issues;
-      expect(issues.length, table).toBe(1);
-      expect(issues[0]!.message, table).toMatch(/^Ring of Destruction is forbidden in /);
-      expect(() => validateDeck("normal", deck, DATA, settings, { table }), table).toThrow(/Ring of Destruction is forbidden/);
+  it("allows the owner 2026-10-18 cards at every table", () => {
+    const deck = deckWith(101402094, 82301904, RING_OF_DESTRUCTION, 57728570, NIBIRU);
+    for (const table of ["1v1", "ffa3", "ffa4", "tag"] as const) {
+      expect(inspectDeck("normal", deck, DATA, settings, { table }).issues, table).toEqual([]);
+      expect(() => validateDeck("normal", deck, DATA, settings, { table }), table).not.toThrow();
     }
-    expect(inspectDeck("normal", deck, DATA, settings, { table: "tag" }).issues).toEqual([]);
-    expect(inspectDeck("normal", deck, DATA, settings).issues).toEqual([]);
   });
 
   it("flags an all-format card in Tag too", () => {
@@ -114,18 +110,12 @@ describe("multiplayer forbidden list in deck validation", () => {
     }
   });
 
-  it.each(["ffa3", "ffa4", "tag"] as const)("refuses Convulsion of Nature in %s even when deck validation is off", (table) => {
+  it.each(["ffa3", "ffa4", "tag"] as const)("allows proved Convulsion of Nature in %s with deck validation on or off", (table) => {
     const deck: DuelDeck = { ...deckWith(CONVULSION_OF_NATURE), side: [CONVULSION_OF_NATURE] };
     for (const validate of [true, false]) {
       const rules = { ...settings, validateDeck: validate };
-      const issues = inspectDeck("normal", deck, DATA, rules, { table }).issues;
-      expect(issues).toHaveLength(1);
-      expect(issues[0]!.message).toMatch(/^Convulsion of Nature is forbidden in /);
-      expect(issues[0]!.cards).toEqual([
-        expect.objectContaining({ section: "main", index: 0, code: CONVULSION_OF_NATURE }),
-        expect.objectContaining({ section: "side", index: 0, code: CONVULSION_OF_NATURE }),
-      ]);
-      expect(() => validateDeck("normal", deck, DATA, rules, { table })).toThrow(/Convulsion of Nature is forbidden/);
+      expect(inspectDeck("normal", deck, DATA, rules, { table }).issues).toEqual([]);
+      expect(() => validateDeck("normal", deck, DATA, rules, { table })).not.toThrow();
     }
   });
 
@@ -151,7 +141,6 @@ describe("multiplayer forbidden list in deck validation", () => {
     expect(multiplayerForbiddenFor("ffa4", EXODIA_ALT, EXODIA)?.code).toBe(EXODIA);
     for (const [alt, name] of [
       [EXODIA_ALT, "Exodia the Forbidden One"],
-      [NIBIRU_ALT, "Nibiru, the Primal Being"],
     ] as const) {
       const issues = inspectDeck("normal", deckWith(alt), DATA, settings, { table: "ffa4" }).issues;
       expect(issues.length, name).toBe(1);
@@ -160,11 +149,10 @@ describe("multiplayer forbidden list in deck validation", () => {
     }
   });
 
-  it("groups an original and its alternate art in one issue", () => {
+  it("allows Nibiru and its alternate art after live proof", () => {
+    expect(multiplayerForbiddenFor("ffa4", NIBIRU_ALT, NIBIRU)).toBeUndefined();
     const issues = inspectDeck("normal", deckWith(NIBIRU, NIBIRU_ALT), DATA, settings, { table: "ffa3" }).issues;
-    const hit = issues.filter((issue) => issue.message.startsWith("Nibiru"));
-    expect(hit.length).toBe(1);
-    expect(hit[0]!.cards.length).toBe(2);
+    expect(issues.filter((issue) => issue.message.includes("is forbidden"))).toEqual([]);
   });
 
   it("flags each table list and only its own formats", () => {
@@ -202,9 +190,9 @@ describe("multiplayer forbidden list in deck validation", () => {
     const deck: DuelDeck = { main: base, extra: [], side: [], deckMaster: DARK_MAGICIAN };
     const plain = inspectDeck("domain", deck, DATA, settings, { table: "ffa4" }).issues;
     expect(plain.some((issue) => issue.message.includes(" is forbidden in "))).toBe(false);
-    const forbiddenMaster: DuelDeck = { ...deck, deckMaster: NIBIRU };
+    const forbiddenMaster: DuelDeck = { ...deck, deckMaster: EXODIA };
     const issues = inspectDeck("domain", forbiddenMaster, DATA, settings, { table: "ffa4" }).issues;
-    expect(issues.some((issue) => issue.message.startsWith("Nibiru, the Primal Being is forbidden in 4-player"))).toBe(true);
+    expect(issues.some((issue) => issue.message.startsWith("Exodia the Forbidden One is forbidden in 4-player"))).toBe(true);
     const oneVsOne = inspectDeck("domain", forbiddenMaster, DATA, settings).issues;
     expect(oneVsOne.some((issue) => issue.message.includes(" is forbidden in "))).toBe(false);
   });
