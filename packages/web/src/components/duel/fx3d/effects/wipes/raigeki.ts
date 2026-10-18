@@ -49,7 +49,7 @@ void main(){
   float streak = fbm(vec2(dx*.03, y*.005+tt*10.));                  // slow streaks flowing down
   float streak2 = vnoise(vec2(dx*.08, y*.015+tt*20.));
   float body = 1.-smoothstep(.88,1.,nd);
-  float core = pow(clamp(1.-smoothstep(.08,uSoft > 0. ? .46 : .6,nd+(streak-.5)*.5),0.,1.),1.15);
+  float core = pow(clamp(1.-smoothstep(uSoft > 0. ? .04 : .08,uSoft > 0. ? .3 : .6,nd+(streak-.5)*.5),0.,1.),1.15);
   float vn = vnoise(vec2(dx*.045+tt*3., y*.02+tt*28.));
   float vein = pow(1.-abs(2.*vn-1.),10.)*(1.-smoothstep(.2,1.,nd))*live;
   vec3 violet = vec3(.5,.2,1.), blue = vec3(.18,.5,1.), ice = vec3(.7,.9,1.);
@@ -60,7 +60,7 @@ void main(){
   float gl = exp(-max(nd-.85,0.)*2.1);
   col += mix(blue,violet,smoothstep(1.,2.4,nd))*gl*(1.-body)*.6;   // electric glow around the column
   bool one = uSoft > 0.;                                            // aimed at one field: a wider, softer head
-  col += vec3(.9,.95,1.)*exp(-pow((y-uFront)/(one ? 70. : 36.),2.))*body*(one ? .7 : 1.2)*live; // bright head while it drops
+  col += vec3(.9,.95,1.)*exp(-pow((y-uFront)/(one ? 70. : 36.),2.))*body*(one ? .4 : 1.2)*live; // bright head while it drops
   float rev = one ? smoothstep(uFront-70.,uFront+90.,y) : smoothstep(uFront-8.,uFront+22.,y);
   float bot = uSoft > 0. ? smoothstep(uYEnd-125.,uYEnd+45.,y) : smoothstep(uYEnd-40.,uYEnd+30.,y);
   float sx = uSoft > 0. ? smoothstep(uX0, uX0+uSoft, vW.x)*(1.-smoothstep(uX1-uSoft, uX1, vW.x)) : 1.;
@@ -425,10 +425,10 @@ export const buildRaigeki: WipeBuild = (ctx) => {
       let wid = lerp(0.32, 1.06, grow) - 0.06 * ramp(t, Th + 0.15, Th + 0.45);
       wid *= 1 - 0.9 * easeInOut(cut);
       const int = t < Ts ? 0 : (0.9 + 0.2 * hash1(Math.floor(t * 38) * 1.3)) * (1 - easeIn2(ramp(t, Tc - 0.1, Tc + 0.06)));
-      setBeam([bBack, bFront], { t, wid, int: ctx.focused ? int * 0.82 : int, front });
+      setBeam([bBack, bFront], { t, wid, int: ctx.focused ? int * 0.7 : int, front });
       const bi = int * (t >= Ts ? 1 : 0);
-      skyGlow.set(0, yTop - 70, 800 * fit * (0.4 + 0.6 * wid), (ctx.focused ? 0.28 : 0.4) * bi * strike, 340 * fit);
-      foot.set(0, yEnd + 5, 760 * fit * wid, 0.5 * bi * ramp(t, Th - 0.02, Th + 0.04), 170 * fit);
+      skyGlow.set(0, yTop - 70, 800 * fit * (0.4 + 0.6 * wid), (ctx.focused ? 0.14 : 0.4) * bi * strike, 340 * fit);
+      foot.set(0, yEnd + 5, 760 * fit * wid, (ctx.focused ? 0.26 : 0.5) * bi * ramp(t, Th - 0.02, Th + 0.04), 170 * fit);
       spill.set(0, rowY, 1300 * fit, 0.12 * bi * strike, 460 * fit);
       // whiteout + flashes
       const dc = t - Th;
@@ -441,9 +441,12 @@ export const buildRaigeki: WipeBuild = (ctx) => {
         s.b.set(((t - (s.t - 0.07)) / 0.07) * 1.25, alphaOf(d) * 0.85);
         fl = Math.max(fl, d >= 0 ? 0.12 * Math.exp(-d / 0.07) : 0);
       }
-      P.uFlash.value.set(0.9, 0.95, 1, ctx.focused ? fl * 0.4 : fl);
-      P.uAberr.value = Math.min(1.2, fl * 1.1);
-      bigflash.set(0, yEnd, 1600 * fit, dc >= 0 ? (ctx.focused ? 0.16 : 0.6) * Math.exp(-dc / 0.1) : 0);
+      // Aimed at one field: no flash over the whole canvas (it would wash the other fields and the nameplate). The flash is a
+      // soft glow on the row that is hit, and it stays below the sky.
+      P.uFlash.value.set(0.9, 0.95, 1, ctx.focused ? 0 : fl);
+      P.uAberr.value = Math.min(1.2, fl * (ctx.focused ? 0.5 : 1.1));
+      if (ctx.focused) bigflash.set(0, yEnd + 20, 1000 * fit, 0.14 * fl, 440 * fit);
+      else bigflash.set(0, yEnd, 1600 * fit, dc >= 0 ? 0.6 * Math.exp(-dc / 0.1) : 0);
       leader.set(((t - (Ts - 0.1)) / 0.1) * 1.25, t > Ts - 0.1 && t < Th + 0.04 ? 1 : 0);
       arcs.forEach((a, i) => a.b.set(1.3, t > Th + 0.12 && t < Tc - 0.05 && hash1(Math.floor(t * 22) + i * 5.3) > 0.5 ? 0.9 * smoothstepJS(0.85, 1, wid) * bi : 0));
       edgeB.forEach((e, i) => e.b.set(1.3, t > Th + 0.1 && t < Tc && hash1(Math.floor(t * 26) + i * 6.1) > 0.3 ? 0.85 * smoothstepJS(0.85, 1, wid) * bi : 0));
@@ -456,7 +459,7 @@ export const buildRaigeki: WipeBuild = (ctx) => {
       // ground shockwave across the row
       const k1 = ramp(dc, 0, 0.5);
       const k2 = ramp(dc - 0.18, 0, 0.5);
-      waves[0].set(0, yEnd, (160 + 1500 * easeOut3(k1)) * fit, dc >= 0 ? 0.9 * (1 - k1) : 0, (40 + 230 * easeOut3(k1)) * fit);
+      waves[0].set(0, yEnd, (160 + 1500 * easeOut3(k1)) * fit, dc >= 0 ? (ctx.focused ? 0.5 : 0.9) * (1 - k1) : 0, (40 + 230 * easeOut3(k1)) * fit);
       waves[1].set(0, yEnd, (120 + 1100 * easeOut3(k2)) * fit, dc - 0.18 >= 0 ? 0.6 * (1 - k2) : 0, (30 + 170 * easeOut3(k2)) * fit);
       pulses.forEach((p, i) => {
         const ph = (((t - Th) / 0.3 + i / 3) % 1 + 1) % 1;

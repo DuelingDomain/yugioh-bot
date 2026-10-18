@@ -56,18 +56,33 @@ export const buildStorm: WipeBuild = (ctx) => {
     : [[1, 0.62, 0.82], [1, 0.9, 0.96], [0.75, 0.6, 1]];
   // Spawn left of the screen (a wide canvas shows more than the demo board).
   const span = ctx.focused ? ctx.focus : bounds;
-  const startX = Math.min(-640, span.minX - 80);
-  const startXF = Math.min(-660, span.minX - 100);
+  // Aimed at one field of a multi-seat table: the gust starts at the left edge of that field and nothing flies past its
+  // right edge, so no streak or feather lands on the next field.
+  const startX = ctx.focused ? span.minX : Math.min(-640, span.minX - 80);
+  const startXF = ctx.focused ? span.minX : Math.min(-660, span.minX - 100);
+  const edgeX = span.maxX - 6;
+  /** The life (s) a particle that flies right from x0 may have so it ends inside the field (drag as the ballistic mode). */
+  const inside = (x0: number, vx: number, life: number, drag = 0): number => {
+    if (!ctx.focused || vx <= 0) return life;
+    const room = Math.max(0, edgeX - x0);
+    if (drag > 0) {
+      const k = (room * drag) / vx;
+      return k >= 1 ? life : Math.min(life, Math.max(0.12, -Math.log(1 - k) / drag));
+    }
+    return Math.min(life, Math.max(0.12, room / vx));
+  };
 
   const streaks = ctx.particles(
     ctx.count(heavy ? 600 : 320),
     () => {
       const row = r() < 0.2 ? (r() * 2 - 1) * 330 : rows[Math.floor(r() * rows.length)] + (r() - 0.5) * 200;
+      const x0 = startX - (ctx.focused ? 0 : r() * 60);
+      const vx = 1700 + r() * 1400;
       return {
-        p: [startX - r() * 60, row],
-        v: [1700 + r() * 1400, (r() - 0.5) * 140 + 70],
+        p: [x0, row],
+        v: [vx, (r() - 0.5) * 140 + 70],
         delay: F0 - 0.3 + r() * 1.3,
-        life: 0.5 + r() * 0.3,
+        life: inside(x0, vx, 0.5 + r() * 0.3, 0.3),
         size: 90 + r() * 140,
         stretch: 0.12,
         shape: 1,
@@ -86,11 +101,13 @@ export const buildStorm: WipeBuild = (ctx) => {
       const tgi = burst ? Math.floor((i - nF) / perCard) : -1;
       const tg = burst ? targets[tgi] : null;
       const fc = fCols[Math.floor(r() * fCols.length)];
+      const p: [number, number] = tg ? [tg.x + (r() - 0.5) * 80, tg.y + (r() - 0.5) * 100] : [startXF, rows[Math.floor(r() * rows.length)] + (r() - 0.5) * 240];
+      const v: [number, number] = tg ? [500 + r() * 800, (r() - 0.15) * 420] : [900 + r() * 900, (r() - 0.5) * 260 + 80];
       return {
-        p: tg ? [tg.x + (r() - 0.5) * 80, tg.y + (r() - 0.5) * 100] : [startXF, rows[Math.floor(r() * rows.length)] + (r() - 0.5) * 240],
-        v: tg ? [500 + r() * 800, (r() - 0.15) * 420] : [900 + r() * 900, (r() - 0.5) * 260 + 80],
+        p,
+        v,
         delay: tg ? hitOf(tgi) + 0.03 + r() * 0.12 : F0 - 0.1 + r() * 1.2,
-        life: 0.9 + r() * 0.7,
+        life: inside(p[0], v[0], 0.9 + r() * 0.7),
         size: 28 + r() * 32,
         rot: r() * 6.28,
         spin: (r() - 0.5) * 12,
@@ -163,7 +180,8 @@ export const buildStorm: WipeBuild = (ctx) => {
         if (bt >= 0) {
           ck.u.uBreak.value = bt;
           ck.u.uStyle.value = 1;
-          ck.u.uWind.value.set(1, 0.3);
+          // Aimed at one field: the pieces of a card are blown a shorter way, so none lands on the next field.
+          ck.u.uWind.value.set(ctx.focused ? 0.4 : 1, 0.3);
           ck.u.uGrav.value = 120;
           ck.u.uSpin.value = 13;
           ck.u.uDelaySpan.value = 0.09;
