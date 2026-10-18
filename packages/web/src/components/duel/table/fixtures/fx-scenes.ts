@@ -7,10 +7,11 @@ import { TABLE_CARDS as C } from "./common";
  * step lays the same board on every seat (three monsters, two Set cards), the second activates the card and destroys
  * (or banishes) the cards it hits, as the engine sends them: one batch with the chain link resolving. The caster is the
  * seat that activates, the target the one opponent a one-opponent card (Raigeki, Feather Duster, Evenly Matched) hits.
+ * A trailing `-x<seats>` (`fx-darkhole-0-x1`) puts those seats out first, so the table is a face-off of the seats left.
  */
-export type FxSceneId = `fx-${"raigeki" | "darkhole" | "torrential" | "heavystorm" | "feather" | "mirror" | "banish" | "vortex"}-${0 | 1 | 2 | 3}${"" | `-${0 | 1 | 2 | 3}`}`;
+export type FxSceneId = `fx-${"raigeki" | "darkhole" | "torrential" | "heavystorm" | "feather" | "mirror" | "banish" | "vortex"}-${0 | 1 | 2 | 3}${"" | `-${0 | 1 | 2 | 3}`}${"" | `-x${number}`}`;
 
-export const FX_SCENE = /^fx-(raigeki|darkhole|torrential|heavystorm|feather|mirror|banish|vortex)-([0-3])(?:-([0-3]))?$/;
+export const FX_SCENE = /^fx-(raigeki|darkhole|torrential|heavystorm|feather|mirror|banish|vortex)-([0-3])(?:-([0-3]))?(?:-x([0-3]{1,2}))?$/;
 
 type Spec = {
   card: DuelCardInfo;
@@ -19,6 +20,18 @@ type Spec = {
   hits: "monsters" | "spells";
   scope: "target" | "all";
   banish?: boolean;
+};
+
+/** The seat is out: the engine empties its board and flags it. */
+const eliminateSeat = (seat: number): Edit => (board) => {
+  const view = board.seats[seat];
+  view.eliminated = true;
+  view.lp = 0;
+  view.monsters = view.monsters.map(() => null);
+  view.spells = view.spells.map(() => null);
+  view.hand = [];
+  view.graveyard = [];
+  view.banished = [];
 };
 
 const SPECS: Record<string, Spec> = {
@@ -43,8 +56,10 @@ export function fxSceneSteps(id: string, seatCount: number): LabStep[] {
   const spec = SPECS[match[1]];
   const caster = Number(match[2]);
   const target = match[3] != null ? Number(match[3]) : (caster + 1) % seatCount;
-  const seats = Array.from({ length: seatCount }, (_, seat) => seat);
+  const out = new Set((match[4] ?? "").split("").map(Number));
+  const seats = Array.from({ length: seatCount }, (_, seat) => seat).filter((seat) => !out.has(seat));
   const set: Edit[] = [];
+  for (const seat of out) set.push(eliminateSeat(seat));
   for (const seat of seats) {
     MONSTER_SEQ.forEach((sequence, i) => set.push(edit.monster(seat, sequence, MONSTERS[(seat + i) % MONSTERS.length])));
     SPELL_SEQ.forEach((sequence, i) => set.push(edit.setSpell(seat, sequence, SPELL_CARDS[i % SPELL_CARDS.length])));
@@ -82,10 +97,12 @@ export function fxSceneSteps(id: string, seatCount: number): LabStep[] {
   if (!spec.banish) for (const victim of hit) events.push(ev.destroy(victim.seat, victim.info, victim.zone, why));
   events.push(ev.move(caster, spec.card, sourceZone, GY(caster, piles.get(caster) ?? 0), "send"), ev.chainEnd());
   edits.push(edit.spell(caster, 1, null), edit.grave(caster, spec.card));
+  const wait = out.size > 0 ? 4000 : 0;
   const lead: EventSpec[] = match[1] === "mirror" ? [ev.attack(target, MZ(target, 2), MZ(caster, 2))] : [];
   return [
     { at: 0, edits: set },
-    ...(lead.length > 0 ? [{ at: 500, events: lead }] : []),
-    { at: 1200, events, edits, chain: [] },
+    // A face-off needs the seats that left to crumble and the last two to glide together first.
+    ...(lead.length > 0 ? [{ at: 500 + wait, events: lead }] : []),
+    { at: 1200 + wait, events, edits, chain: [] },
   ];
 }
