@@ -139,11 +139,22 @@
 .rowAdd:disabled { opacity: 0.4; cursor: not-allowed; }
 .rowAdd:hover { color: var(--pen-ink); background: var(--pen-soft); }
 .rowAdd:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+/* "Find cards that work with this": a quiet icon beside the add button of a list row. */
+.rowWorks { display: grid; flex: none; place-items: center; width: 32px; border: 0; border-radius: 7px; background: none; color: var(--ink-3); cursor: pointer; }
+.rowWorks:hover { color: var(--pen-ink); background: var(--pen-soft); }
+.rowWorks:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 
 .more { display: flex; justify-content: center; padding-top: 16px; }
 .exactToggle { min-height: 30px; padding: 0 8px; border: 1px solid var(--rule-lo); border-radius: 4px; background: none; color: var(--ink-3); font: inherit; font-size: 12px; cursor: pointer; }
 .exactToggle[aria-pressed="true"] { color: var(--pen-ink); border-color: var(--pen); background: var(--pen-soft); }
 .attribution { font-size: 11px; color: var(--ink-4); }
+/* The same action on a grid tile. It sits top centre, clear of the banlist mark (top left) and the art chip (top right), and only fades in: nothing moves. */
+.tileCell { position: relative; }
+.worksTile { position: absolute; top: 5px; left: calc(50% - 13px); z-index: 2; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: rgb(10 7 24 / 0.92); color: var(--pen-ink); box-shadow: 0 0 0 1px rgb(155 126 255 / 0.7), 0 2px 6px rgb(0 0 0 / 0.6); opacity: 0; pointer-events: none; transition: opacity 120ms var(--ease); cursor: pointer; }
+.worksTile:hover { color: #fff; box-shadow: 0 0 0 1.5px var(--pen-ink), 0 2px 6px rgb(0 0 0 / 0.6); }
+.tileCell:has(.de-t:focus-visible) .worksTile, .worksTile:focus-visible { opacity: 1; pointer-events: auto; }
+@media (hover: hover) { .tileCell:hover .worksTile { opacity: 1; pointer-events: auto; } }
+@media (prefers-reduced-motion: reduce) { .worksTile { transition: none; } }
 .effectHeading { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; padding-top: 12px; border-top: 1px solid var(--rule-lo); color: var(--ink-3); font-size: 11px; }
 .effectHeading h3 { color: var(--ink); font-size: 13px; font-weight: 500; }
 .effectReason { margin-top: 5px; color: var(--ink-3); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
