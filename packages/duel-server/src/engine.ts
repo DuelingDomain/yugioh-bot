@@ -756,11 +756,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   };
 
   const applyMessage = (message: OcgMessage, activator?: number) => {
-    // Elimination removes the seat's cards between loss notices from the same check.
-    // Those cleanup messages must not give simultaneous losses different places.
-    const lossCleanup = message.type === OcgMessageType.REMOVE_CARDS
-      || (message.type === OcgMessageType.MOVE && eliminationGroup?.includes(message.from.controller));
-    if (!lossCleanup) eliminationGroup = null;
+    eliminationGroup = null;
     battleStep = nextBattleStep(battleStep, message);
     switch (message.type) {
       case OcgMessageType.RETRY:

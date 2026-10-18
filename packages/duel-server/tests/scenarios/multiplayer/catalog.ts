@@ -847,9 +847,10 @@ const OPPONENT_FIELD_LINES: Record<number, number> = {
 };
 
 export const CARD_RULE_EVIDENCE: Record<number, Evidence[]> = {
-  72892473: [{ file: "overlay/c72892473.lua", line: 21, token: "counts[seat]=#hg" }, { file: "overlay/c72892473.lua", line: 27, token: "Duel.Draw(p,counts[seat]" }],
+  72892473: [{ file: "overlay/c72892473.lua", line: 23, token: "counts[seat]=#hg" }, { file: "overlay/c72892473.lua", line: 29, token: "Duel.Draw(p,counts[seat]" }],
   74519184: [{ file: "overlay/c74519184.lua", line: 16, token: "Duel.SelectMatchingCard(p,nil,p,LOCATION_HAND,0,2,2,nil)" }, { file: "overlay/c74519184.lua", line: 21, token: "Duel.Draw(p,2" }],
-  33396948: [{ file: "overlay/c33396948.lua", line: 6, token: "s.check(g)" }, { file: "overlay/c33396948.lua", line: 8, token: "Duel.Win(p,WIN_REASON_EXODIA)" }],
+  33396948: [{ file: "overlay/c33396948.lua", line: 8, token: "s.check(g)" }, { file: "overlay/c33396948.lua", line: 22, token: "Duel.Win(p,WIN_REASON_EXODIA)" },
+    { file: "overlay/c33396948.lua", line: 19, token: "Duel.Win(PLAYER_NONE,WIN_REASON_EXODIA)" }],
   // Kaiju and Lava procedure: Tribute a monster of an opponent, summon to that field.
   55063751: [ev(55063751, 5, "aux.AddKaijuProcedure"), ...lavaCore],
   28674152: [ev(28674152, 5, "aux.AddKaijuProcedure"), ...lavaCore],

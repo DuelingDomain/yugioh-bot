@@ -84,6 +84,26 @@ function splitExodiaScenario(format: typeof FORMATS[number], domain: boolean): S
   });
 }
 
+function replacedExodiaScenario(format: typeof FORMATS[number], domain: boolean, winners: number[]): Scenario {
+  const setup = setupFor(format, domain);
+  const count = format === "ffa3" ? 3 : 4;
+  for (let i = 0; i < count; i++) {
+    setup[SEATS[i]]!.hand = [...Array(winners.includes(i) ? 5 : 1).fill(HAND[i]), ...(i === 0 ? ["Card Destruction"] : [])];
+    if (winners.includes(i)) setup[SEATS[i]]!.deck = PIECES;
+  }
+  const draw = winners.length > 1;
+  const losers = SEATS.slice(0, count).filter((_, i) => !draw && (format === "tag" ? i % 2 !== winners[0] % 2 : i !== winners[0]));
+  return defineScenario({ id: `owner-exodia-${draw ? "draw" : "off-turn"}-${format}-${winners.join("-")}${domain ? "-domain" : ""}`,
+    title: `Card Destruction: ${draw ? "two complete Exodia hands give a draw for everyone" : "p2 completes Exodia during p0's turn"}`,
+    source: SOURCE, rules: ["R-COMMON-EXODIA", "R-COMMON-HAND-DESTRUCTION"],
+    tags: ["multiplayer", format, "card:33396948", "card:72892473", ...(draw ? ["exodia-draw"] : ["exodia-off-turn"])], setup,
+    steps: [activate("Card Destruction", "p0"),
+      expectBoard(Object.fromEntries(winners.map(i => [SEATS[i], { hand: PIECES, deckCount: 7 }]))),
+      expectResult(draw ? { seat: null, ...(format === "tag" ? { team: null } : {}), reason: "Exodia the Forbidden One" }
+        : format === "tag" ? { team: winners[0] % 2, reason: "Exodia the Forbidden One" } : { seat: SEATS[winners[0]], reason: "Exodia the Forbidden One" }),
+      ...(draw ? [] : [expectEliminated(...losers)])] });
+}
+
 function shortHandScenario(format: typeof FORMATS[number], domain: boolean): Scenario {
   const setup = setupFor(format, domain);
   for (const [i, seat] of SEATS.slice(0, format === "ffa3" ? 3 : 4).entries()) setup[seat]!.hand = [HAND[i], HAND[i]];
@@ -177,6 +197,8 @@ export const OWNER_HANDS_EXODIA_SCENARIOS: Scenario[] = FORMATS.flatMap(format =
   ...([72892473, 74519184] as const).flatMap(code => [0, 1].map(actor => handScenario(format, domain, code, actor))),
   ...SEATS.slice(0, format === "ffa3" ? 3 : 4).map((_, actor) => exodiaScenario(format, domain, actor)),
   splitExodiaScenario(format, domain), shortHandScenario(format, domain), offTurnHandScenario(format, domain), emptyHandScenario(format, domain),
+  replacedExodiaScenario(format, domain, [2]), replacedExodiaScenario(format, domain, [1, 2]),
+  ...(format === "tag" ? [replacedExodiaScenario(format, domain, [0, 2])] : []),
   ...(format === "tag" ? [] : ([72892473, 74519184, 33396948] as const).map(code => afterLossScenario(format, domain, code))),
   ...(format === "ffa4" ? [deckOutScenario(domain, 1), deckOutScenario(domain, 2), shortDeckScenario(domain)] : []),
 ]));

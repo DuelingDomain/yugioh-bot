@@ -114,6 +114,9 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 | `0115-tag-previous-geometry-seat.patch` | Read exact previous controller for numeric Link departure filters, excluding Tag partners and non-facing opponents without changing material eligibility. | Firewall Dragon material/tribute departure scenarios cover local, facing, partner and non-facing fields in both pairs, Standard and Domain. |
 | `0116-fixed-ffa-facing-pairs.patch` | Owner 2026-10-11: FFA3 seats 0/1 share the EMZ row, Link arrows and columns. Seat 2 is unpaired. `column_peer_of` delegates to `across_of`; remove the FFA3 activated column-peer flag and all survivor fallback. | Seats never regroup after elimination. FFA4 and Tag retain pairs 0/1 and 2/3; 1v1 is unchanged. Existing ownership-based elimination cleanup removes leaver-owned EMZ cards, returns foreign-owned cards when possible, and preserves survivor EMZ cards. |
 
+| `0117-multiplayer-effect-draw.patch` | Accept the folded `PLAYER_NONE` in `Duel.Win` and send one whole-duel draw at the safe result boundary. | Standard and Domain FFA3, FFA4 and Tag Exodia scenarios cover two complete hands, including one Tag team. The result has no elimination messages or places. The two-player path is unchanged. |
+| `0118-simultaneous-loss-notice-group.patch` | Send all loss notices from one check before card cleanup. | Card Destruction deck-out scenarios keep a shared third place through foreign Xyz material moves and disabled-zone updates. Direct elimination callers keep their normal notice. |
+
 ## Commands
 
 Run all commands in the repository root.
