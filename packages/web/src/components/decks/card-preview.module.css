@@ -24,11 +24,13 @@
 .de-facts { display: flex; flex-wrap: wrap; gap: 3px 10px; color: var(--ink-3); font-size: 12.5px; }
 .de-text { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
 .de-pc { color: var(--ink-4); font-size: 12px; }
+.summary { padding-block: 8px; border-block: 1px solid var(--rule-lo); color: var(--ink-2); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .de-card[data-compact] { grid-template-columns: 72px minmax(0, 1fr); gap: 5px 12px; padding-right: 36px; }
 .de-card[data-compact] .de-art { grid-column: 1; grid-row: 1 / 4; width: 72px; margin: 0; }
 .de-card[data-compact] .de-cn { grid-column: 2; }
 .de-card[data-compact] .de-facts { grid-column: 2; align-content: start; }
 .copySummary { grid-column: 2; }
 .de-card[data-compact] .de-text, .de-card[data-compact] .de-pc { grid-column: 1 / -1; }
+.de-card[data-compact] .summary { grid-column: 1 / -1; }
 .de-card[data-compact] .de-text { max-height: 4.65em; overflow: auto; margin-top: 8px; }
 @media (prefers-reduced-motion: reduce) { .full { transition: none; } }

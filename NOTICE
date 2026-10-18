@@ -1,0 +1,16 @@
+Dueling Domain includes code and derived card-tag data adapted from searchygo
+by LorenzoWhite (https://github.com/LorenzoWhite/searchygo), pinned to commit
+9b2d952f8e7c389e13267d4bba6504cc8ea4cb5c.
+
+The project owner confirmed the author's permission to copy and modify its code
+and data for the community, based on the author's open-source/free-for-community
+announcement: https://www.youtube.com/watch?v=hihNZ2WPxIs.
+This notice preserves credit; it does not assert a license the upstream has not
+provided. Adapted source headers and the UI retain searchygo attribution.
+
+Card names, text and artwork are associated with Yu-Gi-Oh! and their respective
+owners. searchygo's derived tag and archetype-profile datasets are preserved with
+source revision and SHA-256 integrity pins.
+
+The CI tagging adapters in scripts/effects include adapted card tagging,
+cleanup, examples, archetype profiling and synergy prompt code from that revision.

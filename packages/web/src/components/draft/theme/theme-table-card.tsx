@@ -10,6 +10,7 @@ import { SeatMeter } from "../lobby/lobby-seats";
 import { plural } from "../lobby/lobby-model";
 import { formatPickSeconds } from "../pick-time";
 import { suggestAssignments, type ThemeRulesPatch, type ThemeSelection, type ThemeTable, type ThemeTableConfig } from "./use-theme-table";
+import { PoolHealth } from "@/components/effect-search/pool-health";
 import styles from "./theme-table.module.css";
 
 const SELECTION_LABELS: Record<ThemeSelection, string> = {
@@ -246,6 +247,8 @@ export function ThemeTableCard({ name, config, lobby, players, cubeIds, table, c
           {warnings.map((message) => <StatusLine key={message} tone="warn">{message}</StatusLine>)}
         </div>
       )}
+
+      <PoolHealth entries={table.poolHealth} />
 
       <SeatMeter lobby={lobby} />
       <div className={cn(styles.cardActs)}>

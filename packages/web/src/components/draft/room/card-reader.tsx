@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
 import { CardImg } from "./card-img";
 import { cardText, joinNames, statParts, tint, typeLine, type RoomCard } from "./room-model";
 
@@ -28,6 +29,8 @@ export interface ReaderProps {
   /** Show the "waiting on" note under the last pick. */
   showWaiting: boolean;
   phone: boolean;
+  /** Some card in the pack has a pool-fit reason, so the dock keeps a fixed line for it. */
+  fitsShown?: boolean;
   onPick: () => void;
   onClose: () => void;
 }
@@ -88,6 +91,17 @@ export const CardReader = memo(function CardReader(p: ReaderProps) {
       <div className="insp-info">
         {p.phone ? null : <Head card={card} />}
         {p.pickNote ? <p className="insp-note">{p.pickNote}</p> : null}
+        {p.fitsShown ? (
+          <p className="insp-fit" data-empty={card?.fitsYourPool ? undefined : ""} title={card?.fitsYourPool}>
+            {card?.fitsYourPool ? (
+              <>
+                <span>Fits your pool</span>
+                {card.fitsYourPool}
+              </>
+            ) : null}
+          </p>
+        ) : null}
+        {p.fitsShown ? <p className="insp-credit">{EFFECT_SEARCH_ATTRIBUTION}</p> : null}
         {p.showWaiting && p.waitingOn.length ? (
           <p className="insp-note">
             Waiting on <em>{joinNames(p.waitingOn)}</em>.

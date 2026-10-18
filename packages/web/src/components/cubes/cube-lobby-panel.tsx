@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { PoolHealth, parsePoolHealth, withoutHealthWarnings, type PoolHealthEntry } from "@/components/effect-search/pool-health";
 import { extraShortfallSummary, mainShortfallFix, mainShortfallSummary, parsePreflight } from "@/components/draft/lobby/lobby-model";
 import { ThemeMenu } from "@/components/draft/lobby/theme-menu";
 import styles from "@/components/draft/lobby/lobby.module.css";
@@ -56,6 +57,7 @@ export function CubeLobbyPanel({
   const claimedName = allowedCubes.find((c) => c.id === claimedId)?.name ?? null;
   const [error, setError] = React.useState<string | null>(null);
   const [preflight, setPreflight] = React.useState<{ errors: string[]; warnings: string[] } | null>(null);
+  const [poolHealth, setPoolHealth] = React.useState<PoolHealthEntry[]>([]);
   const headingId = React.useId();
 
   // Re-check when the set of themes (or their sizes) changes, so the banners never describe a theme that's gone.
@@ -65,7 +67,11 @@ export function CubeLobbyPanel({
     fetch(`/api/drafts/${slug}/preflight`)
       .then((res) => (res.ok ? res.json() : { errors: [], warnings: [] }))
       .then((data) => {
-        if (live) setPreflight(data);
+        if (!live) return;
+        const health = parsePoolHealth(data);
+        setPoolHealth(health);
+        // The health block shows the pool notes the server also lists as warnings.
+        setPreflight(health.length > 0 ? { ...data, warnings: withoutHealthWarnings(data.warnings ?? [], health) } : data);
       })
       .catch(() => {});
     return () => {
@@ -138,6 +144,7 @@ export function CubeLobbyPanel({
         </div>
       ) : null}
       {error && <div className="banner banner-bad" role="alert" style={{ marginTop: 10 }}><p>{error}</p></div>}
+      <PoolHealth entries={poolHealth} />
 
       {themeSelection === "random" && (
         <p className="small" style={{ marginTop: 12 }}>Themes are dealt at random when the host presses Start.</p>

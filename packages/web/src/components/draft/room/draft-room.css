@@ -330,6 +330,18 @@
 }
 .dr .insp-note { margin: 0; color: var(--ink-3); font-size: 14px; line-height: 1.45; }
 .dr .insp-note em { color: var(--chain-ink); font-style: normal; }
+.dr .insp-credit { margin: 0; color: var(--ink-3); font-size: 11px; line-height: 1.4; }
+.dr .insp-fit {
+  margin: 0;
+  height: 1.45em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.dr .insp-fit span { margin-right: 8px; color: var(--ink-3); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
 .dr .insp-act { display: grid; gap: 8px; flex: none; min-width: 0; }
 .dr .pick-btn {
   display: flex;

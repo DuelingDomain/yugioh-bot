@@ -64,6 +64,7 @@ export const SORT_CHOICES: readonly { value: CardSort; label: string }[] = [
   { value: "level", label: "Level / Rank" },
   { value: "atk", label: "ATK" },
   { value: "def", label: "DEF" },
+  { value: "newest", label: "Newest first" },
 ];
 
 export const BANLIST_CHOICES = DUEL_BANLIST_OPTIONS.map((option) => ({

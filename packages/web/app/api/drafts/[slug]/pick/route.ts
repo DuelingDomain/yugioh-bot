@@ -94,10 +94,9 @@ export async function POST(
           try {
             const now = drafts.findById(draft.id);
             if (now.currentPackRound !== before.currentPackRound || now.currentPickStep !== before.currentPickStep) break;
-            const options = drafts.pickOptions(draft.id, fake.player_id);
+            const options = drafts.rankPickOptions(draft.id, fake.player_id);
             if (options.length > 0) {
-              const randomCard = options[Math.floor(Math.random() * options.length)];
-              drafts.pickCard(draft.id, fake.player_id, randomCard.id, "auto");
+              drafts.pickCard(draft.id, fake.player_id, options[0].id, "auto");
               botPicked = true;
             }
           } catch (error) {

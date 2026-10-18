@@ -2,6 +2,7 @@ import { cardAdmissionContext, type CardAdmissionContext } from "@/lib/card-admi
 import { NextResponse } from "next/server";
 import { parseCardQuery, type CardQuery } from "@yugidraft/shared/duels";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
+import { effectSearchEnabled } from "@/lib/effect-search";
 
 export const runtime = "nodejs";
 
@@ -23,8 +24,15 @@ export async function POST(request: Request) {
     op: "card-query",
     guildId: actor.guildId,
     playerId: actor.playerId,
-    cardQuery, ...context,
+    cardQuery: effectSearchEnabled() ? cardQuery : { ...cardQuery, exact: true }, ...context,
   });
   if (!result.ok) return result.response;
-  return NextResponse.json(result.data);
+  if (!result.data || typeof result.data !== "object" || Array.isArray(result.data)) return NextResponse.json({ error: "Invalid card query response" }, { status: 502 });
+  const data = result.data as Record<string, unknown>;
+  const enabled = effectSearchEnabled() && data.effectSearchEnabled === true;
+  if (!enabled) {
+    const { reading: _reading, effectHits: _hits, effectTotal: _total, effectOffset: _offset, ...literal } = data;
+    return NextResponse.json({ ...literal, effectSearchEnabled: false });
+  }
+  return NextResponse.json(data);
 }

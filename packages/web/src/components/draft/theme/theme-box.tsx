@@ -7,6 +7,8 @@ import type { DraftAllowedCube } from "@yugidraft/shared/types";
 import { ListImportReport } from "@/components/card-list-import/list-import-report";
 import { CubeListImportPanel, type ImportedCube } from "@/components/cubes/cube-list-import-panel";
 import { nextCubeName } from "@/components/cubes/library-model";
+import { useEffectSearchEnabled } from "@/components/effect-search/capability-context";
+import { DescribeTheme } from "@/components/effect-search/describe-theme";
 import { StatusLine, svButtonClass } from "@/components/sheet";
 import { listAddedLine } from "@/lib/card-list-import";
 import type { CubeDraftType } from "@/lib/cube-type";
@@ -142,8 +144,9 @@ function BoxCube({ cube, table, controller, isHost, canTake, yourCubeId, slug, o
 }
 
 /** The host's tools: find an archetype, use a saved cube, start a blank one, import a list. Only the host sees them. */
-function BoxTools({ cubes, table, controller, library, loadLibrary }: Pick<ThemeBoxProps, "cubes" | "table" | "controller"> & { library: LibraryCube[]; loadLibrary: () => void }) {
+function BoxTools({ slug, cubes, table, controller, library, loadLibrary, onChanged }: Pick<ThemeBoxProps, "slug" | "cubes" | "table" | "controller" | "onChanged"> & { library: LibraryCube[]; loadLibrary: () => void }) {
   const ids = React.useId();
+  const effectSearch = useEffectSearchEnabled();
   const [query, setQuery] = React.useState("");
   const [suggestions, setSuggestions] = React.useState<string[]>([]);
   const [blankName, setBlankName] = React.useState("");
@@ -242,6 +245,26 @@ function BoxTools({ cubes, table, controller, library, loadLibrary }: Pick<Theme
         </div>
       </div>
 
+      {effectSearch && (
+        <div className={styles.toolRow}>
+          <DescribeTheme
+            slug={slug}
+            busy={busy}
+            create={async (name) => (await table.attach({ kind: "blank", name }))?.id ?? null}
+            discard={async (cubeId) => {
+              await table.detach(cubeId);
+              await fetch(`/api/cubes/${cubeId}`, { method: "DELETE" }).catch(() => {});
+              loadLibrary();
+            }}
+            onAdded={(name, outcome) => {
+              setInfo(`Added "${name}" to the box with ${outcome.added} card${outcome.added === 1 ? "" : "s"}.`);
+              loadLibrary();
+              onChanged();
+            }}
+          />
+        </div>
+      )}
+
       {attachable.length > 0 && (
         <div className={styles.toolRow}>
           <label className="label" htmlFor={`${ids}-att`}>Or use a saved cube</label>
@@ -337,7 +360,7 @@ export function ThemeBox(props: ThemeBoxProps) {
             {cubes.map((cube) => <BoxCube key={cube.id} cube={cube} library={library} {...props} />)}
           </ul>
         )}
-        {isHost && <BoxTools cubes={cubes} table={props.table} controller={props.controller} library={library} loadLibrary={loadLibrary} />}
+        {isHost && <BoxTools slug={props.slug} cubes={cubes} table={props.table} controller={props.controller} library={library} loadLibrary={loadLibrary} onChanged={props.onChanged} />}
       </div>
     </section>
   );

@@ -16,6 +16,8 @@ export type DraftCardDetail = CardSummary & {
   blocked?: boolean;
   /** A capped pack has no legal swap. In the pool, this records a forced pick with one extra deck copy. */
   forced?: boolean;
+  /** Optional pool-fit reason on current-pack cards when effect search is enabled. */
+  fitsYourPool?: string;
 };
 
 export interface Seat {

@@ -16,6 +16,10 @@
 # The production deploy runs it before it resets the checkout and builds images, so a refusal changes nothing.
 set -eu
 
+# Verify the app-owned effect pin independently; it never changes engine identity.
+installer_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+python3 "$installer_dir/verify-effect-artifact.py"
+
 src="${DUEL_BUNDLE_SRC:-}"
 dst="${DUEL_DATA_DIR:-}"
 stage=

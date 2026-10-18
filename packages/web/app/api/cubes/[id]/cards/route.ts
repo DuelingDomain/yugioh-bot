@@ -4,7 +4,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { cubeOwnerAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createCardLookupBudget, createCardCatalogService, createCubeService, createPlayerService } from "@yugidraft/shared/services";
+import { createCardLookupBudget, createCardCatalogService, createCubeService, createPlayerService, parseCubeBatchEntries } from "@yugidraft/shared/services";
 import { isPasscode, loadCardArtworkFamily } from "@/lib/card-artworks";
 import { CubeArtworkConflict, swapCubeArtwork } from "@/lib/cube-artworks";
 import { cubeDetail } from "@/lib/cube-detail";
@@ -18,6 +18,7 @@ export const runtime = "nodejs";
 type Op =
   | { op: "setArtwork"; catalogCardId: number; artworkPasscode: number }
   | { op: "add"; catalogCardId: number; pool: "main" | "extra"; maxCopies?: number }
+  | { op: "addBatch"; entries: Array<{ id: number; copies: number; pool?: "main" | "extra" }> }
   | { op: "remove"; catalogCardId: number }
   | { op: "subtract"; entries: Array<{ id: number; copies: number; pool: "main" | "extra" }> }
   | { op: "setMaxCopies"; catalogCardId: number; maxCopies: number }
@@ -46,7 +47,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const catalog = createCardCatalogService(db);
   const cubes = createCubeService(db, catalog);
-  const body = (await request.json().catch(() => ({}))) as Op;
+  const body = (await request.json().catch(() => null)) as Op | null;
+  if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid cube operation" }, { status: 400 });
 
   try {
     switch (body.op) {
@@ -65,6 +67,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       case "add":
         cubes.addCard(cubeId, body.catalogCardId, body.pool, body.maxCopies);
         break;
+      case "addBatch": {
+        const entries = parseCubeBatchEntries(body.entries);
+        const lookupBudget = createCardLookupBudget();
+        const unknownIds = await ensureCatalogCards(catalog, entries.map(entry => entry.id), lookupBudget);
+        if (unknownIds.length) return NextResponse.json({ error: "Some cards could not be resolved", unknownIds }, { status: 400 });
+        const result = cubes.addBatch(cubeId, entries);
+        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result });
+      }
       case "subtract":
         cubes.subtractCards(cubeId, body.entries);
         break;

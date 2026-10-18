@@ -10,6 +10,7 @@ import type {
   LobbySnapshot,
 } from "@yugidraft/shared/types";
 import type { CardSummary } from "@/lib/card-types";
+import { parsePoolHealth, withoutHealthWarnings, type PoolHealthEntry } from "@/components/effect-search/pool-health";
 import type { LobbyController } from "../lobby/lobby-actions";
 import { LobbyRequestError, type LobbyConfig } from "../lobby/lobby-model";
 
@@ -90,6 +91,8 @@ export interface ThemeTable {
   recovery: AttachRecovery | null;
   clearRecovery: () => void;
   preflight: { errors: string[]; warnings: string[] };
+  /** What each theme cube may lack. Empty unless effect search is on. Warnings only: it never blocks the start. */
+  poolHealth: PoolHealthEntry[];
 }
 
 const union = (...lists: string[][]): string[] => [...new Set(lists.flat())];
@@ -105,6 +108,7 @@ export function useThemeTable({ slug, lobby, players, config, allowedCubes, cont
   const [local, setLocal] = React.useState<Record<number, number | null>>({});
   const [recovery, setRecovery] = React.useState<AttachRecovery | null>(null);
   const [fetched, setFetched] = React.useState<DraftPreflightResponse>({ errors: [], warnings: [] });
+  const [poolHealth, setPoolHealth] = React.useState<PoolHealthEntry[]>([]);
 
   // Local picks only live while the host assigns. A server answer that matches a pick, a left player or a mode change drops it.
   React.useEffect(() => {
@@ -244,7 +248,9 @@ export function useThemeTable({ slug, lobby, players, config, allowedCubes, cont
     fetch(`${base}/preflight`)
       .then((res) => (res.ok ? res.json() : { errors: [], warnings: [] }))
       .then((data: Partial<DraftPreflightResponse>) => {
-        if (live) setFetched({ errors: data.errors ?? [], warnings: data.warnings ?? [] });
+        if (!live) return;
+        setFetched({ errors: data.errors ?? [], warnings: data.warnings ?? [] });
+        setPoolHealth(parsePoolHealth(data));
       })
       .catch(() => {});
     return () => { live = false; };
@@ -252,9 +258,10 @@ export function useThemeTable({ slug, lobby, players, config, allowedCubes, cont
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [base, preflightKey]);
 
+  // The health block shows the pool notes the server also adds to its warnings, so they leave the plain list.
   const preflight = React.useMemo(
-    () => ({ errors: union(lobby.errors, fetched.errors), warnings: union(lobby.warnings, fetched.warnings) }),
-    [lobby.errors, lobby.warnings, fetched],
+    () => ({ errors: union(lobby.errors, fetched.errors), warnings: withoutHealthWarnings(union(lobby.warnings, fetched.warnings), poolHealth) }),
+    [lobby.errors, lobby.warnings, fetched, poolHealth],
   );
 
   return {
@@ -273,6 +280,7 @@ export function useThemeTable({ slug, lobby, players, config, allowedCubes, cont
     recovery,
     clearRecovery: () => setRecovery(null),
     preflight,
+    poolHealth,
   };
 }
 

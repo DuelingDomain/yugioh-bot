@@ -63,6 +63,25 @@
       "types": "./dist/decks/index.d.ts",
       "source": "./src/decks/index.ts",
       "default": "./dist/decks/index.js"
+    },
+    "./cards/effects": {
+      "types": "./dist/cards/effects/index.d.ts",
+      "source": "./src/cards/effects/index.ts",
+      "default": "./dist/cards/effects/index.js"
+    },
+    "./cards/effects/capability": {
+      "types": "./dist/cards/effects/capability.d.ts",
+      "source": "./src/cards/effects/capability.ts",
+      "default": "./dist/cards/effects/capability.js"
+    },
+    "./cards/effects/name-match": {
+      "types": "./dist/cards/effects/name-match.d.ts",
+      "source": "./src/cards/effects/name-match.ts",
+      "default": "./dist/cards/effects/name-match.js"
+    },
+    "./services/cube-seed-index": {
+      "types": "./dist/services/cube-seed-index.d.ts",
+      "default": "./dist/services/cube-seed-index.js"
     }
   },
   "scripts": {
@@ -74,7 +93,8 @@
   },
   "dependencies": {
     "better-sqlite3": "latest",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "latest",

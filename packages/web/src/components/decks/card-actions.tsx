@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Crown, Minus, Plus, Search } from "lucide-react";
+import { Crown, Link2, Minus, Plus, Search } from "lucide-react";
 import type { CardArchetype, DeckCardInfo, DuelDeck, DuelMode } from "@yugidraft/shared/duels";
 import { canBeDeckMaster } from "@/components/duel/deck-card-types";
 import { cn } from "@/lib/utils";
@@ -40,6 +40,7 @@ export function CardActions({
   onMaster,
   onClearMaster,
   onArchetype,
+  onWorksWith,
   artwork,
   hideSummary = false,
   genesys = false,
@@ -62,6 +63,8 @@ export function CardActions({
   /** Takes the card out of the Deck Master slot. */
   onClearMaster: () => void;
   onArchetype: (archetype: CardArchetype) => void;
+  /** Effect search on: lists the cards that work with this one. Without it the button is not shown. */
+  onWorksWith?: () => void;
   /** The art picker for this card; it renders nothing for a card with one art. */
   artwork?: ReactNode;
   hideSummary?: boolean;
@@ -133,6 +136,13 @@ export function CardActions({
         <DeckButton size="sm" kind={isMaster ? "quiet" : "secondary"} block disabled={!isMaster && !!card.unavailableReason} onClick={isMaster ? onClearMaster : onMaster}>
           <Crown size={15} strokeWidth={1.6} aria-hidden />
           {isMaster ? "Remove as Deck Master" : "Use as Deck Master"}
+        </DeckButton>
+      ) : null}
+
+      {onWorksWith ? (
+        <DeckButton size="sm" kind="secondary" block onClick={onWorksWith}>
+          <Link2 size={15} strokeWidth={1.6} aria-hidden />
+          Find cards that work with this
         </DeckButton>
       ) : null}
 

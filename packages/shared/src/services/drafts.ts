@@ -11,6 +11,8 @@ import { loadArtworkIdentityCatalog } from "./card-artworks.js";
 import { analyzeCube, buildDealWithRemainder, prepareBoosterPool, seededShuffle, type ShuffleSeed } from "./deal.js";
 import { assertLobbySeatTarget, clearDraftLobbyStart, invalidateDraftLobby, DraftLobbyServiceError } from "./draft-lobby-mutations.js";
 import { boosterMainRounds, buildCappedBoosterDeal, mainDraftPicksPerPlayer, effectiveDraftNumbers } from "./draft-size.js";
+import { rankDraftPicks, type RankedDraftPick } from "./draft-pick-scorer.js";
+export type { RankedDraftPick } from "./draft-pick-scorer.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
 export class DraftTerminalError extends Error {
@@ -193,7 +195,7 @@ function isExtraDeckCatalogRow(row: CatalogRow) {
 
 export function createDraftService(
   db: Database.Database,
-  options: { random?: () => number; seedSource?: () => ShuffleSeed } = {},
+  options: { random?: () => number; seedSource?: () => ShuffleSeed; pickSeed?: ShuffleSeed } = {},
 ) {
   const random = options.random ?? Math.random;
   // Deals, assignments and theme packs are persisted; their seeds stay in memory.
@@ -1411,13 +1413,21 @@ export function createDraftService(
       const current = findById(draftId);
       if (current.status !== "active" || current.currentPackRound !== draft.currentPackRound || current.currentPickStep !== draft.currentPickStep) break;
       // Only cards the player may take: a card they hold the maximum copies of is never auto-picked.
-      const options = currentPackOptionsInternal(draftId, playerId, true);
+      let options: DraftCard[];
+      try {
+        options = rankPickOptions(draftId, playerId);
+      } catch (error) {
+        const code = (error as { code?: unknown } | null)?.code;
+        if (typeof code === "string" && code.startsWith("SQLITE_BUSY")) throw error;
+        console.error("[drafts] timeout pick scoring failed", error);
+        options = currentPackOptionsInternal(draftId, playerId, true);
+      }
 
       if (options.length === 0) {
         continue;
       }
 
-      const option = options[Math.floor(Math.random() * options.length)];
+      const option = options[0]!;
       pickCard(draftId, playerId, option.id, "auto", now);
       autoPickedPlayerIds.push(playerId);
     }
@@ -1497,6 +1507,18 @@ export function createDraftService(
   const swapPackOptions = db.transaction((draftId: number, playerId: number, pickableOnly: boolean) =>
     currentPackOptionsInternal(draftId, playerId, pickableOnly, true),
   ).immediate;
+
+  const rankPickOptions = (draftId: number, playerId: number): RankedDraftPick[] => {
+    const choices = currentPackOptionsInternal(draftId, playerId, true);
+    if (!choices.length) return [];
+    const draft = findById(draftId);
+    const mainTarget = mainDraftPicksPerPlayer(draft.config);
+    return rankDraftPicks(db, choices, pool(draftId, playerId).map(card => card.catalogCardId), {
+      mainTarget,
+      extraTarget: draft.config.mode === "theme" ? totalThemeRounds(draft.config) - mainTarget : boosterExtraSize(draft.config) || null,
+      seed: `${options.pickSeed ?? "draft-picks-v1"}:${draftId}:${playerId}:${draft.currentPackRound}:${draft.currentPickStep}`,
+    });
+  };
 
   return {
     create(
@@ -1655,6 +1677,9 @@ export function createDraftService(
     pickOptions(draftId: number, playerId: number): DraftCard[] {
       return currentPackOptionsInternal(draftId, playerId, true);
     },
+
+    /** Legal choices ranked for this player's pool; the first is the automatic pick. */
+    rankPickOptions,
 
     /** Copies of each passcode the player holds in this draft, for showing the per-player cap. */
     heldCopies(draftId: number, playerId: number): Record<number, number> {
