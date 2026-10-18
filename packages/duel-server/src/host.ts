@@ -280,7 +280,7 @@ function freshCoinTossGraceMs(view: DuelEngineView, afterEventId: number): numbe
 
 function freezeView(
   view: DuelEngineView,
-  result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string },
+  result: NonNullable<DuelEngineView["result"]>,
 ): DuelEngineView {
   return { ...view, prompt: null, prioritySeat: null, result,
     seats: view.seats.map((seat) => seat.pendingElimination ? { ...seat, pendingElimination: false } : seat) };
@@ -904,7 +904,9 @@ export function createDuelHost(options: {
     winnerSeat: number | null,
     reason: string,
   ): Promise<DuelFinalSnapshots> {
-    const result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string } = { winnerSeat, reason };
+    const publicView = await game.view(null);
+    const result: NonNullable<DuelEngineView["result"]> = { winnerSeat, reason,
+      ...(publicView.result?.victory === "exodia" ? { victory: "exodia" as const } : {}) };
     // Tag: a team wins. `winnerSeat` is the lowest seat of the team; `winnerTeam` names it.
     if (format === "tag") result.winnerTeam = winnerSeat === null ? null : teamOfSeat(format, winnerSeat);
     const seats: DuelEngineView[] = [];
@@ -912,7 +914,7 @@ export function createDuelHost(options: {
       seats.push(freezeView(await game.view(seat), result));
     }
     return {
-      public: freezeView(await game.view(null), result),
+      public: freezeView(publicView, result),
       seat0: seats[0],
       seat1: seats[1],
       seats,

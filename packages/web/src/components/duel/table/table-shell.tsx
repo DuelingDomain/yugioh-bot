@@ -1004,7 +1004,7 @@ function TableShellBody({
           onExit={() => actions?.onExit?.()}
           onSeriesChanged={() => actions?.onSeriesChanged?.()}
           onNavigate={(next) => actions?.onNavigate?.(next)}
-          placings={standings.map((entry) => ({ seat: entry.seat, place: entry.place, label: placeLabel(entry.place) }))}
+          placings={standings.length ? standings.map((entry) => ({ seat: entry.seat, place: entry.place, label: placeLabel(entry.place) })) : undefined}
         />
       ) : null}
       {replay ? null : modals}

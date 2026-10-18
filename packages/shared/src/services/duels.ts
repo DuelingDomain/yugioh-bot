@@ -1245,7 +1245,8 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         }
       }
 
-      const result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string } = {
+      const result: NonNullable<DuelEngineView["result"]> = {
+        ...(snapshots?.public.result?.victory === "exodia" ? { victory: "exodia" as const } : {}),
         winnerSeat: nextStatus === "completed" ? winnerSeat : null,
         reason,
       };

@@ -824,7 +824,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
               if (teamOfSeat(format, seat) !== winnerTeam) eliminated.add(seat);
             }
           }
-          result = { winnerSeat, winnerTeam, reason };
+          // Owner 2026-10-18: Exodia has no elimination places, including losses before the win.
+          if (message.reason === 0x10) eliminationOrder.length = 0;
+          result = { winnerSeat, ...(format === "tag" ? { winnerTeam } : {}), reason,
+            ...(message.reason === 0x10 ? { victory: "exodia" as const } : {}) };
           appendLog(winnerSeat == null ? `Draw (${reason})` : format === "tag" ? `Team ${winnerTeam! + 1} wins (${reason})` : `Player ${winnerSeat + 1} wins (${reason})`);
           return;
         }

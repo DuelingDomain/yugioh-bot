@@ -41,6 +41,7 @@ export function replayBoardProjection(view: DuelEngineView): unknown {
         returns: seat.deckMaster.returns, nextCost: seat.deckMaster.nextCost } : null,
     })),
     result: view.result ? { winnerSeat: view.result.winnerSeat, winnerTeam: view.result.winnerTeam ?? null,
+      victory: view.result.victory ?? null,
       reason: view.result.reason === "Surrendered" ? "Surrender" : view.result.reason } : null,
     chain: view.chain.map(link => ({ index: link.index, seat: link.seat, code: link.code ?? null,
       zone: zone(link.zone), targets: (link.targets ?? []).map(zone),
