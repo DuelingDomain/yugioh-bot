@@ -36,7 +36,7 @@ export function writeEffectArtifactCandidate(options: { root: string; outputDire
   }
   const manifest = structuredClone(artifact.manifest);
   const generatedAt = all.map(row => row.taggedAt).sort().at(-1)!;
-  manifest.generation = { kind: "anthropic-message-batches", model: MODEL, baseArtifactVersion: candidate.baseVersion,
+  manifest.generation = { kind: "anthropic-message-batches", models: [...new Set(all.map(row => row.model))].sort(), baseArtifactVersion: candidate.baseVersion,
     inputSource: "prepared-engine-card-text", normalization: CARD_EFFECT_TEXT_NORMALIZATION, acceptedCards: replacements.length, acceptedProfiles: profileReplacements.length,
     generatedAt, reservationIds: [...new Set(all.map(row => row.reservationId))].sort(),
     promptHashes: [...new Set(all.map(row => row.promptHash))].sort(),

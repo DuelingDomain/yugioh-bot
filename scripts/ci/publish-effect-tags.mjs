@@ -38,7 +38,7 @@ export function validateEffectCandidate(root, outputDirectory) {
   if (before.artifactVersion !== pinned("CARD_EFFECT_ARTIFACT_VERSION") || sha(readFileSync(join(root, DATA, "manifest.json"))) !== pinned("CARD_EFFECT_ARTIFACT_MANIFEST_SHA256")) throw new Error("Original effect artifact differs from trusted source pins");
   const { artifactVersion, ...identity } = after;
   if (candidate.baseVersion !== before.artifactVersion || candidate.manifestSha256 !== sha(manifestBytes) || candidate.artifactVersion !== artifactVersion || sha(JSON.stringify(identity)) !== artifactVersion || after.formatVersion !== before.formatVersion || after.schemaVersion !== before.schemaVersion || !identical(after.source, before.source)) throw new Error("Effect manifest provenance or integrity is invalid");
-  if (after.generation?.kind !== "anthropic-message-batches" || after.generation.model !== MODEL || after.generation.baseArtifactVersion !== before.artifactVersion || after.generation.normalization !== "newline-trim-pendulum-first-v1" || !Number.isInteger(after.generation.acceptedCards) || after.generation.acceptedCards < 0 || !Number.isInteger(after.generation.acceptedProfiles) || after.generation.acceptedProfiles < 0 || after.generation.acceptedCards + after.generation.acceptedProfiles < 1) throw new Error("Effect generation provenance is invalid");
+  if (after.generation?.kind !== "anthropic-message-batches" || !Array.isArray(after.generation.models) || after.generation.baseArtifactVersion !== before.artifactVersion || after.generation.normalization !== "newline-trim-pendulum-first-v1" || !Number.isInteger(after.generation.acceptedCards) || after.generation.acceptedCards < 0 || !Number.isInteger(after.generation.acceptedProfiles) || after.generation.acceptedProfiles < 0 || after.generation.acceptedCards + after.generation.acceptedProfiles < 1) throw new Error("Effect generation provenance is invalid");
   const decode = (directory, manifest, key) => {
     const names = { tags: "tags.jsonl.gz", profiles: "profiles.jsonl.gz", popularity: "popularity.json.gz", sourceHashes: "source-hashes.json.gz" };
     const file = manifest.files[key];
@@ -77,6 +77,8 @@ export function validateEffectCandidate(root, outputDirectory) {
   if (profilesAfter.size !== profileRows.length || profileRows.length !== after.files.profiles.records || !Array.isArray(report.acceptedProfiles)) throw new Error("Effect profile count/report is invalid");
   const acceptedProfiles = new Map(report.acceptedProfiles.filter(row => profilesBefore.get(row.archetype)?.inputHash !== row.inputHash).map(row => [row.archetype, row]));
   if (acceptedProfiles.size !== after.generation.acceptedProfiles || after.generation.acceptedProfilesSha256 !== sha(JSON.stringify([...acceptedProfiles.values()].sort((a,b) => a.archetype.localeCompare(b.archetype))))) throw new Error("Validated profile provenance is invalid");
+  const models = [...new Set([...accepted.values(), ...acceptedProfiles.values()].map(row => row.model))].sort();
+  if (!identical(after.generation.models, models)) throw new Error("Effect generation model provenance is invalid");
   for (const [name, old] of profilesBefore) if (!profilesAfter.has(name) || (!acceptedProfiles.has(name) && !identical(profilesAfter.get(name), old))) throw new Error("Effect publication altered unrelated profiles");
   for (const archetype of acceptedProfiles.keys()) if (!profilesAfter.has(archetype)) throw new Error("Missing accepted published profile");
   for (const [archetype, row] of profilesAfter) {

@@ -125,7 +125,8 @@ tag's source.
 The fixed source metadata continues to credit LorenzoWhite/searchygo commit
 `9b2d952f8e7c389e13267d4bba6504cc8ea4cb5c` as the foundation. Changed file
 descriptors retain `baseSourcePath`/`baseSourceSha256`; generation metadata adds
-the immutable model, prior artifact version, normalization, prompt hashes,
+the sorted `generation.models` set of models used by the accepted results,
+prior artifact version, normalization, prompt hashes,
 reservation IDs and accepted tag/profile digests. Generated profile rows retain their member-input hash for the next refresh. Generated cards are attributed to
 the Batch generation rather than claimed as verbatim upstream bytes. Schema
 adapters retain their upstream source headers.

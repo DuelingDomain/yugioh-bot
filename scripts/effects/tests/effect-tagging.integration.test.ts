@@ -248,7 +248,7 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     expect(candidate.changed).toBe(true);
     const manifest = JSON.parse(readFileSync(join(output, "packages/shared/data/effects/manifest.json"), "utf8"));
     expect(manifest.source.commit).toBe("9b2d952f8e7c389e13267d4bba6504cc8ea4cb5c");
-    expect(manifest.generation).toMatchObject({ model: "claude-haiku-5-5", acceptedCards: 6 });
+    expect(manifest.generation).toMatchObject({ models: ["claude-haiku-5-5"], acceptedCards: 6 });
     const sidecar = JSON.parse(gunzipSync(readFileSync(join(output, "packages/shared/data/effects/source-hashes.json.gz"))).toString("utf8"));
     expect(sidecar.hashes[14558127]).toBe(hashCardEffectSourceText(changedCards()[0]));
     for (const file of ["profiles.jsonl.gz", "popularity.json.gz"]) {
@@ -373,6 +373,35 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     const report = await context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now, maxRequests: 0 });
     expect(report.usedMicros).toBe(175); expect(report.accepted[0].model).toBe(context.LEGACY_MODEL);
     expect(api.events.filter(event => event.startsWith("POST"))).toHaveLength(1);
+  });
+
+  it.each([false, true])("publishes truthful model provenance for legacy results (mixed current results: %s)", async mixed => {
+    const context = await setup(), api = await endpoint();
+    const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
+    const cards = changedCards();
+    await context.runTagging({ cards: mixed ? cards.slice(0, 3) : cards, store: context.store, client, dryRun: false, now: context.now });
+    const snapshot = (await context.store.read())!, reservation = snapshot.ledger.reservations[0];
+    delete reservation.model; reservation.reservedMicros = 150_000;
+    for (const request of api.batches[0].requests) request.params.model = context.LEGACY_MODEL;
+    await context.store.compareAndSwap(snapshot.revision, snapshot.ledger);
+    await context.runTagging({ cards, store: context.store, client, dryRun: false, now: context.now });
+    const report = await context.runTagging({ cards, store: context.store, client, dryRun: false, now: context.now, maxRequests: 0 });
+    expect(report.accepted).toHaveLength(6);
+    const output = join(context.directory, "legacy-model-candidate");
+    const { writeEffectArtifactCandidate } = await import("../artifact-output.js");
+    writeEffectArtifactCandidate({ root: rootPath, outputDirectory: output, baseSha: "a".repeat(40), accepted: report.accepted });
+    writeFileSync(join(output, "report.json"), JSON.stringify(report));
+    const manifestPath = join(output, "packages/shared/data/effects/manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    expect(manifest.generation.models).toEqual(mixed ? [context.LEGACY_MODEL, context.MODEL].sort() : [context.LEGACY_MODEL]);
+    const publisherPath = "../../ci/publish-effect-tags.mjs";
+    const { validateEffectCandidate } = await import(publisherPath);
+    expect(validateEffectCandidate(rootPath, output).changed).toBe(true);
+    // Recomputed pins cannot hide a model omitted from generation provenance.
+    manifest.generation.models = [context.MODEL];
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    resignCandidate(output);
+    expect(() => validateEffectCandidate(rootPath, output)).toThrow(/model/i);
   });
 
   it("bills invalid profiles, defers retries, and reserves enough for the highest price tier", async () => {
