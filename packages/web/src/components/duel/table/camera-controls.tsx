@@ -214,12 +214,12 @@ export function CameraControls({ layout, camera, locked, hint = null, nameOf, di
         <b role="status">{label}</b>
         {keysHint ? <span className={styles.hint}>{keysHint}</span> : null}
         {layout.format === "ffa3" && !flyOn && camera.mode === "home" && !out.includes(layout.anchorSeat) ? (
-          <button type="button" className={styles.back} data-camera-zoom disabled={locked} onClick={() => dispatch({ type: "enlarge", seat: layout.anchorSeat })}>
+          <button type="button" className={styles.back} data-dm-avoid data-camera-zoom disabled={locked} onClick={() => dispatch({ type: "enlarge", seat: layout.anchorSeat })}>
             Zoom my field <Key>E</Key>
           </button>
         ) : null}
         {enlarged ? (
-          <button type="button" className={styles.back} data-camera-back disabled={locked} onClick={() => dispatch({ type: "home" })}>
+          <button type="button" className={styles.back} data-dm-avoid data-camera-back disabled={locked} onClick={() => dispatch({ type: "home" })}>
             Back <Key>Esc</Key>
           </button>
         ) : null}

@@ -6,7 +6,7 @@ import { ChainRoomContext, type ChainStripSize } from "../table/chain-room";
 import { duelFontClasses } from "../fonts";
 import { formatStartingLp } from "../table-format";
 import { LOCATION_FZONE, LOCATION_MZONE, LOCATION_PZONE, LOCATION_SZONE, zoneKey } from "../constants";
-import { SeatMasterBadge } from "../master-badge";
+import { APART_LIFT_GAP, SeatMasterBadge } from "../master-badge";
 import { isChainStripPrompt } from "../prompt-center";
 import { useStripRoom } from "../table/use-strip-room";
 import { hexToRgbTriplet } from "../table/seat-angle";
@@ -266,6 +266,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   const narrowRef = useRef(false);
   const isNarrow = useIsNarrow();
   narrowRef.current = isNarrow;
+  // Your Deck Master stands on the own plate beside the hand (see `apart: "lift"`): the field leaves that band free.
+  const ownDmRef = useRef(false);
+  ownDmRef.current = room.session.mode === "domain" && !spectator && !!viewerView?.deckMaster;
   // apply() also reads the camera mode and the pose it eases to from refs, for the same reason.
   const modeRef = useRef(camera.mode);
   modeRef.current = camera.mode;
@@ -325,6 +328,14 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         .map((node) => node.getBoundingClientRect().top - rootTop);
       if (tops.length > 0) hudH = Math.max(hudH, h - Math.min(...tops) + 4);
     }
+    // A wide screen puts your Deck Master on the own plate, at hand-card size: the band reaches from the stage bottom to its top.
+    const ownPlateBox = ownPlateRef.current;
+    const handCard = root.querySelector<HTMLElement>("[data-hand-dock] [data-zones]");
+    let dmTop: number | null = null;
+    if (!narrow && ownDmRef.current && ownPlateBox && handCard) {
+      dmTop = ownPlateBox.offsetTop - APART_LIFT_GAP - handCard.offsetHeight;
+      hudH = Math.max(hudH, h - ownPlateBox.offsetTop + APART_LIFT_GAP + handCard.offsetHeight + gap.hand);
+    }
     // The own plate and the own hand share the bottom row. The hand sits at the middle of the stage, and slides right only as far as
     // the plate needs, never into the partner hand (the hand count stands right of the dock, 64px).
     const dock = root.querySelector<HTMLElement>("[data-hand-dock]");
@@ -356,6 +367,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       const handTops = [dock, root.querySelector<HTMLElement>("[data-partner-hand]")]
         .filter((node): node is HTMLElement => node != null)
         .map((node) => node.getBoundingClientRect().top - rootTop);
+      // Your Deck Master stands on the own plate and may rise above the hand row: the field ends above it, with a little air.
+      if (dmTop != null) handTops.push(dmTop - 8);
       if (handTops.length > 0) {
         const handTop = Math.min(...handTops) - 2;
         // The far edge may rise to 8px under the far plate (the plate hangs from the top edge, 6px down).
