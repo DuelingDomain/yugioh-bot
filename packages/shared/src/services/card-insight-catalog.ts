@@ -29,6 +29,7 @@ const codeValid = (value: number) => Number.isInteger(value) && value > 0 && val
 export function createInsightCatalog(db: Database.Database, dataDirectory = deckEngineDataDirectory(db.name)) {
   const artwork = db.prepare<[number], { card_id: number }>("SELECT card_id FROM card_artworks WHERE artwork_id=?");
   const metadata = db.prepare<[number], CatalogRow>("SELECT * FROM card_catalog WHERE ygoprodeck_id=?");
+  const release = db.prepare<[number], { tcg_date: string | null; ocg_date: string | null }>("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=?");
   const tags = db.prepare<[number], { tags_json: string; popularity: number }>("SELECT tags_json,popularity FROM card_tags WHERE passcode=?");
   const revision = (db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
   const remaps = loadCardPasscodeRemaps(dataDirectory);
@@ -119,6 +120,9 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
         card.level = undefined; card.rank = undefined; card.linkRating = undefined;
       }
     }
+    const dates = release.get(canonicalCode);
+    if (dates?.tcg_date) card.tcgDate = dates.tcg_date;
+    if (dates?.ocg_date) card.ocgDate = dates.ocg_date;
     return { card, ...(tagged?.tags_json ? { tags: JSON.parse(tagged.tags_json) as CardTags } : {}) };
   };
   return {

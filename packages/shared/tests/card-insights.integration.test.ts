@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "../src/db/schema.js";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { createCardInsightService } from "../src/services/card-insights.js";
@@ -21,6 +21,9 @@ const rows: Array<[number, string, string, string, string | null, number | null,
   [44508094, "Stardust Dragon", "Synchro Effect Monster", "synchro", "WIND", 8, "Stardust"],
   [63977008, "Junk Synchron", "Tuner Effect Monster", "effect", "DARK", 3, "Junk"],
   [24094653, "Polymerization", "Spell Card", "spell", null, null, null],
+  [4474060, "SPYRAL GEAR - Drone", "Machine / Effect Monster", "effect", "WIND", 1, "SPYRAL"],
+  [27096833, "Borreload Liberator Dragon", "Dragon / Effect Monster", "effect", "DARK", 8, null],
+  [483, "Parallel Teleport", "Spell Card", "spell", null, null, null],
   [990001, "Unknown effect monster", "Effect Monster", "effect", "WATER", 4, null],
   [990002, "Link fixture", "Link Effect Monster", "link", "DARK", 2, null],
   [990003, "Pendulum fixture", "Pendulum Effect Monster", "effect_pendulum", "DARK", 4, null],
@@ -86,6 +89,7 @@ describe("SQL insights over the real pinned artifact", () => {
     const result = service.effectSearch("cards that negate quick effects and are spellcasters", [97268402, 14558127]);
     expect(result.cards.map(card => card.passcode)).toEqual([97268402]);
     expect(result.total).toBe(1);
+    expect(result.cards[0]?.release).toEqual({ tcgDate: "2010-08", ocgDate: "2010-04", date: "2010-08", region: "tcg", upcoming: false });
     expect(result.cards[0]?.reason).toContain("Spellcaster");
     expect(service.effectSearch("spellcaster monsters", [46986414]).cards.map(card => card.passcode)).toEqual([46986414]);
     expect(service.effectSearch("searchers", [7084130, 7084129]).cards.map(card => card.passcode)).toEqual([7084129]);
@@ -93,6 +97,51 @@ describe("SQL insights over the real pinned artifact", () => {
     expect(service.effectSearch("bananas").cards).toEqual([]);
     expect(service.effectSearch("Printed text for Effect Veiler", [97268402], { exact: true })).toMatchObject({ reading: null, total: 1, cards: [{ passcode: 97268402 }] });
     expect(service.effectSearch("hand traps", [97268402], { exact: true })).toMatchObject({ reading: null, total: 0, cards: [] });
+  });
+
+  it("filters release readings and sorts newest cards through the SQL catalog", () => {
+    expect(service.effectSearch("hand traps before 2015", [97268402, 14558127])).toMatchObject({
+      total: 1, cards: [{ passcode: 97268402 }], reading: { chips: expect.arrayContaining(["Released: before 2015"]) },
+    });
+    expect(service.effectSearch("newest spells", [83764719, 47222536]).cards.map(card => card.passcode)).toEqual([47222536, 83764719]);
+    expect(service.effectSearch("hand traps", [97268402, 14558127], { released: { to: "2014-12" } }).cards.map(card => card.passcode)).toEqual([97268402]);
+    expect(service.effectSearch("hand traps before 2015", [97268402, 14558127], { omittedChips: ["Released: before 2015"] }).total).toBe(2);
+    expect(service.effectSearch("hand traps", [97268402, 14558127], { sort: "newest", limit: 1 })).toMatchObject({ total: 2, cards: [{ passcode: 14558127 }] });
+    expect(service.effectSearch("monsters", [97268402, 14558127], { released: { to: "2014-12" }, format: "genesys", genesysRemaining: 0 }).cards.map(card => card.passcode)).toEqual([97268402]);
+    expect(service.effectSearch("Printed text", [97268402, 14558127], { exact: true, released: { to: "2014-12" } }).cards.map(card => card.passcode)).toEqual([97268402]);
+  });
+
+  it("uses regional dates for newest and keeps upcoming and OCG-only releases", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-17T00:00:00Z"));
+    try {
+      const pool = [4474060, 14558127];
+      expect(service.effectSearch("newest monsters", pool).cards[0]?.passcode).toBe(14558127);
+      const ocg = service.effectSearch("newest OCG monsters", pool);
+      expect(ocg.cards[0]).toMatchObject({ passcode: 4474060, release: { date: "2017-09", region: "ocg" } });
+      expect(service.effectSearch("spells before 2026", [483]).cards).toMatchObject([{ passcode: 483, release: { date: "2025-04", region: "ocg" } }]);
+      expect(service.effectSearch("spells TCG before 2026", [483]).cards).toEqual([]);
+      expect(service.effectSearch("newest monsters", [27096833]).cards[0]?.release).toMatchObject({ date: "2026-11", upcoming: true });
+      expect(service.effectSearch("last 3 months", [97268402, 27096833]).total).toBe(0);
+      expect(service.effectSearch("new cards", [97268402, 27096833]).total).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("uses a soft cube era preference and reports much newer cards", () => {
+    const pool = [7084129, 47222536];
+    const plain = service.worksWith(46986414, pool);
+    const era = { medianYear: 2016, spread: 2 };
+    const preferred = service.worksWith(46986414, pool, { era });
+    expect(preferred.map(card => card.passcode).sort()).toEqual(plain.map(card => card.passcode).sort());
+    expect(preferred[0]!.score).toBeGreaterThan(plain.find(card => card.passcode === preferred[0]!.passcode)!.score);
+    expect(service.effectSearch("Dark Magician support", pool, { era, released: { to: "2005-12" } }).cards).toEqual([]);
+    const cube = [46986414, 89631139, 83764719, 24094653, 97268402, 7084129, 47222536];
+    const health = service.poolHealth(cube);
+    expect(health.era).toMatchObject({ medianYear: 2002, spread: 0 });
+    expect(health.warnings).toContain("3 cards are much newer than the rest of this cube.");
+    expect(service.poolHealth(cube, { era: { medianYear: 2002, spread: 1 } }).warnings).toContain("3 cards are much newer than the rest of this cube.");
+    const seed = service.effectSearch("spell cards", [83764719, 47222536], { era: { medianYear: 2002, spread: 1 } });
+    expect(seed.cards[0]?.passcode).toBe(83764719);
   });
 
   it("preserves catalog level, Attribute and Type when optional engine columns are absent", () => {

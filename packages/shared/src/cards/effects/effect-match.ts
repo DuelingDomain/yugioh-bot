@@ -8,6 +8,7 @@
  * allows what was asked for, and it matches more specifically when it names the same thing than
  * when it merely does not rule it out: a card that revives WATER monsters ranks above Monster Reborn.
  */
+import { matchesReleased } from "./releases.js";
 import { matchesSubtypes, type Card } from "./card.js";
 import { isEmptyObject, type EffectQuery, type EventQuery, type ObjectQuery } from "./query.js";
 import type { CardFilter, CardTags, Effect, GameEvent } from "./tags.js";
@@ -116,6 +117,8 @@ function matchEffects(effects: MatchEffect[], query: EffectQuery): number | null
 }
 
 function matchCardItself(card: Card, wanted: ObjectQuery): boolean {
+  if (wanted.atkMin !== undefined && (card.atk == null || card.atk < wanted.atkMin)) return false;
+  if (wanted.atkMax !== undefined && (card.atk == null || card.atk > wanted.atkMax)) return false;
   if (wanted.kinds.length && !wanted.kinds.includes(card.kind)) return false;
   if (!matchesSubtypes(card, wanted.subtypes)) return false;
   if (wanted.types.length && !(card.monsterType && wanted.types.includes(card.monsterType))) return false;
@@ -139,6 +142,7 @@ function matchSupports(card: Card, tags: MatchTags, wanted: ObjectQuery): boolea
 
 /** Null when the card does not satisfy the query. Otherwise its specificity: higher fits more exactly. */
 export function matchCard(card: Card, tags: MatchTags | undefined, query: EffectQuery): number | null {
+  if (!matchesReleased(card, query.released)) return null;
   if (!matchCardItself(card, query.card)) return null;
 
   const needsTags = query.does || query.reactsTo || query.supports || query.roles.length > 0 || query.quick || query.worksFrom;

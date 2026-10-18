@@ -29,6 +29,37 @@ describe("effect reader over the pinned searchygo artifact", () => {
     expect(matches).not.toContain("Ash Blossom & Joyous Spring");
   });
 
+  it("reads dates, eras and stats without consuming unmarked years", () => {
+    for (const [text, range] of [
+      ["before 2010", { to: "2009-12" }], ["since 2015", { from: "2015-01" }],
+      ["after 2018", { from: "2018-01" }], ["2008-2010", { from: "2008-01", to: "2010-12" }],
+      ["2008 to 2010", { from: "2008-01", to: "2010-12" }], ["in 2012", { from: "2012-01", to: "2012-12" }],
+      ["GX era warriors", { from: "2004-01", to: "2007-12" }],
+    ] as const) {
+      const reading = interpret(text);
+      expect(reading?.query.released, text).toMatchObject(range);
+      expect(reading?.query.text, text).toBe("");
+    }
+    expect(interpret("GX era warriors")?.query.card.types).toEqual(["Warrior"]);
+    for (const era of ["DM", "5D's", "ZEXAL", "ARC-V", "VRAINS", "SEVENS", "GO RUSH"]) expect(interpret(`${era} era`)?.query.released).toBeDefined();
+    expect(interpret("last 3 months")?.query.released?.from).toMatch(/^\d{4}-\d{2}$/);
+    expect(interpret("newest spells")?.query.sort).toBe("newest");
+    expect(interpret("new cards")?.query.sort).toBe("newest");
+    expect(interpret("2000 atk")?.query).toMatchObject({ card: { atkMin: 2000, atkMax: 2000 } });
+    expect(interpret("2000 atk")?.query.released).toBeUndefined();
+    expect(interpret("2000")).toBeNull();
+    expect(interpret("before 1900")).toBeNull();
+  });
+
+  it("keeps ATK effect verbs and complete date phrases", () => {
+    for (const text of ["gain 1000 ATK", "cards that increase 2000 ATK"]) {
+      expect(interpret(text)?.query.does?.verbs).toContain("change_atk_def");
+      expect(interpret(text)?.query.card.atkMin).toBeUndefined();
+    }
+    expect(interpret("spells released from 2008 to 2010")?.query.text).toBe("");
+    expect(interpret("newest OCG spells")?.query).toMatchObject({ released: { region: "ocg" }, sort: "newest", text: "" });
+  });
+
   it("reads archetype spacing and compact aliases against the same vocabulary", () => {
     const matcher = buildArchetypeMatcher(["Blue-Eyes", "Dark Magician", "Tearlaments"]);
     for (const query of ["blue eyes support", "blueeyes support", "bule eyes support", "buleeyes support"]) {

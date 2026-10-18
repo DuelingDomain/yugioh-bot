@@ -1,4 +1,5 @@
 import type { CardInsightFormat, CardInsightOptions } from "@yugidraft/shared/services";
+import { isCardEra, isReleasedRange, type CardEra } from "@yugidraft/shared/cards/effects";
 import type { DuelDeck } from "@yugidraft/shared/duels";
 import { NextResponse } from "next/server";
 import { readJsonBody } from "./bug-reports/read-body";
@@ -15,7 +16,7 @@ export type CardInsightRequest =
   | ({ op: "effectSearch"; text: string } & Options)
   | ({ op: "worksWith"; passcode: number } & Options)
   | ({ op: "suggest"; deck: DuelDeck | number[] } & Options)
-  | { op: "poolHealth"; cards: number[] }
+  | { op: "poolHealth"; cards: number[]; era?: CardEra }
   | { op: "pickScore"; candidate: number; pickedPool: number[] };
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -34,12 +35,12 @@ const deck = (value: unknown): value is DuelDeck | number[] => {
 /** Reject fields outside the operation contract, including private resource IDs and client guild authority. */
 export function parseCardInsightRequest(value: unknown): CardInsightRequest | null {
   if (!object(value) || typeof value.op !== "string") return null;
-  const optionKeys = ["pool", "limit", "format", "genesysRemaining", "deckMaster"];
+  const optionKeys = ["pool", "limit", "format", "genesysRemaining", "deckMaster", "released", "sort", "era"];
   const fields: Record<string, string[]> = {
     summary: ["passcode"], read: ["text"],
     effectSearch: ["text", ...optionKeys, "exact", "omittedChips"],
     worksWith: ["passcode", ...optionKeys], suggest: ["deck", ...optionKeys],
-    poolHealth: ["cards"], pickScore: ["candidate", "pickedPool"],
+    poolHealth: ["cards", "era"], pickScore: ["candidate", "pickedPool"],
   };
   if (!Object.hasOwn(fields, value.op)) return null;
   const keys = fields[value.op];
@@ -54,6 +55,9 @@ export function parseCardInsightRequest(value: unknown): CardInsightRequest | nu
   if (value.format !== undefined && !format(value.format)) return null;
   if (value.genesysRemaining !== undefined && !integer(value.genesysRemaining, 0, 1000)) return null;
   if (value.deckMaster !== undefined && !passcode(value.deckMaster)) return null;
+  if (value.released !== undefined && !isReleasedRange(value.released)) return null;
+  if (value.sort !== undefined && value.sort !== "match" && value.sort !== "newest") return null;
+  if (value.era !== undefined && !isCardEra(value.era)) return null;
   if (value.exact !== undefined && typeof value.exact !== "boolean") return null;
   if (value.omittedChips !== undefined && (!Array.isArray(value.omittedChips) || value.omittedChips.length > 16 || value.omittedChips.some(chip => typeof chip !== "string" || !chip.length || chip.length > 256))) return null;
   return value as unknown as CardInsightRequest;

@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import {
   buildArchetypeMatcher, engineInsightCard, interpret, matchCard, omitReadingChips, mayReadEffect,
   compactEffectName,
+  type ReleaseDates,
   type CardTags, type Interpretation, type MatchEvent, type MatchFilter, type MatchTags,
 } from "@yugidraft/shared/cards/effects";
 import type { CardDatabase } from "./cards.js";
@@ -9,6 +10,7 @@ import { cardArtworkFamily } from "./card-artworks.js";
 
 export interface CardEffectIndex {
   size: number;
+  release(code: number): ReleaseDates;
   readQuery(text: string, omitted?: readonly string[]): Interpretation | null;
   match(code: number, reading: Interpretation): number | null;
   popularity(code: number): number;
@@ -66,12 +68,16 @@ export function createCardEffectIndex(db: Database.Database, cards: CardDatabase
     } });
   }
   const metadata = new Map([...cards.all()].map(card => [card.code, engineInsightCard(card)]));
+  const releases = new Map((db.prepare("SELECT passcode,tcg_date,ocg_date FROM card_release").all() as { passcode: number; tcg_date: string | null; ocg_date: string | null }[])
+    .map(row => [row.passcode, { ...(row.tcg_date ? { tcgDate: row.tcg_date } : {}), ...(row.ocg_date ? { ocgDate: row.ocg_date } : {}) }]));
+  for (const card of metadata.values()) Object.assign(card, releases.get(card.id));
   const archetypes = new Set([...cards.setnames().values()]);
   for (const row of db.prepare("SELECT archetype FROM card_tag_profiles").iterate() as Iterable<{ archetype: string }>) archetypes.add(row.archetype);
   const findArchetypes = buildArchetypeMatcher(archetypes);
   const names = new Set([...metadata.values()].map(card => compactEffectName(card.name)));
   const index: CardEffectIndex = {
     size: facets.size,
+    release: code => releases.get(metadata.get(code)?.id ?? code) ?? {},
     readQuery: (text, omitted) => {
       if (!mayReadEffect(text) || names.has(compactEffectName(text))) return null;
       const reading = interpret(text, findArchetypes);

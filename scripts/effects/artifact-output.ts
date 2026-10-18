@@ -67,7 +67,8 @@ export function writeEffectArtifactCandidate(options: { root: string; outputDire
     }
     emit("profiles", "profiles.jsonl.gz", Buffer.from([...profiles.values()].map(row => JSON.stringify(row)).join("\n") + "\n"), profiles.size);
   } else copyFileSync(join(baseDirectory, "profiles.jsonl.gz"), join(output, "profiles.jsonl.gz"));
-  for (const file of ["popularity.json.gz"]) copyFileSync(join(baseDirectory, file), join(output, file));
+  for (const file of ["popularity.json.gz", "releases.json.gz"]) copyFileSync(join(baseDirectory, file), join(output, file));
+
   const { artifactVersion: _old, ...identity } = manifest;
   manifest.artifactVersion = sha(JSON.stringify(identity));
   const manifestBytes = JSON.stringify(manifest, null, 2) + "\n"; writeFileSync(join(output, "manifest.json"), manifestBytes);

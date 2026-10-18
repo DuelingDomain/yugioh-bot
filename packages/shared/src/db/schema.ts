@@ -352,6 +352,13 @@ export function migrate(db: Database.Database) {
       tagged_at text not null default current_timestamp,
       schema_version integer not null
     );
+    create table if not exists card_release (
+      passcode integer primary key check (passcode > 0 and passcode <= 4294967295),
+      tcg_date text,
+      ocg_date text,
+      quality text not null check (quality in ('ok','placeholder','unknown')),
+      source_version text not null
+    );
     create table if not exists card_tag_profiles (
       archetype text primary key,
       plan text not null,

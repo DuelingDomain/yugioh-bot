@@ -22,3 +22,13 @@ text in upstream `data/cards.json`. Normalization converts CRLF/CR to LF,
 trims each field, and joins Pendulum text then monster text with one newline.
 There are 13,693 known hashes and one null input (passcode 101402101). The
 manifest pins this derived file and the original source-input SHA-256.
+
+`releases.json.gz` contains first TCG and OCG release months from the same
+upstream `data/cards.json` (YGOPRODeck misc data). It also retains source names
+and artwork aliases for canonical passcode resolution. Dates before 2002 in the
+TCG and before 1999 in the OCG are removed as placeholders. No first-set data
+is added to this snapshot. These source dates can refer to a later print.
+The month precision avoids a claim of exact day accuracy. Future months are
+retained; readers calculate the Upcoming state at use time. Rebuild with Node
+22 and `tsx scripts/effects/build-releases.ts <source-cards.json>` from the root.
+Keep the credit: Release dates from YGOPRODeck via searchygo.
