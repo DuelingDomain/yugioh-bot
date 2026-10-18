@@ -49,7 +49,7 @@ void main(){
   float streak = fbm(vec2(dx*.03, y*.005+tt*10.));                  // slow streaks flowing down
   float streak2 = vnoise(vec2(dx*.08, y*.015+tt*20.));
   float body = 1.-smoothstep(.88,1.,nd);
-  float core = pow(clamp(1.-smoothstep(.08,.6,nd+(streak-.5)*.5),0.,1.),1.15);
+  float core = pow(clamp(1.-smoothstep(.08,uSoft > 0. ? .46 : .6,nd+(streak-.5)*.5),0.,1.),1.15);
   float vn = vnoise(vec2(dx*.045+tt*3., y*.02+tt*28.));
   float vein = pow(1.-abs(2.*vn-1.),10.)*(1.-smoothstep(.2,1.,nd))*live;
   vec3 violet = vec3(.5,.2,1.), blue = vec3(.18,.5,1.), ice = vec3(.7,.9,1.);
@@ -59,11 +59,15 @@ void main(){
   vec3 col = c*body*(.7+.6*streak2)*1.05 + vec3(1.)*vein*.85*body;
   float gl = exp(-max(nd-.85,0.)*2.1);
   col += mix(blue,violet,smoothstep(1.,2.4,nd))*gl*(1.-body)*.6;   // electric glow around the column
-  col += vec3(.9,.95,1.)*exp(-pow((y-uFront)/36.,2.))*body*1.2*live; // bright head while it drops
-  float rev = smoothstep(uFront-8.,uFront+22.,y);
-  float bot = smoothstep(uYEnd-40.,uYEnd+30.,y);
+  bool one = uSoft > 0.;                                            // aimed at one field: a wider, softer head
+  col += vec3(.9,.95,1.)*exp(-pow((y-uFront)/(one ? 70. : 36.),2.))*body*(one ? .7 : 1.2)*live; // bright head while it drops
+  float rev = one ? smoothstep(uFront-70.,uFront+90.,y) : smoothstep(uFront-8.,uFront+22.,y);
+  float bot = uSoft > 0. ? smoothstep(uYEnd-125.,uYEnd+45.,y) : smoothstep(uYEnd-40.,uYEnd+30.,y);
   float sx = uSoft > 0. ? smoothstep(uX0, uX0+uSoft, vW.x)*(1.-smoothstep(uX1-uSoft, uX1, vW.x)) : 1.;
-  gl_FragColor = vec4(col*uInt*uMul*rev*bot*sx,sx);
+  vec3 lit = col*uInt*uMul*rev*bot*sx;
+  // Aimed at one field (uSoft): the alpha follows the light, so the quad leaves no dark block on the table.
+  float a = uSoft > 0. ? clamp(max(lit.r,max(lit.g,lit.b)),0.,1.) : sx;
+  gl_FragColor = vec4(lit,a);
 }`;
 
 const BEAM_HT = 230; // half width at the sky
@@ -72,10 +76,10 @@ const BEAM_HG = 380; // half width at the monster row: the foot covers all 5 zon
 type BeamLayer = { mesh: THREE.Mesh; u: Record<string, THREE.IUniform> };
 
 /** The beam is one shader quad: a wide, solid energy column (white-hot core, blue/violet body, stepped jagged edges, flowing veins). */
-function makeBeam(ctx: WipeCtx, yTop: number, yEnd: number, order: number, mul: number): BeamLayer {
+function makeBeam(ctx: WipeCtx, yTop: number, yEnd: number, order: number, mul: number, bs: number): BeamLayer {
   // Aimed at one field of a multi-seat table: the quad covers that field, soft at its sides.
   const { minX, maxX } = ctx.focused ? { minX: ctx.focus.minX - 120, maxX: ctx.focus.maxX + 120 } : ctx.bounds;
-  const bot = yEnd - 60;
+  const bot = yEnd - (ctx.focused ? 140 : 60);
   const geo = new THREE.PlaneGeometry(maxX - minX + 40, yTop - bot);
   const mat = new THREE.ShaderMaterial({
     uniforms: {
@@ -86,13 +90,13 @@ function makeBeam(ctx: WipeCtx, yTop: number, yEnd: number, order: number, mul: 
       uFront: { value: yTop },
       uYTop: { value: yTop },
       uYEnd: { value: yEnd },
-      uHalfTop: { value: BEAM_HT },
-      uHalfGround: { value: BEAM_HG },
+      uHalfTop: { value: BEAM_HT * bs },
+      uHalfGround: { value: BEAM_HG * bs },
       uStatic: { value: 0 },
       uMul: { value: mul },
       uX0: { value: minX },
       uX1: { value: maxX },
-      uSoft: { value: ctx.focused ? 160 : 0 },
+      uSoft: { value: ctx.focused ? 160 * bs : 0 },
     },
     vertexShader: BEAM_VS,
     fragmentShader: BEAM_FS,
@@ -128,7 +132,7 @@ const setBeam = (layers: BeamLayer[], p: { t: number; wid: number; int: number; 
 const SKY_FS =
   GLSL_COMMON +
   `
-uniform float uT, uYEdge, uYTop, uAmt, uX0, uX1, uSoft; uniform vec4 uFl[4]; varying vec2 vW;
+uniform float uT, uYEdge, uYTop, uAmt, uX0, uX1, uSoft, uCap; uniform vec4 uFl[4]; varying vec2 vW;
 void main(){
   vec2 p = vec2(vW.x*.0045, vW.y*.0055);
   float w = fbm(p*2.6+vec2(uT*.22,-uT*.1));
@@ -141,8 +145,17 @@ void main(){
   lit *= smoothstep(0.,.2,vy);
   float hi = smoothstep(.4,.8,n2*.6+n*.6);
   vec3 col = mix(vec3(.008,.008,.03),vec3(.26,.21,.5),hi) + vec3(.5,.6,1.)*lit*(.4+1.5*n2);
-  float sx = uSoft > 0. ? smoothstep(uX0, uX0+uSoft, vW.x)*(1.-smoothstep(uX1-uSoft, uX1, vW.x)) : 1.;
-  gl_FragColor = vec4(col, clamp(dens*1.05+lit*.3,0.,.92)*sx);
+  float sx = 1.;
+  float cap = .92;
+  if (uSoft > 0.) {
+    // Aimed at one field: a feathered cloud, dense in the middle and gone at every edge, tinted like the table.
+    float hw = (uX1-uX0)*.5;
+    vec2 e = vec2((vW.x-(uX0+uX1)*.5)/hw, (vy-.5)*2.);
+    sx = 1.-smoothstep(.35,1.,length(e));
+    col = mix(vec3(.025,.02,.08),vec3(.2,.15,.42),hi) + vec3(.4,.5,1.)*lit*(.35+1.2*n2);
+    cap = uCap;
+  }
+  gl_FragColor = vec4(col, clamp(dens*1.05+lit*.3,0.,cap)*sx);
 }`;
 
 type Sky = { set(t: number, amt: number, fl: number): void };
@@ -162,6 +175,7 @@ function makeSky(ctx: WipeCtx, yEdge: number, yTop: number): Sky {
       uX0: { value: minX },
       uX1: { value: maxX },
       uSoft: { value: ctx.focused ? 160 : 0 },
+      uCap: { value: 0.6 },
     },
     vertexShader: BEAM_VS,
     fragmentShader: SKY_FS,
@@ -193,7 +207,7 @@ function makeSky(ctx: WipeCtx, yEdge: number, yTop: number): Sky {
         const f = ph - k;
         const on = hash1(k * 1.7 + i * 9.3) > 0.5 ? 1 : 0;
         const a = on * Math.pow(1 - f, 2) * (0.5 + 0.7 * hash1(k * 3.3 + i)) * amt * fl;
-        fls[i].set((hash1(k * 5.1 + i * 2.2) - 0.5) * 900 * scaleX, yEdge + (yTop - yEdge) * (0.5 + 0.5 * hash1(k * 7.7 + i)), 150 + 100 * hash1(k + i), a);
+        fls[i].set((hash1(k * 5.1 + i * 2.2) - 0.5) * (ctx.focused ? half * 1.2 : 900 * scaleX), yEdge + (yTop - yEdge) * (0.5 + 0.5 * hash1(k * 7.7 + i)), 150 + 100 * hash1(k + i), a);
       }
     },
   };
@@ -234,7 +248,10 @@ export const buildRaigeki: WipeBuild = (ctx) => {
   const yTop = top + 50;
   const yEnd = rowY - 45;
   const yEdge = side === "opp" ? rowY - 118 : rowY + 48;
-  const halfAt = (y: number): number => lerp(BEAM_HT, BEAM_HG, Math.pow(clamp((yTop - y) / (yTop - yEnd)), 0.9));
+  // Aimed at one field: the column is as wide as the five zones of that field, not as wide as the board of a duel.
+  const rowW = row ? row.maxX - row.minX : 0;
+  const bs = ctx.focused && rowW > 0 ? clamp((rowW * 0.5 + 40) / BEAM_HG, 0.4, 1) : 1;
+  const halfAt = (y: number): number => lerp(BEAM_HT, BEAM_HG, Math.pow(clamp((yTop - y) / (yTop - yEnd)), 0.9)) * bs;
   // a particle never outlives the piece: nothing is left in the last frame
   const mkP = (n: number, gen: (i: number) => ParticleSpec, o: Parameters<WipeCtx["particles"]>[2]): WipeParticles | { setT(t: number): void } =>
     n > 0
@@ -254,8 +271,8 @@ export const buildRaigeki: WipeBuild = (ctx) => {
 
   // sky and beam
   const sky = makeSky(ctx, yEdge, top);
-  const bBack = makeBeam(ctx, yTop, yEnd, 100, 1);
-  const bFront = makeBeam(ctx, yTop, yEnd, 135, 0.22);
+  const bBack = makeBeam(ctx, yTop, yEnd, 100, 1, bs);
+  const bFront = makeBeam(ctx, yTop, yEnd, 135, 0.22, bs);
   const skyGlow = ctx.sprite(tex.soft, [0.7, 0.82, 1]);
   const foot = ctx.sprite(tex.soft, [0.72, 0.84, 1]);
   const spill = ctx.sprite(tex.soft, [0.45, 0.58, 1]);
@@ -297,12 +314,12 @@ export const buildRaigeki: WipeBuild = (ctx) => {
   ).map(([sd, mid]) => ({ mid, b: mkB({ x: sd * halfAt(yTop) * 0.88, y: yTop - 10 }, { x: sd * halfAt(yEnd) * 0.88, y: yEnd + 10 }, mid ? 3.6 : 3, { seg: 20, amp: mid ? 22 : 26, forks: mid ? 3 : 4 }) }));
   const gArcs = Array.from({ length: 8 }, (_, i) => {
     const sd = i % 2 ? 1 : -1;
-    return { b: mkB({ x: sd * (60 + r() * 180), y: yEnd + (r() - 0.5) * 30 }, { x: sd * (380 + r() * 180) * fit, y: yEnd + (r() - 0.5) * 90 }, 2.8, { seg: 10, amp: 22, forks: 2 }) };
+    return { b: mkB({ x: sd * (60 + r() * 180) * fit, y: yEnd + (r() - 0.5) * 30 }, { x: sd * (380 + r() * 180) * fit, y: yEnd + (r() - 0.5) * 90 }, 2.8, { seg: 10, amp: 22, forks: 2 }) };
   });
   const crackle = Array.from({ length: 6 }, () => {
-    const x = (r() - 0.5) * 560;
+    const x = (r() - 0.5) * 560 * fit;
     const y = rowY + (r() - 0.5) * 180;
-    return { b: mkB({ x, y }, { x: x + (r() - 0.5) * 200, y: y + (r() - 0.5) * 130 }, 2.4, { seg: 6, amp: 20, forks: 1 }), t0: Tc + 0.05 + r() * 0.6 };
+    return { b: mkB({ x, y }, { x: x + (r() - 0.5) * 200 * fit, y: y + (r() - 0.5) * 130 }, 2.4, { seg: 6, amp: 20, forks: 1 }), t0: Tc + 0.05 + r() * 0.6 };
   });
   const arcsSrc = [0, 1, 2].map(() => {
     const a = r() * 6.28;
@@ -408,9 +425,9 @@ export const buildRaigeki: WipeBuild = (ctx) => {
       let wid = lerp(0.32, 1.06, grow) - 0.06 * ramp(t, Th + 0.15, Th + 0.45);
       wid *= 1 - 0.9 * easeInOut(cut);
       const int = t < Ts ? 0 : (0.9 + 0.2 * hash1(Math.floor(t * 38) * 1.3)) * (1 - easeIn2(ramp(t, Tc - 0.1, Tc + 0.06)));
-      setBeam([bBack, bFront], { t, wid, int, front });
+      setBeam([bBack, bFront], { t, wid, int: ctx.focused ? int * 0.82 : int, front });
       const bi = int * (t >= Ts ? 1 : 0);
-      skyGlow.set(0, yTop - 70, 800 * fit * (0.4 + 0.6 * wid), 0.4 * bi * strike, 340 * fit);
+      skyGlow.set(0, yTop - 70, 800 * fit * (0.4 + 0.6 * wid), (ctx.focused ? 0.28 : 0.4) * bi * strike, 340 * fit);
       foot.set(0, yEnd + 5, 760 * fit * wid, 0.5 * bi * ramp(t, Th - 0.02, Th + 0.04), 170 * fit);
       spill.set(0, rowY, 1300 * fit, 0.12 * bi * strike, 460 * fit);
       // whiteout + flashes
@@ -424,9 +441,9 @@ export const buildRaigeki: WipeBuild = (ctx) => {
         s.b.set(((t - (s.t - 0.07)) / 0.07) * 1.25, alphaOf(d) * 0.85);
         fl = Math.max(fl, d >= 0 ? 0.12 * Math.exp(-d / 0.07) : 0);
       }
-      P.uFlash.value.set(0.9, 0.95, 1, ctx.focused ? fl * 0.55 : fl);
+      P.uFlash.value.set(0.9, 0.95, 1, ctx.focused ? fl * 0.4 : fl);
       P.uAberr.value = Math.min(1.2, fl * 1.1);
-      bigflash.set(0, yEnd, 1600 * fit, dc >= 0 ? 0.6 * Math.exp(-dc / 0.1) : 0);
+      bigflash.set(0, yEnd, 1600 * fit, dc >= 0 ? (ctx.focused ? 0.16 : 0.6) * Math.exp(-dc / 0.1) : 0);
       leader.set(((t - (Ts - 0.1)) / 0.1) * 1.25, t > Ts - 0.1 && t < Th + 0.04 ? 1 : 0);
       arcs.forEach((a, i) => a.b.set(1.3, t > Th + 0.12 && t < Tc - 0.05 && hash1(Math.floor(t * 22) + i * 5.3) > 0.5 ? 0.9 * smoothstepJS(0.85, 1, wid) * bi : 0));
       edgeB.forEach((e, i) => e.b.set(1.3, t > Th + 0.1 && t < Tc && hash1(Math.floor(t * 26) + i * 6.1) > 0.3 ? 0.85 * smoothstepJS(0.85, 1, wid) * bi : 0));
