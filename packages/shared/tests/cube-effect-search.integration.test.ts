@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createCardInsightService } from "../src/services/card-insights.js";
 import { previewCubeSeed } from "../src/services/cube-seed.js";
-import { getCubeSeedIndex, prepareCubeSeedIndex } from "../src/services/cube-seed-index.js";
+import { getCubeSeedIndex, initializeCubeSeedIndex, prepareCubeSeedIndex } from "../src/services/cube-seed-index.js";
 import { createCubeService } from "../src/services/cubes.js";
 import * as insightCatalog from "../src/services/card-insight-catalog.js";
 import { seedUser } from "./helpers/identity.js";
@@ -125,12 +125,16 @@ describe("phrase cube previews over the pinned artifact", () => {
       const { cards } = benchmark.prepare<[], { cards: number }>("SELECT count(*) AS cards FROM card_catalog").get()!;
       expect(cards).toBeGreaterThanOrEqual(13_000);
       console.info(`Seed preview catalog: ${cards} real cards`);
-      const index = prepareCubeSeedIndex(benchmark);
+      const memoryBefore = process.memoryUsage();
+      const coldStart = performance.now();
+      const index = await initializeCubeSeedIndex(benchmark);
       console.info(`Seed preparation: ${index.preparationMs.toFixed(1)} ms`);
       console.time("previewCubeSeed real catalog");
       let preview;
       try { preview = previewCubeSeed(benchmark, { phrase: "dark magician", targetCount: 180 }, []); }
       finally { console.timeEnd("previewCubeSeed real catalog"); }
+      const coldMs = performance.now() - coldStart;
+      const memoryAfter = process.memoryUsage();
       expect(preview.rows).toHaveLength(180);
       const samples: number[] = [], cached: number[] = [];
       const phrases = ["dark magician", "blue eyes", "red eyes", "hand traps", "searchers", "draw cards", "spells that destroy", "revive monsters"];
@@ -147,7 +151,22 @@ describe("phrase cube previews over the pinned artifact", () => {
         values.sort((a, b) => a - b);
         return { samples: values.length, medianMs: values[Math.floor(values.length / 2)]!, p95Ms: values[Math.ceil(values.length * 0.95) - 1]! };
       };
-      const report = { cards, preparationMs: index.preparationMs, uncached: stats(samples), cached: stats(cached) };
+      benchmark.prepare("UPDATE card_catalog SET cached_at=CURRENT_TIMESTAMP WHERE ygoprodeck_id=46986414").run();
+      const afterCatalogStart = performance.now();
+      previewCubeSeed(benchmark, { phrase: "dark magician", targetCount: 180, era: { medianYear: 2005, spread: 1 } }, []);
+      const afterCatalogWriteMs = performance.now() - afterCatalogStart;
+      expect(getCubeSeedIndex(benchmark)).toBe(index);
+      const refreshStart = performance.now();
+      const refreshed = await initializeCubeSeedIndex(benchmark);
+      const catalogRefreshMs = performance.now() - refreshStart;
+      expect(refreshed).not.toBe(index);
+      benchmark.prepare("UPDATE card_release SET tcg_date=tcg_date WHERE passcode=46986414").run();
+      const effectStart = performance.now();
+      await initializeCubeSeedIndex(benchmark);
+      previewCubeSeed(benchmark, { phrase: "dark magician", targetCount: 180 }, []);
+      const afterEffectRevisionMs = performance.now() - effectStart;
+      const report = { cards, preparationMs: index.preparationMs, coldMs, afterCatalogWriteMs, catalogRefreshMs, afterEffectRevisionMs,
+        memoryBefore, memoryAfter, webRssGrowthMiB: (memoryAfter.rss - memoryBefore.rss) / 1048576, uncached: stats(samples), cached: stats(cached) };
       console.info(`SEED_BENCHMARK ${JSON.stringify(report)}`);
       const output = process.env.CUBE_SEED_BENCHMARK_OUTPUT;
       if (output) { mkdirSync(dirname(output), { recursive: true }); writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`); }
@@ -219,8 +238,36 @@ describe("phrase cube previews over the pinned artifact", () => {
       writer.prepare("UPDATE cubes SET name='Changed title' WHERE id=?").run(cubeId);
       expect(getCubeSeedIndex(reader)).toBe(first);
       writer.prepare("UPDATE card_catalog SET effect_text='Changed printed text' WHERE ygoprodeck_id=1").run();
-      expect(getCubeSeedIndex(reader)).not.toBe(first);
+      expect(getCubeSeedIndex(reader)).toBe(first);
+      const refresh = initializeCubeSeedIndex(reader);
+      expect(initializeCubeSeedIndex(reader)).toBe(refresh);
+      await refresh;
+      const updated = getCubeSeedIndex(reader);
+      expect(updated).not.toBe(first);
+      expect(updated.candidates.find(candidate => candidate.card.id === 1)?.card.text).toBe("Changed printed text");
+      writer.prepare("UPDATE card_release SET tcg_date='2001-01' WHERE passcode=1").run();
+      writer.prepare("INSERT OR REPLACE INTO archetypes(name,synced_at) VALUES('Revision fixture',CURRENT_TIMESTAMP)").run();
+      expect(await initializeCubeSeedIndex(reader)).not.toBe(updated);
     } finally { reader.close(); writer.close(); rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it("applies current artwork exclusions and deduplicates identities while serving a catalog snapshot", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "seed-artwork-refresh-")), path = join(directory, "cards.sqlite");
+    await db.backup(path);
+    const disk = new Database(path);
+    try {
+      const first = prepareCubeSeedIndex(disk);
+      previewCubeSeed(disk, { phrase: "monsters", targetCount: 10 }, []);
+      disk.prepare("INSERT INTO card_artworks(card_id,artwork_id,image_url,image_url_small,is_main) VALUES(2,1,'i','s',0) ON CONFLICT(artwork_id) DO UPDATE SET card_id=excluded.card_id").run();
+      expect(getCubeSeedIndex(disk)).toBe(first);
+      const excluding = previewCubeSeed(disk, { phrase: "monsters", targetCount: 10 }, [2]);
+      expect(excluding.rows.map(row => row.id)).not.toContain(1);
+      expect(excluding.rows.map(row => row.id)).not.toContain(2);
+      const all = previewCubeSeed(disk, { phrase: "monsters", targetCount: 10 }, []);
+      expect(all.rows.map(row => row.id)).not.toContain(1);
+      expect(all.rows.filter(row => row.id === 2)).toHaveLength(1);
+      await initializeCubeSeedIndex(disk);
+    } finally { disk.close(); rmSync(directory, { recursive: true, force: true }); }
   });
 
   it("excludes legacy config identities stored only as uncached engine artworks", () => {
@@ -238,6 +285,11 @@ describe("phrase cube previews over the pinned artifact", () => {
       const preview = previewCubeSeed(db, { phrase: "monsters", targetCount: 10 }, [100001]);
       expect(preview.rows.length).toBeGreaterThan(0);
       expect(preview.rows.every(row => row.id !== 1 && row.id !== 100001)).toBe(true);
+      db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+        VALUES(100001,'Card 1','Effect Monster','effect','i','s','[]',CURRENT_TIMESTAMP)`).run();
+      db.prepare("INSERT INTO card_artworks(card_id,artwork_id,image_url,image_url_small,is_main) VALUES(100001,100001,'i','s',1)").run();
+      const selfArtwork = previewCubeSeed(db, { phrase: "monsters", targetCount: 10 }, [100001]);
+      expect(selfArtwork.rows.every(row => row.id !== 1 && row.id !== 100001)).toBe(true);
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 

@@ -22,7 +22,7 @@ async function signIn(page: Page) {
 }
 
 async function newCube(page: Page, name: string): Promise<number> {
-  const res = await page.request.post("/api/cubes", { data: { kind: "blank", name } });
+  const res = await page.request.post("/api/cubes", { data: { kind: "blank", name: `${name} ${Date.now()}` } });
   expect(res.status()).toBe(201);
   return ((await res.json()) as { cube: { id: number } }).cube.id;
 }
@@ -97,6 +97,7 @@ for (const viewport of VIEWPORTS) {
 
     // Hover opens the written summary and nothing in the list moves.
     const firstRow = rows.first();
+    await page.mouse.move(0, 0);
     const before = await firstRow.boundingBox();
     await firstRow.hover();
     await expect(page.getByRole("tooltip")).toBeVisible({ timeout: 5000 });
@@ -127,15 +128,34 @@ for (const viewport of VIEWPORTS) {
     })).toBe(false);
     await page.screenshot({ path: join(SHOTS, `describe-batch-${viewport.width}x${viewport.height}.png`) });
 
-    // One request adds the batch, and the entry can be taken out again.
+    // A catalog/era response after an edit must not rerank the open Describe session.
+    const rowIds = () => rows.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-card-id")));
+    const beforeAddIds = await rowIds();
+    const rowOffset = () => rows.first().evaluate(node => node.getBoundingClientRect().top - node.closest('[data-testid="describe-pane"]')!.getBoundingClientRect().top);
+    const beforeAddOffset = await rowOffset();
+    let describeRequests = 0;
+    page.on("request", request => {
+      if (request.url().endsWith("/api/cards/resolve") && request.postDataJSON()?.op === "effectSearch") describeRequests++;
+    });
+    const eraResponse = page.waitForResponse(response => response.url().endsWith(`/api/cubes/${cubeId}/era`));
     await tid(page, "batch-add").click();
     await expect(tid(page, "batch-bar")).toContainText(/Added \d+ cards?/);
     const entry = page.getByRole("list", { name: "Added lists" }).and(page.locator(":visible")).getByRole("listitem").first();
     await expect(entry).toContainText("Search batch");
     await expect(rows.first()).toContainText(/in cube/);
-    // The cube now holds cards, so Describe leans toward their release years and says so, in muted text.
+    await eraResponse;
+    // Observe beyond the old 600 ms era delay plus the 350 ms search debounce.
+    await page.waitForTimeout(1100);
+    expect(describeRequests).toBe(0);
+    expect(await rowIds()).toEqual(beforeAddIds);
+    expect(await rowOffset()).toBeCloseTo(beforeAddOffset, 1);
     const era = tid(page, "era-note");
-    await expect(era).toContainText(/^Matching this cube's era: \d{4}(–\d{4})?/, { timeout: 30_000 });
+    await expect(era).toHaveCount(0);
+    // Reopening Describe starts a new session and adopts the updated cube era.
+    const modes = page.getByRole("group", { name: "Find cards by" }).and(page.locator(":visible"));
+    await modes.getByRole("button", { name: "Name", exact: true }).click();
+    await tid(page, "mode-describe").click();
+    await expect(era).toContainText(/^Matching this cube's era: \d{4}(–\d{4})?/);
     await expect(era).not.toContainText(/\bAI\b/);
     await tid(page, "describe-sort").selectOption("newest");
     await expect(era).toHaveCount(0);
@@ -156,8 +176,18 @@ for (const viewport of VIEWPORTS) {
     // "Newest first" is a sort choice in Describe mode.
     await input.fill("hand traps that negate");
     await expect(rows.first()).toBeVisible();
+    const newestResponse = page.waitForResponse(response => response.url().endsWith("/api/cards/resolve") && response.request().postDataJSON()?.sort === "newest");
     await tid(page, "describe-sort").selectOption("newest");
+    await newestResponse;
     await expect(rows.first()).toBeVisible();
+    const firstIds = (await rowIds()).slice(0, 2).map(Number);
+    expect(firstIds).toHaveLength(2);
+    const releaseResponse = await page.request.post("/api/decks/cards", { data: { text: "", mode: "normal", passcodes: firstIds } });
+    expect(releaseResponse.status()).toBe(200);
+    const dated = (await releaseResponse.json()).cards as { code: number; release?: { date?: string } }[];
+    const dates = firstIds.map(id => dated.find(card => card.code === id)?.release?.date);
+    expect(dates.every(Boolean)).toBe(true);
+    expect(dates[0]! >= dates[1]!).toBe(true);
     await expect(tid(page, "reading-chips")).toContainText("hand trap", { ignoreCase: true });
     expect(await noOverflow(page)).toBe(true);
     await page.screenshot({ path: join(SHOTS, `describe-newest-${viewport.width}x${viewport.height}.png`) });

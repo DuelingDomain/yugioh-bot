@@ -38,6 +38,7 @@ export function DescribePane({
   limit = 30,
   era,
   eraWarning,
+  active = true,
 }: {
   batch: Batch;
   onBatch: (update: (batch: Batch) => Batch) => void;
@@ -51,6 +52,7 @@ export function DescribePane({
   era?: CardEra;
   /** A health note about cards much newer than the rest of the cube. */
   eraWarning?: string;
+  active?: boolean;
 }) {
   const inputId = React.useId();
   const sortId = React.useId();
@@ -65,8 +67,16 @@ export function DescribePane({
   const [keyboard, setKeyboard] = React.useState(false);
   const seq = React.useRef(0);
 
+  // Capture once when Describe opens. Cube edits cannot change the ranking under the pointer.
+  const [session, setSession] = React.useState({ era, warning: eraWarning });
+  React.useEffect(() => {
+    if (active) setSession({ era: era ? { medianYear: Math.round(era.medianYear), spread: Math.round(era.spread) } : undefined, warning: eraWarning });
+    // Capture the latest hint only when the user opens this mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+  const sessionEra = session.era;
   const trimmed = text.trim();
-  const eraKey = era ? `${era.medianYear}/${era.spread}` : "";
+  const eraKey = sessionEra ? `${Math.round(sessionEra.medianYear)}/${Math.round(sessionEra.spread)}` : "";
   const omittedKey = omitted.join("\u0001");
 
   React.useEffect(() => {
@@ -79,7 +89,7 @@ export function DescribePane({
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setSearching(true);
-      effectSearch(trimmed, { exact, omittedChips: omitted, limit, sort, era: sort === "newest" ? undefined : era, signal: controller.signal })
+      effectSearch(trimmed, { exact, omittedChips: omitted, limit, sort, era: sort === "newest" ? undefined : sessionEra, signal: controller.signal })
         .then((result) => {
           if (mine !== seq.current) return;
           setAnswer({ text: trimmed, result, error: null });
@@ -201,7 +211,9 @@ export function DescribePane({
           })}
         </ul>
       )}
-      {ready && sort === "match" && era ? <EraNote era={era} warning={eraWarning} /> : null}
+      <div className={styles.eraSlot} data-testid="era-note-space">
+        {ready && sort === "match" && sessionEra ? <EraNote era={sessionEra} warning={session.warning} /> : null}
+      </div>
       {error ? (
         <div className={styles.err} role="alert">
           <p>{error.message}</p>

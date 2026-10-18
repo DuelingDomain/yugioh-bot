@@ -359,10 +359,13 @@ export function interpret(
   if (!text && !release.released && !release.sort) return null;
   for (const [term, meaning] of PLAYER_TERMS) text = text.replace(term, meaning);
 
-  let atk: number | undefined;
-  text = text.replace(/\b(?:(\d{1,5})\s+(?:atk|attack)|(?:atk|attack)\s+(\d{1,5}))\b/g, (match, before, after, offset: number) => {
+  let atkMin: number | undefined, atkMax: number | undefined;
+  text = text.replace(/\b(?:(\d{3,5})\s+(?:atk|attack)|(?:atk|attack)\s+(\d{3,5}))(?:\s+or\s+(less|lower|more|higher))?\b/g, (match, before, after, bound, offset: number) => {
     if (/\b(?:gain\w*|boost\w*|increas\w*|rais\w*|doubl\w*|los\w+|reduc\w*|lower\w*|halv\w*|chang\w*)\s+(?:\w+\s+){0,2}$/.test(text.slice(0, offset))) return match;
-    atk = Number(before ?? after); return " ";
+    const value = Number(before ?? after);
+    atkMin = bound === "less" || bound === "lower" ? undefined : value;
+    atkMax = bound === "more" || bound === "higher" ? undefined : value;
+    return " ";
   });
   const marks: Mark[] = [];
   const free = (start: number, end: number) => marks.every((mark) => end <= mark.start || start >= mark.end);
@@ -409,7 +412,7 @@ export function interpret(
 
   const query: EffectQuery = { card: emptyObject(), roles: [], quick: false, text: "",
     ...(release.released ? { released: release.released, releaseLabel: release.releaseLabel } : {}), ...(release.sort ? { sort: release.sort } : {}) };
-  if (atk !== undefined) Object.assign(query.card, { atkMin: atk, atkMax: atk });
+  if (atkMin !== undefined || atkMax !== undefined) Object.assign(query.card, { atkMin, atkMax });
   const newEvent = (): EventQuery & { to?: Zone; rule?: VerbRule } => ({ verbs: [], from: [], self: false, object: emptyObject() });
   let does: ReturnType<typeof newEvent> | undefined;
   let reactsTo: ReturnType<typeof newEvent> | undefined;
@@ -615,7 +618,9 @@ const ZONE_LABELS: Record<Zone, string> = {
 const verbLabel = (verb: Verb) => VERB_LABELS[verb] ?? verb.replaceAll("_", " ").replace(/\b(summon|special|normal|fusion|ritual|synchro|xyz|link|pendulum)\b/g, (word) => word[0]!.toUpperCase() + word.slice(1));
 
 function describeObject(object: ObjectQuery): string {
-  const attack = object.atkMin !== undefined ? `${object.atkMin} ATK` : "";
+  const attack = object.atkMin !== undefined && object.atkMin === object.atkMax ? `${object.atkMin} ATK`
+    : object.atkMax !== undefined ? `${object.atkMax} ATK or lower`
+    : object.atkMin !== undefined ? `${object.atkMin} ATK or higher` : "";
   const level =
     object.levelMin !== undefined && object.levelMin === object.levelMax
       ? `Level ${object.levelMin}`

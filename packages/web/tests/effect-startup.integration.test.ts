@@ -5,7 +5,7 @@ import { expect, it, vi } from "vitest";
 
 vi.mock("../src/lib/web-access", () => ({ requireWebAccess: vi.fn() }));
 
-it("shares the startup database, prepared seed data and request guard across separate server module graphs", async () => {
+it("shares the lazy database, seed preparation and request guard across separate server module graphs", async () => {
   const directory = mkdtempSync(join(tmpdir(), "effect-startup-"));
   vi.stubEnv("DATABASE_PATH", join(directory, "shared.sqlite"));
   vi.stubEnv("DUEL_DATA_DIR", join(directory, "absent-engine"));
@@ -24,7 +24,9 @@ it("shares the startup database, prepared seed data and request guard across sep
     const separateIndex = new URL("../../shared/src/services/cube-seed-index.ts?server-graph=route", import.meta.url).href;
     const route = await import(separateIndex) as typeof startup;
     expect(route).not.toBe(startup);
-    const prepared = startup.prepareCubeSeedIndex(db);
+    const pending = startup.initializeCubeSeedIndex(db);
+    expect(route.initializeCubeSeedIndex(db)).toBe(pending);
+    const prepared = await pending;
     expect(route.getCubeSeedIndex(routeDb.getDb())).toBe(prepared);
 
     const cube = await import("../src/lib/cube-effects-api");

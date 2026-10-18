@@ -1,3 +1,4 @@
+import { ensureCubeSeedIndex } from "@yugidraft/shared/services";
 import { NextResponse } from "next/server";
 import { createCardCatalogService, previewCubeSeed, type CubeSeedOptions } from "@yugidraft/shared/services";
 import { requireWebAccess } from "@/lib/web-access";
@@ -33,6 +34,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   try {
     const body = await readCubeEffectBody(request, ["phrase", "targetCount", "maxCopies", "era"]);
     if (!body.ok) return body.response;
+    await ensureCubeSeedIndex(db);
     const preview = previewCubeSeed(db, body.value as unknown as CubeSeedOptions, []);
     const catalog = createCardCatalogService(db, { memberId: actor.userId });
     return cubeEffectResponse({ ...preview, cards: cubeCardsByIds(preview.rows.map(row => row.id), catalog) });

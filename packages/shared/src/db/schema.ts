@@ -727,6 +727,17 @@ export function migrate(db: Database.Database) {
         end;`);
     }
   }
+  db.exec(`create table if not exists card_effect_revision (
+    id integer primary key check (id = 1), revision integer not null default 0
+  ); insert or ignore into card_effect_revision (id) values (1);`);
+  for (const table of ["card_tags", "card_tag_profiles", "card_release", "archetypes"]) {
+    for (const event of ["insert", "update", "delete"]) {
+      db.exec(`create trigger if not exists ${table}_effect_${event}
+        after ${event} on ${table} begin
+          update card_effect_revision set revision = revision + 1 where id = 1;
+        end;`);
+    }
+  }
   addColumnIfMissing(db, "drafts", "tournament_id", "integer references tournaments(id)");
   addColumnIfMissing(db, "drafts", "complete_message_id", "text");
   addColumnIfMissing(db, "matches", "notify_channel_id", "text");

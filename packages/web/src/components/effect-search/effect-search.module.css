@@ -26,6 +26,8 @@
   font-size: 13px;
 }
 .sort select:focus-visible { outline: none; border-color: var(--pen); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.22); }
+.eraSlot { min-height: 58px; }
+
 /* The era note: muted text only, no box, so nothing moves or overlaps. */
 .eraNote { display: grid; gap: 2px; }
 .eraNote p { margin: 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.45; font-variant-numeric: tabular-nums; }

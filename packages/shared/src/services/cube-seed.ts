@@ -7,7 +7,7 @@ import { compactEffectName } from "../cards/effects/name-match.js";
 import type { Candidate } from "../cards/effects/synergy.js";
 import { cardEraBoost, compareNewest, deriveCardEra, isCardEra, matchesReleased, type CardEra } from "../cards/effects/releases.js";
 import type { Interpretation } from "../cards/effects/query.js";
-import { getCubeSeedIndex } from "./cube-seed-index.js";
+import { getCubeSeedIndex, type CubeSeedIndex } from "./cube-seed-index.js";
 import { DEFAULT_CUBE_COPIES, MAX_CUBE_COPIES } from "./constants.js";
 
 export interface CubeSeedOptions { phrase: string; targetCount?: number; maxCopies?: number; era?: CardEra }
@@ -44,6 +44,32 @@ function retain(choices: Choice[], choice: Choice, limit: number, compare: (a: C
 const PREVIEW_TTL_MS = 5 * 60_000, PREVIEW_CACHE_MAX = 64;
 const previewCaches = new WeakMap<object, Map<string, { at: number; preview: CubeSeedPreview }>>();
 
+// Artwork edits must apply immediately while expensive effect preparation refreshes.
+const identitySnapshots = new WeakMap<CubeSeedIndex, { revision: number; canonical: (code: number) => number; candidates: readonly Candidate[] }>();
+function currentIdentities(db: Database.Database, index: CubeSeedIndex) {
+  const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
+  const cached = identitySnapshots.get(index);
+  if (cached?.revision === revision) return cached;
+  const artworks = new Map(db.prepare<[], { artwork_id: number; card_id: number }>("SELECT artwork_id,card_id FROM card_artworks").all().map(row => [row.artwork_id, row.card_id]));
+  const canonical = (code: number): number => {
+    let current = artworks.has(code) && artworks.get(code) !== code ? code : index.canonical(code);
+    const seen = new Set<number>();
+    while (artworks.has(current) && artworks.get(current) !== current && !seen.has(current)) {
+      seen.add(current); current = artworks.get(current)!;
+    }
+    return current;
+  };
+  const seen = new Set<number>();
+  const candidates = index.candidates.filter(candidate => {
+    const code = canonical(candidate.card.id);
+    if (seen.has(code)) return false;
+    seen.add(code); return true;
+  });
+  const result = { revision, canonical, candidates };
+  identitySnapshots.set(index, result);
+  return result;
+}
+
 /** Read-only selection from prepared public metadata. Current cube identities remain excluded. */
 export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, existingIds: readonly number[]): CubeSeedPreview {
   const { phrase, targetCount = 180, maxCopies = DEFAULT_CUBE_COPIES } = input;
@@ -52,13 +78,14 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
   if (!Number.isInteger(maxCopies) || maxCopies < 1 || maxCopies > MAX_CUBE_COPIES) throw new ExpectedError(`maxCopies must be a whole number from 1 to ${MAX_CUBE_COPIES}`, 400);
   if (input.era !== undefined && !isCardEra(input.era)) throw new ExpectedError("era must contain a valid medianYear and spread", 400);
   const index = getCubeSeedIndex(db);
-  const existing = new Set(existingIds.map(index.canonical));
+  const identities = currentIdentities(db, index);
+  const existing = new Set(existingIds.map(identities.canonical));
   const dates = db.prepare<[number], { tcg_date: string | null; ocg_date: string | null }>("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=?");
   const era = input.era ?? deriveCardEra([...existing].map(code => {
     const row = dates.get(code);
     return { tcgDate: row?.tcg_date ?? undefined, ocgDate: row?.ocg_date ?? undefined };
   }));
-  const key = JSON.stringify([phrase.trim(), targetCount, maxCopies, era, [...existing].sort((a, b) => a - b), new Date().toISOString().slice(0, 7)]);
+  const key = JSON.stringify([identities.revision, phrase.trim(), targetCount, maxCopies, era, [...existing].sort((a, b) => a - b), new Date().toISOString().slice(0, 7)]);
   let cache = previewCaches.get(index);
   if (!cache) previewCaches.set(index, cache = new Map());
   const now = Date.now(), hit = cache.get(key);
@@ -86,7 +113,7 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     const anchorChoices: Choice[] = [];
     const quotaChoices = new Map<SeedRole, Choice[]>(roles.map(role => [role, []]));
     const considerRoles = (choice: Choice) => {
-      if (existing.has(choice.candidate.card.id)) return;
+      if (existing.has(identities.canonical(choice.candidate.card.id))) return;
       for (const role of roles) if (choice.candidate.tags?.roles.includes(role)) {
         const choices = quotaChoices.get(role)!;
         // Core, partner and staple passes can reach the same public identity.
@@ -109,12 +136,12 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     };
     // Retain enough anchors even for a very small requested preview.
     // The catalog and hook matches are prepared before request selection.
-    for (const candidate of index.candidates) {
+    for (const candidate of identities.candidates) {
       const choice = coreChoice(candidate);
       if (!choice) continue;
       coreMatched.add(candidate.card.id);
       retain(anchorChoices, choice, 32, compare);
-      if (!existing.has(candidate.card.id)) retain(core, choice, targetCount, compare);
+      if (!existing.has(identities.canonical(candidate.card.id))) retain(core, choice, targetCount, compare);
       considerRoles(choice);
     }
     if (!anchorChoices.length) { preview.warnings.push("No cards matched this phrase in the cached catalog."); return finish(preview); }
@@ -124,8 +151,8 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     const rankedPartners = index.rankPartners(anchors);
     const partners: Choice[] = [];
     const staples = new Map<SeedRole, Choice[]>(roles.map(role => [role, []]));
-    for (const candidate of index.candidates) {
-      if (existing.has(candidate.card.id) || coreMatched.has(candidate.card.id) || !matchesReleased(candidate.card, reading.query.released)) continue;
+    for (const candidate of identities.candidates) {
+      if (existing.has(identities.canonical(candidate.card.id)) || coreMatched.has(candidate.card.id) || !matchesReleased(candidate.card, reading.query.released)) continue;
       const result = rankedPartners.get(candidate.card.id);
       if (result && result.score > 0) {
         const choice: Choice = { candidate, category: "partner", reason: result.reason, score: result.score + cardEraBoost(candidate.card, era), linked: result.linkedCards };
@@ -144,9 +171,9 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     const selected = new Set(existing);
     const add = (choice: Choice): boolean => {
       const { card, tags } = choice.candidate;
-      if (selected.has(card.id) || preview.rows.length >= targetCount) return false;
-      selected.add(card.id);
-      preview.rows.push({ id: card.id, name: card.name, copies: maxCopies, pool: isExtraDeckCard(card) ? "extra" : "main", category: choice.category, reason: choice.reason, roles: [...tags?.roles ?? []] });
+      if (selected.has(identities.canonical(card.id)) || preview.rows.length >= targetCount) return false;
+      selected.add(identities.canonical(card.id));
+      preview.rows.push({ id: identities.canonical(card.id), name: card.name, copies: maxCopies, pool: isExtraDeckCard(card) ? "extra" : "main", category: choice.category, reason: choice.reason, roles: [...tags?.roles ?? []] });
       for (const role of roles) if (tags?.roles.includes(role)) roleQuotas[role].selected++;
       return true;
     };

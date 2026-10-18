@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../shared/src/db/schema";
@@ -290,4 +293,54 @@ describe("theme lobby seed preview", () => {
     state.auth.mockResolvedValue(null);
     expect((await POST(request({ phrase: "dark magician" }), ctx)).status).toBe(401);
   });
+});
+
+describe("light cube era route", () => {
+  it("reads every release date above 500 cards and returns a structured count", async () => {
+    const insert = db().prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,?,'Normal Monster','normal','i','s','[]',CURRENT_TIMESTAMP)`);
+    const date = db().prepare("INSERT INTO card_release(passcode,tcg_date,quality,source_version) VALUES(?,?,'ok','fixture')");
+    const add = db().prepare("INSERT INTO cube_cards(cube_id,catalog_card_id,pool,max_copies) VALUES(1,?,'main',1)");
+    db().transaction(() => {
+      for (let n = 1; n <= 601; n++) {
+        const id = 10000 + n;
+        insert.run(id, `Era ${n}`); date.run(id, n <= 600 ? "2005-01" : "2025-01"); add.run(id);
+      }
+    })();
+    const { GET } = await import("../app/api/cubes/[id]/era/route");
+    const response = await GET(new Request("http://test/api"), context());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ era: { medianYear: 2005, spread: 0 }, newerCount: 1 });
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect((await GET(new Request("http://test/api"), context("2"))).status).toBe(404);
+    state.auth.mockResolvedValue({ user: { id: String(fixtureUserId("other")) } });
+    expect((await GET(new Request("http://test/api"), context())).status).toBe(404);
+    state.auth.mockResolvedValue(null);
+    expect((await GET(new Request("http://test/api"), context())).status).toBe(401);
+  });
+  it("honors the feature gate", async () => {
+    vi.stubEnv("EFFECT_SEARCH", "0");
+    const { GET } = await import("../app/api/cubes/[id]/era/route");
+    expect((await GET(new Request("http://test/api"), context())).status).toBe(404);
+  });
+});
+
+it("keeps release era for an uncached engine artwork without parsing tags", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "cube-era-engine-"));
+  vi.stubEnv("DUEL_DATA_DIR", directory);
+  const engine = new Database(join(directory, "cards.cdb"));
+  engine.exec(`CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER,type INTEGER);
+    CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT);
+    INSERT INTO datas VALUES(46986414,0,33),(100001,46986414,33);
+    INSERT INTO texts VALUES(46986414,'Dark Magician'),(100001,'Dark Magician');`);
+  engine.close();
+  try {
+    db().prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(100001,'Dark Magician','Normal Monster','normal','i','s','[]',CURRENT_TIMESTAMP)`).run();
+    db().prepare("INSERT INTO cube_cards(cube_id,catalog_card_id,pool,max_copies) VALUES(1,100001,'main',1)").run();
+    db().prepare("INSERT INTO card_release(passcode,tcg_date,quality,source_version) VALUES(46986414,'2005-01','ok','fixture')").run();
+    const { GET } = await import("../app/api/cubes/[id]/era/route");
+    const response = await GET(new Request("http://test/api"), context());
+    expect(await response.json()).toMatchObject({ era: { medianYear: 2005, spread: 0 }, newerCount: 0 });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

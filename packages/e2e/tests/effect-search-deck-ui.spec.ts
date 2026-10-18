@@ -100,7 +100,19 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
 
     // "Newest first" is a sort choice. The order button does not reverse it, so it is off while this sort is on.
     await search.fill("");
+    const newestResponse = page.waitForResponse(response => response.url().endsWith("/api/decks/cards") && response.request().postDataJSON()?.sort === "newest");
     await browser.getByLabel("Sort by").selectOption({ label: "Newest first" });
+    const newest = (await (await newestResponse).json()).cards as { name: string; release?: { date?: string } }[];
+    expect(newest.length).toBeGreaterThanOrEqual(2);
+    expect(newest[0]!.release?.date).toBeTruthy();
+    expect(newest[1]!.release?.date).toBeTruthy();
+    expect(newest[0]!.release!.date! >= newest[1]!.release!.date!).toBe(true);
+    const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    await expect(browser.getByRole("button", { name: new RegExp(`^${escape(newest[0]!.name)}`) }).first()).toBeVisible();
+    await expect(browser.getByRole("button", { name: new RegExp(`^${escape(newest[1]!.name)}`) }).first()).toBeVisible();
+    const firstBox = await browser.getByRole("button", { name: new RegExp(`^${escape(newest[0]!.name)}`) }).first().boundingBox();
+    const secondBox = await browser.getByRole("button", { name: new RegExp(`^${escape(newest[1]!.name)}`) }).first().boundingBox();
+    expect(firstBox && secondBox && (firstBox.y < secondBox.y || firstBox.y === secondBox.y && firstBox.x < secondBox.x)).toBe(true);
     const order = browser.getByRole("button", { name: /^Newest first\. The order does not change/ });
     await expect(order).toBeDisabled();
     await expect(browser.getByText("Updating…")).toHaveCount(0);

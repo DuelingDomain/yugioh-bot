@@ -271,7 +271,7 @@ function CardTab({ copiesInCube, onAddCard, busy, effects }: Pick<AddRailProps, 
       </div>
       <div hidden={mode !== "name"}>{nameBody}</div>
       <div hidden={mode !== "describe"}>
-        <DescribePane batch={batch} onBatch={(update) => setBatch(update)} held={heldOf} kindLine={kindLine} busy={busy || adding} era={effects.era} eraWarning={effects.eraWarning} />
+        <DescribePane active={mode === "describe"} batch={batch} onBatch={(update) => setBatch(update)} held={heldOf} kindLine={kindLine} busy={busy || adding} era={effects.era} eraWarning={effects.eraWarning} />
       </div>
       <BatchBar
         batch={batch}

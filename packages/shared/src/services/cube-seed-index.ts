@@ -1,4 +1,13 @@
 import type Database from "better-sqlite3";
+import { spawn } from "node:child_process";
+import { mkdtempSync, openSync, closeSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import { deserialize } from "node:v8";
+import { report } from "../observability/index.js";
+import { deckEngineDataDirectory } from "./card-artworks.js";
 import { performance } from "node:perf_hooks";
 import { isExtraDeckCard } from "../cards/effects/card.js";
 import { matchCard } from "../cards/effects/effect-match.js";
@@ -18,15 +27,30 @@ export interface CubeSeedIndex {
   rankPartners(anchors: readonly Candidate[]): Map<number, RankedInsightCard>;
   warningsFor(anchors: readonly Candidate[]): string[];
 }
-interface Snapshot { revision: number; dataVersion: number; index: CubeSeedIndex }
-// Share startup preparation with route bundles that load another module instance.
-const snapshotKey = Symbol.for("yugidraft.cube-seed.snapshots.v1");
-const runtime = globalThis as typeof globalThis & { [snapshotKey]?: WeakMap<Database.Database, Snapshot> };
-const snapshots = runtime[snapshotKey] ??= new WeakMap();
-const stampOf = (db: Database.Database) => ({
-  revision: (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number } | undefined)?.revision ?? 0,
-  dataVersion: db.pragma("data_version", { simple: true }) as number,
-});
+interface TargetSet { indexes: Uint32Array; rules: Array<{ group: number; score: number }> }
+interface DirectionGroup { source: number; rules: Array<{ set: number; score: number }> }
+interface Stamp { effectRevision: number; catalogRevision: number; engineVersion: string }
+interface Snapshot extends Stamp { index: CubeSeedIndex; refreshAfter: number }
+// Share snapshots and single-flight preparation across Next server module graphs.
+const snapshotKey = Symbol.for("yugidraft.cube-seed.snapshots.v2");
+const runtime = globalThis as typeof globalThis & { [snapshotKey]?: {
+  snapshots: WeakMap<Database.Database, Snapshot>; pending: WeakMap<Database.Database, Promise<CubeSeedIndex>>;
+} };
+const { snapshots, pending } = runtime[snapshotKey] ??= { snapshots: new WeakMap(), pending: new WeakMap() };
+const stampOf = (db: Database.Database): Stamp => {
+  const directory = deckEngineDataDirectory(db.name);
+  const engineVersion = ["cards.cdb", "strings.conf", "card-remaps.json", "manifest.json"].map(file => {
+    const path = join(directory, file);
+    try { const stat = statSync(path); return `${path}:${stat.size}:${stat.mtimeMs}`; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; return path; }
+  }).join("|");
+  return {
+    effectRevision: (db.prepare("SELECT revision FROM card_effect_revision WHERE id=1").get() as { revision: number }).revision,
+    catalogRevision: (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision,
+    engineVersion,
+  };
+};
+const sameEffects = (a: Stamp, b: Stamp) => a.effectRevision === b.effectRevision && a.engineVersion === b.engineVersion;
 const profileKey = (archetype: string) => archetype.replace(/[A-Z]/g, letter => letter.toLowerCase());
 const particular = (filter: CardFilter) => filter.names.length || filter.archetypes.length || filter.types.length || filter.attributes.length || filter.subtypes.length || filter.level_min || filter.level_max;
 const reachable = (event: GameEvent, candidate: Candidate) => !event.from.length || event.from.some(zone => zone === "deck" ? !isExtraDeckCard(candidate.card) : zone === "extra_deck" ? isExtraDeckCard(candidate.card) : true);
@@ -78,27 +102,88 @@ function compactSeedTags(candidates: readonly Candidate[]): void {
   }
 }
 
-/** Web-only, caller-owned immutable snapshot. Duel suggestions retain the streaming catalog. */
-export function prepareCubeSeedIndex(db: Database.Database): CubeSeedIndex {
-  const stamp = stampOf(db), cached = snapshots.get(db);
-  // Persisted table triggers cover writes from every connection. data_version observes external
-  // commits, while the metadata revision keeps unrelated duel/cube writes from rebuilding this index.
-  if (cached?.revision === stamp.revision) { cached.dataVersion = stamp.dataVersion; return cached.index; }
-  const started = performance.now();
+/** Serializable preparation runs outside the web event loop for disk databases. */
+export function buildCubeSeedData(db: Database.Database) {
+  const stamp = stampOf(db), started = performance.now();
   const catalog = createInsightCatalog(db);
   let candidates: Candidate[];
   const canonicalCodes = new Map<number, number>();
   try {
     candidates = [...catalog.candidates()];
-    // Resolve alternates now so a preview does not reopen the engine or issue per-card SQL.
     for (const { ygoprodeck_id } of db.prepare<[], { ygoprodeck_id: number }>("SELECT ygoprodeck_id FROM card_catalog").iterate()) canonicalCodes.set(ygoprodeck_id, catalog.canonical(ygoprodeck_id));
     for (const { artwork_id, card_id } of db.prepare<[], { artwork_id: number; card_id: number }>("SELECT artwork_id,card_id FROM card_artworks").iterate()) canonicalCodes.set(artwork_id, catalog.canonical(card_id));
     for (const code of catalog.identityPasscodes()) canonicalCodes.set(code, catalog.canonical(code));
   } finally { catalog.close(); }
   const state = buildCubeSeedState(db, candidates);
-  const index = createSeedIndex(candidates, canonicalCodes, state, performance.now() - started);
-  snapshots.set(db, { ...stamp, index });
+  return { stamp, candidates, canonicalCodes, state, preparationMs: performance.now() - started };
+}
+function install(db: Database.Database, data: ReturnType<typeof buildCubeSeedData>) {
+  const index = createSeedIndex(data.candidates, data.canonicalCodes, data.state, data.preparationMs);
+  snapshots.set(db, { ...data.stamp, index, refreshAfter: 0 });
   return index;
+}
+
+/** Synchronous API for in-memory callers. Web preview routes await initialization. */
+export function prepareCubeSeedIndex(db: Database.Database): CubeSeedIndex {
+  const stamp = stampOf(db), cached = snapshots.get(db);
+  if (cached && sameEffects(cached, stamp) && cached.catalogRevision === stamp.catalogRevision) return cached.index;
+  return install(db, db.transaction(() => buildCubeSeedData(db)).deferred());
+}
+
+const PREPARE_PROCESS = `
+(async () => {
+  const [{default: Database}, {buildCubeSeedData}] = await Promise.all([import(process.argv[3]), import(process.argv[1])]);
+  const db = new Database(process.argv[2], {readonly: true, fileMustExist: true});
+  let data;
+  try { data = db.transaction(() => buildCubeSeedData(db)).deferred(); } finally { db.close(); }
+  require('node:fs').writeFileSync(3, require('node:v8').serialize(data));
+})().catch(error => { console.error(error); process.exitCode = 1; });
+`;
+
+/** One disposable preparation process per database. Catalog refresh keeps serving old data. */
+export function initializeCubeSeedIndex(db: Database.Database): Promise<CubeSeedIndex> {
+  const running = pending.get(db);
+  if (running) return running;
+  const stamp = stampOf(db), cached = snapshots.get(db);
+  if (cached && sameEffects(cached, stamp) && cached.catalogRevision === stamp.catalogRevision) return Promise.resolve(cached.index);
+  if (!db.name || db.name === ":memory:" || db.inTransaction) return Promise.resolve(prepareCubeSeedIndex(db));
+  const prepare = async () => {
+    const directory = mkdtempSync(join(tmpdir(), "cube-seed-")), path = join(directory, "snapshot");
+    const fd = openSync(path, "w", 0o600);
+    try {
+      // Resolve the unbundled shared entry in development and standalone Next output alike.
+      const require = createRequire(join(process.cwd(), "package.json"));
+      const module = pathToFileURL(require.resolve("@yugidraft/shared/services/cube-seed-index")).href;
+      const sqlite = pathToFileURL(require.resolve("better-sqlite3")).href;
+      await new Promise<void>((complete, reject) => {
+        let stderr = "";
+        const child = spawn(process.execPath, ["--max-old-space-size=256", "--input-type=commonjs", "-e", PREPARE_PROCESS, module, resolve(db.name), sqlite], {
+          stdio: ["ignore", "ignore", "pipe", fd], env: { ...process.env, NODE_OPTIONS: "" },
+        });
+        child.stderr!.setEncoding("utf8");
+        child.stderr!.on("data", value => { if (stderr.length < 16384) stderr += value; });
+        child.once("error", reject);
+        child.once("close", code => code === 0 ? complete() : reject(new Error(`Cube seed preparation failed (${code}): ${stderr}`)));
+      });
+      const data = deserialize(readFileSync(path)) as ReturnType<typeof buildCubeSeedData>;
+      // V8 can back typed views with the entire serialized file. Copy the compact
+      // numeric lists so the large input buffer can be collected after installation.
+      for (const targets of data.state.targetSets) targets.indexes = Uint32Array.from(targets.indexes);
+      data.state.targetMemberships = data.state.targetMemberships.map(values => Uint32Array.from(values));
+      // An effect publication during preparation must never install obsolete tags or releases.
+      if (!sameEffects(data.stamp, stampOf(db))) return prepare();
+      return install(db, data);
+    } finally { closeSync(fd); rmSync(directory, { recursive: true, force: true }); }
+  };
+  const result = prepare().finally(() => { pending.delete(db); });
+  pending.set(db, result);
+  return result;
+}
+
+/** Await only cold/effect-data preparation; display metadata refresh is asynchronous. */
+export function ensureCubeSeedIndex(db: Database.Database): Promise<CubeSeedIndex> {
+  const cached = snapshots.get(db);
+  return cached && sameEffects(cached, stampOf(db)) ? Promise.resolve(getCubeSeedIndex(db)) : initializeCubeSeedIndex(db);
 }
 
 /** Construction helpers deliberately live outside the retained snapshot's lexical scope. */
@@ -144,7 +229,7 @@ function buildCubeSeedState(db: Database.Database, candidates: Candidate[]) {
     catch { corrupt.add(key); }
   }
   for (const row of db.prepare<[], { name: string }>("SELECT name FROM archetypes").iterate()) names.add(row.name);
-  const matcher = buildArchetypeMatcher(names);
+
 
   // Filters are resolved once against metadata indexes. Repeated generic filters share one list.
   const all = candidates.map((_, index) => index);
@@ -184,8 +269,6 @@ function buildCubeSeedState(db: Database.Database, candidates: Candidate[]) {
   };
   // Many thousands of cards repeat the same Type/Attribute/material restriction. Keep
   // one target set per distinct result, then index those sets instead of catalog pairs.
-  interface TargetSet { indexes: Uint32Array; rules: Array<{ group: number; score: number }> }
-  interface DirectionGroup { source: number; rules: Array<{ set: number; score: number }> }
   const targetSets: TargetSet[] = [], groups: DirectionGroup[] = [];
   const sourceGroups: number[][] = candidates.map(() => []);
   const targetBuckets = new Map<string, number[]>();
@@ -297,11 +380,12 @@ function buildCubeSeedState(db: Database.Database, candidates: Candidate[]) {
       return { reason: `${hook.label}: ${hook.why}`, targets: matches.filter(index => !belongsTo(candidates[index]!.card, archetype)) };
     }));
   }
-  return { members, roles, byId, byName, byArchetype, matcher, corrupt, groups, sourceGroups, targetSets, targetMemberships, sameNames, hookMatches };
+  return { members, roles, byId, byName, byArchetype, names, corrupt, groups, sourceGroups, targetSets, targetMemberships, sameNames, hookMatches };
 }
 
 function createSeedIndex(candidates: Candidate[], canonicalCodes: ReadonlyMap<number, number>, state: ReturnType<typeof buildCubeSeedState>, preparationMs: number): CubeSeedIndex {
-  const { members, roles, byId, byName, byArchetype, matcher, corrupt, groups, sourceGroups, targetSets, targetMemberships, sameNames, hookMatches } = state;
+  const { members, roles, byId, byName, byArchetype, names, corrupt, groups, sourceGroups, targetSets, targetMemberships, sameNames, hookMatches } = state;
+  const matcher = buildArchetypeMatcher(names);
   const index: CubeSeedIndex = {
     candidates, members, roles, preparationMs,
     canonical: code => canonicalCodes.get(code) ?? code,
@@ -374,5 +458,16 @@ function createSeedIndex(candidates: Candidate[], canonicalCodes: ReadonlyMap<nu
   return index;
 }
 
-/** Refreshes after catalog/tag/profile/release/artwork writes, including other DB connections. */
-export function getCubeSeedIndex(db: Database.Database): CubeSeedIndex { return prepareCubeSeedIndex(db); }
+/** Effect updates invalidate immediately. Display catalog writes refresh at most once a minute. */
+export function getCubeSeedIndex(db: Database.Database): CubeSeedIndex {
+  const stamp = stampOf(db), cached = snapshots.get(db);
+  if (!cached || !sameEffects(cached, stamp)) return prepareCubeSeedIndex(db);
+  if (cached.catalogRevision !== stamp.catalogRevision && Date.now() >= cached.refreshAfter && !pending.has(db)) {
+    cached.refreshAfter = Date.now() + 60_000;
+    void initializeCubeSeedIndex(db).then(() => {
+      const refreshed = snapshots.get(db);
+      if (refreshed) refreshed.refreshAfter = Date.now() + 60_000;
+    }).catch(error => { report(error, { tags: { operation: "cube-seed-refresh" } }); });
+  }
+  return cached.index;
+}

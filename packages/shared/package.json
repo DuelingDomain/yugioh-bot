@@ -108,6 +108,10 @@
       "types": "./dist/cards/effects/name-match.d.ts",
       "source": "./src/cards/effects/name-match.ts",
       "default": "./dist/cards/effects/name-match.js"
+    },
+    "./services/cube-seed-index": {
+      "types": "./dist/services/cube-seed-index.d.ts",
+      "default": "./dist/services/cube-seed-index.js"
     }
   },
   "scripts": {

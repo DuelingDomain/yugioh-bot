@@ -138,7 +138,7 @@ initializeCardEffectIndex(db: Database.Database, cards: CardDatabase): Promise<C
 cardEffectIndex(cards: CardDatabase): CardEffectIndex | undefined;
 queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[],
   genesysPoints?: ReadonlyMap<number, number | null>,
-  options?: { effects?: CardEffectIndex; effectSearchEnabled?: boolean }): CardQueryResult;
+  options?: { effects?: CardEffectIndex; releases?: ReadonlyMap<number, ReleaseDates>; effectSearchEnabled?: boolean }): CardQueryResult;
 ```
 
 `CardEffectIndex` has `size`, `release(code)`, `readQuery(text, omitted?)`,
@@ -191,6 +191,41 @@ error: "effect_search_disabled"}`. Missing community: 503; unauthenticated: 401;
 malformed fields: 400; body over 64 KiB: 413. Text max 512 characters, suggestion
 deck max 100 entries, health/picked pools max 500, search pool max 5,000.
 Detailed shapes and bounds also appear in `effect-search-insights.md`.
+
+## Seed preparation and cube era
+
+`prepareCubeSeedIndex(db)` is the synchronous fixture API.
+`initializeCubeSeedIndex(db)` returns one shared preparation promise per database.
+`ensureCubeSeedIndex(db)` waits for cold or effect-data preparation. Both web
+preview routes call it after access checks and the request guard. Web
+`register()` does not prepare a seed snapshot.
+
+The snapshot effect key uses `card_effect_revision`. Only tags, profiles,
+releases and archetypes advance that revision. The engine key tracks
+`cards.cdb`, `strings.conf`, `card-remaps.json` and `manifest.json`. Catalog,
+artwork and set writes keep the current snapshot available. They start one
+background refresh at a time, at most once a minute. A disposable process
+builds disk snapshots. The web process loads the completed data. Preparation
+for in-memory fixtures remains synchronous. Current artwork identities and
+cube exclusions apply before the next preview, including during refresh.
+
+`GET /api/cubes/[id]/era` uses the same community and owner checks as cube
+previews. It returns `{effectSearchEnabled, attribution, era?, newerCount}`
+with private/no-store caching. It reads the full saved cube and release dates,
+with verified remaps and engine artwork identity. It does not parse tags or
+run health analysis. The public insights route still rejects private cube IDs.
+
+Describe keeps one rounded era while that mode is open. Reopening the mode
+uses the latest cube era. A reserved note area keeps the results in place.
+A cube edit does not cause an automatic description search.
+
+When effect search is off, date sorting and filtering use a release-date map.
+They do not build or retain effect facets. The returned cards keep their
+release metadata.
+
+The ATK reader accepts 3–5 digit values. “Or less/lower” sets a maximum;
+“or more/higher” sets a minimum. A short attack count such as “attack 2 times”
+does not become an ATK stat filter.
 
 ## Flag and attribution
 

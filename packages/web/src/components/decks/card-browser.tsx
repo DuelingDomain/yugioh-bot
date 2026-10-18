@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
-import { AlertTriangle, ArrowDownWideNarrow, ArrowUpNarrowWide, LayoutGrid, Link2, List, Plus, RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
+import { AlertTriangle, ArrowDownWideNarrow, ArrowUpNarrowWide, Minus, LayoutGrid, Link2, List, Plus, RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { cardLimit, type CardArchetype, type CardQuery, type CardQueryResult, type DeckCardInfo, type DuelMode } from "@yugidraft/shared/duels";
 import { EFFECT_SEARCH_ATTRIBUTION, mayReadEffect } from "@yugidraft/shared/cards/effects/capability";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
@@ -416,7 +416,7 @@ export function CardBrowser({
               title={query.sort === "newest" ? "Newest first" : query.order === "asc" ? "Ascending" : "Descending"}
               onClick={() => onQueryChange({ ...query, order: query.order === "asc" ? "desc" : "asc" })}
             >
-              {query.order === "asc"
+              {query.sort === "newest" ? <Minus size={16} strokeWidth={1.6} aria-hidden /> : query.order === "asc"
                 ? <ArrowUpNarrowWide size={16} strokeWidth={1.6} aria-hidden />
                 : <ArrowDownWideNarrow size={16} strokeWidth={1.6} aria-hidden />}
             </button>

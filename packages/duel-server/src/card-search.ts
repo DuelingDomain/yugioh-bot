@@ -304,12 +304,12 @@ function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null, r
 }
 
 /** Runs a validated deck-editor query over the engine catalog. */
-export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; effectSearchEnabled?: boolean } = {}): CardQueryResult {
+export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; releases?: ReadonlyMap<number, ReleaseDates>; effectSearchEnabled?: boolean } = {}): CardQueryResult {
   const index = indexFor(cards);
   const blocked = blocksFor(cards, entries);
   const enabled = options.effectSearchEnabled ?? effectSearchEnabled();
   const releaseIndex = options.effects ?? cardEffectIndex(cards);
-  const releaseFor = (entry: Entry): ReleaseDates => releaseIndex?.release(entry.card.canonicalPasscode ?? entry.card.code) ?? {};
+  const releaseFor = (entry: Entry): ReleaseDates => options.releases?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? releaseIndex?.release(entry.card.canonicalPasscode ?? entry.card.code) ?? {};
   const effects = enabled ? releaseIndex : undefined;
   let reading = effects && !query.exact && query.scope !== "name" ? effects.readQuery(query.text, query.effectOmit) : null;
   const checks = compile(reading ? { ...query, scope: "name" } : query, index, genesysPoints, releaseFor);
@@ -354,7 +354,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     if (sorted.length) { reading = null; effectFound.length = 0; }
   }
   const decorate = (entry: Entry) => ({ ...entry.card,
-    ...(releaseIndex ? { release: cardReleaseInfo(releaseFor(entry), query.released?.region ?? reading?.query.released?.region) } : {}),
+    ...(releaseIndex || options.releases ? { release: cardReleaseInfo(releaseFor(entry), query.released?.region ?? reading?.query.released?.region) } : {}),
     genesysPoints: genesysPoints?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? null,
     ...(blocked.has(entry.card.code) ? { unavailableReason: blocked.get(entry.card.code)!.reason } : {}),
     altArtCount: cardArtworkFamily(cards, entry.card.code)!.artworks.length - 1 });

@@ -126,12 +126,12 @@ export function CubeEditor({ cubeId, themeDraftsEnabled = false, effectSearchEna
     const controller = new AbortController();
     const timer = setTimeout(() => {
       // The era is only a hint for the ranking: when the call fails, the cube has no era and nothing else changes.
-      fetchCubeEra(eraCards, controller.signal).then(setCubeEra, () => { if (!controller.signal.aborted) setCubeEra(null); });
+      fetchCubeEra(cubeId, controller.signal).then(setCubeEra, () => { if (!controller.signal.aborted) setCubeEra(null); });
     }, 600);
     return () => { clearTimeout(timer); controller.abort(); };
     // eraCards is read through its key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectSearchEnabled, eraKey]);
+  }, [effectSearchEnabled, eraKey, cubeId]);
   const [addSheetOpen, setAddSheetOpen] = React.useState(false);
   const [railHidden, setRailHidden] = React.useState(false);
   const layoutRef = React.useRef<HTMLDivElement>(null);

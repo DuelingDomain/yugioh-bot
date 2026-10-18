@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
@@ -16,6 +16,10 @@ import { seedIdentity } from "./helpers/identity.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
 
 const effectCases: [string,string[],string[]][] = [
+  ["1500 atk or less", ["Effect Veiler", "Ash Blossom & Joyous Spring"], ["Blue-Eyes White Dragon"]],
+  ["atk 1500 or lower", ["Effect Veiler"], ["Blue-Eyes White Dragon"]],
+  ["2500 attack or more", ["Dark Magician", "Blue-Eyes White Dragon"], ["Effect Veiler"]],
+  ["attack 2500 or higher", ["Dark Magician"], ["Effect Veiler"]],
   ["hand traps before 2015", ["Effect Veiler", "D.D. Crow"], ["Ash Blossom & Joyous Spring", "Infinite Impermanence"]],
   ["GX era warriors", ["Elemental HERO Stratos"], ["Effect Veiler", "Blue-Eyes White Dragon", "Junk Synchron"]],
   ["2000 atk", ["Gene-Warped Warwolf"], ["Effect Veiler", "Blue-Eyes White Dragon"]],
@@ -485,7 +489,7 @@ beforeAll(() => {
 },20_000);
 
 afterAll(async()=>{
-  const report={queries:evaluatedQueries,expectedQueries:64,complete:evaluatedQueries===64,labeledTP,labeledFP,labeledFN,labeledTN,
+  const report={queries:evaluatedQueries,expectedQueries:69,complete:evaluatedQueries===69,labeledTP,labeledFP,labeledFN,labeledTN,
     labeledPrecision:labeledTP+labeledFP ? labeledTP/(labeledTP+labeledFP) : null,
     labeledRecall:labeledTP+labeledFN ? labeledTP/(labeledTP+labeledFN) : null};
   const output=resolve(import.meta.dirname,'../../../.status/effect-search');mkdirSync(output,{recursive:true});
@@ -494,7 +498,7 @@ afterAll(async()=>{
   if(host)await host.close();db.close();cards.close();vi.unstubAllEnvs();
 });
 
-describe('64-query real-artifact effect/name/synergy/format evaluation',()=>{
+describe('69-query real-artifact effect/name/synergy/format evaluation',()=>{
   it('installs a file-backed startup index with identical readings, dates and all-card effect scores', async () => {
     const directory = mkdtempSync(resolve(tmpdir(), 'effect-facet-process-'));
     const path = resolve(directory, 'shared.sqlite');
@@ -582,4 +586,42 @@ it('signed host card-query keeps name hits separate, supports pool/chip/exact/fl
   expect((await post('eval',{released:{from:'2015-13'}})).status).toBe(400);
   expect((await post('',{text:'Ash Blossom'})).status).toBe(400);
   vi.stubEnv('EFFECT_SEARCH','0');const off=await (await post('eval',{text:'hand traps that negate'})).json();expect(off.effectSearchEnabled).toBe(false);expect(off.effectHits).toBeUndefined();
+});
+
+it('keeps multi-attack text out of ATK stat filters', () => {
+  evaluatedQueries++;
+  const reading = cardEffectIndex(cards)!.readQuery('attack 2 times');
+  expect(reading?.query.card.atkMin).toBeUndefined();
+  expect(reading?.query.card.atkMax).toBeUndefined();
+});
+
+it('sorts and filters dates with effect search off without installing effect facets', async () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'effect-off-dates-'));
+  for (const file of ['cards.cdb', 'strings.conf', 'manifest.json', 'card-remaps.json']) {
+    const source = resolve(engineDataDirectory, file);
+    if (existsSync(source)) cpSync(source, resolve(directory, file));
+  }
+  mkdirSync(resolve(directory, 'card-scripts'));
+  const isolatedCards = loadCardDatabase(directory);
+  const isolatedHost = createDuelHost({ db, dataDirectory: directory, secret: 'off-secret', searchCards: () => [], pollIntervalMs: 60000 });
+  vi.stubEnv('EFFECT_SEARCH', '0');
+  try {
+    expect(cardEffectIndex(isolatedCards)).toBeUndefined();
+    const post = async (cardQuery: object) => {
+      const body = JSON.stringify({ op: 'card-query', guildId: 'eval', playerId, cardQuery });
+      const response = await isolatedHost.handle(new Request('http://local/internal/duel', { method: 'POST', body,
+        headers: await signedHeaders(body, 'off-secret', 'http://local/internal/duel', 'duel-host') }));
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const passcodes = ['Monster Reborn', 'Twin Twisters', 'Raigeki'].map(code);
+    const sorted = await post({ text: '', passcodes, sort: 'newest' });
+    expect(sorted.effectSearchEnabled).toBe(false);
+    expect(sorted.cards[0].name).toBe('Twin Twisters');
+    expect(sorted.cards[0].release.date).toBeTruthy();
+    const filtered = await post({ text: '', passcodes, released: { to: '2005-12' } });
+    expect(filtered.cards).toHaveLength(2);
+    expect(filtered.cards.map((card: { name: string }) => card.name)).not.toContain('Twin Twisters');
+    expect(cardEffectIndex(isolatedCards)).toBeUndefined();
+  } finally { await isolatedHost.close(); isolatedCards.close(); rmSync(directory, { recursive: true, force: true }); }
 });

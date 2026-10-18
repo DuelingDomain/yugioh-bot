@@ -196,21 +196,13 @@ export interface CubeEra {
   newerNote: string | undefined;
 }
 
-const POOL_HEALTH_MAX = 500;
-
-/** The era of a set of cards, read with the pool health call. Nothing is added to the cube by it. */
-export async function fetchCubeEra(cards: readonly number[], signal?: AbortSignal): Promise<CubeEra> {
-  if (cards.length === 0) return { era: undefined, newerNote: undefined };
-  // The call takes at most 500 cards. A bigger cube sends an even spread of its cards, which has the same median year.
-  const sorted = [...new Set(cards)].sort((a, b) => a - b);
-  const sample = sorted.length <= POOL_HEALTH_MAX ? sorted : Array.from({ length: POOL_HEALTH_MAX }, (_, i) => sorted[Math.floor((i * sorted.length) / POOL_HEALTH_MAX)]!);
-  const data = await post<{ health?: { era?: CardEra; warnings?: string[] } }>(
-    "/api/cards/insights",
-    { op: "poolHealth", cards: sample },
-    "The cube era is not available.",
-    signal,
-  );
-  const era = data.health?.era;
+/** Read the complete saved cube through its owner-checked, era-only endpoint. */
+export async function fetchCubeEra(cubeId: number, signal?: AbortSignal): Promise<CubeEra> {
+  const response = await fetch(`/api/cubes/${cubeId}/era`, { signal, cache: "no-store" });
+  if (!response.ok) throw new EffectApiError("The cube era is not available.", response.status);
+  const data = await response.json() as { era?: CardEra; newerCount?: number };
+  const era = data.era;
   const valid = era && Number.isFinite(era.medianYear) && Number.isFinite(era.spread) ? era : undefined;
-  return { era: valid, newerNote: data.health?.warnings?.find((warning) => /much newer/.test(warning)) };
+  const count = data.newerCount ?? 0;
+  return { era: valid, newerNote: count > 0 ? `${count} ${count === 1 ? "card is" : "cards are"} much newer than the rest of this cube.` : undefined };
 }
